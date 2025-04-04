@@ -253,23 +253,40 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 	freshToken := nip60.MakeTokenString(freshProofs, tokenMint)
 	log.Printf("Successfully swapped for fresh proofs, new token: %s", freshToken)
 
-	// Define a persistent storage directory
+	// Define a persistent storage directory with debug output
 	storageDir := "/etc/tollgate/ecash"
+	log.Printf("DEBUG: Using storage directory: %s", storageDir)
+	
+	// Log the current working directory
+	cwd, _ := os.Getwd()
+	log.Printf("DEBUG: Current working directory: %s", cwd)
 
 	// Create the storage directory if it doesn't exist
-	if err := os.MkdirAll(storageDir, 0755); err != nil {
-		log.Printf("Failed to create storage directory %s: %v", storageDir, err)
+	if err := os.MkdirAll(storageDir, 0777); err != { // Note: Changed to 0777 for maximum permissions
+		log.Printf("ERROR: Failed to create storage directory %s: %v", storageDir, err)
 		return err
 	}
+	log.Printf("DEBUG: Storage directory created/verified")
 
 	// Use an absolute path for the token file
 	tokenPath := fmt.Sprintf("%s/%s", storageDir, address)
+	log.Printf("DEBUG: Will write token to: %s", tokenPath)
 
-	// Write token to a file with the name of the address
-	file, err := os.OpenFile(tokenPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Write token to a file with more verbose error handling
+	file, err := os.OpenFile(tokenPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
-		log.Printf("Failed to open file %s: %v", tokenPath, err)
-		return err
+		log.Printf("ERROR: Failed to open file %s: %v", tokenPath, err)
+		// Try alternative location as fallback
+		fallbackPath := fmt.Sprintf("/tmp/%s", address)
+		log.Printf("DEBUG: Trying fallback location: %s", fallbackPath)
+		file, err = os.OpenFile(fallbackPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+		if err != nil {
+			log.Printf("ERROR: Also failed to use fallback location: %v", err)
+			return err
+		}
+		log.Printf("DEBUG: Successfully opened fallback file")
+	} else {
+		log.Printf("DEBUG: Successfully opened file at primary location")
 	}
 	defer file.Close()
 
