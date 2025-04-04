@@ -237,9 +237,15 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 
 func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context) error {
 	log.Printf("Paying out %d sats to %s", amount, address)
-
+	
+	// Skip processing if amount is zero
+	if amount <= 0 {
+		log.Printf("Skipping payout of zero amount to %s", address)
+		return nil
+	}
+	
 	extimatedFee := uint64(1)
-
+	
 	// Then swap for fresh proofs - use SendExternal to send to ourselves
 	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-extimatedFee)
 	if swapErr != nil {

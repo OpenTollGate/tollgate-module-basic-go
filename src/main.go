@@ -20,13 +20,17 @@ import (
 // In production, this should be kept secure and not hardcoded
 var tollgatePrivateKey string = "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663"
 var acceptedMint = "https://mint.minibits.cash/Bitcoin"
-var pricePerMinute int = 5
+var pricePerMinute int = 1
 
 var tollgateDetailsEvent nostr.Event
 var tollgateDetailsString string
 
 // Initialize the nostr pool for Cashu operations
 var relayPool *nostr.SimplePool
+
+// Add near the top of the file with other global variables
+var smallPaymentThreshold = 3 // Payments below this amount won't be split
+var alternateSmallPayments = true // Toggle for alternating recipients feature
 
 func init() {
 	// Create the nostr event
@@ -57,6 +61,19 @@ func init() {
 
 	// Initialize relay pool for NIP-60 operations
 	relayPool = nostr.NewSimplePool(context.Background())
+
+	// Initialize the alternating payout state if needed
+	storageDir := "/etc/tollgate/ecash"
+	stateFile := fmt.Sprintf("%s/last_recipient", storageDir)
+	
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(storageDir, 0777); err == nil {
+		// If file doesn't exist, create it with initial value
+		if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+			log.Println("Initializing alternating payout state file")
+			os.WriteFile(stateFile, []byte(payoutPubkey), 0666)
+		}
+	}
 }
 
 func getMacAddress(ipAddress string) (string, error) {
