@@ -253,17 +253,29 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 	freshToken := nip60.MakeTokenString(freshProofs, tokenMint)
 	log.Printf("Successfully swapped for fresh proofs, new token: %s", freshToken)
 
+	// Define a persistent storage directory
+	storageDir := "/etc/tollgate/ecash"
+
+	// Create the storage directory if it doesn't exist
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		log.Printf("Failed to create storage directory %s: %v", storageDir, err)
+		return err
+	}
+
+	// Use an absolute path for the token file
+	tokenPath := fmt.Sprintf("%s/%s", storageDir, address)
+
 	// Write token to a file with the name of the address
-	file, err := os.OpenFile(address, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(tokenPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Printf("Failed to open file %s: %v", address, err)
+		log.Printf("Failed to open file %s: %v", tokenPath, err)
 		return err
 	}
 	defer file.Close()
 
 	// Write only the token to the file
 	if _, err := file.WriteString(freshToken + "\n"); err != nil {
-		log.Printf("Failed to write to file %s: %v", address, err)
+		log.Printf("Failed to write to file %s: %v", tokenPath, err)
 		return err
 	}
 

@@ -94,7 +94,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/tollgate/nodogsplash/htdocs
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/*.json $(1)/etc/tollgate/nodogsplash/htdocs/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/*.html $(1)/etc/tollgate/nodogsplash/htdocs/
-	
+
+	# UCI defaults for Cashu token storage
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-cashu-storage $(1)/etc/uci-defaults/
+
 	# NoDogSplash static files (CSS, JS, media)
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/css
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/js
