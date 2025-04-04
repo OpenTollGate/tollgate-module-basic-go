@@ -250,7 +250,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	balance := wallet.Balance()
 
 	// Check if we should use alternating logic for small payments
-	if alternateSmallPayments && balance <= smallPaymentThreshold {
+	if alternateSmallPayments && balance <= uint64(smallPaymentThreshold) {
 		log.Printf("Small payment of %d sats, using alternating recipient", balance)
 		recipient := getNextSmallPaymentRecipient("/etc/tollgate/ecash")
 		
