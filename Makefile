@@ -95,9 +95,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/*.json $(1)/etc/tollgate/nodogsplash/htdocs/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/*.html $(1)/etc/tollgate/nodogsplash/htdocs/
 
-	# UCI defaults for Cashu token storage
-	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-cashu-storage $(1)/etc/uci-defaults/
+	# Create required directories
+	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 
 	# NoDogSplash static files (CSS, JS, media)
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/css
@@ -107,9 +107,6 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/static/js/* $(1)/etc/nodogsplash/htdocs/static/js/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/static/media/* $(1)/etc/nodogsplash/htdocs/static/media/
 	
-	# Create required directories
-	$(INSTALL_DIR) $(1)/etc/tollgate
-
 	# Install external postinst script
 	#$(INSTALL_DIR) $(1)/CONTROL
 	#$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/postinst $(1)/CONTROL/postinst	
