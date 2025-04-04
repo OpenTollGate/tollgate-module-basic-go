@@ -262,9 +262,9 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 	log.Printf("DEBUG: Current working directory: %s", cwd)
 
 	// Create the storage directory if it doesn't exist
-	if err := os.MkdirAll(storageDir, 0777); err != { // Note: Changed to 0777 for maximum permissions
-		log.Printf("ERROR: Failed to create storage directory %s: %v", storageDir, err)
-		return err
+	if err := os.MkdirAll(storageDir, 0777); err != nil { // Fixed comparison with nil
+	    log.Printf("ERROR: Failed to create storage directory %s: %v", storageDir, err)
+	    return err
 	}
 	log.Printf("DEBUG: Storage directory created/verified")
 
