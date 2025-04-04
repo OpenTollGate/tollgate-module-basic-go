@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -262,6 +263,41 @@ func main() {
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit /whoami endpoint from %s", r.RemoteAddr)
 		corsMiddleware(handler)(w, r)
+	})
+
+	http.HandleFunc("/debug", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("DEBUG: Hit /debug endpoint from %s", r.RemoteAddr)
+		
+		// Test file writing
+		storageDir := "/etc/tollgate/ecash"
+		testFile := fmt.Sprintf("%s/debug-test-%d.txt", storageDir, time.Now().Unix())
+		
+		// Create directory
+		if err := os.MkdirAll(storageDir, 0777); err != nil {
+			msg := fmt.Sprintf("ERROR: Failed to create directory: %v", err)
+			log.Print(msg)
+			fmt.Fprintf(w, msg)
+			return
+		}
+		
+		// Try to write file
+		if err := os.WriteFile(testFile, []byte("Debug test at "+time.Now().String()), 0666); err != nil {
+			msg := fmt.Sprintf("ERROR: Failed to write file: %v", err)
+			log.Print(msg)
+			fmt.Fprintf(w, msg)
+			return
+		}
+		
+		// Check if file exists
+		if _, err := os.Stat(testFile); err != nil {
+			msg := fmt.Sprintf("ERROR: File check failed: %v", err)
+			log.Print(msg)
+			fmt.Fprintf(w, msg)
+			return
+		}
+		
+		cwd, _ := os.Getwd()
+		fmt.Fprintf(w, "Debug successful!\nCWD: %s\nFile created: %s", cwd, testFile)
 	})
 
 	log.Println("Starting HTTP server on all interfaces...")
