@@ -277,7 +277,7 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 	if err != nil {
 		log.Printf("ERROR: Failed to open file %s: %v", tokenPath, err)
 		// Try alternative location as fallback
-		fallbackPath := fmt.Sprintf("/etc/tollgate/ecash/%s", address)
+		fallbackPath := fmt.Sprintf("/%s", address)
 		log.Printf("DEBUG: Trying fallback location: %s", fallbackPath)
 		file, err = os.OpenFile(fallbackPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 		if err != nil {
