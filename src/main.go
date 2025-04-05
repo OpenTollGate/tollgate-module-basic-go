@@ -301,13 +301,28 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Successfully swapped token for fresh proofs")
 	}
 
-	var allottedMinutes = tokenValue / pricePerMinute
-
-	// Calculate durationSeconds based on token value (1 minute per sat)
-	durationSeconds := int64(allottedMinutes * 60) // convert to seconds
-	if durationSeconds < 60 {
-		durationSeconds = 60 // minimum 1 minute
+	// Calculate the actual value after deducting fees
+	// First mint fee for the payment and second fee for consolidation transaction
+	var valueAfterFees = tokenValue - 2*mintFee
+	if valueAfterFees < minPayment {
+		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, minPayment)
+		w.WriteHeader(http.StatusPaymentRequired)
+		return // Not enough value to open the gate
+		// This should have been caught by the token value check above
 	}
+
+	// Calculate minutes based on the net value
+	var allottedMinutes = int64(valueAfterFees / pricePerMinute)
+	if allottedMinutes < 1 {
+		allottedMinutes = 1 // Minimum 1 minute
+	}
+
+	// Convert to seconds for gate opening
+	durationSeconds := int64(allottedMinutes * 60)
+
+	// Log the calculation for transparency
+	log.Printf("Calculated minutes: %d (from value %d, minus fees %d)", 
+		allottedMinutes, tokenValue, 2*mintFee)
 
 	// Open gate for the specified duration using the valve module
 	err = modules.OpenGate(macAddress, durationSeconds)
@@ -319,7 +334,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Return a success status with token info
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Access granted for %d minutes", durationSeconds/60)
+	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)", 
+		allottedMinutes, valueAfterFees, 2*mintFee)
 }
 
 // handleRoot routes requests based on method
