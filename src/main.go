@@ -19,7 +19,8 @@ import (
 // Private key for signing the nostr event (in hex format)
 // In production, this should be kept secure and not hardcoded
 var tollgatePrivateKey string = "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663"
-var acceptedMint = "https://mint.minibits.cash/Bitcoin"
+// var acceptedMint = "https://mint.minibits.cash/Bitcoin"
+var acceptedMint = "https://testnut.cashu.space"
 var pricePerMinute int = 1
 
 var tollgateDetailsEvent nostr.Event
