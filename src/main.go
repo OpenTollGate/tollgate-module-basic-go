@@ -200,7 +200,15 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process and swap the token for fresh proofs
+	// Verify the token has sufficient value before redeeming it
+	if tokenValue < 3 {
+		log.Printf("Token value too low (%d sats). Minimum 3 sats required.", tokenValue)
+		w.WriteHeader(http.StatusPaymentRequired)
+		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum 3 sats required.", tokenValue)
+		return
+	}
+
+	// Process and swap the token for fresh proofs - only if value is sufficient
 	swapError := CollectPayment(paymentToken, tollgatePrivateKey, relayPool)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
