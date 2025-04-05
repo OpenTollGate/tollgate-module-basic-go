@@ -24,6 +24,7 @@ var acceptedMint = "https://testnut.cashu.space"
 var pricePerMinute int = 1
 var minPayment int = 1
 var mintFee int = 1
+// first mint fee for the payment and second fee for consolidation transaction
 var cutoffFee int = 2 * mintFee + minPayment
 
 var tollgateDetailsEvent nostr.Event
