@@ -253,12 +253,21 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 		return nil
 	}
 	
-	extimatedFee := uint64(1)
+	extimatedFee := uint64(mintFee)
 	
 	// Then swap for fresh proofs - use SendExternal to send to ourselves
 	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-extimatedFee)
 	if swapErr != nil {
 		log.Printf("Failed to swap proofs: %v", swapErr)
+		if len(freshProofs) == 0 {
+			log.Printf("WARNING: No proofs generated, possibly due to small amount (%d sats)", amount)
+			// Try again without fee
+			freshProofs, tokenMint, swapErr = wallet.Send(swapCtx, uint64(amount))
+			if swapErr != nil || len(freshProofs) == 0 {
+				log.Printf("Failed on retry: %v", swapErr)
+				return fmt.Errorf("failed to generate valid proofs for small amount: %v", swapErr)
+			}
+		}
 		return swapErr
 	}
 
