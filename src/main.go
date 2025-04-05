@@ -30,8 +30,8 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 // Add near the top of the file with other global variables
-var smallPaymentThreshold = 3 // Payments below this amount won't be split
-var alternateSmallPayments = true // Toggle for alternating recipients feature
+// var smallPaymentThreshold = 3 // Payments below this amount won't be split
+// var alternateSmallPayments = true // Toggle for alternating recipients feature
 
 func init() {
 	// Create the nostr event
@@ -62,19 +62,6 @@ func init() {
 
 	// Initialize relay pool for NIP-60 operations
 	relayPool = nostr.NewSimplePool(context.Background())
-
-	// Initialize the alternating payout state if needed
-	storageDir := "/etc/tollgate/ecash"
-	stateFile := fmt.Sprintf("%s/last_recipient", storageDir)
-	
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(storageDir, 0777); err == nil {
-		// If file doesn't exist, create it with initial value
-		if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-			log.Println("Initializing alternating payout state file")
-			os.WriteFile(stateFile, []byte(payoutPubkey), 0666)
-		}
-	}
 }
 
 func getMacAddress(ipAddress string) (string, error) {

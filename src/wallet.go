@@ -106,38 +106,6 @@ func decodeCashuToken(token string) (int, error) {
 	return int(amount), nil
 }
 
-// getNextSmallPaymentRecipient determines which recipient should receive a small payment
-// based on alternating between developer and operator
-func getNextSmallPaymentRecipient(storageDir string) string {
-	// State file to track last recipient
-	stateFile := fmt.Sprintf("%s/last_recipient", storageDir)
-	
-	// Create directory if needed
-	if err := os.MkdirAll(storageDir, 0777); err != nil {
-		log.Printf("Warning: couldn't create storage dir for state: %v", err)
-		// Default to operator if we can't read state
-		return payoutPubkey
-	}
-	
-	// Read last recipient
-	data, err := os.ReadFile(stateFile)
-	lastRecipient := string(data)
-	
-	var nextRecipient string
-	if err != nil || lastRecipient == payoutPubkey {
-		// If error or last was operator, next is developer
-		nextRecipient = developerSupportPubkey
-	} else {
-		// Otherwise next is operator
-		nextRecipient = payoutPubkey
-	}
-	
-	// Save the next recipient as last for next time
-	os.WriteFile(stateFile, []byte(nextRecipient), 0666)
-	
-	log.Printf("Small payment alternating recipient: %s", nextRecipient)
-	return nextRecipient
-}
 
 // CollectPayment processes a Cashu token and swaps it for fresh proofs
 // Returns the fresh proofs and token directly
@@ -249,14 +217,14 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 
 	balance := wallet.Balance()
 
-	// Check if we should use alternating logic for small payments
-	if alternateSmallPayments && balance <= uint64(smallPaymentThreshold) {
-		log.Printf("Small payment of %d sats, using alternating recipient", balance)
-		recipient := getNextSmallPaymentRecipient("/etc/tollgate/ecash")
+	// Check if payment is too small to be divided
+	if balance <= uint64(smallPaymentThreshold) {
+		log.Printf("Small payment of %d sats, sending directly to operator", balance)
 		
-		payoutErr := Payout(recipient, int(balance), wallet, swapCtx)
+		// Send entire amount to the operator
+		payoutErr := Payout(payoutPubkey, int(balance), wallet, swapCtx)
 		if payoutErr != nil {
-			log.Printf("Failed to payout to alternating recipient: %v", payoutErr)
+			log.Printf("Failed to payout to operator: %v", payoutErr)
 			return payoutErr
 		}
 	} else {
