@@ -22,6 +22,8 @@ var tollgatePrivateKey string = "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581
 // var acceptedMint = "https://mint.minibits.cash/Bitcoin"
 var acceptedMint = "https://testnut.cashu.space"
 var pricePerMinute int = 1
+var mintFee int = 2
+var cutoffFee int = mintFee + 1
 
 var tollgateDetailsEvent nostr.Event
 var tollgateDetailsString string
@@ -201,10 +203,10 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the token has sufficient value before redeeming it
-	if tokenValue < 2 {
-		log.Printf("Token value too low (%d sats). Minimum 2 sats required.", tokenValue)
+	if tokenValue < cutoffFee {
+		log.Printf("Token value too low (%d sats). Minimum %d sats required.", tokenValue, cutoffFee)
 		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum 2 sats required.", tokenValue)
+		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum %d sats required.", tokenValue, cutoffFee)
 		return
 	}
 
