@@ -30,8 +30,7 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 // Add near the top of the file with other global variables
-// var smallPaymentThreshold = 3 // Payments below this amount won't be split
-// var alternateSmallPayments = true // Toggle for alternating recipients feature
+var smallPaymentThreshold = 3 // Payments below this amount won't be split
 
 func init() {
 	// Create the nostr event
