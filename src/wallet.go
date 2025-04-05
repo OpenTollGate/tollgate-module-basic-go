@@ -19,7 +19,7 @@ import (
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
 var developerSupportPubkey = "9f4b342eaa7d3e4cc0a1078df9ceda9d4a667edfe3493237b54864b74ee9c9da"
-var CombinedPayout = "CombinedPayout"
+var CombinedPayout = "9f4b342eaa7d3e4cc0a1078df9ceda9d4a667edfe3493237b54864b74ee9c9da"
 
 func init() {
 	// Configure custom DNS resolver to bypass local DNS issues
