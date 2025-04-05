@@ -235,7 +235,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	// 	return payoutErr
 	// }
 
-	payoutErr := Payout(CombinedPayout, balance, wallet, swapCtx)
+	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx)
 	if payoutErr != nil {
 		log.Printf("Failed to payout profit payout: %v", payoutErr)
 		return payoutErr
