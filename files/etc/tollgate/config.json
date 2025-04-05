@@ -1,0 +1,7 @@
+{
+  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
+  "accepted_mint": "https://testnut.cashu.space",
+  "price_per_minute": 1,
+  "min_payment": 1,
+  "mint_fee": 1
+}

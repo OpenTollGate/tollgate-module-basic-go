@@ -16,16 +16,26 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-// Private key for signing the nostr event (in hex format)
-// In production, this should be kept secure and not hardcoded
-var tollgatePrivateKey string = "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663"
-// var acceptedMint = "https://mint.minibits.cash/Bitcoin"
-var acceptedMint = "https://testnut.cashu.space"
-var pricePerMinute int = 1
-var minPayment int = 1
-var mintFee int = 1
-// first mint fee for the payment and second fee for consolidation transaction
-var cutoffFee int = 2 * mintFee + minPayment
+// Config structure to hold all configuration parameters
+type Config struct {
+	TollgatePrivateKey string `json:"tollgate_private_key"`
+	AcceptedMint       string `json:"accepted_mint"`
+	PricePerMinute     int    `json:"price_per_minute"`
+	MinPayment         int    `json:"min_payment"`
+	MintFee            int    `json:"mint_fee"`
+	// You can add more parameters here as needed
+}
+
+// Global configuration variable
+var config Config
+
+// Derived configuration values
+var tollgatePrivateKey string
+var acceptedMint string
+var pricePerMinute int
+var minPayment int
+var mintFee int
+var cutoffFee int
 
 var tollgateDetailsEvent nostr.Event
 var tollgateDetailsString string
@@ -37,6 +47,11 @@ var relayPool *nostr.SimplePool
 // var smallPaymentThreshold = 3 // Payments below this amount won't be split
 
 func init() {
+	// Load configuration
+	if err := loadConfig(); err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
 	// Create the nostr event
 	tollgateDetailsEvent = nostr.Event{
 		Kind: 21021,
@@ -65,6 +80,69 @@ func init() {
 
 	// Initialize relay pool for NIP-60 operations
 	relayPool = nostr.NewSimplePool(context.Background())
+}
+
+// loadConfig reads configuration from /etc/tollgate/config.json
+func loadConfig() error {
+	// Set default values
+	config = Config{
+		TollgatePrivateKey: "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
+		AcceptedMint:       "https://testnut.cashu.space",
+		PricePerMinute:     1,
+		MinPayment:         1,
+		MintFee:            1,
+	}
+	
+	// Create the config directory if it doesn't exist
+	configDir := "/etc/tollgate"
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Printf("WARNING: Failed to create config directory: %v", err)
+		// Continue with default values
+	}
+	
+	configFile := configDir + "/config.json"
+	
+	// Check if the config file exists
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		// Create a default config file
+		log.Printf("Config file not found, creating default at: %s", configFile)
+		defaultConfig, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal default config: %v", err)
+		}
+		
+		if err := os.WriteFile(configFile, defaultConfig, 0644); err != nil {
+			log.Printf("WARNING: Failed to write default config file: %v", err)
+			// Continue with default values
+		}
+	} else {
+		// Read the existing config file
+		data, err := os.ReadFile(configFile)
+		if err != nil {
+			log.Printf("WARNING: Failed to read config file: %v", err)
+			// Continue with default values
+		} else {
+			// Parse the config file
+			if err := json.Unmarshal(data, &config); err != nil {
+				log.Printf("WARNING: Failed to parse config file: %v", err)
+				// Continue with default values
+			}
+		}
+	}
+	
+	// Update derived values
+	tollgatePrivateKey = config.TollgatePrivateKey
+	acceptedMint = config.AcceptedMint
+	pricePerMinute = config.PricePerMinute
+	minPayment = config.MinPayment
+	mintFee = config.MintFee
+	// first mint fee for the payment and second fee for consolidation transaction
+	cutoffFee = 2*mintFee + minPayment
+	
+	log.Printf("Configuration loaded: mint=%s, price=%d, fee=%d", 
+		acceptedMint, pricePerMinute, mintFee)
+	
+	return nil
 }
 
 func getMacAddress(ipAddress string) (string, error) {
@@ -314,6 +392,21 @@ func main() {
 		
 		cwd, _ := os.Getwd()
 		fmt.Fprintf(w, "Debug successful!\nCWD: %s\nFile created: %s", cwd, testFile)
+	})
+
+	http.HandleFunc("/debug/config", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("DEBUG: Hit /debug/config endpoint from %s", r.RemoteAddr)
+		
+		// Display current configuration
+		configJSON, _ := json.MarshalIndent(config, "", "  ")
+		fmt.Fprintf(w, "Current configuration:\n\n%s\n\n", configJSON)
+		
+		// Show derived values
+		fmt.Fprintf(w, "Derived values:\n")
+		fmt.Fprintf(w, "  cutoffFee: %d\n", cutoffFee)
+		
+		// Show config file path
+		fmt.Fprintf(w, "\nConfig file path: /etc/tollgate/config.json\n")
 	})
 
 	log.Println("Starting HTTP server on all interfaces...")

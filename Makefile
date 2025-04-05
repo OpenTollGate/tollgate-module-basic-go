@@ -85,7 +85,7 @@ define Package/$(PKG_NAME)/install
 	# Keep only TollGate-specific configs
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/config/firewall-tollgate $(1)/etc/config/
-	
+
 	# First-login setup
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
@@ -99,6 +99,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 
+	# Tollgate config.json for mint and price
+	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
+	
 	# NoDogSplash static files (CSS, JS, media)
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/css
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/js
