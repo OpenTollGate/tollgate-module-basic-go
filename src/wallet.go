@@ -19,6 +19,7 @@ import (
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
 var developerSupportPubkey = "9f4b342eaa7d3e4cc0a1078df9ceda9d4a667edfe3493237b54864b74ee9c9da"
+var CombinedPayout = "CombinedPayout"
 
 func init() {
 	// Configure custom DNS resolver to bypass local DNS issues
@@ -217,34 +218,28 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 
 	balance := wallet.Balance()
 
-	// Check if payment is too small to be divided
-	if balance <= uint64(smallPaymentThreshold) {
-		log.Printf("Small payment of %d sats, sending directly to operator", balance)
-		
-		// Send entire amount to the operator
-		payoutErr := Payout(payoutPubkey, int(balance), wallet, swapCtx)
-		if payoutErr != nil {
-			log.Printf("Failed to payout to operator: %v", payoutErr)
-			return payoutErr
-		}
-	} else {
-		// Normal split for larger amounts
-		developerSupport := int(math.Floor(float64(balance) * 0.30))
-		profitPayout := int(math.Ceil(float64(balance) - float64(developerSupport)))
-		
-		log.Printf("Developer support: %d, Profit payout: %d", developerSupport, profitPayout)
-		
-		payoutErr := Payout(developerSupportPubkey, developerSupport, wallet, swapCtx)
-		if payoutErr != nil {
-			log.Printf("Failed to payout developer support: %v", payoutErr)
-			return payoutErr
-		}
-		
-		payoutErr = Payout(payoutPubkey, profitPayout, wallet, swapCtx)
-		if payoutErr != nil {
-			log.Printf("Failed to payout profit payout: %v", payoutErr)
-			return payoutErr
-		}
+	// Normal split for larger amounts
+	// developerSupport := int(math.Floor(float64(balance) * 0.30))
+	// profitPayout := int(math.Ceil(float64(balance) - float64(developerSupport)))
+	
+	// log.Printf("Developer support: %d, Profit payout: %d", developerSupport, profitPayout)
+
+	// payoutErr := Payout(developerSupportPubkey, developerSupport, wallet, swapCtx)
+	// if payoutErr != nil {
+	// 	log.Printf("Failed to payout developer support: %v", payoutErr)
+	// 	return payoutErr
+	// }
+	
+	// payoutErr = Payout(payoutPubkey, profitPayout, wallet, swapCtx)
+	// if payoutErr != nil {
+	// 	log.Printf("Failed to payout profit payout: %v", payoutErr)
+	// 	return payoutErr
+	// }
+
+	payoutErr = Payout(CombinedPayout, profitPayout, wallet, swapCtx)
+	if payoutErr != nil {
+		log.Printf("Failed to payout profit payout: %v", payoutErr)
+		return payoutErr
 	}
 
 	return nil
