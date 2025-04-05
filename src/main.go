@@ -201,10 +201,10 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the token has sufficient value before redeeming it
-	if tokenValue < 3 {
-		log.Printf("Token value too low (%d sats). Minimum 3 sats required.", tokenValue)
+	if tokenValue < 2 {
+		log.Printf("Token value too low (%d sats). Minimum 2 sats required.", tokenValue)
 		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum 3 sats required.", tokenValue)
+		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum 2 sats required.", tokenValue)
 		return
 	}
 
