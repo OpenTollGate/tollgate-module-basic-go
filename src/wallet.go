@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -236,7 +235,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	// 	return payoutErr
 	// }
 
-	payoutErr = Payout(CombinedPayout, profitPayout, wallet, swapCtx)
+	payoutErr := Payout(CombinedPayout, profitPayout, wallet, swapCtx)
 	if payoutErr != nil {
 		log.Printf("Failed to payout profit payout: %v", payoutErr)
 		return payoutErr
