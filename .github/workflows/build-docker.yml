@@ -143,7 +143,7 @@ jobs:
             echo "❌ ERROR: Failed to extract hash from URL"
             exit 1
           fi
-
+          
           # Verify hash is a valid hex string (64 characters for SHA-256)
           if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
             echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
@@ -151,20 +151,6 @@ jobs:
           fi
           
           echo "✅ Successfully extracted hash: $HASH"
-
-      - name: Debug Blossom Upload
-        run: |
-          echo "Blossom upload URL: ${{ steps.blossom_upload.outputs.url }}"
-          echo "Blossom upload hash: ${{ steps.blossom_upload.outputs.hash }}"
-          
-          # Verify the hash is not empty
-          if [ -z "${{ steps.blossom_upload.outputs.hash }}" ]; then
-            echo "❌ ERROR: Hash from blossom upload is empty!"
-            exit 1
-          fi
-          
-          # Set hash values directly in environment
-          echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
 
       # Extract Short Module Name before publishing NIP-94 metadata
       - name: Extract Short Module Name
