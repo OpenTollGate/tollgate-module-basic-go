@@ -216,25 +216,6 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	log.Printf("Successfully received proofs, now swapping for fresh ones, balance: %d", wallet.Balance())
 
 	balance := wallet.Balance()
-
-	// Normal split for larger amounts
-	// developerSupport := int(math.Floor(float64(balance) * 0.30))
-	// profitPayout := int(math.Ceil(float64(balance) - float64(developerSupport)))
-	
-	// log.Printf("Developer support: %d, Profit payout: %d", developerSupport, profitPayout)
-
-	// payoutErr := Payout(developerSupportPubkey, developerSupport, wallet, swapCtx)
-	// if payoutErr != nil {
-	// 	log.Printf("Failed to payout developer support: %v", payoutErr)
-	// 	return payoutErr
-	// }
-	
-	// payoutErr = Payout(payoutPubkey, profitPayout, wallet, swapCtx)
-	// if payoutErr != nil {
-	// 	log.Printf("Failed to payout profit payout: %v", payoutErr)
-	// 	return payoutErr
-	// }
-
 	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx)
 	if payoutErr != nil {
 		log.Printf("Failed to payout profit payout: %v", payoutErr)
