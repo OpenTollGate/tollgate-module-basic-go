@@ -63,8 +63,8 @@ jobs:
           echo "✅ Found package at: $PACKAGE_PATH"
           echo "PACKAGE_FULLPATH=$PACKAGE_PATH" >> $GITHUB_ENV
 
-          # FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
-          # echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
+          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
@@ -85,47 +85,53 @@ jobs:
           echo "Upload outputs:"
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
           echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
-          # echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
+          echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
           
           echo "PACKAGE_URL=${{ steps.blossom_upload.outputs.url }}" >> $GITHUB_ENV
           echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
           
           echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${{ env.MODEL }}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
 
-#      - name: Publish Package NIP-94 Metadata
-#        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
-#        with:
-#          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
-#          url: ${{ env.PACKAGE_URL }}
-#          mimeType: application/x-opkg
-#          fileHash: ${{ env.PACKAGE_HASH }}
-#          originalHash: ${{ env.PACKAGE_HASH }}
-#          filename: "${{ env.PACKAGE_FILENAME }}"
-#          content: |
-#            {
-#              "description": "TollGate ${{ env.PACKAGE_NAME }} OpenWRT package for ${{ env.MODEL }}",
-#              "module": "${{ env.PACKAGE_NAME }}",
-#              "version": "0.0.1"
-#            }
-#          nsec: ${{ secrets.NSEC }}
-#          size: ${{ env.PACKAGE_SIZE }}
-#          architecture: "${{ env.GOARCH }}"
-#
+      - name: Calculate Package Size
+        run: |
+          FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
+          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          echo "MODEL=aarch64_cortex-a53" >> $GITHUB_ENV  # Define a default model if not specified elsewhere
 
-#      - name: Verify Package NIP-94 Event
-#        id: verify_package
-#        if: steps.publish_package.outputs.eventId != ''
-#        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
-#        with:
-#          eventId: ${{ steps.publish_package.outputs.eventId }}
-#          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
-#
-#      # - name: Check Package Publication
-#      #   if: steps.verify_package.outcome != 'success'
-#      #   run: |
-#      #     echo "❌ Failed to verify package publication on relays"
-#      #     exit 1
-#
+      - name: Publish Package NIP-94 Metadata
+        id: publish_package  # Add an explicit ID for this step
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
+        with:
+          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
+          url: ${{ env.PACKAGE_URL }}
+          mimeType: application/x-opkg
+          fileHash: ${{ env.PACKAGE_HASH }}
+          originalHash: ${{ env.PACKAGE_HASH }}
+          filename: "${{ env.PACKAGE_FILENAME }}"
+          content: |
+            {
+              "description": "TollGate ${{ env.PACKAGE_NAME }} OpenWRT package for ${{ env.MODEL || 'generic' }}",
+              "module": "${{ env.PACKAGE_NAME }}",
+              "version": "0.0.1"
+            }
+          nsec: ${{ secrets.NSEC }}
+          size: ${{ env.PACKAGE_SIZE }}
+          architecture: "${{ env.GOARCH }}"
+
+      - name: Verify Package NIP-94 Event
+        id: verify_package
+        if: steps.publish_package.outputs.eventId != ''
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
+        with:
+          eventId: ${{ steps.publish_package.outputs.eventId }}
+          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
+
+      - name: Check Package Publication
+        if: steps.verify_package.outcome != 'success'
+        run: |
+          echo "❌ Failed to verify package publication on relays"
+          exit 1
+
 #      - name: Build Summary
 #        run: |
 #          echo "Build Summary for ${{ matrix.target.name }}:"
