@@ -207,10 +207,6 @@ jobs:
           echo "Binary URL: ${{ steps.upload_binary.outputs.blossomUrl }}"
           echo "Package URL: ${{ steps.upload_package.outputs.blossomUrl }}"
 
-  install-os:
-    needs: build-package
-    runs-on: ubuntu-latest
-    steps:
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
         with:
