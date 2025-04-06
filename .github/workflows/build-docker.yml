@@ -6,7 +6,7 @@ on:
 ## Add global env vars for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  ARCHITECTURE: "aaarch64blablabla"
+  ARCHITECTURE: "aarch64"
   GOARCH: "arm64"
 #  DEBUG: "true"
   # GOMIPS: "softfloat"
@@ -61,48 +61,73 @@ jobs:
           fi
 
           echo "✅ Found package at: $PACKAGE_PATH"
-          echo "PACKAGE_FULLPATH=$PACKAGE_PATH" >> $GITHUB_ENV
           
           # Extract model from filename for later use
           FILENAME=$(basename "$PACKAGE_PATH")
-          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
-            echo "MODEL=aarch64_cortex-a53" >> $GITHUB_ENV
-          else
-            echo "MODEL=generic" >> $GITHUB_ENV
-          fi
+          echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
+          
+          # Copy file to a location GitHub can access
+          mkdir -p /github/workspace/artifacts
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ env.PACKAGE_NAME }}
-          path: ${{ env.PACKAGE_FULLPATH }}
+          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
+  
+  publish-metadata:
+    needs: build-package
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: package-${{ env.PACKAGE_NAME }}
+          path: ./artifacts
+      
+      - name: Prepare package metadata
+        id: package_info
+        run: |
+          PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
+          FILENAME=$(basename "$PACKAGE_PATH")
+          
+          # Extract model from filename
+          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
+            MODEL="aarch64_cortex-a53"
+          else
+            MODEL="generic"
+          fi
+          
+          # Calculate file size
+          FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
+          
+          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
+          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          echo "MODEL=$MODEL" >> $GITHUB_ENV
+          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
         uses: Origami74/upload-blossom-action@improve-io
         with:
           host: "https://blossom.swissdash.site"
-          filePath: ${{ env.PACKAGE_FULLPATH }}
+          filePath: ${{ env.PACKAGE_PATH }}
      
-      - name: Blossom Artifact upload - Process response
+      - name: Process Blossom response
         run: |
           echo "Upload outputs:"
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
           echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
-          
-          # Calculate size here instead of earlier
-          FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
-          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
           
           echo "PACKAGE_URL=${{ steps.blossom_upload.outputs.url }}" >> $GITHUB_ENV
           echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
-          
-          # Use the MODEL variable that was set in the List output step
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${{ env.MODEL }}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
-        id: publish_package  # Add an explicit ID for this step
+        id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
         with:
           relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
