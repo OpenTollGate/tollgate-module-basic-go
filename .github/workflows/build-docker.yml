@@ -62,9 +62,14 @@ jobs:
 
           echo "✅ Found package at: $PACKAGE_PATH"
           echo "PACKAGE_FULLPATH=$PACKAGE_PATH" >> $GITHUB_ENV
-
-          FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
-          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          
+          # Extract model from filename for later use
+          FILENAME=$(basename "$PACKAGE_PATH")
+          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
+            echo "MODEL=aarch64_cortex-a53" >> $GITHUB_ENV
+          else
+            echo "MODEL=generic" >> $GITHUB_ENV
+          fi
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
@@ -85,18 +90,16 @@ jobs:
           echo "Upload outputs:"
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
           echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
-          echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
+          
+          # Calculate size here instead of earlier
+          FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
+          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           
           echo "PACKAGE_URL=${{ steps.blossom_upload.outputs.url }}" >> $GITHUB_ENV
           echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
           
+          # Use the MODEL variable that was set in the List output step
           echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${{ env.MODEL }}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
-
-      - name: Calculate Package Size
-        run: |
-          FILE_SIZE=$(stat -c%s "${{ env.PACKAGE_FULLPATH }}")
-          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "MODEL=aarch64_cortex-a53" >> $GITHUB_ENV  # Define a default model if not specified elsewhere
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package  # Add an explicit ID for this step
