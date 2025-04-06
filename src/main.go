@@ -312,6 +312,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Calculate minutes based on the net value
+	// TODO: Update frontend to show the correct value after fees
 	var allottedMinutes = int64(valueAfterFees / pricePerMinute)
 	if allottedMinutes < 1 {
 		allottedMinutes = 1 // Minimum 1 minute
