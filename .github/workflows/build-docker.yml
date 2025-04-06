@@ -126,25 +126,46 @@ jobs:
           echo "PACKAGE_URL=${{ steps.blossom_upload.outputs.url }}" >> $GITHUB_ENV
           echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
 
+      # Extract Short Module Name before publishing NIP-94 metadata
+      - name: Extract Short Module Name
+        run: |
+          # Extract the basic part from tollgate-module-basic-go
+          if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
+            SHORT_MODULE="${BASH_REMATCH[1]}"
+          else
+            SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
+          fi
+          echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
+          
+          # Create a standardized filename for the package
+          DEVICE="gl-mt3000"  # You might want to make this dynamic
+          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
+          
+          # Create a simplified content format
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
         with:
           relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
           url: ${{ env.PACKAGE_URL }}
-          mimeType: application/x-opkg
+          mimeType: application/octet-stream
           fileHash: ${{ env.PACKAGE_HASH }}
           originalHash: ${{ env.PACKAGE_HASH }}
-          filename: "${{ env.PACKAGE_FILENAME }}"
-          content: |
-            {
-              "description": "TollGate ${{ env.PACKAGE_NAME }} OpenWRT package for ${{ env.MODEL }}",
-              "module": "${{ env.PACKAGE_NAME }}",
-              "version": "0.0.1"
-            }
+          filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
+          # Use a simple string content format instead of JSON
+          content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.GOARCH }}"
+          architecture: "${{ env.MODEL }}"
+          # Add additional custom tags
+          additionalTags: |
+            [
+              ["x", "${{ env.PACKAGE_HASH }}"],
+              ["ox", "${{ env.PACKAGE_HASH }}"]
+            ]
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
