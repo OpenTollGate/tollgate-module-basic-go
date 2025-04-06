@@ -43,9 +43,6 @@ var tollgateDetailsString string
 // Initialize the nostr pool for Cashu operations
 var relayPool *nostr.SimplePool
 
-// Add near the top of the file with other global variables
-// var smallPaymentThreshold = 3 // Payments below this amount won't be split
-
 func init() {
 	// Load configuration
 	if err := loadConfig(); err != nil {
