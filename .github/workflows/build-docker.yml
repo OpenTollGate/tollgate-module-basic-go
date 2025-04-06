@@ -126,6 +126,20 @@ jobs:
           echo "PACKAGE_URL=${{ steps.blossom_upload.outputs.url }}" >> $GITHUB_ENV
           echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
 
+      - name: Debug Blossom Upload
+        run: |
+          echo "Blossom upload URL: ${{ steps.blossom_upload.outputs.url }}"
+          echo "Blossom upload hash: ${{ steps.blossom_upload.outputs.hash }}"
+          
+          # Verify the hash is not empty
+          if [ -z "${{ steps.blossom_upload.outputs.hash }}" ]; then
+            echo "❌ ERROR: Hash from blossom upload is empty!"
+            exit 1
+          fi
+          
+          # Set hash values directly in environment
+          echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
+
       # Extract Short Module Name before publishing NIP-94 metadata
       - name: Extract Short Module Name
         run: |
@@ -152,20 +166,14 @@ jobs:
           relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
           url: ${{ env.PACKAGE_URL }}
           mimeType: application/octet-stream
-          fileHash: ${{ env.PACKAGE_HASH }}
-          originalHash: ${{ env.PACKAGE_HASH }}
+          # Use steps.blossom_upload.outputs.hash directly
+          fileHash: ${{ steps.blossom_upload.outputs.hash }}
+          originalHash: ${{ steps.blossom_upload.outputs.hash }}
           filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
-          # Use a simple string content format instead of JSON
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
-          # Add additional custom tags
-          additionalTags: |
-            [
-              ["x", "${{ env.PACKAGE_HASH }}"],
-              ["ox", "${{ env.PACKAGE_HASH }}"]
-            ]
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
