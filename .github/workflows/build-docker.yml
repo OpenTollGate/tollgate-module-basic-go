@@ -23,17 +23,17 @@ jobs:
             architecture: "aarch64",
             goarch: "arm64",
             model: "mediatek-filogic"
-          },
-          {
-            name: "ramips-mt7621",
-            platform: "ramips",
-            subtarget: "mt7621",
-            sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3",
-            architecture: "mipsel_24kc",
-            goarch: "mipsle",
-            gomips: "softfloat",
-            model: "dlink_covr-x1860-a1"
           }
+          # {
+          #   name: "ramips-mt7621",
+          #   platform: "ramips",
+          #   subtarget: "mt7621",
+          #   sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3",
+          #   architecture: "mipsel_24kc",
+          #   goarch: "mipsle",
+          #   gomips: "softfloat",
+          #   model: "dlink_covr-x1860-a1"
+          # }
         ]
       fail-fast: false
     container:
