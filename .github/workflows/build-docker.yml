@@ -71,6 +71,25 @@ jobs:
       - name: Compile Package
         run: |
           cd /builder
+          echo "Debug: GOARCH=${{ matrix.target.goarch }} GOMIPS=${{ matrix.target.gomips }}"
+          
+          # Debug: Print all environment variables
+          echo "Debug: All matrix.target variables:"
+          echo "  name: ${{ matrix.target.name }}"
+          echo "  platform: ${{ matrix.target.platform }}"
+          echo "  subtarget: ${{ matrix.target.subtarget }}"
+          echo "  sdk_image: ${{ matrix.target.sdk_image }}"
+          echo "  architecture: ${{ matrix.target.architecture }}"
+          echo "  goarch: ${{ matrix.target.goarch }}"
+          echo "  gomips: ${{ matrix.target.gomips }}"
+          echo "  model: ${{ matrix.target.model }}"
+          
+          # Set the arch variables explicitly before compiling
+          export GOARCH="${{ matrix.target.goarch }}"
+          export GOMIPS="${{ matrix.target.gomips }}"
+          echo "Debug: Environment variables set to: GOARCH=$GOARCH GOMIPS=$GOMIPS"
+          
+          # Run make with explicit arch variables
           env GOARCH=${{ matrix.target.goarch }} GOMIPS=${{ matrix.target.gomips }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
