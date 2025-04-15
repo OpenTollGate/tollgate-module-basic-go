@@ -6,16 +6,38 @@ on:
 ## Add global env vars for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  ARCHITECTURE: "aarch64"
-  GOARCH: "arm64"
 #  DEBUG: "true"
   # GOMIPS: "softfloat"
 
 jobs:
   build-package:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [
+          {
+            name: "mediatek-filogic",
+            platform: "mediatek",
+            subtarget: "filogic",
+            sdk_image: "openwrt/sdk:mediatek-filogic-23.05.3",
+            architecture: "aarch64",
+            goarch: "arm64",
+            model: "mediatek-filogic"
+          },
+          {
+            name: "ramips-mt7621",
+            platform: "ramips",
+            subtarget: "mt7621",
+            sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3",
+            architecture: "mipsel_24kc",
+            goarch: "mipsle",
+            gomips: "softfloat",
+            model: "dlink_covr-x1860-a1"
+          }
+        ]
+      fail-fast: false
     container:
-      image: openwrt/sdk:mediatek-filogic-23.05.3
+      image: ${{ matrix.target.sdk_image }}
       options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
 
     steps:
@@ -49,7 +71,7 @@ jobs:
       - name: Compile Package
         run: |
           cd /builder
-          env GOARCH=${{ env.GOARCH }} GOMIPS=${{ env.GOMIPS }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+          env GOARCH=${{ matrix.target.goarch }} GOMIPS=${{ matrix.target.gomips }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
         run: |
@@ -73,19 +95,35 @@ jobs:
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.model }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
   
   publish-metadata:
     needs: build-package
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [
+          {
+            name: "mediatek-filogic",
+            model: "mediatek-filogic",
+            architecture: "aarch64",
+            goarch: "arm64"
+          },
+          {
+            name: "ramips-mt7621",
+            model: "dlink_covr-x1860-a1",
+            architecture: "mipsel_24kc",
+            goarch: "mipsle"
+          }
+        ]
     
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.model }}
           path: ./artifacts
       
       - name: Prepare package metadata
@@ -94,9 +132,9 @@ jobs:
           PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
           FILENAME=$(basename "$PACKAGE_PATH")
           
-          # Extract model from filename
-          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
-            MODEL="aarch64_cortex-a53"
+          # Extract architecture identifier from filename
+          if [[ $FILENAME =~ _${{ matrix.target.architecture }} ]]; then
+            MODEL="${{ matrix.target.architecture }}"
           else
             MODEL="generic"
           fi
@@ -107,7 +145,7 @@ jobs:
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "MODEL=$MODEL" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
+          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ matrix.target.goarch }}.ipk" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -164,12 +202,11 @@ jobs:
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           
           # Create a standardized filename for the package
-          DEVICE="gl-mt3000"  # You might want to make this dynamic
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${{ matrix.target.model }}-${MODEL}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           
           # Create a simplified content format
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${{ matrix.target.model }}" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
