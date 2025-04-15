@@ -376,8 +376,11 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
 
     err := event.Sign(privateKey)
     if err != nil {
-        return err
+    	log.Printf("Failed to sign bragging event: %v", err)
+    	return err
     }
+    log.Printf("Bragging event ID: %s", event.ID)
+
 
     relayPool := nostr.NewSimplePool(context.Background())
     for _, relayURL := range config.Bragging.Relays {
