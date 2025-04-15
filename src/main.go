@@ -333,10 +333,16 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Announce successful payment via Nostr if enabled
+	err = announceSuccessfulPayment(macAddress, durationSeconds)
+	if err != nil {
+	    log.Printf("Error announcing successful payment: %v", err)
+	}
+
 	// Return a success status with token info
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)", 
-		allottedMinutes, valueAfterFees, 2*mintFee)
+	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)",
+	    allottedMinutes, valueAfterFees, 2*mintFee)
 }
 
 func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
