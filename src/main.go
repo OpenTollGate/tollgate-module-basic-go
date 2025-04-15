@@ -121,7 +121,6 @@ func loadConfig() error {
 	}
 
 	// Parse the config file
-	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return fmt.Errorf("failed to parse config file: %v", err)
 	}
