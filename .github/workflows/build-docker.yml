@@ -26,6 +26,12 @@ jobs:
             architecture: "aarch64"
             goarch: "arm64"
             device: "gl-mt6000"
+          - name: "MT7621 (D-Link COVR-X1860 A1)"
+            sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3"
+            architecture: "mipsel"
+            goarch: "mipsle"
+            gomips: "softfloat"
+            device: "covr-x1860-a1"
       fail-fast: false # Continue with other targets if one fails
 
     container:
@@ -108,6 +114,10 @@ jobs:
             architecture: "aarch64"
             goarch: "arm64"
             name: "MediaTek Filogic (GL-MT6000)"
+          - device: "covr-x1860-a1"
+            architecture: "mipsel"
+            goarch: "mipsle"
+            name: "MT7621 (D-Link COVR-X1860 A1)"
     
     steps:
       - name: Download artifact
@@ -125,6 +135,8 @@ jobs:
           # Extract model from filename
           if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
             MODEL="aarch64_cortex-a53"
+          elif [[ $FILENAME =~ _mipsel_24kc ]]; then
+            MODEL="mipsel_24kc"
           else
             MODEL="generic"
           fi
