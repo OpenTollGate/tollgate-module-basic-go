@@ -403,8 +403,10 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
     log.Printf("Bragging npub: %s", npub)
 
 
+    log.Printf("Initializing relay pool for bragging event publication")
+    log.Printf("Relays configured for bragging: %v", config.Relays)
     relayPool := nostr.NewSimplePool(context.Background())
-    for _, relayURL := range config.Bragging.Relays {
+    for _, relayURL := range config.Relays {
         relay, err := relayPool.EnsureRelay(relayURL)
         if err != nil {
             log.Printf("Failed to connect to relay %s: %v", relayURL, err)
@@ -418,7 +420,6 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
         }
     }
 
-    log.Printf("Successfully announced payment for MAC %s", macAddress)
     if err != nil {
         return err
     }
