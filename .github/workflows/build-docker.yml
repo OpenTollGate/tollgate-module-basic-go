@@ -15,12 +15,17 @@ jobs:
     strategy:
       matrix:
         target:
-          - name: "MediaTek Filogic (aarch64)"
+          - name: "MediaTek Filogic (GL-MT3000)"
             sdk_image: "openwrt/sdk:mediatek-filogic-23.05.3"
             architecture: "aarch64"
             goarch: "arm64"
             device: "gl-mt3000"
             # gomips: "softfloat" # Only for MIPS targets
+          - name: "MediaTek Filogic (GL-MT6000)"
+            sdk_image: "openwrt/sdk:mediatek-filogic-23.05.3"
+            architecture: "aarch64"
+            goarch: "arm64"
+            device: "gl-mt6000"
       fail-fast: false # Continue with other targets if one fails
 
     container:
@@ -75,26 +80,40 @@ jobs:
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
           
+          # Save target information for artifact upload
+          echo "TARGET_DEVICE=${{ matrix.target.device }}" >> $GITHUB_ENV
+          
           # Copy file to a location GitHub can access
-          mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
+          mkdir -p /github/workspace/artifacts/${{ matrix.target.device }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.target.device }}/$FILENAME"
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}
-          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.device }}
+          path: /github/workspace/artifacts/${{ matrix.target.device }}
           retention-days: 5
   
   publish-metadata:
     needs: build-package
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - device: "gl-mt3000"
+            architecture: "aarch64"
+            goarch: "arm64"
+            name: "MediaTek Filogic (GL-MT3000)"
+          - device: "gl-mt6000"
+            architecture: "aarch64"
+            goarch: "arm64"
+            name: "MediaTek Filogic (GL-MT6000)"
     
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.device }}
           path: ./artifacts
       
       - name: Prepare package metadata
@@ -116,8 +135,8 @@ jobs:
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "MODEL=$MODEL" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-aarch64.ipk" >> $GITHUB_ENV
-          echo "DEVICE=gl-mt3000" >> $GITHUB_ENV
+          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ matrix.target.goarch }}.ipk" >> $GITHUB_ENV
+          echo "DEVICE=${{ matrix.target.device }}" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -230,10 +249,17 @@ jobs:
 
       - name: Build Summary
         run: |
-          echo "Build Summary:"
+          echo "Build Summary for ${{ matrix.target.name }}:"
           echo "✅ Package successfully built and published"
           echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
 
+  trigger-os-workflow:
+    needs: publish-metadata
+    runs-on: ubuntu-latest
+    # Only trigger when all targets have been built and published
+    if: ${{ always() && !contains(needs.*.result, 'failure') }}
+    
+    steps:
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
         with:
