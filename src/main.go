@@ -385,12 +385,14 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
     	log.Printf("Failed to encode public key to npub: %v", err)
     	return err
     }
-   
+    log.Printf("Encoded public key to npub: %s", npub)
+    log.Printf("Attempting to sign bragging event")
     err = event.Sign(privateKey)
     if err != nil {
     	log.Printf("Failed to sign bragging event: %v", err)
     	return err
     }
+    log.Printf("Successfully signed bragging event")
     log.Printf("Bragging event ID: %s", event.ID)
     log.Printf("Bragging npub: %s", npub)
 
