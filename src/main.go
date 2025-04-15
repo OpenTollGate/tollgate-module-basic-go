@@ -14,6 +14,7 @@ import (
 
 	"github.com/OpenTollgate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // Config structure to hold all configuration parameters
@@ -379,7 +380,7 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
     	log.Printf("Failed to get public key: %v", err)
     	return err
     }
-    npub, err := npub.EncodePublicKey(pubkey)
+    npub, err := nip19.EncodePublicKey(pubkey)
     if err != nil {
     	log.Printf("Failed to encode public key to npub: %v", err)
     	return err
