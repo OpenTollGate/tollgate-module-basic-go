@@ -374,12 +374,24 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
 
     event.Content = content
 
-    err := event.Sign(privateKey)
+    pubkey, err := nostr.GetPublicKey(privateKey)
+    if err != nil {
+    	log.Printf("Failed to get public key: %v", err)
+    	return err
+    }
+    npub, err := npub.EncodePublicKey(pubkey)
+    if err != nil {
+    	log.Printf("Failed to encode public key to npub: %v", err)
+    	return err
+    }
+   
+    err = event.Sign(privateKey)
     if err != nil {
     	log.Printf("Failed to sign bragging event: %v", err)
     	return err
     }
     log.Printf("Bragging event ID: %s", event.ID)
+    log.Printf("Bragging npub: %s", npub)
 
 
     relayPool := nostr.NewSimplePool(context.Background())
