@@ -69,11 +69,14 @@ jobs:
       - name: Compile Package
         run: |
           cd /builder
-          env GOARCH=${{ matrix.target.goarch }} GOMIPS=${{ matrix.target.gomips }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+          env GOOS=linux \
+          GOARCH=${{ matrix.target.goarch }} \
+          GOMIPS=${{ matrix.target.gomips }} \
+          make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
         run: |
-          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | grep -v nodogsplash | head -n1)
           
           if [ -z "$PACKAGE_PATH" ]; then
             echo "❌ No .ipk package found in /builder/bin/packages"
