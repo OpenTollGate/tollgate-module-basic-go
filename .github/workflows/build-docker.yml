@@ -9,10 +9,13 @@ env:
   # Global vars that aren't target-specific
   # DEBUG: "true"
   PRIMARY_ARCHITECTURE: "aarch64_cortex-a53"
+  PRIMARY_TARGET: "mediatek/filogic"
+  PRIMARY_TARGET_DEVICES: "GL-MT3000, GL-MT6000"
 
 jobs:
   # First, build just the primary architecture (GL-MT3000)
   build-primary:
+    name: "Build Primary - ${{ env.PRIMARY_TARGET }} (${{ env.PRIMARY_ARCHITECTURE}})"
     runs-on: ubuntu-latest
     outputs:
       architecture: ${{ env.PRIMARY_ARCHITECTURE }}
@@ -22,6 +25,13 @@ jobs:
       options: --user root
 
     steps:
+      - name: Environment Info
+        run: |
+          echo "Building primary architecture target:"
+          echo "→ Target: ${{ env.PRIMARY_TARGET }}"
+          echo "→ Architecture: ${{ env.PRIMARY_ARCHITECTURE }}"
+          echo "→ Devices: ${{ env.PRIMARY_TARGET_DEVICES }}"
+
       - uses: actions/checkout@v3
         with:
           path: ${{ env.PACKAGE_NAME }}/
