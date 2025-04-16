@@ -15,23 +15,15 @@ jobs:
     strategy:
       matrix:
         target:
-          - name: "MediaTek Filogic (GL-MT3000)"
+          - name: "mediatek/filogic" # Devices: GL-MT3000, GL-MT6000
             sdk_image: "openwrt/sdk:mediatek-filogic-23.05.3"
-            architecture: "aarch64"
+            architecture: "aarch64_cortex-a53"
             goarch: "arm64"
-            device: "gl-mt3000"
-            # gomips: "softfloat" # Only for MIPS targets
-          - name: "MediaTek Filogic (GL-MT6000)"
-            sdk_image: "openwrt/sdk:mediatek-filogic-23.05.3"
-            architecture: "aarch64"
-            goarch: "arm64"
-            device: "gl-mt6000"
-          - name: "MT7621 (D-Link COVR-X1860 A1)"
+          - name: "ramips/mt7621" # Devices: D-Link COVR-X1860 A1
             sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3"
-            architecture: "mipsel"
+            architecture: "mipsel_24kc"
             goarch: "mipsle"
             gomips: "softfloat"
-            device: "covr-x1860-a1"
       fail-fast: false # Continue with other targets if one fails
 
     container:
@@ -85,22 +77,21 @@ jobs:
 
           echo "✅ Found package at: $PACKAGE_PATH"
           
-          # Extract model from filename for later use
+          # Extract filename for later use
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
-          
-          # Save target information for artifact upload
-          echo "TARGET_DEVICE=${{ matrix.target.device }}" >> $GITHUB_ENV
+          echo "TARGET_ARCHITECTURE=${{ matrix.target.architecture }}" >> $GITHUB_ENV
+          echo "TARGET_DEVICES=${{ matrix.target.devices }}" >> $GITHUB_ENV
           
           # Copy file to a location GitHub can access
-          mkdir -p /github/workspace/artifacts/${{ matrix.target.device }}
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.target.device }}/$FILENAME"
+          mkdir -p /github/workspace/artifacts/${{ matrix.target.architecture }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.target.architecture }}/$FILENAME"
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.device }}
-          path: /github/workspace/artifacts/${{ matrix.target.device }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.architecture }}
+          path: /github/workspace/artifacts/${{ matrix.target.architecture }}
           retention-days: 5
   
   publish-metadata:
@@ -108,25 +99,22 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-          - device: "gl-mt3000"
-            architecture: "aarch64"
-            goarch: "arm64"
-            name: "MediaTek Filogic (GL-MT3000)"
-          - device: "gl-mt6000"
-            architecture: "aarch64"
-            goarch: "arm64"
-            name: "MediaTek Filogic (GL-MT6000)"
-          - device: "covr-x1860-a1"
-            architecture: "mipsel"
-            goarch: "mipsle"
-            name: "MT7621 (D-Link COVR-X1860 A1)"
+        device:
+          - id: "gl-mt3000"
+            architecture: "aarch64_cortex-a53"
+            name: "GL-MT3000"
+          - id: "gl-mt6000"
+            architecture: "aarch64_cortex-a53" 
+            name: "GL-MT6000"
+          - id: "covr-x1860-a1"
+            architecture: "mipsel_24kc"
+            name: "D-Link COVR-X1860 A1"
     
     steps:
-      - name: Download artifact
+      - name: Download artifact for architecture
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.device }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.device.architecture }}
           path: ./artifacts
       
       - name: Prepare package metadata
@@ -135,23 +123,14 @@ jobs:
           PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
           FILENAME=$(basename "$PACKAGE_PATH")
           
-          # Extract model from filename
-          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
-            MODEL="aarch64_cortex-a53"
-          elif [[ $FILENAME =~ _mipsel_24kc ]]; then
-            MODEL="mipsel_24kc"
-          else
-            MODEL="generic"
-          fi
-          
           # Calculate file size
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
           
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "MODEL=$MODEL" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ matrix.target.goarch }}.ipk" >> $GITHUB_ENV
-          echo "DEVICE=${{ matrix.target.device }}" >> $GITHUB_ENV
+          echo "ARCHITECTURE=${{ matrix.device.architecture }}" >> $GITHUB_ENV
+          echo "DEVICE_ID=${{ matrix.device.id }}" >> $GITHUB_ENV
+          echo "DEVICE_NAME=${{ matrix.device.name }}" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -208,12 +187,12 @@ jobs:
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           
           # Create a standardized filename for the package
-          DEVICE="${{ env.DEVICE }}"
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          DEVICE="${{ env.DEVICE_ID }}"
+          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ env.ARCHITECTURE }}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           
           # Create a simplified content format
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${{ env.DEVICE_NAME }}" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
@@ -228,7 +207,8 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.MODEL }}"
+          architecture: "${{ env.ARCHITECTURE }}"
+          device: "${{ env.DEVICE_ID }}"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
@@ -264,7 +244,7 @@ jobs:
 
       - name: Build Summary
         run: |
-          echo "Build Summary for ${{ matrix.target.name }}:"
+          echo "Build Summary for ${{ matrix.device.name }}:"
           echo "✅ Package successfully built and published"
           echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
 
