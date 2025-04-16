@@ -58,9 +58,11 @@ define Build/Compile
 	cd $(PKG_BUILD_DIR) && \
 	echo "Building with GOARCH=$(GOARCH) $(if $(GOMIPS),GOMIPS=$(GOMIPS))" && \
 	env GOOS=linux \
+	CGO_ENABLED=0 \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" 
+	GOARM=$(GOARM) \
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w -extldflags '-static'" 
 endef
 
 define Package/$(PKG_NAME)/install
