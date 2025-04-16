@@ -57,6 +57,64 @@ jobs:
             architecture: "arm_cortex-a9"
             goarch: "arm"
             goarm: "7"
+          # Additional architectures
+          - name: "armsr/armv8" # ARM Server CPUs
+            sdk_image: "openwrt/sdk:armsr-armv8-23.05.3"
+            architecture: "aarch64_generic"
+            goarch: "arm64"
+          - name: "bcm4908/generic" # Broadcom BCM4908 (used in high-end routers)
+            sdk_image: "openwrt/sdk:bcm4908-generic-23.05.3"
+            architecture: "aarch64_cortex-a53"
+            goarch: "arm64"
+          - name: "mvebu/cortexa9" # Marvell Armada 380/385/390/XP
+            sdk_image: "openwrt/sdk:mvebu-cortexa9-23.05.3"
+            architecture: "arm_cortex-a9_vfpv3-d16"
+            goarch: "arm"
+            goarm: "7"
+          - name: "mvebu/cortexa72" # Marvell Armada 37x0 family
+            sdk_image: "openwrt/sdk:mvebu-cortexa72-23.05.3"
+            architecture: "aarch64_cortex-a72"
+            goarch: "arm64"
+          - name: "ipq807x/generic" # Qualcomm IPQ807x (AX routers)
+            sdk_image: "openwrt/sdk:ipq807x-generic-23.05.3"
+            architecture: "aarch64_cortex-a53"
+            goarch: "arm64"
+          - name: "ramips/mt7620" # MediaTek/Ralink MT7620
+            sdk_image: "openwrt/sdk:ramips-mt7620-23.05.3"
+            architecture: "mipsel_24kc"
+            goarch: "mipsle"
+            gomips: "softfloat"
+          - name: "ramips/mt76x8" # MediaTek/Ralink MT76x8
+            sdk_image: "openwrt/sdk:ramips-mt76x8-23.05.3"
+            architecture: "mipsel_24kc"
+            goarch: "mipsle"
+            gomips: "softfloat"
+          - name: "sunxi/cortexa53" # Allwinner ARM Cortex-A53 SoCs
+            sdk_image: "openwrt/sdk:sunxi-cortexa53-23.05.3"
+            architecture: "aarch64_cortex-a53"
+            goarch: "arm64"
+          - name: "sunxi/cortexa7" # Allwinner ARM Cortex-A7 SoCs
+            sdk_image: "openwrt/sdk:sunxi-cortexa7-23.05.3"
+            architecture: "arm_cortex-a7_neon-vfpv4"
+            goarch: "arm"
+            goarm: "7"
+          - name: "layerscape/armv8_64b" # NXP Layerscape ARM64 SoCs
+            sdk_image: "openwrt/sdk:layerscape-armv8_64b-23.05.3"
+            architecture: "aarch64_generic"
+            goarch: "arm64"
+          - name: "octeontx/generic" # Marvell OcteonTX
+            sdk_image: "openwrt/sdk:octeontx-generic-23.05.3"
+            architecture: "aarch64_generic"
+            goarch: "arm64"
+          - name: "mediatek/mt7622" # MediaTek MT7622
+            sdk_image: "openwrt/sdk:mediatek-mt7622-23.05.3"
+            architecture: "aarch64_cortex-a53"
+            goarch: "arm64"
+          - name: "mediatek/mt7623" # MediaTek MT7623
+            sdk_image: "openwrt/sdk:mediatek-mt7623-23.05.3"
+            architecture: "arm_cortex-a7_neon-vfpv4"
+            goarch: "arm"
+            goarm: "7"
       fail-fast: false # Continue with other targets if one fails
 
     container:
@@ -132,55 +190,50 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        device:
-          # Original specific devices
-          - id: "gl-mt3000"
-            architecture: "aarch64_cortex-a53"
-            name: "GL-MT3000"
-            display_name: "GL.iNet GL-MT3000"
-          - id: "gl-mt6000"
-            architecture: "aarch64_cortex-a53" 
-            name: "GL-MT6000"
-            display_name: "GL.iNet GL-MT6000"
-          - id: "covr-x1860-a1"
-            architecture: "mipsel_24kc"
-            name: "D-Link COVR-X1860 A1"
-            display_name: "D-Link COVR-X1860 A1"
-          # Generic architecture entries for other platforms
-          - id: "x86_64"
-            architecture: "x86_64"
-            name: "x86_64"
-            display_name: "Generic x86_64"
-          - id: "mips_24kc"
-            architecture: "mips_24kc"
-            name: "mips_24kc"
-            display_name: "Generic MIPS 24Kc"
+        architecture:
+          # ARM64 architectures
+          - id: "aarch64_cortex-a53"
+            display_name: "ARM64 Cortex-A53"
+            device_examples: "GL-MT3000, GL-MT6000, Broadcom BCM4908, MediaTek MT7622"
           - id: "aarch64_cortex-a72"
-            architecture: "aarch64_cortex-a72"
-            name: "bcm2711"
-            display_name: "Raspberry Pi 4"
+            display_name: "ARM64 Cortex-A72" 
+            device_examples: "Raspberry Pi 4, Marvell Armada 37x0"
           - id: "aarch64_generic"
-            architecture: "aarch64_generic"
-            name: "rockchip"
             display_name: "Generic ARM64"
+            device_examples: "Rockchip, OcteonTX, Layerscape"
+            
+          # ARM 32-bit architectures
           - id: "arm_cortex-a7_neon-vfpv4"
-            architecture: "arm_cortex-a7_neon-vfpv4"
-            name: "ipq40xx"
-            display_name: "Qualcomm IPQ40xx"
-          - id: "arm_cortex-a15_neon-vfpv4"
-            architecture: "arm_cortex-a15_neon-vfpv4"
-            name: "ipq806x"
-            display_name: "Qualcomm IPQ806x"
+            display_name: "ARM Cortex-A7"
+            device_examples: "Qualcomm IPQ40xx, MediaTek MT7623, Allwinner"
           - id: "arm_cortex-a9"
-            architecture: "arm_cortex-a9"
-            name: "bcm53xx"
-            display_name: "Broadcom BCM53xx"
+            display_name: "ARM Cortex-A9"
+            device_examples: "Broadcom BCM53xx"
+          - id: "arm_cortex-a15_neon-vfpv4"
+            display_name: "ARM Cortex-A15"
+            device_examples: "Qualcomm IPQ806x"
+          - id: "arm_cortex-a9_vfpv3-d16"
+            display_name: "ARM Cortex-A9 VFPv3"
+            device_examples: "Marvell Armada"
+            
+          # MIPS architectures
+          - id: "mipsel_24kc"
+            display_name: "MIPS 24Kc (Little Endian)"
+            device_examples: "D-Link COVR-X1860 A1, MT7621, MT7620, MT76x8"
+          - id: "mips_24kc"
+            display_name: "MIPS 24Kc (Big Endian)"
+            device_examples: "TP-Link, Ubiquiti, ath79 devices"
+            
+          # x86 architectures
+          - id: "x86_64"
+            display_name: "x86-64"
+            device_examples: "PC, servers, x86 virtual machines"
     
     steps:
       - name: Download artifact for architecture
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.device.architecture }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.architecture.id }}
           path: ./artifacts
       
       - name: Prepare package metadata
@@ -189,7 +242,7 @@ jobs:
           PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
           
           if [ -z "$PACKAGE_PATH" ]; then
-            echo "❌ No package found for architecture ${{ matrix.device.architecture }}"
+            echo "❌ No package found for architecture ${{ matrix.architecture.id }}"
             exit 1
           fi
           
@@ -200,9 +253,9 @@ jobs:
           
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "ARCHITECTURE=${{ matrix.device.architecture }}" >> $GITHUB_ENV
-          echo "DEVICE_ID=${{ matrix.device.id }}" >> $GITHUB_ENV
-          echo "DEVICE_NAME=${{ matrix.device.display_name }}" >> $GITHUB_ENV
+          echo "ARCHITECTURE=${{ matrix.architecture.id }}" >> $GITHUB_ENV
+          echo "DEVICE_EXAMPLES=${{ matrix.architecture.device_examples }}" >> $GITHUB_ENV
+          echo "DISPLAY_NAME=${{ matrix.architecture.display_name }}" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -259,12 +312,12 @@ jobs:
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           
           # Create a standardized filename for the package
-          DEVICE="${{ env.DEVICE_ID }}"
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ env.ARCHITECTURE }}.ipk"
+          ARCH="${{ env.ARCHITECTURE }}"
+          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${ARCH}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           
           # Create a simplified content format
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${{ env.DEVICE_NAME }}" >> $GITHUB_ENV
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${{ env.DISPLAY_NAME }} (devices: ${{ env.DEVICE_EXAMPLES }})" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
@@ -280,7 +333,6 @@ jobs:
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.ARCHITECTURE }}"
-          device: "${{ env.DEVICE_ID }}"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
@@ -316,7 +368,7 @@ jobs:
 
       - name: Build Summary
         run: |
-          echo "Build Summary for ${{ matrix.device.display_name }}:"
+          echo "Build Summary for ${{ matrix.architecture.display_name }}:"
           echo "✅ Package successfully built and published"
           echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
 
