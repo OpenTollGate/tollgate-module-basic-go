@@ -24,6 +24,39 @@ jobs:
             architecture: "mipsel_24kc"
             goarch: "mipsle"
             gomips: "softfloat"
+          # Additional common architectures
+          - name: "x86/64" # x86_64 architecture
+            sdk_image: "openwrt/sdk:x86-64-23.05.3"
+            architecture: "x86_64"
+            goarch: "amd64"
+          - name: "ath79/generic" # Many popular devices (TP-Link, Ubiquiti, etc)
+            sdk_image: "openwrt/sdk:ath79-generic-23.05.3"
+            architecture: "mips_24kc"
+            goarch: "mips"
+            gomips: "softfloat"
+          - name: "bcm27xx/bcm2711" # Raspberry Pi 4
+            sdk_image: "openwrt/sdk:bcm27xx-bcm2711-23.05.3"
+            architecture: "aarch64_cortex-a72"
+            goarch: "arm64"
+          - name: "rockchip/armv8" # Devices like NanoPi R4S
+            sdk_image: "openwrt/sdk:rockchip-armv8-23.05.3"
+            architecture: "aarch64_generic"
+            goarch: "arm64"
+          - name: "ipq40xx/generic" # Devices like GL.iNet GL-B1300
+            sdk_image: "openwrt/sdk:ipq40xx-generic-23.05.3"
+            architecture: "arm_cortex-a7_neon-vfpv4"
+            goarch: "arm"
+            goarm: "7"
+          - name: "ipq806x/generic" # Devices like Netgear R7800
+            sdk_image: "openwrt/sdk:ipq806x-generic-23.05.3"
+            architecture: "arm_cortex-a15_neon-vfpv4"
+            goarch: "arm"
+            goarm: "7"
+          - name: "bcm53xx/generic" # Devices like Netgear R8000
+            sdk_image: "openwrt/sdk:bcm53xx-generic-23.05.3"
+            architecture: "arm_cortex-a9"
+            goarch: "arm"
+            goarm: "7"
       fail-fast: false # Continue with other targets if one fails
 
     container:
@@ -64,6 +97,7 @@ jobs:
           env GOOS=linux \
           GOARCH=${{ matrix.target.goarch }} \
           GOMIPS=${{ matrix.target.gomips }} \
+          GOARM=${{ matrix.target.goarm }} \
           make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
@@ -81,7 +115,6 @@ jobs:
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
           echo "TARGET_ARCHITECTURE=${{ matrix.target.architecture }}" >> $GITHUB_ENV
-          echo "TARGET_DEVICES=${{ matrix.target.devices }}" >> $GITHUB_ENV
           
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts/${{ matrix.target.architecture }}
@@ -100,15 +133,48 @@ jobs:
     strategy:
       matrix:
         device:
+          # Original specific devices
           - id: "gl-mt3000"
             architecture: "aarch64_cortex-a53"
             name: "GL-MT3000"
+            display_name: "GL.iNet GL-MT3000"
           - id: "gl-mt6000"
             architecture: "aarch64_cortex-a53" 
             name: "GL-MT6000"
+            display_name: "GL.iNet GL-MT6000"
           - id: "covr-x1860-a1"
             architecture: "mipsel_24kc"
             name: "D-Link COVR-X1860 A1"
+            display_name: "D-Link COVR-X1860 A1"
+          # Generic architecture entries for other platforms
+          - id: "x86_64"
+            architecture: "x86_64"
+            name: "x86_64"
+            display_name: "Generic x86_64"
+          - id: "mips_24kc"
+            architecture: "mips_24kc"
+            name: "mips_24kc"
+            display_name: "Generic MIPS 24Kc"
+          - id: "aarch64_cortex-a72"
+            architecture: "aarch64_cortex-a72"
+            name: "bcm2711"
+            display_name: "Raspberry Pi 4"
+          - id: "aarch64_generic"
+            architecture: "aarch64_generic"
+            name: "rockchip"
+            display_name: "Generic ARM64"
+          - id: "arm_cortex-a7_neon-vfpv4"
+            architecture: "arm_cortex-a7_neon-vfpv4"
+            name: "ipq40xx"
+            display_name: "Qualcomm IPQ40xx"
+          - id: "arm_cortex-a15_neon-vfpv4"
+            architecture: "arm_cortex-a15_neon-vfpv4"
+            name: "ipq806x"
+            display_name: "Qualcomm IPQ806x"
+          - id: "arm_cortex-a9"
+            architecture: "arm_cortex-a9"
+            name: "bcm53xx"
+            display_name: "Broadcom BCM53xx"
     
     steps:
       - name: Download artifact for architecture
@@ -121,6 +187,12 @@ jobs:
         id: package_info
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
+          
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No package found for architecture ${{ matrix.device.architecture }}"
+            exit 1
+          fi
+          
           FILENAME=$(basename "$PACKAGE_PATH")
           
           # Calculate file size
@@ -130,7 +202,7 @@ jobs:
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "ARCHITECTURE=${{ matrix.device.architecture }}" >> $GITHUB_ENV
           echo "DEVICE_ID=${{ matrix.device.id }}" >> $GITHUB_ENV
-          echo "DEVICE_NAME=${{ matrix.device.name }}" >> $GITHUB_ENV
+          echo "DEVICE_NAME=${{ matrix.device.display_name }}" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -244,7 +316,7 @@ jobs:
 
       - name: Build Summary
         run: |
-          echo "Build Summary for ${{ matrix.device.name }}:"
+          echo "Build Summary for ${{ matrix.device.display_name }}:"
           echo "✅ Package successfully built and published"
           echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
 
