@@ -334,7 +334,6 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Announce successful payment via Nostr if enabled
-	var valueAfterFees = tokenValue - 2*mintFee
 	err = announceSuccessfulPayment(macAddress, int64(valueAfterFees), durationSeconds)
 	if err != nil {
 	    log.Printf("Error announcing successful payment: %v", err)
