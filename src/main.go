@@ -334,7 +334,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Announce successful payment via Nostr if enabled
-	err = announceSuccessfulPayment(macAddress, durationSeconds)
+	var valueAfterFees = tokenValue - 2*mintFee
+	err = announceSuccessfulPayment(macAddress, valueAfterFees, durationSeconds)
 	if err != nil {
 	    log.Printf("Error announcing successful payment: %v", err)
 	}
@@ -345,7 +346,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	    allottedMinutes, valueAfterFees, 2*mintFee)
 }
 
-func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
+func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
     if !config.Bragging.Enabled {
         log.Println("Bragging is disabled in configuration")
         return nil
@@ -363,8 +364,9 @@ func announceSuccessfulPayment(macAddress string, durationSeconds int64) error {
     for _, field := range config.Bragging.Fields {
         switch field {
         case "amount":
-            event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", minPayment)})
-            content += fmt.Sprintf("Amount: %d sats, ", minPayment)
+            event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
+            content += fmt.Sprintf("Amount: %d sats, ", amount)
+            content += "#BraggingTollGateRawData"
         case "mint":
             event.Tags = append(event.Tags, nostr.Tag{"mint", acceptedMint})
             content += fmt.Sprintf("Mint: %s, ", acceptedMint)
