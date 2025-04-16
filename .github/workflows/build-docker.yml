@@ -8,118 +8,18 @@ env:
   PACKAGE_NAME: "tollgate-module-basic-go"
   # Global vars that aren't target-specific
   # DEBUG: "true"
+  PRIMARY_ARCHITECTURE: "aarch64_cortex-a53"
 
 jobs:
-  build-package:
+  # First, build just the primary architecture (GL-MT3000)
+  build-primary:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - name: "mediatek/filogic" # Devices: GL-MT3000, GL-MT6000
-            sdk_image: "openwrt/sdk:mediatek-filogic-23.05.3"
-            architecture: "aarch64_cortex-a53"
-            goarch: "arm64"
-          - name: "ramips/mt7621" # Devices: D-Link COVR-X1860 A1
-            sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3"
-            architecture: "mipsel_24kc"
-            goarch: "mipsle"
-            gomips: "softfloat"
-          # Additional common architectures
-          - name: "x86/64" # x86_64 architecture
-            sdk_image: "openwrt/sdk:x86-64-23.05.3"
-            architecture: "x86_64"
-            goarch: "amd64"
-          - name: "ath79/generic" # Many popular devices (TP-Link, Ubiquiti, etc)
-            sdk_image: "openwrt/sdk:ath79-generic-23.05.3"
-            architecture: "mips_24kc"
-            goarch: "mips"
-            gomips: "softfloat"
-          - name: "bcm27xx/bcm2711" # Raspberry Pi 4
-            sdk_image: "openwrt/sdk:bcm27xx-bcm2711-23.05.3"
-            architecture: "aarch64_cortex-a72"
-            goarch: "arm64"
-          - name: "rockchip/armv8" # Devices like NanoPi R4S
-            sdk_image: "openwrt/sdk:rockchip-armv8-23.05.3"
-            architecture: "aarch64_generic"
-            goarch: "arm64"
-          - name: "ipq40xx/generic" # Devices like GL.iNet GL-B1300
-            sdk_image: "openwrt/sdk:ipq40xx-generic-23.05.3"
-            architecture: "arm_cortex-a7_neon-vfpv4"
-            goarch: "arm"
-            goarm: "7"
-          - name: "ipq806x/generic" # Devices like Netgear R7800
-            sdk_image: "openwrt/sdk:ipq806x-generic-23.05.3"
-            architecture: "arm_cortex-a15_neon-vfpv4"
-            goarch: "arm"
-            goarm: "7"
-          - name: "bcm53xx/generic" # Devices like Netgear R8000
-            sdk_image: "openwrt/sdk:bcm53xx-generic-23.05.3"
-            architecture: "arm_cortex-a9"
-            goarch: "arm"
-            goarm: "7"
-          # Additional architectures
-          - name: "armsr/armv8" # ARM Server CPUs
-            sdk_image: "openwrt/sdk:armsr-armv8-23.05.3"
-            architecture: "aarch64_generic"
-            goarch: "arm64"
-          - name: "bcm4908/generic" # Broadcom BCM4908 (used in high-end routers)
-            sdk_image: "openwrt/sdk:bcm4908-generic-23.05.3"
-            architecture: "aarch64_cortex-a53"
-            goarch: "arm64"
-          - name: "mvebu/cortexa9" # Marvell Armada 380/385/390/XP
-            sdk_image: "openwrt/sdk:mvebu-cortexa9-23.05.3"
-            architecture: "arm_cortex-a9_vfpv3-d16"
-            goarch: "arm"
-            goarm: "7"
-          - name: "mvebu/cortexa72" # Marvell Armada 37x0 family
-            sdk_image: "openwrt/sdk:mvebu-cortexa72-23.05.3"
-            architecture: "aarch64_cortex-a72"
-            goarch: "arm64"
-          - name: "ipq807x/generic" # Qualcomm IPQ807x (AX routers)
-            sdk_image: "openwrt/sdk:ipq807x-generic-23.05.3"
-            architecture: "aarch64_cortex-a53"
-            goarch: "arm64"
-          - name: "ramips/mt7620" # MediaTek/Ralink MT7620
-            sdk_image: "openwrt/sdk:ramips-mt7620-23.05.3"
-            architecture: "mipsel_24kc"
-            goarch: "mipsle"
-            gomips: "softfloat"
-          - name: "ramips/mt76x8" # MediaTek/Ralink MT76x8
-            sdk_image: "openwrt/sdk:ramips-mt76x8-23.05.3"
-            architecture: "mipsel_24kc"
-            goarch: "mipsle"
-            gomips: "softfloat"
-          - name: "sunxi/cortexa53" # Allwinner ARM Cortex-A53 SoCs
-            sdk_image: "openwrt/sdk:sunxi-cortexa53-23.05.3"
-            architecture: "aarch64_cortex-a53"
-            goarch: "arm64"
-          - name: "sunxi/cortexa7" # Allwinner ARM Cortex-A7 SoCs
-            sdk_image: "openwrt/sdk:sunxi-cortexa7-23.05.3"
-            architecture: "arm_cortex-a7_neon-vfpv4"
-            goarch: "arm"
-            goarm: "7"
-          - name: "layerscape/armv8_64b" # NXP Layerscape ARM64 SoCs
-            sdk_image: "openwrt/sdk:layerscape-armv8_64b-23.05.3"
-            architecture: "aarch64_generic"
-            goarch: "arm64"
-          - name: "octeontx/generic" # Marvell OcteonTX
-            sdk_image: "openwrt/sdk:octeontx-generic-23.05.3"
-            architecture: "aarch64_generic"
-            goarch: "arm64"
-          - name: "mediatek/mt7622" # MediaTek MT7622
-            sdk_image: "openwrt/sdk:mediatek-mt7622-23.05.3"
-            architecture: "aarch64_cortex-a53"
-            goarch: "arm64"
-          - name: "mediatek/mt7623" # MediaTek MT7623
-            sdk_image: "openwrt/sdk:mediatek-mt7623-23.05.3"
-            architecture: "arm_cortex-a7_neon-vfpv4"
-            goarch: "arm"
-            goarm: "7"
-      fail-fast: false # Continue with other targets if one fails
-
+    outputs:
+      architecture: ${{ env.PRIMARY_ARCHITECTURE }}
+    
     container:
-      image: ${{ matrix.target.sdk_image }}
-      options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
+      image: openwrt/sdk:mediatek-filogic-23.05.3
+      options: --user root
 
     steps:
       - uses: actions/checkout@v3
@@ -153,9 +53,7 @@ jobs:
         run: |
           cd /builder
           env GOOS=linux \
-          GOARCH=${{ matrix.target.goarch }} \
-          GOMIPS=${{ matrix.target.gomips }} \
-          GOARM=${{ matrix.target.goarm }} \
+          GOARCH=arm64 \
           make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
@@ -172,21 +70,139 @@ jobs:
           # Extract filename for later use
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
-          echo "TARGET_ARCHITECTURE=${{ matrix.target.architecture }}" >> $GITHUB_ENV
           
           # Copy file to a location GitHub can access
-          mkdir -p /github/workspace/artifacts/${{ matrix.target.architecture }}
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.target.architecture }}/$FILENAME"
+          mkdir -p /github/workspace/artifacts/${{ env.PRIMARY_ARCHITECTURE }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PRIMARY_ARCHITECTURE }}/$FILENAME"
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.target.architecture }}
-          path: /github/workspace/artifacts/${{ matrix.target.architecture }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ env.PRIMARY_ARCHITECTURE }}
+          path: /github/workspace/artifacts/${{ env.PRIMARY_ARCHITECTURE }}
+          retention-days: 5
+
+  # Only build other architectures if primary succeeded
+  build-others:
+    needs: build-primary
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # One entry per unique architecture (not per target)
+        architecture:
+          - id: "mipsel_24kc"
+            sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3"
+            goarch: "mipsle"
+            gomips: "softfloat"
+            example_target: "ramips/mt7621"
+          - id: "x86_64"
+            sdk_image: "openwrt/sdk:x86-64-23.05.3"
+            goarch: "amd64"
+            example_target: "x86/64"
+          - id: "mips_24kc"
+            sdk_image: "openwrt/sdk:ath79-generic-23.05.3"
+            goarch: "mips"
+            gomips: "softfloat"
+            example_target: "ath79/generic"
+          - id: "aarch64_cortex-a72"
+            sdk_image: "openwrt/sdk:bcm27xx-bcm2711-23.05.3"
+            goarch: "arm64"
+            example_target: "bcm27xx/bcm2711"
+          - id: "aarch64_generic"
+            sdk_image: "openwrt/sdk:rockchip-armv8-23.05.3"
+            goarch: "arm64"
+            example_target: "rockchip/armv8"
+          - id: "arm_cortex-a7_neon-vfpv4"
+            sdk_image: "openwrt/sdk:ipq40xx-generic-23.05.3"
+            goarch: "arm"
+            goarm: "7"
+            example_target: "ipq40xx/generic"
+          - id: "arm_cortex-a15_neon-vfpv4"
+            sdk_image: "openwrt/sdk:ipq806x-generic-23.05.3"
+            goarch: "arm"
+            goarm: "7"
+            example_target: "ipq806x/generic"
+          - id: "arm_cortex-a9"
+            sdk_image: "openwrt/sdk:bcm53xx-generic-23.05.3"
+            goarch: "arm"
+            goarm: "7"
+            example_target: "bcm53xx/generic"
+          - id: "arm_cortex-a9_vfpv3-d16"
+            sdk_image: "openwrt/sdk:mvebu-cortexa9-23.05.3"
+            goarch: "arm"
+            goarm: "7"
+            example_target: "mvebu/cortexa9"
+      fail-fast: false
+
+    container:
+      image: ${{ matrix.architecture.sdk_image }}
+      options: --user root
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          path: ${{ env.PACKAGE_NAME }}/
+
+      - name: Move sources to sdk folder
+        run: |
+          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+
+      - name: Install Golang
+        run: |
+          # Add golang-backports repository
+          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update
+          
+          # Install Go from backports
+          apt-get install -y -t bookworm-backports golang-go
+
+      - name: Configure SDK
+        run: |
+          cd /builder
+
+          # Generate default configuration
+          make defconfig
+
+          # Update configuration for our needs
+          echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
+          
+      - name: Compile Package
+        run: |
+          cd /builder
+          env GOOS=linux \
+          GOARCH=${{ matrix.architecture.goarch }} \
+          GOMIPS=${{ matrix.architecture.gomips }} \
+          GOARM=${{ matrix.architecture.goarm }} \
+          make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+
+      - name: List output package(s)
+        run: |
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | grep -v nodogsplash | head -n1)
+          
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No .ipk package found in /builder/bin/packages"
+            exit 1
+          fi
+
+          echo "✅ Found package at: $PACKAGE_PATH"
+          
+          # Extract filename for later use
+          FILENAME=$(basename "$PACKAGE_PATH")
+          echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
+          
+          # Copy file to a location GitHub can access
+          mkdir -p /github/workspace/artifacts/${{ matrix.architecture.id }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.architecture.id }}/$FILENAME"
+
+      - name: GitHub Artifact upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.architecture.id }}
+          path: /github/workspace/artifacts/${{ matrix.architecture.id }}
           retention-days: 5
   
   publish-metadata:
-    needs: build-package
+    needs: [build-primary, build-others]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -196,13 +212,12 @@ jobs:
             display_name: "ARM64 Cortex-A53"
             device_examples: "GL-MT3000, GL-MT6000, Broadcom BCM4908, MediaTek MT7622"
           - id: "aarch64_cortex-a72"
-            display_name: "ARM64 Cortex-A72" 
+            display_name: "ARM64 Cortex-A72"
             device_examples: "Raspberry Pi 4, Marvell Armada 37x0"
           - id: "aarch64_generic"
             display_name: "Generic ARM64"
             device_examples: "Rockchip, OcteonTX, Layerscape"
-            
-          # ARM 32-bit architectures
+          # ARM 32-bit architectures  
           - id: "arm_cortex-a7_neon-vfpv4"
             display_name: "ARM Cortex-A7"
             device_examples: "Qualcomm IPQ40xx, MediaTek MT7623, Allwinner"
@@ -215,7 +230,6 @@ jobs:
           - id: "arm_cortex-a9_vfpv3-d16"
             display_name: "ARM Cortex-A9 VFPv3"
             device_examples: "Marvell Armada"
-            
           # MIPS architectures
           - id: "mipsel_24kc"
             display_name: "MIPS 24Kc (Little Endian)"
@@ -223,7 +237,6 @@ jobs:
           - id: "mips_24kc"
             display_name: "MIPS 24Kc (Big Endian)"
             device_examples: "TP-Link, Ubiquiti, ath79 devices"
-            
           # x86 architectures
           - id: "x86_64"
             display_name: "x86-64"
