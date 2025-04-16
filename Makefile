@@ -37,6 +37,7 @@ define Package/$(PKG_NAME)
 	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
+	PKG_ARCH:=all
 	REPLACES:=nodogsplash base-files
 endef
 
