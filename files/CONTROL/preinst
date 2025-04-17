@@ -1,11 +1,6 @@
 #!/bin/sh
 
-# Remove existing banner file before installation
-echo "Removing existing banner file if present..."
-[ -f /etc/banner ] && rm -f /etc/banner
-
-# Clean up any backup files that might cause conflicts
-[ -f /etc/banner- ] && rm -f /etc/banner-
-
+# The package no longer modifies the system banner file
+# This script is kept for compatibility
 
 exit 0

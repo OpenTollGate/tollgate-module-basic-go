@@ -15,7 +15,7 @@ env:
 jobs:
   # First, build just the primary architecture (GL-MT3000)
   build-primary:
-    name: "Build Primary - ${{ env.PRIMARY_TARGET }} (${{ env.PRIMARY_ARCHITECTURE}})"
+    name: "Build Primary - MediaTek Filogic (aarch64_cortex-a53)"
     runs-on: ubuntu-latest
     outputs:
       architecture: ${{ env.PRIMARY_ARCHITECTURE }}
