@@ -106,9 +106,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
-	# Banner for TollGate
-	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/banner $(1)/etc/banner
+	# TollGate banner file (included but not overwriting system banner)
+	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/banner $(1)/etc/tollgate/banner
 	
 	# NoDogSplash static files (CSS, JS, media)
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/css

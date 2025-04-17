@@ -1,8 +1,7 @@
 #!/bin/sh
 
 echo "Running post-installation script"
-# Add your post-install commands here
-echo "Verifying banner file ownership:"
-ls -l /etc/banner
-opkg search /etc/banner
-exit 0 
+# Your post-install commands can go here
+# The package no longer modifies the system banner file
+
+exit 0
