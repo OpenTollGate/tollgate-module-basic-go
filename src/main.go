@@ -370,14 +370,14 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
             content += fmt.Sprintf("Mint: %s,\n", acceptedMint)
         case "duration":
             event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
-            content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
+            content += fmt.Sprintf("Duration: %d seconds\n", durationSeconds)
         }
     }
 
     // Trim the trailing comma and space if content is not empty
     if content != "" {
-        content = strings.TrimSuffix(content, ",\n")
-        content += " #BraggingTollGateRawData"
+        content = strings.TrimSuffix(content, ",")
+        content += "\n#BraggingTollGateRawData"
     }
 
     event.Content = content
