@@ -364,11 +364,10 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
         switch field {
         case "amount":
             event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
-            content += fmt.Sprintf("Amount: %d sats, ", amount)
-            content += "#BraggingTollGateRawData"
+            content += fmt.Sprintf("Amount: %d sats,\n", amount)
         case "mint":
             event.Tags = append(event.Tags, nostr.Tag{"mint", acceptedMint})
-            content += fmt.Sprintf("Mint: %s, ", acceptedMint)
+            content += fmt.Sprintf("Mint: %s,\n", acceptedMint)
         case "duration":
             event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
             content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
@@ -377,7 +376,8 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 
     // Trim the trailing comma and space if content is not empty
     if content != "" {
-        content = strings.TrimSuffix(content, ", ")
+        content = strings.TrimSuffix(content, ",\n")
+        content += " #BraggingTollGateRawData"
     }
 
     event.Content = content
