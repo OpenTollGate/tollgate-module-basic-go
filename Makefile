@@ -102,6 +102,9 @@ define Package/$(PKG_NAME)/install
 	# Tollgate config.json for mint and price
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
+	# Update version number in config.json
+		jq '.version = "$(PKG_VERSION)"' $(1)/etc/tollgate/config.json > $(1)/etc/tollgate/config.json.tmp
+		mv $(1)/etc/tollgate/config.json.tmp $(1)/etc/tollgate/config.json
 
 	# Banner for TollGate
 	$(INSTALL_DIR) $(1)/etc
