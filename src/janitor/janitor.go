@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/nbd-wtf/go-nostr"
-)
+	)
 
 type JanitorConfig struct {
 	Relays             []string `json:"relays"`
@@ -64,17 +64,18 @@ func (j *Janitor) ListenForNIP94Events() {
 		}
 
 		go func(relayURL string, sub *nostr.Subscription) {
-			for event := range sub.Events {
-				log.Printf("Received NIP-94 event from relay %s: %s", relayURL, event.ID)
-				ok, err := event.CheckSignature()
-				if err != nil || !ok {
-					log.Printf("Invalid signature for NIP-94 event %s from relay %s: %v", event.ID, relayURL, err)
-					continue
-				}
-				log.Printf("Valid signature for NIP-94 event %s from relay %s", event.ID, relayURL)
-				if !contains(j.trustedMaintainers, event.PubKey) {
-					log.Printf("Event %s is not from a trusted maintainer", event.ID)
-					continue
+				untrustedEventCount := 0
+				totalEvents := 0
+				for event := range sub.Events {
+					totalEvents++
+					if !contains(j.trustedMaintainers, event.PubKey) {
+						untrustedEventCount++
+						continue
+					}
+					ok, err := event.CheckSignature()
+					if err != nil || !ok {
+						log.Printf("Invalid signature for NIP-94 event %s from relay %s: %v", event.ID, relayURL, err)
+						continue
 				}
 				packageURL, version, timestamp, err := parseNIP94Event(*event)
 				if err != nil {
