@@ -19,15 +19,16 @@ jobs:
       options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.PACKAGE_NAME }}/
+          fetch-depth: 0
+
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y jq
  
-       - uses: actions/checkout@v4
-         with:
-           path: ${{ env.PACKAGE_NAME }}/
-           fetch-depth: 0
-
       - name: Move sources to sdk folder
         run: |
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
