@@ -103,8 +103,8 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 	# Update version number in config.json
-		jq '.version = "$(PKG_VERSION)"' $(1)/etc/tollgate/config.json > $(1)/etc/tollgate/config.json.tmp
-		mv $(1)/etc/tollgate/config.json.tmp $(1)/etc/tollgate/config.json
+	jq '.package_info.version = "$(PKG_VERSION)" | .package_info.timestamp = "$(shell date +%s)"' $(1)/etc/tollgate/config.json > $(1)/etc/tollgate/config.json.tmp
+	mv $(1)/etc/tollgate/config.json.tmp $(1)/etc/tollgate/config.json
 
 	# Banner for TollGate
 	$(INSTALL_DIR) $(1)/etc
@@ -139,7 +139,6 @@ FILES_$(PKG_NAME) += \
 	/etc/nodogsplash/htdocs/static/css/* \
 	/etc/nodogsplash/htdocs/static/js/* \
 	/etc/nodogsplash/htdocs/static/media/*
-
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
 

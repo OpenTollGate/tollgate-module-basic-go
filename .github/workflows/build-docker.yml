@@ -177,6 +177,12 @@ jobs:
           # Create a simplified content format
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
 
+      - name: Get Package Version
+        run: |
+          cd ${GITHUB_WORKSPACE}/${{ env.PACKAGE_NAME }}
+          PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
+          echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
+          
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
@@ -191,6 +197,8 @@ jobs:
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
+          version: "${{ env.PKG_VERSION }}"
+          branch: "main"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID

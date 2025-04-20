@@ -9,5 +9,9 @@
     "bragging": {
         "enabled": true,
         "fields": ["amount", "mint", "duration"]
-        }
+    },
+    "package_info": {
+        "version": "0.0.0",
+        "timestamp": 0
+    }
 }
