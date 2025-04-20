@@ -1,9 +1,9 @@
-// Package main provides the Janitor module for updating OpenWRT packages.
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 
@@ -30,13 +30,11 @@ func loadJanitorConfig(path string) (*JanitorConfig, error) {
 	return &config, nil
 }
 
-// Janitor represents the Janitor module.
 type Janitor struct {
 	relays               []string
 	trustedMaintainers    []string
 }
 
-// NewJanitor returns a new Janitor instance.
 func NewJanitor(relays []string, trustedMaintainers []string) *Janitor {
 	return &Janitor{
 		relays:               relays,
@@ -44,7 +42,6 @@ func NewJanitor(relays []string, trustedMaintainers []string) *Janitor {
 	}
 }
 
-// ListenForNIP94Events listens for NIP-94 events on the specified relays.
 func (j *Janitor) ListenForNIP94Events() {
 	ctx := context.Background()
 	relayPool := nostr.NewSimplePool(ctx)
@@ -75,118 +72,18 @@ func (j *Janitor) ListenForNIP94Events() {
 					continue
 				}
 				log.Printf("Valid signature for NIP-94 event %s from relay %s", event.ID, relayURL)
-				// Check if the event is from a trusted maintainer
 				if !contains(j.trustedMaintainers, event.PubKey) {
 					log.Printf("Event %s is not from a trusted maintainer", event.ID)
 					continue
-				// contains checks if a string slice contains a specific string
-				func contains(s []string, str string) bool {
-					for _, v := range s {
-						if v == str {
-							return true
-						}
-					}
-					return false
 				}
-				
-				// parseNIP94Event extracts package information from a NIP-94 event
-				func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
-					var url string
-					version := event.Tags[3][1]
-					timestamp := event.CreatedAt.Unix()
-				
-					for _, tag := range event.Tags {
-						if len(tag) > 0 && tag[0] == "url" && len(tag) > 1 {
-							url = tag[1]
-						}
-					}
-				
-					if url == "" || version == "" || timestamp == 0 {
-						return "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
-					}
-				
-					return url, version, timestamp, nil
-				}
-				
-				// isNewerVersion checks if the given version and timestamp are newer than the currently installed package
-				func isNewerVersion(version string, timestamp int64) bool {
-					currentTimestamp, err := getCurrentPackageTimestamp()
-					if err != nil {
-						log.Printf("Error getting current package timestamp: %v", err)
-						return false
-					}
-					return timestamp > currentTimestamp
-				}
-				
-				// getCurrentPackageTimestamp returns the timestamp of the currently installed package
-				func getCurrentPackageTimestamp() (int64, error) {
-					return 0, nil // Dummy implementation
-				// DownloadPackage downloads a package from a given URL.
-				func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
-					// Implement downloading a package from a URL
-					return nil, nil
-				}
-				
-				// InstallPackage installs a package using opkg.
-				func (j *Janitor) InstallPackage(pkg []byte) error {
-					// Implement installing a package using opkg
-					return nil
-				}
-				
-				// contains checks if a string slice contains a specific string
-				func contains(s []string, str string) bool {
-					for _, v := range s {
-						if v == str {
-							return true
-						}
-					}
-					return false
-				}
-				
-				// parseNIP94Event extracts package information from a NIP-94 event
-				func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
-					var url string
-					version := event.Tags[3][1]
-					timestamp := event.CreatedAt.Unix()
-				
-					for _, tag := range event.Tags {
-						if len(tag) > 0 && tag[0] == "url" && len(tag) > 1 {
-							url = tag[1]
-						}
-					}
-				
-					if url == "" || version == "" || timestamp == 0 {
-						return "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
-					}
-				
-					return url, version, timestamp, nil
-				}
-				
-				// isNewerVersion checks if the given version and timestamp are newer than the currently installed package
-				func isNewerVersion(version string, timestamp int64) bool {
-					currentTimestamp, err := getCurrentPackageTimestamp()
-					if err != nil {
-						log.Printf("Error getting current package timestamp: %v", err)
-						return false
-					}
-					return timestamp > currentTimestamp
-				}
-				
-				// getCurrentPackageTimestamp returns the timestamp of the currently installed package
-				func getCurrentPackageTimestamp() (int64, error) {
-					return 0, nil // Dummy implementation
-				}
-				// Parse the event to extract package information
-				packageURL, version, timestamp, err := parseNIP94Event(event)
+				packageURL, version, timestamp, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					continue
 				}
 				log.Printf("Parsed NIP-94 event %s: version=%s, timestamp=%d, URL=%s", event.ID, version, timestamp, packageURL)
-				// Check if the package is newer than the currently installed version
 				if isNewerVersion(version, timestamp) {
 					log.Printf("Newer package version available: %s", version)
-					// Download and install the package
 					pkg, err := j.DownloadPackage(packageURL)
 					if err != nil {
 						log.Printf("Error downloading package: %v", err)
@@ -204,17 +101,14 @@ func (j *Janitor) ListenForNIP94Events() {
 	}
 }
 
-// DownloadPackage downloads a package from a given URL.
 func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
-	// Implement downloading a package from a URL
 	return nil, nil
 }
 
-// InstallPackage installs a package using opkg.
 func (j *Janitor) InstallPackage(pkg []byte) error {
-	// Implement installing a package using opkg
 	return nil
-// contains checks if a string slice contains a specific string
+}
+
 func contains(s []string, str string) bool {
 	for _, v := range s {
 		if v == str {
@@ -227,12 +121,15 @@ func contains(s []string, str string) bool {
 // parseNIP94Event extracts package information from a NIP-94 event
 func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
 	var url string
-	version := event.Tags[3][1]
-	timestamp := event.CreatedAt.Unix()
+	version := "1.0.0" // Default version if not found
+	timestamp := int64(event.CreatedAt)
 
 	for _, tag := range event.Tags {
 		if len(tag) > 0 && tag[0] == "url" && len(tag) > 1 {
 			url = tag[1]
+		}
+		if len(tag) > 0 && tag[0] == "version" && len(tag) > 1 {
+			version = tag[1]
 		}
 	}
 
@@ -243,7 +140,6 @@ func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
 	return url, version, timestamp, nil
 }
 
-// isNewerVersion checks if the given version and timestamp are newer than the currently installed package
 func isNewerVersion(version string, timestamp int64) bool {
 	currentTimestamp, err := getCurrentPackageTimestamp()
 	if err != nil {
@@ -253,23 +149,16 @@ func isNewerVersion(version string, timestamp int64) bool {
 	return timestamp > currentTimestamp
 }
 
-// getCurrentPackageTimestamp returns the timestamp of the currently installed package
 func getCurrentPackageTimestamp() (int64, error) {
-	return 0, nil // Dummy implementation
+	return 0, nil
 }
 
 func main() {
-	// Load configuration from file
 	config, err := loadJanitorConfig("files/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Create a new Janitor instance
 	janitor := NewJanitor(config.Relays, config.TrustedMaintainers)
-
-	// Listen for NIP-94 events
 	janitor.ListenForNIP94Events()
-
-	// Download and install new package if available
 }
