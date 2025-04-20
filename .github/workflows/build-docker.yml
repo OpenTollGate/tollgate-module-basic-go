@@ -184,7 +184,7 @@ jobs:
 
       - name: Get Package Version
         run: |
-          cd ${GITHUB_WORKSPACE}/${{ env.PACKAGE_NAME }}
+          cd /builder/package/${{ env.PACKAGE_NAME }}
           PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
           
