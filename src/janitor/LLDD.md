@@ -25,20 +25,20 @@ The NIP-94 event that announces a new OpenWRT package has the following format:
 
 ```json
 {
-  "id": "ba736977a4ffe67ed774776032b8f202302f9fa01361c42a7ed907c45edf4576",
-  "pubkey": "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
-  "created_at": synt1735094804,
-  "kind": 1063,
-  "content": "TollGate Module Package: basic for gl-mt3000",
-  "tags": [
-    ["url", "https://blossom.swissdash.site/55d4d74b4b9184f6c51af4fc38ae59b9f0318593d0a727b7265d9c3d81a405d5.ipk"],
-    ["m", "application/octet-stream"],
-    ["x", "55d4d74b4b9184f6c51af4fc38ae59b9f0318593d0a727b7265d9c3d81a405d5"],
-    ["filename", "basic-gl-mt3000-aarch64_cortex-a53.ipk"],
-    ["arch", "aarch64_cortex-a53"],
-    ["version", "1.2.3"],
-    ["branch", "main"]
-  ]
+ "id": "ba736977a4ffe67ed774776032b8f202302f9fa01361c42a7ed907c45edf4576",
+ "pubkey": "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
+ "created_at": synt1735094804,
+ "kind": 1063,
+ "content": "TollGate Module Package: basic for gl-mt3000",
+ "tags": [
+ ["url", "https://blossom.swissdash.site/55d4d74b4b9184f6c51af4fc38ae59b9f0318593d0a727b7265d9c3d81a405d5.ipk"],
+ ["m", "application/octet-stream"],
+ ["x", "55d4d74b4b9184f6c51af4fc38ae59b9f0318593d0a727b7265d9c3d81a405d5"],
+ ["filename", "basic-gl-mt3000-aarch64_cortex-a53.ipk"],
+ ["arch", "aarch64_cortex-a53"],
+ ["version", "1.2.3"],
+ ["branch", "main"]
+ ]
 }
 ```
 
@@ -81,6 +81,11 @@ Unit tests will be written to ensure that the Janitor module functions correctly
 ## Post-Installation
 
 After installing a new package, if the `config.json` file already exists, a post-install script will be run to update its version and timestamp to match the newly installed package.
+
+## Instructions for Engineers Implementing the Feature
+
+1. Update `OpenTollGate/nostr-publish-file-metadata-action/python@main` to include tags for the version and the branch.
+2. Use the `version` and `branch` fields in the NIP-94 metadata to track the package version and branch.
 
 ## Checklist
 

@@ -18,7 +18,7 @@ Configuration data will be stored in `files/etc/tollgate/config.json`
  "price_per_minute":1,
  "min_payment":1,
  "mint_fee":0,
- "relays": ["wss://relay.nostr.band", "wss://nostr.mom"],
+ "relays": ["wss://relay.nostr.band", "wss://nos.lol"],
  "trusted_maintainers": ["pubkey1", "pubkey2"],
  "package_info": {
  "version": "1.2.3",
@@ -76,6 +76,11 @@ Logs will be written using `log.Printf` with a standard format.
 ## Testing
 
 Unit tests will be written to ensure correct functionality and error handling.
+
+## Instructions for Engineers Implementing the Feature
+
+1. Update `OpenTollGate/nostr-publish-file-metadata-action/python@main` to include tags for the version and the branch.
+2. Use the `version` and `branch` fields in the NIP-94 metadata to track the package version and branch.
 
 ## Conclusion
 
