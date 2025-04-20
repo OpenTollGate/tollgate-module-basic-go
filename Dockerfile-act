@@ -1,0 +1,14 @@
+FROM ubuntu:22.04
+
+# Install act
+RUN apt-get update && apt-get install -y curl
+RUN curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash
+
+# Set working directory
+WORKDIR /app
+
+# Copy necessary files
+COPY . .
+
+# Run act
+CMD ["act"]

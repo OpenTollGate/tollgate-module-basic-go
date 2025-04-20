@@ -19,6 +19,10 @@ jobs:
       options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
 
     steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y jq golang-go
+    steps:
       - uses: actions/checkout@v4
         with:
           path: ${{ env.PACKAGE_NAME }}/
