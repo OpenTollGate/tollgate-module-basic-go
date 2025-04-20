@@ -82,12 +82,14 @@ jobs:
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
 
       - name: GitHub Artifact upload
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: package-${{ env.PACKAGE_NAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
+
   publish-metadata:
     needs: build-package
     runs-on: ubuntu-latest
