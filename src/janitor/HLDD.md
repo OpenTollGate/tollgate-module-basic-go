@@ -58,6 +58,7 @@ Events have the following structure:
 4. Download new package if event is valid and newer
 5. Verify the SHA256 sum of the downloaded package matches the expected hash from the NIP-94 event
 6. Install new package using opkg
+7. Run post-install script to update `config.json` with the new package version and timestamp if it already exists
 
 ## Security Considerations
 

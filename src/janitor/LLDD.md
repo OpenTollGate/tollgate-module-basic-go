@@ -78,6 +78,10 @@ The Janitor module will use a simple logging mechanism to log events and errors.
 
 Unit tests will be written to ensure that the Janitor module functions correctly and handles errors properly.
 
+## Post-Installation
+
+After installing a new package, if the `config.json` file already exists, a post-install script will be run to update its version and timestamp to match the newly installed package.
+
 ## Checklist
 
 - [ ] Implement the Janitor module as a separate Go module.
@@ -86,3 +90,4 @@ Unit tests will be written to ensure that the Janitor module functions correctly
 - [ ] Implement error handling for package installation failures.
 - [ ] Verify the checksum of the downloaded package before installation.
 - [ ] Compare version numbers to determine if a new package is newer.
+- [ ] Run post-install script to update `config.json` if it exists.
