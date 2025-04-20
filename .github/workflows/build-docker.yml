@@ -21,12 +21,12 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y jq golang-go
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 0
+          apt-get update && apt-get install -y jq
+ 
+       - uses: actions/checkout@v4
+         with:
+           path: ${{ env.PACKAGE_NAME }}/
+           fetch-depth: 0
 
       - name: Move sources to sdk folder
         run: |
