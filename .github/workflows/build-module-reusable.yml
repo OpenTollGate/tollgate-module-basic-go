@@ -17,6 +17,22 @@ on:
       package_name:
         required: true
         type: string
+    outputs:
+      package_url:
+        description: "URL of the uploaded package on Blossom"
+        value: ${{ jobs.build.outputs.package_url }}
+      package_hash:
+        description: "Hash of the uploaded package"
+        value: ${{ jobs.build.outputs.package_hash }}
+      package_size:
+        description: "Size of the package in bytes"
+        value: ${{ jobs.build.outputs.package_size }}
+      short_module:
+        description: "Short module name extracted from package name"
+        value: ${{ jobs.build.outputs.short_module }}
+      architecture:
+        description: "Architecture identifier"
+        value: ${{ jobs.build.outputs.architecture }}
 
 jobs:
   build:
@@ -24,6 +40,13 @@ jobs:
     container:
       image: ${{ inputs.sdk_image }}
       options: --user root
+    outputs:
+      package_url: ${{ steps.set_outputs.outputs.package_url }}
+      package_hash: ${{ steps.set_outputs.outputs.package_hash }}
+      package_size: ${{ steps.set_outputs.outputs.package_size }}
+      short_module: ${{ steps.set_outputs.outputs.short_module }}
+      architecture: ${{ steps.set_outputs.outputs.architecture }}
+
     steps:
       - name: Environment Info
         run: |
@@ -86,10 +109,20 @@ jobs:
         run: |
           PACKAGE_PATH=$(find /github/workspace/artifacts/${{ inputs.goarch }} -name "*.ipk" -type f | head -n1)
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "MODEL=$MODEL" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ inputs.package_name }}-${MODEL}-${{ inputs.goarch }}.ipk" >> $GITHUB_ENV
+          
+          # Determine architecture identifier based on input params
+          ARCH_ID="${{ inputs.goarch }}"
+          if [[ "${{ inputs.goarch }}" == "arm64" ]]; then
+            ARCH_ID="aarch64_cortex-a53"
+          elif [[ "${{ inputs.goarch }}" == "arm" && "${{ inputs.goarm }}" == "7" ]]; then
+            ARCH_ID="arm_cortex-a9"
+          elif [[ "${{ inputs.goarch }}" == "mipsle" && "${{ inputs.gomips }}" == "softfloat" ]]; then
+            ARCH_ID="mipsel_24kc"
+          elif [[ "${{ inputs.goarch }}" == "mips" && "${{ inputs.gomips }}" == "softfloat" ]]; then
+            ARCH_ID="mips_24kc"
+          fi
+          echo "ARCH_ID=$ARCH_ID" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -135,130 +168,63 @@ jobs:
           fi
           
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
-          DEVICE="dummy_device"
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+
+      - name: Set job outputs
+        id: set_outputs
+        run: |
+          echo "package_url=${{ env.PACKAGE_URL }}" >> $GITHUB_OUTPUT
+          echo "package_hash=${{ env.PACKAGE_HASH }}" >> $GITHUB_OUTPUT
+          echo "package_size=${{ env.PACKAGE_SIZE }}" >> $GITHUB_OUTPUT
+          echo "short_module=${{ env.SHORT_MODULE }}" >> $GITHUB_OUTPUT
+          echo "architecture=${{ env.ARCH_ID }}" >> $GITHUB_OUTPUT
+
+      - name: Build Summary
+        run: |
+          echo "Build Summary:"
+          echo "✅ Package successfully built and uploaded to Blossom"
+          echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
+          echo "Package Hash: ${{ env.PACKAGE_HASH }}"
+          echo "Architecture: ${{ env.ARCH_ID }}"
+  
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare metadata for NIP-94
+        run: |
+          # Create standardized filename for the package
+          DEVICE="gl-mt3000"
+          PACKAGE_SHORT_FILENAME="${{ needs.build.outputs.short_module }}-${DEVICE}-${{ needs.build.outputs.architecture }}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          
+          # Create a simplified content format
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${{ needs.build.outputs.short_module }} for ${DEVICE}" >> $GITHUB_ENV
 
-      - name: Install Python dependencies for NIP-94
-        run: |
-          # Install Python and required packages
-          apt-get update
-          apt-get install -y python3 python3-pip git
-          
-          # Upgrade pip as recommended
-          python3 -m pip install --upgrade pip
-          
-          # Try with correct package name (nostr instead of py-nostr)
-          python3 -m pip install nostr requests websocket-client
-          
-          # If that fails, install directly from GitHub
-          if [ $? -ne 0 ]; then
-            echo "Installing nostr package from GitHub..."
-            python3 -m pip install git+https://github.com/jeffthibault/python-nostr.git requests websocket-client
-          fi
-
-      - name: Publish Package NIP-94 Metadata (container native)
+      - name: Publish Package NIP-94 Metadata
         id: publish_package
-        run: |
-          # Create Python script for NIP-94 publishing
-          cat > /tmp/publish_nip94.py << 'EOL'
-          #!/usr/bin/env python3
-          import os
-          import sys
-          import time
-          import json
-          
-          # Import py-nostr modules
-          from nostr.key import PrivateKey
-          from nostr.event import Event
-          from nostr.relay_manager import RelayManager
-          
-          # Get environment variables
-          url = os.environ.get('PACKAGE_URL')
-          file_hash = os.environ.get('PACKAGE_HASH')
-          filename = os.environ.get('PACKAGE_SHORT_FILENAME')
-          content = os.environ.get('PACKAGE_CONTENT')
-          nsec = os.environ.get('NSEC')
-          file_size = os.environ.get('PACKAGE_SIZE')
-          architecture = os.environ.get('MODEL', 'generic')
-          
-          print(f"Publishing metadata for {filename}")
-          print(f"URL: {url}")
-          print(f"Hash: {file_hash}")
-          
-          # Initialize key from NSEC
-          if nsec.startswith('nsec'):
-              private_key = PrivateKey.from_nsec(nsec)
-          else:
-              private_key = PrivateKey(bytes.fromhex(nsec))
-          
-          # Create NIP-94 event
-          event = Event(
-              content=content,
-              tags=[
-                  ["url", url],
-                  ["m", "application/octet-stream"],
-                  ["x", file_hash],
-                  ["ox", file_hash],
-                  ["size", str(file_size)],
-                  ["dim", architecture],
-                  ["alt", filename]
-              ],
-              kind=1063
-          )
-          
-          # Sign event
-          event.sign(private_key.hex())
-          
-          # Setup relay manager
-          relay_manager = RelayManager()
-          relays = ["wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"]
-          for relay in relays:
-              relay_manager.add_relay(relay)
-          
-          # Publish event
-          print("Connecting to relays...")
-          relay_manager.open_connections()
-          time.sleep(1.5)
-          
-          print("Publishing event...")
-          relay_manager.publish_event(event)
-          time.sleep(2)
-          
-          relay_manager.close_connections()
-          
-          print(f"EVENT_ID={event.id}")
-          
-          # Write event ID to GitHub environment
-          with open(os.environ.get('GITHUB_ENV', '/dev/null'), 'a') as f:
-              f.write(f"EVENT_ID={event.id}\n")
-          
-          print(f"✅ Successfully published metadata with ID: {event.id}")
-          EOL
-          
-          # Make script executable
-          chmod +x /tmp/publish_nip94.py
-          
-          # Run the script using container's Python
-          python3 /tmp/publish_nip94.py
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
+        with:
+          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
+          url: ${{ needs.build.outputs.package_url }}
+          mimeType: application/octet-stream
+          fileHash: ${{ needs.build.outputs.package_hash }}
+          originalHash: ${{ needs.build.outputs.package_hash }}
+          filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
+          content: "${{ env.PACKAGE_CONTENT }}"
+          nsec: ${{ secrets.NSEC }}
+          size: ${{ needs.build.outputs.package_size }}
+          architecture: "${{ needs.build.outputs.architecture }}"
 
       - name: Debug Event ID
         run: |
           echo "EVENT_ID from env: ${{ env.EVENT_ID }}"
           echo "NOTE_ID from env: ${{ env.NOTE_ID }}"
           echo "Output from publish step: ${{ steps.publish_package.outputs.eventId || 'not set' }}"
-          
-          if [ -z "${{ env.EVENT_ID }}" ] && [ -z "${{ steps.publish_package.outputs.eventId }}" ]; then
-            echo "❌ No event ID was generated"
-            exit 1
-          else
-            echo "✅ Successfully published metadata"
-          fi
+          echo "Outputs available:"
+          echo "${{ toJSON(steps.publish_package.outputs) }}"
 
       - name: Verify Package NIP-94 Event
         id: verify_package
-        # Use environment variable instead of step output
         if: env.EVENT_ID != ''
         uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
         with:
@@ -266,24 +232,20 @@ jobs:
           relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
 
       - name: Check Package Publication
-        # Only run this step if the verification ran and failed
         if: steps.verify_package.outcome == 'failure'
         run: |
           echo "❌ Failed to verify package publication on relays"
           exit 1
           
-      # Add a step to handle the case where EVENT_ID is empty
       - name: Check Event ID
         if: env.EVENT_ID == ''
         run: |
           echo "❌ No event ID was generated by the publish step"
           exit 1
 
-      - name: Build Summary
+      - name: Publication Summary
         run: |
-          echo "Build Summary:"
-          echo "✅ Binary successfully built and published"
-          echo "✅ Package successfully built and published"
-          echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
-      
-      # Trigger OS Workflow step removed - now happens once in build-docker.yml
+          echo "Publication Summary:"
+          echo "✅ Package metadata successfully published to Nostr"
+          echo "Event ID: ${{ env.EVENT_ID || steps.publish_package.outputs.eventId }}"
+          echo "Package URL: ${{ needs.build.outputs.package_url }}"
