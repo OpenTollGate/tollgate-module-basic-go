@@ -1,0 +1,82 @@
+# This workflow is reusable for building OpenWrt modules for different architectures
+on:
+  workflow_call:
+    inputs:
+      sdk_image:
+        required: true
+        type: string
+      goarch:
+        required: true
+        type: string
+      goarm:
+        required: false
+        type: string
+      gomips:
+        required: false
+        type: string
+      package_name:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.sdk_image }}
+      options: --user root
+    steps:
+      - name: Environment Info
+        run: |
+          echo "Building for SDK image: ${{ inputs.sdk_image }}"
+          echo "GOARCH: ${{ inputs.goarch }}"
+          echo "GOARM: ${{ inputs.goarm }}"
+          echo "GOMIPS: ${{ inputs.gomips }}"
+
+      - uses: actions/checkout@v3
+        with:
+          path: ${{ inputs.package_name }}/
+
+      - name: Move sources to sdk folder
+        run: |
+          mv ${{ inputs.package_name }} /builder/package/${{ inputs.package_name }}
+
+      - name: Install Golang
+        run: |
+          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update
+          apt-get install -y -t bookworm-backports golang-go
+
+      - name: Configure SDK
+        run: |
+          cd /builder
+          make defconfig
+          echo "CONFIG_PACKAGE_${{ inputs.package_name }}=y" >> .config
+
+      - name: Compile Package
+        run: |
+          cd /builder
+          env GOOS=linux \
+          GOARCH=${{ inputs.goarch }} \
+          GOMIPS=${{ inputs.gomips }} \
+          GOARM=${{ inputs.goarm }} \
+          make -j$(nproc) V=sc package/${{ inputs.package_name }}/compile
+
+      - name: List output package(s)
+        run: |
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | grep -v nodogsplash | head -n1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No .ipk package found in /builder/bin/packages"
+            exit 1
+          fi
+          echo "✅ Found package at: $PACKAGE_PATH"
+          FILENAME=$(basename "$PACKAGE_PATH")
+          echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
+          mkdir -p /github/workspace/artifacts/${{ inputs.goarch }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ inputs.goarch }}/$FILENAME"
+
+      - name: GitHub Artifact upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ inputs.package_name }}-${{ inputs.goarch }}
+          path: /github/workspace/artifacts/${{ inputs.goarch }}
+          retention-days: 5
