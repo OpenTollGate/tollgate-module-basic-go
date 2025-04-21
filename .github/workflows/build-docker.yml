@@ -11,6 +11,7 @@ env:
   PRIMARY_ARCHITECTURE: "aarch64_cortex-a53"
   PRIMARY_TARGET: "mediatek/filogic"
   PRIMARY_TARGET_DEVICES: "GL-MT3000, GL-MT6000"
+  SDK_VERSION: "23.05.3"
 
 jobs:
   # First, build just the primary architecture (GL-MT3000)
@@ -21,7 +22,7 @@ jobs:
       architecture: ${{ env.PRIMARY_ARCHITECTURE }}
     
     container:
-      image: openwrt/sdk:mediatek-filogic-23.05.3
+      image: openwrt/sdk:mediatek-filogic-${{ env.SDK_VERSION }}
       options: --user root
 
     steps:
@@ -101,44 +102,44 @@ jobs:
         # One entry per unique architecture (not per target)
         architecture:
           - id: "mipsel_24kc"
-            sdk_image: "openwrt/sdk:ramips-mt7621-23.05.3"
+            sdk_image: "openwrt/sdk:ramips-mt7621-${{ env.SDK_VERSION }}"
             goarch: "mipsle"
             gomips: "softfloat"
             example_target: "ramips/mt7621"
           - id: "x86_64"
-            sdk_image: "openwrt/sdk:x86-64-23.05.3"
+            sdk_image: "openwrt/sdk:x86-64-${{ env.SDK_VERSION }}"
             goarch: "amd64"
             example_target: "x86/64"
           - id: "mips_24kc"
-            sdk_image: "openwrt/sdk:ath79-generic-23.05.3"
+            sdk_image: "openwrt/sdk:ath79-generic-${{ env.SDK_VERSION }}"
             goarch: "mips"
             gomips: "softfloat"
             example_target: "ath79/generic"
           - id: "aarch64_cortex-a72"
-            sdk_image: "openwrt/sdk:bcm27xx-bcm2711-23.05.3"
+            sdk_image: "openwrt/sdk:bcm27xx-bcm2711-${{ env.SDK_VERSION }}"
             goarch: "arm64"
             example_target: "bcm27xx/bcm2711"
           - id: "aarch64_generic"
-            sdk_image: "openwrt/sdk:rockchip-armv8-23.05.3"
+            sdk_image: "openwrt/sdk:rockchip-armv8-${{ env.SDK_VERSION }}"
             goarch: "arm64"
             example_target: "rockchip/armv8"
           - id: "arm_cortex-a7_neon-vfpv4"
-            sdk_image: "openwrt/sdk:ipq40xx-generic-23.05.3"
+            sdk_image: "openwrt/sdk:ipq40xx-generic-${{ env.SDK_VERSION }}"
             goarch: "arm"
             goarm: "7"
             example_target: "ipq40xx/generic"
           - id: "arm_cortex-a15_neon-vfpv4"
-            sdk_image: "openwrt/sdk:ipq806x-generic-23.05.3"
+            sdk_image: "openwrt/sdk:ipq806x-generic-${{ env.SDK_VERSION }}"
             goarch: "arm"
             goarm: "7"
             example_target: "ipq806x/generic"
           - id: "arm_cortex-a9"
-            sdk_image: "openwrt/sdk:bcm53xx-generic-23.05.3"
+            sdk_image: "openwrt/sdk:bcm53xx-generic-${{ env.SDK_VERSION }}"
             goarch: "arm"
             goarm: "7"
             example_target: "bcm53xx/generic"
           - id: "arm_cortex-a9_vfpv3-d16"
-            sdk_image: "openwrt/sdk:mvebu-cortexa9-23.05.3"
+            sdk_image: "openwrt/sdk:mvebu-cortexa9-${{ env.SDK_VERSION }}"
             goarch: "arm"
             goarm: "7"
             example_target: "mvebu/cortexa9"
