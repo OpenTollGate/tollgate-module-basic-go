@@ -123,12 +123,17 @@ jobs:
           echo "✅ Successfully extracted hash: $HASH"
 
       - name: Extract Short Module Name
+        shell: bash
         run: |
-          if [[ "${{ inputs.package_name }}" =~ tollgate-module-(.+)-go ]]; then
-            SHORT_MODULE="${BASH_REMATCH[1]}"
-          else
-            SHORT_MODULE="$(echo "${{ inputs.package_name }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
+          # Use sed to extract module name instead of bash regex
+          PKG_NAME="${{ inputs.package_name }}"
+          # Extract "basic" from "tollgate-module-basic-go"
+          SHORT_MODULE=$(echo "$PKG_NAME" | sed -E 's/tollgate-module-(.+)-go/\1/')
+          # If the pattern didn't match, try simpler approach
+          if [ "$SHORT_MODULE" = "$PKG_NAME" ]; then
+            SHORT_MODULE=$(echo "$PKG_NAME" | sed 's/tollgate-module-//g' | sed 's/-go//g')
           fi
+          
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           DEVICE="gl-mt3000"
           PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
