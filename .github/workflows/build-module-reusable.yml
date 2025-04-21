@@ -140,6 +140,20 @@ jobs:
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
 
+      - name: Install Python for NIP-94 action
+        run: |
+          # Install Python from the container's repositories
+          apt-get update
+          apt-get install -y python3 python3-pip
+          
+          # Create symlinks to make the action work with the container's Python
+          ln -sf /usr/bin/python3 /usr/bin/python
+          ln -sf /usr/bin/pip3 /usr/bin/pip
+          
+          # Verify Python version
+          python --version
+          pip --version
+
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
