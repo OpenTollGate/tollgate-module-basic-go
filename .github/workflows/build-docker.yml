@@ -72,3 +72,16 @@ jobs:
       goarm: ${{ matrix.goarm }}
       gomips: ${{ matrix.gomips }}
       package_name: tollgate-module-basic-go
+
+  trigger-os-workflow:
+    needs: [build-primary, build-others]
+    runs-on: ubuntu-latest
+    # Only trigger when all targets have been built successfully
+    if: always() && !contains(needs.*.result, 'failure')
+    steps:
+      - name: Trigger OS Workflow
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: OpenTollGate/tollgate-os
+          event-type: update-release-json
