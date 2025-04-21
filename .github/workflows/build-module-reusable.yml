@@ -99,6 +99,7 @@ jobs:
           filePath: ${{ env.PACKAGE_PATH }}
 
       - name: Process Blossom response and extract hash
+        shell: bash
         run: |
           echo "Upload outputs:"
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
@@ -114,7 +115,8 @@ jobs:
             echo "❌ ERROR: Failed to extract hash from URL"
             exit 1
           fi
-          if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
+          # Use grep for POSIX-compatible regex check instead of [[ =~ ]]
+          if ! echo "$HASH" | grep -qE '^[0-9a-f]{64}$'; then
             echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
             exit 1
           fi
