@@ -18,10 +18,6 @@ jobs:
       goarch: arm64
       package_name: tollgate-module-basic-go
       SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
-    outputs:
-      arch_id: aarch64_cortex-a53
-      display_name: ARM64 Cortex-A53
-      device_examples: GL-MT3000, GL-MT6000, Broadcom BCM4908, MediaTek MT7622
 
   build-others:
     if: github.ref == 'refs/heads/main'
@@ -88,10 +84,6 @@ jobs:
       gomips: ${{ matrix.gomips }}
       package_name: tollgate-module-basic-go
       SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
-    outputs:
-      arch_id: ${{ matrix.id }}
-      display_name: ${{ matrix.display_name }}
-      device_examples: ${{ matrix.device_examples }}
 
   publish-metadata:
     needs: [build-primary, build-others]
@@ -99,12 +91,36 @@ jobs:
     strategy:
       matrix:
         include:
-          - id: ${{ needs.build-primary.outputs.arch_id }}
-            display_name: ${{ needs.build-primary.outputs.display_name }}
-            device_examples: ${{ needs.build-primary.outputs.device_examples }}
-          - id: ${{ needs.build-others.outputs.arch_id }}
-            display_name: ${{ needs.build-others.outputs.display_name }}
-            device_examples: ${{ needs.build-others.outputs.device_examples }}
+          - id: aarch64_cortex-a53
+            display_name: ARM64 Cortex-A53
+            device_examples: GL-MT3000, GL-MT6000, Broadcom BCM4908, MediaTek MT7622
+          - id: mipsel_24kc
+            display_name: MIPS 24Kc (Little Endian)
+            device_examples: D-Link COVR-X1860 A1, MT7621, MT7620, MT76x8
+          - id: x86_64
+            display_name: x86-64
+            device_examples: PC, servers, x86 virtual machines
+          - id: mips_24kc
+            display_name: MIPS 24Kc (Big Endian)
+            device_examples: TP-Link, Ubiquiti, ath79 devices
+          - id: aarch64_cortex-a72
+            display_name: ARM64 Cortex-A72
+            device_examples: Raspberry Pi 4, Marvell Armada 37x0
+          - id: aarch64_generic
+            display_name: Generic ARM64
+            device_examples: Rockchip, OcteonTX, Layerscape
+          - id: arm_cortex-a7_neon-vfpv4
+            display_name: ARM Cortex-A7
+            device_examples: Qualcomm IPQ40xx, MediaTek MT7623, Allwinner
+          - id: arm_cortex-a15_neon-vfpv4
+            display_name: ARM Cortex-A15
+            device_examples: Qualcomm IPQ806x
+          - id: arm_cortex-a9
+            display_name: ARM Cortex-A9
+            device_examples: Broadcom BCM53xx
+          - id: arm_cortex-a9_vfpv3-d16
+            display_name: ARM Cortex-A9 VFPv3
+            device_examples: Marvell Armada
     uses: ./.github/workflows/publish-metadata-reusable.yml
     with:
       architecture_id: ${{ matrix.id }}
