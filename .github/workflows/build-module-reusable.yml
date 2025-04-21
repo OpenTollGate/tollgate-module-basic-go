@@ -135,7 +135,7 @@ jobs:
           fi
           
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
-          DEVICE="gl-mt3000"
+          DEVICE="dummy_device"
           PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
