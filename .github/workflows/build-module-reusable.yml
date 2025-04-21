@@ -211,10 +211,5 @@ jobs:
           echo "✅ Binary successfully built and published"
           echo "✅ Package successfully built and published"
           echo "Package URL: ${{ steps.blossom_upload.outputs.url }}"
-
-      - name: Trigger OS Workflow
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          token: ${{ secrets.REPO_ACCESS_TOKEN }}
-          repository: OpenTollGate/tollgate-os
-          event-type: update-release-json
+      
+      # Trigger OS Workflow step removed - now happens once in build-docker.yml
