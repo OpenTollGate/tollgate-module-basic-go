@@ -146,8 +146,17 @@ jobs:
           apt-get update
           apt-get install -y python3 python3-pip git
           
-          # Install py-nostr and required packages using the container's pip
-          pip3 install py-nostr requests
+          # Upgrade pip as recommended
+          python3 -m pip install --upgrade pip
+          
+          # Try with correct package name (nostr instead of py-nostr)
+          python3 -m pip install nostr requests websocket-client
+          
+          # If that fails, install directly from GitHub
+          if [ $? -ne 0 ]; then
+            echo "Installing nostr package from GitHub..."
+            python3 -m pip install git+https://github.com/jeffthibault/python-nostr.git requests websocket-client
+          fi
 
       - name: Publish Package NIP-94 Metadata (container native)
         id: publish_package
