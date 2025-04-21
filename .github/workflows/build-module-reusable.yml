@@ -140,34 +140,99 @@ jobs:
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
 
-      - name: Install Python for NIP-94 action
+      - name: Install Python dependencies for NIP-94
         run: |
           # Install Python and required packages
           apt-get update
           apt-get install -y python3 python3-pip git
           
-          # Create symlinks to make the action work with the container's Python
-          ln -sf /usr/bin/python3 /usr/bin/python
-          ln -sf /usr/bin/pip3 /usr/bin/pip
-          
-          # Verify Python version
-          python --version
-          pip --version
+          # Install py-nostr and required packages using the container's pip
+          pip3 install py-nostr requests
 
-      - name: Publish Package NIP-94 Metadata
+      - name: Publish Package NIP-94 Metadata (container native)
         id: publish_package
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
-        with:
-          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
-          url: ${{ env.PACKAGE_URL }}
-          mimeType: application/octet-stream
-          fileHash: ${{ env.PACKAGE_HASH }}
-          originalHash: ${{ env.PACKAGE_HASH }}
-          filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
-          content: "${{ env.PACKAGE_CONTENT }}"
-          nsec: ${{ secrets.NSEC }}
-          size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.MODEL }}"
+        run: |
+          # Create Python script for NIP-94 publishing
+          cat > /tmp/publish_nip94.py << 'EOL'
+          #!/usr/bin/env python3
+          import os
+          import sys
+          import time
+          import json
+          
+          # Import py-nostr modules
+          from nostr.key import PrivateKey
+          from nostr.event import Event
+          from nostr.relay_manager import RelayManager
+          
+          # Get environment variables
+          url = os.environ.get('PACKAGE_URL')
+          file_hash = os.environ.get('PACKAGE_HASH')
+          filename = os.environ.get('PACKAGE_SHORT_FILENAME')
+          content = os.environ.get('PACKAGE_CONTENT')
+          nsec = os.environ.get('NSEC')
+          file_size = os.environ.get('PACKAGE_SIZE')
+          architecture = os.environ.get('MODEL', 'generic')
+          
+          print(f"Publishing metadata for {filename}")
+          print(f"URL: {url}")
+          print(f"Hash: {file_hash}")
+          
+          # Initialize key from NSEC
+          if nsec.startswith('nsec'):
+              private_key = PrivateKey.from_nsec(nsec)
+          else:
+              private_key = PrivateKey(bytes.fromhex(nsec))
+          
+          # Create NIP-94 event
+          event = Event(
+              content=content,
+              tags=[
+                  ["url", url],
+                  ["m", "application/octet-stream"],
+                  ["x", file_hash],
+                  ["ox", file_hash],
+                  ["size", str(file_size)],
+                  ["dim", architecture],
+                  ["alt", filename]
+              ],
+              kind=1063
+          )
+          
+          # Sign event
+          event.sign(private_key.hex())
+          
+          # Setup relay manager
+          relay_manager = RelayManager()
+          relays = ["wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"]
+          for relay in relays:
+              relay_manager.add_relay(relay)
+          
+          # Publish event
+          print("Connecting to relays...")
+          relay_manager.open_connections()
+          time.sleep(1.5)
+          
+          print("Publishing event...")
+          relay_manager.publish_event(event)
+          time.sleep(2)
+          
+          relay_manager.close_connections()
+          
+          print(f"EVENT_ID={event.id}")
+          
+          # Write event ID to GitHub environment
+          with open(os.environ.get('GITHUB_ENV', '/dev/null'), 'a') as f:
+              f.write(f"EVENT_ID={event.id}\n")
+          
+          print(f"✅ Successfully published metadata with ID: {event.id}")
+          EOL
+          
+          # Make script executable
+          chmod +x /tmp/publish_nip94.py
+          
+          # Run the script using container's Python
+          python3 /tmp/publish_nip94.py
 
       - name: Debug Event ID
         run: |
