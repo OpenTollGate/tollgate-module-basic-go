@@ -1,0 +1,28 @@
+# .github/workflows/publish-metadata-reusable.yml
+on:
+  workflow_call:
+    inputs:
+      architecture_id:
+        required: true
+        type: string
+      display_name:
+        required: true
+        type: string
+      device_examples:
+        required: true
+        type: string
+      package_name:
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact for architecture
+        uses: actions/download-artifact@v4
+        with:
+          name: package-${{ inputs.package_name }}-${{ inputs.architecture_id }}
+          path: ./artifacts
+      # ...existing code for metadata preparation, upload, and publish...
+      # (copy from the previous publish-metadata job, replacing matrix.architecture.* with inputs.*)
