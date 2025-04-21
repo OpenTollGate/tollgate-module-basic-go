@@ -14,7 +14,7 @@ jobs:
     name: "Build Primary - MediaTek Filogic (aarch64_cortex-a53)"
     uses: ./.github/workflows/build-module-reusable.yml
     with:
-      sdk_image: openwrt/sdk:mediatek-filogic-${{ inputs.SDK_VERSION }}
+      sdk_image: openwrt/sdk:mediatek-filogic-${{ inputs.SDK_VERSION || '23.05.3' }}
       goarch: arm64
       package_name: tollgate-module-basic-go
       SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
