@@ -96,6 +96,7 @@ jobs:
 
       # Cache common Go modules that might be used across builds
       - name: Cache common Go modules
+        id: cache-go-common-modules
         uses: actions/cache@v3
         with:
           path: |
@@ -104,6 +105,15 @@ jobs:
           key: ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
           restore-keys: |
             ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-
+
+      # Log cache status
+      - name: Log Common Go Modules Cache Status
+        run: |
+          if [ "${{ steps.cache-go-common-modules.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ Common Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ Common Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
 
       # Pre-configure SDK before checking out code
       - name: Create empty package directory for SDK config
