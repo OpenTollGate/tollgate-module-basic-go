@@ -22,52 +22,16 @@ jobs:
       matrix:
         include:
           - id: "aarch64_cortex-a53"
-            name: "MediaTek Filogic (aarch64_cortex-a53)"
             target: "mediatek-filogic"
             goarch: "arm64"
           - id: "mipsel_24kc"
-            name: "MIPS (Little Endian)"
             target: "ramips-mt7621"
             goarch: "mipsle"
             gomips: "softfloat"
           - id: "x86_64"
-            name: "x86-64"
             target: "x86-64"
             goarch: "amd64"
-          - id: "mips_24kc"
-            name: "MIPS (Big Endian)"
-            target: "ath79-generic"
-            goarch: "mips"
-            gomips: "softfloat"
-          - id: "aarch64_cortex-a72"
-            name: "ARM64 (Cortex-A72)"
-            target: "bcm27xx-bcm2711"
-            goarch: "arm64"
-          - id: "aarch64_generic"
-            name: "ARM64 (Generic)"
-            target: "rockchip-armv8"
-            goarch: "arm64"
-          - id: "arm_cortex-a7_neon-vfpv4"
-            name: "ARM (Cortex-A7)"
-            target: "ipq40xx-generic"
-            goarch: "arm"
-            goarm: "7"
-          - id: "arm_cortex-a15_neon-vfpv4"
-            name: "ARM (Cortex-A15)"
-            target: "ipq806x-generic"
-            goarch: "arm"
-            goarm: "7"
-          - id: "arm_cortex-a9"
-            name: "ARM (Cortex-A9)"
-            target: "bcm53xx-generic"
-            goarch: "arm"
-            goarm: "7"
-          - id: "arm_cortex-a9_vfpv3-d16"
-            name: "ARM (Cortex-A9 VFPv3)"
-            target: "mvebu-cortexa9"
-            goarch: "arm"
-            goarm: "7"
-    name: "Build ${{ matrix.name }}"
+    name: "Build ${{ matrix.id }}"
     runs-on: ubuntu-latest
     
     # Set SDK version at the beginning for the entire job
@@ -84,6 +48,7 @@ jobs:
         run: |
           echo "SDK Version: ${{ env.SDK_VERSION }}"
           echo "Building for target: ${{ matrix.target }}"
+          echo "Architecture ID: ${{ matrix.id }}"
           echo "GOARCH: ${{ matrix.goarch }}"
           echo "GOARM: ${{ matrix.goarm }}"
           echo "GOMIPS: ${{ matrix.gomips }}"
@@ -91,12 +56,8 @@ jobs:
           echo "SDK: ${{ matrix.id }}-${{ env.SDK_VERSION }}"
           echo "Cache version: ${{ env.CACHE_VERSION }}"
 
-      - uses: actions/checkout@v4
-        with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 1  # Shallow clone for faster checkout
-
       # Cache Go installation to speed up container initialization
+      # These cache steps happen BEFORE code checkout for better reuse
       - name: Cache Golang
         id: cache-golang
         uses: actions/cache@v3
@@ -112,10 +73,22 @@ jobs:
           apt-get update
           apt-get install -y -t bookworm-backports golang-go
 
-      # Move sources after caching checks
-      - name: Move sources to sdk folder
+      # Cache common Go modules that might be used across builds
+      - name: Cache common Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.id }}-${{ env.SDK_VERSION }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.id }}-
+
+      # Pre-configure SDK before checking out code
+      - name: Create empty package directory for SDK config
         run: |
-          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+          mkdir -p /builder/package/${{ env.PACKAGE_NAME }}
+          touch /builder/package/${{ env.PACKAGE_NAME }}/.placeholder
 
       # Cache SDK configuration
       - name: Cache SDK configuration
@@ -123,9 +96,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: /builder/.config
-          key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.id }}-${{ hashFiles('/builder/package/**') }}-${{ env.SDK_VERSION }}
+          key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.id }}-${{ env.SDK_VERSION }}
           
-      # Configure SDK only if not cached
+      # Configure SDK only if not cached - this is independent of our code
       - name: Configure SDK
         if: steps.cache-sdk-config.outputs.cache-hit != 'true'
         run: |
@@ -133,17 +106,31 @@ jobs:
           make defconfig
           echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
 
-      # Cache Go module dependencies
-      - name: Cache Go modules
-        id: cache-go-modules
+      # Only NOW checkout the code, after environment is setup and cached
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.PACKAGE_NAME }}-src/
+          fetch-depth: 1  # Shallow clone for faster checkout
+
+      # Move sources to the SDK folder
+      - name: Move sources to sdk folder
+        run: |
+          # Remove the placeholder if it exists
+          rm -f /builder/package/${{ env.PACKAGE_NAME }}/.placeholder
+          # Move our actual code
+          cp -r ${{ env.PACKAGE_NAME }}-src/* /builder/package/${{ env.PACKAGE_NAME }}/
+
+      # Cache project-specific Go modules (depends on code)
+      - name: Cache project Go modules
+        id: cache-project-go-modules
         uses: actions/cache@v3
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ env.CACHE_VERSION }}-go-modules-${{ matrix.id }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
+          key: ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.id }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-go-modules-${{ matrix.id }}-
+            ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.id }}-
 
       # Compile the package
       - name: Compile Package
@@ -269,7 +256,6 @@ jobs:
   publish:
     needs: build-modules
     runs-on: ubuntu-latest
-    # Set SDK version at the beginning for the entire job
     env:
       SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
     strategy:
@@ -278,26 +264,9 @@ jobs:
       matrix:
         include:
           - id: "aarch64_cortex-a53"
-            name: "MediaTek Filogic (aarch64_cortex-a53)"
           - id: "mipsel_24kc"
-            name: "MIPS (Little Endian)"
           - id: "x86_64"
-            name: "x86-64"
-          - id: "mips_24kc"
-            name: "MIPS (Big Endian)"
-          - id: "aarch64_cortex-a72"
-            name: "ARM64 (Cortex-A72)"
-          - id: "aarch64_generic" 
-            name: "ARM64 (Generic)"
-          - id: "arm_cortex-a7_neon-vfpv4"
-            name: "ARM (Cortex-A7)"
-          - id: "arm_cortex-a15_neon-vfpv4"
-            name: "ARM (Cortex-A15)"
-          - id: "arm_cortex-a9"
-            name: "ARM (Cortex-A9)"
-          - id: "arm_cortex-a9_vfpv3-d16"
-            name: "ARM (Cortex-A9 VFPv3)"
-    name: "Publish ${{ matrix.name }}"
+    name: "Publish ${{ matrix.id }}"
     steps:
       # Cache Python dependencies for NIP-94 action
       - name: Cache Python dependencies
