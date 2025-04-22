@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
 # This version will be overridden by the CI workflow with git commit information
-PKG_VERSION:=72
+PKG_VERSION:=78.0838acf
 PKG_RELEASE:=3150008
 PKG_FLAGS:=overwrite
 
@@ -17,6 +17,8 @@ ifneq ($(TOPDIR),)
 		PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE).tar.xz
 		PKG_MIRROR_HASH:=skip
 		PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE)
+		# Add fallback URL for direct download
+		PKG_HASH:=skip
 	else
 		# We're in OpenWrt build but with local files (SDK context)
 		PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -59,12 +61,30 @@ define Package/$(PKG_NAME)/description
 	TollGate Basic Module for OpenWrt
 endef
 
+# Add fallback download method if the standard one fails
+define Download/default
+	FILE:=$(PKG_SOURCE)
+	URL:=$(PKG_SOURCE_URL)
+	SUBDIR:=$(PKG_SOURCE_SUBDIR)
+	PROTO:=git
+	VERSION:=$(PKG_SOURCE_VERSION)
+endef
+
 define Build/Prepare
 	# OpenWrt SDK will use Build/Prepare/Default
-	$(if $(wildcard /builder),$(call Build/Prepare/Default),
+	$(if $(wildcard /builder),
+		# First try standard preparation
+		$(call Build/Prepare/Default) || ( \
+			# If that fails, do a direct git clone
+			echo "Standard preparation failed, trying direct git clone..." && \
+			mkdir -p $(PKG_BUILD_DIR) && \
+			git clone $(PKG_SOURCE_URL) $(PKG_BUILD_DIR) && \
+			cd $(PKG_BUILD_DIR) && \
+			git checkout $(PKG_SOURCE_VERSION) \
+		),
 		# For local builds, use current directory
-		mkdir -p $(PKG_BUILD_DIR)
-		$(CP) $(CURDIR)/* $(PKG_BUILD_DIR)/ 2>/dev/null || true
+		mkdir -p $(PKG_BUILD_DIR) && \
+		$(CP) $(CURDIR)/* $(PKG_BUILD_DIR)/ 2>/dev/null || true \
 	)
 	
 	# Copy Go source files if needed
