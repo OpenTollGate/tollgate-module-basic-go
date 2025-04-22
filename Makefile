@@ -9,12 +9,18 @@ PKG_FLAGS:=overwrite
 # Place conditional checks EARLY - before variables that depend on them
 ifneq ($(TOPDIR),)
 	# Feed-specific settings (auto-clone from git)
-	PKG_SOURCE_PROTO:=git
-	PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
-	PKG_SOURCE_VERSION:=main
-	PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE).tar.xz
-	PKG_MIRROR_HASH:=skip
-	PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE)
+	# Only use git if we're in a feed context and not in local development
+	ifeq ($(findstring $(CURDIR),$(PKG_NAME)),)
+		PKG_SOURCE_PROTO:=git
+		PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
+		PKG_SOURCE_VERSION:=HEAD
+		PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE).tar.xz
+		PKG_MIRROR_HASH:=skip
+		PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE)
+	else
+		# We're in OpenWrt build but with local files (SDK context)
+		PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
+	endif
 	# Auto create source tarball from git
 	PKG_BUILD_DEPENDS:=golang/host
 else
