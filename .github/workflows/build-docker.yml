@@ -69,28 +69,24 @@ jobs:
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "PKG_VERSION=${VERSION}" >> $GITHUB_ENV
 
-      # Cache Go installation to speed up container initialization
-      - name: Cache Golang
-        id: cache-golang
-        uses: actions/cache@v3
-        with:
-          path: /usr/bin/go
-          key: ${{ env.CACHE_VERSION }}-golang-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
-
-      # Install Go regardless of cache status to ensure it's always available
+      # Always install Go to ensure it's properly available
       - name: Install Golang
         run: |
-          # Check if Go is already installed and working
-          if command -v go &> /dev/null && go version &> /dev/null; then
-            echo "✅ Go is already installed and working: $(go version)"
-          else
-            echo "⚠️ Go not found or not working. Installing..."
-            echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
-            apt-get update
-            apt-get install -y -t bookworm-backports golang-go
-          fi
-          # Verify Go installation
+          echo "Installing Go..."
+          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update
+          apt-get install -y -t bookworm-backports golang-go
+          
+          # Verify Go installation with explicit path
+          /usr/bin/go version
+          
+          # Make sure go is in PATH for future steps
+          echo "Testing go command is in PATH"
           go version
+          
+          # Export GOPATH
+          echo "GOPATH=$HOME/go" >> $GITHUB_ENV
+          echo "PATH=$PATH:/usr/bin:/usr/local/bin:$HOME/go/bin" >> $GITHUB_ENV
 
       # Cache common Go modules that might be used across builds
       - name: Cache common Go modules
