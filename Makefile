@@ -67,25 +67,13 @@ define Download/default
 endef
 
 define Build/Prepare
-	# Call the default prepare method
 	$(call Build/Prepare/Default)
-	
-	# If we have source files in src directory, copy them to the build directory
-	[ -d "$(PKG_BUILD_DIR)/src" ] && $(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ || true
-	
-	# Display go.mod contents for debugging
 	echo "DEBUG: Contents of go.mod after prepare:"
-	[ -f "$(PKG_BUILD_DIR)/go.mod" ] && cat $(PKG_BUILD_DIR)/go.mod || echo "go.mod not found"
-	
-	# Create go.mod if it doesn't exist
-	if [ ! -f "$(PKG_BUILD_DIR)/go.mod" ]; then
-		echo "Creating go.mod..."
-		cd $(PKG_BUILD_DIR) && go mod init $(GO_PKG)
-		cd $(PKG_BUILD_DIR) && go mod tidy
+	if [ -f "$(PKG_BUILD_DIR)/go.mod" ]; then
+		cat $(PKG_BUILD_DIR)/go.mod
+	else
+		echo "go.mod not found"
 	fi
-	
-	# List directory contents for debugging
-	ls -la $(PKG_BUILD_DIR)
 endef
 
 # Use GoPackage/Build/Compile from our local golang.mk
