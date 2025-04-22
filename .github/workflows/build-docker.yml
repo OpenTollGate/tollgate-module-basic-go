@@ -289,6 +289,7 @@ jobs:
         run: |
           mkdir -p /github/workspace/env-artifacts
           ENV_FILE="/github/workspace/env-artifacts/build-env.txt"
+          echo "PKG_VERSION=${{ env.PKG_VERSION }}" >> $ENV_FILE
           echo "PACKAGE_URL=${{ env.PACKAGE_URL }}" >> $ENV_FILE
           echo "PACKAGE_HASH=${{ env.PACKAGE_HASH }}" >> $ENV_FILE
           echo "PACKAGE_SIZE=${{ env.PACKAGE_SIZE }}" >> $ENV_FILE
