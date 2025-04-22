@@ -29,9 +29,30 @@ PKG_USE_MIPS16:=0
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
 
 include $(INCLUDE_DIR)/package.mk
-# Include golang.mk from the OpenWrt SDK's toolchain directory
-include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
 
+# Use the standard OpenWrt build system's golang.mk if it exists
+ifneq ($(wildcard $(INCLUDE_DIR)/golang.mk),)
+	include $(INCLUDE_DIR)/golang.mk
+# Otherwise, try the feeds path
+else ifneq ($(wildcard $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk),)
+	include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
+# If none of the above work, we need to define our own Go variables
+else
+	# Fallback definitions for basic Go variables
+	GO_TARGET_OS:=linux
+	ifeq ($(ARCH),aarch64)
+		GO_TARGET_ARCH:=arm64
+	else ifeq ($(ARCH),x86_64)
+		GO_TARGET_ARCH:=amd64
+	else ifeq ($(ARCH),mipsel)
+		GO_TARGET_ARCH:=mips
+		GO_MIPS:=softfloat
+	else
+		GO_TARGET_ARCH:=$(ARCH)
+	endif
+endif
+
+# For compatibility with both approaches
 $(eval $(call GoPackage))
 
 define Package/$(PKG_NAME)
