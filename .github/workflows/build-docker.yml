@@ -40,8 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     
     # First stage - Build in container
+    # We must use github.event.inputs directly here, not the env variable
     container:
-      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
+      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
       options: --user root
     
     steps:
