@@ -58,6 +58,25 @@ jobs:
           echo "SDK: ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           echo "Cache version: ${{ env.CACHE_VERSION }}"
 
+      # Generate package version from git information before doing anything else
+      - uses: actions/checkout@v4
+        with:
+          path: source-for-version
+          fetch-depth: 0  # Need full history for commit count
+      
+      - name: Generate Package Version
+        id: package_version
+        run: |
+          cd source-for-version
+          # Get commit count and short commit hash
+          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+          # Create version string: [commit-count].[short-hash]
+          VERSION="${COMMIT_COUNT}.${COMMIT_HASH}"
+          echo "Generated version: ${VERSION}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "PKG_VERSION=${VERSION}" >> $GITHUB_ENV
+
       # Cache Go installation to speed up container initialization
       - name: Cache Golang
         id: cache-golang
@@ -120,6 +139,9 @@ jobs:
           rm -f /builder/package/${{ env.PACKAGE_NAME }}/.placeholder
           # Move our actual code
           cp -r ${{ env.PACKAGE_NAME }}-src/* /builder/package/${{ env.PACKAGE_NAME }}/
+          # Override version in Makefile with the one we generated
+          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ env.PKG_VERSION }}/" /builder/package/${{ env.PACKAGE_NAME }}/Makefile
+          cat /builder/package/${{ env.PACKAGE_NAME }}/Makefile | grep PKG_VERSION
 
       # Cache project-specific Go modules (depends on code)
       - name: Cache project Go modules
@@ -162,7 +184,7 @@ jobs:
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}_${{ env.SDK_VERSION }}-1_${{ matrix.arch }}
+          name: ${{ env.PACKAGE_NAME }}_${{ env.PKG_VERSION }}-1_${{ matrix.arch }}
           path: /github/workspace/artifacts/${{ matrix.arch }}
           retention-days: 5
           compression-level: 9 # Maximum compression for faster upload
@@ -293,7 +315,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}_${{ env.SDK_VERSION }}-1_${{ matrix.arch }}
+          name: ${{ env.PACKAGE_NAME }}_${{ env.PKG_VERSION }}-1_${{ matrix.arch }}
           path: ./artifacts
 
       - name: Download Environment Variables
