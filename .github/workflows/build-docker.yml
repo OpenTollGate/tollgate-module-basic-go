@@ -22,20 +22,16 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          # Each entry maps an OpenWrt target to architecture using proper Go naming conventions
+          # Simplified matrix entries - only include what's needed to identify the OpenWrt target
           - target_family: "mediatek"      
             target_board: "filogic"       
-            arch: "aarch64_cortex-a53"    # OpenWrt package architecture
-            goarch: "arm64"               # GOARCH value
+            arch: "aarch64_cortex-a53"    # OpenWrt package architecture  
           - target_family: "ramips"        
             target_board: "mt7621"
             arch: "mipsel_24kc"
-            goarch: "mipsle"              # GOARCH value for MIPS little-endian
-            gomips: "softfloat"           # GOMIPS value per OpenWrt convention
           - target_family: "x86"
             target_board: "64"             
             arch: "x86_64"
-            goarch: "amd64"               # GOARCH value for x86_64
     name: "Build ${{ matrix.target_family}}/${{ matrix.target_board }}"
     runs-on: ubuntu-latest
     
@@ -50,10 +46,6 @@ jobs:
           echo "SDK Version: ${{ env.SDK_VERSION }}"
           echo "Target Platform: ${{ matrix.target_family }}/${{ matrix.target_board }}"
           echo "Package Architecture: ${{ matrix.arch }}"
-          echo "GOARCH: ${{ matrix.goarch }}"
-          echo "GOARM: ${{ matrix.goarm }}"
-          echo "GOMIPS: ${{ matrix.gomips }}"
-          echo "GO386: ${{ matrix.go386 }}" 
           echo "Cache key components:"
           echo "SDK: ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           echo "Cache version: ${{ env.CACHE_VERSION }}"
@@ -155,14 +147,10 @@ jobs:
           restore-keys: |
             ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-
 
-      # Compile the package
+      # Compile the package - let the OpenWrt build system handle Go architecture settings
       - name: Compile Package
         run: |
           cd /builder
-          env GOOS=linux \
-          GOARCH=${{ matrix.goarch }} \
-          GOMIPS=${{ matrix.gomips }} \
-          GOARM=${{ matrix.goarm }} \
           make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile
 
       # The rest of your workflow remains unchanged
@@ -291,15 +279,12 @@ jobs:
           - target_family: "mediatek"
             target_board: "filogic"
             arch: "aarch64_cortex-a53"
-            goarch: "arm64"
           - target_family: "ramips"
             target_board: "mt7621"
             arch: "mipsel_24kc"
-            goarch: "mipsle"
           - target_family: "x86"
             target_board: "64"
             arch: "x86_64"
-            goarch: "amd64"
     name: "Publish ${{ matrix.target_family }}/${{ matrix.target_board }}"
     steps:
       # Cache Python dependencies for NIP-94 action
