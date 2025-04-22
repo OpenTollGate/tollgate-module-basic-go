@@ -347,10 +347,53 @@ jobs:
             echo "⚠️ Python dependencies cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           fi
 
+      # Download Environment Variables first to get PKG_VERSION
+      - name: Download Environment Variables
+        uses: actions/download-artifact@v4
+        with:
+          name: build-env-${{ matrix.target_family }}-${{ matrix.target_board }}
+          path: ./env
+
+      - name: Load Environment Variables and Set Package Version
+        id: env_setup
+        run: |
+          # Load environment variables from the build step
+          if [ -f ./env/build-env.txt ]; then
+            echo "Loading environment variables from build step"
+            cat ./env/build-env.txt
+            while IFS= read -r line; do
+              if [[ "$line" == *"="* ]]; then
+                echo "$line" >> $GITHUB_ENV
+                # Extract PKG_VERSION if present
+                if [[ "$line" == PKG_VERSION=* ]]; then
+                  PKG_VERSION="${line#PKG_VERSION=}"
+                  echo "Found package version: $PKG_VERSION"
+                  echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+                fi
+              fi
+            done < ./env/build-env.txt
+          else
+            echo "❌ ERROR: Environment file not found"
+            ls -la ./env/
+            exit 1
+          fi
+          
+          # Fallback version if PKG_VERSION wasn't found
+          if [ -z "$PKG_VERSION" ]; then
+            echo "⚠️ Warning: PKG_VERSION not found in env file, using fallback version"
+            PKG_VERSION="0.0.0"
+            echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
+            echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+          fi
+          
+          # Print the artifact name we'll be looking for
+          echo "Will download artifact: ${{ env.PACKAGE_NAME }}_${PKG_VERSION}-1_${{ matrix.arch }}"
+
+      # Now download artifacts with the version from the environment file
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}_${{ env.PKG_VERSION }}-1_${{ matrix.arch }}
+          name: ${{ env.PACKAGE_NAME }}_${{ steps.env_setup.outputs.PKG_VERSION || '0.0.0' }}-1_${{ matrix.arch }}
           path: ./artifacts
 
       - name: Download Environment Variables
