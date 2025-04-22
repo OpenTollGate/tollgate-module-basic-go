@@ -12,7 +12,7 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  CACHE_VERSION: "v4" # Increment this when you need to invalidate all caches
+  CACHE_VERSION: "v5" # Increment this when you need to invalidate all caches
   SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }} # Define SDK version once for all jobs
 
 jobs:
@@ -364,6 +364,15 @@ jobs:
             SHORT_MODULE=$(echo "$PACKAGE_NAME" | sed -E 's/tollgate-module-(.+)-go/\1/')
             # If the pattern didn't match, try simpler approach
             if [ "$SHORT_MODULE" = "$PACKAGE_NAME" ]; then
+              SHORT_MODULE=$(echo "$PACKAGE_NAME" | sed 's/tollgate-module-//g' | sed 's/-go//g')
+            fi
+            PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ matrix.arch }}.ipk"
+            echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
+            
+            # Create a simplified content format
+            echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          fi
+
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
