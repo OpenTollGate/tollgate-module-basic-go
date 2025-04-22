@@ -42,6 +42,7 @@ GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
 include $(CURDIR)/golang.mk
 
 include $(INCLUDE_DIR)/package.mk
+$(eval $(call GoPackage,$(PKG_NAME)))
 
 define Package/$(PKG_NAME)
 	SECTION:=net
@@ -59,26 +60,23 @@ define Package/$(PKG_NAME)/description
 endef
 
 define Build/Prepare
-	# For OpenWrt builds, use default preparation
-	if [ -d "/builder" ]; then
-		$(call Build/Prepare/Default)
-	else
+	# OpenWrt SDK will use Build/Prepare/Default
+	$(if $(wildcard /builder),$(call Build/Prepare/Default),
 		# For local builds, use current directory
 		mkdir -p $(PKG_BUILD_DIR)
 		$(CP) $(CURDIR)/* $(PKG_BUILD_DIR)/ 2>/dev/null || true
-	fi
+	)
 	
 	# Copy Go source files if needed
-	[ -d "$(PKG_BUILD_DIR)/src" ] && $(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ || true
+	$(if $(wildcard $(PKG_BUILD_DIR)/src),$(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ 2>/dev/null || true)
 	
 	# Ensure go.mod is present and correct
-	if [ -f "$(PKG_BUILD_DIR)/go.mod" ]; then \
-		echo "go.mod exists, continuing..."; \
-	else \
-		echo "Creating go.mod..."; \
+	$(if $(wildcard $(PKG_BUILD_DIR)/go.mod),
+		@echo "go.mod exists, continuing...",
+		@echo "Creating go.mod..."; \
 		cd $(PKG_BUILD_DIR) && go mod init $(GO_PKG); \
-		cd $(PKG_BUILD_DIR) && go mod tidy; \
-	fi
+		cd $(PKG_BUILD_DIR) && go mod tidy
+	)
 	
 	# List directory contents for debugging
 	ls -la $(PKG_BUILD_DIR)
@@ -142,7 +140,7 @@ FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-basic \
 	/etc/init.d/tollgate-basic \
 	/etc/config/firewall-tollgate \
-	/etc/modt/* \
+	/etc/motd/* \
 	/etc/profile \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/99-tollgate-setup \
@@ -156,5 +154,7 @@ FILES_$(PKG_NAME) += \
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
 
+# Set IPK file path for debugging message
+IPK_FILE := $(PACKAGE_DIR)/$(PKG_NAME)_$(PKG_VERSION)-$(PKG_RELEASE)_$(PKGARCH).ipk
 # Print IPK path after successful compilation
-PKG_FINISH:=$(shell echo "Successfully built: $(IPK_FILE)" >&2)
+PKG_FINISH := $(shell echo "Successfully built: $(IPK_FILE)" >&2)
