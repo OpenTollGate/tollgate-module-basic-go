@@ -29,8 +29,8 @@ PKG_USE_MIPS16:=0
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
 
 include $(INCLUDE_DIR)/package.mk
-# Include golang.mk to get architecture mappings
-include $(INCLUDE_DIR)/golang.mk
+# Include golang.mk from the OpenWrt SDK's toolchain directory
+include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
 
 $(eval $(call GoPackage))
 
