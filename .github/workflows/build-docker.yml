@@ -22,25 +22,24 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          # Each entry maps an OpenWrt target to architecture
-          - target_family: "mediatek"      # Target family (first part of path)
-            target_board: "filogic"        # Target board (second part of path)
-            arch: "aarch64_cortex-a53"     # Package architecture 
-            goarch: "arm64"                # Go architecture
+          # Each entry maps an OpenWrt target to architecture using proper Go naming conventions
+          - target_family: "mediatek"      
+            target_board: "filogic"       
+            arch: "aarch64_cortex-a53"    # OpenWrt package architecture
+            goarch: "arm64"               # GOARCH value
           - target_family: "ramips"        
             target_board: "mt7621"
             arch: "mipsel_24kc"
-            goarch: "mipsle"
-            gomips: "softfloat"
+            goarch: "mipsle"              # GOARCH value for MIPS little-endian
+            gomips: "softfloat"           # GOMIPS value per OpenWrt convention
           - target_family: "x86"
-            target_board: "64"             # "64" is the correct board name for x86_64
+            target_board: "64"             
             arch: "x86_64"
-            goarch: "amd64"
+            goarch: "amd64"               # GOARCH value for x86_64
     name: "Build ${{ matrix.target_family}}/${{ matrix.target_board }}"
     runs-on: ubuntu-latest
     
     # First stage - Build in container
-    # We must use github.event.inputs directly here, not the env variable
     container:
       image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
       options: --user root
@@ -54,6 +53,7 @@ jobs:
           echo "GOARCH: ${{ matrix.goarch }}"
           echo "GOARM: ${{ matrix.goarm }}"
           echo "GOMIPS: ${{ matrix.gomips }}"
+          echo "GO386: ${{ matrix.go386 }}" 
           echo "Cache key components:"
           echo "SDK: ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           echo "Cache version: ${{ env.CACHE_VERSION }}"

@@ -29,6 +29,9 @@ PKG_USE_MIPS16:=0
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
 
 include $(INCLUDE_DIR)/package.mk
+# Include golang.mk to get architecture mappings
+include $(INCLUDE_DIR)/golang.mk
+
 $(eval $(call GoPackage))
 
 define Package/$(PKG_NAME)
@@ -57,12 +60,13 @@ endef
 
 define Build/Compile
 	cd $(PKG_BUILD_DIR) && \
-	echo "Building with GOARCH=$(GOARCH) $(if $(GOMIPS),GOMIPS=$(GOMIPS))" && \
-	env GOOS=linux \
+	echo "Building with GOARCH=$(GO_TARGET_ARCH) GOMIPS=$(GO_MIPS) GOARM=$(GO_ARM) GO386=$(GO_386)" && \
+	env GOOS=$(GO_TARGET_OS) \
 	CGO_ENABLED=0 \
-	GOARCH=$(GOARCH) \
-	GOMIPS=$(GOMIPS) \
-	GOARM=$(GOARM) \
+	GOARCH=$(GO_TARGET_ARCH) \
+	$(if $(GO_MIPS),GOMIPS=$(GO_MIPS),) \
+	$(if $(GO_ARM),GOARM=$(GO_ARM),) \
+	$(if $(GO_386),GO386=$(GO_386),) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w -extldflags '-static'" 
 endef
 
