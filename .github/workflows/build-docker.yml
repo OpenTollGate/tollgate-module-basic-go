@@ -69,10 +69,17 @@ jobs:
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "PKG_VERSION=${VERSION}" >> $GITHUB_ENV
 
-      # Always install Go to ensure it's properly available
+      # Install Go fresh each time, without caching
       - name: Install Golang
         run: |
-          echo "Installing Go..."
+          echo "Installing Go (without caching)..."
+          # We don't cache Go installation for several important reasons:
+          # 1. Docker containers are ephemeral - cached binaries often fail to work properly in new containers
+          # 2. Previously observed failures with "go: command not found" despite cache hits
+          # 3. Go installation via apt is relatively fast (<60 seconds) and more reliable than caching binaries
+          # 4. In container environments, binary compatibility issues can arise when caching executables
+          # 5. The main performance benefits come from caching Go modules, not the Go binary itself
+          
           echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update
           apt-get install -y -t bookworm-backports golang-go
