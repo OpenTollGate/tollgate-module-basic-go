@@ -13,6 +13,7 @@ on:
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
   SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
+  CACHE_VERSION: "v1" # Increment this when you need to invalidate all caches
 
 jobs:
   build-modules:
@@ -82,27 +83,65 @@ jobs:
           echo "GOARCH: ${{ matrix.goarch }}"
           echo "GOARM: ${{ matrix.goarm }}"
           echo "GOMIPS: ${{ matrix.gomips }}"
+          echo "Cache key components:"
+          echo "SDK: ${{ matrix.id }}-${{ env.SDK_VERSION }}"
+          echo "Cache version: ${{ env.CACHE_VERSION }}"
 
       - uses: actions/checkout@v4
         with:
           path: ${{ env.PACKAGE_NAME }}/
+          fetch-depth: 1  # Shallow clone for faster checkout
 
-      - name: Move sources to sdk folder
-        run: |
-          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+      # Cache Go installation to speed up container initialization
+      - name: Cache Golang
+        id: cache-golang
+        uses: actions/cache@v3
+        with:
+          path: /usr/bin/go
+          key: ${{ env.CACHE_VERSION }}-golang-${{ matrix.id }}-${{ env.SDK_VERSION }}
 
+      # Install Go only if not cached
       - name: Install Golang
+        if: steps.cache-golang.outputs.cache-hit != 'true'
         run: |
           echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update
           apt-get install -y -t bookworm-backports golang-go
 
+      # Move sources after caching checks
+      - name: Move sources to sdk folder
+        run: |
+          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+
+      # Cache SDK configuration
+      - name: Cache SDK configuration
+        id: cache-sdk-config
+        uses: actions/cache@v3
+        with:
+          path: /builder/.config
+          key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.id }}-${{ hashFiles('/builder/package/**') }}-${{ env.SDK_VERSION }}
+          
+      # Configure SDK only if not cached
       - name: Configure SDK
+        if: steps.cache-sdk-config.outputs.cache-hit != 'true'
         run: |
           cd /builder
           make defconfig
           echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
 
+      # Cache Go module dependencies
+      - name: Cache Go modules
+        id: cache-go-modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ env.CACHE_VERSION }}-go-modules-${{ matrix.id }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-go-modules-${{ matrix.id }}-
+
+      # Compile the package
       - name: Compile Package
         run: |
           cd /builder
@@ -112,6 +151,7 @@ jobs:
           GOARM=${{ matrix.goarm }} \
           make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile
 
+      # The rest of your workflow remains unchanged
       - name: List output package(s)
         run: |
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | grep -v nodogsplash | head -n1)
@@ -125,12 +165,14 @@ jobs:
           mkdir -p /github/workspace/artifacts/${{ matrix.goarch }}
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.goarch }}/$FILENAME"
 
+      # Use a faster artifact upload with compression
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ env.PACKAGE_NAME }}-${{ matrix.goarch }}
           path: /github/workspace/artifacts/${{ matrix.goarch }}
           retention-days: 5
+          compression-level: 9 # Maximum compression for faster upload
 
       - name: Prepare package metadata
         id: package_info
@@ -197,11 +239,27 @@ jobs:
           # Create a simplified content format
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
           
+      - name: Prepare Environment Variables for Artifact
+        run: |
+          mkdir -p /github/workspace/env-artifacts
+          ENV_FILE="/github/workspace/env-artifacts/build-env.txt"
+          echo "PACKAGE_URL=${{ env.PACKAGE_URL }}" >> $ENV_FILE
+          echo "PACKAGE_HASH=${{ env.PACKAGE_HASH }}" >> $ENV_FILE
+          echo "PACKAGE_SIZE=${{ env.PACKAGE_SIZE }}" >> $ENV_FILE
+          echo "SHORT_MODULE=${{ env.SHORT_MODULE }}" >> $ENV_FILE
+          echo "PACKAGE_SHORT_FILENAME=${{ env.PACKAGE_SHORT_FILENAME }}" >> $ENV_FILE
+          echo "PACKAGE_CONTENT=${{ env.PACKAGE_CONTENT }}" >> $ENV_FILE
+          echo "ARCH_ID=${{ env.ARCH_ID }}" >> $ENV_FILE
+          
+          # Debug output to verify file contents
+          echo "Created environment file with contents:"
+          cat $ENV_FILE
+          
       - name: Upload Environment Variables as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: build-env-${{ matrix.id }}
-          path: $GITHUB_ENV
+          path: /github/workspace/env-artifacts/build-env.txt
           retention-days: 1
 
   publish:
@@ -234,6 +292,16 @@ jobs:
             name: "ARM (Cortex-A9 VFPv3)"
     name: "Publish ${{ matrix.name }}"
     steps:
+      # Cache Python dependencies for NIP-94 action
+      - name: Cache Python dependencies
+        id: cache-python-deps
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-python-deps-${{ hashFiles('**/requirements.txt') || 'no-requirements' }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-python-deps-
+
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -249,16 +317,17 @@ jobs:
       - name: Load Environment Variables
         run: |
           # Load environment variables from the build step
-          if [ -f ./env/GITHUB_ENV ]; then
+          if [ -f ./env/build-env.txt ]; then
             echo "Loading environment variables from build step"
-            cat ./env/GITHUB_ENV
+            cat ./env/build-env.txt
             while IFS= read -r line; do
               if [[ "$line" == *"="* ]]; then
                 echo "$line" >> $GITHUB_ENV
               fi
-            done < ./env/GITHUB_ENV
+            done < ./env/build-env.txt
           else
             echo "❌ ERROR: Environment file not found"
+            ls -la ./env/
             exit 1
           fi
           
