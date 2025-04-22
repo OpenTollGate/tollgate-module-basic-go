@@ -180,7 +180,11 @@ jobs:
       - name: Prepare package metadata
         id: package_info
         run: |
-          PACKAGE_PATH=$(find /github/workspace/artifacts/${{ matrix.goarch }} -name "*.ipk" -type f | head -n1)
+          PACKAGE_PATH=$(find /github/workspace/artifacts/${{ matrix.arch }} -name "*.ipk" -type f | head -n1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No .ipk package found in artifacts directory for ${{ matrix.arch }}"
+            exit 1
+          fi
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
