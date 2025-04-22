@@ -105,10 +105,6 @@ define Package/$(PKG_NAME)/install
 	# Tollgate config.json for mint and price
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
-
-	# TollGate banner file - maintain original name to avoid conflict with system banner
-	$(INSTALL_DIR) $(1)/etc/tollgate
-	$(CP) $(PKG_BUILD_DIR)/files/etc/banner.tollgate $(1)/etc/tollgate/banner.tollgate
 	
 	# NoDogSplash static files (CSS, JS, media)
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/css
