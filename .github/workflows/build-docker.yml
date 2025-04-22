@@ -13,6 +13,7 @@ on:
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
   CACHE_VERSION: "v1" # Increment this when you need to invalidate all caches
+  SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }} # Define SDK version once for all jobs
 
 jobs:
   build-modules:
@@ -38,13 +39,9 @@ jobs:
     name: "Build ${{ matrix.target_family}}/${{ matrix.target_board }}"
     runs-on: ubuntu-latest
     
-    # Set SDK version at the beginning for the entire job
-    env:
-      SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
-    
     # First stage - Build in container
     container:
-      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
+      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
       options: --user root
     
     steps:
@@ -261,8 +258,6 @@ jobs:
   publish:
     needs: build-modules
     runs-on: ubuntu-latest
-    env:
-      SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
     strategy:
       fail-fast: true
       max-parallel: 1
@@ -389,8 +384,6 @@ jobs:
   trigger-os-workflow:
     needs: publish
     runs-on: ubuntu-latest
-    env:
-      SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
     steps:
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
