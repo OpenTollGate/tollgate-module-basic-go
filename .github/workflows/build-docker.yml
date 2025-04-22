@@ -12,7 +12,7 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  CACHE_VERSION: "v6" # Increment this when you need to invalidate all caches
+  CACHE_VERSION: "v7" # Increment this when you need to invalidate all caches
   SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }} # Define SDK version once for all jobs
 
 jobs:
@@ -77,22 +77,20 @@ jobs:
           path: /usr/bin/go
           key: ${{ env.CACHE_VERSION }}-golang-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
 
-      # Install Go only if not cached
+      # Install Go regardless of cache status to ensure it's always available
       - name: Install Golang
-        if: steps.cache-golang.outputs.cache-hit != 'true'
         run: |
-          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
-          apt-get update
-          apt-get install -y -t bookworm-backports golang-go
-
-      # Log cache status
-      - name: Log Golang Cache Status
-        run: |
-          if [ "${{ steps.cache-golang.outputs.cache-hit }}" == "true" ]; then
-            echo "✅ Golang cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          # Check if Go is already installed and working
+          if command -v go &> /dev/null && go version &> /dev/null; then
+            echo "✅ Go is already installed and working: $(go version)"
           else
-            echo "⚠️ Golang cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+            echo "⚠️ Go not found or not working. Installing..."
+            echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+            apt-get update
+            apt-get install -y -t bookworm-backports golang-go
           fi
+          # Verify Go installation
+          go version
 
       # Cache common Go modules that might be used across builds
       - name: Cache common Go modules
@@ -109,7 +107,7 @@ jobs:
       # Log cache status
       - name: Log Common Go Modules Cache Status
         run: |
-          if [ "${{ steps.cache-go-common-modules.outputs.cache-hit }}" == "true" ]; then
+          if [ "${{ steps.cache-go-common-modules.outputs.cache-hit }}" = "true" ]; then
             echo "✅ Common Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           else
             echo "⚠️ Common Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
