@@ -1,7 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
-PKG_VERSION:=$(shell git rev-list --count HEAD 2>/dev/null || echo "0.0.1").$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+# This version will be overridden by the CI workflow with git commit information
+PKG_VERSION:=0.1.0
 PKG_RELEASE:=1
 PKG_FLAGS:=overwrite
 
