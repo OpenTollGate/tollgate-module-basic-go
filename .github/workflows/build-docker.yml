@@ -16,22 +16,22 @@ env:
   SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }} # Define SDK version once for all jobs
 
 jobs:
+  # Define this job to create a static matrix that can be reused across jobs
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          echo "matrix={\"include\":[{\"target_family\":\"mediatek\",\"target_board\":\"filogic\",\"arch\":\"aarch64_cortex-a53\"},{\"target_family\":\"ramips\",\"target_board\":\"mt7621\",\"arch\":\"mipsel_24kc\"},{\"target_family\":\"x86\",\"target_board\":\"64\",\"arch\":\"x86_64\"}]}" >> $GITHUB_OUTPUT
+  
   build-modules:
+    needs: setup-matrix
     strategy:
-      fail-fast: false
-      max-parallel: 10
-      matrix:
-        include:
-          # Simplified matrix entries - only include what's needed to identify the OpenWrt target
-          - target_family: "mediatek"      
-            target_board: "filogic"       
-            arch: "aarch64_cortex-a53"    # OpenWrt package architecture  
-          - target_family: "ramips"        
-            target_board: "mt7621"
-            arch: "mipsel_24kc"
-          - target_family: "x86"
-            target_board: "64"             
-            arch: "x86_64"
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     name: "Build ${{ matrix.target_family}}/${{ matrix.target_board }}"
     runs-on: ubuntu-latest
     outputs:
@@ -323,28 +323,13 @@ jobs:
           TARGET_JSON=$(echo '{"target_family":"${{ matrix.target_family }}","target_board":"${{ matrix.target_board }}","arch":"${{ matrix.arch }}"}' | sed 's/"/\\"/g')
           echo "matrix_targets=${TARGET_JSON}" >> $GITHUB_OUTPUT
 
-  # Consolidate targets from all build jobs
-  collect-targets:
-    needs: build-modules
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Set matrix for publish job
-        id: set-matrix
-        run: |
-          # Parse the targets from build-modules job and format into a proper JSON array
-          TARGETS=$(echo '${{ needs.build-modules.outputs.matrix_targets }}' | sed 's/\\//g')
-          echo "Collected targets: ${TARGETS}"
-          echo "matrix={\"include\":[${TARGETS}]}" >> $GITHUB_OUTPUT
-
   publish:
-    needs: collect-targets
+    needs: [build-modules, setup-matrix]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       max-parallel: 1
-      matrix: ${{ fromJson(needs.collect-targets.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     name: "Publish ${{ matrix.target_family }}/${{ matrix.target_board }}"
     steps:
       # Cache Python dependencies for NIP-94 action
