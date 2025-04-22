@@ -25,47 +25,11 @@ PKG_LICENSE_FILES:=LICENSE
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
 
-# Define our own Go variables since golang.mk is not available
+# Go package configuration
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
-GO_TARGET_OS:=linux
 
-# Architecture mappings
-# Map ARCH variables to Go architecture designations
-GO_ARCH_aarch64:=arm64
-GO_ARCH_arm:=arm
-GO_ARCH_armeb:=arm
-GO_ARCH_i386:=386
-GO_ARCH_mips:=mips
-GO_ARCH_mips64:=mips64
-GO_ARCH_mipsel:=mips
-GO_ARCH_mips64el:=mips64
-GO_ARCH_powerpc:=ppc64
-GO_ARCH_x86_64:=amd64
-
-# Determine the target architecture
-GO_TARGET_ARCH:=$(GO_ARCH_$(ARCH))
-ifeq ($(GO_TARGET_ARCH),)
-    GO_TARGET_ARCH:=$(ARCH)
-endif
-
-# ARM architecture specifics
-ifeq ($(ARCH),arm)
-    GO_ARM:=7
-endif
-ifeq ($(ARCH),armeb)
-    GO_ARM:=7
-endif
-
-# MIPS architecture specifics
-ifeq ($(ARCH),mips)
-    GO_MIPS:=softfloat
-endif
-ifeq ($(ARCH),mipsel)
-    GO_MIPS:=softfloat
-endif
-
-# For dependency purposes
-GO_ARCH_DEPENDS:=@(aarch64||arm||i386||mips||mips64||mipsel||mips64el||powerpc||x86_64)
+# Include our local golang.mk instead of the system one
+include $(CURDIR)/golang.mk
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -90,24 +54,14 @@ define Build/Prepare
 	cat $(PKG_BUILD_DIR)/go.mod
 endef
 
-define Build/Configure
-endef
-
+# Use GoPackage/Build/Compile from our local golang.mk
 define Build/Compile
-	cd $(PKG_BUILD_DIR) && \
-	echo "Building with GOARCH=$(GO_TARGET_ARCH) GOMIPS=$(GO_MIPS) GOARM=$(GO_ARM) GO386=$(GO_386)" && \
-	env GOOS=$(GO_TARGET_OS) \
-	CGO_ENABLED=0 \
-	GOARCH=$(GO_TARGET_ARCH) \
-	$(if $(GO_MIPS),GOMIPS=$(GO_MIPS),) \
-	$(if $(GO_ARM),GOARM=$(GO_ARM),) \
-	$(if $(GO_386),GO386=$(GO_386),) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w -extldflags '-static'" 
+	$(call GoPackage/Build/Compile)
 endef
 
 define Package/$(PKG_NAME)/install
-	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(PKG_NAME) $(1)/usr/bin/tollgate-basic
+	# Install Go binary 
+	$(call GoPackage/Package/Install,$(1))
 	
 	# Init script
 	$(INSTALL_DIR) $(1)/etc/init.d
