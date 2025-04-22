@@ -1,9 +1,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
-# This version will be overridden by the CI workflow with git commit information
-PKG_VERSION:=78.0838acf
-PKG_RELEASE:=3150008
+# Use dynamic version generation like the main branch
+PKG_VERSION:=$(shell git rev-list --count HEAD 2>/dev/null || echo "0.0.1").$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+PKG_RELEASE:=1
 PKG_FLAGS:=overwrite
 
 # Place conditional checks EARLY - before variables that depend on them
@@ -13,12 +13,8 @@ ifneq ($(TOPDIR),)
 	ifeq ($(findstring $(CURDIR),$(PKG_NAME)),)
 		PKG_SOURCE_PROTO:=git
 		PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
-		PKG_SOURCE_VERSION:=HEAD
-		PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE).tar.xz
+		PKG_SOURCE_VERSION:=$(shell git rev-parse HEAD 2>/dev/null || echo "HEAD") # Use exact current commit
 		PKG_MIRROR_HASH:=skip
-		PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION).$(PKG_RELEASE)
-		# Add fallback URL for direct download
-		PKG_HASH:=skip
 	else
 		# We're in OpenWrt build but with local files (SDK context)
 		PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -72,31 +68,32 @@ endef
 
 define Build/Prepare
 	# OpenWrt SDK will use Build/Prepare/Default
-	$(if $(wildcard /builder),
-		# First try standard preparation
-		$(call Build/Prepare/Default) || ( \
-			# If that fails, do a direct git clone
-			echo "Standard preparation failed, trying direct git clone..." && \
-			mkdir -p $(PKG_BUILD_DIR) && \
-			git clone $(PKG_SOURCE_URL) $(PKG_BUILD_DIR) && \
-			cd $(PKG_BUILD_DIR) && \
-			git checkout $(PKG_SOURCE_VERSION) \
-		),
+	if [ -d "/builder" ]; then
+		$(call Build/Prepare/Default)
+		if [ $$? -ne 0 ]; then
+			# If standard preparation fails, try direct git clone
+			echo "Standard preparation failed, trying direct git clone..."
+			mkdir -p $(PKG_BUILD_DIR)
+			git clone $(PKG_SOURCE_URL) $(PKG_BUILD_DIR)
+			cd $(PKG_BUILD_DIR) && git checkout $(PKG_SOURCE_VERSION)
+		fi
+	else
 		# For local builds, use current directory
-		mkdir -p $(PKG_BUILD_DIR) && \
-		$(CP) $(CURDIR)/* $(PKG_BUILD_DIR)/ 2>/dev/null || true \
-	)
+		mkdir -p $(PKG_BUILD_DIR)
+		$(CP) $(CURDIR)/* $(PKG_BUILD_DIR)/ 2>/dev/null || true
+	fi
 	
 	# Copy Go source files if needed
-	$(if $(wildcard $(PKG_BUILD_DIR)/src),$(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ 2>/dev/null || true)
+	[ -d "$(PKG_BUILD_DIR)/src" ] && $(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ || true
 	
 	# Ensure go.mod is present and correct
-	$(if $(wildcard $(PKG_BUILD_DIR)/go.mod),
-		@echo "go.mod exists, continuing...",
-		@echo "Creating go.mod..."; \
-		cd $(PKG_BUILD_DIR) && go mod init $(GO_PKG); \
+	if [ -f "$(PKG_BUILD_DIR)/go.mod" ]; then
+		echo "go.mod exists, continuing..."
+	else
+		echo "Creating go.mod..."
+		cd $(PKG_BUILD_DIR) && go mod init $(GO_PKG)
 		cd $(PKG_BUILD_DIR) && go mod tidy
-	)
+	fi
 	
 	# List directory contents for debugging
 	ls -la $(PKG_BUILD_DIR)
