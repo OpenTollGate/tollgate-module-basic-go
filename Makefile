@@ -11,7 +11,7 @@ ifneq ($(TOPDIR),)
 	# Feed-specific settings (auto-clone from git)
 	PKG_SOURCE_PROTO:=git
 	PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
-	PKG_SOURCE_VERSION:=$(shell git rev-parse HEAD) # Use exact current commit
+	PKG_SOURCE_VERSION:=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown") # Use exact current commit
 	PKG_MIRROR_HASH:=skip
 else
 	# SDK build context (local files)
@@ -22,38 +22,52 @@ PKG_MAINTAINER:=Your Name <your@email.com>
 PKG_LICENSE:=CC0-1.0
 PKG_LICENSE_FILES:=LICENSE
 
-PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
 
+# Define our own Go variables since golang.mk is not available
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
+GO_TARGET_OS:=linux
 
-include $(INCLUDE_DIR)/package.mk
+# Architecture mappings
+# Map ARCH variables to Go architecture designations
+GO_ARCH_aarch64:=arm64
+GO_ARCH_arm:=arm
+GO_ARCH_armeb:=arm
+GO_ARCH_i386:=386
+GO_ARCH_mips:=mips
+GO_ARCH_mips64:=mips64
+GO_ARCH_mipsel:=mips
+GO_ARCH_mips64el:=mips64
+GO_ARCH_powerpc:=ppc64
+GO_ARCH_x86_64:=amd64
 
-# Use the standard OpenWrt build system's golang.mk if it exists
-ifneq ($(wildcard $(INCLUDE_DIR)/golang.mk),)
-	include $(INCLUDE_DIR)/golang.mk
-# Otherwise, try the feeds path
-else ifneq ($(wildcard $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk),)
-	include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
-# If none of the above work, we need to define our own Go variables
-else
-	# Fallback definitions for basic Go variables
-	GO_TARGET_OS:=linux
-	ifeq ($(ARCH),aarch64)
-		GO_TARGET_ARCH:=arm64
-	else ifeq ($(ARCH),x86_64)
-		GO_TARGET_ARCH:=amd64
-	else ifeq ($(ARCH),mipsel)
-		GO_TARGET_ARCH:=mips
-		GO_MIPS:=softfloat
-	else
-		GO_TARGET_ARCH:=$(ARCH)
-	endif
+# Determine the target architecture
+GO_TARGET_ARCH:=$(GO_ARCH_$(ARCH))
+ifeq ($(GO_TARGET_ARCH),)
+    GO_TARGET_ARCH:=$(ARCH)
 endif
 
-# For compatibility with both approaches
-$(eval $(call GoPackage))
+# ARM architecture specifics
+ifeq ($(ARCH),arm)
+    GO_ARM:=7
+endif
+ifeq ($(ARCH),armeb)
+    GO_ARM:=7
+endif
+
+# MIPS architecture specifics
+ifeq ($(ARCH),mips)
+    GO_MIPS:=softfloat
+endif
+ifeq ($(ARCH),mipsel)
+    GO_MIPS:=softfloat
+endif
+
+# For dependency purposes
+GO_ARCH_DEPENDS:=@(aarch64||arm||i386||mips||mips64||mipsel||mips64el||powerpc||x86_64)
+
+include $(INCLUDE_DIR)/package.mk
 
 define Package/$(PKG_NAME)
 	SECTION:=net
