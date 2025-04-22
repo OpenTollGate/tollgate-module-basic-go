@@ -12,7 +12,7 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  CACHE_VERSION: "v1" # Increment this when you need to invalidate all caches
+  CACHE_VERSION: "v2" # Increment this when you need to invalidate all caches
   SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }} # Define SDK version once for all jobs
 
 jobs:
