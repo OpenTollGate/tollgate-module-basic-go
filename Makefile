@@ -60,7 +60,7 @@ endef
 
 define Build/Prepare
 	# For OpenWrt builds, use default preparation
-	if [ -n "$(TOPDIR)" ]; then
+	if [ -d "/builder" ]; then
 		$(call Build/Prepare/Default)
 	else
 		# For local builds, use current directory
