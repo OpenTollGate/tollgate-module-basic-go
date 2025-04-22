@@ -12,59 +12,62 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  PRIMARY_ARCHITECTURE: "aarch64_cortex-a53"
-  PRIMARY_TARGET: "mediatek/filogic"
-  PRIMARY_TARGET_DEVICES: "GL-MT3000, GL-MT6000"
   SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
 
 jobs:
-  build-primary:
-    name: "Build Primary - MediaTek Filogic (aarch64_cortex-a53)"
-    uses: ./.github/workflows/build-module-reusable.yml
-    with:
-      sdk_image: openwrt/sdk:mediatek-filogic-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
-      goarch: arm64
-      package_name: tollgate-module-basic-go
-
-  build-others:
-    # if: github.ref == 'refs/heads/main'
-    needs: build-primary
+  build-modules:
     strategy:
+      fail-fast: true
+      max-parallel: 1
       matrix:
         include:
+          - id: "aarch64_cortex-a53"
+            name: "MediaTek Filogic (aarch64_cortex-a53)"
+            sdk_image: "openwrt/sdk:mediatek-filogic-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
+            goarch: "arm64"
           - id: "mipsel_24kc"
+            name: "MIPS (Little Endian)"
             sdk_image: "openwrt/sdk:ramips-mt7621-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "mipsle"
             gomips: "softfloat"
           - id: "x86_64"
+            name: "x86-64"
             sdk_image: "openwrt/sdk:x86-64-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "amd64"
           - id: "mips_24kc"
+            name: "MIPS (Big Endian)"
             sdk_image: "openwrt/sdk:ath79-generic-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "mips"
             gomips: "softfloat"
           - id: "aarch64_cortex-a72"
+            name: "ARM64 (Cortex-A72)"
             sdk_image: "openwrt/sdk:bcm27xx-bcm2711-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "arm64"
           - id: "aarch64_generic"
+            name: "ARM64 (Generic)"
             sdk_image: "openwrt/sdk:rockchip-armv8-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "arm64"
           - id: "arm_cortex-a7_neon-vfpv4"
+            name: "ARM (Cortex-A7)"
             sdk_image: "openwrt/sdk:ipq40xx-generic-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "arm"
             goarm: "7"
           - id: "arm_cortex-a15_neon-vfpv4"
+            name: "ARM (Cortex-A15)"
             sdk_image: "openwrt/sdk:ipq806x-generic-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "arm"
             goarm: "7"
           - id: "arm_cortex-a9"
+            name: "ARM (Cortex-A9)"
             sdk_image: "openwrt/sdk:bcm53xx-generic-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "arm"
             goarm: "7"
           - id: "arm_cortex-a9_vfpv3-d16"
+            name: "ARM (Cortex-A9 VFPv3)"
             sdk_image: "openwrt/sdk:mvebu-cortexa9-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}"
             goarch: "arm"
             goarm: "7"
+    name: "Build ${{ matrix.name }}"
     uses: ./.github/workflows/build-module-reusable.yml
     with:
       sdk_image: ${{ matrix.sdk_image }}
@@ -72,11 +75,12 @@ jobs:
       goarm: ${{ matrix.goarm }}
       gomips: ${{ matrix.gomips }}
       package_name: tollgate-module-basic-go
-
-  # Each of the build jobs above will run their own publish job as defined in the reusable workflow
+    secrets:
+      NSEC: ${{ secrets.NSEC }}
+      REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
 
   trigger-os-workflow:
-    needs: [build-primary, build-others]
+    needs: build-modules
     runs-on: ubuntu-latest
     # Only trigger when all targets have been built successfully
     if: always() && !contains(needs.*.result, 'failure')
@@ -87,4 +91,3 @@ jobs:
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           repository: OpenTollGate/tollgate-os
           event-type: update-release-json
-      
