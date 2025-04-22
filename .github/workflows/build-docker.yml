@@ -174,6 +174,15 @@ jobs:
           key: ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
           restore-keys: |
             ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-
+            
+      # Log cache status
+      - name: Log Project Go Modules Cache Status
+        run: |
+          if [ "${{ steps.cache-project-go-modules.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ Project Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ Project Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
 
       # Compile the package - let the OpenWrt build system handle Go architecture settings
       - name: Compile Package
@@ -325,9 +334,20 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache/pip
-          key: ${{ env.CACHE_VERSION }}-python-deps-${{ hashFiles('**/requirements.txt') || 'no-requirements' }}
+          key: ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}-${{ hashFiles('**/requirements.txt') || 'no-requirements' }}
           restore-keys: |
+            ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}-
+            ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-
             ${{ env.CACHE_VERSION }}-python-deps-
+
+      # Log cache status
+      - name: Log Python Dependencies Cache Status
+        run: |
+          if [ "${{ steps.cache-python-deps.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ Python dependencies cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ Python dependencies cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
