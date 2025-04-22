@@ -17,6 +17,13 @@ on:
       package_name:
         required: true
         type: string
+    secrets:
+      NSEC:
+        description: "Nostr private key for NIP-94 publishing"
+        required: true
+      REPO_ACCESS_TOKEN:
+        description: "GitHub token for repository dispatch"
+        required: true
     outputs:
       package_url:
         description: "URL of the uploaded package on Blossom"
@@ -249,3 +256,10 @@ jobs:
           echo "✅ Package metadata successfully published to Nostr"
           echo "Event ID: ${{ env.EVENT_ID || steps.publish_package.outputs.eventId }}"
           echo "Package URL: ${{ needs.build.outputs.package_url }}"
+          
+      - name: Trigger OS Workflow
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: OpenTollGate/tollgate-os
+          event-type: update-release-json
