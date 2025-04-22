@@ -325,9 +325,9 @@ jobs:
           - target_family: "ramips"
             target_board: "mt7621"
             arch: "mipsel_24kc"
-          - target_family: "x86"
-            target_board: "64"
-            arch: "x86_64"
+          # - target_family: "x86"
+          #  target_board: "64"
+          #  arch: "x86_64"
     name: "Publish ${{ matrix.target_family }}/${{ matrix.target_board }}"
     steps:
       # Cache Python dependencies for NIP-94 action
