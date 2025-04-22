@@ -444,7 +444,7 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.TARGET_ID || matrix.target_family }}/${{ matrix.target_board }}"
+          architecture: "${{ env.TARGET_ID || matrix.target_family }}/${{ matrix.target_board || 'generic' }}"
 
       - name: Debug Event ID
         run: |
