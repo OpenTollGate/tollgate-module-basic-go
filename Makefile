@@ -69,11 +69,10 @@ endef
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	echo "DEBUG: Contents of go.mod after prepare:"
-	if [ -f "$(PKG_BUILD_DIR)/go.mod" ]; then
-		cat $(PKG_BUILD_DIR)/go.mod
-	else
-		echo "go.mod not found"
-	fi
+	cat $(PKG_BUILD_DIR)/go.mod
+endef
+
+define Build/Configure
 endef
 
 # Use GoPackage/Build/Compile from our local golang.mk
