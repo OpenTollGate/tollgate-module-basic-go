@@ -11,7 +11,8 @@ ifneq ($(TOPDIR),)
 	# Feed-specific settings (auto-clone from git)
 	PKG_SOURCE_PROTO:=git
 	PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
-	PKG_SOURCE_VERSION:=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown") # Use exact current commit
+	PKG_SOURCE_DATE:=2025-04-22
+	PKG_SOURCE_VERSION:=main
 	PKG_MIRROR_HASH:=skip
 else
 	# SDK build context (local files)
@@ -50,8 +51,24 @@ endef
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
+	
+	# Copy Go source files if needed
+	$(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ || true
+	
+	# Ensure go.mod is present and correct
+	if [ -f "$(PKG_BUILD_DIR)/go.mod" ]; then \
+		echo "go.mod exists, continuing..."; \
+	else \
+		echo "Creating go.mod..."; \
+		cd $(PKG_BUILD_DIR) && go mod init $(GO_PKG); \
+		cd $(PKG_BUILD_DIR) && go mod tidy; \
+	fi
+	
 	echo "DEBUG: Contents of go.mod after prepare:"
-	cat $(PKG_BUILD_DIR)/go.mod
+	cat $(PKG_BUILD_DIR)/go.mod || echo "go.mod not found"
+	
+	# List directory contents for debugging
+	ls -la $(PKG_BUILD_DIR)
 endef
 
 # Use GoPackage/Build/Compile from our local golang.mk
