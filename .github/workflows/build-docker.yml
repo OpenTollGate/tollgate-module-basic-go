@@ -98,7 +98,7 @@ jobs:
       # Cache common Go modules that might be used across builds
       - name: Cache common Go modules
         id: cache-go-common-modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
@@ -125,7 +125,7 @@ jobs:
       # Cache SDK configuration
       - name: Cache SDK configuration
         id: cache-sdk-config
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /builder/.config
           key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
@@ -167,7 +167,7 @@ jobs:
       # Cache project-specific Go modules (depends on code)
       - name: Cache project Go modules
         id: cache-project-go-modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
@@ -333,7 +333,7 @@ jobs:
       # Cache Python dependencies for NIP-94 action
       - name: Cache Python dependencies
         id: cache-python-deps
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}-${{ hashFiles('**/requirements.txt') || 'no-requirements' }}
