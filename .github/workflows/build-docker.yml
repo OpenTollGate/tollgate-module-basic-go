@@ -88,7 +88,7 @@ jobs:
       # Log cache status
       - name: Log Golang Cache Status
         run: |
-          if [ "${{ steps.cache-golang.outputs.cache-hit }}" == "true" ]; then
+          if [ "${{ steps.cache-golang.outputs.cache-hit }}" = "true" ]; then
             echo "✅ Golang cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           else
             echo "⚠️ Golang cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
@@ -109,7 +109,7 @@ jobs:
       # Log cache status
       - name: Log Common Go Modules Cache Status
         run: |
-          if [ "${{ steps.cache-go-common-modules.outputs.cache-hit }}" == "true" ]; then
+          if [ "${{ steps.cache-go-common-modules.outputs.cache-hit }}" = "true" ]; then
             echo "✅ Common Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           else
             echo "⚠️ Common Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
@@ -132,7 +132,7 @@ jobs:
       # Log cache status
       - name: Log SDK Config Cache Status
         run: |
-          if [ "${{ steps.cache-sdk-config.outputs.cache-hit }}" == "true" ]; then
+          if [ "${{ steps.cache-sdk-config.outputs.cache-hit }}" = "true" ]; then
             echo "✅ SDK configuration cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           else
             echo "⚠️ SDK configuration cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
@@ -178,7 +178,7 @@ jobs:
       # Log cache status
       - name: Log Project Go Modules Cache Status
         run: |
-          if [ "${{ steps.cache-project-go-modules.outputs.cache-hit }}" == "true" ]; then
+          if [ "${{ steps.cache-project-go-modules.outputs.cache-hit }}" = "true" ]; then
             echo "✅ Project Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
           else
             echo "⚠️ Project Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
