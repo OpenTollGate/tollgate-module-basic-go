@@ -13,11 +13,11 @@ GO_VERSION_MAJOR_MINOR:=$(shell go version | sed -E 's/.*go([0-9]+[.][0-9]+).*/\
 endif
 
 GO_ARM:=$(if $(CONFIG_arm),$(if $(CONFIG_HAS_FPU),7,$(if $(CONFIG_GOARM_5),5,$(if $(CONFIG_GOARM_6),6,7))))
-GO_MIPS:=$(if $(CONFIG_mips),$(if $(CONFIG_MIPS_FP_32),hardfloat,softfloat),)
-GO_MIPS64:=$(if $(CONFIG_mips64),$(if $(CONFIG_MIPS_FP_64),hardfloat,softfloat),)
+GO_MIPS:=$(if $(findstring mips,$(ARCH)),softfloat,)
+GO_MIPSEL:=$(if $(findstring mipsel,$(ARCH)),softfloat,)
 GO_386:=$(if $(CONFIG_i386),$(if $(CONFIG_CPU_TYPE_PENTIUM4),387,sse2),)
 
-GO_TARGET_ARCH:=$(subst aarch64,arm64,$(subst x86_64,amd64,$(subst i386,386,$(ARCH))))
+GO_TARGET_ARCH:=$(subst aarch64,arm64,$(subst x86_64,amd64,$(subst i386,386,$(subst mipsel,mips,$(ARCH)))))
 GO_TARGET_OS:=linux
 
 GO_HOST_ARCH:=$(shell go env GOHOSTARCH)
@@ -72,9 +72,9 @@ define GoPackage/Build/Compile
 	cd $(PKG_BUILD_DIR) && \
 	env GOOS=$(GO_TARGET_OS) \
 	GOARCH=$(GO_TARGET_ARCH) \
-	$(if $(GO_MIPS),GOMIPS=$(GO_MIPS)) \
-	$(if $(GO_ARM),GOARM=$(GO_ARM)) \
-	$(if $(GO_386),GO386=$(GO_386)) \
+	$(if $(GO_MIPS),GOMIPS=$(GO_MIPS),) \
+	$(if $(GO_ARM),GOARM=$(GO_ARM),) \
+	$(if $(GO_386),GO386=$(GO_386),) \
 	CGO_ENABLED=0 \
 	go build -trimpath -ldflags "$(GO_PKG_LDFLAGS)" -o $(PKG_NAME)
 endef
