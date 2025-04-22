@@ -67,29 +67,18 @@ define Download/default
 endef
 
 define Build/Prepare
-	# OpenWrt SDK will use Build/Prepare/Default
-	if [ -d "/builder" ]; then
-		$(call Build/Prepare/Default)
-		if [ $$? -ne 0 ]; then
-			# If standard preparation fails, try direct git clone
-			echo "Standard preparation failed, trying direct git clone..."
-			mkdir -p $(PKG_BUILD_DIR)
-			git clone $(PKG_SOURCE_URL) $(PKG_BUILD_DIR)
-			cd $(PKG_BUILD_DIR) && git checkout $(PKG_SOURCE_VERSION)
-		fi
-	else
-		# For local builds, use current directory
-		mkdir -p $(PKG_BUILD_DIR)
-		$(CP) $(CURDIR)/* $(PKG_BUILD_DIR)/ 2>/dev/null || true
-	fi
+	# Call the default prepare method
+	$(call Build/Prepare/Default)
 	
-	# Copy Go source files if needed
+	# If we have source files in src directory, copy them to the build directory
 	[ -d "$(PKG_BUILD_DIR)/src" ] && $(CP) $(PKG_BUILD_DIR)/src/* $(PKG_BUILD_DIR)/ || true
 	
-	# Ensure go.mod is present and correct
-	if [ -f "$(PKG_BUILD_DIR)/go.mod" ]; then
-		echo "go.mod exists, continuing..."
-	else
+	# Display go.mod contents for debugging
+	echo "DEBUG: Contents of go.mod after prepare:"
+	[ -f "$(PKG_BUILD_DIR)/go.mod" ] && cat $(PKG_BUILD_DIR)/go.mod || echo "go.mod not found"
+	
+	# Create go.mod if it doesn't exist
+	if [ ! -f "$(PKG_BUILD_DIR)/go.mod" ]; then
 		echo "Creating go.mod..."
 		cd $(PKG_BUILD_DIR) && go mod init $(GO_PKG)
 		cd $(PKG_BUILD_DIR) && go mod tidy
