@@ -21,17 +21,18 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - id: "aarch64_cortex-a53"
-            target: "mediatek-filogic"
-            goarch: "arm64"
-          - id: "mipsel_24kc"
+          # Each entry maps an OpenWrt platform SDK to a package architecture
+          - arch: "aarch64_cortex-a53"  # Package architecture
+            target: "mediatek-filogic"   # SDK target/platform
+            goarch: "arm64"              # Go architecture
+          - arch: "mipsel_24kc"
             target: "ramips-mt7621"
             goarch: "mipsle"
             gomips: "softfloat"
-          - id: "x86_64"
+          - arch: "x86_64"
             target: "x86-64"
             goarch: "amd64"
-    name: "Build ${{ matrix.id }}"
+    name: "Build ${{ matrix.arch }}"
     runs-on: ubuntu-latest
     
     # Set SDK version at the beginning for the entire job
@@ -47,23 +48,22 @@ jobs:
       - name: Environment Info
         run: |
           echo "SDK Version: ${{ env.SDK_VERSION }}"
-          echo "Building for target: ${{ matrix.target }}"
-          echo "Architecture ID: ${{ matrix.id }}"
+          echo "Target Platform: ${{ matrix.target }}"
+          echo "Package Architecture: ${{ matrix.arch }}"
           echo "GOARCH: ${{ matrix.goarch }}"
           echo "GOARM: ${{ matrix.goarm }}"
           echo "GOMIPS: ${{ matrix.gomips }}"
           echo "Cache key components:"
-          echo "SDK: ${{ matrix.id }}-${{ env.SDK_VERSION }}"
+          echo "SDK: ${{ matrix.target }}-${{ env.SDK_VERSION }}"
           echo "Cache version: ${{ env.CACHE_VERSION }}"
 
       # Cache Go installation to speed up container initialization
-      # These cache steps happen BEFORE code checkout for better reuse
       - name: Cache Golang
         id: cache-golang
         uses: actions/cache@v3
         with:
           path: /usr/bin/go
-          key: ${{ env.CACHE_VERSION }}-golang-${{ matrix.id }}-${{ env.SDK_VERSION }}
+          key: ${{ env.CACHE_VERSION }}-golang-${{ matrix.target }}-${{ env.SDK_VERSION }}
 
       # Install Go only if not cached
       - name: Install Golang
@@ -80,9 +80,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.id }}-${{ env.SDK_VERSION }}
+          key: ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.target }}-${{ env.SDK_VERSION }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.id }}-
+            ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.target }}-
 
       # Pre-configure SDK before checking out code
       - name: Create empty package directory for SDK config
@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: /builder/.config
-          key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.id }}-${{ env.SDK_VERSION }}
+          key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.target }}-${{ env.SDK_VERSION }}
           
       # Configure SDK only if not cached - this is independent of our code
       - name: Configure SDK
@@ -128,9 +128,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.id }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
+          key: ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
           restore-keys: |
-            ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.id }}-
+            ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target }}-
 
       # Compile the package
       - name: Compile Package
@@ -173,16 +173,9 @@ jobs:
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           
-          # Determine architecture identifier based on input params
-          ARCH_ID="${{ matrix.id }}"
+          # Use package architecture for the artifact
+          ARCH_ID="${{ matrix.arch }}"
           echo "ARCH_ID=$ARCH_ID" >> $GITHUB_ENV
-
-      - name: Blossom Artifact upload
-        id: blossom_upload
-        uses: Origami74/upload-blossom-action@improve-io
-        with:
-          host: "https://blossom.swissdash.site"
-          filePath: ${{ env.PACKAGE_PATH }}
 
       - name: Process Blossom response and extract hash
         shell: bash
@@ -241,6 +234,7 @@ jobs:
           echo "PACKAGE_SHORT_FILENAME=${{ env.PACKAGE_SHORT_FILENAME }}" >> $ENV_FILE
           echo "PACKAGE_CONTENT=${{ env.PACKAGE_CONTENT }}" >> $ENV_FILE
           echo "ARCH_ID=${{ env.ARCH_ID }}" >> $ENV_FILE
+          echo "GOARCH=${{ matrix.goarch }}" >> $ENV_FILE
           
           # Debug output to verify file contents
           echo "Created environment file with contents:"
@@ -249,7 +243,7 @@ jobs:
       - name: Upload Environment Variables as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-env-${{ matrix.id }}
+          name: build-env-${{ matrix.arch }}
           path: /github/workspace/env-artifacts/build-env.txt
           retention-days: 1
 
@@ -263,10 +257,13 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - id: "aarch64_cortex-a53"
-          - id: "mipsel_24kc"
-          - id: "x86_64"
-    name: "Publish ${{ matrix.id }}"
+          - arch: "aarch64_cortex-a53"
+            goarch: "arm64"
+          - arch: "mipsel_24kc" 
+            goarch: "mipsle"
+          - arch: "x86_64"
+            goarch: "amd64"
+    name: "Publish ${{ matrix.arch }}"
     steps:
       # Cache Python dependencies for NIP-94 action
       - name: Cache Python dependencies
@@ -281,13 +278,13 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.id == 'aarch64_cortex-a53' && 'arm64' || matrix.id == 'x86_64' && 'amd64' || matrix.id == 'mipsel_24kc' && 'mipsle' || matrix.id == 'mips_24kc' && 'mips' || (startsWith(matrix.id, 'arm_') && 'arm' || 'arm64') }}
+          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.goarch }}
           path: ./artifacts
 
       - name: Download Environment Variables
         uses: actions/download-artifact@v4
         with:
-          name: build-env-${{ matrix.id }}
+          name: build-env-${{ matrix.arch }}
           path: ./env
 
       - name: Load Environment Variables
@@ -315,7 +312,7 @@ jobs:
             if [ "$SHORT_MODULE" = "$PACKAGE_NAME" ]; then
               SHORT_MODULE=$(echo "$PACKAGE_NAME" | sed 's/tollgate-module-//g' | sed 's/-go//g')
             fi
-            PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ matrix.id }}.ipk"
+            PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ matrix.arch }}.ipk"
             echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
             
             # Create a simplified content format
@@ -335,7 +332,7 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ matrix.id }}"
+          architecture: "${{ matrix.arch }}"
 
       - name: Debug Event ID
         run: |
