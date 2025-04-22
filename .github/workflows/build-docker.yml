@@ -85,6 +85,15 @@ jobs:
           apt-get update
           apt-get install -y -t bookworm-backports golang-go
 
+      # Log cache status
+      - name: Log Golang Cache Status
+        run: |
+          if [ "${{ steps.cache-golang.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ Golang cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ Golang cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
+
       # Cache common Go modules that might be used across builds
       - name: Cache common Go modules
         uses: actions/cache@v3
