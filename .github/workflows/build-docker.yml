@@ -154,15 +154,16 @@ jobs:
           echo "✅ Found package at: $PACKAGE_PATH"
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
-          mkdir -p /github/workspace/artifacts/${{ matrix.goarch }}
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.goarch }}/$FILENAME"
+          # Create directory using arch name from OpenWrt, not Go
+          mkdir -p /github/workspace/artifacts/${{ matrix.arch }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.arch }}/$FILENAME"
 
-      # Use a faster artifact upload with compression
+      # Use a faster artifact upload with proper OpenWrt package naming convention
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.goarch }}
-          path: /github/workspace/artifacts/${{ matrix.goarch }}
+          name: ${{ env.PACKAGE_NAME }}_${{ env.SDK_VERSION }}-1_${{ matrix.arch }}
+          path: /github/workspace/artifacts/${{ matrix.arch }}
           retention-days: 5
           compression-level: 9 # Maximum compression for faster upload
 
@@ -223,9 +224,10 @@ jobs:
           
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           
-          # Create standardized filename for the package
+          # Create standardized filename for the package using OpenWrt naming convention
           DEVICE="gl-mt3000"
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ env.ARCH_ID }}.ipk"
+          VERSION="${{ env.SDK_VERSION }}-1"
+          PACKAGE_SHORT_FILENAME="${{ env.PACKAGE_NAME }}_${VERSION}_${{ matrix.arch }}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           
           # Create a simplified content format
@@ -291,7 +293,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}-${{ matrix.goarch }}
+          name: ${{ env.PACKAGE_NAME }}_${{ env.SDK_VERSION }}-1_${{ matrix.arch }}
           path: ./artifacts
 
       - name: Download Environment Variables
