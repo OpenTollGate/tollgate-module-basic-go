@@ -328,7 +328,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
-      max-parallel: 1
+      max-parallel: 10
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     name: "Publish ${{ matrix.target_family }}/${{ matrix.target_board }}"
     steps:
@@ -444,7 +444,7 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.TARGET_ID || matrix.target_family }}/${{ matrix.target_board || 'generic' }}"
+          architecture: "${{ matrix.arch }}"
 
       - name: Debug Event ID
         run: |
