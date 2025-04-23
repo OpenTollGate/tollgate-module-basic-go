@@ -7,13 +7,13 @@ on:
       SDK_VERSION:
         description: 'OpenWrt SDK version to use'
         required: false
-        default: '23.05.3'
+        default: '23.05.5'
         type: string
 
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
   CACHE_VERSION: "v7" # Increment this when you need to invalidate all caches
-  SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.3' }} # Define SDK version once for all jobs
+  SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.5' }} # Define SDK version once for all jobs
 
 jobs:
   # Define this job to create a static matrix that can be reused across jobs
@@ -40,7 +40,7 @@ jobs:
     
     # First stage - Build in container
     container:
-      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ github.event.inputs.SDK_VERSION || '23.05.3' }}
+      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ github.event.inputs.SDK_VERSION || '23.05.5' }}
       options: --user root
     
     steps:
