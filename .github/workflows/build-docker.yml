@@ -2,118 +2,260 @@ name: Build and Publish
 
 on:
   push:
+  workflow_dispatch:
+    inputs:
+      SDK_VERSION:
+        description: 'OpenWrt SDK version to use'
+        required: false
+        default: '23.05.5'
+        type: string
 
-## Add global env vars for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  ARCHITECTURE: "aarch64"
-  GOARCH: "arm64"
-#  DEBUG: "true"
-  # GOMIPS: "softfloat"
+  CACHE_VERSION: "v7" # Increment this when you need to invalidate all caches
+  SDK_VERSION: ${{ github.event.inputs.SDK_VERSION || '23.05.5' }} # Define SDK version once for all jobs
 
 jobs:
-  build-package:
+  # Define this job to create a static matrix that can be reused across jobs
+  setup-matrix:
     runs-on: ubuntu-latest
-    container:
-      image: openwrt/sdk:mediatek-filogic-23.05.3
-      options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
-
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - id: set-matrix
+        run: |
+          # use SHELL_EOF so we can emit a literal "EOF" into $GITHUB_OUTPUT
+          cat << 'SHELL_EOF' >> $GITHUB_OUTPUT
+matrix<<EOF
+{
+  "include": [
+    {
+      "target_family": "mediatek",
+      "target_board":  "filogic",
+      "arch":          "aarch64_cortex-a53"
+    },
+    {
+      "target_family": "ramips",
+      "target_board":  "mt7621",
+      "arch":          "mipsel_24kc"
+    },
+    {
+      "target_family": "x86",
+      "target_board":  "64",
+      "arch":          "x86_64"
+    }
+  ]
+}
+EOF
+SHELL_EOF
+  
+  build-modules:
+    needs: setup-matrix
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    name: "Build ${{ matrix.target_family}}/${{ matrix.target_board }}"
+    runs-on: ubuntu-latest
+    outputs:
+      # Export the matrix targets as JSON strings so the publish job can use them
+      matrix_targets: ${{ steps.export_targets.outputs.matrix_targets }}
+    
+    # First stage - Build in container
+    container:
+      image: openwrt/sdk:${{ matrix.target_family }}-${{ matrix.target_board }}-${{ github.event.inputs.SDK_VERSION || '23.05.5' }}
+      options: --user root
+    
+    steps:
+      - name: Environment Info
+        run: |
+          echo "SDK Version: ${{ env.SDK_VERSION }}"
+          echo "Target Platform: ${{ matrix.target_family }}/${{ matrix.target_board }}"
+          echo "Package Architecture: ${{ matrix.arch }}"
+          echo "Cache key components:"
+          echo "SDK: ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          echo "Cache version: ${{ env.CACHE_VERSION }}"
+
+      # Generate package version from git information before doing anything else
       - uses: actions/checkout@v4
         with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 0
-
-      - name: Move sources to sdk folder
+          path: source-for-version
+          fetch-depth: 0  # Need full history for commit count
+      
+      - name: Generate Package Version
+        id: package_version
         run: |
-          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+          cd source-for-version
+          # Get commit count and short commit hash
+          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+          # Create version string: [commit-count].[short-hash]
+          VERSION="${COMMIT_COUNT}.${COMMIT_HASH}"
+          echo "Generated version: ${VERSION}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "PKG_VERSION=${VERSION}" >> $GITHUB_ENV
 
+      # Install Go fresh each time, without caching
       - name: Install Golang
         run: |
-          # Add golang-backports repository
+          echo "Installing Go (without caching)..."
+          # We don't cache Go installation for several important reasons:
+          # 1. Docker containers are ephemeral - cached binaries often fail to work properly in new containers
+          # 2. Previously observed failures with "go: command not found" despite cache hits
+          # 3. Go installation via apt is relatively fast (<60 seconds) and more reliable than caching binaries
+          # 4. In container environments, binary compatibility issues can arise when caching executables
+          # 5. The main performance benefits come from caching Go modules, not the Go binary itself
+          
           echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update
-          
-          # Install Go from backports
           apt-get install -y -t bookworm-backports golang-go
+          
+          # Verify Go installation with explicit path
+          /usr/bin/go version
+          
+          # Make sure go is in PATH for future steps
+          echo "Testing go command is in PATH"
+          go version
+          
+          # Export GOPATH
+          echo "GOPATH=$HOME/go" >> $GITHUB_ENV
+          echo "PATH=$PATH:/usr/bin:/usr/local/bin:$HOME/go/bin" >> $GITHUB_ENV
 
-      # - name: Run Go Tests
-      #   run: |
-      #     cd /builder/package/${{ env.PACKAGE_NAME }}/src
-      #     go test -v ./...
+      # Cache common Go modules that might be used across builds
+      - name: Cache common Go modules
+        id: cache-go-common-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-go-common-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-
 
+      # Log cache status
+      - name: Log Common Go Modules Cache Status
+        run: |
+          if [ "${{ steps.cache-go-common-modules.outputs.cache-hit }}" = "true" ]; then
+            echo "✅ Common Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ Common Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
+
+      # Pre-configure SDK before checking out code
+      - name: Create empty package directory for SDK config
+        run: |
+          mkdir -p /builder/package/${{ env.PACKAGE_NAME }}
+          touch /builder/package/${{ env.PACKAGE_NAME }}/.placeholder
+
+      # Cache SDK configuration
+      - name: Cache SDK configuration
+        id: cache-sdk-config
+        uses: actions/cache@v4
+        with:
+          path: /builder/.config
+          key: ${{ env.CACHE_VERSION }}-sdk-config-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}
+          
+      # Log cache status
+      - name: Log SDK Config Cache Status
+        run: |
+          if [ "${{ steps.cache-sdk-config.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ SDK configuration cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ SDK configuration cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
+          
+      # Configure SDK only if not cached - this is independent of our code
       - name: Configure SDK
+        if: steps.cache-sdk-config.outputs.cache-hit != 'true'
         run: |
           cd /builder
-
-          # Generate default configuration
           make defconfig
-
-          # Update configuration for our needs
           echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
-          
+
+      # Only NOW checkout the code, after environment is setup and cached
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.PACKAGE_NAME }}-src/
+          fetch-depth: 1  # Shallow clone for faster checkout
+
+      # Move sources to the SDK folder
+      - name: Move sources to sdk folder
+        run: |
+          # Remove the placeholder if it exists
+          rm -f /builder/package/${{ env.PACKAGE_NAME }}/.placeholder
+          # Move our actual code
+          cp -r ${{ env.PACKAGE_NAME }}-src/* /builder/package/${{ env.PACKAGE_NAME }}/
+          # Override version in Makefile with the one we generated
+          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ env.PKG_VERSION }}/" /builder/package/${{ env.PACKAGE_NAME }}/Makefile
+          cat /builder/package/${{ env.PACKAGE_NAME }}/Makefile | grep PKG_VERSION
+
+      # Cache project-specific Go modules (depends on code)
+      - name: Cache project Go modules
+        id: cache-project-go-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ hashFiles('/builder/package/${{ env.PACKAGE_NAME }}/go.sum') }}-${{ env.SDK_VERSION }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-go-project-modules-${{ matrix.target_family }}-${{ matrix.target_board }}-
+            
+      # Log cache status
+      - name: Log Project Go Modules Cache Status
+        run: |
+          if [ "${{ steps.cache-project-go-modules.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ Project Go modules cache hit for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          else
+            echo "⚠️ Project Go modules cache miss for ${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}"
+          fi
+
+      # Compile the package - let the OpenWrt build system handle Go architecture settings
       - name: Compile Package
         run: |
           cd /builder
-          env GOARCH=${{ env.GOARCH }} GOMIPS=${{ env.GOMIPS }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+          make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile
 
+      # The rest of your workflow remains unchanged
       - name: List output package(s)
         run: |
-          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
-          
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | grep -v nodogsplash | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
             echo "❌ No .ipk package found in /builder/bin/packages"
             exit 1
           fi
-
           echo "✅ Found package at: $PACKAGE_PATH"
-          
-          # Extract model from filename for later use
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
-          
-          # Copy file to a location GitHub can access
-          mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
+          # Create directory using arch name from OpenWrt, not Go
+          mkdir -p /github/workspace/artifacts/${{ matrix.arch }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ matrix.arch }}/$FILENAME"
 
+      # Use a faster artifact upload with proper OpenWrt package naming convention
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}
-          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+          name: ${{ env.PACKAGE_NAME }}_${{ env.PKG_VERSION }}-1_${{ matrix.arch }}
+          path: /github/workspace/artifacts/${{ matrix.arch }}
           retention-days: 5
-  
-  publish-metadata:
-    needs: build-package
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: package-${{ env.PACKAGE_NAME }}
-          path: ./artifacts
-      
+          compression-level: 9 # Maximum compression for faster upload
+
       - name: Prepare package metadata
         id: package_info
         run: |
-          PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
-          FILENAME=$(basename "$PACKAGE_PATH")
-          
-          # Extract model from filename
-          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
-            MODEL="aarch64_cortex-a53"
-          else
-            MODEL="generic"
+          PACKAGE_PATH=$(find /github/workspace/artifacts/${{ matrix.arch }} -name "*.ipk" -type f | head -n1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No .ipk package found in artifacts directory for ${{ matrix.arch }}"
+            exit 1
           fi
-          
-          # Calculate file size
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-          
-          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "MODEL=$MODEL" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
+          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
+          
+          # Use package architecture for the artifact
+          echo "ARCH_ID=${{ matrix.arch }}" >> $GITHUB_ENV
+          echo "TARGET_ID=${{ matrix.target_family }}/${{ matrix.target_board }}" >> $GITHUB_ENV
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -121,61 +263,196 @@ jobs:
         with:
           host: "https://blossom.swissdash.site"
           filePath: ${{ env.PACKAGE_PATH }}
-     
+          
       - name: Process Blossom response and extract hash
+        shell: bash
         run: |
           echo "Upload outputs:"
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
           echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
           echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
-          
-          # Extract hash from URL
           URL="${{ steps.blossom_upload.outputs.url }}"
-          
-          # Use basename to extract filename from URL
           FILENAME=$(basename "$URL")
-          
-          # Remove the file extension to get the hash
           HASH="${FILENAME%.ipk}"
-          
           echo "Extracted hash from URL: $HASH"
-          
-          # Store values in environment variables
           echo "PACKAGE_URL=$URL" >> $GITHUB_ENV
           echo "PACKAGE_HASH=$HASH" >> $GITHUB_ENV
-          
-          # Verify hash was extracted successfully
           if [ -z "$HASH" ]; then
             echo "❌ ERROR: Failed to extract hash from URL"
             exit 1
           fi
-          
-          # Verify hash is a valid hex string (64 characters for SHA-256)
-          if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
+          # Use grep for POSIX-compatible regex check instead of [[ =~ ]]
+          if ! echo "$HASH" | grep -qE '^[0-9a-f]{64}$'; then
             echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
             exit 1
           fi
-          
           echo "✅ Successfully extracted hash: $HASH"
 
-      # Extract Short Module Name before publishing NIP-94 metadata
       - name: Extract Short Module Name
+        shell: bash
         run: |
-          # Extract the basic part from tollgate-module-basic-go
-          if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
-            SHORT_MODULE="${BASH_REMATCH[1]}"
-          else
-            SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
+          # Use sed to extract module name instead of bash regex
+          PKG_NAME="${{ env.PACKAGE_NAME }}"
+          # Extract "basic" from "tollgate-module-basic-go"
+          SHORT_MODULE=$(echo "$PKG_NAME" | sed -E 's/tollgate-module-(.+)-go/\1/')
+          # If the pattern didn't match, try simpler approach
+          if [ "$SHORT_MODULE" = "$PKG_NAME" ]; then
+            SHORT_MODULE=$(echo "$PKG_NAME" | sed 's/tollgate-module-//g' | sed 's/-go//g')
           fi
+          
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           
-          # Create a standardized filename for the package
-          DEVICE="gl-mt3000"  # You might want to make this dynamic
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          # Create standardized filename for the package using OpenWrt naming convention
+          DEVICE="gl-mt3000"
+          VERSION="${{ env.SDK_VERSION }}-1"
+          PACKAGE_SHORT_FILENAME="${{ env.PACKAGE_NAME }}_${VERSION}_${{ matrix.arch }}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           
           # Create a simplified content format
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          
+      - name: Prepare Environment Variables for Artifact
+        run: |
+          mkdir -p /github/workspace/env-artifacts
+          ENV_FILE="/github/workspace/env-artifacts/build-env.txt"
+          echo "PKG_VERSION=${{ env.PKG_VERSION }}" >> $ENV_FILE
+          echo "PACKAGE_URL=${{ env.PACKAGE_URL }}" >> $ENV_FILE
+          echo "PACKAGE_HASH=${{ env.PACKAGE_HASH }}" >> $ENV_FILE
+          echo "PACKAGE_SIZE=${{ env.PACKAGE_SIZE }}" >> $ENV_FILE
+          echo "SHORT_MODULE=${{ env.SHORT_MODULE }}" >> $ENV_FILE
+          echo "PACKAGE_SHORT_FILENAME=${{ env.PACKAGE_SHORT_FILENAME }}" >> $ENV_FILE
+          echo "PACKAGE_CONTENT=${{ env.PACKAGE_CONTENT }}" >> $ENV_FILE
+          echo "ARCH_ID=${{ env.ARCH_ID }}" >> $ENV_FILE
+          echo "TARGET_ID=${{ env.TARGET_ID }}" >> $ENV_FILE
+          echo "GOARCH=${{ matrix.goarch }}" >> $ENV_FILE
+          
+          # Debug output to verify file contents
+          echo "Created environment file with contents:"
+          cat $ENV_FILE
+          
+      - name: Upload Environment Variables as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-env-${{ matrix.target_family }}-${{ matrix.target_board }}
+          path: /github/workspace/env-artifacts/build-env.txt
+          retention-days: 1
+
+      # At the end of the job, export the current matrix target for the publish job
+      - name: Export Matrix Target
+        id: export_targets
+        run: |
+          echo "Current target: ${{ matrix.target_family }}/${{ matrix.target_board }}/${{ matrix.arch }}"
+          # This will be collected and made available to the publish job
+          TARGET_JSON=$(echo '{"target_family":"${{ matrix.target_family }}","target_board":"${{ matrix.target_board }}","arch":"${{ matrix.arch }}"}' | sed 's/"/\\"/g')
+          echo "matrix_targets=${TARGET_JSON}" >> $GITHUB_OUTPUT
+
+  publish:
+    needs: [build-modules, setup-matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      max-parallel: 10
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    name: "Publish ${{ matrix.target_family }}/${{ matrix.target_board }}"
+    steps:
+      # Cache Python dependencies for NIP-94 action
+      - name: Cache Python dependencies
+        id: cache-python-deps
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}-${{ hashFiles('**/requirements.txt') || 'no-requirements' }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-${{ env.SDK_VERSION }}-
+            ${{ env.CACHE_VERSION }}-python-deps-${{ matrix.target_family }}-${{ matrix.target_board }}-
+            ${{ env.CACHE_VERSION }}-python-deps-
+
+      # Download Environment Variables first to get PKG_VERSION
+      - name: Download Environment Variables
+        uses: actions/download-artifact@v4
+        with:
+          name: build-env-${{ matrix.target_family }}-${{ matrix.target_board }}
+          path: ./env
+
+      - name: Load Environment Variables and Set Package Version
+        id: env_setup
+        run: |
+          # Load environment variables from the build step
+          if [ -f ./env/build-env.txt ]; then
+            echo "Loading environment variables from build step"
+            cat ./env/build-env.txt
+            while IFS= read -r line; do
+              if [[ "$line" == *"="* ]]; then
+                echo "$line" >> $GITHUB_ENV
+                # Extract PKG_VERSION if present
+                if [[ "$line" == PKG_VERSION=* ]]; then
+                  PKG_VERSION="${line#PKG_VERSION=}"
+                  echo "Found package version: $PKG_VERSION"
+                  echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+                fi
+              fi
+            done < ./env/build-env.txt
+          else
+            echo "❌ ERROR: Environment file not found"
+            ls -la ./env/
+            exit 1
+          fi
+          
+          # Fallback version if PKG_VERSION wasn't found
+          if [ -z "$PKG_VERSION" ]; then
+            echo "⚠️ Warning: PKG_VERSION not found in env file, using fallback version"
+            PKG_VERSION="0.0.0"
+            echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
+            echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+          fi
+          
+          # Print the artifact name we'll be looking for
+          echo "Will download artifact: ${{ env.PACKAGE_NAME }}_${PKG_VERSION}-1_${{ matrix.arch }}"
+
+      # Now download artifacts with the version from the environment file
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}_${{ steps.env_setup.outputs.PKG_VERSION || '0.0.0' }}-1_${{ matrix.arch }}
+          path: ./artifacts
+
+      - name: Download Environment Variables
+        uses: actions/download-artifact@v4
+        with:
+          name: build-env-${{ matrix.target_family }}-${{ matrix.target_board }}
+          path: ./env
+
+      - name: Load Environment Variables
+        run: |
+          # Load environment variables from the build step
+          if [ -f ./env/build-env.txt ]; then
+            echo "Loading environment variables from build step"
+            cat ./env/build-env.txt
+            while IFS= read -r line; do
+              if [[ "$line" == *"="* ]]; then
+                echo "$line" >> $GITHUB_ENV
+              fi
+            done < ./env/build-env.txt
+          else
+            echo "❌ ERROR: Environment file not found"
+            ls -la ./env/
+            exit 1
+          fi
+          
+          # Create standardized filename for the package if not already set
+          if [ -z "$PACKAGE_SHORT_FILENAME" ]; then
+            DEVICE="gl-mt3000"
+            SHORT_MODULE=$(echo "$PACKAGE_NAME" | sed -E 's/tollgate-module-(.+)-go/\1/')
+            # If the pattern didn't match, try simpler approach
+            if [ "$SHORT_MODULE" = "$PACKAGE_NAME" ]; then
+              SHORT_MODULE=$(echo "$PACKAGE_NAME" | sed 's/tollgate-module-//g' | sed 's/-go//g')
+            fi
+            PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${{ matrix.arch }}.ipk"
+            echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
+            
+            # Create a simplified content format
+            echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          fi
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
@@ -190,9 +467,8 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.MODEL }}"
+          architecture: "${{ matrix.arch }}"
 
-      # Debug the outputs to see what's available
       - name: Debug Event ID
         run: |
           echo "EVENT_ID from env: ${{ env.EVENT_ID }}"
@@ -203,7 +479,6 @@ jobs:
 
       - name: Verify Package NIP-94 Event
         id: verify_package
-        # Use environment variable instead of step output
         if: env.EVENT_ID != ''
         uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
         with:
@@ -211,27 +486,28 @@ jobs:
           relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
 
       - name: Check Package Publication
-        # Only run this step if the verification ran and failed
         if: steps.verify_package.outcome == 'failure'
         run: |
           echo "❌ Failed to verify package publication on relays"
           exit 1
           
-      # Add a step to handle the case where EVENT_ID is empty
       - name: Check Event ID
         if: env.EVENT_ID == ''
         run: |
           echo "❌ No event ID was generated by the publish step"
           exit 1
 
-      - name: Build Summary
+      - name: Publication Summary
         run: |
-          echo "Build Summary for ${{ matrix.target.name }}:"
-          echo "✅ Binary successfully built and published"
-          echo "✅ Package successfully built and published"
-          echo "Binary URL: ${{ steps.upload_binary.outputs.blossomUrl }}"
-          echo "Package URL: ${{ steps.upload_package.outputs.blossomUrl }}"
+          echo "Publication Summary:"
+          echo "✅ Package metadata successfully published to Nostr"
+          echo "Event ID: ${{ env.EVENT_ID || steps.publish_package.outputs.eventId }}"
+          echo "Package URL: ${{ env.PACKAGE_URL }}"
 
+  trigger-os-workflow:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
         with:
