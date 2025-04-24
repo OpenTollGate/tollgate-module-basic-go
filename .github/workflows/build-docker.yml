@@ -27,9 +27,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y jq
-          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-          apt-get install -y nodejs
+          if ! command -v jq &> /dev/null; then
+            apt-get update && apt-get install -y jq
+          fi
+          
+          if ! command -v node &> /dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+            apt-get install -y nodejs
+          fi
+          
           node --version
 
       - name: Move sources to sdk folder
@@ -164,12 +170,7 @@ jobs:
           cd /builder/package/${{ env.PACKAGE_NAME }}
           PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
-          
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-        
+
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
