@@ -55,5 +55,13 @@ docker build -f Dockerfile-act -t act-image .
 # Get the number of available CPUs
 NUM_CPUS=$(nproc)
 
-# Run the act-image container with Docker socket mounted and automatically choose Medium image size
-echo "Medium" | docker run -i --cpus=$NUM_CPUS -v /var/run/docker.sock:/var/run/docker.sock -e NSEC=$NSEC -e REPO_ACCESS_TOKEN=$REPO_ACCESS_TOKEN act-image
+# Create artifacts directory if it doesn't exist
+mkdir -p artifacts
+
+# Run the act-image container with Docker socket mounted and artifacts volume
+echo "Medium" | docker run -i --cpus=$NUM_CPUS \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v $(pwd)/artifacts:/github/workspace/artifacts \
+  -e NSEC=$NSEC \
+  -e REPO_ACCESS_TOKEN=$REPO_ACCESS_TOKEN \
+  act-image
