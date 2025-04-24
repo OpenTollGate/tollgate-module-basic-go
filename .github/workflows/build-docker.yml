@@ -165,6 +165,11 @@ jobs:
           PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
           
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+        
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
