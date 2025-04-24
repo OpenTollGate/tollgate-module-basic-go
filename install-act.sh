@@ -41,8 +41,13 @@ if ! groups $USER | grep -q "docker"; then
  newgrp docker
 fi
 
-# Pull required openwrt/sdk image
-sudo docker pull openwrt/sdk:mediatek-filogic-23.05.3
+# Check if openwrt/sdk image exists locally
+if ! docker image inspect openwrt/sdk:mediatek-filogic-23.05.3 > /dev/null 2>&1; then
+  echo "Pulling openwrt/sdk:mediatek-filogic-23.05.3 Docker image..."
+  sudo docker pull openwrt/sdk:mediatek-filogic-23.05.3
+else
+  echo "openwrt/sdk:mediatek-filogic-23.05.3 Docker image already exists locally."
+fi
 
 # Build the Docker image for act
 docker build -f Dockerfile-act -t act-image .
