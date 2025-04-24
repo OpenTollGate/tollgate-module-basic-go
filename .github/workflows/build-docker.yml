@@ -95,16 +95,18 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: package-${{ env.PACKAGE_NAME }}
-          path: ./artifacts
-      
       - name: Prepare package metadata
         id: package_info
         run: |
-          PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
+          PACKAGE_PATH=/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+      
+      - name: Verify package path
+        run: |
+          if [ ! -f "$PACKAGE_PATH" ]; then
+            echo "Error: Package file not found at $PACKAGE_PATH"
+            exit 1
+          fi
+          echo "Using package file: $PACKAGE_PATH"
           FILENAME=$(basename "$PACKAGE_PATH")
           
           # Extract model from filename
