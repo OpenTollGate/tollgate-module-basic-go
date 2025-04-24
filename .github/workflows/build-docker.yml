@@ -63,6 +63,7 @@ jobs:
           env GOARCH=${{ env.GOARCH }} GOMIPS=${{ env.GOMIPS }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
+        id: list_output_package
         run: |
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
           
@@ -75,6 +76,7 @@ jobs:
           
           # Extract model from filename for later use
           FILENAME=$(basename "$PACKAGE_PATH")
+          echo "package_filename=$FILENAME" >> $GITHUB_OUTPUT
           
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
@@ -83,10 +85,14 @@ jobs:
       - name: Prepare package metadata
         id: package_info
         run: |
-          PACKAGE_PATH=/github/workspace/artifacts/$FILENAME
+          echo "Package filename output: ${{ steps.list_output_package.outputs.package_filename }}"
+          PACKAGE_PATH=/github/workspace/artifacts/${{ steps.list_output_package.outputs.package_filename }}
+          echo "PACKAGE_PATH: $PACKAGE_PATH"
+          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
 
       - name: Verify package path
         run: |
+          echo "Verifying package path: $PACKAGE_PATH"
           if [ ! -f "$PACKAGE_PATH" ]; then
             echo "Error: Package file not found at $PACKAGE_PATH"
             exit 1
@@ -104,7 +110,6 @@ jobs:
           # Calculate file size
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
           
-          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "MODEL=$MODEL" >> $GITHUB_ENV
           echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
