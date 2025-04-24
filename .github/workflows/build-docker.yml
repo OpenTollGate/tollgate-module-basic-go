@@ -27,10 +27,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-        apt-get update && apt-get install -y jq
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-        node --version
+          apt-get update && apt-get install -y jq
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+          node --version
 
       - name: Move sources to sdk folder
         run: |
