@@ -148,16 +148,12 @@ jobs:
       - name: Extract Short Module Name
         run: |
           # Extract the basic part from tollgate-module-basic-go
-          if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
-            SHORT_MODULE="${BASH_REMATCH[1]}"
-          else
-            SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
-          fi
+          SHORT_MODULE=$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           
           # Create a standardized filename for the package
-          DEVICE="gl-mt3000"  # You might want to make this dynamic
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          DEVICE="gl-mt3000"
+          PACKAGE_SHORT_FILENAME="$SHORT_MODULE-$DEVICE-$MODEL.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           
           # Create a simplified content format
