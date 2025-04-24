@@ -9,6 +9,7 @@ RUN apt-get install -y curl jq
 RUN apt-get install -y pkg-config build-essential
 RUN apt-get install -y python3.12 python3-distutils python3.12-dev
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+RUN ln -s /usr/bin/python3.12 /usr/bin/python
 RUN python3.12 -m pip install nostr
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 RUN apt-get install -y nodejs
