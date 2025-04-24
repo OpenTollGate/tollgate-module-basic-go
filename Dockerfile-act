@@ -4,6 +4,14 @@ FROM ubuntu:22.04
 RUN apt-get update && apt-get install -y curl jq python3.9
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 RUN apt-get install -y nodejs
+
+# Install Go if not already installed
+RUN if ! command -v go &> /dev/null; then \
+      echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list && \
+      apt-get update && \
+      apt-get install -y -t bookworm-backports golang-go; \
+    fi
+
 RUN curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash
 
 # Set working directory

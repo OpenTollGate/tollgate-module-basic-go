@@ -44,12 +44,14 @@ jobs:
 
       - name: Install Golang
         run: |
-          # Add golang-backports repository
-          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
-          apt-get update
-          
-          # Install Go from backports
-          apt-get install -y -t bookworm-backports golang-go
+          if ! command -v go &> /dev/null; then
+            # Add golang-backports repository
+            echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+            apt-get update
+            
+            # Install Go from backports
+            apt-get install -y -t bookworm-backports golang-go
+          fi
 
       # - name: Run Go Tests
       #   run: |
