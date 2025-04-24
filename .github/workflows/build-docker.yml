@@ -27,7 +27,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y jq
+          apt-get update && apt-get install -y jq nodejs npm
 
       - name: Move sources to sdk folder
         run: |
