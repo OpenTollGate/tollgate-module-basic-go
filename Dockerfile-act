@@ -1,13 +1,23 @@
 FROM ubuntu:22.04
 
 # Install act
-RUN apt-get update && apt-get install -y curl jq python3.9
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y software-properties-common
+RUN add-apt-repository -y ppa:deadsnakes/ppa
+RUN apt-get update
+RUN apt-get install -y curl jq
+RUN apt-get install -y pkg-config build-essential
+RUN apt-get install -y python3.12 python3-distutils python3.12-dev
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+RUN python3.12 -m pip install nostr
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 RUN apt-get install -y nodejs
 
 # Install Go if not already installed
 RUN if ! command -v go &> /dev/null; then \
       echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list && \
+      apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0E98404D386FA1D9 && \
+      apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 6ED0E7B82643E131 && \
       apt-get update && \
       apt-get install -y -t bookworm-backports golang-go; \
     fi
