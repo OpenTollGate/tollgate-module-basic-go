@@ -26,23 +26,6 @@ jobs:
             apt-get update && apt-get install -y jq
           fi
 
-      - name: Check if NSEC_HEX is empty
-        run: |
-          pwd
-          ls -la
-          ls -la /github/workspace
-          if [ -n "${{ secrets.NSEC_HEX }}" ]; then
-            NSEC_HEX="${{ secrets.NSEC_HEX }}"
-          else
-            NSEC_HEX=$(jq -r '.NSEC_HEX' /github/workspace/secrets.json)
-          fi
-          
-          if [ -z "$NSEC_HEX" ]; then
-            echo "❌ NSEC_HEX is empty"
-            exit 1
-          fi
-          echo "NSEC_HEX=$NSEC_HEX" >> $GITHUB_ENV
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -195,7 +178,7 @@ jobs:
           originalHash: ${{ env.PACKAGE_HASH }}
           filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
           content: "${{ env.PACKAGE_CONTENT }}"
-          input_nsec_hex: ${{ env.NSEC_HEX }}
+          input_nsec_hex: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
           version: "${{ env.PKG_VERSION }}"
