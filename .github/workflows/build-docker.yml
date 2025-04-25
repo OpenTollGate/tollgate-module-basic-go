@@ -20,24 +20,31 @@ jobs:
       options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 0
-
       - name: Install dependencies
         run: |
           if ! command -v jq &> /dev/null; then
             apt-get update && apt-get install -y jq
           fi
-          
-          if ! command -v node &> /dev/null; then
-            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            apt-get install -y nodejs
+
+      - name: Check if NSEC_HEX is empty
+        run: |
+          if [ -n "${{ secrets.NSEC_HEX }}" ]; then
+            NSEC_HEX="${{ secrets.NSEC_HEX }}"
+          else
+            NSEC_HEX=$(jq -r '.NSEC_HEX' ${GITHUB_WORKSPACE}/${{ env.PACKAGE_NAME }}/secrets.json)
           fi
           
-          node --version
+          if [ -z "$NSEC_HEX" ]; then
+            echo "❌ NSEC_HEX is empty"
+            exit 1
+          fi
+          echo "NSEC_HEX=$NSEC_HEX" >> $GITHUB_ENV
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.PACKAGE_NAME }}/
+          fetch-depth: 0
 
       - name: Move sources to sdk folder
         run: |
@@ -173,15 +180,6 @@ jobs:
           cd /builder/package/${{ env.PACKAGE_NAME }}
           PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
-
-      - name: Check if NSEC_HEX is empty
-        run: |
-          NSEC_HEX=$(jq -r '.NSEC_HEX' ../secrets.json)
-          if [ -z "$NSEC_HEX" ]; then
-            echo "❌ NSEC_HEX is empty"
-            exit 1
-          fi
-          echo "NSEC_HEX=$NSEC_HEX" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package

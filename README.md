@@ -24,6 +24,11 @@ env GOOS=linux GOARCH=arm64 go build -o tip01 -trimpath -ldflags="-s -w"
 scp -O tip01 root@192.168.1.1:/root/tip01 # X.X == Router IP
 ```
 
+Package locally using
+```
+./dockerized-act.sh 2>&1 | tee logs/dockerized-act.log
+```
+
 ## Required Firewall rules 
 
 First, test if the tip01 is up by going to your router's ip on port `2122`. You should get a JSON response with your IP and mac address.

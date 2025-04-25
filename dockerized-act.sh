@@ -58,6 +58,6 @@ mkdir -p artifacts
 echo "Medium" | docker run -i --cpus=$NUM_CPUS \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v $(pwd)/artifacts:/github/workspace/artifacts \
-  -v $SECRETS_FILE_ABS:/github/secrets.json \
+  -v $SECRETS_FILE_ABS:/app/tollgate-module-basic-go/secrets.json \
   -e REPO_ACCESS_TOKEN=$(jq -r '.REPO_ACCESS_TOKEN' "$SECRETS_FILE") \
   --rm act-image
