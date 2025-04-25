@@ -172,7 +172,14 @@ jobs:
           cd /builder/package/${{ env.PACKAGE_NAME }}
           PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
-
+  
+      - name: Debug Action Path
+        run: |
+          echo "Action Path: ${{ github.action_path }}"
+          # we should be able to see the action's path here
+          ls -la ${{ github.action_path }}
+          # This should list the contents of the action's directory
+  
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@tags_and_python_installation
@@ -184,7 +191,7 @@ jobs:
           originalHash: ${{ env.PACKAGE_HASH }}
           filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
           content: "${{ env.PACKAGE_CONTENT }}"
-          nsec_hex: ${{ secrets.NSEC_HEX }}
+          nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
           version: "${{ env.PKG_VERSION }}"
