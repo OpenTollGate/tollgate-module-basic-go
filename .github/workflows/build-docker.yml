@@ -188,9 +188,12 @@ jobs:
           originalHash: ${{ env.PACKAGE_HASH }}
           filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
           content: "${{ env.PACKAGE_CONTENT }}"
-          nsec: ${{ secrets.NSEC }}
+          nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
+          device_id: "glinet_mt3000"
+          version: "${{ env.PKG_VERSION }}"
+          branch: "main"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
