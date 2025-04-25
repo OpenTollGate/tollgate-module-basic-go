@@ -26,13 +26,6 @@ jobs:
           path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
 
-      - name: Check if NSEC_HEX is empty
-        run: |
-          if [ -z "${{ secrets.NSEC_HEX }}" ]; then
-            echo "❌ NSEC_HEX is empty"
-            exit 1
-          fi
-
       - name: Install dependencies
         run: |
           if ! command -v jq &> /dev/null; then
@@ -181,6 +174,15 @@ jobs:
           PKG_VERSION=$(grep 'PKG_VERSION=' Makefile | cut -d '=' -f 2)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
 
+      - name: Check if NSEC_HEX is empty
+        run: |
+          NSEC_HEX=$(jq -r '.NSEC_HEX' ../secrets.json)
+          if [ -z "$NSEC_HEX" ]; then
+            echo "❌ NSEC_HEX is empty"
+            exit 1
+          fi
+          echo "NSEC_HEX=$NSEC_HEX" >> $GITHUB_ENV
+
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@tags_and_python_installation
@@ -192,7 +194,7 @@ jobs:
           originalHash: ${{ env.PACKAGE_HASH }}
           filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
           content: "${{ env.PACKAGE_CONTENT }}"
-          input_nsec_hex: ${{ secrets.NSEC_HEX }}
+          input_nsec_hex: ${{ env.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
           version: "${{ env.PKG_VERSION }}"
