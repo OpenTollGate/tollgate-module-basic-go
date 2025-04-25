@@ -179,7 +179,7 @@ jobs:
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python@tags_and_python_installation
         with:
           relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
           url: ${{ env.PACKAGE_URL }}
