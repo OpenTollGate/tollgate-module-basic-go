@@ -1,4 +1,5 @@
-name: Build and Publish
+# python/action.yml
+name: 'Build and Publish'
 
 on:
   push:
@@ -24,6 +25,13 @@ jobs:
         with:
           path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
+
+      - name: Check if NSEC_HEX is empty
+        run: |
+          if [ -z "${{ secrets.NSEC_HEX }}" ]; then
+            echo "❌ NSEC_HEX is empty"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: |
@@ -184,7 +192,7 @@ jobs:
           originalHash: ${{ env.PACKAGE_HASH }}
           filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
           content: "${{ env.PACKAGE_CONTENT }}"
-          nsec: ${{ secrets.NSEC }}
+          input_nsec_hex: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           architecture: "${{ env.MODEL }}"
           version: "${{ env.PKG_VERSION }}"

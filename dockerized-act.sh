@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Store start time
+START_TIME=$(date +%s)
+
 # Check if jq is installed
 if ! command -v jq &> /dev/null; then
   echo "jq is not installed. Installing jq..."
@@ -17,28 +20,37 @@ fi
 
 # Extract secrets using jq
 NSEC=$(jq -r '.NSEC' "$SECRETS_FILE")
+NSEC_HEX=$(jq -r '.NSEC_HEX' "$SECRETS_FILE")
 REPO_ACCESS_TOKEN=$(jq -r '.REPO_ACCESS_TOKEN' "$SECRETS_FILE")
 
 # Check if secrets were extracted successfully
-if [ -z "$NSEC" ] || [ -z "$REPO_ACCESS_TOKEN" ]; then
+if [ -z "$NSEC" ] || [ -z "$NSEC_HEX" ] || [ -z "$REPO_ACCESS_TOKEN" ]; then
   echo "Error: Failed to extract secrets from $SECRETS_FILE"
+  exit 1
+fi
+
+echo "NSEC_HEX value: $NSEC_HEX"
+
+# Check if NSEC_HEX is set
+if [ -z "$NSEC_HEX" ]; then
+  echo "Error: NSEC_HEX is not set in secrets.json"
   exit 1
 fi
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
- echo "Docker is not installed. Installing Docker..."
- sudo apt-get update
- sudo apt-get install -y docker.io
- sudo systemctl start docker
- sudo systemctl enable docker
+  echo "Docker is not installed. Installing Docker..."
+  sudo apt-get update
+  sudo apt-get install -y docker.io
+  sudo systemctl start docker
+  sudo systemctl enable docker
 fi
 
 # Add current user to Docker group if not already
 if ! groups $USER | grep -q "docker"; then
- sudo usermod -aG docker $USER
- echo "Added $USER to Docker group. Please log out and log back in to apply changes."
- newgrp docker
+  sudo usermod -aG docker $USER
+  echo "Added $USER to Docker group. Please log out and log back in to apply changes."
+  newgrp docker
 fi
 
 # Check if openwrt/sdk image exists locally
@@ -63,5 +75,6 @@ echo "Medium" | docker run -i --cpus=$NUM_CPUS \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v $(pwd)/artifacts:/github/workspace/artifacts \
   -e NSEC=$NSEC \
+  -e NSEC_HEX=$NSEC_HEX \
   -e REPO_ACCESS_TOKEN=$REPO_ACCESS_TOKEN \
-  act-image
+  --rm act-image
