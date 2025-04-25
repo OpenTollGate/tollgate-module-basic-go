@@ -31,7 +31,7 @@ jobs:
           if [ -n "${{ secrets.NSEC_HEX }}" ]; then
             NSEC_HEX="${{ secrets.NSEC_HEX }}"
           else
-            NSEC_HEX=$(jq -r '.NSEC_HEX' ${GITHUB_WORKSPACE}/${{ env.PACKAGE_NAME }}/secrets.json)
+            NSEC_HEX=$(jq -r '.NSEC_HEX' /github/workspace/secrets.json)
           fi
           
           if [ -z "$NSEC_HEX" ]; then
