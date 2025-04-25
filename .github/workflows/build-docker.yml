@@ -26,6 +26,12 @@ jobs:
             apt-get update && apt-get install -y jq
           fi
 
+          if ! command -v node &> /dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+            apt-get install -y nodejs
+          fi
+          echo "Node.js is installed"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
