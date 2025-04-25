@@ -115,6 +115,11 @@ jobs:
           echo "MODEL=$MODEL" >> $GITHUB_ENV
           echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
 
+      - name: Set Package Version
+        run: |
+          echo "PKG_VERSION=1.0.0" >> $GITHUB_ENV
+          echo "Set version to 1.0.0"
+
       - name: Blossom Artifact upload
         id: blossom_upload
         uses: Origami74/upload-blossom-action@improve-io
