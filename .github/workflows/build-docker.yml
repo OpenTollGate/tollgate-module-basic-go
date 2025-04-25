@@ -28,6 +28,9 @@ jobs:
 
       - name: Check if NSEC_HEX is empty
         run: |
+          pwd
+          ls -la
+          ls -la /github/workspace
           if [ -n "${{ secrets.NSEC_HEX }}" ]; then
             NSEC_HEX="${{ secrets.NSEC_HEX }}"
           else
