@@ -204,9 +204,12 @@ func TestDownloadPackage(t *testing.T) {
 	currentTime := time.Now().Unix()
 	fourWeeksAgo := currentTime - int64(4*7*24*60*60) // 4 weeks ago in seconds
 
+	relays := []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"}
+	trustedMaintainers := []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"}
+
 	customConfig := map[string]interface{}{
-		"relays": []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"},
-		"trusted_maintainers": []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"},
+		"relays":              relays,
+		"trusted_maintainers": trustedMaintainers,
 		"package_info": map[string]interface{}{
 			"version":   "0.0.1",
 			"timestamp": fourWeeksAgo,
@@ -222,22 +225,24 @@ func TestDownloadPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(customConfig["relays"].([]string), customConfig["trusted_maintainers"].([]string), "0.0.1", fourWeeksAgo, configFile.Name())
+	janitor, err := NewJanitor(relays, trustedMaintainers, "0.0.1", fourWeeksAgo, configFile.Name())
 	if err != nil {
-	    t.Fatal(err)
+		t.Fatal(err)
 	}
 
-	var packageURL string
 	eventChan := make(chan *nostr.Event)
 	var wg sync.WaitGroup
 	wg.Add(1)
+
+	var packageURL string
+	var eventHandlerWG sync.WaitGroup
+	eventHandlerWG.Add(1)
 	go func() {
-		defer wg.Done()
-		defer close(eventChan)
+		defer eventHandlerWG.Done()
 		for event := range eventChan {
 			packageURL, _, _, _, err = parseNIP94Event(*event)
 			if err != nil {
-				t.Errorf("parseNIP94Event failed: %v",	err)
+				t.Errorf("parseNIP94Event failed: %v", err)
 			}
 			if packageURL != "" {
 				return
@@ -249,6 +254,7 @@ func TestDownloadPackage(t *testing.T) {
 	relayPool := nostr.NewSimplePool(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+
 	var subClosers sync.WaitGroup
 	for _, relayURL := range janitor.relays {
 		subClosers.Add(1)
@@ -261,40 +267,55 @@ func TestDownloadPackage(t *testing.T) {
 				return
 			}
 			t.Logf("Connected to relay %s", relayURL)
+
 			filter := nostr.Filter{
 				Kinds: []int{1063}, // NIP-94 event kind
 			}
+
 			t.Logf("Subscribing to NIP-94 events on relay %s with filter: %+v", relayURL, filter)
 			sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
 			if err != nil {
 				t.Logf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
 				return
 			}
+
 			t.Logf("Subscribed to NIP-94 events on relay %s", relayURL)
 			for event := range sub.Events {
-				t.Logf("Received event from relay %s: kind=%d, ID=%v, PubKey=%s, CreatedAt=%d, Tags=%v",
-				       relayURL, event.Kind, event.ID, event.PubKey, event.CreatedAt, event.Tags)
+				t.Logf("Received event from relay %s: kind=%d, ID=%s, PubKey=%s, CreatedAt=%d, Tags=%+v",
+					relayURL, event.Kind, event.ID, event.PubKey, event.CreatedAt, event.Tags)
+
 				if event.Kind != 1063 {
 					t.Logf("Unexpected event kind %d from relay %s", event.Kind, relayURL)
 					continue
 				}
+
 				if !contains(janitor.trustedMaintainers, event.PubKey) {
 					t.Logf("Event from untrusted pubkey %s", event.PubKey)
 					continue
 				}
+
 				t.Logf("Sending event from relay %s to eventChan", relayURL)
 				eventChan <- event
 			}
 			t.Logf("Stopped receiving events from relay %s", relayURL)
 		}(relayURL)
 	}
-	subClosers.Wait()
-	wg.Done()
-	close(eventChan)
+
+	go func() {
+		subClosers.Wait()
+		close(eventChan)
+	}()
+
+	wg.Wait()
+
+	time.Sleep(1 * time.Second) // Wait for goroutines to finish
+	t.Log(logBuffer.String())
+	
+
+	t.Logf("Using package URL: %s", packageURL)
+	packageURL = "https://blossom.swissdash.site/ca28cf3e7ec20be818298c9e6341ddf75b649dab9d51a3b888b54059a0608a0e.bin"
 
 	if packageURL == "" {
-		time.Sleep(1 * time.Second) // Wait for goroutines to finish
-		t.Log(logBuffer.String())
 		t.Skip("No NIP-94 event found with package URL. Skipping test.")
 		return
 	}
@@ -303,6 +324,7 @@ func TestDownloadPackage(t *testing.T) {
 	if err != nil {
 		t.Errorf("DownloadPackage failed: %v", err)
 	}
+
 	if len(pkg) == 0 {
 		t.Errorf("expected non-empty package content")
 	}
