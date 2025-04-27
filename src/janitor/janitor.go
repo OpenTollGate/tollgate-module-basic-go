@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"sync"
 	"time"
+
+	"errors"
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
@@ -205,7 +208,25 @@ func (j *Janitor) ListenForNIP94Events() {
 
 func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
 	log.Printf("Downloading package from %s", url)
-	resp, err := http.Get(url)
+
+	// Create a custom HTTP client with a specific DNS resolver
+	dialer := &net.Dialer{
+		Resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, network, "8.8.8.8:53") // Using Google's public DNS
+			},
+		},
+	}
+
+	transport := &http.Transport{
+		DialContext: dialer.DialContext,
+	}
+
+	client := &http.Client{Transport: transport}
+
+	resp, err := client.Get(url)
 	if err != nil {
 		log.Printf("Error downloading package: %v", err)
 		return nil, err
@@ -292,6 +313,18 @@ func (j *Janitor) InstallPackage(pkg []byte) error {
 
 	log.Println("Package installed successfully")
 	return nil
+}
+
+func isNetworkUnreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check if the error is related to network unreachability
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr.Op == "dial" && opErr.Net == "tcp" && opErr.Err.Error() == "connect: network is unreachable"
+	}
+	return false
 }
 
 func contains(s []string, str string) bool {
