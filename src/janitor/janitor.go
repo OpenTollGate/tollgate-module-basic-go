@@ -242,7 +242,11 @@ func (p *progressLogger) Write(b []byte) (int, error) {
 	*p.downloaded += int64(n)
 	now := time.Now()
 	if now.Sub(p.lastLog) > time.Second {
-		log.Printf("Download progress: %d/%d bytes (%.2f%%)", *p.downloaded, p.total, float64(*p.downloaded)/float64(p.total)*100)
+		if p.total == -1 {
+			log.Printf("Download progress: %d bytes (total size unknown)", *p.downloaded)
+		} else {
+			log.Printf("Download progress: %d/%d bytes (%.2f%%)", *p.downloaded, p.total, float64(*p.downloaded)/float64(p.total)*100)
+		}
 		p.lastLog = now
 	}
 	return n, nil
