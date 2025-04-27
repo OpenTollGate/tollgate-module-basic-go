@@ -176,6 +176,7 @@ func (j *Janitor) ListenForNIP94Events() {
 		}
 
 		log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d", versionStr, event.ID, timestamp)
+		log.Printf("Checking if version %s (timestamp %d) is newer than %s (timestamp %d)", versionStr, timestamp, j.currentVersion, j.currentTimestamp)
 		if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 			log.Printf("Newer package version available: %s", versionStr)
 			pkg, err := j.DownloadPackage(packageEvent.packageURL)
