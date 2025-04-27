@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"bytes"
 	"net/http"
 	"os"
 	"os/exec"
@@ -215,14 +216,36 @@ func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to download package. Status code: %d", resp.StatusCode)
 	}
 
-	pkg, err := io.ReadAll(resp.Body)
+	var pkg bytes.Buffer
+	var downloadedBytes int64
+	totalSize := resp.ContentLength
+
+	teeReader := io.TeeReader(resp.Body, &progressLogger{total: totalSize, downloaded: &downloadedBytes})
+	_, err = io.Copy(&pkg, teeReader)
 	if err != nil {
 		log.Printf("Error reading package content: %v", err)
 		return nil, err
 	}
 
 	log.Println("Package downloaded successfully")
-	return pkg, nil
+	return pkg.Bytes(), nil
+}
+
+type progressLogger struct {
+	total      int64
+	downloaded *int64
+	lastLog    time.Time
+}
+
+func (p *progressLogger) Write(b []byte) (int, error) {
+	n := len(b)
+	*p.downloaded += int64(n)
+	now := time.Now()
+	if now.Sub(p.lastLog) > time.Second {
+		log.Printf("Download progress: %d/%d bytes (%.2f%%)", *p.downloaded, p.total, float64(*p.downloaded)/float64(p.total)*100)
+		p.lastLog = now
+	}
+	return n, nil
 }
 
 func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {

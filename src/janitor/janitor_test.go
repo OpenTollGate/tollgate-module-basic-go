@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"fmt"
 	"os"
 	"sync"
@@ -191,10 +189,6 @@ func TestEventMapCollision(t *testing.T) {
 }
 
 func TestDownloadPackage(t *testing.T) {
-	var logBuffer bytes.Buffer
-	log.SetOutput(&logBuffer)
-	defer log.SetOutput(os.Stderr)
-
 	configFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +306,7 @@ func TestDownloadPackage(t *testing.T) {
 		return
 	}
 
-	t.Logf("About to DownloadPackage")
+	t.Logf("Starting to DownloadPackage")
 	pkg, err := janitor.DownloadPackage(packageURL)
 	if err != nil {
 		t.Errorf("DownloadPackage failed: %v", err)
@@ -322,6 +316,7 @@ func TestDownloadPackage(t *testing.T) {
 	if len(pkg) == 0 {
 		t.Errorf("expected non-empty package content")
 	}
+
 }
 
 func TestInstallPackage(t *testing.T) {
