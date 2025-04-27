@@ -11,7 +11,13 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
+	"sync"
 )
+
+type packageEvent struct {
+	event      *nostr.Event
+	packageURL string
+}
 
 type JanitorConfig struct {
 	Relays             []string `json:"relays"`
@@ -67,118 +73,123 @@ func (j *Janitor) ListenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
 	relayPool := nostr.NewSimplePool(ctx)
+	var wg sync.WaitGroup
+	eventChan := make(chan *nostr.Event, 1000) // Buffered channel to handle events from multiple relays
 
 	for _, relayURL := range j.relays {
-		log.Printf("Connecting to relay: %s", relayURL)
-		relay, err := relayPool.EnsureRelay(relayURL)
-		if err != nil {
-			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-			continue
-		}
+		wg.Add(1)
+		go func(relayURL string) {
+			defer wg.Done()
+			log.Printf("Connecting to relay: %s", relayURL)
+			relay, err := relayPool.EnsureRelay(relayURL)
+			if err != nil {
+				log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+				return
+			}
 
-		sub, err := relay.Subscribe(ctx, []nostr.Filter{
-			{
-				Kinds: []int{1063}, // NIP-94 event kind
-			},
-		})
-		if err != nil {
-			log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
-			continue
-		}
+			sub, err := relay.Subscribe(ctx, []nostr.Filter{
+				{
+					Kinds: []int{1063}, // NIP-94 event kind
+				},
+			})
+			if err != nil {
+				log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+				return
+			}
 
-		go func(relayURL string, sub *nostr.Subscription) {
 			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
-			totalEvents := 0
-			untrustedEventCount := 0
-			trustedEventCount := 0
-			type packageEvent struct {
-				event *nostr.Event
-				packageURL string
-			}
-			eventMap := make(map[string]*packageEvent)
-			collisionCount := 0
-
 			for event := range sub.Events {
-				totalEvents++
+				eventChan <- event
+			}
+			log.Printf("Stopped listening for NIP-94 events on relay %s", relayURL)
+		}(relayURL)
+	}
 
-				if !contains(j.trustedMaintainers, event.PubKey) {
-					untrustedEventCount++
-					//log.Printf("Received untrusted event from pubkey %s", event.PubKey)
-					continue
-				} else {
-					trustedEventCount++
-					ok, err := event.CheckSignature()
-					if err != nil || !ok {
-						log.Printf("Invalid signature for NIP-94 event %s from relay %s: %v", event.ID, relayURL, err)
-						continue
-					}
+	go func() {
+		wg.Wait()
+		close(eventChan) // Close the channel when all relays are done
+	}()
 
-					packageURL, versionStr, filename, timestamp, err := parseNIP94Event(*event)
-					if err != nil {
-						//log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-						continue
-					}
+	eventMap := make(map[string]*packageEvent)
+	totalEvents := 0
+	untrustedEventCount := 0
+	trustedEventCount := 0
+	collisionCount := 0
 
-					//log.Printf("Received trusted event from pubkey %s", event.PubKey)
-					//log.Printf("Received event from relay %s: %+v", relayURL, event)
-					key := fmt.Sprintf("%s-%s", filename, versionStr)
-					existingPackageEvent, ok := eventMap[key]
-					if ok {
-						//log.Printf("Repeat occurence of package %s, version %s, this events timestamp %d, newest timestamp sofar %d ", filename, versionStr, timestamp, int64(existingPackageEvent.event.CreatedAt))
-						collisionCount++
-						if timestamp > int64(existingPackageEvent.event.CreatedAt) {
-							eventMap[key] = &packageEvent{
-								event: event,
-								packageURL: packageURL,
-							}
-							log.Printf("Collision detected for version %s, updating to event with timestamp %d", versionStr, timestamp)
-						}
-					} else {
-						log.Printf("First occurrence of package %s, version %s, timestamp %d", filename, versionStr, timestamp)
-						eventMap[key] = &packageEvent{
-							event: event,
-							packageURL: packageURL,
-						}
-					}
-				}
+	for event := range eventChan {
+		totalEvents++
+
+		if !contains(j.trustedMaintainers, event.PubKey) {
+			untrustedEventCount++
+			continue
+		} else {
+			trustedEventCount++
+			ok, err := event.CheckSignature()
+			if err != nil || !ok {
+				log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
+				continue
 			}
 
-			log.Printf("Stopped listening for NIP-94 events on relay %s. Total events: %d, Untrusted events: %d, Collisions: %d", relayURL, totalEvents, untrustedEventCount, collisionCount)
+			packageURL, versionStr, filename, timestamp, err := parseNIP94Event(*event)
+			if err != nil {
+				continue
+			}
 
-			for _, packageEvent := range eventMap {
-				event := packageEvent.event
-				_, versionStr, _, timestamp, err := parseNIP94Event(*event)
-				if err != nil {
-					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-					continue
+			key := fmt.Sprintf("%s-%s", filename, versionStr)
+			existingPackageEvent, ok := eventMap[key]
+			if ok {
+				collisionCount++
+				if timestamp > int64(existingPackageEvent.event.CreatedAt) {
+					eventMap[key] = &packageEvent{
+						event:      event,
+						packageURL: packageURL,
+					}
+					log.Printf("Collision detected for file %s, version %s, updating to newer event with timestamp %d", filename, versionStr, timestamp)
 				}
-
-				log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d", versionStr, event.ID, timestamp)
-				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-					log.Printf("Newer package version available: %s", versionStr)
-					pkg, err := j.DownloadPackage(packageEvent.packageURL)
-					if err != nil {
-						log.Printf("Error downloading package: %v", err)
-						continue
-					}
-
-					err = j.verifyPackageChecksum(pkg, *event)
-					if err != nil {
-						log.Printf("Error verifying package checksum: %v", err)
-						continue
-					}
-
-					err = j.InstallPackage(pkg)
-					if err != nil {
-						log.Printf("Error installing package: %v", err)
-						continue
-					}
-
-					log.Printf("Successfully installed new package version: %s", versionStr)
-					runPostInstallScript()
+			} else {
+				log.Printf("Found occurrence of package %s, version %s, timestamp %d", filename, versionStr, timestamp)
+				eventMap[key] = &packageEvent{
+					event:      event,
+					packageURL: packageURL,
 				}
 			}
-		}(relayURL, sub)
+		}
+	}
+
+	log.Printf("Finished processing NIP-94 events. Total events: %d, Untrusted events: %d, Collisions: %d", totalEvents, untrustedEventCount, collisionCount)
+
+	for _, packageEvent := range eventMap {
+		event := packageEvent.event
+		_, versionStr, _, timestamp, err := parseNIP94Event(*event)
+		if err != nil {
+			log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+			continue
+		}
+
+		log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d", versionStr, event.ID, timestamp)
+		if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
+			log.Printf("Newer package version available: %s", versionStr)
+			pkg, err := j.DownloadPackage(packageEvent.packageURL)
+			if err != nil {
+				log.Printf("Error downloading package: %v", err)
+				continue
+			}
+
+			err = j.verifyPackageChecksum(pkg, *event)
+			if err != nil {
+				log.Printf("Error verifying package checksum: %v", err)
+				continue
+			}
+
+			err = j.InstallPackage(pkg)
+			if err != nil {
+				log.Printf("Error installing package: %v", err)
+				continue
+			}
+
+			log.Printf("Successfully installed new package version: %s", versionStr)
+			runPostInstallScript()
+		}
 	}
 }
 
