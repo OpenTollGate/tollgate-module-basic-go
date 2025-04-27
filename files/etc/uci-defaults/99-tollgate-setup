@@ -263,6 +263,8 @@ log_message "TollGate setup completed successfully"
 # Configure WWAN interface
 log_message "Configuring WWAN interface"
 uci_safe_set network wwan peerdns '0'
+uci_safe_add_list network wwan dns '1.1.1.1'
+uci_safe_add_list network wwan dns '1.0.0.1'
 uci_safe_set network wwan device 'phy0-sta0'
 uci commit network
 
