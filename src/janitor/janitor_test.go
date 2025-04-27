@@ -281,23 +281,17 @@ func TestDownloadPackage(t *testing.T) {
 
 			t.Logf("Subscribed to NIP-94 events on relay %s", relayURL)
 			for event := range sub.Events {
-				t.Logf("Received event from relay %s: kind=%d, ID=%s, PubKey=%s, CreatedAt=%d, Tags=%+v",
-					relayURL, event.Kind, event.ID, event.PubKey, event.CreatedAt, event.Tags)
-
 				if event.Kind != 1063 {
 					t.Logf("Unexpected event kind %d from relay %s", event.Kind, relayURL)
 					continue
 				}
 
 				if !contains(janitor.trustedMaintainers, event.PubKey) {
-					t.Logf("Event from untrusted pubkey %s", event.PubKey)
 					continue
 				}
 
-				t.Logf("Sending event from relay %s to eventChan", relayURL)
 				eventChan <- event
 			}
-			t.Logf("Stopped receiving events from relay %s", relayURL)
 		}(relayURL)
 	}
 
@@ -309,12 +303,9 @@ func TestDownloadPackage(t *testing.T) {
 	eventHandlerWG.Wait()
 	wg.Done()
 
-	time.Sleep(1 * time.Second) // Wait for goroutines to finish
-	//t.Log(logBuffer.String())
-	
-
+	// Provide time to establish relay connections and find a valid blossom URL
+	time.Sleep(3 * time.Second) // Wait for goroutines to finish
 	t.Logf("Using package URL: %s", packageURL)
-	//packageURL = "https://blossom.swissdash.site/ca28cf3e7ec20be818298c9e6341ddf75b649dab9d51a3b888b54059a0608a0e.bin"
 
 	if packageURL == "" {
 		t.Skip("No NIP-94 event found with package URL. Skipping test.")
