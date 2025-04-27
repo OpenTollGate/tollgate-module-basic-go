@@ -15,6 +15,7 @@ import (
 	"github.com/OpenTollgate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/OpenTollgate/tollgate-module-basic-go/src/janitor"
 )
 
 // Config structure to hold all configuration parameters
@@ -36,6 +37,7 @@ type BraggingConfig struct {
 
 // Global configuration variable
 var config Config
+var configFile string = "/etc/tollgate/config.json"
 
 // Derived configuration values
 var tollgatePrivateKey string
@@ -85,11 +87,28 @@ func init() {
 
 	// Initialize relay pool for NIP-60 operations
 	relayPool = nostr.NewSimplePool(context.Background())
+
+	// Initialize janitor module
+	initJanitor()
+}
+
+func initJanitor() {
+	config, err := janitor.LoadJanitorConfig(configFile)
+	if err != nil {
+		log.Fatalf("Failed to load janitor config: %v", err)
+	}
+
+	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, configPath)
+	if err != nil {
+		log.Fatalf("Failed to create janitor instance: %v", err)
+	}
+
+	go janitorInstance.ListenForNIP94Events()
+	log.Println("Janitor module initialized and listening for NIP-94 events")
 }
 
 // loadConfig reads configuration from /etc/tollgate/config.json
 func loadConfig() error {
-	configFile := "/etc/tollgate/config.json"
 
 	// Read the existing config file
 	data, err := os.ReadFile(configFile)
