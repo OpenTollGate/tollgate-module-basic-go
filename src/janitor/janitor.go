@@ -108,26 +108,26 @@ func (j *Janitor) ListenForNIP94Events() {
 						log.Printf("Invalid signature for NIP-94 event %s from relay %s: %v", event.ID, relayURL, err)
 						continue
 					}
-	
+
 					packageURL, versionStr, timestamp, err := parseNIP94Event(*event)
 					if err != nil {
-						log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+						//log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 						continue
 					}
-	
-					log.Printf("Received trusted event from pubkey %s", event.PubKey)
-					key := fmt.Sprintf("%s-%s", packageURL, versionStr)
+
+					//log.Printf("Received trusted event from pubkey %s", event.PubKey)
+					//log.Printf("Received event from relay %s: %+v", relayURL, event)
+					key := fmt.Sprintf("%s-%s", filename, versionStr)
 					existingEvent, ok := eventMap[key]
 					if ok {
-						log.Printf("Ok")
-						log.Printf("Received event from relay %s: %+v", relayURL, event)
+						log.Printf("Repeat occurence of package %s version %s", filename, versionStr)
+						collisionCount++
 						if timestamp > int64(existingEvent.CreatedAt) {
 							eventMap[key] = event
-							collisionCount++
 							log.Printf("Collision detected for version %s, updating to newer event", versionStr)
 						}
 					} else {
-						log.Printf("Else")
+						log.Printf("First occurrence of package %s version %s", filename, versionStr)
 						eventMap[key] = event
 					}
 				}
@@ -209,18 +209,31 @@ func contains(s []string, str string) bool {
 
 // parseNIP94Event extracts package information from a NIP-94 event
 func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
-	var url string
-	version := "1.0.0" // Default version if not found
-	timestamp := int64(event.CreatedAt)
+	requiredTags := []string{"url", "version", "arch", "branch", "filename"}
+	tagMap := make(map[string]string)
 
 	for _, tag := range event.Tags {
-		if len(tag) > 0 && tag[0] == "url" && len(tag) > 1 {
-			url = tag[1]
-		}
-		if len(tag) > 0 && tag[0] == "version" && len(tag) > 1 {
-			version = tag[1]
+		if len(tag) > 0 && len(tag) > 1 {
+			tagMap[tag[0]] = tag[1]
 		}
 	}
+
+	// Check if all required tags are present
+	for _, tag := range requiredTags {
+		if _, ok := tagMap[tag]; !ok {
+			return "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
+		}
+	}
+
+	url := tagMap["url"]
+	version := tagMap["version"]
+	arch := tagMap["arch"]
+	branch := tagMap["branch"]
+	filename := tagMap["filename"]
+	timestamp := int64(event.CreatedAt)
+
+	log.Printf("Parsed NIP-94 event: url=%s, version=%s, arch=%s, branch=%s, filename=%s, timestamp=%d",
+		url, version, arch, branch, filename, timestamp)
 
 	if url == "" || version == "" || timestamp == 0 {
 		return "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
