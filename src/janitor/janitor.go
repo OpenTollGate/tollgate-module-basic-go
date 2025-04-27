@@ -124,15 +124,14 @@ func (j *Janitor) ListenForNIP94Events() {
 					key := fmt.Sprintf("%s-%s", filename, versionStr)
 					existingPackageEvent, ok := eventMap[key]
 					if ok {
-						//log.Printf("Repeat occurence of package %s, version %s, timestamp %d ", filename, versionStr, timestamp)
-						log.Printf("Repeat occurence of package %s, version %s, timestamp %d, event createdat %d ", filename, versionStr, timestamp, int64(existingPackageEvent.event.CreatedAt))
+						//log.Printf("Repeat occurence of package %s, version %s, this events timestamp %d, newest timestamp sofar %d ", filename, versionStr, timestamp, int64(existingPackageEvent.event.CreatedAt))
 						collisionCount++
 						if timestamp > int64(existingPackageEvent.event.CreatedAt) {
 							eventMap[key] = &packageEvent{
 								event: event,
 								packageURL: packageURL,
 							}
-							log.Printf("Collision detected for version %s, updating to newer event", versionStr)
+							log.Printf("Collision detected for version %s, updating to event with timestamp %d", versionStr, timestamp)
 						}
 					} else {
 						log.Printf("First occurrence of package %s, version %s, timestamp %d", filename, versionStr, timestamp)
