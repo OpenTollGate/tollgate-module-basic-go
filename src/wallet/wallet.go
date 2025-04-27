@@ -1,4 +1,4 @@
-package main
+package wallet
 
 import (
 	"context"
@@ -80,7 +80,7 @@ func (k *SimpleKeyer) Decrypt(ctx context.Context, pubkey, ciphertext string) (s
 }
 
 // decodeCashuToken decodes a Cashu token and returns the total value in sats
-func decodeCashuToken(token string) (int, error) {
+func DecodeCashuToken(token string) (int, error) {
 	fmt.Println("Decoding Cashu token:", token)
 
 	// Only support cashuB tokens
@@ -108,7 +108,7 @@ func decodeCashuToken(token string) (int, error) {
 
 // CollectPayment processes a Cashu token and swaps it for fresh proofs
 // Returns the fresh proofs and token directly
-func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool, relays []string) error {
+func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool, relays []string, acceptedMint string, mintFee int) error {
 	// Extract proofs from token and process them
 	proofs, tokenMint, err := nip60.GetProofsAndMint(token)
 	if err != nil {
@@ -215,7 +215,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	log.Printf("Successfully received proofs, now swapping for fresh ones, balance: %d", wallet.Balance())
 
 	balance := wallet.Balance()
-	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx)
+	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx, mintFee)
 	if payoutErr != nil {
 		log.Printf("Failed to payout profit payout: %v", payoutErr)
 		return payoutErr
@@ -224,7 +224,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	return nil
 }
 
-func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context) error {
+func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context, mintFee int) error {
 	log.Printf("Paying out %d sats to %s", amount, address)
 
 	// Skip processing if amount is zero

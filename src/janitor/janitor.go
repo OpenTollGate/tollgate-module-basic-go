@@ -197,7 +197,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			log.Printf("Successfully installed new package version: %s", versionStr)
-			runPostInstallScript(j.configPath, versionStr)
+			RunPostInstallScript(j.configPath, versionStr)
 		}
 	}
 }
@@ -346,7 +346,7 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	return newVersionObj.GreaterThan(currentVersion) && newTimestamp > currentTimestamp
 }
 
-func runPostInstallScript(configPath, newVersion string) {
+func RunPostInstallScript(configPath, newVersion string) {
 	log.Println("Running post-install script")
 	configData, err := os.ReadFile(configPath)
 	if err != nil {

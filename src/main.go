@@ -16,6 +16,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/OpenTollGate/tollgate-module-basic-go/modules"
+	"github.com/OpenTollGate/tollgate-module-basic-go/wallet"
 )
 
 // Config structure to hold all configuration parameters
@@ -27,6 +28,10 @@ type Config struct {
 	MintFee            int            `json:"mint_fee"`
 	Relays             []string       `json:"relays"`
 	Bragging           BraggingConfig `json:"bragging"`
+	PackageInfo        struct {
+		Version   string `json:"version"`
+		Timestamp int64  `json:"timestamp"`
+	} `json:"package_info"`
 }
 
 type BraggingConfig struct {
@@ -291,7 +296,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Extracted payment token: %s", paymentToken)
 
 	// Decode the Cashu token
-	tokenValue, err := decodeCashuToken(paymentToken)
+	tokenValue, err := wallet.DecodeCashuToken(paymentToken)
 	if err != nil {
 		log.Printf("Error decoding Cashu token: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -309,7 +314,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Process and swap the token for fresh proofs - only if value is sufficient
 	relays := config.Relays
 	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, tollgatePrivateKey, relayPool, relays)
+	swapError := wallet.CollectPayment(paymentToken, tollgatePrivateKey, relayPool, relays, acceptedMint, mintFee)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -472,10 +477,7 @@ func main() {
 
 		if installedVersion != configVersion {
 			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
-			err = janitor.RunPostInstallScript(configFile, installedVersion)
-			if err != nil {
-				log.Printf("Error running post-install script: %v", err)
-			}
+			janitor.RunPostInstallScript(configFile, installedVersion)
 		}
 	}
 
