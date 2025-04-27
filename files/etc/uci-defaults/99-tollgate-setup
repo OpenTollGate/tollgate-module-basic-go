@@ -80,7 +80,10 @@ uci_safe_add_list() {
         fi
     fi
     
-    uci add_list "$path=$value" >/dev/null 2>&1
+    # Check if the value already exists
+    if ! uci -q get "$path" | grep -q "$value"; then
+        uci add_list "$path=$value" >/dev/null 2>&1
+    fi
 }
 
 # 1. Firewall configuration
@@ -220,8 +223,9 @@ uci_safe_set nodogsplash @nodogsplash[0] gatewayname "${SSID_BASE} Portal"
 uci_safe_set nodogsplash @nodogsplash[0] gatewayinterface 'br-lan'
 
 # Ensure TollGate protocol port is allowed
-uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
-uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+uci_safe_delete nodogsplash.@nodogsplash[0].users_to_router
+uci_safe_add_list nodogsplash.@nodogsplash[0].users_to_router 'allow tcp port 2121'
+uci_safe_add_list nodogsplash.@nodogsplash[0].users_to_router 'allow tcp port 8080'
 uci commit nodogsplash
 log_message "NoDogSplash configuration completed"
 
