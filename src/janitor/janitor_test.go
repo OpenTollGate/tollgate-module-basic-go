@@ -310,7 +310,7 @@ func TestDownloadPackage(t *testing.T) {
 	wg.Done()
 
 	time.Sleep(1 * time.Second) // Wait for goroutines to finish
-	t.Log(logBuffer.String())
+	//t.Log(logBuffer.String())
 	
 
 	t.Logf("Using package URL: %s", packageURL)
@@ -321,11 +321,13 @@ func TestDownloadPackage(t *testing.T) {
 		return
 	}
 
+	t.Logf("About to DownloadPackage")
 	pkg, err := janitor.DownloadPackage(packageURL)
 	if err != nil {
 		t.Errorf("DownloadPackage failed: %v", err)
 	}
 
+	t.Logf("Download package succeeded")
 	if len(pkg) == 0 {
 		t.Errorf("expected non-empty package content")
 	}
