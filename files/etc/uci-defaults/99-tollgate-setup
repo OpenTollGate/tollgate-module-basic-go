@@ -260,5 +260,14 @@ fi
 # Final log message
 log_message "TollGate setup completed successfully"
 
+# Configure WWAN interface
+log_message "Configuring WWAN interface"
+uci_safe_set network wwan peerdns '0'
+uci_safe_set network wwan device 'phy0-sta0'
+uci commit network
+
+# Final log message
+log_message "TollGate network configuration completed"
+
 # Ensure script exits successfully
 exit 0
