@@ -4,7 +4,7 @@ go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/janitor v0.0.0-00010101000000-000000000000
-	github.com/OpenTollGate/tollgate-module-basic-go/modules v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/valve v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/wallet v0.0.0-00010101000000-000000000000
 	github.com/nbd-wtf/go-nostr v0.51.10
 	github.com/stretchr/testify v1.10.0
@@ -48,6 +48,6 @@ require (
 
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/janitor => ./src/janitor
-	github.com/OpenTollGate/tollgate-module-basic-go/modules => ./src/modules
+	github.com/OpenTollGate/tollgate-module-basic-go/valve => ./src/valve
 	github.com/OpenTollGate/tollgate-module-basic-go/wallet => ./src/wallet
 )

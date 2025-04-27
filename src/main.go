@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/janitor"
-	"github.com/OpenTollGate/tollgate-module-basic-go/modules"
+	"github.com/OpenTollGate/tollgate-module-basic-go/valve"
 	"github.com/OpenTollGate/tollgate-module-basic-go/wallet"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
@@ -350,7 +350,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		allottedMinutes, tokenValue, 2*mintFee)
 
 	// Open gate for the specified duration using the valve module
-	err = modules.OpenGate(macAddress, durationSeconds)
+	err = valve.OpenGate(macAddress, durationSeconds)
 	if err != nil {
 		log.Printf("Error opening gate: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
