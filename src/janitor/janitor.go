@@ -23,17 +23,21 @@ type JanitorConfig struct {
 }
 
 func loadJanitorConfig(path string) (*JanitorConfig, error) {
+	log.Printf("Loading configuration from %s", path)
 	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Printf("Error reading config file: %v", err)
 		return nil, err
 	}
 
 	var config JanitorConfig
 	err = json.Unmarshal(data, &config)
 	if err != nil {
+		log.Printf("Error unmarshaling config: %v", err)
 		return nil, err
 	}
 
+	log.Printf("Configuration loaded: %+v", config)
 	return &config, nil
 }
 
@@ -45,8 +49,10 @@ type Janitor struct {
 }
 
 func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64) (*Janitor, error) {
+	log.Printf("Creating new Janitor instance")
 	v, err := version.NewVersion(currentVersion)
 	if err != nil {
+		log.Printf("Invalid current version: %v", err)
 		return nil, err
 	}
 	return &Janitor{
@@ -58,10 +64,12 @@ func NewJanitor(relays []string, trustedMaintainers []string, currentVersion str
 }
 
 func (j *Janitor) ListenForNIP94Events() {
+	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
 	relayPool := nostr.NewSimplePool(ctx)
 
 	for _, relayURL := range j.relays {
+		log.Printf("Connecting to relay: %s", relayURL)
 		relay, err := relayPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
@@ -79,8 +87,12 @@ func (j *Janitor) ListenForNIP94Events() {
 		}
 
 		go func(relayURL string, sub *nostr.Subscription) {
+			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
 			untrustedEventCount := 0
 			totalEvents := 0
+			eventMap := make(map[string]*nostr.Event)
+			collisionCount := 0
+
 			for event := range sub.Events {
 				totalEvents++
 				if !contains(j.trustedMaintainers, event.PubKey) {
@@ -100,7 +112,29 @@ func (j *Janitor) ListenForNIP94Events() {
 					continue
 				}
 
-				log.Printf("Parsed NIP-94 event %s: version=%s, timestamp=%d, URL=%s", event.ID, versionStr, timestamp, packageURL)
+				key := fmt.Sprintf("%s-%s", packageURL, versionStr)
+				existingEvent, ok := eventMap[key]
+				if ok {
+					if timestamp > int64(existingEvent.CreatedAt) {
+						eventMap[key] = event
+						collisionCount++
+					}
+				} else {
+					eventMap[key] = event
+				}
+
+			}
+
+			log.Printf("Stopped listening for NIP-94 events on relay %s. Total events: %d, Untrusted events: %d, Collisions: %d", relayURL, totalEvents, untrustedEventCount, collisionCount)
+
+			for _, event := range eventMap {
+				packageURL, versionStr, timestamp, err := parseNIP94Event(*event)
+				if err != nil {
+					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+					continue
+				}
+
+				log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d, URL=%s", versionStr, event.ID, timestamp, packageURL)
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 					log.Printf("Newer package version available: %s", versionStr)
 					pkg, err := j.DownloadPackage(packageURL)
@@ -130,11 +164,13 @@ func (j *Janitor) ListenForNIP94Events() {
 }
 
 func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
+	log.Printf("Downloading package from %s", url)
 	// implement logic to download the package
 	return nil, nil
 }
 
 func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
+	log.Println("Verifying package checksum")
 	for _, tag := range event.Tags {
 		if len(tag) > 0 && tag[0] == "x" && len(tag) > 1 {
 			expectedHash := tag[1]
@@ -142,12 +178,14 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 			if expectedHash != hex.EncodeToString(actualHash[:]) {
 				return fmt.Errorf("package checksum verification failed")
 			}
+			log.Println("Package checksum verified successfully")
 		}
 	}
 	return nil
 }
 
 func (j *Janitor) InstallPackage(pkg []byte) error {
+	log.Println("Installing package")
 	// implement logic to install the package
 	return nil
 }
@@ -193,10 +231,12 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 }
 
 func runPostInstallScript() {
+	log.Println("Running post-install script")
 	// implement logic to run the post-install script
 }
 
 func main() {
+	log.Println("Janitor module starting")
 	config, err := loadJanitorConfig("files/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatal(err)
