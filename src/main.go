@@ -461,6 +461,24 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Get installed version
+	cmd := exec.Command("opkg", "list-installed", "tollgate-module-basic-go")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error getting installed version: %v", err)
+	} else {
+		installedVersion := strings.Fields(string(output))[2]
+		configVersion := config.PackageInfo.Version
+
+		if installedVersion != configVersion {
+			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
+			err = janitor.RunPostInstallScript(configFile, installedVersion)
+			if err != nil {
+				log.Printf("Error running post-install script: %v", err)
+			}
+		}
+	}
+
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
