@@ -155,13 +155,9 @@ uci_safe_set dhcp @dnsmasq[0] rebind_protection '1'
 uci_safe_set dhcp @dnsmasq[0] local '/lan/'
 uci_safe_set dhcp @dnsmasq[0] domain 'lan'
 uci_safe_set dhcp @dnsmasq[0] expandhosts '1'
+uci_safe_set dhcp @dnsmasq[0] resolv_conf '/tmp/resolv.conf.auto'
 uci commit network
 uci commit dhcp
-# Update resolv.conf
-log_message "Updating /etc/resolv.conf"
-echo "nameserver 1.1.1.1" > /etc/resolv.conf
-echo "nameserver 1.0.0.1" >> /etc/resolv.conf
-log_message "resolv.conf updated successfully"
 log_message "dnsmasq configuration completed"
 
 # 4. Configure WiFi networks
