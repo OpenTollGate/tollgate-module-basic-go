@@ -9,9 +9,9 @@
         "enabled": true,
         "fields": ["amount", "mint", "duration"]
     },
-    "trusted_maintainers": ["trusted_maintainer_pubkey"],
+    "trusted_maintainers": ["5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"],
     "package_info": {
-        "version": "1.0.0",
-        "timestamp": 1643723900
+        "version": "0.9.0",
+        "timestamp": 1745741060
     }
 }
