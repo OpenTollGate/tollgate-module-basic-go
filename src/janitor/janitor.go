@@ -91,7 +91,11 @@ func (j *Janitor) ListenForNIP94Events() {
 			totalEvents := 0
 			untrustedEventCount := 0
 			trustedEventCount := 0
-			eventMap := make(map[string]*nostr.Event)
+			type packageEvent struct {
+				event *nostr.Event
+				packageURL string
+			}
+			eventMap := make(map[string]*packageEvent)
 			collisionCount := 0
 
 			for event := range sub.Events {
@@ -117,35 +121,42 @@ func (j *Janitor) ListenForNIP94Events() {
 
 					//log.Printf("Received trusted event from pubkey %s", event.PubKey)
 					//log.Printf("Received event from relay %s: %+v", relayURL, event)
-					key := fmt.Sprintf("%s-%s", packageURL, versionStr)
-					existingEvent, ok := eventMap[key]
+					key := fmt.Sprintf("%s-%s", filename, versionStr)
+					existingPackageEvent, ok := eventMap[key]
 					if ok {
-						log.Printf("Repeat occurence of package %s, version %s, timestamp %d ", filename, versionStr, timestamp)
+						//log.Printf("Repeat occurence of package %s, version %s, timestamp %d ", filename, versionStr, timestamp)
 						collisionCount++
-						if timestamp > int64(existingEvent.CreatedAt) {
-							eventMap[key] = event
+						if timestamp > int64(existingPackageEvent.event.CreatedAt) {
+							eventMap[key] = &packageEvent{
+								event: event,
+								packageURL: packageURL,
+							}
 							log.Printf("Collision detected for version %s, updating to newer event", versionStr)
 						}
 					} else {
 						log.Printf("First occurrence of package %s, version %s, timestamp %d ", filename, versionStr, timestamp)
-						eventMap[key] = event
+						eventMap[key] = &packageEvent{
+							event: event,
+							packageURL: packageURL,
+						}
 					}
 				}
 			}
 
 			log.Printf("Stopped listening for NIP-94 events on relay %s. Total events: %d, Untrusted events: %d, Collisions: %d", relayURL, totalEvents, untrustedEventCount, collisionCount)
 
-			for _, event := range eventMap {
-				packageURL, versionStr, _, timestamp, err := parseNIP94Event(*event)
+			for _, packageEvent := range eventMap {
+				event := packageEvent.event
+				_, versionStr, _, timestamp, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					continue
 				}
 
-				log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d, URL=%s", versionStr, event.ID, timestamp, packageURL)
+				log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d", versionStr, event.ID, timestamp)
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 					log.Printf("Newer package version available: %s", versionStr)
-					pkg, err := j.DownloadPackage(packageURL)
+					pkg, err := j.DownloadPackage(packageEvent.packageURL)
 					if err != nil {
 						log.Printf("Error downloading package: %v", err)
 						continue
