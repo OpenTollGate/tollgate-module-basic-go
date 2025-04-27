@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/janitor"
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/OpenTollGate/tollgate-module-basic-go/modules"
 	"github.com/OpenTollGate/tollgate-module-basic-go/wallet"
+	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // Config structure to hold all configuration parameters

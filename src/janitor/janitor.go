@@ -1,6 +1,7 @@
 package janitor
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"bytes"
 	"net/http"
 	"os"
 	"os/exec"
@@ -125,13 +125,19 @@ func (j *Janitor) ListenForNIP94Events() {
 	trustedEventCount := 0
 	collisionCount := 0
 
-	for event := range eventChan {
-		totalEvents++
-
-		if !contains(j.trustedMaintainers, event.PubKey) {
-			untrustedEventCount++
-			continue
-		} else {
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case event, ok := <-eventChan:
+			if !ok {
+				log.Println("eventChan closed, stopping event processing")
+				return
+			}
+			totalEvents++
+			if !contains(j.trustedMaintainers, event.PubKey) {
+				untrustedEventCount++
+				continue
+			}
 			trustedEventCount++
 			ok, err := event.CheckSignature()
 			if err != nil || !ok {
@@ -162,43 +168,37 @@ func (j *Janitor) ListenForNIP94Events() {
 					packageURL: packageURL,
 				}
 			}
-		}
-	}
-
-	log.Printf("Finished processing NIP-94 events. Total events: %d, Untrusted events: %d, Collisions: %d", totalEvents, untrustedEventCount, collisionCount)
-
-	for _, packageEvent := range eventMap {
-		event := packageEvent.event
-		_, versionStr, _, timestamp, err := parseNIP94Event(*event)
-		if err != nil {
-			log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-			continue
-		}
-
-		log.Printf("Newest NIP-94 event for version %s: event ID=%s, timestamp=%d", versionStr, event.ID, timestamp)
-		log.Printf("Checking if version %s (timestamp %d) is newer than %s (timestamp %d)", versionStr, timestamp, j.currentVersion, j.currentTimestamp)
-		if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-			log.Printf("Newer package version available: %s", versionStr)
-			pkg, err := j.DownloadPackage(packageEvent.packageURL)
-			if err != nil {
-				log.Printf("Error downloading package: %v", err)
-				continue
+		case <-timeout:
+			log.Println("Timeout reached, checking for new versions")
+			for _, packageEvent := range eventMap {
+				event := packageEvent.event
+				_, versionStr, _, timestamp, err := parseNIP94Event(*event)
+				if err != nil {
+					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+					continue
+				}
+				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
+					log.Printf("Newer package version available: %s", versionStr)
+					pkg, err := j.DownloadPackage(packageEvent.packageURL)
+					if err != nil {
+						log.Printf("Error downloading package: %v", err)
+						break
+					}
+					err = j.verifyPackageChecksum(pkg, *event)
+					if err != nil {
+						log.Printf("Error verifying package checksum: %v", err)
+						break
+					}
+					err = j.InstallPackage(pkg)
+					if err != nil {
+						log.Printf("Error installing package: %v", err)
+						break
+					}
+					log.Printf("Successfully installed new package version: %s", versionStr)
+					RunPostInstallScript(j.configPath, versionStr)
+				}
 			}
-
-			err = j.verifyPackageChecksum(pkg, *event)
-			if err != nil {
-				log.Printf("Error verifying package checksum: %v", err)
-				continue
-			}
-
-			err = j.InstallPackage(pkg)
-			if err != nil {
-				log.Printf("Error installing package: %v", err)
-				continue
-			}
-
-			log.Printf("Successfully installed new package version: %s", versionStr)
-			RunPostInstallScript(j.configPath, versionStr)
+			return
 		}
 	}
 }
@@ -381,5 +381,3 @@ func RunPostInstallScript(configPath, newVersion string) {
 
 	log.Println("Post-install script completed successfully")
 }
-
-

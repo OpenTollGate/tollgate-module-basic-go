@@ -21,7 +21,7 @@ func TestCollectPayment(t *testing.T) {
 	relayPool := nostr.NewSimplePool(context.Background())
 
 	relays := []string{"wss://relay.damus.io"}
-	acceptedMint := "https://testnut.cashu.space
+	acceptedMint := "https://testnut.cashu.space"
 	mintFee := 0
 	err := CollectPayment(token, privateKey, relayPool, relays, acceptedMint, mintFee)
 	if err == nil {

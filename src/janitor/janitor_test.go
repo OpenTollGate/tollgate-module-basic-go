@@ -44,44 +44,44 @@ func TestParseNIP94Event(t *testing.T) {
 
 func TestIsNewerVersion(t *testing.T) {
 	tests := []struct {
-		name           string
-		newVersion     string
-		newTimestamp   int64
-		currentVersion string
+		name             string
+		newVersion       string
+		newTimestamp     int64
+		currentVersion   string
 		currentTimestamp int64
-		expected       bool
+		expected         bool
 	}{
 		{
-			name:           "newer version and newer timestamp",
-			newVersion:     "1.0.1",
-			newTimestamp:   2,
-			currentVersion: "1.0.0",
+			name:             "newer version and newer timestamp",
+			newVersion:       "1.0.1",
+			newTimestamp:     2,
+			currentVersion:   "1.0.0",
 			currentTimestamp: 1,
-			expected:       true,
+			expected:         true,
 		},
 		{
-			name:           "same version but newer timestamp",
-			newVersion:     "1.0.0",
-			newTimestamp:   2,
-			currentVersion: "1.0.0",
+			name:             "same version but newer timestamp",
+			newVersion:       "1.0.0",
+			newTimestamp:     2,
+			currentVersion:   "1.0.0",
 			currentTimestamp: 1,
-			expected:       false,
+			expected:         false,
 		},
 		{
-			name:           "newer version but older timestamp",
-			newVersion:     "1.0.1",
-			newTimestamp:   1,
-			currentVersion: "1.0.0",
+			name:             "newer version but older timestamp",
+			newVersion:       "1.0.1",
+			newTimestamp:     1,
+			currentVersion:   "1.0.0",
 			currentTimestamp: 2,
-			expected:       false,
+			expected:         false,
 		},
 		{
-			name:           "older version and older timestamp",
-			newVersion:     "0.9.9",
-			newTimestamp:   1,
-			currentVersion: "1.0.0",
+			name:             "older version and older timestamp",
+			newVersion:       "0.9.9",
+			newTimestamp:     1,
+			currentVersion:   "1.0.0",
 			currentTimestamp: 2,
-			expected:       false,
+			expected:         false,
 		},
 	}
 
