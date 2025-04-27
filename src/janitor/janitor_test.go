@@ -288,12 +288,12 @@ func TestDownloadPackage(t *testing.T) {
 			t.Logf("Stopped receiving events from relay %s", relayURL)
 		}(relayURL)
 	}
-	go func() {
-		subClosers.Wait()
-		close(eventChan)
-	}()
+	subClosers.Wait()
+	wg.Done()
+	close(eventChan)
 
 	if packageURL == "" {
+		time.Sleep(1 * time.Second) // Wait for goroutines to finish
 		t.Log(logBuffer.String())
 		t.Skip("No NIP-94 event found with package URL. Skipping test.")
 		return
