@@ -159,7 +159,7 @@ func (j *Janitor) ListenForNIP94Events() {
 						event:      event,
 						packageURL: packageURL,
 					}
-					log.Printf("Collision detected for file %s, version %s, updating to newer event with timestamp %d", filename, versionStr, timestamp)
+					log.Printf("Newer version with timestamp %d dected for file %s, version %s", timestamp, filename, versionStr)
 				}
 			} else {
 				log.Printf("Found occurrence of package %s, version %s, timestamp %d", filename, versionStr, timestamp)
