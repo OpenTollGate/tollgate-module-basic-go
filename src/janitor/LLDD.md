@@ -13,11 +13,35 @@ The Janitor module is designed to listen for NIP-94 events announcing new OpenWR
 
 ## Configuration
 
-The configuration data for the Janitor module will be stored in a JSON file. The following information will be stored:
+The configuration data for the Janitor module will be stored in a JSON file named `config.json`. The following is an example of its structure:
 
-* `trusted_maintainers`: a list of public keys of maintainers that are trusted to issue NIP-94 events.
-* `relays`: a list of relays that the Janitor module will use to listen for NIP-94 events.
-* `package_info`: information about the currently installed package, including its version, timestamp, and SHA256 sum.
+```json
+{
+  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
+  "accepted_mint": "https://mint.minibits.cash/Bitcoin",
+  "price_per_minute": 1,
+  "min_payment": 1,
+  "mint_fee": 0,
+  "bragging": {
+      "enabled": true,
+      "fields": ["amount", "mint", "duration"]
+  },
+  "relays": [
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://nostr.mom"
+  ],
+  "trusted_maintainers": [
+    "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
+  ],
+  "package_info": {
+      "version": "1.2.3",
+      "timestamp": 1745751288
+  }
+}
+```
+
+This configuration includes various settings for the TollGate system, including the private key, accepted mint, pricing information, bragging settings, relays, trusted maintainers, and package information.
 
 ## NIP-94 Event Format
 

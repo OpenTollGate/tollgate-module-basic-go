@@ -13,18 +13,27 @@ Configuration data will be stored in `files/etc/tollgate/config.json`
 
 ```json
 {
- "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
- "accepted_mint": "https://mint.minibits.cash/Bitcoin",
- "price_per_minute":1,
- "min_payment":1,
- "mint_fee":0,
- "relays": ["wss://relay.nostr.band", "wss://nos.lol"],
- "trusted_maintainers": ["pubkey1", "pubkey2"],
- "package_info": {
- "version": "1.2.3",
- "timestamp":1643723900,
- "sha256sum": "1234567890abcdef"
- }
+  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
+  "accepted_mint": "https://mint.minibits.cash/Bitcoin",
+  "price_per_minute": 1,
+  "min_payment": 1,
+  "mint_fee": 0,
+  "bragging": {
+      "enabled": true,
+      "fields": ["amount", "mint", "duration"]
+  },
+  "relays": [
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://nostr.mom"
+  ],
+  "trusted_maintainers": [
+    "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
+  ],
+  "package_info": {
+      "version": "1.2.3",
+      "timestamp": 1745751288
+  }
 }
 ```
 
