@@ -270,6 +270,6 @@ func TestInstallPackage(t *testing.T) {
 }
 
 func TestRunPostInstallScript(t *testing.T) {
-	runPostInstallScript("../../files/etc/tollgate/config.json")
+	runPostInstallScript("../../files/etc/tollgate/config.json", "1.2.3")
 	// Add assertions to verify the config file was updated correctly
 }
