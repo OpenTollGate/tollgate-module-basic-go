@@ -109,7 +109,7 @@ func (j *Janitor) ListenForNIP94Events() {
 						continue
 					}
 
-					packageURL, versionStr, timestamp, err := parseNIP94Event(*event)
+					packageURL, versionStr, filename, timestamp, err := parseNIP94Event(*event)
 					if err != nil {
 						//log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 						continue
@@ -117,17 +117,17 @@ func (j *Janitor) ListenForNIP94Events() {
 
 					//log.Printf("Received trusted event from pubkey %s", event.PubKey)
 					//log.Printf("Received event from relay %s: %+v", relayURL, event)
-					key := fmt.Sprintf("%s-%s", filename, versionStr)
+					key := fmt.Sprintf("%s-%s", packageURL, versionStr)
 					existingEvent, ok := eventMap[key]
 					if ok {
-						log.Printf("Repeat occurence of package %s version %s", filename, versionStr)
+						log.Printf("Repeat occurence of package %s, version %s, timestamp %s ", filename, versionStr, timestamp)
 						collisionCount++
 						if timestamp > int64(existingEvent.CreatedAt) {
 							eventMap[key] = event
 							log.Printf("Collision detected for version %s, updating to newer event", versionStr)
 						}
 					} else {
-						log.Printf("First occurrence of package %s version %s", filename, versionStr)
+						log.Printf("First occurrence of package %s, version %s, timestamp %s ", filename, versionStr, timestamp)
 						eventMap[key] = event
 					}
 				}
@@ -136,7 +136,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			log.Printf("Stopped listening for NIP-94 events on relay %s. Total events: %d, Untrusted events: %d, Collisions: %d", relayURL, totalEvents, untrustedEventCount, collisionCount)
 
 			for _, event := range eventMap {
-				packageURL, versionStr, timestamp, err := parseNIP94Event(*event)
+				packageURL, versionStr, _, timestamp, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					continue
@@ -208,7 +208,7 @@ func contains(s []string, str string) bool {
 }
 
 // parseNIP94Event extracts package information from a NIP-94 event
-func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
+func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 	requiredTags := []string{"url", "version", "arch", "branch", "filename"}
 	tagMap := make(map[string]string)
 
@@ -221,7 +221,7 @@ func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
 	// Check if all required tags are present
 	for _, tag := range requiredTags {
 		if _, ok := tagMap[tag]; !ok {
-			return "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
+			return "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
 		}
 	}
 
@@ -236,10 +236,10 @@ func parseNIP94Event(event nostr.Event) (string, string, int64, error) {
 		url, version, arch, branch, filename, timestamp)
 
 	if url == "" || version == "" || timestamp == 0 {
-		return "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
+		return "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
 	}
 
-	return url, version, timestamp, nil
+	return url, version, filename, timestamp, nil
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
