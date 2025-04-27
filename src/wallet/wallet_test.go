@@ -9,7 +9,7 @@ import (
 
 func TestDecodeCashuToken(t *testing.T) {
 	token := "invalid_token"
-	_, err := decodeCashuToken(token)
+	_, err := DecodeCashuToken(token)
 	if err == nil {
 		t.Errorf("decodeCashuToken should fail for invalid token")
 	}
@@ -21,7 +21,9 @@ func TestCollectPayment(t *testing.T) {
 	relayPool := nostr.NewSimplePool(context.Background())
 
 	relays := []string{"wss://relay.damus.io"}
-	err := CollectPayment(token, privateKey, relayPool, relays)
+	acceptedMint := "https://testnut.cashu.space
+	mintFee := 0
+	err := CollectPayment(token, privateKey, relayPool, relays, acceptedMint, mintFee)
 	if err == nil {
 		t.Errorf("CollectPayment should fail for invalid token and private key")
 	}
