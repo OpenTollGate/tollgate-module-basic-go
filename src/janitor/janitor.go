@@ -1,4 +1,4 @@
-package main
+package janitor
 
 import (
 	"context"
@@ -381,18 +381,4 @@ func runPostInstallScript(configPath, newVersion string) {
 	log.Println("Post-install script completed successfully")
 }
 
-func main() {
-	log.Println("Janitor module starting")
-	config, err := loadJanitorConfig("files/etc/tollgate/config.json")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	janitor, err := NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, "files/etc/tollgate/config.json")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	janitor.ListenForNIP94Events()
-}
 
