@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -183,4 +184,92 @@ func TestEventMapCollision(t *testing.T) {
 
 	close(eventChan)
 	wg.Wait()
+}
+
+func TestDownloadPackage(t *testing.T) {
+	config, err := loadJanitorConfig("../../files/etc/tollgate/config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	janitor, err := NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, "../../files/etc/tollgate/config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var packageURL string
+	eventChan := make(chan *nostr.Event)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(eventChan)
+		for event := range eventChan {
+			packageURL, _, _, _, err = parseNIP94Event(*event)
+			if err != nil {
+				t.Errorf("parseNIP94Event failed: %v",	err)
+			}
+			if packageURL != "" {
+				return
+			}
+		}
+	}()
+
+	ctx := context.Background()
+	relayPool := nostr.NewSimplePool(ctx)
+	var subClosers sync.WaitGroup
+	for _, relayURL := range janitor.relays {
+		subClosers.Add(1)
+		go func(relayURL string) {
+			defer subClosers.Done()
+			relay, err := relayPool.EnsureRelay(relayURL)
+			if err != nil {
+				t.Logf("Failed to connect to relay %s: %v", relayURL, err)
+				return
+			}
+			sub, err := relay.Subscribe(ctx, []nostr.Filter{
+				{
+					Kinds: []int{1063}, // NIP-94 event kind
+				},
+			})
+			if err != nil {
+				t.Logf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+				return
+			}
+			for event := range sub.Events {
+				eventChan <- event
+			}
+		}(relayURL)
+	}
+	go func() {
+		subClosers.Wait()
+		close(eventChan)
+	}()
+
+	if packageURL == "" {
+		t.Fatal("No NIP-94 event found with package URL")
+	}
+
+	pkg, err := janitor.DownloadPackage(packageURL)
+	if err != nil {
+		t.Errorf("DownloadPackage failed: %v", err)
+	}
+	if len(pkg) == 0 {
+		t.Errorf("expected non-empty package content")
+	}
+}
+
+func TestInstallPackage(t *testing.T) {
+	janitor := &Janitor{}
+	pkg := []byte("package content")
+	err := janitor.InstallPackage(pkg)
+	if err != nil {
+		t.Errorf("InstallPackage failed: %v", err)
+		return
+	}
+}
+
+func TestRunPostInstallScript(t *testing.T) {
+	runPostInstallScript("../../files/etc/tollgate/config.json")
+	// Add assertions to verify the config file was updated correctly
 }

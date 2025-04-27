@@ -318,20 +318,26 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 
 func runPostInstallScript(configPath string) {
 	log.Println("Running post-install script")
-	config, err := loadJanitorConfig(configPath)
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Printf("Error loading config: %v", err)
+		log.Printf("Error reading config file: %v", err)
 		return
 	}
 
-	// Update the config with new package version and timestamp
-	newVersion := "1.2.3" // This should be dynamically obtained from the installed package
-	newTimestamp := time.Now().Unix()
-	config.PackageInfo.Version = newVersion
-	config.PackageInfo.Timestamp = newTimestamp
+	var configMap map[string]interface{}
+	err = json.Unmarshal(configData, &configMap)
+	if err != nil {
+		log.Printf("Error unmarshaling config: %v", err)
+		return
+	}
 
-	// Save the updated config
-	data, err := json.MarshalIndent(config, "", "  ")
+	newTimestamp := time.Now().Unix()
+	configMap["package_info"] = map[string]interface{}{
+		"version":   newVersion,
+		"timestamp": newTimestamp,
+	}
+
+	data, err := json.MarshalIndent(configMap, "", "  ")
 	if err != nil {
 		log.Printf("Error marshaling config: %v", err)
 		return
