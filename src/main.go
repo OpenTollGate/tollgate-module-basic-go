@@ -19,19 +19,19 @@ import (
 
 // Config structure to hold all configuration parameters
 type Config struct {
-TollgatePrivateKey string `json:"tollgate_private_key"`
-AcceptedMint string `json:"accepted_mint"`
-PricePerMinute int `json:"price_per_minute"`
-MinPayment int `json:"min_payment"`
-MintFee int `json:"mint_fee"`
-Relays []string `json:"relays"`
-Bragging BraggingConfig `json:"bragging"`
+	TollgatePrivateKey string         `json:"tollgate_private_key"`
+	AcceptedMint       string         `json:"accepted_mint"`
+	PricePerMinute     int            `json:"price_per_minute"`
+	MinPayment         int            `json:"min_payment"`
+	MintFee            int            `json:"mint_fee"`
+	Relays             []string       `json:"relays"`
+	Bragging           BraggingConfig `json:"bragging"`
 }
 
 type BraggingConfig struct {
-Enabled bool `json:"enabled"`
-Relays []string `json:"relays"`
-Fields []string `json:"fields"`
+	Enabled bool     `json:"enabled"`
+	Relays  []string `json:"relays"`
+	Fields  []string `json:"fields"`
 }
 
 // Global configuration variable
@@ -322,7 +322,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	durationSeconds := int64(allottedMinutes * 60)
 
 	// Log the calculation for transparency
-	log.Printf("Calculated minutes: %d (from value %d, minus fees %d)", 
+	log.Printf("Calculated minutes: %d (from value %d, minus fees %d)",
 		allottedMinutes, tokenValue, 2*mintFee)
 
 	// Open gate for the specified duration using the valve module
@@ -336,97 +336,96 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Announce successful payment via Nostr if enabled
 	err = announceSuccessfulPayment(macAddress, int64(valueAfterFees), durationSeconds)
 	if err != nil {
-	    log.Printf("Error announcing successful payment: %v", err)
+		log.Printf("Error announcing successful payment: %v", err)
 	}
 
 	// Return a success status with token info
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)",
-	    allottedMinutes, valueAfterFees, 2*mintFee)
+		allottedMinutes, valueAfterFees, 2*mintFee)
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-    if !config.Bragging.Enabled {
-        log.Println("Bragging is disabled in configuration")
-        return nil
-    }
+	if !config.Bragging.Enabled {
+		log.Println("Bragging is disabled in configuration")
+		return nil
+	}
 
-    privateKey := tollgatePrivateKey
-    event := nostr.Event{
-        Kind:      1,
-        CreatedAt: nostr.Now(),
-        Tags:      make(nostr.Tags, 0),
-        Content:   "",
-    }
+	privateKey := tollgatePrivateKey
+	event := nostr.Event{
+		Kind:      1,
+		CreatedAt: nostr.Now(),
+		Tags:      make(nostr.Tags, 0),
+		Content:   "",
+	}
 
-    var content string
-    for _, field := range config.Bragging.Fields {
-        switch field {
-        case "amount":
-            event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
-            content += fmt.Sprintf("Amount: %d sats,\n", amount)
-        case "mint":
-            event.Tags = append(event.Tags, nostr.Tag{"mint", acceptedMint})
-            content += fmt.Sprintf("Mint: %s,\n", acceptedMint)
-        case "duration":
-            event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
-            content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
-        }
-    }
+	var content string
+	for _, field := range config.Bragging.Fields {
+		switch field {
+		case "amount":
+			event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
+			content += fmt.Sprintf("Amount: %d sats,\n", amount)
+		case "mint":
+			event.Tags = append(event.Tags, nostr.Tag{"mint", acceptedMint})
+			content += fmt.Sprintf("Mint: %s,\n", acceptedMint)
+		case "duration":
+			event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
+			content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
+		}
+	}
 
-    // Trim the trailing comma and space if content is not empty
-    if content != "" {
-        content = strings.TrimSuffix(content, ",")
-        content += "\n\n#BraggingTollGateRawData"
-    }
+	// Trim the trailing comma and space if content is not empty
+	if content != "" {
+		content = strings.TrimSuffix(content, ",")
+		content += "\n\n#BraggingTollGateRawData"
+	}
 
-    event.Content = content
+	event.Content = content
 
-    pubkey, err := nostr.GetPublicKey(privateKey)
-    if err != nil {
-    	log.Printf("Failed to get public key: %v", err)
-    	return err
-    }
-    npub, err := nip19.EncodePublicKey(pubkey)
-    if err != nil {
-    	log.Printf("Failed to encode public key to npub: %v", err)
-    	return err
-    }
-    log.Printf("Encoded public key to npub: %s", npub)
-    log.Printf("Attempting to sign bragging event")
-    err = event.Sign(privateKey)
-    if err != nil {
-    	log.Printf("Failed to sign bragging event: %v", err)
-    	return err
-    }
-    log.Printf("Successfully signed bragging event")
-    log.Printf("Bragging event ID: %s", event.ID)
-    log.Printf("Bragging npub: %s", npub)
+	pubkey, err := nostr.GetPublicKey(privateKey)
+	if err != nil {
+		log.Printf("Failed to get public key: %v", err)
+		return err
+	}
+	npub, err := nip19.EncodePublicKey(pubkey)
+	if err != nil {
+		log.Printf("Failed to encode public key to npub: %v", err)
+		return err
+	}
+	log.Printf("Encoded public key to npub: %s", npub)
+	log.Printf("Attempting to sign bragging event")
+	err = event.Sign(privateKey)
+	if err != nil {
+		log.Printf("Failed to sign bragging event: %v", err)
+		return err
+	}
+	log.Printf("Successfully signed bragging event")
+	log.Printf("Bragging event ID: %s", event.ID)
+	log.Printf("Bragging npub: %s", npub)
 
+	log.Printf("Initializing relay pool for bragging event publication")
+	log.Printf("Relays configured for bragging: %v", config.Relays)
+	relayPool := nostr.NewSimplePool(context.Background())
+	for _, relayURL := range config.Relays {
+		relay, err := relayPool.EnsureRelay(relayURL)
+		if err != nil {
+			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+			continue
+		}
+		err = relay.Publish(context.Background(), event)
+		if err != nil {
+			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
+		} else {
+			log.Printf("Successfully published event to relay %s", relayURL)
+		}
+	}
 
-    log.Printf("Initializing relay pool for bragging event publication")
-    log.Printf("Relays configured for bragging: %v", config.Relays)
-    relayPool := nostr.NewSimplePool(context.Background())
-    for _, relayURL := range config.Relays {
-        relay, err := relayPool.EnsureRelay(relayURL)
-        if err != nil {
-            log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-            continue
-        }
-        err = relay.Publish(context.Background(), event)
-        if err != nil {
-            log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
-        } else {
-            log.Printf("Successfully published event to relay %s", relayURL)
-        }
-    }
+	if err != nil {
+		return err
+	}
 
-    if err != nil {
-        return err
-    }
-
-    log.Printf("Successfully announced payment for MAC %s", macAddress)
-    return nil
+	log.Printf("Successfully announced payment for MAC %s", macAddress)
+	return nil
 }
 
 // handleRoot routes requests based on method

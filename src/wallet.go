@@ -106,7 +106,6 @@ func decodeCashuToken(token string) (int, error) {
 	return int(amount), nil
 }
 
-
 // CollectPayment processes a Cashu token and swaps it for fresh proofs
 // Returns the fresh proofs and token directly
 func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool, relays []string) error {
@@ -163,7 +162,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	// Create a fresh relay pool specifically for token operations
 	// This ensures we have full write capabilities
 	// relays = config.Relays
-	
+
 	// Create a new relay pool
 	freshPool := nostr.NewSimplePool(swapCtx)
 
@@ -227,15 +226,15 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 
 func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context) error {
 	log.Printf("Paying out %d sats to %s", amount, address)
-	
+
 	// Skip processing if amount is zero
 	if amount <= 0 {
 		log.Printf("Skipping payout of zero amount to %s", address)
 		return nil
 	}
-	
+
 	extimatedFee := uint64(mintFee)
-	
+
 	// Then swap for fresh proofs - use SendExternal to send to ourselves
 	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-extimatedFee)
 	if swapErr != nil {
@@ -261,15 +260,15 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 	// Define a persistent storage directory with debug output
 	storageDir := "/etc/tollgate/ecash"
 	log.Printf("DEBUG: Using storage directory: %s", storageDir)
-	
+
 	// Log the current working directory
 	cwd, _ := os.Getwd()
 	log.Printf("DEBUG: Current working directory: %s", cwd)
 
 	// Create the storage directory if it doesn't exist
 	if err := os.MkdirAll(storageDir, 0777); err != nil { // Fixed comparison with nil
-	    log.Printf("ERROR: Failed to create storage directory %s: %v", storageDir, err)
-	    return err
+		log.Printf("ERROR: Failed to create storage directory %s: %v", storageDir, err)
+		return err
 	}
 	log.Printf("DEBUG: Storage directory created/verified")
 

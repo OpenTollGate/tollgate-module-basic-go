@@ -1,6 +1,5 @@
 package modules
 
-
 import (
 	"fmt"
 	"os"
@@ -8,7 +7,6 @@ import (
 	"testing"
 	"time"
 )
-
 
 func TestMain(m *testing.M) {
 	if _, err := exec.LookPath("ndsctl"); err != nil {
