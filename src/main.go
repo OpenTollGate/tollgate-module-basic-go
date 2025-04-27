@@ -15,7 +15,7 @@ import (
 	"github.com/OpenTollgate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/OpenTollgate/tollgate-module-basic-go/src/janitor"
+	"./janitor"
 )
 
 // Config structure to hold all configuration parameters
