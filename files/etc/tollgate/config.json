@@ -8,5 +8,10 @@
     "bragging": {
         "enabled": true,
         "fields": ["amount", "mint", "duration"]
-        }
+    },
+    "trusted_maintainers": ["trusted_maintainer_pubkey"],
+    "package_info": {
+        "version": "1.0.0",
+        "timestamp": 1643723900
+    }
 }

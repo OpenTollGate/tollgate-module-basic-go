@@ -2,6 +2,8 @@ package main
 
 import (
  "context"
+ "crypto/sha256"
+ "encoding/hex"
  "encoding/json"
  "fmt"
  "log"
@@ -107,7 +109,7 @@ func (j *Janitor) ListenForNIP94Events() {
  continue
  }
 
- err = j.verifyPackageChecksum(pkg, event)
+ err = j.verifyPackageChecksum(pkg, *event)
  if err != nil {
  log.Printf("Error verifying package checksum: %v", err)
  continue
@@ -133,11 +135,13 @@ func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
 }
 
 func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
- // implement logic to verify the package checksum
  for _, tag := range event.Tags {
  if len(tag) > 0 && tag[0] == "x" && len(tag) > 1 {
  expectedHash := tag[1]
- // compare expectedHash with the actual hash of pkg
+ actualHash := sha256.Sum256(pkg)
+ if expectedHash != hex.EncodeToString(actualHash[:]) {
+ return fmt.Errorf("package checksum verification failed")
+ }
  }
  }
  return nil
