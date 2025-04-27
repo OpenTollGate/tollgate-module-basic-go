@@ -33,7 +33,7 @@ type JanitorConfig struct {
 	} `json:"package_info"`
 }
 
-func loadJanitorConfig(path string) (*JanitorConfig, error) {
+func LoadJanitorConfig(path string) (*JanitorConfig, error) {
 	log.Printf("Loading configuration from %s", path)
 	data, err := os.ReadFile(path)
 	if err != nil {
