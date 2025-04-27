@@ -306,14 +306,15 @@ func TestDownloadPackage(t *testing.T) {
 		close(eventChan)
 	}()
 
-	wg.Wait()
+	eventHandlerWG.Wait()
+	wg.Done()
 
 	time.Sleep(1 * time.Second) // Wait for goroutines to finish
 	t.Log(logBuffer.String())
 	
 
 	t.Logf("Using package URL: %s", packageURL)
-	packageURL = "https://blossom.swissdash.site/ca28cf3e7ec20be818298c9e6341ddf75b649dab9d51a3b888b54059a0608a0e.bin"
+	//packageURL = "https://blossom.swissdash.site/ca28cf3e7ec20be818298c9e6341ddf75b649dab9d51a3b888b54059a0608a0e.bin"
 
 	if packageURL == "" {
 		t.Skip("No NIP-94 event found with package URL. Skipping test.")
