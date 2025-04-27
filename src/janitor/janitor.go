@@ -57,6 +57,7 @@ type Janitor struct {
 	currentVersion     *version.Version
 	currentTimestamp   int64
 	configPath         string
+	opkgCmd            string
 }
 
 func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configPath string) (*Janitor, error) {
@@ -71,6 +72,8 @@ func NewJanitor(relays []string, trustedMaintainers []string, currentVersion str
 		trustedMaintainers: trustedMaintainers,
 		currentVersion:     v,
 		currentTimestamp:   currentTimestamp,
+		configPath:         configPath,
+		opkgCmd:            "opkg",
 	}, nil
 }
 
@@ -252,7 +255,7 @@ func (j *Janitor) InstallPackage(pkg []byte) error {
 	}
 	tmpFile.Close()
 
-	cmd := exec.Command("opkg", "install", tmpFile.Name())
+	cmd := exec.Command(j.opkgCmd, "install", tmpFile.Name())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Error installing package: %v, output: %s", err, output)
@@ -365,3 +368,4 @@ func main() {
 
 	janitor.ListenForNIP94Events()
 }
+
