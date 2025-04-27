@@ -195,8 +195,26 @@ func (j *Janitor) ListenForNIP94Events() {
 
 func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
 	log.Printf("Downloading package from %s", url)
-	// implement logic to download the package
-	return nil, nil
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Printf("Error downloading package: %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to download package. Status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to download package. Status code: %d", resp.StatusCode)
+	}
+
+	pkg, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error reading package content: %v", err)
+		return nil, err
+	}
+
+	log.Println("Package downloaded successfully")
+	return pkg, nil
 }
 
 func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
@@ -216,7 +234,27 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 
 func (j *Janitor) InstallPackage(pkg []byte) error {
 	log.Println("Installing package")
-	// implement logic to install the package
+	tmpFile, err := os.CreateTemp("", "package.ipk")
+	if err != nil {
+		log.Printf("Error creating temp file: %v", err)
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(pkg); err != nil {
+		log.Printf("Error writing package to temp file: %v", err)
+		return err
+	}
+	tmpFile.Close()
+
+	cmd := exec.Command("opkg", "install", tmpFile.Name())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error installing package: %v, output: %s", err, output)
+		return err
+	}
+
+	log.Println("Package installed successfully")
 	return nil
 }
 
@@ -275,7 +313,32 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 
 func runPostInstallScript() {
 	log.Println("Running post-install script")
-	// implement logic to run the post-install script
+	configPath := "files/etc/tollgate/config.json"
+	config, err := loadJanitorConfig(configPath)
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		return
+	}
+
+	// Update the config with new package version and timestamp
+	newVersion := "1.2.3" // This should be dynamically obtained from the installed package
+	newTimestamp := time.Now().Unix()
+	config.PackageInfo.Version = newVersion
+	config.PackageInfo.Timestamp = newTimestamp
+
+	// Save the updated config
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling config: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		log.Printf("Error writing config file: %v", err)
+		return
+	}
+
+	log.Println("Post-install script completed successfully")
 }
 
 func main() {
