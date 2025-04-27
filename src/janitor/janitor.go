@@ -6,12 +6,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
+	"sync"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
-	"sync"
 )
 
 type packageEvent struct {
@@ -52,9 +56,10 @@ type Janitor struct {
 	trustedMaintainers []string
 	currentVersion     *version.Version
 	currentTimestamp   int64
+	configPath         string
 }
 
-func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64) (*Janitor, error) {
+func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configPath string) (*Janitor, error) {
 	log.Printf("Creating new Janitor instance")
 	v, err := version.NewVersion(currentVersion)
 	if err != nil {
@@ -188,7 +193,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			log.Printf("Successfully installed new package version: %s", versionStr)
-			runPostInstallScript()
+			runPostInstallScript(j.configPath)
 		}
 	}
 }
@@ -311,9 +316,8 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	return newVersionObj.GreaterThan(currentVersion) && newTimestamp > currentTimestamp
 }
 
-func runPostInstallScript() {
+func runPostInstallScript(configPath string) {
 	log.Println("Running post-install script")
-	configPath := "files/etc/tollgate/config.json"
 	config, err := loadJanitorConfig(configPath)
 	if err != nil {
 		log.Printf("Error loading config: %v", err)
@@ -348,7 +352,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp)
+	janitor, err := NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, "files/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatal(err)
 	}
