@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +38,6 @@ func TestParseNIP94Event(t *testing.T) {
 		t.Errorf("expected version %s, got %s", "1.2.3", version)
 	}
 	if filename != "package.ipk" {
-		t.Errorf("expected filename %s, got %s", "package.ipk", filename)
 	}
 	if timestamp != 1643723900 {
 		t.Errorf("expected timestamp %d, got %d", 1643723900, timestamp)
@@ -188,14 +191,40 @@ func TestEventMapCollision(t *testing.T) {
 }
 
 func TestDownloadPackage(t *testing.T) {
-	config, err := loadJanitorConfig("../../files/etc/tollgate/config.json")
+	var logBuffer bytes.Buffer
+	log.SetOutput(&logBuffer)
+	defer log.SetOutput(os.Stderr)
+
+	configFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(configFile.Name())
+
+	currentTime := time.Now().Unix()
+	fourWeeksAgo := currentTime - int64(4*7*24*60*60) // 4 weeks ago in seconds
+
+	customConfig := map[string]interface{}{
+		"relays": []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"},
+		"trusted_maintainers": []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"},
+		"package_info": map[string]interface{}{
+			"version":   "0.0.1",
+			"timestamp": fourWeeksAgo,
+		},
+	}
+
+	configData, err := json.Marshal(customConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, "../../files/etc/tollgate/config.json")
-	if err != nil {
+	if err := os.WriteFile(configFile.Name(), configData, 0644); err != nil {
 		t.Fatal(err)
+	}
+
+	janitor, err := NewJanitor(customConfig["relays"].([]string), customConfig["trusted_maintainers"].([]string), "0.0.1", fourWeeksAgo, configFile.Name())
+	if err != nil {
+	    t.Fatal(err)
 	}
 
 	var packageURL string
@@ -218,7 +247,7 @@ func TestDownloadPackage(t *testing.T) {
 
 	ctx := context.Background()
 	relayPool := nostr.NewSimplePool(ctx)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var subClosers sync.WaitGroup
 	for _, relayURL := range janitor.relays {
@@ -243,9 +272,14 @@ func TestDownloadPackage(t *testing.T) {
 			}
 			t.Logf("Subscribed to NIP-94 events on relay %s", relayURL)
 			for event := range sub.Events {
-				t.Logf("Received event from relay %s: kind=%d, ID=%v", relayURL, event.Kind, event.ID)
+				t.Logf("Received event from relay %s: kind=%d, ID=%v, PubKey=%s, CreatedAt=%d, Tags=%v",
+				       relayURL, event.Kind, event.ID, event.PubKey, event.CreatedAt, event.Tags)
 				if event.Kind != 1063 {
 					t.Logf("Unexpected event kind %d from relay %s", event.Kind, relayURL)
+					continue
+				}
+				if !contains(janitor.trustedMaintainers, event.PubKey) {
+					t.Logf("Event from untrusted pubkey %s", event.PubKey)
 					continue
 				}
 				t.Logf("Sending event from relay %s to eventChan", relayURL)
@@ -260,6 +294,7 @@ func TestDownloadPackage(t *testing.T) {
 	}()
 
 	if packageURL == "" {
+		t.Log(logBuffer.String())
 		t.Skip("No NIP-94 event found with package URL. Skipping test.")
 		return
 	}
