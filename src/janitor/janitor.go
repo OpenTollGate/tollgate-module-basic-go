@@ -227,13 +227,13 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 
 	url := tagMap["url"]
 	version := tagMap["version"]
-	arch := tagMap["arch"]
-	branch := tagMap["branch"]
+	// arch := tagMap["arch"]
+	// branch := tagMap["branch"]
 	filename := tagMap["filename"]
 	timestamp := int64(event.CreatedAt)
 
-	log.Printf("Parsed NIP-94 event: url=%s, version=%s, arch=%s, branch=%s, filename=%s, timestamp=%d",
-		url, version, arch, branch, filename, timestamp)
+	// log.Printf("Parsed NIP-94 event: url=%s, version=%s, arch=%s, branch=%s, filename=%s, timestamp=%d",
+	//	url, version, arch, branch, filename, timestamp)
 
 	if url == "" || version == "" || timestamp == 0 {
 		return "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
