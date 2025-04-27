@@ -88,41 +88,49 @@ func (j *Janitor) ListenForNIP94Events() {
 
 		go func(relayURL string, sub *nostr.Subscription) {
 			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
-			untrustedEventCount := 0
 			totalEvents := 0
+			untrustedEventCount := 0
+			trustedEventCount := 0
 			eventMap := make(map[string]*nostr.Event)
 			collisionCount := 0
 
 			for event := range sub.Events {
 				totalEvents++
+
 				if !contains(j.trustedMaintainers, event.PubKey) {
 					untrustedEventCount++
+					//log.Printf("Received untrusted event from pubkey %s", event.PubKey)
 					continue
-				}
-
-				ok, err := event.CheckSignature()
-				if err != nil || !ok {
-					log.Printf("Invalid signature for NIP-94 event %s from relay %s: %v", event.ID, relayURL, err)
-					continue
-				}
-
-				packageURL, versionStr, timestamp, err := parseNIP94Event(*event)
-				if err != nil {
-					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-					continue
-				}
-
-				key := fmt.Sprintf("%s-%s", packageURL, versionStr)
-				existingEvent, ok := eventMap[key]
-				if ok {
-					if timestamp > int64(existingEvent.CreatedAt) {
-						eventMap[key] = event
-						collisionCount++
-					}
 				} else {
-					eventMap[key] = event
+					trustedEventCount++
+					ok, err := event.CheckSignature()
+					if err != nil || !ok {
+						log.Printf("Invalid signature for NIP-94 event %s from relay %s: %v", event.ID, relayURL, err)
+						continue
+					}
+	
+					packageURL, versionStr, timestamp, err := parseNIP94Event(*event)
+					if err != nil {
+						log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+						continue
+					}
+	
+					log.Printf("Received trusted event from pubkey %s", event.PubKey)
+					key := fmt.Sprintf("%s-%s", packageURL, versionStr)
+					existingEvent, ok := eventMap[key]
+					if ok {
+						log.Printf("Ok")
+						log.Printf("Received event from relay %s: %+v", relayURL, event)
+						if timestamp > int64(existingEvent.CreatedAt) {
+							eventMap[key] = event
+							collisionCount++
+							log.Printf("Collision detected for version %s, updating to newer event", versionStr)
+						}
+					} else {
+						log.Printf("Else")
+						eventMap[key] = event
+					}
 				}
-
 			}
 
 			log.Printf("Stopped listening for NIP-94 events on relay %s. Total events: %d, Untrusted events: %d, Collisions: %d", relayURL, totalEvents, untrustedEventCount, collisionCount)
