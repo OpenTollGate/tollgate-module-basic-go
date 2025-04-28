@@ -117,8 +117,8 @@ jobs:
 
       - name: Set Package Version
         run: |
-          # Extract version from package filename
-          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_FILENAME }}" | sed -E 's/.*_([0-9]+\.[0-9]+).*\.ipk/\1/')
+          # Extract version from PACKAGE_PATH
+          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9]+\.[0-9a-f]+)-[0-9]+_.*\.ipk/\1/')
           echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
           echo "Set version to $PACKAGE_VERSION"
 
@@ -183,6 +183,10 @@ jobs:
           
           # Create a simplified content format
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          
+         # Set BRANCH_NAME environment variable
+         BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
+         echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
@@ -200,7 +204,11 @@ jobs:
           architecture: "${{ env.MODEL }}"
           device_id: "glinet_mt3000"
           version: "${{ env.PKG_VERSION }}"
-          branch: "${GITHUB_REF_NAME}"
+          branch: "${{ env.BRANCH_NAME }}"
+          architecture: "${{ env.MODEL }}"
+          device_id: "glinet_mt3000"
+          version: "${{ env.PKG_VERSION }}"
+          branch: "${{ env.BRANCH_NAME }}"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
