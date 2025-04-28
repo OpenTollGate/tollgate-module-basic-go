@@ -7,10 +7,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -60,7 +60,6 @@ var tollgateDetailsString string
 // Initialize the nostr pool for Cashu operations
 var relayPool *nostr.SimplePool
 
-log.Println("init function called")
 func init() {
 	// Load configuration
 	if err := loadConfig(); err != nil {
@@ -100,7 +99,6 @@ func init() {
 	initJanitor()
 }
 
-log.Println("initJanitor function called")
 func initJanitor() {
 	config, err := janitor.LoadJanitorConfig(configFile)
 	if err != nil {
@@ -114,9 +112,6 @@ func initJanitor() {
 
 	go janitorInstance.ListenForNIP94Events()
 	log.Println("Janitor module initialized and listening for NIP-94 events")
-
-	// Test relay connections
-	janitorInstance.TestRelayConnections()
 }
 
 // loadConfig reads configuration from /etc/tollgate/config.json
@@ -493,21 +488,21 @@ func main() {
 	// Check if the port is already in use and kill the process if necessary
 	ln, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Printf("Port %s is already in use. Attempting to identify and kill the process.", port)
-		pid, err := getPIDForPort(port)
-		if err != nil {
-			log.Fatalf("Failed to identify process using port %s: %v", port, err)
-		}
-		log.Printf("Killing process %d using port %s", pid, port)
-		err = killProcess(pid)
-		if err != nil {
-			log.Fatalf("Failed to kill process %d: %v", pid, err)
-		}
-		// Retry listening on the port
-		ln, err = net.Listen("tcp", port)
-		if err != nil {
-			log.Fatalf("Still unable to listen on port %s after killing process %d: %v", port, pid, err)
-		}
+	    log.Printf("Port %s is already in use. Attempting to identify and kill the process.", port)
+	    pid, err := getPIDForPort(port)
+	    if err != nil {
+	        log.Fatalf("Failed to identify process using port %s: %v", port, err)
+	    }
+	    log.Printf("Killing process %d using port %s", pid, port)
+	    err = killProcess(pid)
+	    if err != nil {
+	        log.Fatalf("Failed to kill process %d: %v", pid, err)
+	    }
+	    // Retry listening on the port
+	    ln, err = net.Listen("tcp", port)
+	    if err != nil {
+	        log.Fatalf("Still unable to listen on port %s after killing process %d: %v", port, pid, err)
+	    }
 	}
 	defer ln.Close()
 
