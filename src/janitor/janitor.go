@@ -115,6 +115,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 			fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
 			for event := range sub.Events {
+				//log.Printf("Received NIP-94 event from relay %s: %s", relayURL, event.ID)
 				eventChan <- event
 			}
 			fmt.Printf("Stopped listening for NIP-94 events on relay %s\n", relayURL)
@@ -143,12 +144,12 @@ func (j *Janitor) ListenForNIP94Events() {
 				log.Println("eventChan closed, stopping event processing")
 				return
 			}
-			// log.Printf("Received event from channel: %s", event.ID)
 			totalEvents++
 			if !contains(j.trustedMaintainers, event.PubKey) {
 				untrustedEventCount++
 				continue
 			}
+
 			trustedEventCount++
 			ok, err := event.CheckSignature()
 			if err != nil || !ok {
@@ -161,6 +162,8 @@ func (j *Janitor) ListenForNIP94Events() {
 				continue
 			}
 
+			log.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
+				event.ID, packageURL, versionStr, filename, timestamp)
 			key := fmt.Sprintf("%s-%s", filename, versionStr)
 			existingPackageEvent, ok := eventMap[key]
 			if ok {
