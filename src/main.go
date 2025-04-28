@@ -509,10 +509,6 @@ func main() {
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
 
-	// Rest of the main function remains the same
-	fmt.Println("Starting Tollgate - TIP-01")
-	fmt.Println("Listening on all interfaces on port", port)
-
 	// Add verbose logging for debugging
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("Registering handlers...")
