@@ -1,16 +1,13 @@
 package janitor
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"sync"
@@ -162,8 +159,8 @@ func (j *Janitor) ListenForNIP94Events() {
 				continue
 			}
 
-			fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
-				event.ID, packageURL, versionStr, filename, timestamp)
+			//fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
+			//	event.ID, packageURL, versionStr, filename, timestamp)
 			key := fmt.Sprintf("%s-%s", filename, versionStr)
 			existingPackageEvent, ok := eventMap[key]
 			if ok {
@@ -229,50 +226,30 @@ func (j *Janitor) ListenForNIP94Events() {
 }
 
 func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
-	fmt.Printf("Downloading package from %s\n", url)
+	fmt.Printf("Downloading package from %s to /tmp/\n", url)
 
-	// Create a custom HTTP client with a specific DNS resolver
-	dialer := &net.Dialer{
-		Resolver: &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{}
-				return d.DialContext(ctx, network, "8.8.8.8:53") // Using Google's public DNS
-			},
-		},
-	}
-
-	transport := &http.Transport{
-		DialContext: dialer.DialContext,
-	}
-
-	client := &http.Client{Transport: transport}
-
-	resp, err := client.Get(url)
+	tmpFile, err := os.CreateTemp("/tmp/", "package-*.ipk")
 	if err != nil {
-		log.Printf("Error downloading package: %v", err)
+		log.Printf("Error creating temp file: %v", err)
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer os.Remove(tmpFile.Name())
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Failed to download package. Status code: %d", resp.StatusCode)
-		return nil, fmt.Errorf("failed to download package. Status code: %d", resp.StatusCode)
-	}
-
-	var pkg bytes.Buffer
-	var downloadedBytes int64
-	totalSize := resp.ContentLength
-
-	teeReader := io.TeeReader(resp.Body, &progressLogger{total: totalSize, downloaded: &downloadedBytes})
-	_, err = io.Copy(&pkg, teeReader)
+	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Error reading package content: %v", err)
+		log.Printf("Error downloading package: %v, output: %s", err, output)
 		return nil, err
 	}
 
-	fmt.Println("Package downloaded successfully")
-	return pkg.Bytes(), nil
+	pkg, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		log.Printf("Error reading downloaded package: %v", err)
+		return nil, err
+	}
+
+	fmt.Println("Package downloaded successfully to /tmp/")
+	return pkg, nil
 }
 
 type progressLogger struct {
