@@ -5,4 +5,7 @@ echo "Running post-installation script"
 echo "Verifying banner file ownership:"
 ls -l /etc/banner
 opkg search /etc/banner
-exit 0 
+
+# Reboot the system to apply changes
+echo "Rebooting the system..."
+reboot
