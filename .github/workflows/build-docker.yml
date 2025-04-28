@@ -117,7 +117,7 @@ jobs:
 
       - name: Set Package Version
         run: |
-          PKG_VERSION=$(git rev-list --count main 2>/dev/null || echo "0").$(git rev-list --count HEAD 2>/dev/null || echo "0").$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          PKG_VERSION=$(git describe --tags --always --dirty 2>/dev/null || git rev-list --count HEAD).$(git rev-parse --short=8 HEAD)
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
           echo "Set version to $PKG_VERSION"
 
@@ -199,7 +199,7 @@ jobs:
           architecture: "${{ env.MODEL }}"
           device_id: "glinet_mt3000"
           version: "${{ env.PKG_VERSION }}"
-          branch: "${GITHUB_REF#refs/heads/}"
+          branch: "${GITHUB_REF_NAME}"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
