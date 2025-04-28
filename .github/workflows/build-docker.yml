@@ -128,7 +128,7 @@ jobs:
         with:
           host: "https://blossom.swissdash.site"
           filePath: ${{ env.PACKAGE_PATH }}
-     
+
       - name: Process Blossom response and extract hash
         run: |
           echo "Upload outputs:"
@@ -255,4 +255,3 @@ jobs:
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           repository: OpenTollGate/tollgate-os
           event-type: update-release-json
-
