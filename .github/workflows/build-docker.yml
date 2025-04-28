@@ -117,9 +117,10 @@ jobs:
 
       - name: Set Package Version
         run: |
-          PKG_VERSION=$(git describe --tags --always --dirty 2>/dev/null || git rev-list --count HEAD).$(git rev-parse --short=8 HEAD)
-          echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
-          echo "Set version to $PKG_VERSION"
+          # Extract version from package filename
+          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_FILENAME }}" | sed -E 's/.*_([0-9]+\.[0-9]+).*\.ipk/\1/')
+          echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
+          echo "Set version to $PACKAGE_VERSION"
 
       - name: Blossom Artifact upload
         id: blossom_upload
