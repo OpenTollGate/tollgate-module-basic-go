@@ -501,8 +501,8 @@ func main() {
 		retryDelay *= 2 // Exponential backoff
 	}
 
-	if err != nil {
-		log.Fatalf("Failed to listen on port %s after %d retries: %v", port, maxRetries, err)
+	if listenErr != nil {
+	    log.Fatalf("Failed to listen on port %s after %d retries: %v", port, maxRetries, listenErr)
 	}
 	defer ln.Close()
 
