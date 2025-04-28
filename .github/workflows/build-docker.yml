@@ -8,7 +8,7 @@ env:
   PACKAGE_NAME: "tollgate-module-basic-go"
   ARCHITECTURE: "aarch64"
   GOARCH: "arm64"
-#  DEBUG: "true"
+  # DEBUG: "true"
   # GOMIPS: "softfloat"
 
 jobs:
@@ -33,7 +33,6 @@ jobs:
           # Add golang-backports repository
           echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update
-          
           # Install Go from backports
           apt-get install -y -t bookworm-backports golang-go
 
@@ -45,13 +44,11 @@ jobs:
       - name: Configure SDK
         run: |
           cd /builder
-
           # Generate default configuration
           make defconfig
-
           # Update configuration for our needs
           echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
-          
+
       - name: Compile Package
         run: |
           cd /builder
@@ -60,18 +57,14 @@ jobs:
       - name: List output package(s)
         run: |
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
-          
           if [ -z "$PACKAGE_PATH" ]; then
             echo "❌ No .ipk package found in /builder/bin/packages"
             exit 1
           fi
-
           echo "✅ Found package at: $PACKAGE_PATH"
-          
           # Extract model from filename for later use
           FILENAME=$(basename "$PACKAGE_PATH")
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
-          
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
@@ -82,34 +75,31 @@ jobs:
           name: package-${{ env.PACKAGE_NAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
-  
+
   publish-metadata:
     needs: build-package
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: package-${{ env.PACKAGE_NAME }}
           path: ./artifacts
-      
+
       - name: Prepare package metadata
         id: package_info
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
           FILENAME=$(basename "$PACKAGE_PATH")
-          
           # Extract model from filename
           if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
             MODEL="aarch64_cortex-a53"
           else
             MODEL="generic"
           fi
-          
           # Calculate file size
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-          
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
           echo "MODEL=$MODEL" >> $GITHUB_ENV
@@ -135,34 +125,26 @@ jobs:
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
           echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
           echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
-          
           # Extract hash from URL
           URL="${{ steps.blossom_upload.outputs.url }}"
-          
           # Use basename to extract filename from URL
           FILENAME=$(basename "$URL")
-          
           # Remove the file extension to get the hash
           HASH="${FILENAME%.ipk}"
-          
           echo "Extracted hash from URL: $HASH"
-          
           # Store values in environment variables
           echo "PACKAGE_URL=$URL" >> $GITHUB_ENV
           echo "PACKAGE_HASH=$HASH" >> $GITHUB_ENV
-          
           # Verify hash was extracted successfully
           if [ -z "$HASH" ]; then
             echo "❌ ERROR: Failed to extract hash from URL"
             exit 1
           fi
-          
           # Verify hash is a valid hex string (64 characters for SHA-256)
           if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
             echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
             exit 1
           fi
-          
           echo "✅ Successfully extracted hash: $HASH"
 
       - name: Extract Short Module Name
@@ -174,18 +156,15 @@ jobs:
             SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
           fi
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
-          
           # Create a standardized filename for the package
           DEVICE="gl-mt3000"  # You might want to make this dynamic
           PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
-          
           # Create a simplified content format
           echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
-          
-         # Set BRANCH_NAME environment variable
-         BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
-         echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          # Set BRANCH_NAME environment variable
+          BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
@@ -229,7 +208,7 @@ jobs:
         run: |
           echo "❌ Failed to verify package publication on relays"
           exit 1
-          
+
       # Add a step to handle the case where EVENT_ID is empty
       - name: Check Event ID
         if: env.EVENT_ID == ''
