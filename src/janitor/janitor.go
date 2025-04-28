@@ -111,7 +111,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				log.Printf("Subscription error details: %+v", err)
 				return
 			}
-			log.Printf("Subscription successful on relay %s, subscription ID: %s", relayURL, sub.ID)
+			log.Printf("Subscription successful on relay %s", relayURL)
 
 			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
 			for event := range sub.Events {
