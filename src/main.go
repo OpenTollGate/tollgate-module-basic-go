@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"strconv"
 	"net/http"
 	"os"
 	"os/exec"
@@ -481,7 +483,33 @@ func main() {
 		}
 	}
 
-	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
+	port := ":2121"
+
+	// Check if the port is already in use and kill the process if necessary
+	ln, err := net.Listen("tcp", port)
+	if err != nil {
+	    log.Printf("Port %s is already in use. Attempting to identify and kill the process.", port)
+	    pid, err := getPIDForPort(port)
+	    if err != nil {
+	        log.Fatalf("Failed to identify process using port %s: %v", port, err)
+	    }
+	    log.Printf("Killing process %d using port %s", pid, port)
+	    err = killProcess(pid)
+	    if err != nil {
+	        log.Fatalf("Failed to kill process %d: %v", pid, err)
+	    }
+	    // Retry listening on the port
+	    ln, err = net.Listen("tcp", port)
+	    if err != nil {
+	        log.Fatalf("Still unable to listen on port %s after killing process %d: %v", port, pid, err)
+	    }
+	}
+	defer ln.Close()
+
+	fmt.Println("Starting Tollgate - TIP-01")
+	fmt.Println("Listening on all interfaces on port", port)
+
+	// Rest of the main function remains the same
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
 
@@ -518,6 +546,29 @@ func main() {
 	fmt.Println("Shutting down Tollgate - Whoami")
 }
 
+// getPIDForPort returns the PID of the process listening on the given port
+func getPIDForPort(port string) (int, error) {
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("netstat -tulnp | grep :%s | awk '{print $7}' | cut -d '/' -f 1", port))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, err
+	}
+	pidStr := strings.TrimSpace(string(output))
+	if pidStr == "" {
+		return 0, fmt.Errorf("no process found listening on port %s", port)
+	}
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		return 0, err
+	}
+	return pid, nil
+}
+
+// killProcess terminates the process with the given PID
+func killProcess(pid int) error {
+	cmd := exec.Command("kill", strconv.Itoa(pid))
+	return cmd.Run()
+}
 func getIP(r *http.Request) string {
 	// Check if the IP is set in the X-Real-Ip header
 	ip := r.Header.Get("X-Real-Ip")
