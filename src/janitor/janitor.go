@@ -128,7 +128,9 @@ func (j *Janitor) ListenForNIP94Events() {
 	trustedEventCount := 0
 	collisionCount := 0
 
-	timeout := time.After(10 * time.Second)
+	timer := time.NewTimer(10 * time.Second)
+	timer.Stop()
+	isTimerActive := false
 	for {
 		select {
 		case event, ok := <-eventChan:
@@ -162,7 +164,11 @@ func (j *Janitor) ListenForNIP94Events() {
 						event:      event,
 						packageURL: packageURL,
 					}
-					log.Printf("Newer version with timestamp %d dected for file %s, version %s", timestamp, filename, versionStr)
+					log.Printf("Newer version with timestamp %d detected for file %s, version %s", timestamp, filename, versionStr)
+					if !isTimerActive {
+						timer.Reset(10 * time.Second)
+						isTimerActive = true
+					}
 				}
 			} else {
 				log.Printf("Found occurrence of package %s, version %s, timestamp %d", filename, versionStr, timestamp)
@@ -170,8 +176,14 @@ func (j *Janitor) ListenForNIP94Events() {
 					event:      event,
 					packageURL: packageURL,
 				}
+				if timestamp > j.currentTimestamp {
+					if !isTimerActive {
+						timer.Reset(10 * time.Second)
+						isTimerActive = true
+					}
+				}
 			}
-		case <-timeout:
+		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
 			for _, packageEvent := range eventMap {
 				event := packageEvent.event
@@ -185,23 +197,24 @@ func (j *Janitor) ListenForNIP94Events() {
 					pkg, err := j.DownloadPackage(packageEvent.packageURL)
 					if err != nil {
 						log.Printf("Error downloading package: %v", err)
-						break
+						continue
 					}
 					err = j.verifyPackageChecksum(pkg, *event)
 					if err != nil {
 						log.Printf("Error verifying package checksum: %v", err)
-						break
+						continue
 					}
 					err = j.InstallPackage(pkg)
 					if err != nil {
 						log.Printf("Error installing package: %v", err)
-						break
+						continue
 					}
 					log.Printf("Successfully installed new package version: %s", versionStr)
 					RunPostInstallScript(j.configPath, versionStr)
 				}
 			}
-			return
+			timer.Stop()
+			isTimerActive = false
 		}
 	}
 }
