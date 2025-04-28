@@ -16,7 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:mediatek-filogic-23.05.3
-      options: --user root # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
+      options: --user root
+# https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
 
     steps:
       - uses: actions/checkout@v4
@@ -52,10 +53,15 @@ jobs:
       - name: Compile Package
         run: |
           cd /builder
-          env GOARCH=${{ env.GOARCH }} GOMIPS=${{ env.GOMIPS }} make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+          env GOARCH=${{ env.GOARCH }} \
+              GOMIPS=${{ env.GOMIPS }} \
+              make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
+              ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
         run: |
+          echo "Listing all .ipk files in /builder/bin/packages:"
+          find /builder/bin/packages -name "*.ipk" -type f
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
             echo "❌ No .ipk package found in /builder/bin/packages"
@@ -108,7 +114,7 @@ jobs:
       - name: Set Package Version
         run: |
           # Extract version from PACKAGE_PATH
-          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9]+\.[0-9a-f]+)-[0-9]+_.*\.ipk/\1/')
+          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9]+\.[0-9a-f]+-[0-9]+)_.*\.ipk/\1/')
           echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
           echo "Set version to $PACKAGE_VERSION"
 
