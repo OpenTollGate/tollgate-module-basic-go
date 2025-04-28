@@ -204,10 +204,6 @@ jobs:
           device_id: "glinet_mt3000"
           version: "${{ env.PKG_VERSION }}"
           branch: "${{ env.BRANCH_NAME }}"
-          architecture: "${{ env.MODEL }}"
-          device_id: "glinet_mt3000"
-          version: "${{ env.PKG_VERSION }}"
-          branch: "${{ env.BRANCH_NAME }}"
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
