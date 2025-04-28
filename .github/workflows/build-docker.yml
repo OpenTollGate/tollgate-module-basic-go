@@ -170,7 +170,10 @@ jobs:
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
         with:
-          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
+          relays: >-
+            wss://relay.damus.io,
+            wss://nos.lol,
+            wss://nostr.mom/
           url: ${{ env.PACKAGE_URL }}
           mimeType: application/octet-stream
           fileHash: ${{ env.PACKAGE_HASH }}
@@ -200,7 +203,10 @@ jobs:
         uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
         with:
           eventId: ${{ env.EVENT_ID }}
-          relays: wss://relay.damus.io,wss://nos.lol,wss://nostr.mom/
+          relays: >-
+            wss://relay.damus.io,
+            wss://nos.lol,
+            wss://nostr.mom/
 
       - name: Check Package Publication
         # Only run this step if the verification ran and failed
