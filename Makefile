@@ -1,8 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
-PKG_VERSION:=$(shell git rev-list --count main 2>/dev/null || echo "0").$(shell git rev-list --count HEAD 2>/dev/null || echo "0").$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-PKG_RELEASE:=1
+PKG_VERSION:=0.0.$(shell git rev-list --count HEAD)+$(shell git rev-parse --short HEAD)
 PKG_FLAGS:=overwrite
 
 # Place conditional checks EARLY - before variables that depend on them
