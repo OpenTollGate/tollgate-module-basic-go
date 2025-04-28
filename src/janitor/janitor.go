@@ -143,7 +143,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				log.Println("eventChan closed, stopping event processing")
 				return
 			}
-			log.Printf("Received event from channel: %s", event.ID)
+			// log.Printf("Received event from channel: %s", event.ID)
 			totalEvents++
 			if !contains(j.trustedMaintainers, event.PubKey) {
 				untrustedEventCount++
