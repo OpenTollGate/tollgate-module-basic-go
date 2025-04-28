@@ -80,7 +80,7 @@ func (k *SimpleKeyer) Decrypt(ctx context.Context, pubkey, ciphertext string) (s
 }
 
 // decodeCashuToken decodes a Cashu token and returns the total value in sats
-func decodeCashuToken(token string) (int, error) {
+func DecodeCashuToken(token string) (int, error) {
 	fmt.Println("Decoding Cashu token:", token)
 
 	// Only support cashuB tokens
