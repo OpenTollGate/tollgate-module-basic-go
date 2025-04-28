@@ -92,13 +92,15 @@ func (j *Janitor) ListenForNIP94Events() {
 		wg.Add(1)
 		go func(relayURL string) {
 			defer wg.Done()
-			log.Printf("Connecting to relay: %s", relayURL)
+			log.Printf("Ensuring relay connection for %s", relayURL)
 			relay, err := relayPool.EnsureRelay(relayURL)
 			if err != nil {
 				log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 				return
 			}
+			log.Printf("Connected to relay %s", relayURL)
 
+			log.Printf("Subscribing to NIP-94 events on relay %s", relayURL)
 			sub, err := relay.Subscribe(ctx, []nostr.Filter{
 				{
 					Kinds: []int{1063}, // NIP-94 event kind
@@ -108,8 +110,45 @@ func (j *Janitor) ListenForNIP94Events() {
 				log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
 				return
 			}
-
 			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
+
+// TestRelayConnections checks if the janitor can connect to the configured relays
+func (j *Janitor) TestRelayConnections() {
+log.Println("Testing relay connections")
+ctx := context.Background()
+relayPool := nostr.NewSimplePool(ctx)
+
+for _, relayURL := range j.relays {
+log.Printf("Testing relay connection to %s", relayURL)
+relay, err := relayPool.EnsureRelay(relayURL)
+if err != nil {
+log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+continue
+}
+log.Printf("Connected to relay %s", relayURL)
+
+sub, err := relay.Subscribe(ctx, []nostr.Filter{
+{
+Kinds: []int{1063}, // NIP-94 event kind
+Limit: 1,
+},
+})
+if err != nil {
+log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+continue
+}
+log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
+
+timeout := time.After(5 * time.Second)
+select {
+case event := <-sub.Events:
+log.Printf("Received event from relay %s: %+v", relayURL, event)
+case <-timeout:
+log.Printf("Timeout waiting for event from relay %s", relayURL)
+}
+}
+log.Println("Relay connection test completed")
+}
 			for event := range sub.Events {
 				eventChan <- event
 			}
@@ -139,6 +178,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				return
 			}
 			totalEvents++
+			log.Printf("Received event from channel: %+v", event)
 			if !contains(j.trustedMaintainers, event.PubKey) {
 				untrustedEventCount++
 				continue
