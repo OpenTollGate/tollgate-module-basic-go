@@ -11,13 +11,17 @@
   "min_payment": 1,
   "mint_fee": 0,
   "package_info": {
-    "timestamp": 1745855586,
-    "version": "1.2.3"
+    "timestamp": 1745741060,
+    "version": "0.0.1+1cac608"
   },
   "price_per_minute": 1,
   "relays": [
-    "wss://relay.nostr.band",
+    "wss://relay.damus.io",
+    "wss://nos.lol",
     "wss://nostr.mom"
   ],
-  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663"
+  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
+  "trusted_maintainers": [
+    "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
+  ]
 }
