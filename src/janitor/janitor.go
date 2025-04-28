@@ -131,6 +131,7 @@ func (j *Janitor) ListenForNIP94Events() {
 	timer := time.NewTimer(10 * time.Second)
 	timer.Stop()
 	isTimerActive := false
+	log.Printf("Starting event processing loop")
 	for {
 		select {
 		case event, ok := <-eventChan:
@@ -138,6 +139,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				log.Println("eventChan closed, stopping event processing")
 				return
 			}
+			log.Printf("Received event from channel: %s", event.ID)
 			totalEvents++
 			if !contains(j.trustedMaintainers, event.PubKey) {
 				untrustedEventCount++
