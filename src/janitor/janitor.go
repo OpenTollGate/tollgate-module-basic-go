@@ -96,8 +96,10 @@ func (j *Janitor) ListenForNIP94Events() {
 			relay, err := relayPool.EnsureRelay(relayURL)
 			if err != nil {
 				log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+				log.Printf("EnsureRelay error details: %+v", err)
 				return
 			}
+			log.Printf("Connected to relay: %s", relayURL)
 
 			sub, err := relay.Subscribe(ctx, []nostr.Filter{
 				{
@@ -106,8 +108,10 @@ func (j *Janitor) ListenForNIP94Events() {
 			})
 			if err != nil {
 				log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+				log.Printf("Subscription error details: %+v", err)
 				return
 			}
+			log.Printf("Subscription successful on relay %s, subscription ID: %s", relayURL, sub.ID)
 
 			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
 			for event := range sub.Events {
