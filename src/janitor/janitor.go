@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"errors"
-
+	
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -63,6 +63,7 @@ type Janitor struct {
 	configPath         string
 	opkgCmd            string
 }
+
 
 func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configPath string) (*Janitor, error) {
 	log.Printf("Creating new Janitor instance")
