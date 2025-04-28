@@ -148,7 +148,7 @@ func loadConfig() error {
 		return fmt.Errorf("failed to parse config file: %v", err)
 	}
 
-	log.Printf("Relays loaded from config: %v", config.Relays)
+	fmt.Println("Relays loaded from config:", config.Relays)
 
 	// Update global variables
 	tollgatePrivateKey = config.TollgatePrivateKey
@@ -158,8 +158,8 @@ func loadConfig() error {
 	mintFee = config.MintFee
 	cutoffFee = 2*mintFee + minPayment
 
-	log.Printf("Configuration loaded: mint=%s, price=%d, fee=%d",
-		acceptedMint, pricePerMinute, mintFee)
+	fmt.Printf("Configuration loaded: mint=%s, price=%d, fee=%d\n",
+	acceptedMint, pricePerMinute, mintFee)
 
 	return nil
 }
@@ -220,7 +220,7 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
-	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
+	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -290,8 +290,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Extracted MAC address: %s", macAddress)
-	log.Printf("Extracted payment token: %s", paymentToken)
+	fmt.Printf("Extracted MAC address: %s\n", macAddress)
+	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
 	// Decode the Cashu token
 	tokenValue, err := DecodeCashuToken(paymentToken)
@@ -319,7 +319,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 		// We can still continue with the token we have
 	} else {
-		log.Printf("Successfully swapped token for fresh proofs")
+		fmt.Println("Successfully swapped token for fresh proofs")
 	}
 
 	// Calculate the actual value after deducting fees
@@ -344,8 +344,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	durationSeconds := int64(allottedMinutes * 60)
 
 	// Log the calculation for transparency
-	log.Printf("Calculated minutes: %d (from value %d, minus fees %d)",
-		allottedMinutes, tokenValue, 2*mintFee)
+	fmt.Printf("Calculated minutes: %d (from value %d, minus fees %d)\n",
+	allottedMinutes, tokenValue, 2*mintFee)
 
 	// Open gate for the specified duration using the valve module
 	err = modules.OpenGate(macAddress, durationSeconds)
@@ -438,7 +438,7 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 		if err != nil {
 			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
 		} else {
-			log.Printf("Successfully published event to relay %s", relayURL)
+			fmt.Printf("Successfully published event to relay %s\n", relayURL)
 		}
 	}
 
@@ -446,7 +446,7 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 		return err
 	}
 
-	log.Printf("Successfully announced payment for MAC %s", macAddress)
+	fmt.Printf("Successfully announced payment for MAC %s\n", macAddress)
 	return nil
 }
 

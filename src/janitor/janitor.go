@@ -37,7 +37,7 @@ type JanitorConfig struct {
 }
 
 func LoadJanitorConfig(path string) (*JanitorConfig, error) {
-	log.Printf("Loading configuration from %s", path)
+	fmt.Println("Loading configuration from", path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("Error reading config file: %v", err)
@@ -51,7 +51,7 @@ func LoadJanitorConfig(path string) (*JanitorConfig, error) {
 		return nil, err
 	}
 
-	log.Printf("Configuration loaded: %+v", config)
+	fmt.Println("Configuration loaded:", config)
 	return &config, nil
 }
 
@@ -65,7 +65,7 @@ type Janitor struct {
 }
 
 func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configPath string) (*Janitor, error) {
-	log.Printf("Creating new Janitor instance")
+	fmt.Println("Creating new Janitor instance")
 	v, err := version.NewVersion(currentVersion)
 	if err != nil {
 		log.Printf("Invalid current version: %v", err)
@@ -92,14 +92,14 @@ func (j *Janitor) ListenForNIP94Events() {
 		wg.Add(1)
 		go func(relayURL string) {
 			defer wg.Done()
-			log.Printf("Connecting to relay: %s", relayURL)
+			fmt.Printf("Connecting to relay: %s\n", relayURL)
 			relay, err := relayPool.EnsureRelay(relayURL)
 			if err != nil {
 				log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 				log.Printf("EnsureRelay error details: %+v", err)
 				return
 			}
-			log.Printf("Connected to relay: %s", relayURL)
+			fmt.Printf("Connected to relay: %s\n", relayURL)
 
 			sub, err := relay.Subscribe(ctx, []nostr.Filter{
 				{
@@ -111,13 +111,13 @@ func (j *Janitor) ListenForNIP94Events() {
 				log.Printf("Subscription error details: %+v", err)
 				return
 			}
-			log.Printf("Subscription successful on relay %s", relayURL)
+			fmt.Printf("Subscription successful on relay %s\n", relayURL)
 
-			log.Printf("Subscribed to NIP-94 events on relay %s", relayURL)
+			fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
 			for event := range sub.Events {
 				eventChan <- event
 			}
-			log.Printf("Stopped listening for NIP-94 events on relay %s", relayURL)
+			fmt.Printf("Stopped listening for NIP-94 events on relay %s\n", relayURL)
 		}(relayURL)
 	}
 
@@ -135,7 +135,7 @@ func (j *Janitor) ListenForNIP94Events() {
 	timer := time.NewTimer(10 * time.Second)
 	timer.Stop()
 	isTimerActive := false
-	log.Printf("Starting event processing loop")
+	fmt.Println("Starting event processing loop")
 	for {
 		select {
 		case event, ok := <-eventChan:
@@ -170,14 +170,14 @@ func (j *Janitor) ListenForNIP94Events() {
 						event:      event,
 						packageURL: packageURL,
 					}
-					log.Printf("Newer version with timestamp %d detected for file %s, version %s", timestamp, filename, versionStr)
+					fmt.Printf("Newer version with timestamp %d detected for file %s, version %s\n", timestamp, filename, versionStr)
 					if !isTimerActive {
 						timer.Reset(10 * time.Second)
 						isTimerActive = true
 					}
 				}
 			} else {
-				log.Printf("Found occurrence of package %s, version %s, timestamp %d", filename, versionStr, timestamp)
+				fmt.Printf("Found occurrence of package %s, version %s, timestamp %d\n", filename, versionStr, timestamp)
 				eventMap[key] = &packageEvent{
 					event:      event,
 					packageURL: packageURL,
@@ -199,7 +199,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					continue
 				}
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-					log.Printf("Newer package version available: %s", versionStr)
+					fmt.Printf("Newer package version available: %s\n", versionStr)
 					pkg, err := j.DownloadPackage(packageEvent.packageURL)
 					if err != nil {
 						log.Printf("Error downloading package: %v", err)
@@ -215,7 +215,7 @@ func (j *Janitor) ListenForNIP94Events() {
 						log.Printf("Error installing package: %v", err)
 						continue
 					}
-					log.Printf("Successfully installed new package version: %s", versionStr)
+					fmt.Printf("Successfully installed new package version: %s\n", versionStr)
 					RunPostInstallScript(j.configPath, versionStr)
 				}
 			}
@@ -226,7 +226,7 @@ func (j *Janitor) ListenForNIP94Events() {
 }
 
 func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
-	log.Printf("Downloading package from %s", url)
+	fmt.Printf("Downloading package from %s\n", url)
 
 	// Create a custom HTTP client with a specific DNS resolver
 	dialer := &net.Dialer{
@@ -268,7 +268,7 @@ func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
 		return nil, err
 	}
 
-	log.Println("Package downloaded successfully")
+	fmt.Println("Package downloaded successfully")
 	return pkg.Bytes(), nil
 }
 
