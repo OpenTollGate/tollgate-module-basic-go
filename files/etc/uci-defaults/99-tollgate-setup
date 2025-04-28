@@ -219,7 +219,6 @@ uci_safe_set nodogsplash @nodogsplash[0] gatewayname "${SSID_BASE} Portal"
 uci_safe_set nodogsplash @nodogsplash[0] gatewayinterface 'br-lan'
 
 # Ensure TollGate protocol port is allowed
-uci_safe_delete nodogsplash.@nodogsplash[0].users_to_router
 uci_safe_add_list nodogsplash.@nodogsplash[0].users_to_router 'allow tcp port 2121'
 uci_safe_add_list nodogsplash.@nodogsplash[0].users_to_router 'allow tcp port 8080'
 uci commit nodogsplash
