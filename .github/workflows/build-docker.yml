@@ -165,7 +165,6 @@ jobs:
           
           echo "✅ Successfully extracted hash: $HASH"
 
-      # Extract Short Module Name before publishing NIP-94 metadata
       - name: Extract Short Module Name
         run: |
           # Extract the basic part from tollgate-module-basic-go
