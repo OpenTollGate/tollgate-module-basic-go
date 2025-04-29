@@ -172,6 +172,7 @@ func (j *Janitor) ListenForNIP94Events() {
 						packageURL: packageURL,
 					}
 					fmt.Printf("Newer version with timestamp %d detected for file %s, version %s\n", timestamp, filename, versionStr)
+					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 					timer.Reset(10 * time.Second)
 					isTimerActive = true
 
