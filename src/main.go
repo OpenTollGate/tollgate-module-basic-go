@@ -121,7 +121,7 @@ func initJanitor() {
 		log.Fatalf("Failed to load janitor config: %v", err)
 	}
 
-	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, configFile)
+	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, config.PackageInfo.Branch, config.PackageInfo.Arch, configFile)
 	if err != nil {
 		log.Fatalf("Failed to create janitor instance: %v", err)
 	}

@@ -31,6 +31,8 @@ type JanitorConfig struct {
 	PackageInfo        struct {
 		Version   string `json:"version"`
 		Timestamp int64  `json:"timestamp"`
+		Branch    string `json:"branch"`
+		Arch      string `json:"arch"`
 	} `json:"package_info"`
 }
 
@@ -58,11 +60,13 @@ type Janitor struct {
 	trustedMaintainers []string
 	currentVersion     *version.Version
 	currentTimestamp   int64
+	ConfigBranch       string
+	ConfigArch         string
 	configPath         string
 	opkgCmd            string
 }
 
-func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configPath string) (*Janitor, error) {
+func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configBranch string, configArch string, configPath string) (*Janitor, error) {
 	fmt.Println("Creating new Janitor instance")
 	v, err := version.NewVersion(currentVersion)
 	if err != nil {
@@ -74,6 +78,8 @@ func NewJanitor(relays []string, trustedMaintainers []string, currentVersion str
 		trustedMaintainers: trustedMaintainers,
 		currentVersion:     v,
 		currentTimestamp:   currentTimestamp,
+		ConfigBranch:       configBranch,
+		ConfigArch:         configArch,
 		configPath:         configPath,
 		opkgCmd:            "opkg",
 	}, nil
@@ -88,7 +94,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 	for _, relayURL := range j.relays {
 		wg.Add(1)
-		go func(relayURL string) {
+		go func( relayURL string) {
 			defer wg.Done()
 			fmt.Printf("Connecting to relay: %s\n", relayURL)
 			relay, err := relayPool.EnsureRelay(relayURL)
@@ -131,6 +137,8 @@ func (j *Janitor) ListenForNIP94Events() {
 	trustedEventCount := 0
 	collisionCount := 0
 	newerKeys := make([]string, 0)
+	rightBranchKeys := make([]string, 0)
+	rightArchKeys := make([]string, 0)
 	newerKeysAndVersion := make([]string, 0)
 
 	timer := time.NewTimer(10 * time.Second)
@@ -157,29 +165,28 @@ func (j *Janitor) ListenForNIP94Events() {
 				continue
 			}
 
-			packageURL, versionStr, filename, timestamp, err := parseNIP94Event(*event)
+			packageURL, versionStr, arch, branch, filename, timestamp, err := parseNIP94Event(*event)
 			if err != nil {
 				continue
+			}
+
+			key := fmt.Sprintf("%s-%s", filename, versionStr)
+			ok = eventMap[key] != nil
+			if ok {
+				// We already recorded an event with this filename and version string
+				collisionCount++
+				//log.Println("Collision! Already encountered this filename and version in the past...")
+			} else {
+				// Its the first time we see this filename & version string
+				eventMap[key] = &packageEvent{
+					event:      event,
+					packageURL: packageURL,
+				}
 			}
 
 			if timestamp > j.currentTimestamp {
 				fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
 					event.ID, packageURL, versionStr, filename, timestamp)
-				key := fmt.Sprintf("%s-%s", filename, versionStr)
-				ok = eventMap[key] != nil
-				if ok {
-					// We already recorded an event with this filename and version string
-					collisionCount++
-					log.Println("Collision! Already encountered this filename and version in the past...")
-
-				} else {
-					// Its the first time we see this filename & version string
-					eventMap[key] = &packageEvent{
-						event:      event,
-						packageURL: packageURL,
-					}
-				}
-
 				if !isTimerActive {
 					fmt.Printf("Started the timer\n")
 				} else {
@@ -193,6 +200,15 @@ func (j *Janitor) ListenForNIP94Events() {
 				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 			}
 
+			if branch == j.ConfigBranch {
+				rightBranchKeys = append(rightBranchKeys, key)
+			}
+
+			if arch == j.ConfigArch {
+				rightArchKeys = append(rightArchKeys, key)
+			}
+
+
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
 			newEventsMap := make(map[string]*packageEvent)
@@ -204,7 +220,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					continue
 				}
 				event := packageEvent.event
-				_, versionStr, _, timestamp, err := parseNIP94Event(*event)
+				_, versionStr, _, _, _, timestamp, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					continue
@@ -353,7 +369,7 @@ func contains(s []string, str string) bool {
 }
 
 // parseNIP94Event extracts package information from a NIP-94 event
-func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
+func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, error) {
 	requiredTags := []string{"url", "version", "arch", "branch", "filename"}
 	tagMap := make(map[string]string)
 
@@ -366,25 +382,22 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 	// Check if all required tags are present
 	for _, tag := range requiredTags {
 		if _, ok := tagMap[tag]; !ok {
-			return "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
+			return "", "", "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
 		}
 	}
 
 	url := tagMap["url"]
 	version := tagMap["version"]
-	// arch := tagMap["arch"]
-	// branch := tagMap["branch"]
+	arch := tagMap["arch"]
+	branch := tagMap["branch"]
 	filename := tagMap["filename"]
 	timestamp := int64(event.CreatedAt)
 
-	// log.Printf("Parsed NIP-94 event: url=%s, version=%s, arch=%s, branch=%s, filename=%s, timestamp=%d",
-	//	url, version, arch, branch, filename, timestamp)
-
 	if url == "" || version == "" || timestamp == 0 {
-		return "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
+		return "", "", "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
 	}
 
-	return url, version, filename, timestamp, nil
+	return url, version, arch, branch, filename, timestamp, nil
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {

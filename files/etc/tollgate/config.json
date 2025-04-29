@@ -12,7 +12,9 @@
   "mint_fee": 0,
   "package_info": {
     "timestamp": 1745741060,
-    "version": "0.0.1+1cac608"
+    "version": "0.0.1+1cac608",
+    "branch": "just_janitor_2nd_try",
+    "arch": "mt3000"
   },
   "price_per_minute": 1,
   "relays": [
