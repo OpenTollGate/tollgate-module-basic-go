@@ -94,7 +94,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 	for _, relayURL := range j.relays {
 		wg.Add(1)
-		go func( relayURL string) {
+		go func(relayURL string) {
 			defer wg.Done()
 			fmt.Printf("Connecting to relay: %s\n", relayURL)
 			relay, err := relayPool.EnsureRelay(relayURL)
@@ -208,14 +208,17 @@ func (j *Janitor) ListenForNIP94Events() {
 				rightArchKeys = append(rightArchKeys, key)
 			}
 
-
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
-			newEventsMap := make(map[string]*packageEvent)
-			for _, key := range newerKeys {
-				newEventsMap[key] = eventMap[key]
+			qualifyingEventsMap := make(map[string]*packageEvent)
+
+			// Compute the intersection of newerKeys, rightBranchKeys, and rightArchKeys
+			intersection := intersect(newerKeys, rightBranchKeys, rightArchKeys)
+
+			for _, key := range intersection {
+				qualifyingEventsMap[key] = eventMap[key]
 			}
-			for key, packageEvent := range newEventsMap {
+			for key, packageEvent := range qualifyingEventsMap {
 				if packageEvent == nil {
 					continue
 				}
@@ -231,7 +234,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					newerKeysAndVersion = append(newerKeysAndVersion, key)
 					fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
 					// TODO: Sort by version number to get the most upto date new event
-					// TODO: First figure out why new events are no longer caught...
+					// TODO: First figure out why new events are no longer caught..
 
 					// fmt.Printf("Newer package version available: %s\n", versionStr)
 					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
@@ -414,4 +417,30 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 		return false
 	}
 	return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
+}
+func intersect(slices ...[]string) []string {
+	if len(slices) == 0 {
+		return []string{}
+	}
+	if len(slices) == 1 {
+		return slices[0]
+	}
+	result := make(map[string]bool)
+	for _, key := range slices[0] {
+		result[key] = true
+	}
+	for _, slice := range slices[1:] {
+		tempResult := make(map[string]bool)
+		for _, key := range slice {
+			if result[key] {
+				tempResult[key] = true
+			}
+		}
+		result = tempResult
+	}
+	var intersection []string
+	for key := range result {
+		intersection = append(intersection, key)
+	}
+	return intersection
 }
