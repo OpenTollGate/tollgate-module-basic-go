@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -162,56 +162,38 @@ func (j *Janitor) ListenForNIP94Events() {
 				continue
 			}
 
-			//fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
-			//	event.ID, packageURL, versionStr, filename, timestamp)
-			key := fmt.Sprintf("%s-%s", filename, versionStr)
-			ok = eventMap[key] != nil
-			if ok {
-				// We already recorded an event with this filename and version string
-				collisionCount++
-				if timestamp > j.currentTimestamp {
-					log.Println("Collision! Already encountered this filename and version in the past...")
-					fmt.Printf("Newer version with timestamp %d detected for file %s, version %s\n", timestamp, filename, versionStr)
-					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
+			if timestamp > j.currentTimestamp {
 
+				//fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
+				//	event.ID, packageURL, versionStr, filename, timestamp)
+				key := fmt.Sprintf("%s-%s", filename, versionStr)
+				ok = eventMap[key] != nil
+				if ok {
+					// We already recorded an event with this filename and version string
+					collisionCount++
+					log.Println("Collision! Already encountered this filename and version in the past...")
+
+				} else {
+					// Its the first time we see this filename & version string
 					eventMap[key] = &packageEvent{
 						event:      event,
 						packageURL: packageURL,
 					}
-
-					if !isTimerActive {
-						fmt.Printf("Started the timer\n")
-					} else {
-						fmt.Printf("Reset the timer\n")
-					}
-
-					timer.Reset(10 * time.Second)
-					isTimerActive = true
-					newerKeys = append(newerKeys, key)
-				}
-			} else {
-				// Its the first time we see this filename & version string
-				eventMap[key] = &packageEvent{
-					event:      event,
-					packageURL: packageURL,
 				}
 
-				if timestamp > j.currentTimestamp {
-					// This event was generated after the timestamp from the config file
-					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
-					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
-
-					if !isTimerActive {
-						fmt.Printf("Started the timer\n")
-					} else {
-						fmt.Printf("Reset the timer\n")
-					}
-
-					timer.Reset(10 * time.Second)
-					isTimerActive = true
-					newerKeys = append(newerKeys, key)
+				if !isTimerActive {
+					fmt.Printf("Started the timer\n")
+				} else {
+					fmt.Printf("Reset the timer\n")
 				}
+
+				timer.Reset(10 * time.Second)
+				isTimerActive = true
+				newerKeys = append(newerKeys, key)
+				fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
+				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 			}
+
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
 			newEventsMap := make(map[string]*packageEvent)
@@ -406,17 +388,17 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
-    cleanedNewVersion := strings.Split(newVersion, "+")[0]
-    newVersionObj, err := version.NewVersion(cleanedNewVersion)
-    if err != nil {
-        log.Printf("Invalid new version: %v", err)
-        return false
-    }
-    cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
-    cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
-    if err != nil {
-        log.Printf("Invalid current version: %v", err)
-        return false
-    }
-    return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
+	cleanedNewVersion := strings.Split(newVersion, "+")[0]
+	newVersionObj, err := version.NewVersion(cleanedNewVersion)
+	if err != nil {
+		log.Printf("Invalid new version: %v", err)
+		return false
+	}
+	cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
+	cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
+	if err != nil {
+		log.Printf("Invalid current version: %v", err)
+		return false
+	}
+	return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
 }
