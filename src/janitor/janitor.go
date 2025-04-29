@@ -150,7 +150,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			trustedEventCount++
 			ok, err := event.CheckSignature()
 			if err != nil || !ok {
-				log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
+				//log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
 				continue
 			}
 
@@ -373,7 +373,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
 	newVersionObj, err := version.NewVersion(newVersion)
 	if err != nil {
-		log.Printf("Invalid new version: %v", err)
+		//log.Printf("Invalid new version: %v", err)
 		return false
 	}
 	return newVersionObj.GreaterThan(currentVersion) && newTimestamp > currentTimestamp
