@@ -129,6 +129,8 @@ func (j *Janitor) ListenForNIP94Events() {
 	untrustedEventCount := 0
 	trustedEventCount := 0
 	collisionCount := 0
+	newerKeys := make([]string, 0)
+	newerKeysAndVersion := make([]string, 0)
 
 	timer := time.NewTimer(10 * time.Second)
 	timer.Stop()
@@ -175,6 +177,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 					timer.Reset(10 * time.Second)
 					isTimerActive = true
+					newerKeys = append(newerKeys, key)
 
 					if !isTimerActive {
 						fmt.Printf("Started the timer\n")
@@ -193,6 +196,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					if !isTimerActive {
 						timer.Reset(10 * time.Second)
 						isTimerActive = true
+						newerKeys = append(newerKeys, key)
 					}
 					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
 				} else {
@@ -202,31 +206,43 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
-			for _, packageEvent := range eventMap {
+			newKeysMap := make(map[string]*packageEvent)
+			for _, key := range newerKeys {
+				newKeysMap[key] = eventMap[key]
+			}
+			for key, packageEvent := range newKeysMap {
+				if packageEvent == nil {
+					continue
+				}
 				event := packageEvent.event
 				_, versionStr, _, timestamp, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					continue
 				}
+
+				fmt.Printf("Checking event: %s\n", event)
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-					fmt.Printf("Newer package version available: %s\n", versionStr)
-					pkg, err := j.DownloadPackage(packageEvent.packageURL)
-					if err != nil {
-						log.Printf("Error downloading package: %v", err)
-						continue
-					}
-					err = j.verifyPackageChecksum(pkg, *event)
-					if err != nil {
-						log.Printf("Error verifying package checksum: %v", err)
-						continue
-					}
-					err = j.InstallPackage(pkg)
-					if err != nil {
-						log.Printf("Error installing package: %v", err)
-						continue
-					}
-					fmt.Printf("Successfully installed new package version: %s\n", versionStr)
+					newerKeysAndVersion = append(newerKeysAndVersion, key)
+					fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
+
+					// fmt.Printf("Newer package version available: %s\n", versionStr)
+					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
+					// if err != nil {
+					// 	log.Printf("Error downloading package: %v", err)
+					// 	continue
+					// }
+					// err = j.verifyPackageChecksum(pkg, *event)
+					// if err != nil {
+					// 	log.Printf("Error verifying package checksum: %v", err)
+					// 	continue
+					// }
+					// err = j.InstallPackage(pkg)
+					// if err != nil {
+					// 	log.Printf("Error installing package: %v", err)
+					// 	continue
+					// }
+					// fmt.Printf("Successfully installed new package version: %s\n", versionStr)
 				}
 			}
 			timer.Stop()
