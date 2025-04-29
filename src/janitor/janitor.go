@@ -380,8 +380,8 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
-	log.Printf("Comparing versions: newVersion=%s, newTimestamp=%d, currentVersion=%s, currentTimestamp=%d",
-		newVersion, newTimestamp, currentVersion, currentTimestamp)
+	//log.Printf("Comparing versions: newVersion=%s, newTimestamp=%d, currentVersion=%s, currentTimestamp=%d",
+	//	newVersion, newTimestamp, currentVersion, currentTimestamp)
 	newVersionObj, err := version.NewVersion(newVersion)
 	if err != nil {
 		//log.Printf("Invalid new version: %v", err)
