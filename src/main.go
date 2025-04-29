@@ -484,6 +484,8 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 func PostInstallSetup(configPath, newVersion string) (int64, error) {
 	fmt.Printf("Running post-install script")
+
+	// Read existing config
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Printf("Error reading config file: %v", err)
@@ -497,12 +499,34 @@ func PostInstallSetup(configPath, newVersion string) (int64, error) {
 		return 0, err
 	}
 
-	newTimestamp := time.Now().Unix()
-	configMap["package_info"] = map[string]interface{}{
-		"version":   newVersion,
-		"timestamp": newTimestamp,
+	// Get package_info map or create it if it doesn't exist
+	packageInfo, ok := configMap["package_info"].(map[string]interface{})
+	if !ok {
+		packageInfo = make(map[string]interface{})
+		configMap["package_info"] = packageInfo
 	}
 
+	// Determine DISTRIB_ARCH by running the command
+	cmd := exec.Command("sh", "-c", ". /etc/openwrt_release && echo $DISTRIB_ARCH")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Failed to determine DISTRIB_ARCH: %v", err)
+		return 0, err
+	}
+	distribArch := strings.TrimSpace(string(output))
+
+	// Update package_info
+	newTimestamp := time.Now().Unix()
+	packageInfo["timestamp"] = newTimestamp
+	packageInfo["version"] = newVersion
+	packageInfo["arch"] = distribArch
+
+	// Handle branch field
+	if _, ok := packageInfo["branch"]; !ok {
+		packageInfo["branch"] = "main"
+	}
+
+	// Marshal and write back to config file
 	data, err := json.MarshalIndent(configMap, "", "  ")
 	if err != nil {
 		log.Printf("Error marshaling config: %v", err)
