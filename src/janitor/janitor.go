@@ -169,22 +169,25 @@ func (j *Janitor) ListenForNIP94Events() {
 			if ok {
 				// We already recoreded an event with this filename and version string
 				collisionCount++
-				if timestamp > int64(existingPackageEvent.event.CreatedAt) {
+				if timestamp > j.currentTimestamp {
+					log.Println("Collision! Already encountered this filename and version in the past...")
+					fmt.Printf("Newer version with timestamp %d detected for file %s, version %s\n", timestamp, filename, versionStr)
+					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
+
 					eventMap[key] = &packageEvent{
 						event:      event,
 						packageURL: packageURL,
 					}
-					fmt.Printf("Newer version with timestamp %d detected for file %s, version %s\n", timestamp, filename, versionStr)
-					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
-					timer.Reset(10 * time.Second)
-					isTimerActive = true
-					newerKeys = append(newerKeys, key)
 
 					if !isTimerActive {
 						fmt.Printf("Started the timer\n")
 					} else {
 						fmt.Printf("Reset the timer\n")
 					}
+
+					timer.Reset(10 * time.Second)
+					isTimerActive = true
+					newerKeys = append(newerKeys, key)
 				}
 			} else {
 				// Its the first time we see this filename & version string
@@ -192,18 +195,21 @@ func (j *Janitor) ListenForNIP94Events() {
 					event:      event,
 					packageURL: packageURL,
 				}
+
 				if timestamp > j.currentTimestamp {
 					// This event was generated after the timestamp from the config file
-					if !isTimerActive {
-						timer.Reset(10 * time.Second)
-						isTimerActive = true
-						newerKeys = append(newerKeys, key)
-					}
 					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
 					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
-				} else {
-					// This event was generated before the timestamp of the config file
-					// fmt.Printf("Found outdated occurrence of package %s, version %s, timestamp %d\n", filename, versionStr, timestamp)
+
+					if !isTimerActive {
+						fmt.Printf("Started the timer\n")
+					} else {
+						fmt.Printf("Reset the timer\n")
+					}
+
+					timer.Reset(10 * time.Second)
+					isTimerActive = true
+					newerKeys = append(newerKeys, key)
 				}
 			}
 		case <-timer.C:
