@@ -58,8 +58,21 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 func init() {
+	cmd := exec.Command("sh", "-c", "opkg list-installed | grep 'tollgate-module-basic-go'")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("Failed to get installed version: %v", err)
+	}
+
+	version := strings.TrimSpace(string(output))
+	parts := strings.Split(version, " - ")
+	if len(parts) < 2 {
+		log.Fatalf("Unexpected output format from opkg list-installed: %s", version)
+	}
+	installedVersion := parts[1]
+
 	// Check if we need to run post-install script
-	err := PostInstallSetup()
+	_, err = PostInstallSetup(configFile, installedVersion)
 	if err != nil {
 		log.Fatalf("Error running post-install script: %v", err)
 	}
@@ -83,7 +96,7 @@ func init() {
 	}
 
 	// Override the existing signature with a newly generated one
-	err := tollgateDetailsEvent.Sign(tollgatePrivateKey)
+	err = tollgateDetailsEvent.Sign(tollgatePrivateKey)
 	if err != nil {
 		log.Fatalf("Failed to sign tollgate event: %v", err)
 	}
