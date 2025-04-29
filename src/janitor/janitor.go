@@ -210,10 +210,10 @@ func (j *Janitor) ListenForNIP94Events() {
 
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
-			qualifyingEventsMap := make(map[string]*packageEvent)
 
 			// Compute the intersection of newerKeys, rightBranchKeys, and rightArchKeys
 			intersection := intersect(newerKeys, rightBranchKeys, rightArchKeys)
+			qualifyingEventsMap := make(map[string]*packageEvent)
 
 			for _, key := range intersection {
 				qualifyingEventsMap[key] = eventMap[key]
