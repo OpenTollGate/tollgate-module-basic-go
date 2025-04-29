@@ -171,13 +171,16 @@ func (j *Janitor) ListenForNIP94Events() {
 						packageURL: packageURL,
 					}
 					fmt.Printf("Newer version with timestamp %d detected for file %s, version %s\n", timestamp, filename, versionStr)
+					timer.Reset(10 * time.Second)
+					isTimerActive = true
+
 					if !isTimerActive {
-						timer.Reset(10 * time.Second)
-						isTimerActive = true
+						fmt.Printf("Started the timer\n")
+					} else {
+						fmt.Printf("Reset the timer\n")
 					}
 				}
 			} else {
-				fmt.Printf("Found occurrence of package %s, version %s, timestamp %d\n", filename, versionStr, timestamp)
 				eventMap[key] = &packageEvent{
 					event:      event,
 					packageURL: packageURL,
@@ -187,6 +190,9 @@ func (j *Janitor) ListenForNIP94Events() {
 						timer.Reset(10 * time.Second)
 						isTimerActive = true
 					}
+					fmt.Printf("Started the timer\n")
+				} else {
+					// fmt.Printf("Found outdated occurrence of package %s, version %s, timestamp %d\n", filename, versionStr, timestamp)
 				}
 			}
 		case <-timer.C:
