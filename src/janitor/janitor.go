@@ -289,7 +289,7 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 }
 
 func (j *Janitor) InstallPackage(pkg []byte) error {
-	log.Println("Installing package")
+	fmt.Printf("Installing package")
 	tmpFile, err := os.CreateTemp("", "package.ipk")
 	if err != nil {
 		log.Printf("Error creating temp file: %v", err)
@@ -310,7 +310,7 @@ func (j *Janitor) InstallPackage(pkg []byte) error {
 		return err
 	}
 
-	log.Println("Package installed successfully")
+	fmt.Printf("Package installed successfully")
 	return nil
 }
 
@@ -371,6 +371,8 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
+    log.Printf("Comparing versions: newVersion=%s, newTimestamp=%d, currentVersion=%s, currentTimestamp=%d",
+        newVersion, newTimestamp, currentVersion, currentTimestamp)
 	newVersionObj, err := version.NewVersion(newVersion)
 	if err != nil {
 		//log.Printf("Invalid new version: %v", err)
@@ -380,7 +382,7 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 }
 
 func RunPostInstallScript(configPath, newVersion string) {
-	log.Println("Running post-install script")
+	fmt.Printf("Running post-install script")
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Printf("Error reading config file: %v", err)
@@ -411,5 +413,5 @@ func RunPostInstallScript(configPath, newVersion string) {
 		return
 	}
 
-	log.Println("Post-install script completed successfully")
+	fmt.Printf("Post-install script completed successfully")
 }
