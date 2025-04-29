@@ -164,6 +164,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			key := fmt.Sprintf("%s-%s", filename, versionStr)
 			existingPackageEvent, ok := eventMap[key]
 			if ok {
+				// We already recoreded an event with this filename and version string
 				collisionCount++
 				if timestamp > int64(existingPackageEvent.event.CreatedAt) {
 					eventMap[key] = &packageEvent{
@@ -181,17 +182,20 @@ func (j *Janitor) ListenForNIP94Events() {
 					}
 				}
 			} else {
+				// Its the first time we see this filename & version string
 				eventMap[key] = &packageEvent{
 					event:      event,
 					packageURL: packageURL,
 				}
 				if timestamp > j.currentTimestamp {
+					// This event was generated after the timestamp from the config file
 					if !isTimerActive {
 						timer.Reset(10 * time.Second)
 						isTimerActive = true
 					}
-					fmt.Printf("Started the timer\n")
+					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
 				} else {
+					// This event was generated before the timestamp of the config file
 					// fmt.Printf("Found outdated occurrence of package %s, version %s, timestamp %d\n", filename, versionStr, timestamp)
 				}
 			}
@@ -222,7 +226,6 @@ func (j *Janitor) ListenForNIP94Events() {
 						continue
 					}
 					fmt.Printf("Successfully installed new package version: %s\n", versionStr)
-					RunPostInstallScript(j.configPath, versionStr)
 				}
 			}
 			timer.Stop()
@@ -377,47 +380,12 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
-    log.Printf("Comparing versions: newVersion=%s, newTimestamp=%d, currentVersion=%s, currentTimestamp=%d",
-        newVersion, newTimestamp, currentVersion, currentTimestamp)
+	log.Printf("Comparing versions: newVersion=%s, newTimestamp=%d, currentVersion=%s, currentTimestamp=%d",
+		newVersion, newTimestamp, currentVersion, currentTimestamp)
 	newVersionObj, err := version.NewVersion(newVersion)
 	if err != nil {
 		//log.Printf("Invalid new version: %v", err)
 		return false
 	}
 	return newVersionObj.GreaterThan(currentVersion) && newTimestamp > currentTimestamp
-}
-
-func RunPostInstallScript(configPath, newVersion string) {
-	fmt.Printf("Running post-install script")
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		log.Printf("Error reading config file: %v", err)
-		return
-	}
-
-	var configMap map[string]interface{}
-	err = json.Unmarshal(configData, &configMap)
-	if err != nil {
-		log.Printf("Error unmarshaling config: %v", err)
-		return
-	}
-
-	newTimestamp := time.Now().Unix()
-	configMap["package_info"] = map[string]interface{}{
-		"version":   newVersion,
-		"timestamp": newTimestamp,
-	}
-
-	data, err := json.MarshalIndent(configMap, "", "  ")
-	if err != nil {
-		log.Printf("Error marshaling config: %v", err)
-		return
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		log.Printf("Error writing config file: %v", err)
-		return
-	}
-
-	fmt.Printf("Post-install script completed successfully")
 }

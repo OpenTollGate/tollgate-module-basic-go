@@ -58,6 +58,12 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 func init() {
+	// Check if we need to run post-install script
+	err := PostInstallSetup()
+	if err != nil {
+		log.Fatalf("Error running post-install script: %v", err)
+	}
+
 	// Load configuration
 	if err := loadConfig(); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -159,7 +165,7 @@ func loadConfig() error {
 	cutoffFee = 2*mintFee + minPayment
 
 	fmt.Printf("Configuration loaded: mint=%s, price=%d, fee=%d\n",
-	acceptedMint, pricePerMinute, mintFee)
+		acceptedMint, pricePerMinute, mintFee)
 
 	return nil
 }
@@ -345,7 +351,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Log the calculation for transparency
 	fmt.Printf("Calculated minutes: %d (from value %d, minus fees %d)\n",
-	allottedMinutes, tokenValue, 2*mintFee)
+		allottedMinutes, tokenValue, 2*mintFee)
 
 	// Open gate for the specified duration using the valve module
 	err = modules.OpenGate(macAddress, durationSeconds)
@@ -463,8 +469,44 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
 }
 
+func PostInstallSetup(configPath, newVersion string) (int64, error) {
+	fmt.Printf("Running post-install script")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		log.Printf("Error reading config file: %v", err)
+		return 0, err
+	}
+
+	var configMap map[string]interface{}
+	err = json.Unmarshal(configData, &configMap)
+	if err != nil {
+		log.Printf("Error unmarshaling config: %v", err)
+		return 0, err
+	}
+
+	newTimestamp := time.Now().Unix()
+	configMap["package_info"] = map[string]interface{}{
+		"version":   newVersion,
+		"timestamp": newTimestamp,
+	}
+
+	data, err := json.MarshalIndent(configMap, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling config: %v", err)
+		return 0, err
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		log.Printf("Error writing config file: %v", err)
+		return 0, err
+	}
+
+	fmt.Printf("Post-install script completed successfully")
+	return newTimestamp, nil
+}
+
 func main() {
-// Get installed version
+	// Get installed version
 	cmd := exec.Command("opkg", "list-installed", "tollgate-module-basic-go")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -475,9 +517,10 @@ func main() {
 
 		if installedVersion != configVersion {
 			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
-			janitor.RunPostInstallScript(configFile, installedVersion)
+			os.Exit(1)
 		}
 	}
+
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
