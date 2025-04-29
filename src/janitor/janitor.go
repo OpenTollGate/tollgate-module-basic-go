@@ -215,7 +215,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					newerKeysAndVersion = append(newerKeysAndVersion, key)
 					fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
 					// TODO: Sort by version number to get the most upto date new event
-					// TODO: First figure out why new events are no longer caught..
+					// TODO: First figure out why new events are no longer caught...
 
 					// fmt.Printf("Newer package version available: %s\n", versionStr)
 					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
