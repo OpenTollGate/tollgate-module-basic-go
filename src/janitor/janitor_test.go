@@ -99,16 +99,6 @@ func TestIsNewerVersion(t *testing.T) {
 			currentTimestamp: 1,
 			expected:         true,
 		},
-	}
-
-	tests = append(tests, []struct {
-		name             string
-		newVersion       string
-		newTimestamp     int64
-		currentVersion   string
-		currentTimestamp int64
-		expected         bool
-	}{
 		{
 			name:             "newer version with build metadata and current version with build metadata",
 			newVersion:       "1.0.1+build123",
@@ -125,7 +115,7 @@ func TestIsNewerVersion(t *testing.T) {
 			currentTimestamp: 1,
 			expected:         true,
 		},
-	}...)
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
