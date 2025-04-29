@@ -214,11 +214,11 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
-			newKeysMap := make(map[string]*packageEvent)
+			newEventsMap := make(map[string]*packageEvent)
 			for _, key := range newerKeys {
-				newKeysMap[key] = eventMap[key]
+				newEventsMap[key] = eventMap[key]
 			}
-			for key, packageEvent := range newKeysMap {
+			for key, packageEvent := range newEventsMap {
 				if packageEvent == nil {
 					continue
 				}
@@ -233,6 +233,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 					newerKeysAndVersion = append(newerKeysAndVersion, key)
 					fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
+					// TODO: Sort by version number to get the most upto date new event
 
 					// fmt.Printf("Newer package version available: %s\n", versionStr)
 					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
