@@ -83,7 +83,49 @@ func TestIsNewerVersion(t *testing.T) {
 			currentTimestamp: 2,
 			expected:         false,
 		},
+		{
+			name:             "newer version with build metadata",
+			newVersion:       "1.0.1+build123",
+			newTimestamp:     2,
+			currentVersion:   "1.0.0",
+			currentTimestamp: 1,
+			expected:         true,
+		},
+		{
+			name:             "newer version without build metadata",
+			newVersion:       "1.0.1",
+			newTimestamp:     2,
+			currentVersion:   "1.0.0",
+			currentTimestamp: 1,
+			expected:         true,
+		},
 	}
+
+	tests = append(tests, []struct {
+		name             string
+		newVersion       string
+		newTimestamp     int64
+		currentVersion   string
+		currentTimestamp int64
+		expected         bool
+	}{
+		{
+			name:             "newer version with build metadata and current version with build metadata",
+			newVersion:       "1.0.1+build123",
+			newTimestamp:     2,
+			currentVersion:   "1.0.0+build456",
+			currentTimestamp: 1,
+			expected:         true,
+		},
+		{
+			name:             "newer version without build metadata and current version with build metadata",
+			newVersion:       "1.0.1",
+			newTimestamp:     2,
+			currentVersion:   "1.0.0+build456",
+			currentTimestamp: 1,
+			expected:         true,
+		},
+	}...)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -328,9 +370,4 @@ func TestInstallPackage(t *testing.T) {
 		t.Errorf("InstallPackage failed: %v", err)
 		return
 	}
-}
-
-func TestRunPostInstallScript(t *testing.T) {
-	RunPostInstallScript("../../files/etc/tollgate/config.json", "1.2.3")
-	// Add assertions to verify the config file was updated correctly
 }

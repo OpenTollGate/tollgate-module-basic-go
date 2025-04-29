@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"net"
 	"os"
 	"os/exec"
@@ -199,6 +200,7 @@ func (j *Janitor) ListenForNIP94Events() {
 						newerKeys = append(newerKeys, key)
 					}
 					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
+					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 				} else {
 					// This event was generated before the timestamp of the config file
 					// fmt.Printf("Found outdated occurrence of package %s, version %s, timestamp %d\n", filename, versionStr, timestamp)
@@ -397,12 +399,11 @@ func parseNIP94Event(event nostr.Event) (string, string, string, int64, error) {
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
-	//log.Printf("Comparing versions: newVersion=%s, newTimestamp=%d, currentVersion=%s, currentTimestamp=%d",
-	//	newVersion, newTimestamp, currentVersion, currentTimestamp)
-	newVersionObj, err := version.NewVersion(newVersion)
-	if err != nil {
-		//log.Printf("Invalid new version: %v", err)
-		return false
-	}
-	return newVersionObj.GreaterThan(currentVersion) && newTimestamp > currentTimestamp
+    cleanedNewVersion := strings.Split(newVersion, "+")[0]
+    newVersionObj, err := version.NewVersion(cleanedNewVersion)
+    if err != nil {
+        log.Printf("Invalid new version: %v", err)
+        return false
+    }
+    return newVersionObj.GreaterThan(currentVersion) && newTimestamp > currentTimestamp
 }
