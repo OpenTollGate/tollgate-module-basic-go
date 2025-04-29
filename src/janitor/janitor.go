@@ -165,7 +165,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			//fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
 			//	event.ID, packageURL, versionStr, filename, timestamp)
 			key := fmt.Sprintf("%s-%s", filename, versionStr)
-			_, ok := eventMap[key]
+			ok = eventMap[key] != nil
 			if ok {
 				// We already recorded an event with this filename and version string
 				collisionCount++
