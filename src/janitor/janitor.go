@@ -139,7 +139,7 @@ func (j *Janitor) ListenForNIP94Events() {
 	newerKeys := make([]string, 0)
 	rightBranchKeys := make([]string, 0)
 	rightArchKeys := make([]string, 0)
-	newerKeysAndVersion := make([]string, 0)
+	//newerKeysAndVersion := make([]string, 0)
 
 	timer := time.NewTimer(10 * time.Second)
 	timer.Stop()
@@ -208,6 +208,11 @@ func (j *Janitor) ListenForNIP94Events() {
 				rightArchKeys = append(rightArchKeys, key)
 			}
 
+			// TODO: Check for right version number (newer than config)
+			// TODO: Check for right time (newer than config)
+
+			// TODO: only start the timer when there is a qualifying intersection between the sets.
+
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
 
@@ -231,8 +236,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 				fmt.Printf("Checking event: %s\n", event)
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-					newerKeysAndVersion = append(newerKeysAndVersion, key)
-					fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
+					//fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
 					// TODO: Sort by version number to get the most upto date new event
 					// TODO: First figure out why new events are no longer caught..
 
