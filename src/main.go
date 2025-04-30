@@ -30,7 +30,10 @@ type Config struct {
 	PackageInfo        struct {
 		Version   string `json:"version"`
 		Timestamp int64  `json:"timestamp"`
+		Branch    string `json:"branch"`
+		Arch      string `json:"arch"`
 	} `json:"package_info"`
+	UpdatePath         *string        `json:"update_path,omitempty"`
 }
 
 type BraggingConfig struct {
