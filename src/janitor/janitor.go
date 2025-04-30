@@ -217,12 +217,19 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			if len(rightTimeKeys) > 0 {
-				//fmt.Printf("Intersection: %v, Right Time Keys: %v, Right Branch Keys: %v, Right Arch Keys: %v, Right Version Keys: %v\n", intersection, rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
-				fmt.Printf("Intersection: %v, Right Time Keys: %v\n", intersection, rightTimeKeys)
-				//fmt.Printf("Intersection: %v, Right Branch Keys: %v\n", intersection, rightBranchKeys)
-				fmt.Printf("Intersection: %v, Right Arch Keys: %v\n", intersection, rightArchKeys)
-				fmt.Printf("Intersection: %v, Right Version Keys: %v\n", intersection, rightVersionKeys)
-			}
+						printList := func(name string, list []string) {
+							if len(list) <= 3 {
+								fmt.Printf("%s: %v\n", name, list)
+							} else {
+								fmt.Printf("%s count: %d\n", name, len(list))
+							}
+						}
+						fmt.Printf("Intersection: %v\n", intersection)
+						printList("Right Time Keys", rightTimeKeys)
+						printList("Right Branch Keys", rightBranchKeys)
+						printList("Right Arch Keys", rightArchKeys)
+						printList("Right Version Keys", rightVersionKeys)
+					}
 
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
