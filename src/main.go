@@ -517,9 +517,13 @@ func PostInstallSetup(configPath, newVersion string) (int64, error) {
 
 	// Update package_info
 	newTimestamp := time.Now().Unix()
-	packageInfo["timestamp"] = newTimestamp
 	packageInfo["version"] = newVersion
 	packageInfo["arch"] = distribArch
+
+	// Only set timestamp if it doesn't already exist
+	if _, ok := packageInfo["timestamp"]; !ok {
+		packageInfo["timestamp"] = newTimestamp
+	}
 
 	// Handle branch field
 	if _, ok := packageInfo["branch"]; !ok {
