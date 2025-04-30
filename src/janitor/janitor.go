@@ -246,46 +246,50 @@ func (j *Janitor) ListenForNIP94Events() {
 			sortedKeys := sortQualifyingEventsByVersion(qualifyingEventsMap)
 			fmt.Println("Sorted Qualifying Events Keys:", sortedKeys)
 
-			/**
-			for _, packageEvent := range qualifyingEventsMap {
-				if packageEvent == nil {
-					continue
-				}
-				event := packageEvent.event
-				_, versionStr, _, _, _, timestamp, err := parseNIP94Event(*event)
-				if err != nil {
-					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-					continue
-				}
-
-				fmt.Printf("Checking event: %s\n", event)
-
-
-				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-					fmt.Printf("Print intersection: %v\n", intersection)
-					// TODO: Sort by version number to get the most upto date new event
-					// TODO: First figure out why new events are no longer caught..
-
-					// fmt.Printf("Newer package version available: %s\n", versionStr)
-					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
-					// if err != nil {
-					// 	log.Printf("Error downloading package: %v", err)
-					// 	continue
-					// }
-					// err = j.verifyPackageChecksum(pkg, *event)
-					// if err != nil {
-					// 	log.Printf("Error verifying package checksum: %v", err)
-					// 	continue
-					// }
-					// err = j.InstallPackage(pkg)
-					// if err != nil {
-					// 	log.Printf("Error installing package: %v", err)
-					// 	continue
-					// }
-					// fmt.Printf("Successfully installed new package version: %s\n", versionStr)
-				}
+			latestKey := sortedKeys[0]
+			latestPackageEvent := qualifyingEventsMap[latestKey]
+			if latestPackageEvent == nil {
+				log.Println("Latest package event is nil")
+				timer.Stop()
+				isTimerActive = false
+				return
 			}
-			**/
+
+			event := latestPackageEvent.event
+			_, versionStr, _, _, _, timestamp, err := parseNIP94Event(*event)
+			if err != nil {
+				log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+				timer.Stop()
+				isTimerActive = false
+				return
+			}
+
+			if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
+				fmt.Printf("Newer package version available: %s\n", versionStr)
+				pkg, err := j.DownloadPackage(latestPackageEvent.packageURL)
+				if err != nil {
+					log.Printf("Error downloading package: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				err = j.verifyPackageChecksum(pkg, *event)
+				if err != nil {
+					log.Printf("Error verifying package checksum: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				err = j.InstallPackage(pkg)
+				if err != nil {
+					log.Printf("Error installing package: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				fmt.Printf("Successfully installed new package version: %s\n", versionStr)
+			}
+
 			timer.Stop()
 			isTimerActive = false
 		}
