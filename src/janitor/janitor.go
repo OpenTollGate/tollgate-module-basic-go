@@ -415,15 +415,15 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	cleanedNewVersion := strings.Split(newVersion, "+")[0]
 	newVersionObj, err := version.NewVersion(cleanedNewVersion)
 	if err != nil {
-		log.Printf("Invalid new version: %v", err)
+		//log.Printf("Invalid new version: %v", err)
 		return false
 	}
 	cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
 	cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
-	if err != nil {
-		log.Printf("Invalid current version: %v", err)
+	if err != nil {Invalid new
+		//log.Printf("Invalid current version: %v", err)
 		return false
-	}
+	} 
 	return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
 }
 func intersect(slices ...[]string) []string {
