@@ -8,15 +8,16 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"sort"
 	"time"
-
+	
 	"errors"
-
+	
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -306,10 +307,17 @@ func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Error downloading package: %v, output: %s", err, output)
+	cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
+	var downloaded int64
+	progress := &progressLogger{
+		total:      getContentLength(url),
+		downloaded: &downloaded,
+		lastLog:    time.Now(),
+	}
+	cmd.Stdout = progress
+	cmd.Stderr = progress
+	if err := cmd.Run(); err != nil {
+		log.Printf("Error downloading package: %v", err)
 		return nil, err
 	}
 
@@ -327,6 +335,20 @@ type progressLogger struct {
 	total      int64
 	downloaded *int64
 	lastLog    time.Time
+}
+
+func getContentLength(url string) int64 {
+	resp, err := http.Head(url)
+	if err != nil {
+		log.Printf("Error getting content length: %v", err)
+		return -1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Error getting content length: %s", resp.Status)
+		return -1
+	}
+	return resp.ContentLength
 }
 
 func (p *progressLogger) Write(b []byte) (int, error) {
