@@ -424,8 +424,8 @@ func TestUpdateConfigWithPackagePath(t *testing.T) {
 		t.Errorf("failed to unmarshal updated config: %v", err)
 	}
 
-	if updatedConfig["package_path"] != pkgPath {
-		t.Errorf("expected package_path to be %s, got %s", pkgPath, updatedConfig["package_path"])
+	if updatedConfig["update_path"] != pkgPath {
+		t.Errorf("expected update_path to be %s, got %s", pkgPath, updatedConfig["update_path"])
 	}
 }
 func TestSortQualifyingEventsByVersion(t *testing.T) {

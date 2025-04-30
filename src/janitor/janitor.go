@@ -95,38 +95,49 @@ func (j *Janitor) ListenForNIP94Events() {
 	eventChan := make(chan *nostr.Event, 1000) // Buffered channel to handle events from multiple relays
 
 	for _, relayURL := range j.relays {
-		wg.Add(1)
-		go func(relayURL string) {
-			defer wg.Done()
-			fmt.Printf("Connecting to relay: %s\n", relayURL)
-			relay, err := relayPool.EnsureRelay(relayURL)
-			if err != nil {
-				log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-				log.Printf("EnsureRelay error details: %+v", err)
-				return
-			}
-			fmt.Printf("Connected to relay: %s\n", relayURL)
-
-			sub, err := relay.Subscribe(ctx, []nostr.Filter{
-				{
-					Kinds: []int{1063}, // NIP-94 event kind
-				},
-			})
-			if err != nil {
-				log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
-				log.Printf("Subscription error details: %+v", err)
-				return
-			}
-			fmt.Printf("Subscription successful on relay %s\n", relayURL)
-
-			fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
-			for event := range sub.Events {
-				//log.Printf("Received NIP-94 event from relay %s: %s", relayURL, event.ID)
-				eventChan <- event
-			}
-			fmt.Printf("Stopped listening for NIP-94 events on relay %s\n", relayURL)
-		}(relayURL)
-	}
+			wg.Add(1)
+			go func(relayURL string) {
+				defer wg.Done()
+				maxRetries := 5
+				retryDelay := 5 * time.Second
+				for retry := 0; retry < maxRetries; retry++ {
+					fmt.Printf("Connecting to relay: %s (attempt %d/%d)\n", relayURL, retry+1, maxRetries)
+					relay, err := relayPool.EnsureRelay(relayURL)
+					if err != nil {
+						log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+						if retry < maxRetries-1 {
+							time.Sleep(retryDelay)
+							retryDelay *= 2 // Exponential backoff
+						}
+						continue
+					}
+					fmt.Printf("Connected to relay: %s\n", relayURL)
+	
+					sub, err := relay.Subscribe(ctx, []nostr.Filter{
+						{
+							Kinds: []int{1063}, // NIP-94 event kind
+						},
+					})
+					if err != nil {
+						log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+						if retry < maxRetries-1 {
+							time.Sleep(retryDelay)
+							retryDelay *= 2 // Exponential backoff
+						}
+						continue
+					}
+					fmt.Printf("Subscription successful on relay %s\n", relayURL)
+	
+					fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
+					for event := range sub.Events {
+						eventChan <- event
+					}
+					fmt.Printf("Stopped listening for NIP-94 events on relay %s\n", relayURL)
+					return // Exit the goroutine if subscription is closed
+				}
+				log.Printf("Failed to connect to relay %s after %d attempts", relayURL, maxRetries)
+			}(relayURL)
+		}
 
 	go func() {
 		wg.Wait()
@@ -413,7 +424,6 @@ func (j *Janitor) updateConfigWithPackagePath(pkgPath string) error {
 		log.Printf("Error writing updated config file: %v", err)
 		return err
 	}
-
 	return nil
 }
 
