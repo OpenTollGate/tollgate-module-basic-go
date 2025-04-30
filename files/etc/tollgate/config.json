@@ -10,7 +10,6 @@
   },
   "min_payment": 1,
   "mint_fee": 0,
-  "random_ip": null,
   "package_info": {
     "timestamp": 1745741060,
     "version": "0.0.1+1cac608",
