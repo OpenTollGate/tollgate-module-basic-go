@@ -262,32 +262,30 @@ func (j *Janitor) ListenForNIP94Events() {
 				return
 			}
 
-			if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-				fmt.Printf("Newer package version available: %s\n", versionStr)
-				checksum := getChecksumFromEvent(*latestPackageEvent.event)
-				pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL, checksum)
-				if err != nil {
-					log.Printf("Error downloading package: %v", err)
-					timer.Stop()
-					isTimerActive = false
-					return
-				}
-				err = j.verifyPackageChecksum(pkg, *event)
-				if err != nil {
-					log.Printf("Error verifying package checksum: %v", err)
-					timer.Stop()
-					isTimerActive = false
-					return
-				}
-				err = j.InstallPackage(pkgPath)
-				if err != nil {
-					log.Printf("Error installing package: %v", err)
-					timer.Stop()
-					isTimerActive = false
-					return
-				}
-				fmt.Printf("Successfully installed new package version: %s\n", versionStr)
+			fmt.Printf("Newer package version available: %s\n", versionStr)
+			checksum := getChecksumFromEvent(*latestPackageEvent.event)
+			pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL, checksum)
+			if err != nil {
+				log.Printf("Error downloading package: %v", err)
+				timer.Stop()
+				isTimerActive = false
+				return
 			}
+			err = j.verifyPackageChecksum(pkg, *event)
+			if err != nil {
+				log.Printf("Error verifying package checksum: %v", err)
+				timer.Stop()
+				isTimerActive = false
+				return
+			}
+			err = j.InstallPackage(pkgPath)
+			if err != nil {
+				log.Printf("Error installing package: %v", err)
+				timer.Stop()
+				isTimerActive = false
+				return
+			}
+			fmt.Printf("Successfully installed new package version: %s\n", versionStr)
 
 			timer.Stop()
 			isTimerActive = false
