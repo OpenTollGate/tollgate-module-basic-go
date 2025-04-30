@@ -187,7 +187,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 			if timestamp > j.currentTimestamp {
 				// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
-				// 	event.ID, packageURL, versionStr, filename, timestamp)
+				// 	event.ID, packageURL, versionStr, filename, timestamp) 
 				rightTimeKeys = append(rightTimeKeys, key)
 			}
 
