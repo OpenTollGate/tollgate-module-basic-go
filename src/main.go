@@ -33,8 +33,8 @@ type Config struct {
 		Branch    string `json:"branch"`
 		Arch      string `json:"arch"`
 	} `json:"package_info"`
-	UpdatePath         *string        `json:"update_path,omitempty"`
-	RandomIP           *string        `json:"random_ip,omitempty"`
+	UpdatePath *string `json:"update_path,omitempty"`
+	RandomIP   *string `json:"random_ip,omitempty"`
 }
 
 type BraggingConfig struct {
