@@ -447,23 +447,23 @@ func TestSortQualifyingEventsByVersion(t *testing.T) {
 	}
 }
 func TestGetChecksumFromEvent(t *testing.T) {
-    eventWithChecksum := nostr.Event{
-        Tags: nostr.Tags{
-            {"x", "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd"},
-        },
-    }
-    checksum := getChecksumFromEvent(eventWithChecksum)
-    if checksum != "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd" {
-        t.Errorf("expected checksum %s, got %s", "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd", checksum)
-    }
+	eventWithChecksum := nostr.Event{
+		Tags: nostr.Tags{
+			{"x", "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd"},
+		},
+	}
+	checksum := getChecksumFromEvent(eventWithChecksum)
+	if checksum != "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd" {
+		t.Errorf("expected checksum %s, got %s", "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd", checksum)
+	}
 
-    eventWithoutChecksum := nostr.Event{
-        Tags: nostr.Tags{
-            {"url", "https://example.com/package.ipk"},
-        },
-    }
-    checksum = getChecksumFromEvent(eventWithoutChecksum)
-    if checksum != "" {
-        t.Errorf("expected empty checksum, got %s", checksum)
-    }
+	eventWithoutChecksum := nostr.Event{
+		Tags: nostr.Tags{
+			{"url", "https://example.com/package.ipk"},
+		},
+	}
+	checksum = getChecksumFromEvent(eventWithoutChecksum)
+	if checksum != "" {
+		t.Errorf("expected empty checksum, got %s", checksum)
+	}
 }
