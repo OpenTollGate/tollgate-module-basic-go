@@ -25,7 +25,11 @@ func TestParseNIP94Event(t *testing.T) {
 		CreatedAt: 1643723900,
 	}
 
-	url, version, filename, timestamp, err := parseNIP94Event(event)
+	packageURL, version, _, _, filename, timestamp, err := parseNIP94Event(event)
+	if err != nil {
+		t.Errorf("parseNIP94Event failed: %v", err)
+	}
+	url := packageURL
 	if err != nil {
 		t.Errorf("parseNIP94Event failed: %v", err)
 	}
@@ -142,7 +146,7 @@ func TestEventMapCollision(t *testing.T) {
 		defer wg.Done()
 		eventMap := make(map[string]*packageEvent)
 		for event := range eventChan {
-			packageURL, versionStr, filename, timestamp, err := parseNIP94Event(*event)
+			packageURL, versionStr, _, _, filename, timestamp, err := parseNIP94Event(*event)
 			if err != nil {
 				t.Errorf("parseNIP94Event failed: %v", err)
 			}
@@ -251,7 +255,7 @@ func TestDownloadPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(relays, trustedMaintainers, "0.0.1", fourWeeksAgo, configFile.Name())
+	janitor, err := NewJanitor(relays, trustedMaintainers, "0.0.1", fourWeeksAgo, "main", "aarch64", configFile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +270,7 @@ func TestDownloadPackage(t *testing.T) {
 	go func() {
 		defer eventHandlerWG.Done()
 		for event := range eventChan {
-			packageURL, _, _, _, err = parseNIP94Event(*event)
+			packageURL, _, _, _, _, _, err = parseNIP94Event(*event)
 			if err != nil {
 				t.Errorf("parseNIP94Event failed: %v", err)
 			}
@@ -352,12 +356,30 @@ func TestDownloadPackage(t *testing.T) {
 }
 
 func TestInstallPackage(t *testing.T) {
-	janitor, _ := NewJanitor(nil, nil, "1.0.0", 0, "")
+	janitor, _ := NewJanitor(nil, nil, "1.0.0", 0, "main", "aarch64", "")
 	janitor.opkgCmd = "true" // Mock the opkg command to always succeed
 	pkg := []byte("package content")
 	err := janitor.InstallPackage(pkg)
 	if err != nil {
 		t.Errorf("InstallPackage failed: %v", err)
 		return
+	}
+}
+func TestSortQualifyingEventsByVersion(t *testing.T) {
+	qualifyingEventsMap := make(map[string]*packageEvent)
+	qualifyingEventsMap["package-0.0.1"] = &packageEvent{}
+	qualifyingEventsMap["package-0.0.3"] = &packageEvent{}
+	qualifyingEventsMap["package-0.0.2"] = &packageEvent{}
+
+	sortedKeys := sortQualifyingEventsByVersion(qualifyingEventsMap)
+	expectedOrder := []string{"package-0.0.3", "package-0.0.2", "package-0.0.1"}
+
+	if len(sortedKeys) != len(expectedOrder) {
+		t.Errorf("expected %d keys, got %d", len(expectedOrder), len(sortedKeys))
+	}
+	for i, key := range sortedKeys {
+		if key != expectedOrder[i] {
+			t.Errorf("expected key at position %d to be %s, got %s", i, expectedOrder[i], key)
+		}
 	}
 }

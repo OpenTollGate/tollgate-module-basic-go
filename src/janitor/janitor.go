@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sort"
 	"time"
 
 	"errors"
@@ -216,7 +217,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 			}
 
-			if len(rightTimeKeys) > 0 {
+			if len(intersection) > 0 {
 						printList := func(name string, list []string) {
 							if len(list) <= 3 {
 								fmt.Printf("%s: %v\n", name, list)
@@ -254,10 +255,12 @@ func (j *Janitor) ListenForNIP94Events() {
 				}
 
 				fmt.Printf("Checking event: %s\n", event)
+
+
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 					fmt.Printf("Print intersection: %v\n", intersection)
 					// TODO: Sort by version number to get the most upto date new event
-					// TODO: First figure out why new events are no longer caught...
+					// TODO: First figure out why new events are no longer caught..
 
 					// fmt.Printf("Newer package version available: %s\n", versionStr)
 					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
@@ -466,4 +469,34 @@ func intersect(slices ...[]string) []string {
 		intersection = append(intersection, key)
 	}
 	return intersection
+}
+// sortQualifyingEventsByVersion sorts the keys of qualifyingEventsMap by version number in descending order
+func sortQualifyingEventsByVersion(qualifyingEventsMap map[string]*packageEvent) []string {
+	keys := make([]string, 0, len(qualifyingEventsMap))
+	for key := range qualifyingEventsMap {
+		keys = append(keys, key)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		versionI := extractVersion(keys[i])
+		versionJ := extractVersion(keys[j])
+		versionIObj, errI := version.NewVersion(versionI)
+		versionJObj, errJ := version.NewVersion(versionJ)
+		if errI != nil || errJ != nil {
+			// If there's an error parsing versions, fall back to string comparison
+			return keys[i] > keys[j]
+		}
+		return versionIObj.GreaterThan(versionJObj)
+	})
+
+	return keys
+}
+
+// extractVersion extracts the version string from a key
+func extractVersion(key string) string {
+	parts := strings.Split(key, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[len(parts)-1]
 }
