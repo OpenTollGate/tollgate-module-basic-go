@@ -305,7 +305,6 @@ func (j *Janitor) DownloadPackage(url string, checksum string) (string, []byte, 
 		log.Printf("Error creating file: %v", err)
 		return "", nil, err
 	}
-	defer os.Remove(tmpFile.Name())
 
 	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
 	output, err := cmd.CombinedOutput()
@@ -388,10 +387,12 @@ func (j *Janitor) InstallPackage(pkgPath string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Error installing package: %v, output: %s", err, output)
+		os.Remove(pkgPath)
 		return err
 	}
 
 	fmt.Printf("Package installed successfully\n")
+	os.Remove(pkgPath)
 	return nil
 }
 
