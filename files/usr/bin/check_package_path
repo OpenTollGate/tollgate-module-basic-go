@@ -1,0 +1,12 @@
+#!/bin/sh
+
+config_path="/etc/tollgate/config.json"
+package_path=$(jq -r '.package_path // ""' "$config_path")
+
+if [ -n "$package_path" ] && [ -f "$package_path" ]; then
+    opkg install "$package_path"
+    if [ $? -eq 0 ]; then
+        jq '.package_path = null' "$config_path" > /tmp/config.json
+        mv /tmp/config.json "$config_path"
+    fi
+fi
