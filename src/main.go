@@ -133,7 +133,7 @@ func initJanitor() {
 	log.Println("Janitor module initialized and listening for NIP-94 events")
 }
 
-// loadConfig reads configuration from /etc/tollgate/config.json 
+// loadConfig reads configuration from /etc/tollgate/config.json
 func loadConfig() error {
 	// Read the existing config file
 	data, err := os.ReadFile(configFile)
