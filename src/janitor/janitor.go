@@ -11,13 +11,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
-	"sort"
 	"time"
-	
+
 	"errors"
-	
+
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -139,6 +139,7 @@ func (j *Janitor) ListenForNIP94Events() {
 	trustedEventCount := 0
 	collisionCount := 0
 	rightTimeKeys := make([]string, 0)
+	var already_printed bool = false
 	rightBranchKeys := make([]string, 0)
 	rightArchKeys := make([]string, 0)
 	rightVersionKeys := make([]string, 0)
@@ -188,7 +189,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 			if timestamp > j.currentTimestamp {
 				// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
-				// 	event.ID, packageURL, versionStr, filename, timestamp) 
+				// 	event.ID, packageURL, versionStr, filename, timestamp)
 				rightTimeKeys = append(rightTimeKeys, key)
 			}
 
@@ -218,20 +219,21 @@ func (j *Janitor) ListenForNIP94Events() {
 				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 			}
 
-			if len(intersection) > 0 {
-						printList := func(name string, list []string) {
-							if len(list) <= 3 {
-								fmt.Printf("%s: %v\n", name, list)
-							} else {
-								fmt.Printf("%s count: %d\n", name, len(list))
-							}
-						}
-						fmt.Printf("Intersection: %v\n", intersection)
-						printList("Right Time Keys", rightTimeKeys)
-						printList("Right Branch Keys", rightBranchKeys)
-						printList("Right Arch Keys", rightArchKeys)
-						printList("Right Version Keys", rightVersionKeys)
+			if len(intersection) > 0 && !already_printed {
+				printList := func(name string, list []string) {
+					if len(list) <= 3 {
+						fmt.Printf("%s: %v\n", name, list)
+					} else {
+						fmt.Printf("%s count: %d\n", name, len(list))
 					}
+				}
+				fmt.Printf("Intersection: %v\n", intersection)
+				printList("Right Time Keys", rightTimeKeys)
+				printList("Right Branch Keys", rightBranchKeys)
+				printList("Right Arch Keys", rightArchKeys)
+				printList("Right Version Keys", rightVersionKeys)
+				already_printed = true
+			}
 
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
@@ -298,37 +300,37 @@ func (j *Janitor) ListenForNIP94Events() {
 }
 
 func (j *Janitor) DownloadPackage(url string) (string, []byte, error) {
-    fmt.Printf("Downloading package from %s to /tmp/\n", url)
+	fmt.Printf("Downloading package from %s to /tmp/\n", url)
 
-    tmpFile, err := os.CreateTemp("/tmp/", "package-*.ipk")
-    if err != nil {
-        log.Printf("Error creating temp file: %v", err)
-        return "", nil, err
-    }
-    defer os.Remove(tmpFile.Name())
+	tmpFile, err := os.CreateTemp("/tmp/", "package-*.ipk")
+	if err != nil {
+		log.Printf("Error creating temp file: %v", err)
+		return "", nil, err
+	}
+	defer os.Remove(tmpFile.Name())
 
-    cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
-    var downloaded int64
-    progress := &progressLogger{
-        total:      getContentLength(url),
-        downloaded: &downloaded,
-        lastLog:    time.Now(),
-    }
-    cmd.Stdout = progress
-    cmd.Stderr = progress
-    if err := cmd.Run(); err != nil {
-        log.Printf("Error downloading package: %v", err)
-        return "", nil, err
-    }
+	cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+	    log.Printf("Error downloading package: %v, output: %s", err, output)
+	    return "", nil, err
+	}
+	var downloaded int64
+	progress := &progressLogger{
+	    total:      getContentLength(url),
+	    downloaded: &downloaded,
+	    lastLog:    time.Now(),
+	}
+	progress.Write(output)
 
-    pkg, err := os.ReadFile(tmpFile.Name())
-    if err != nil {
-        log.Printf("Error reading downloaded package: %v", err)
-        return "", nil, err
-    }
+	pkg, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		log.Printf("Error reading downloaded package: %v", err)
+		return "", nil, err
+	}
 
-    fmt.Println("Package downloaded successfully to /tmp/")
-    return tmpFile.Name(), pkg, nil
+	fmt.Println("Package downloaded successfully to /tmp/")
+	return tmpFile.Name(), pkg, nil
 }
 
 type progressLogger struct {
@@ -382,17 +384,17 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 }
 
 func (j *Janitor) InstallPackage(pkgPath string) error {
-    fmt.Printf("Installing package from %s\n", pkgPath)
+	fmt.Printf("Installing package from %s\n", pkgPath)
 
-    cmd := exec.Command(j.opkgCmd, "install", pkgPath)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        log.Printf("Error installing package: %v, output: %s", err, output)
-        return err
-    }
+	cmd := exec.Command(j.opkgCmd, "install", pkgPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error installing package: %v, output: %s", err, output)
+		return err
+	}
 
-    fmt.Printf("Package installed successfully\n")
-    return nil
+	fmt.Printf("Package installed successfully\n")
+	return nil
 }
 
 func isNetworkUnreachable(err error) bool {
@@ -460,7 +462,7 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	if err != nil {
 		//log.Printf("Invalid current version: %v", err)
 		return false
-	} 
+	}
 	return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
 }
 func intersect(slices ...[]string) []string {
@@ -489,6 +491,7 @@ func intersect(slices ...[]string) []string {
 	}
 	return intersection
 }
+
 // sortQualifyingEventsByVersion sorts the keys of qualifyingEventsMap by version number in descending order
 func sortQualifyingEventsByVersion(qualifyingEventsMap map[string]*packageEvent) []string {
 	keys := make([]string, 0, len(qualifyingEventsMap))
