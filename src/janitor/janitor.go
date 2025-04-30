@@ -217,7 +217,6 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			if len(rightTimeKeys) > 0 {
-				
 				fmt.Printf("Intersection: %v, Right Time Keys: %v, Right Branch Keys: %v, Right Arch Keys: %v, Right Version Keys: %v\n", intersection, rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
 			}
 
