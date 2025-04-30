@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
+	"path/filepath"
 	"errors"
 
 	"github.com/hashicorp/go-version"
@@ -269,7 +269,8 @@ func (j *Janitor) ListenForNIP94Events() {
 
 			if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 				fmt.Printf("Newer package version available: %s\n", versionStr)
-				pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL)
+				checksum := getChecksumFromEvent(*latestPackageEvent.event)
+				pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL, checksum)
 				if err != nil {
 					log.Printf("Error downloading package: %v", err)
 					timer.Stop()
@@ -299,12 +300,14 @@ func (j *Janitor) ListenForNIP94Events() {
 	}
 }
 
-func (j *Janitor) DownloadPackage(url string) (string, []byte, error) {
-	fmt.Printf("Downloading package from %s to /tmp/\n", url)
+func (j *Janitor) DownloadPackage(url string, checksum string) (string, []byte, error) {
+	filename := checksum + ".ipk"
+	tmpFilePath := filepath.Join("/tmp/", filename)
+	fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
 
-	tmpFile, err := os.CreateTemp("/tmp/", "package-*.ipk")
+	tmpFile, err := os.Create(tmpFilePath)
 	if err != nil {
-		log.Printf("Error creating temp file: %v", err)
+		log.Printf("Error creating file: %v", err)
 		return "", nil, err
 	}
 	defer os.Remove(tmpFile.Name())
@@ -521,4 +524,13 @@ func extractVersion(key string) string {
 		return ""
 	}
 	return parts[len(parts)-1]
+}
+// getChecksumFromEvent extracts the checksum from a NIP-94 event
+func getChecksumFromEvent(event nostr.Event) string {
+    for _, tag := range event.Tags {
+        if len(tag) > 1 && tag[0] == "x" {
+            return tag[1]
+        }
+    }
+    return ""
 }
