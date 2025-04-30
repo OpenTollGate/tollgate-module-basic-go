@@ -379,6 +379,55 @@ func TestInstallPackage(t *testing.T) {
 		return
 	}
 }
+func TestUpdateConfigWithPackagePath(t *testing.T) {
+	configFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(configFile.Name())
+
+	initialConfig := map[string]interface{}{
+		"relays":              []string{"wss://relay.damus.io"},
+		"trusted_maintainers": []string{"trusted_key"},
+		"package_info": map[string]interface{}{
+			"version":   "1.0.0",
+			"timestamp": int64(1643723900),
+		},
+	}
+	configData, err := json.Marshal(initialConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configFile.Name(), configData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	janitor, err := NewJanitor(nil, nil, "1.0.0", 0, "main", "aarch64", configFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkgPath := "/tmp/package.ipk"
+	err = janitor.updateConfigWithPackagePath(pkgPath)
+	if err != nil {
+		t.Errorf("updateConfigWithPackagePath failed: %v", err)
+	}
+
+	updatedConfigData, err := os.ReadFile(configFile.Name())
+	if err != nil {
+		t.Errorf("failed to read updated config file: %v", err)
+	}
+
+	var updatedConfig map[string]interface{}
+	err = json.Unmarshal(updatedConfigData, &updatedConfig)
+	if err != nil {
+		t.Errorf("failed to unmarshal updated config: %v", err)
+	}
+
+	if updatedConfig["package_path"] != pkgPath {
+		t.Errorf("expected package_path to be %s, got %s", pkgPath, updatedConfig["package_path"])
+	}
+}
 func TestSortQualifyingEventsByVersion(t *testing.T) {
 	qualifyingEventsMap := make(map[string]*packageEvent)
 	qualifyingEventsMap["package-0.0.1"] = &packageEvent{}
