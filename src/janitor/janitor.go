@@ -136,11 +136,11 @@ func (j *Janitor) ListenForNIP94Events() {
 	untrustedEventCount := 0
 	trustedEventCount := 0
 	collisionCount := 0
-	newerKeys := make([]string, 0)
+	rightTimeKeys := make([]string, 0)
 	rightBranchKeys := make([]string, 0)
 	rightArchKeys := make([]string, 0)
-	//newerKeysAndVersion := make([]string, 0)
-
+	rightVersionKeys := make([]string, 0)
+=
 	timer := time.NewTimer(10 * time.Second)
 	timer.Stop()
 	isTimerActive := false
@@ -187,17 +187,11 @@ func (j *Janitor) ListenForNIP94Events() {
 			if timestamp > j.currentTimestamp {
 				fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
 					event.ID, packageURL, versionStr, filename, timestamp)
-				if !isTimerActive {
-					fmt.Printf("Started the timer\n")
-				} else {
-					fmt.Printf("Reset the timer\n")
-				}
+				rightTimeKeys = append(rightTimeKeys, key)
+			}
 
-				timer.Reset(10 * time.Second)
-				isTimerActive = true
-				newerKeys = append(newerKeys, key)
-				fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
-				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
+			if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
+				rightVersionKeys = append(rightVersionKeys, key)
 			}
 
 			if branch == j.ConfigBranch {
@@ -208,21 +202,31 @@ func (j *Janitor) ListenForNIP94Events() {
 				rightArchKeys = append(rightArchKeys, key)
 			}
 
-			// TODO: Check for right version number (newer than config)
-			// TODO: Check for right time (newer than config)
-
-			// TODO: only start the timer when there is a qualifying intersection between the sets.
+			intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+			if len(intersection) > 0 {
+				if !isTimerActive {
+					fmt.Printf("Started the timer\n")
+				} else {
+					fmt.Printf("Reset the timer\n")
+				}
+	
+				timer.Reset(10 * time.Second)
+				isTimerActive = true
+				fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
+				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
+			}
 
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
 
-			// Compute the intersection of newerKeys, rightBranchKeys, and rightArchKeys
-			intersection := intersect(newerKeys, rightBranchKeys, rightArchKeys)
+			// Compute the intersection of rightTimeKeys, rightBranchKeys, and rightArchKeys
+			intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
 			qualifyingEventsMap := make(map[string]*packageEvent)
 
 			for _, key := range intersection {
 				qualifyingEventsMap[key] = eventMap[key]
 			}
+
 			for key, packageEvent := range qualifyingEventsMap {
 				if packageEvent == nil {
 					continue
@@ -236,7 +240,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 				fmt.Printf("Checking event: %s\n", event)
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-					//fmt.Printf("Print keys and version number: %v\n", newerKeysAndVersion)
+					fmt.Printf("Print intersection: %v\n", intersection)
 					// TODO: Sort by version number to get the most upto date new event
 					// TODO: First figure out why new events are no longer caught..
 
