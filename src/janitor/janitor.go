@@ -99,43 +99,37 @@ func (j *Janitor) ListenForNIP94Events() {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
-				maxRetries := 5
 				retryDelay := 5 * time.Second
-				for retry := 0; retry < maxRetries; retry++ {
-					fmt.Printf("Connecting to relay: %s (attempt %d/%d)\n", relayURL, retry+1, maxRetries)
-					relay, err := relayPool.EnsureRelay(relayURL)
-					if err != nil {
-						log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-						if retry < maxRetries-1 {
-							time.Sleep(retryDelay)
-							retryDelay *= 2 // Exponential backoff
-						}
-						continue
-					}
-					fmt.Printf("Connected to relay: %s\n", relayURL)
-
-					sub, err := relay.Subscribe(ctx, []nostr.Filter{
-						{
-							Kinds: []int{1063},
-						},
-					})
-					if err != nil {
-						log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
-						if retry < maxRetries-1 {
-							time.Sleep(retryDelay)
-							retryDelay *= 2
-						}
-						continue
-					}
-					fmt.Printf("Subscription successful on relay %s\n", relayURL)
-					fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
-					for event := range sub.Events {
-						eventChan <- event
-					}
-					log.Printf("Relay %s disconnected, attempting to reconnect", relayURL)
-					break // Reconnect on disconnection
+				for {
+				    fmt.Printf("Connecting to relay: %s\n", relayURL)
+				    relay, err := relayPool.EnsureRelay(relayURL)
+				    if err != nil {
+				        log.Printf("Failed to connect to relay %s: %v. Retrying in %v...", relayURL, err, retryDelay)
+				        time.Sleep(retryDelay)
+				        retryDelay *= 2
+				        if retryDelay > 1*time.Minute {
+				            retryDelay = 1 * time.Minute
+				        }
+				        continue
+				    }
+				    fmt.Printf("Connected to relay: %s\n", relayURL)
+				
+				    sub, err := relay.Subscribe(ctx, []nostr.Filter{
+				        {
+				            Kinds: []int{1063},
+				        },
+				    })
+				    if err != nil {
+				        log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+				        continue
+				    }
+				    fmt.Printf("Subscription successful on relay %s\n", relayURL)
+				    fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
+				    for event := range sub.Events {
+				        eventChan <- event
+				    }
+				    log.Printf("Relay %s disconnected, attempting to reconnect", relayURL)
 				}
-				log.Printf("Failed to connect to relay %s after %d attempts", relayURL, maxRetries)
 			}(relayURL)
 		}
 
