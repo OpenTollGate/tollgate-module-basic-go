@@ -91,10 +91,11 @@ func (j *Janitor) ListenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
 	relayPool := nostr.NewSimplePool(ctx)
-	var wg sync.WaitGroup
-	eventChan := make(chan *nostr.Event, 1000) // Buffered channel to handle events from multiple relays
+	eventChan := make(chan *nostr.Event, 1000)
 
-	for _, relayURL := range j.relays {
+	for {
+		var wg sync.WaitGroup
+		for _, relayURL := range j.relays {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
@@ -112,201 +113,201 @@ func (j *Janitor) ListenForNIP94Events() {
 						continue
 					}
 					fmt.Printf("Connected to relay: %s\n", relayURL)
-	
+
 					sub, err := relay.Subscribe(ctx, []nostr.Filter{
 						{
-							Kinds: []int{1063}, // NIP-94 event kind
+							Kinds: []int{1063},
 						},
 					})
 					if err != nil {
 						log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
 						if retry < maxRetries-1 {
 							time.Sleep(retryDelay)
-							retryDelay *= 2 // Exponential backoff
+							retryDelay *= 2
 						}
 						continue
 					}
 					fmt.Printf("Subscription successful on relay %s\n", relayURL)
-	
 					fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
 					for event := range sub.Events {
 						eventChan <- event
 					}
-					fmt.Printf("Stopped listening for NIP-94 events on relay %s\n", relayURL)
-					return // Exit the goroutine if subscription is closed
+					log.Printf("Relay %s disconnected, attempting to reconnect", relayURL)
+					break // Reconnect on disconnection
 				}
 				log.Printf("Failed to connect to relay %s after %d attempts", relayURL, maxRetries)
 			}(relayURL)
 		}
 
-	go func() {
-		wg.Wait()
-		close(eventChan) // Close the channel when all relays are done
-	}()
+		go func() {
+			wg.Wait()
+			close(eventChan)
+		}()
 
-	eventMap := make(map[string]*packageEvent)
-	totalEvents := 0
-	untrustedEventCount := 0
-	trustedEventCount := 0
-	collisionCount := 0
-	rightTimeKeys := make([]string, 0)
-	var already_printed bool = false
-	rightBranchKeys := make([]string, 0)
-	rightArchKeys := make([]string, 0)
-	rightVersionKeys := make([]string, 0)
+		eventMap := make(map[string]*packageEvent)
+		totalEvents := 0
+		untrustedEventCount := 0
+		trustedEventCount := 0
+		collisionCount := 0
+		rightTimeKeys := make([]string, 0)
+		var already_printed bool = false
+		rightBranchKeys := make([]string, 0)
+		rightArchKeys := make([]string, 0)
+		rightVersionKeys := make([]string, 0)
 
-	timer := time.NewTimer(10 * time.Second)
-	timer.Stop()
-	isTimerActive := false
-	fmt.Println("Starting event processing loop")
-	for {
-		select {
-		case event, ok := <-eventChan:
-			if !ok {
-				log.Println("eventChan closed, stopping event processing")
-				return
-			}
-			totalEvents++
-			if !contains(j.trustedMaintainers, event.PubKey) {
-				untrustedEventCount++
-				continue
-			}
-
-			trustedEventCount++
-			ok, err := event.CheckSignature()
-			if err != nil || !ok {
-				//log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
-				continue
-			}
-
-			packageURL, versionStr, arch, branch, filename, timestamp, err := parseNIP94Event(*event)
-			if err != nil {
-				continue
-			}
-
-			key := fmt.Sprintf("%s-%s", filename, versionStr)
-			ok = eventMap[key] != nil
-			if ok {
-				// We already recorded an event with this filename and version string
-				collisionCount++
-				//log.Println("Collision! Already encountered this filename and version in the past...")
-			} else {
-				// Its the first time we see this filename & version string
-				eventMap[key] = &packageEvent{
-					event:      event,
-					packageURL: packageURL,
+		timer := time.NewTimer(10 * time.Second)
+		timer.Stop()
+		isTimerActive := false
+		fmt.Println("Starting event processing loop")
+		for {
+			select {
+			case event, ok := <-eventChan:
+				if !ok {
+					log.Println("eventChan closed, stopping event processing")
+					return
 				}
-			}
+				totalEvents++
+				if !contains(j.trustedMaintainers, event.PubKey) {
+					untrustedEventCount++
+					continue
+				}
 
-			if timestamp > j.currentTimestamp {
-				// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
-				// 	event.ID, packageURL, versionStr, filename, timestamp)
-				rightTimeKeys = append(rightTimeKeys, key)
-			}
+				trustedEventCount++
+				ok, err := event.CheckSignature()
+				if err != nil || !ok {
+					//log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
+					continue
+				}
 
-			if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
-				rightVersionKeys = append(rightVersionKeys, key)
-			}
+				packageURL, versionStr, arch, branch, filename, timestamp, err := parseNIP94Event(*event)
+				if err != nil {
+					continue
+				}
 
-			if branch == j.ConfigBranch {
-				rightBranchKeys = append(rightBranchKeys, key)
-			}
-
-			if arch == j.ConfigArch {
-				rightArchKeys = append(rightArchKeys, key)
-			}
-
-			intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
-			if len(intersection) > 0 && !isTimerActive {
-				fmt.Printf("Started the timer\n")
-				timer.Reset(10 * time.Second)
-				isTimerActive = true
-				fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
-				fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
-			}
-
-			if len(intersection) > 0 && !already_printed {
-				printList := func(name string, list []string) {
-					if len(list) <= 3 {
-						fmt.Printf("%s: %v\n", name, list)
-					} else {
-						fmt.Printf("%s count: %d\n", name, len(list))
+				key := fmt.Sprintf("%s-%s", filename, versionStr)
+				ok = eventMap[key] != nil
+				if ok {
+					// We already recorded an event with this filename and version string
+					collisionCount++
+					//log.Println("Collision! Already encountered this filename and version in the past...")
+				} else {
+					// Its the first time we see this filename & version string
+					eventMap[key] = &packageEvent{
+						event:      event,
+						packageURL: packageURL,
 					}
 				}
-				fmt.Printf("Intersection: %v\n", intersection)
-				printList("Right Time Keys", rightTimeKeys)
-				printList("Right Branch Keys", rightBranchKeys)
-				printList("Right Arch Keys", rightArchKeys)
-				printList("Right Version Keys", rightVersionKeys)
-				already_printed = true
-			}
 
-		case <-timer.C:
-			log.Println("Timeout reached, checking for new versions")
+				if timestamp > j.currentTimestamp {
+					// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
+					// 	event.ID, packageURL, versionStr, filename, timestamp)
+					rightTimeKeys = append(rightTimeKeys, key)
+				}
 
-			// Compute the intersection of rightTimeKeys, rightBranchKeys, and rightArchKeys.
-			intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
-			qualifyingEventsMap := make(map[string]*packageEvent)
+				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
+					rightVersionKeys = append(rightVersionKeys, key)
+				}
 
-			for _, key := range intersection {
-				qualifyingEventsMap[key] = eventMap[key]
-			}
+				if branch == j.ConfigBranch {
+					rightBranchKeys = append(rightBranchKeys, key)
+				}
 
-			sortedKeys := sortQualifyingEventsByVersion(qualifyingEventsMap)
-			fmt.Println("Sorted Qualifying Events Keys:", sortedKeys)
+				if arch == j.ConfigArch {
+					rightArchKeys = append(rightArchKeys, key)
+				}
 
-			latestKey := sortedKeys[0]
-			latestPackageEvent := qualifyingEventsMap[latestKey]
-			if latestPackageEvent == nil {
-				log.Println("Latest package event is nil")
+				intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+				if len(intersection) > 0 && !isTimerActive {
+					fmt.Printf("Started the timer\n")
+					timer.Reset(10 * time.Second)
+					isTimerActive = true
+					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
+					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
+				}
+
+				if len(intersection) > 0 && !already_printed {
+					printList := func(name string, list []string) {
+						if len(list) <= 3 {
+							fmt.Printf("%s: %v\n", name, list)
+						} else {
+							fmt.Printf("%s count: %d\n", name, len(list))
+						}
+					}
+					fmt.Printf("Intersection: %v\n", intersection)
+					printList("Right Time Keys", rightTimeKeys)
+					printList("Right Branch Keys", rightBranchKeys)
+					printList("Right Arch Keys", rightArchKeys)
+					printList("Right Version Keys", rightVersionKeys)
+					already_printed = true
+				}
+
+			case <-timer.C:
+				log.Println("Timeout reached, checking for new versions")
+
+				// Compute the intersection of rightTimeKeys, rightBranchKeys, and rightArchKeys.
+				intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+				qualifyingEventsMap := make(map[string]*packageEvent)
+
+				for _, key := range intersection {
+					qualifyingEventsMap[key] = eventMap[key]
+				}
+
+				sortedKeys := sortQualifyingEventsByVersion(qualifyingEventsMap)
+				fmt.Println("Sorted Qualifying Events Keys:", sortedKeys)
+
+				latestKey := sortedKeys[0]
+				latestPackageEvent := qualifyingEventsMap[latestKey]
+				if latestPackageEvent == nil {
+					log.Println("Latest package event is nil")
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+
+				event := latestPackageEvent.event
+				_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
+				if err != nil {
+					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+
+				fmt.Printf("Newer package version available: %s\n", versionStr)
+				checksum := getChecksumFromEvent(*latestPackageEvent.event)
+				pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL, checksum)
+				if err != nil {
+					log.Printf("Error downloading package: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				err = j.verifyPackageChecksum(pkg, *event)
+				if err != nil {
+					log.Printf("Error verifying package checksum: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				err = j.updateConfigWithPackagePath(pkgPath)
+				if err != nil {
+					log.Printf("Error updating config with package path: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				// err = j.InstallPackage(pkgPath)
+				// if err != nil {
+				// 	log.Printf("Error installing package: %v", err)
+				// 	timer.Stop()
+				// 	isTimerActive = false
+				// 	return
+				// }
+				fmt.Printf("New package version %s is ready to be installed by cronjob\n", versionStr)
+
 				timer.Stop()
 				isTimerActive = false
-				return
 			}
-
-			event := latestPackageEvent.event
-			_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
-			if err != nil {
-				log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-				timer.Stop()
-				isTimerActive = false
-				return
-			}
-
-			fmt.Printf("Newer package version available: %s\n", versionStr)
-			checksum := getChecksumFromEvent(*latestPackageEvent.event)
-			pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL, checksum)
-			if err != nil {
-				log.Printf("Error downloading package: %v", err)
-				timer.Stop()
-				isTimerActive = false
-				return
-			}
-			err = j.verifyPackageChecksum(pkg, *event)
-			if err != nil {
-				log.Printf("Error verifying package checksum: %v", err)
-				timer.Stop()
-				isTimerActive = false
-				return
-			}
-			err = j.updateConfigWithPackagePath(pkgPath)
-			if err != nil {
-				log.Printf("Error updating config with package path: %v", err)
-				timer.Stop()
-				isTimerActive = false
-				return
-			}
-			// err = j.InstallPackage(pkgPath)
-			// if err != nil {
-			// 	log.Printf("Error installing package: %v", err)
-			// 	timer.Stop()
-			// 	isTimerActive = false
-			// 	return
-			// }
-			fmt.Printf("New package version %s is ready to be installed by cronjob\n", versionStr)
-
-			timer.Stop()
-			isTimerActive = false
 		}
 	}
 }
