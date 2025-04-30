@@ -7,6 +7,9 @@ EXTRA_COMMANDS="status"
 EXTRA_HELP="        status          Check service status"
 
 start_service() {
+    # Start cron daemon
+    /etc/init.d/cron start
+    
     # Now start the TollGate service
     procd_open_instance
     procd_set_param command /usr/bin/tollgate-basic
