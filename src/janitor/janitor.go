@@ -140,7 +140,7 @@ func (j *Janitor) ListenForNIP94Events() {
 	rightBranchKeys := make([]string, 0)
 	rightArchKeys := make([]string, 0)
 	rightVersionKeys := make([]string, 0)
-=
+
 	timer := time.NewTimer(10 * time.Second)
 	timer.Stop()
 	isTimerActive := false
@@ -209,7 +209,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				} else {
 					fmt.Printf("Reset the timer\n")
 				}
-	
+
 				timer.Reset(10 * time.Second)
 				isTimerActive = true
 				fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
