@@ -5,18 +5,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"path/filepath"
-	"errors"
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
@@ -315,14 +315,14 @@ func (j *Janitor) DownloadPackage(url string, checksum string) (string, []byte, 
 	cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-	    log.Printf("Error downloading package: %v, output: %s", err, output)
-	    return "", nil, err
+		log.Printf("Error downloading package: %v, output: %s", err, output)
+		return "", nil, err
 	}
 	var downloaded int64
 	progress := &progressLogger{
-	    total:      getContentLength(url),
-	    downloaded: &downloaded,
-	    lastLog:    time.Now(),
+		total:      getContentLength(url),
+		downloaded: &downloaded,
+		lastLog:    time.Now(),
 	}
 	progress.Write(output)
 
@@ -525,12 +525,13 @@ func extractVersion(key string) string {
 	}
 	return parts[len(parts)-1]
 }
+
 // getChecksumFromEvent extracts the checksum from a NIP-94 event
 func getChecksumFromEvent(event nostr.Event) string {
-    for _, tag := range event.Tags {
-        if len(tag) > 1 && tag[0] == "x" {
-            return tag[1]
-        }
-    }
-    return ""
+	for _, tag := range event.Tags {
+		if len(tag) > 1 && tag[0] == "x" {
+			return tag[1]
+		}
+	}
+	return ""
 }
