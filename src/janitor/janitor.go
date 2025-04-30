@@ -227,7 +227,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				qualifyingEventsMap[key] = eventMap[key]
 			}
 
-			for key, packageEvent := range qualifyingEventsMap {
+			for _, packageEvent := range qualifyingEventsMap {
 				if packageEvent == nil {
 					continue
 				}
