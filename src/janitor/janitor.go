@@ -236,7 +236,7 @@ func (j *Janitor) ListenForNIP94Events() {
 		case <-timer.C:
 			log.Println("Timeout reached, checking for new versions")
 
-			// Compute the intersection of rightTimeKeys, rightBranchKeys, and rightArchKeys
+			// Compute the intersection of rightTimeKeys, rightBranchKeys, and rightArchKeys.
 			intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
 			qualifyingEventsMap := make(map[string]*packageEvent)
 
