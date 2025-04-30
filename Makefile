@@ -101,6 +101,13 @@ define Package/$(PKG_NAME)/install
 	# Tollgate config.json for mint and price
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(eval TIMESTAMP := $(shell date +%s))
+	
+	# Check if config.json already exists and preserve random_ip
+	if [ -f $(1)/etc/tollgate/config.json ]; then \
+		existing_random_ip=$$(jq -r '.random_ip' $(1)/etc/tollgate/config.json); \
+		sed -i 's/"random_ip": null/"random_ip": "'$$existing_random_ip'"/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json; \
+	fi
+	
 	sed -i 's/"timestamp": [0-9]\+/"timestamp": $(TIMESTAMP)/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
