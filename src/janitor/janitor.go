@@ -254,7 +254,7 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			event := latestPackageEvent.event
-			_, versionStr, _, _, _, timestamp, err := parseNIP94Event(*event)
+			_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
 			if err != nil {
 				log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 				timer.Stop()
