@@ -1,8 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
-PKG_VERSION:=$(shell git rev-list --count main 2>/dev/null || echo "0").$(shell git rev-list --count HEAD 2>/dev/null || echo "0").$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-PKG_RELEASE:=1
+PKG_VERSION:=0.0.$(shell git rev-list --count HEAD)+$(shell git rev-parse --short HEAD)
 PKG_FLAGS:=overwrite
 
 # Place conditional checks EARLY - before variables that depend on them
@@ -34,7 +33,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci
+	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files
@@ -101,6 +100,9 @@ define Package/$(PKG_NAME)/install
 
 	# Tollgate config.json for mint and price
 	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(eval TIMESTAMP := $(shell date +%s))
+		
+	sed -i 's/"timestamp": [0-9]\+/"timestamp": $(TIMESTAMP)/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
 	# Banner for TollGate
@@ -115,6 +117,14 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/static/js/* $(1)/etc/nodogsplash/htdocs/static/js/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/static/media/* $(1)/etc/nodogsplash/htdocs/static/media/
 	
+	# Install check_package_path script
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/check_package_path $(1)/usr/bin/
+
+	# Install cron table
+	$(INSTALL_DIR) $(1)/etc/crontabs
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/crontabs/root $(1)/etc/crontabs/
+
 	# Install control scripts
 	$(INSTALL_DIR) $(1)/CONTROL
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/preinst $(1)/CONTROL/
@@ -135,7 +145,8 @@ FILES_$(PKG_NAME) += \
 	/etc/nodogsplash/htdocs/*.html \
 	/etc/nodogsplash/htdocs/static/css/* \
 	/etc/nodogsplash/htdocs/static/js/* \
-	/etc/nodogsplash/htdocs/static/media/*
+	/etc/nodogsplash/htdocs/static/media/* \
+	/etc/crontabs/root
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

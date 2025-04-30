@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OpenTollgate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"tollgate-module-basic-go/src/janitor"
+	"tollgate-module-basic-go/src/modules"
 )
 
 // Config structure to hold all configuration parameters
@@ -26,6 +27,13 @@ type Config struct {
 	MintFee            int            `json:"mint_fee"`
 	Relays             []string       `json:"relays"`
 	Bragging           BraggingConfig `json:"bragging"`
+	PackageInfo        struct {
+		Version   string `json:"version"`
+		Timestamp int64  `json:"timestamp"`
+		Branch    string `json:"branch"`
+		Arch      string `json:"arch"`
+	} `json:"package_info"`
+	UpdatePath *string `json:"update_path,omitempty"`
 }
 
 type BraggingConfig struct {
@@ -36,6 +44,7 @@ type BraggingConfig struct {
 
 // Global configuration variable
 var config Config
+var configFile string = "/etc/tollgate/config.json"
 
 // Derived configuration values
 var tollgatePrivateKey string
@@ -52,6 +61,25 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 func init() {
+	cmd := exec.Command("sh", "-c", "opkg list-installed | grep 'tollgate-module-basic-go'")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("Failed to get installed version: %v", err)
+	}
+
+	version := strings.TrimSpace(string(output))
+	parts := strings.Split(version, " - ")
+	if len(parts) < 2 {
+		log.Fatalf("Unexpected output format from opkg list-installed: %s", version)
+	}
+	installedVersion := parts[1]
+
+	// Check if we need to run post-install script
+	_, err = PostInstallSetup(configFile, installedVersion)
+	if err != nil {
+		log.Fatalf("Error running post-install script: %v", err)
+	}
+
 	// Load configuration
 	if err := loadConfig(); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -71,7 +99,7 @@ func init() {
 	}
 
 	// Override the existing signature with a newly generated one
-	err := tollgateDetailsEvent.Sign(tollgatePrivateKey)
+	err = tollgateDetailsEvent.Sign(tollgatePrivateKey)
 	if err != nil {
 		log.Fatalf("Failed to sign tollgate event: %v", err)
 	}
@@ -85,12 +113,28 @@ func init() {
 
 	// Initialize relay pool for NIP-60 operations
 	relayPool = nostr.NewSimplePool(context.Background())
+
+	// Initialize janitor module
+	initJanitor()
+}
+
+func initJanitor() {
+	config, err := janitor.LoadJanitorConfig(configFile)
+	if err != nil {
+		log.Fatalf("Failed to load janitor config: %v", err)
+	}
+
+	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, config.PackageInfo.Branch, config.PackageInfo.Arch, configFile)
+	if err != nil {
+		log.Fatalf("Failed to create janitor instance: %v", err)
+	}
+
+	go janitorInstance.ListenForNIP94Events()
+	log.Println("Janitor module initialized and listening for NIP-94 events")
 }
 
 // loadConfig reads configuration from /etc/tollgate/config.json
 func loadConfig() error {
-	configFile := "/etc/tollgate/config.json"
-
 	// Read the existing config file
 	data, err := os.ReadFile(configFile)
 	if err != nil {
@@ -126,7 +170,7 @@ func loadConfig() error {
 		return fmt.Errorf("failed to parse config file: %v", err)
 	}
 
-	log.Printf("Relays loaded from config: %v", config.Relays)
+	fmt.Println("Relays loaded from config:", config.Relays)
 
 	// Update global variables
 	tollgatePrivateKey = config.TollgatePrivateKey
@@ -136,7 +180,7 @@ func loadConfig() error {
 	mintFee = config.MintFee
 	cutoffFee = 2*mintFee + minPayment
 
-	log.Printf("Configuration loaded: mint=%s, price=%d, fee=%d",
+	fmt.Printf("Configuration loaded: mint=%s, price=%d, fee=%d\n",
 		acceptedMint, pricePerMinute, mintFee)
 
 	return nil
@@ -198,7 +242,7 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
-	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
+	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -268,11 +312,11 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Extracted MAC address: %s", macAddress)
-	log.Printf("Extracted payment token: %s", paymentToken)
+	fmt.Printf("Extracted MAC address: %s\n", macAddress)
+	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
 	// Decode the Cashu token
-	tokenValue, err := decodeCashuToken(paymentToken)
+	tokenValue, err := DecodeCashuToken(paymentToken)
 	if err != nil {
 		log.Printf("Error decoding Cashu token: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -297,7 +341,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 		// We can still continue with the token we have
 	} else {
-		log.Printf("Successfully swapped token for fresh proofs")
+		fmt.Println("Successfully swapped token for fresh proofs")
 	}
 
 	// Calculate the actual value after deducting fees
@@ -322,7 +366,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	durationSeconds := int64(allottedMinutes * 60)
 
 	// Log the calculation for transparency
-	log.Printf("Calculated minutes: %d (from value %d, minus fees %d)",
+	fmt.Printf("Calculated minutes: %d (from value %d, minus fees %d)\n",
 		allottedMinutes, tokenValue, 2*mintFee)
 
 	// Open gate for the specified duration using the valve module
@@ -416,7 +460,7 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 		if err != nil {
 			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
 		} else {
-			log.Printf("Successfully published event to relay %s", relayURL)
+			fmt.Printf("Successfully published event to relay %s\n", relayURL)
 		}
 	}
 
@@ -424,7 +468,7 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 		return err
 	}
 
-	log.Printf("Successfully announced payment for MAC %s", macAddress)
+	fmt.Printf("Successfully announced payment for MAC %s\n", macAddress)
 	return nil
 }
 
@@ -441,7 +485,86 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
 }
 
+func PostInstallSetup(configPath, newVersion string) (int64, error) {
+	fmt.Printf("Running post-install script")
+
+	// Read existing config
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		log.Printf("Error reading config file: %v", err)
+		return 0, err
+	}
+
+	var configMap map[string]interface{}
+	err = json.Unmarshal(configData, &configMap)
+	if err != nil {
+		log.Printf("Error unmarshaling config: %v", err)
+		return 0, err
+	}
+
+	// Get package_info map or create it if it doesn't exist
+	packageInfo, ok := configMap["package_info"].(map[string]interface{})
+	if !ok {
+		packageInfo = make(map[string]interface{})
+		configMap["package_info"] = packageInfo
+	}
+
+	// Determine DISTRIB_ARCH by running the command
+	cmd := exec.Command("sh", "-c", ". /etc/openwrt_release && echo $DISTRIB_ARCH")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Failed to determine DISTRIB_ARCH: %v", err)
+		return 0, err
+	}
+	distribArch := strings.TrimSpace(string(output))
+
+	// Update package_info
+	newTimestamp := time.Now().Unix()
+	packageInfo["version"] = newVersion
+	packageInfo["arch"] = distribArch
+
+	// Only set timestamp if it doesn't already exist
+	if _, ok := packageInfo["timestamp"]; !ok {
+		packageInfo["timestamp"] = newTimestamp
+	}
+
+	// Handle branch field
+	if _, ok := packageInfo["branch"]; !ok {
+		packageInfo["branch"] = "main"
+	}
+
+	// Marshal and write back to config file
+	data, err := json.MarshalIndent(configMap, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling config: %v", err)
+		return 0, err
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		log.Printf("Error writing config file: %v", err)
+		return 0, err
+	}
+
+	fmt.Printf("Post-install script completed successfully")
+	return newTimestamp, nil
+}
+
 func main() {
+	// Get installed version
+	cmd := exec.Command("opkg", "list-installed", "tollgate-module-basic-go")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error getting installed version: %v", err)
+	} else {
+		installedVersion := strings.Fields(string(output))[2]
+		configVersion := config.PackageInfo.Version
+
+		if installedVersion != configVersion {
+			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
+			os.Exit(1)
+		}
+	}
+
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
