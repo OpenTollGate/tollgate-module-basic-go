@@ -312,7 +312,7 @@ func (j *Janitor) DownloadPackage(url string, checksum string) (string, []byte, 
 	}
 	defer os.Remove(tmpFile.Name())
 
-	cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
+	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Error downloading package: %v, output: %s", err, output)
