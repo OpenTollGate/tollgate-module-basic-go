@@ -243,6 +243,10 @@ func (j *Janitor) ListenForNIP94Events() {
 				qualifyingEventsMap[key] = eventMap[key]
 			}
 
+			sortedKeys := sortQualifyingEventsByVersion(qualifyingEventsMap)
+			fmt.Println("Sorted Qualifying Events Keys:", sortedKeys)
+
+			/**
 			for _, packageEvent := range qualifyingEventsMap {
 				if packageEvent == nil {
 					continue
@@ -281,6 +285,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					// fmt.Printf("Successfully installed new package version: %s\n", versionStr)
 				}
 			}
+			**/
 			timer.Stop()
 			isTimerActive = false
 		}
