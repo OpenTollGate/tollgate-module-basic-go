@@ -101,34 +101,34 @@ func (j *Janitor) ListenForNIP94Events() {
 				defer wg.Done()
 				retryDelay := 5 * time.Second
 				for {
-				    fmt.Printf("Connecting to relay: %s\n", relayURL)
-				    relay, err := relayPool.EnsureRelay(relayURL)
-				    if err != nil {
-				        log.Printf("Failed to connect to relay %s: %v. Retrying in %v...", relayURL, err, retryDelay)
-				        time.Sleep(retryDelay)
-				        retryDelay *= 2
-				        if retryDelay > 1*time.Minute {
-				            retryDelay = 1 * time.Minute
-				        }
-				        continue
-				    }
-				    fmt.Printf("Connected to relay: %s\n", relayURL)
-				
-				    sub, err := relay.Subscribe(ctx, []nostr.Filter{
-				        {
-				            Kinds: []int{1063},
-				        },
-				    })
-				    if err != nil {
-				        log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
-				        continue
-				    }
-				    fmt.Printf("Subscription successful on relay %s\n", relayURL)
-				    fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
-				    for event := range sub.Events {
-				        eventChan <- event
-				    }
-				    log.Printf("Relay %s disconnected, attempting to reconnect", relayURL)
+					fmt.Printf("Connecting to relay: %s\n", relayURL)
+					relay, err := relayPool.EnsureRelay(relayURL)
+					if err != nil {
+						log.Printf("Failed to connect to relay %s: %v. Retrying in %v...", relayURL, err, retryDelay)
+						time.Sleep(retryDelay)
+						retryDelay *= 2
+						if retryDelay > 1*time.Minute {
+							retryDelay = 1 * time.Minute
+						}
+						continue
+					}
+					fmt.Printf("Connected to relay: %s\n", relayURL)
+
+					sub, err := relay.Subscribe(ctx, []nostr.Filter{
+						{
+							Kinds: []int{1063},
+						},
+					})
+					if err != nil {
+						log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+						continue
+					}
+					fmt.Printf("Subscription successful on relay %s\n", relayURL)
+					fmt.Printf("Subscribed to NIP-94 events on relay %s\n", relayURL)
+					for event := range sub.Events {
+						eventChan <- event
+					}
+					log.Printf("Relay %s disconnected, attempting to reconnect", relayURL)
 				}
 			}(relayURL)
 		}
