@@ -400,7 +400,7 @@ func (j *Janitor) updateConfigWithPackagePath(pkgPath string) error {
 		return err
 	}
 
-	config["package_path"] = pkgPath
+	config["update_path"] = pkgPath
 
 	updatedData, err := json.Marshal(config)
 	if err != nil {
