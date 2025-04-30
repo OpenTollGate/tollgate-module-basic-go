@@ -206,13 +206,8 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
-			if len(intersection) > 0 {
-				if !isTimerActive {
-					fmt.Printf("Started the timer\n")
-				} else {
-					fmt.Printf("Reset the timer\n")
-				}
-
+			if len(intersection) > 0 && !isTimerActive {
+				fmt.Printf("Started the timer\n")
 				timer.Reset(10 * time.Second)
 				isTimerActive = true
 				fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
