@@ -116,6 +116,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/static/js/* $(1)/etc/nodogsplash/htdocs/static/js/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/nodogsplash/htdocs/static/media/* $(1)/etc/nodogsplash/htdocs/static/media/
 	
+	# Install check_package_path script
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/check_package_path $(1)/usr/bin/
+
 	# Install control scripts
 	$(INSTALL_DIR) $(1)/CONTROL
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/preinst $(1)/CONTROL/

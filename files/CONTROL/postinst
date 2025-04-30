@@ -5,4 +5,5 @@ echo "Running post-installation script"
 echo "Verifying banner file ownership:"
 ls -l /etc/banner
 opkg search /etc/banner
-exit 0 
+/etc/init.d/tollgate-basic restart
+exit 0
