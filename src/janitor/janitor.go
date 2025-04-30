@@ -217,7 +217,11 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 
 			if len(rightTimeKeys) > 0 {
-			 	fmt.Printf("Intersection: %v, Right Time Keys: %v, Right Branch Keys: %v, Right Arch Keys: %v, Right Version Keys: %v\n", intersection, rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+				//fmt.Printf("Intersection: %v, Right Time Keys: %v, Right Branch Keys: %v, Right Arch Keys: %v, Right Version Keys: %v\n", intersection, rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+				fmt.Printf("Intersection: %v, Right Time Keys: %v\n", intersection, rightTimeKeys)
+				//fmt.Printf("Intersection: %v, Right Branch Keys: %v\n", intersection, rightBranchKeys)
+				fmt.Printf("Intersection: %v, Right Arch Keys: %v\n", intersection, rightArchKeys)
+				fmt.Printf("Intersection: %v, Right Version Keys: %v\n", intersection, rightVersionKeys)
 			}
 
 		case <-timer.C:
