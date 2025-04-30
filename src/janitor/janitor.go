@@ -290,13 +290,6 @@ func (j *Janitor) ListenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				// err = j.InstallPackage(pkgPath)
-				// if err != nil {
-				// 	log.Printf("Error installing package: %v", err)
-				// 	timer.Stop()
-				// 	isTimerActive = false
-				// 	return
-				// }
 				fmt.Printf("New package version %s is ready to be installed by cronjob\n", versionStr)
 
 				timer.Stop()
@@ -419,22 +412,6 @@ func (j *Janitor) updateConfigWithPackagePath(pkgPath string) error {
 		log.Printf("Error writing updated config file: %v", err)
 		return err
 	}
-	return nil
-}
-
-func (j *Janitor) InstallPackage(pkgPath string) error {
-	fmt.Printf("Installing package from %s\n", pkgPath)
-
-	cmd := exec.Command(j.opkgCmd, "install", pkgPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Error installing package: %v, output: %s", err, output)
-		os.Remove(pkgPath)
-		return err
-	}
-
-	fmt.Printf("Package installed successfully\n")
-	os.Remove(pkgPath)
 	return nil
 }
 
