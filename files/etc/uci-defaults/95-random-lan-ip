@@ -1,6 +1,18 @@
 #!/bin/sh
 # TollGate - Generate random LAN IP address on first boot
 
+# Check if random_ip is already set in config.json
+CONFIG_FILE="/etc/tollgate/config.json"
+if [ -f "$CONFIG_FILE" ]; then
+    RANDOM_IP_CONFIG=$(jq -r '.random_ip' "$CONFIG_FILE")
+    if [ "$RANDOM_IP_CONFIG" != "null" ]; then
+        echo "random_ip is already set to $RANDOM_IP_CONFIG in config.json. Exiting."
+        exit 0
+    fi
+else
+    echo "config.json not found. Proceeding with random IP generation."
+fi
+
 # We don't need to check for a flag file since uci-defaults scripts 
 # are automatically run only once after installation or upgrade
 
@@ -116,5 +128,8 @@ uci_safe_set network lan broadcast "$BROADCAST"
 # Schedule network restart (safer than immediate restart during boot)
 (sleep 5 && /etc/init.d/network restart && 
  [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
+
+# Before exiting, update config.json with the new random_ip
+jq '.random_ip = "'"$RANDOM_IP"'"' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 
 exit 0
