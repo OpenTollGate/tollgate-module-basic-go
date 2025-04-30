@@ -101,20 +101,7 @@ define Package/$(PKG_NAME)/install
 	# Tollgate config.json for mint and price
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(eval TIMESTAMP := $(shell date +%s))
-	
-	# Check if config.json already exists and preserve random_ip
-	echo "Checking if config.json exists at $(1)/etc/tollgate/config.json" > /tmp/tollgate-debug.log; \
-	if [ -f $(1)/etc/tollgate/config.json ]; then \
-		echo "File exists, reading random_ip" >> /tmp/tollgate-debug.log; \
-		existing_random_ip=$$(jq -r '.random_ip' $(1)/etc/tollgate/config.json); \
-		echo "Existing random IP: $$existing_random_ip" >> /tmp/tollgate-debug.log; \
-		echo "PKG_BUILD_DIR: $(PKG_BUILD_DIR)" >> /tmp/tollgate-debug.log; \
-		sed -i 's/"random_ip": .*/"random_ip": "'$$existing_random_ip'"/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json; \
-		echo "After sed: $$(cat $(PKG_BUILD_DIR)/files/etc/tollgate/config.json)" >> /tmp/tollgate-debug.log; \
-	else \
-		echo "File does not exist" >> /tmp/tollgate-debug.log; \
-	fi
-	
+		
 	sed -i 's/"timestamp": [0-9]\+/"timestamp": $(TIMESTAMP)/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
