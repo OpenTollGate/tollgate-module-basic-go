@@ -100,6 +100,9 @@ define Package/$(PKG_NAME)/install
 
 	# Tollgate config.json for mint and price
 	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(eval TIMESTAMP := $(shell date +%s))
+	jq '.timestamp = $(TIMESTAMP)' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json > $(PKG_BUILD_DIR)/files/etc/tollgate/config.json.tmp
+	mv $(PKG_BUILD_DIR)/files/etc/tollgate/config.json.tmp $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
 	# Banner for TollGate
