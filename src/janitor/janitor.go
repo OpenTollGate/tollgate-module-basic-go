@@ -280,10 +280,10 @@ func (j *Janitor) ListenForNIP94Events() {
 			}
 			err = j.updateConfigWithPackagePath(pkgPath)
 			if err != nil {
-			    log.Printf("Error updating config with package path: %v", err)
-			    timer.Stop()
-			    isTimerActive = false
-			    return
+				log.Printf("Error updating config with package path: %v", err)
+				timer.Stop()
+				isTimerActive = false
+				return
 			}
 			// err = j.InstallPackage(pkgPath)
 			// if err != nil {
@@ -386,35 +386,35 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 }
 
 func (j *Janitor) updateConfigWithPackagePath(pkgPath string) error {
-    configPath := j.configPath
-    data, err := os.ReadFile(configPath)
-    if err != nil {
-        log.Printf("Error reading config file: %v", err)
-        return err
-    }
+	configPath := j.configPath
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		log.Printf("Error reading config file: %v", err)
+		return err
+	}
 
-    var config map[string]interface{}
-    err = json.Unmarshal(data, &config)
-    if err != nil {
-        log.Printf("Error unmarshaling config: %v", err)
-        return err
-    }
+	var config map[string]interface{}
+	err = json.Unmarshal(data, &config)
+	if err != nil {
+		log.Printf("Error unmarshaling config: %v", err)
+		return err
+	}
 
-    config["package_path"] = pkgPath
+	config["package_path"] = pkgPath
 
-    updatedData, err := json.Marshal(config)
-    if err != nil {
-        log.Printf("Error marshaling updated config: %v", err)
-        return err
-    }
+	updatedData, err := json.Marshal(config)
+	if err != nil {
+		log.Printf("Error marshaling updated config: %v", err)
+		return err
+	}
 
-    err = os.WriteFile(configPath, updatedData, 0644)
-    if err != nil {
-        log.Printf("Error writing updated config file: %v", err)
-        return err
-    }
+	err = os.WriteFile(configPath, updatedData, 0644)
+	if err != nil {
+		log.Printf("Error writing updated config file: %v", err)
+		return err
+	}
 
-    return nil
+	return nil
 }
 
 func (j *Janitor) InstallPackage(pkgPath string) error {
