@@ -257,7 +257,7 @@ func (j *Janitor) ListenForNIP94Events() {
 				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 					fmt.Printf("Print intersection: %v\n", intersection)
 					// TODO: Sort by version number to get the most upto date new event
-					// TODO: First figure out why new events are no longer caught..
+					// TODO: First figure out why new events are no longer caught...
 
 					// fmt.Printf("Newer package version available: %s\n", versionStr)
 					// pkg, err := j.DownloadPackage(packageEvent.packageURL)
