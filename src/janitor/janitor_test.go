@@ -343,7 +343,7 @@ func TestDownloadPackage(t *testing.T) {
 	}
 
 	t.Logf("Starting to DownloadPackage")
-	pkg, err := janitor.DownloadPackage(packageURL)
+	pkgPath, pkg, err := janitor.DownloadPackage(packageURL)
 	if err != nil {
 		t.Errorf("DownloadPackage failed: %v", err)
 	}
@@ -352,14 +352,28 @@ func TestDownloadPackage(t *testing.T) {
 	if len(pkg) == 0 {
 		t.Errorf("expected non-empty package content")
 	}
+	if pkgPath == "" {
+		t.Errorf("expected non-empty package path")
+	}
 
 }
 
 func TestInstallPackage(t *testing.T) {
 	janitor, _ := NewJanitor(nil, nil, "1.0.0", 0, "main", "aarch64", "")
 	janitor.opkgCmd = "true" // Mock the opkg command to always succeed
-	pkg := []byte("package content")
-	err := janitor.InstallPackage(pkg)
+
+	tmpFile, err := os.CreateTemp("", "package.ipk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write([]byte("package content")); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	err = janitor.InstallPackage(tmpFile.Name())
 	if err != nil {
 		t.Errorf("InstallPackage failed: %v", err)
 		return

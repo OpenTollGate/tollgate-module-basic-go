@@ -267,7 +267,7 @@ func (j *Janitor) ListenForNIP94Events() {
 
 			if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
 				fmt.Printf("Newer package version available: %s\n", versionStr)
-				pkg, err := j.DownloadPackage(latestPackageEvent.packageURL)
+				pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL)
 				if err != nil {
 					log.Printf("Error downloading package: %v", err)
 					timer.Stop()
@@ -281,7 +281,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				err = j.InstallPackage(pkg)
+				err = j.InstallPackage(pkgPath)
 				if err != nil {
 					log.Printf("Error installing package: %v", err)
 					timer.Stop()
@@ -297,38 +297,38 @@ func (j *Janitor) ListenForNIP94Events() {
 	}
 }
 
-func (j *Janitor) DownloadPackage(url string) ([]byte, error) {
-	fmt.Printf("Downloading package from %s to /tmp/\n", url)
+func (j *Janitor) DownloadPackage(url string) (string, []byte, error) {
+    fmt.Printf("Downloading package from %s to /tmp/\n", url)
 
-	tmpFile, err := os.CreateTemp("/tmp/", "package-*.ipk")
-	if err != nil {
-		log.Printf("Error creating temp file: %v", err)
-		return nil, err
-	}
-	defer os.Remove(tmpFile.Name())
+    tmpFile, err := os.CreateTemp("/tmp/", "package-*.ipk")
+    if err != nil {
+        log.Printf("Error creating temp file: %v", err)
+        return "", nil, err
+    }
+    defer os.Remove(tmpFile.Name())
 
-	cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
-	var downloaded int64
-	progress := &progressLogger{
-		total:      getContentLength(url),
-		downloaded: &downloaded,
-		lastLog:    time.Now(),
-	}
-	cmd.Stdout = progress
-	cmd.Stderr = progress
-	if err := cmd.Run(); err != nil {
-		log.Printf("Error downloading package: %v", err)
-		return nil, err
-	}
+    cmd := exec.Command("wget", "--progress=dot:giga", "-O", tmpFile.Name(), url)
+    var downloaded int64
+    progress := &progressLogger{
+        total:      getContentLength(url),
+        downloaded: &downloaded,
+        lastLog:    time.Now(),
+    }
+    cmd.Stdout = progress
+    cmd.Stderr = progress
+    if err := cmd.Run(); err != nil {
+        log.Printf("Error downloading package: %v", err)
+        return "", nil, err
+    }
 
-	pkg, err := os.ReadFile(tmpFile.Name())
-	if err != nil {
-		log.Printf("Error reading downloaded package: %v", err)
-		return nil, err
-	}
+    pkg, err := os.ReadFile(tmpFile.Name())
+    if err != nil {
+        log.Printf("Error reading downloaded package: %v", err)
+        return "", nil, err
+    }
 
-	fmt.Println("Package downloaded successfully to /tmp/")
-	return pkg, nil
+    fmt.Println("Package downloaded successfully to /tmp/")
+    return tmpFile.Name(), pkg, nil
 }
 
 type progressLogger struct {
@@ -381,30 +381,18 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	return nil
 }
 
-func (j *Janitor) InstallPackage(pkg []byte) error {
-	fmt.Printf("Installing package")
-	tmpFile, err := os.CreateTemp("", "package.ipk")
-	if err != nil {
-		log.Printf("Error creating temp file: %v", err)
-		return err
-	}
-	defer os.Remove(tmpFile.Name())
+func (j *Janitor) InstallPackage(pkgPath string) error {
+    fmt.Printf("Installing package from %s\n", pkgPath)
 
-	if _, err := tmpFile.Write(pkg); err != nil {
-		log.Printf("Error writing package to temp file: %v", err)
-		return err
-	}
-	tmpFile.Close()
+    cmd := exec.Command(j.opkgCmd, "install", pkgPath)
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        log.Printf("Error installing package: %v, output: %s", err, output)
+        return err
+    }
 
-	cmd := exec.Command(j.opkgCmd, "install", tmpFile.Name())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Error installing package: %v, output: %s", err, output)
-		return err
-	}
-
-	fmt.Printf("Package installed successfully")
-	return nil
+    fmt.Printf("Package installed successfully\n")
+    return nil
 }
 
 func isNetworkUnreachable(err error) bool {
