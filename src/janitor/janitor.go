@@ -420,7 +420,7 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	}
 	cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
 	cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
-	if err != nil {Invalid new
+	if err != nil {
 		//log.Printf("Invalid current version: %v", err)
 		return false
 	} 
