@@ -120,6 +120,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/check_package_path $(1)/usr/bin/
 
+	# Install cron table
+	$(INSTALL_DIR) $(1)/etc/crontabs
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/crontabs/root $(1)/etc/crontabs/
+
 	# Install control scripts
 	$(INSTALL_DIR) $(1)/CONTROL
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/preinst $(1)/CONTROL/
@@ -140,7 +144,8 @@ FILES_$(PKG_NAME) += \
 	/etc/nodogsplash/htdocs/*.html \
 	/etc/nodogsplash/htdocs/static/css/* \
 	/etc/nodogsplash/htdocs/static/js/* \
-	/etc/nodogsplash/htdocs/static/media/*
+	/etc/nodogsplash/htdocs/static/media/* \
+	/etc/crontabs/root
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
