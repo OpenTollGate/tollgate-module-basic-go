@@ -2,14 +2,18 @@
 
 ## Overview
 
-The `config_manager` package provides functions for loading and saving configurations to the filesystem.
+The `config_manager` package provides a `ConfigManager` struct that manages configuration stored in a single file.
 
 ## Responsibilities
 
-- Load configuration from a file.
-- Save configuration to a file.
+- Initialize with a specific file path.
+- Load configuration from the file.
+- Save configuration to the file.
+- Ensure a default configuration exists.
 
 ## Interfaces
 
-- `LoadConfig`: Reads the configuration from a specified file.
-- `SaveConfig`: Writes the configuration to a specified file.
+- `NewConfigManager(filePath string) (*ConfigManager, error)`: Creates a new `ConfigManager` instance with the specified file path.
+- `LoadConfig() (*Config, error)`: Reads the configuration from the managed file.
+- `SaveConfig(config *Config) error`: Writes the configuration to the managed file.
+- `EnsureDefaultConfig() (*Config, error)`: Ensures a default configuration exists, creating it if necessary.

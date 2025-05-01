@@ -1,78 +1,55 @@
 package config_manager
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 )
 
-func TestLoadConfig(t *testing.T) {
-	// Create a temporary config file
+func TestConfigManager(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(tmpFile.Name())
 
-	// Write a sample config to the file
-	sampleConfig := Config{
-		// Add sample configuration parameters here
-		// For example:
-		// Parameter1: "value1",
-		// Parameter2: 123,
-	}
-	data, err := json.Marshal(sampleConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = tmpFile.Write(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tmpFile.Close()
+	cm := NewConfigManager(tmpFile.Name())
 
-	// Load the config from the file
-	loadedConfig, err := LoadConfig(tmpFile.Name())
+	// Test EnsureDefaultConfig
+	config, err := cm.EnsureDefaultConfig()
+	if err != nil {
+		t.Errorf("EnsureDefaultConfig returned error: %v", err)
+	}
+	if config == nil {
+		t.Errorf("EnsureDefaultConfig returned nil config")
+	}
+
+	// Test LoadConfig
+	loadedConfig, err := cm.LoadConfig()
 	if err != nil {
 		t.Errorf("LoadConfig returned error: %v", err)
 	}
 	if loadedConfig == nil {
 		t.Errorf("LoadConfig returned nil config")
 	}
-	// Add more checks here to verify the loaded config
-}
 
-func TestSaveConfig(t *testing.T) {
-	// Create a temporary config file
-	tmpFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
+	// Test SaveConfig
+	newConfig := &Config{
+		TollgatePrivateKey: "test_key",
+		AcceptedMint:       "test_mint",
+		PricePerMinute:     2,
+		MinPayment:         2,
+		MintFee:            2,
 	}
-	defer os.Remove(tmpFile.Name())
-
-	// Create a sample config
-	sampleConfig := &Config{
-		// Add sample configuration parameters here
-		// For example:
-		// Parameter1: "value1",
-		// Parameter2: 123,
-	}
-
-	// Save the config to the file
-	err = SaveConfig(tmpFile.Name(), sampleConfig)
+	err = cm.SaveConfig(newConfig)
 	if err != nil {
 		t.Errorf("SaveConfig returned error: %v", err)
 	}
 
-	// Check if the file was created and has the correct content
-	data, err := os.ReadFile(tmpFile.Name())
+	loadedConfig, err = cm.LoadConfig()
 	if err != nil {
-		t.Errorf("Failed to read saved config file: %v", err)
+		t.Errorf("LoadConfig returned error after SaveConfig: %v", err)
 	}
-	var loadedConfig Config
-	err = json.Unmarshal(data, &loadedConfig)
-	if err != nil {
-		t.Errorf("Failed to unmarshal saved config: %v", err)
+	if loadedConfig.TollgatePrivateKey != "test_key" {
+		t.Errorf("Loaded config does not match saved config")
 	}
-	// Add more checks here to verify the saved config
 }
