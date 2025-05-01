@@ -45,6 +45,7 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 func init() {
+	var err error
 	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
@@ -84,17 +85,13 @@ func init() {
 }
 
 func initJanitor() {
-	cfg, err := janitor.LoadJanitorConfig()
-	if err != nil {
-		log.Fatalf("Failed to load janitor config: %v", err)
-	}
-
-	config, err = configManager.LoadConfig()
+	loadedConfig, err := configManager.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+	config = *loadedConfig
 
-	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, config.PackageInfo.Branch, config.PackageInfo.Arch, config)
+	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, config.PackageInfo.Branch, config.PackageInfo.Arch, "config")
 	if err != nil {
 		log.Fatalf("Failed to create janitor instance: %v", err)
 	}
