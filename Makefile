@@ -103,7 +103,8 @@ define Package/$(PKG_NAME)/install
 	$(eval TIMESTAMP := $(shell date +%s))
 		
 	sed -i 's/"timestamp": [0-9]\+/"timestamp": $(TIMESTAMP)/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
+	$(INSTALL_DIR) $(1)/tmp/tollgate
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/tmp/tollgate/config.json
 
 	# Banner for TollGate
 	$(INSTALL_DIR) $(1)/etc

@@ -43,8 +43,11 @@ type BraggingConfig struct {
 }
 
 // Global configuration variable
+// Define configFile at a higher scope
 var config Config
-var configFile string = "/etc/tollgate/config.json"
+var configFile string
+var etcConfigFile string = "/etc/tollgate/config.json"
+var tmpConfigFile string = "/tmp/tollgate/config.json"
 
 // Derived configuration values
 var tollgatePrivateKey string
@@ -61,6 +64,14 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 func init() {
+	var configFile string
+	if _, err := os.Stat(etcConfigFile); os.IsNotExist(err) {
+		configFile = tmpConfigFile
+		log.Printf("Using config file: %s", configFile)
+	} else {
+		configFile = etcConfigFile
+		log.Printf("Using config file: %s", configFile)
+	}
 	cmd := exec.Command("sh", "-c", "opkg list-installed | grep 'tollgate-module-basic-go'")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -135,9 +146,49 @@ func initJanitor() {
 
 // loadConfig reads configuration from /etc/tollgate/config.json
 func loadConfig() error {
-	// Read the existing config file
-	data, err := os.ReadFile(configFile)
+	// Check if config exists in /etc/tollgate/config.json
+	var data []byte
+	var err error
+
+	// Try to read from /etc/tollgate/config.json first
+	data, err = os.ReadFile(etcConfigFile)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read config file from %s: %v", etcConfigFile, err)
+		}
+		// If /etc/tollgate/config.json doesn't exist, try reading from /tmp/tollgate/config.json
+		data, err = os.ReadFile(tmpConfigFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// Create a default config if neither exists
+				config := Config{
+					TollgatePrivateKey: "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
+					AcceptedMint:       "",
+					PricePerMinute:     1,
+					MinPayment:         1,
+					MintFee:            1,
+				}
+				defaultConfig, err := json.MarshalIndent(config, "", "  ")
+				if err != nil {
+					return fmt.Errorf("failed to marshal default config: %v", err)
+				}
+				err = os.MkdirAll("/tmp/tollgate", 0755)
+				if err != nil {
+					log.Printf("WARNING: Failed to create config directory: %v", err)
+				}
+				err = os.WriteFile(tmpConfigFile, defaultConfig, 0644)
+				if err != nil {
+					log.Printf("WARNING: Failed to write default config file: %v", err)
+				}
+				data = defaultConfig
+			} else {
+				return fmt.Errorf("failed to read config file from %s: %v", tmpConfigFile, err)
+			}
+		}
+	}
+
+	// Parse the config file
+	if err := json.Unmarshal(data, &config); err != nil {
 		if os.IsNotExist(err) {
 			// Create a default config if it doesn't exist
 			config := Config{
