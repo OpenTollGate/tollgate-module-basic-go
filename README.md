@@ -64,7 +64,6 @@ Run `service firewall restart` to make changes go into effect.
 
 To test the firewall rule, go to `192.168.21.21:2122`. You should be greeted with the same JSON.
 
-
 ## OpenNDS rules
 **Prerequisite: OpenNDS is installed**
 
@@ -79,6 +78,12 @@ config opennds
 
 Run `service opennds restart` to make changes go into effect.
 
+## Design Documents
+
+- [config_manager HLDD](src/config_manager/HLDD.md)
+- [config_manager LLDD](src/config_manager/LLDD.md)
+- [janitor HLDD](src/janitor/HLDD.md)
+- [janitor LLDD](src/janitor/LLDD.md)
+
 ## License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
