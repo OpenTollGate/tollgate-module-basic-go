@@ -12,7 +12,10 @@ func TestConfigManager(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	cm := NewConfigManager(tmpFile.Name())
+	cm, err := NewConfigManager(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Test EnsureDefaultConfig
 	config, err := cm.EnsureDefaultConfig()

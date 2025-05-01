@@ -20,8 +20,13 @@ type ConfigManager struct {
 }
 
 // NewConfigManager creates a new ConfigManager instance
-func NewConfigManager(filePath string) *ConfigManager {
-	return &ConfigManager{filePath: filePath}
+func NewConfigManager(filePath string) (*ConfigManager, error) {
+	cm := &ConfigManager{filePath: filePath}
+	_, err := cm.EnsureDefaultConfig()
+	if err != nil {
+		return nil, err
+	}
+	return cm, nil
 }
 
 // LoadConfig reads the configuration from the managed file
