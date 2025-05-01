@@ -2,6 +2,26 @@
 
 echo "Running post-installation script"
 # Add your post-install commands here
+PERSISTENT_CONFIG_FILE="/etc/tollgate/persistent_config.json"
+
+# Check if persistent_config.json exists
+if [ -f "$PERSISTENT_CONFIG_FILE" ]; then
+    echo "Checking package_info in persistent_config.json..."
+    PACKAGE_INFO_CONFIG=$(jq -r '.package_info' "$PERSISTENT_CONFIG_FILE")
+    echo "package_info value: $PACKAGE_INFO_CONFIG"
+    if [ "$PACKAGE_INFO_CONFIG" = "null" ] || [ -z "$PACKAGE_INFO_CONFIG" ]; then
+        echo "Setting package_info to default values in persistent_config.json..."
+        TIMESTAMP=$(date +%s)
+        BRANCH="main"
+        jq ".package_info = {\"timestamp\": $TIMESTAMP, \"branch\": \"$BRANCH\"}" "$PERSISTENT_CONFIG_FILE" > /tmp/persistent_config.json && mv /tmp/persistent_config.json "$PERSISTENT_CONFIG_FILE"
+    fi
+else
+    echo "persistent_config.json not found. Creating it with default package_info."
+    TIMESTAMP=$(date +%s)
+    BRANCH="main"
+    echo "{\"package_info\": {\"timestamp\": $TIMESTAMP, \"branch\": \"$BRANCH\"}}" > "$PERSISTENT_CONFIG_FILE"
+fi
+
 echo "Verifying banner file ownership:"
 ls -l /etc/banner
 opkg search /etc/banner

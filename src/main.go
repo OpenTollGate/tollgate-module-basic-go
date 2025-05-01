@@ -45,6 +45,7 @@ type BraggingConfig struct {
 // Global configuration variable
 var config Config
 var configFile string = "/etc/tollgate/config.json"
+var persistentConfigFile string = "/etc/tollgate/persistent_config.json"
 
 // Derived configuration values
 var tollgatePrivateKey string
@@ -75,7 +76,7 @@ func init() {
 	installedVersion := parts[1]
 
 	// Check if we need to run post-install script
-	_, err = PostInstallSetup(configFile, installedVersion)
+	_, err = PostInstallSetup(persistentConfigFile, installedVersion)
 	if err != nil {
 		log.Fatalf("Error running post-install script: %v", err)
 	}
@@ -485,21 +486,25 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
 }
 
-func PostInstallSetup(configPath, newVersion string) (int64, error) {
+func PostInstallSetup(persistentConfigFile, newVersion string) (int64, error) {
 	fmt.Printf("Running post-install script")
 
 	// Read existing config
-	configData, err := os.ReadFile(configPath)
+	configData, err := os.ReadFile(persistentConfigFile)
 	if err != nil {
 		log.Printf("Error reading config file: %v", err)
 		return 0, err
 	}
 
 	var configMap map[string]interface{}
-	err = json.Unmarshal(configData, &configMap)
-	if err != nil {
-		log.Printf("Error unmarshaling config: %v", err)
-		return 0, err
+	if len(configData) == 0 {
+		configMap = make(map[string]interface{})
+	} else {
+		err = json.Unmarshal(configData, &configMap)
+		if err != nil {
+			log.Printf("Error unmarshaling config: %v", err)
+			return 0, err
+		}
 	}
 
 	// Get package_info map or create it if it doesn't exist
@@ -509,22 +514,25 @@ func PostInstallSetup(configPath, newVersion string) (int64, error) {
 		configMap["package_info"] = packageInfo
 	}
 
-	// Determine DISTRIB_ARCH by running the command
-	cmd := exec.Command("sh", "-c", ". /etc/openwrt_release && echo $DISTRIB_ARCH")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Failed to determine DISTRIB_ARCH: %v", err)
-		return 0, err
-	}
-	distribArch := strings.TrimSpace(string(output))
+	       cmd := exec.Command("sh", "-c", ". /etc/openwrt_release && echo $DISTRIB_ARCH")
+	       output, err := cmd.CombinedOutput()
+	       if err != nil {
+	               log.Printf("Failed to determine DISTRIB_ARCH: %v", err)
+	               return 0, err
+	       }
+	       distribArch := strings.TrimSpace(string(output))
 
-	// Update package_info
-	newTimestamp := time.Now().Unix()
-	packageInfo["version"] = newVersion
-	packageInfo["arch"] = distribArch
+	if _, ok := packageInfo["version"]; !ok {
+		packageInfo["version"] = newVersion
+	}
+
+	if _, ok := packageInfo["arch"]; !ok {
+		packageInfo["arch"] = distribArch
+	}
 
 	// Only set timestamp if it doesn't already exist
 	if _, ok := packageInfo["timestamp"]; !ok {
+		newTimestamp := time.Now().Unix()
 		packageInfo["timestamp"] = newTimestamp
 	}
 
@@ -540,7 +548,7 @@ func PostInstallSetup(configPath, newVersion string) (int64, error) {
 		return 0, err
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(persistentConfigFile, data, 0644); err != nil {
 		log.Printf("Error writing config file: %v", err)
 		return 0, err
 	}
