@@ -16,6 +16,7 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"tollgate-module-basic-go/src/janitor"
 	"tollgate-module-basic-go/src/modules"
+	"tollgate-module-basic-go/src/config_manager"
 )
 
 // Config structure to hold all configuration parameters
@@ -45,9 +46,9 @@ type BraggingConfig struct {
 // Global configuration variable
 // Define configFile at a higher scope
 var config Config
-var configFile string
-var etcConfigFile string = "/etc/tollgate/config.json"
-var tmpConfigFile string = "/tmp/tollgate/config.json"
+var configFile string = "/etc/tollgate/config.json"
+var configManager *config_manager.ConfigManager
+var config config_manager.Config
 
 // Derived configuration values
 var tollgatePrivateKey string
@@ -130,7 +131,7 @@ func init() {
 }
 
 func initJanitor() {
-	config, err := janitor.LoadJanitorConfig(configFile)
+	config, err := janitor.LoadJanitorConfigFromStruct(config)
 	if err != nil {
 		log.Fatalf("Failed to load janitor config: %v", err)
 	}
