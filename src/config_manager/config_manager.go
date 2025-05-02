@@ -1,12 +1,16 @@
 package config_manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/nbd-wtf/go-nostr"
 )
 
 func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
@@ -30,7 +34,7 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 			continue
 		}
 		for event := range sub.Events {
-			return &event, nil
+			return event, nil
 		}
 	}
 	return nil, fmt.Errorf("NIP-94 event not found with ID %s", eventID)
@@ -93,46 +97,7 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 	}, nil
 }
 
-func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
-	if event == nil {
-		return nil, fmt.Errorf("event is nil")
-	}
 
-	var version string
-	var branch string
-	var timestamp int64
-
-	for _, tag := range event.Tags {
-		if len(tag) > 1 {
-			switch tag[0] {
-			case "version":
-				version = tag[1]
-			case "branch":
-				branch = tag[1]
-			}
-		}
-	}
-
-	timestamp = int64(event.CreatedAt)
-
-	if version == "" || branch == "" {
-		return nil, fmt.Errorf("required information not found in NIP94 event")
-	}
-
-	return &PackageInfo{
-		Version:   version,
-		Branch:    branch,
-		Timestamp: timestamp,
-	}, nil
-}
-	AcceptedMints       []string       `json:"accepted_mints"`
-	PricePerMinute     int            `json:"price_per_minute"`
-	Bragging           BraggingConfig `json:"bragging"`
-	Relays             []string       `json:"relays"`
-	TrustedMaintainers []string       `json:"trusted_maintainers"`
-	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
-	NIP94EventID       []string       `json:"EventID_currently_installed"`
-}
 
 // InstallConfig holds the installation configuration parameters
 type InstallConfig struct {
