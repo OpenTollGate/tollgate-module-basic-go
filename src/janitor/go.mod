@@ -1,9 +1,8 @@
-module github.com/OpenTollGate/tollgate-module-basic-go/janitor
+module github.com/OpenTollGate/tollgate-module-basic-go/src/janitor
 
 go 1.24.2
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/config_manager v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/go-version v1.7.0
 	github.com/nbd-wtf/go-nostr v0.51.10
 )
@@ -34,6 +33,4 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 )
 
-replace github.com/fiatjaf/go-nostr => github.com/nbd-wtf/go-nostr v0.51.10
-
-replace github.com/OpenTollGate/tollgate-module-basic-go/config_manager => ../config_manager
+replace github.com/OpenTollGate/tollgate-module-basic-go/config_manager => github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-00010101000000-000000000000

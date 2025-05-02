@@ -14,9 +14,9 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"tollgate-module-basic-go/src/config_manager"
-	"tollgate-module-basic-go/src/janitor"
-	"tollgate-module-basic-go/src/modules"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
 )
 
 type BraggingConfig struct {

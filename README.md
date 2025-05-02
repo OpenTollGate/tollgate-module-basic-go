@@ -10,6 +10,7 @@ The following design documents are available for the various components of this 
 * [src/config_manager/LLDD.md](src/config_manager/LLDD.md)
 * [src/janitor/HLDD.md](src/janitor/HLDD.md)
 * [src/janitor/LLDD.md](src/janitor/LLDD.md)
+* [src/LLDD.md](src/LLDD.md)
 
 # Compile for ATH79 (GL-AR300 NOR)
 

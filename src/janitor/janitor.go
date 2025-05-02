@@ -20,7 +20,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/OpenTollGate/tollgate-module-basic-go/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 type packageEvent struct {
@@ -519,6 +519,7 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	}
 	return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
 }
+
 func intersect(slices ...[]string) []string {
 	if len(slices) == 0 {
 		return []string{}
