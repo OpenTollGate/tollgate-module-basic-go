@@ -3,13 +3,13 @@ module github.com/OpenTollGate/tollgate-module-basic-go/janitor
 go 1.24.2
 
 require (
+	github.com/OpenTollGate/tollgate-module-basic-go/config_manager v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/go-version v1.7.0
 	github.com/nbd-wtf/go-nostr v0.51.10
 )
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
-	github.com/OpenTollGate/tollgate-module-basic-go/config_manager v0.0.0-00010101000000-000000000000 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/bytedance/sonic v1.13.1 // indirect
