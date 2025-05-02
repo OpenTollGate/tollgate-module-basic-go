@@ -9,6 +9,33 @@ import (
 	"strings"
 )
 
+func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
+	relayPool := nostr.NewSimplePool(context.Background())
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	for _, relayURL := range config.Relays {
+		relay, err := relayPool.EnsureRelay(relayURL)
+		if err != nil {
+			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+			continue
+		}
+		filter := nostr.Filter{
+			IDs: []string{eventID},
+		}
+		sub, err := relay.Subscribe(context.Background(), []nostr.Filter{filter})
+		if err != nil {
+			log.Printf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
+			continue
+		}
+		for event := range sub.Events {
+			return &event, nil
+		}
+	}
+	return nil, fmt.Errorf("NIP-94 event not found with ID %s", eventID)
+}
+
 // BraggingConfig holds the bragging configuration parameters
 type BraggingConfig struct {
 	Enabled bool     `json:"enabled"`
@@ -18,6 +45,46 @@ type BraggingConfig struct {
 // Config holds the configuration parameters
 type Config struct {
 	TollgatePrivateKey string         `json:"tollgate_private_key"`
+}
+
+type PackageInfo struct {
+	Version   string
+	Branch    string
+	Timestamp int64
+}
+
+func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
+	if event == nil {
+		return nil, fmt.Errorf("event is nil")
+	}
+
+	var version string
+	var branch string
+	var timestamp int64
+
+	for _, tag := range event.Tags {
+		if len(tag) > 1 {
+			switch tag[0] {
+			case "version":
+				version = tag[1]
+			case "branch":
+				branch = tag[1]
+			}
+		}
+	}
+
+	timestamp = int64(event.CreatedAt)
+
+	if version == "" || branch == "" {
+		return nil, fmt.Errorf("required information not found in NIP94 event")
+	}
+
+	return &PackageInfo{
+		Version:   version,
+		Branch:    branch,
+		Timestamp: timestamp,
+	}, nil
+}
 	AcceptedMints       []string       `json:"accepted_mints"`
 	PricePerMinute     int            `json:"price_per_minute"`
 	Bragging           BraggingConfig `json:"bragging"`

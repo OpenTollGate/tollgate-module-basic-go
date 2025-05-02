@@ -407,7 +407,24 @@ func main() {
 		log.Printf("Error getting installed version: %v", err)
 	} else {
 		installedVersion := strings.Fields(string(output))[2]
-		configVersion := config.PackageInfo.Version
+		installConfig, err := configManager.LoadInstallConfig()
+		if err != nil {
+			log.Printf("Error loading install config: %v", err)
+			os.Exit(1)
+		}
+		nip94EventID := installConfig.NIP94EventID
+		nip94Event, err := configManager.GetNIP94Event(nip94EventID)
+		if err != nil {
+			log.Printf("Error getting NIP94 event: %v", err)
+			os.Exit(1)
+		}
+		// Extract PackageInfo from nip94Event
+		packageInfo, err := config_manager.ExtractPackageInfo(nip94Event)
+		if err != nil {
+			log.Printf("Error extracting package info: %v", err)
+			os.Exit(1)
+		}
+		configVersion := packageInfo.Version
 
 		if installedVersion != configVersion {
 			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
