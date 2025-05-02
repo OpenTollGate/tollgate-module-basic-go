@@ -64,11 +64,11 @@ type Janitor struct {
 	currentTimestamp   int64
 	ConfigBranch       string
 	ConfigArch         string
-	configPath         string
+	configManager      *config_manager.ConfigManager
 	opkgCmd            string
 }
 
-func NewJanitor(relays []string, trustedMaintainers []string, currentVersion string, currentTimestamp int64, configBranch string, configArch string, configPath string) (*Janitor, error) {
+func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 	fmt.Println("Creating new Janitor instance")
 	v, err := version.NewVersion(currentVersion)
 	if err != nil {
@@ -82,7 +82,7 @@ func NewJanitor(relays []string, trustedMaintainers []string, currentVersion str
 		currentTimestamp:   currentTimestamp,
 		ConfigBranch:       configBranch,
 		ConfigArch:         configArch,
-		configPath:         configPath,
+		configManager:      configManager,
 		opkgCmd:            "opkg",
 	}, nil
 }
@@ -385,34 +385,12 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 }
 
 func (j *Janitor) updateConfigWithPackagePath(pkgPath string) error {
-	configPath := j.configPath
-	data, err := os.ReadFile(configPath)
+	config, err := j.configManager.LoadConfig()
 	if err != nil {
-		log.Printf("Error reading config file: %v", err)
 		return err
 	}
-
-	var config map[string]interface{}
-	err = json.Unmarshal(data, &config)
-	if err != nil {
-		log.Printf("Error unmarshaling config: %v", err)
-		return err
-	}
-
-	config["update_path"] = pkgPath
-
-	updatedData, err := json.Marshal(config)
-	if err != nil {
-		log.Printf("Error marshaling updated config: %v", err)
-		return err
-	}
-
-	err = os.WriteFile(configPath, updatedData, 0644)
-	if err != nil {
-		log.Printf("Error writing updated config file: %v", err)
-		return err
-	}
-	return nil
+	config.PackageInfo.UpdatePath = pkgPath
+	return j.configManager.SaveConfig(config)
 }
 
 func isNetworkUnreachable(err error) bool {
