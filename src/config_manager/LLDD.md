@@ -15,12 +15,7 @@ The `Config` struct will hold the configuration parameters as defined in the exi
   },
   "min_payment": 1,
   "mint_fee": 0,
-  "package_info": {
-    "timestamp": 1745741060,
-    "version": "0.0.1+1cac608",
-    "branch": "main",
-    "arch": "aarch64_cortex-a53"
-  },
+  "nip94_event_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597",
   "price_per_minute": 1,
   "relays": [
     "wss://relay.damus.io",
@@ -88,11 +83,7 @@ The `ConfigManager` struct will manage the configuration file.
   - `bragging`: enabled with fields "amount", "mint", "duration"
   - `min_payment`: calculated based on `mint_fee`
   - `mint_fee`: retrieved using `getMintFee`
-  - `package_info`: 
-    - `timestamp`: current time if not set
-    - `version`: installed package version
-    - `branch`: "main" if not set
-    - `arch`: device architecture
+  - `nip94_event_id`: the ID of the NIP94 event announcing the package
   - `price_per_minute`: hardcoded value if not set
   - `relays`: hardcoded list if not set
   - `tollgate_private_key`: generated using nostr tools if not set

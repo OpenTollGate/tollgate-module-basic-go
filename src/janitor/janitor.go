@@ -283,9 +283,9 @@ func (j *Janitor) ListenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				err = j.updateConfigWithPackagePath(pkgPath)
+				err = j.updateInstallConfig(pkgPath, event.ID)
 				if err != nil {
-					log.Printf("Error updating config with package path: %v", err)
+					log.Printf("Error updating install config with package path and NIP94 event ID: %v", err)
 					timer.Stop()
 					isTimerActive = false
 					return
@@ -384,13 +384,19 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	return nil
 }
 
-func (j *Janitor) updateConfigWithPackagePath(pkgPath string) error {
-	config, err := j.configManager.LoadConfig()
+func (j *Janitor) updateInstallConfig(pkgPath string, nip94EventID string) error {
+	installConfig, err := j.configManager.LoadInstallConfig()
 	if err != nil {
 		return err
 	}
-	config.PackageInfo.UpdatePath = pkgPath
-	return j.configManager.SaveConfig(config)
+	if installConfig == nil {
+		installConfig = config_manager.NewInstallConfig(pkgPath)
+		installConfig.NIP94EventID = nip94EventID
+	} else {
+		installConfig.PackagePath = pkgPath
+		installConfig.NIP94EventID = nip94EventID
+	}
+	return j.configManager.SaveInstallConfig(installConfig)
 }
 
 func isNetworkUnreachable(err error) bool {

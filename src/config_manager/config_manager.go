@@ -35,6 +35,48 @@ type Config struct {
 	Relays             []string       `json:"relays"`
 	TrustedMaintainers []string       `json:"trusted_maintainers"`
 	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
+	NIP94EventID       []string       `json:"EventID_currently_installed"`
+}
+
+// InstallConfig holds the installation configuration parameters
+type InstallConfig struct {
+	PackagePath string `json:"package_path"`
+	NIP94EventID string `json:"nip94_event_id"`
+}
+
+// NewInstallConfig creates a new InstallConfig instance
+func NewInstallConfig(packagePath string) *InstallConfig {
+	return &InstallConfig{PackagePath: packagePath}
+}
+
+// LoadInstallConfig reads the installation configuration from the managed file
+func (cm *ConfigManager) LoadInstallConfig() (*InstallConfig, error) {
+	data, err := os.ReadFile(cm.installFilePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // Return nil config if file does not exist
+		}
+		return nil, err
+	}
+	var installConfig InstallConfig
+	err = json.Unmarshal(data, &installConfig)
+	if err != nil {
+		return nil, err
+	}
+	return &installConfig, nil
+}
+
+// SaveInstallConfig writes the installation configuration to the managed file
+func (cm *ConfigManager) SaveInstallConfig(installConfig *InstallConfig) error {
+	data, err := json.Marshal(installConfig)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(cm.installFilePath(), data, 0644)
+}
+
+func (cm *ConfigManager) installFilePath() string {
+	return filepath.Join(filepath.Dir(cm.filePath), "install.json")
 }
 
 // ConfigManager manages the configuration file
