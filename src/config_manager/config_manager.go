@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
-	"time"
 )
 
 // BraggingConfig holds the bragging configuration parameters
@@ -18,7 +18,7 @@ type BraggingConfig struct {
 // Config holds the configuration parameters
 type Config struct {
 	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMints       string         `json:"accepted_mints"`
+	AcceptedMints       []string       `json:"accepted_mints"`
 	PricePerMinute     int            `json:"price_per_minute"`
 	Bragging           BraggingConfig `json:"bragging"`
 	Relays             []string       `json:"relays"`
@@ -178,7 +178,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 
 		defaultConfig := &Config{
 			TollgatePrivateKey: privateKey,
-			AcceptedMints:       []string{"https://mint.minibits.cash/Bitcoin"},
+			AcceptedMints:       []string{"https://mint.minibits.cash/Bitcoin", "https://mint2.nutmix.cash"},
 			PricePerMinute:     1,
 			Bragging: BraggingConfig{
 				Enabled: true,
@@ -188,7 +188,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"wss://relay.damus.io",
 				"wss://nos.lol",
 				"wss://nostr.mom",
-				"wss://relay.tollgate.me"
+				"wss://relay.tollgate.me",
 			},
 			TrustedMaintainers: []string{
 				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",

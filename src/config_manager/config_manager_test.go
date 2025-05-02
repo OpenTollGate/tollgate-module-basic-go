@@ -2,6 +2,7 @@ package config_manager
 
 import (
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -11,13 +12,6 @@ func compareBraggingConfig(a, b *BraggingConfig) bool {
 		return false
 	}
 	return compareStringSlices(a.Fields, b.Fields)
-}
-
-func comparePackageInfo(a, b *PackageInfo) bool {
-	return a.Timestamp == b.Timestamp &&
-		a.Version == b.Version &&
-		a.Branch == b.Branch &&
-		a.Arch == b.Arch
 }
 
 func compareStringSlices(a, b []string) bool {
@@ -65,23 +59,16 @@ func TestConfigManager(t *testing.T) {
 	// Test SaveConfig
 	newConfig := &Config{
 		TollgatePrivateKey: "test_key",
-		AcceptedMint:       "test_mint",
+		AcceptedMints:       []string{"test_mint"},
 		PricePerMinute:     2,
-		MinPayment:         2,
-		MintFee:            2,
 		Bragging: BraggingConfig{
 			Enabled: true,
 			Fields:  []string{"test_field"},
 		},
-		PackageInfo: PackageInfo{
-			Timestamp: 1234567890,
-			Version:   "test_version",
-			Branch:    "test_branch",
-			Arch:      "test_arch",
-		},
 		Relays:             []string{"test_relay"},
 		TrustedMaintainers: []string{"test_maintainer"},
 		FieldsToBeReviewed: []string{"test_field_to_review"},
+		NIP94EventID:       []string{"test_nip94_event_id"},
 	}
 	err = cm.SaveConfig(newConfig)
 	if err != nil {
@@ -94,15 +81,39 @@ func TestConfigManager(t *testing.T) {
 	}
 	// Verify all fields
 	if loadedConfig.TollgatePrivateKey != "test_key" ||
-		loadedConfig.AcceptedMint != "test_mint" ||
+		!compareStringSlices(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
 		loadedConfig.PricePerMinute != 2 ||
-		loadedConfig.MinPayment != 2 ||
-		loadedConfig.MintFee != 2 ||
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
-		!comparePackageInfo(&loadedConfig.PackageInfo, &newConfig.PackageInfo) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
-		!compareStringSlices(loadedConfig.FieldsToBeReviewed, newConfig.FieldsToBeReviewed) {
+		!compareStringSlices(loadedConfig.FieldsToBeReviewed, newConfig.FieldsToBeReviewed) ||
+		!compareStringSlices(loadedConfig.NIP94EventID, newConfig.NIP94EventID) {
 		t.Errorf("Loaded config does not match saved config")
+	}
+
+	// Test LoadInstallConfig and SaveInstallConfig
+	installConfig, err := cm.LoadInstallConfig()
+	if err != nil {
+		t.Errorf("LoadInstallConfig returned error: %v", err)
+	}
+	if installConfig != nil {
+		t.Errorf("LoadInstallConfig returned non-nil config")
+	}
+
+	newInstallConfig := &InstallConfig{
+		PackagePath: "/path/to/package",
+		NIP94EventID: "event-id",
+	}
+	err = cm.SaveInstallConfig(newInstallConfig)
+	if err != nil {
+		t.Errorf("SaveInstallConfig returned error: %v", err)
+	}
+
+	loadedInstallConfig, err := cm.LoadInstallConfig()
+	if err != nil {
+		t.Errorf("LoadInstallConfig returned error after SaveInstallConfig: %v", err)
+	}
+	if !reflect.DeepEqual(loadedInstallConfig, newInstallConfig) {
+		t.Errorf("Loaded install config does not match saved config")
 	}
 }
