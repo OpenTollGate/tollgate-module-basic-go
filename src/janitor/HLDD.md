@@ -9,7 +9,7 @@ The module should:
 - Download and install new packages if they are newer than the currently installed version based on the version number
 
 ## Configuration
-Configuration data will be stored in `files/etc/tollgate/config.json`
+The Janitor module uses the ConfigManager to access both the main configuration and the installation configuration stored in `install.json`.
 
 ```json
 {

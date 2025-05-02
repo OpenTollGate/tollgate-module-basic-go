@@ -1,6 +1,15 @@
 # Tollgate Module - tip01 (go)
 
-This Tollgate module will give back a user's MAC address based on the IP address that's been assigned to them. This is necessary as a workaround for restrictions by the Android operating system, which does not allow for non-system apps to get the device's MAC address.
+This Tollgate module is a payment gateway that allows users to pay for internet access using Cashu tokens. It provides an HTTP server that handles payments and manages access control.
+
+## Design Documents
+
+The following design documents are available for the various components of this module:
+
+* [src/config_manager/HLDD.md](src/config_manager/HLDD.md)
+* [src/config_manager/LLDD.md](src/config_manager/LLDD.md)
+* [src/janitor/HLDD.md](src/janitor/HLDD.md)
+* [src/janitor/LLDD.md](src/janitor/LLDD.md)
 
 # Compile for ATH79 (GL-AR300 NOR)
 
@@ -77,13 +86,6 @@ config opennds
 ```
 
 Run `service opennds restart` to make changes go into effect.
-
-## Design Documents
-
-- [config_manager HLDD](src/config_manager/HLDD.md)
-- [config_manager LLDD](src/config_manager/LLDD.md)
-- [janitor HLDD](src/janitor/HLDD.md)
-- [janitor LLDD](src/janitor/LLDD.md)
 
 ## License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
