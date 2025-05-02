@@ -33,4 +33,3 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 )
 
-replace github.com/OpenTollGate/tollgate-module-basic-go/config_manager => github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-00010101000000-000000000000
