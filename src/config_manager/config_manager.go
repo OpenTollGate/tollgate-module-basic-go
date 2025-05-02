@@ -15,23 +15,12 @@ type BraggingConfig struct {
 	Fields  []string `json:"fields"`
 }
 
-// PackageInfo holds information about the package
-type PackageInfo struct {
-	Timestamp int64  `json:"timestamp"`
-	Version   string `json:"version"`
-	Branch    string `json:"branch"`
-	Arch      string `json:"json"`
-}
-
 // Config holds the configuration parameters
 type Config struct {
 	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMint       string         `json:"accepted_mint"`
+	AcceptedMints       string         `json:"accepted_mints"`
 	PricePerMinute     int            `json:"price_per_minute"`
-	MinPayment         int            `json:"min_payment"`
-	MintFee            int            `json:"mint_fee"`
 	Bragging           BraggingConfig `json:"bragging"`
-	PackageInfo        PackageInfo    `json:"package_info"`
 	Relays             []string       `json:"relays"`
 	TrustedMaintainers []string       `json:"trusted_maintainers"`
 	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
@@ -121,6 +110,7 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 }
 
 // getMintFee retrieves the mint fee for a given mint URL
+// TODO: Run this every time rather than storing the information in a config file.
 func getMintFee(mintURL string) (int, error) {
 	// Stub implementation: return a default mint fee
 	return 0, nil
@@ -129,10 +119,11 @@ func getMintFee(mintURL string) (int, error) {
 // calculateMinPayment calculates the minimum payment based on the mint fee
 func calculateMinPayment(mintFee int) int {
 	// Stub implementation: return the mint fee as the minimum payment
-	return mintFee
+	return 2 * mintFee + 1
 }
 
 // getInstalledVersion retrieves the installed version of the package
+// TODO: run this every time rather than storing the ouptut in a config file. 
 func getInstalledVersion() (string, error) {
 	_, err := exec.LookPath("opkg")
 	if err != nil {
@@ -153,6 +144,7 @@ func getInstalledVersion() (string, error) {
 }
 
 // getArchitecture retrieves the device architecture
+// TODO: run this every time rather than storing this information in a config file.
 func getArchitecture() (string, error) {
 	_, err := exec.LookPath("uci")
 	if err != nil {
@@ -184,41 +176,19 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			return nil, err
 		}
 
-		// Get the installed version and architecture
-		version, err := getInstalledVersion()
-		if err != nil {
-			return nil, err
-		}
-		arch, err := getArchitecture()
-		if err != nil {
-			return nil, err
-		}
-
-		mintFee, err := getMintFee("https://mint.minibits.cash/Bitcoin")
-		if err != nil {
-			return nil, err
-		}
-
 		defaultConfig := &Config{
 			TollgatePrivateKey: privateKey,
-			AcceptedMint:       "https://mint.minibits.cash/Bitcoin",
+			AcceptedMints:       []string{"https://mint.minibits.cash/Bitcoin"},
 			PricePerMinute:     1,
-			MinPayment:         calculateMinPayment(mintFee),
-			MintFee:            mintFee,
 			Bragging: BraggingConfig{
 				Enabled: true,
 				Fields:  []string{"amount", "mint", "duration"},
-			},
-			PackageInfo: PackageInfo{
-				Timestamp: time.Now().Unix(),
-				Version:   version,
-				Branch:    "main",
-				Arch:      arch,
 			},
 			Relays: []string{
 				"wss://relay.damus.io",
 				"wss://nos.lol",
 				"wss://nostr.mom",
+				"wss://relay.tollgate.me"
 			},
 			TrustedMaintainers: []string{
 				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",

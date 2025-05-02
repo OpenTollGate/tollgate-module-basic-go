@@ -1,6 +1,6 @@
 #!/bin/sh
 
-config_path="/etc/tollgate/config.json"
+config_path="/etc/tollgate/install.json"
 update_path=$(jq -r '.update_path // ""' "$config_path")
 
 if [ -n "$update_path" ] && [ -f "$update_path" ]; then
