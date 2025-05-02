@@ -7,6 +7,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	tollgate-module-basic-go/src/modules v0.0.0-00010101000000-000000000000
+	tollgate-module-basic-go/src/config_manager v0.0.0-00010101000000-000000000000
 )
 
 require (
