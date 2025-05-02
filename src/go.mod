@@ -48,4 +48,5 @@ require (
 replace (
 	tollgate-module-basic-go/src/janitor => ./janitor
 	tollgate-module-basic-go/src/modules => ./modules
+	tollgate-module-basic-go/src/config_manager => ./config_manager
 )

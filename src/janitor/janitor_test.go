@@ -11,7 +11,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
-	"src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/config_manager"
 )
 
 func TestParseNIP94Event(t *testing.T) {

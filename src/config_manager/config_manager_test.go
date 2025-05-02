@@ -92,6 +92,8 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	// Test LoadInstallConfig and SaveInstallConfig
+	// Remove install.json file if it exists
+	os.Remove(cm.installFilePath())
 	installConfig, err := cm.LoadInstallConfig()
 	if err != nil {
 		t.Errorf("LoadInstallConfig returned error: %v", err)

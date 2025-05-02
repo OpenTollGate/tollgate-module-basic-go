@@ -20,6 +20,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/OpenTollGate/tollgate-module-basic-go/config_manager"
 )
 
 type packageEvent struct {
@@ -70,21 +71,72 @@ type Janitor struct {
 
 func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 	fmt.Println("Creating new Janitor instance")
-	v, err := version.NewVersion(currentVersion)
+
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Failed to load config: %v", err)
+		return nil, err
+	}
+
+	installedVersion, err := config_manager.GetInstalledVersion()
+	if err != nil {
+		log.Printf("Failed to get installed version: %v", err)
+		return nil, err
+	}
+
+	v, err := version.NewVersion(installedVersion)
 	if err != nil {
 		log.Printf("Invalid current version: %v", err)
 		return nil, err
 	}
+
+	architecture, err := config_manager.GetArchitecture()
+	if err != nil {
+		log.Printf("Failed to get architecture: %v", err)
+		return nil, err
+	}
+
 	return &Janitor{
-		relays:             relays,
-		trustedMaintainers: trustedMaintainers,
+		relays:             config.Relays,
+		trustedMaintainers: config.TrustedMaintainers,
 		currentVersion:     v,
-		currentTimestamp:   currentTimestamp,
-		ConfigBranch:       configBranch,
-		ConfigArch:         configArch,
+		ConfigBranch:       "main",                 // Default or fetched from config
+		ConfigArch:         architecture,
 		configManager:      configManager,
 		opkgCmd:            "opkg",
 	}, nil
+}
+
+// Helper functions to get installed version and architecture
+func getInstalledVersion() (string, error) {
+	_, err := exec.LookPath("opkg")
+	if err != nil {
+		return "0.0.1+1cac608", nil // Default version if opkg is not found
+	}
+	cmd := exec.Command("opkg", "list-installed", "tollgate-basic")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get installed version: %w", err)
+	}
+	outputStr := strings.TrimSpace(string(output))
+	parts := strings.Split(outputStr, " - ")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("unexpected output format: %s", outputStr)
+	}
+	return parts[1], nil
+}
+
+func getArchitecture() (string, error) {
+	_, err := exec.LookPath("uci")
+	if err != nil {
+		return "aarch64_cortex-a53", nil // Default architecture if uci is not found
+	}
+	cmd := exec.Command("uci", "get", "system.@system[0].DISTRIB_ARCH")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get architecture: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (j *Janitor) ListenForNIP94Events() {

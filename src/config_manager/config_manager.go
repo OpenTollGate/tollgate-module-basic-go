@@ -124,7 +124,7 @@ func calculateMinPayment(mintFee int) int {
 
 // getInstalledVersion retrieves the installed version of the package
 // TODO: run this every time rather than storing the ouptut in a config file. 
-func getInstalledVersion() (string, error) {
+func GetInstalledVersion() (string, error) {
 	_, err := exec.LookPath("opkg")
 	if err != nil {
 		// opkg not found, return a default version or skip this check
@@ -145,7 +145,7 @@ func getInstalledVersion() (string, error) {
 
 // getArchitecture retrieves the device architecture
 // TODO: run this every time rather than storing this information in a config file.
-func getArchitecture() (string, error) {
+func GetArchitecture() (string, error) {
 	_, err := exec.LookPath("uci")
 	if err != nil {
 		// uci not found, return a default architecture
