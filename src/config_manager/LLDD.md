@@ -30,6 +30,18 @@ The `Config` struct holds the main configuration parameters as defined:
 }
 ```
 
+## PackageInfo Struct
+
+The `PackageInfo` struct holds information extracted from NIP-94 events:
+
+```go
+type PackageInfo struct {
+	Version   string
+	Branch    string
+	Timestamp int64
+}
+```
+
 ## InstallConfig Struct
 
 The `InstallConfig` struct holds the installation configuration parameters:
@@ -72,6 +84,7 @@ The `ConfigManager` struct manages both the main configuration file and the inst
 - Includes defaults for `bragging`, `relays`, `trusted_maintainers`, and other parameters.
 
 
+
 ## EnsureDefaultConfig Function
 
 - Attempts to load the configuration from the managed file.
@@ -90,6 +103,15 @@ The `ConfigManager` struct manages both the main configuration file and the inst
     - `trusted_maintainers` if not already set
 - Saves the default configuration to the managed file.
 - Returns the loaded or default configuration and any error encountered.
+
+## GetNIP94Event Function
+
+- Fetches a NIP-94 event from a relay using the provided event ID.
+- Iterates through the configured relays to find the event.
+
+## ExtractPackageInfo Function
+
+- Extracts `PackageInfo` from a given NIP-94 event.
 
 ## Janitor Integration
 
