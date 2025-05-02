@@ -1,6 +1,6 @@
 # Tollgate Module - tip01 (go)
 
-This Tollgate module will give back a user's MAC address based on the IP address that's been assigned to them. This is necesarry as a workaround for restrictions by the Android operating sytstem, which does not allow for non-system apps to get the device's MAC address.
+This Tollgate module will give back a user's MAC address based on the IP address that's been assigned to them. This is necessary as a workaround for restrictions by the Android operating system, which does not allow for non-system apps to get the device's MAC address.
 
 # Compile for ATH79 (GL-AR300 NOR)
 

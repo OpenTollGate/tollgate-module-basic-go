@@ -2,18 +2,20 @@
 
 ## Overview
 
-The `config_manager` package provides a `ConfigManager` struct that manages configuration stored in a single file, referencing package information through NIP94 event IDs.
+The `config_manager` package provides a `ConfigManager` struct that manages configuration stored in multiple files, including a main configuration file and an installation configuration file (`install.json`). It references package information through NIP94 event IDs.
 
 ## Responsibilities
 
-- Initialize with a specific file path.
-- Load configuration from the file.
-- Save configuration to the file.
-- Ensure a default configuration exists, including a valid NIP94 event ID.
+- Initialize with a specific file path for the main configuration.
+- Load configuration from the main configuration file and installation configuration from `install.json`.
+- Save configuration to the respective files.
+- Ensure a default configuration exists for both main and installation configurations.
 
 ## Interfaces
 
 - `NewConfigManager(filePath string) (*ConfigManager, error)`: Creates a new `ConfigManager` instance with the specified file path.
-- `LoadConfig() (*Config, error)`: Reads the configuration from the managed file, including the NIP94 event ID.
-- `SaveConfig(config *Config) error`: Writes the configuration to the managed file, validating the NIP94 event ID.
-- `EnsureDefaultConfig() (*Config, error)`: Ensures a default configuration exists, creating it if necessary, and includes a valid NIP94 event ID.
+- `LoadConfig() (*Config, error)`: Reads the main configuration from the managed file.
+- `SaveConfig(config *Config) error`: Writes the main configuration to the managed file.
+- `LoadInstallConfig() (*InstallConfig, error)`: Reads the installation configuration from `install.json`.
+- `SaveInstallConfig(installConfig *InstallConfig) error`: Writes the installation configuration to `install.json`.
+- `EnsureDefaultConfig() (*Config, error)`: Ensures a default main configuration exists, creating it if necessary.
