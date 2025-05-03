@@ -128,18 +128,6 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
-func getArchitecture() (string, error) {
-	_, err := exec.LookPath("uci")
-	if err != nil {
-		return "aarch64_cortex-a53", nil // Default architecture if uci is not found
-	}
-	cmd := exec.Command("uci", "get", "system.@system[0].DISTRIB_ARCH")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get architecture: %w", err)
-	}
-	return strings.TrimSpace(string(output)), nil
-}
 
 func (j *Janitor) ListenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")

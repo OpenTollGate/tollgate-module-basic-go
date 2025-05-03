@@ -221,20 +221,19 @@ func GetInstalledVersion() (string, error) {
     return "", fmt.Errorf("tollgate package not found")
 }
 
-// getArchitecture retrieves the device architecture
-// TODO: run this every time rather than storing this information in a config file.
 func GetArchitecture() (string, error) {
-	_, err := exec.LookPath("uci")
+	data, err := os.ReadFile("/etc/openwrt_release")
 	if err != nil {
-		// uci not found, return a default architecture
-		return "aarch64_cortex-a53", nil
+		return "", fmt.Errorf("failed to read /etc/openwrt_release: %w", err)
 	}
-	cmd := exec.Command("uci", "get", "system.@system[0].DISTRIB_ARCH")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get architecture: %w", err)
+
+	re := regexp.MustCompile(`DISTRIB_ARCH='([^']+)'`)
+	match := re.FindStringSubmatch(string(data))
+	if len(match) < 2 {
+		return "", fmt.Errorf("DISTRIB_ARCH not found in /etc/openwrt_release")
 	}
-	return strings.TrimSpace(string(output)), nil
+
+	return match[1], nil
 }
 
 func generatePrivateKey() (string, error) {
