@@ -72,11 +72,13 @@ type Janitor struct {
 func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 	fmt.Println("Creating new Janitor instance")
 
+    log.Printf("Loading config for Janitor instance")
 	config, err := configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load config: %v", err)
 		return nil, err
 	}
+	log.Printf("TollgatePrivateKey in janitor.go: %s", config.TollgatePrivateKey)
 
 	installedVersion, err := config_manager.GetInstalledVersion()
 	if err != nil {

@@ -165,6 +165,8 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 		return nil, nil // Return nil config if file is empty
 	}
 	var config Config
+    log.Printf("TollgatePrivateKey in config_manager.go: %s", config.TollgatePrivateKey)
+
 	err = json.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err

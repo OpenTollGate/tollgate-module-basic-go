@@ -60,6 +60,7 @@ func init() {
 	// Initialize derived configuration values
 	tollgatePrivateKey = config.TollgatePrivateKey
 	pricePerMinute = config.PricePerMinute
+	log.Printf("TollgatePrivateKey in main.go: %s", config.TollgatePrivateKey)
 
 	// Create a map of accepted mints and their minimum payments
 	mintMinPayments := make(map[string]int)
@@ -82,7 +83,7 @@ func init() {
 	// Create a separate tag for each accepted mint
 	for mint, minPayment := range mintMinPayments {
 		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
-		fmt.Printf("TODO: include min payment (%d) in future\n", minPayment)
+		fmt.Printf("TODO: include min payment (%d) for %s in future\n", minPayment, mint)
 		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
 		tags = append(tags, nostr.Tag{"mint", mint})
 	}
