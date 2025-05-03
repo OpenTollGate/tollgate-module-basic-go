@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 type packageEvent struct {
@@ -72,7 +72,7 @@ type Janitor struct {
 func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 	fmt.Println("Creating new Janitor instance")
 
-    log.Printf("Loading config for Janitor instance")
+	log.Printf("Loading config for Janitor instance")
 	config, err := configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load config: %v", err)
@@ -101,7 +101,7 @@ func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 		relays:             config.Relays,
 		trustedMaintainers: config.TrustedMaintainers,
 		currentVersion:     v,
-		ConfigBranch:       "main",                 // Default or fetched from config
+		ConfigBranch:       "main", // Default or fetched from config
 		ConfigArch:         architecture,
 		configManager:      configManager,
 		opkgCmd:            "opkg",
@@ -126,7 +126,6 @@ func getInstalledVersion() (string, error) {
 	}
 	return parts[1], nil
 }
-
 
 func (j *Janitor) ListenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
@@ -324,9 +323,33 @@ func (j *Janitor) ListenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				err = j.updateInstallConfig(pkgPath, event.ID)
+				config, err := j.configManager.LoadConfig()
 				if err != nil {
-					log.Printf("Error updating install config with package path and NIP94 event ID: %v", err)
+					log.Printf("Error loading config: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				config.NIP94EventID = event.ID
+				err = j.configManager.SaveConfig(config)
+				if err != nil {
+					log.Printf("Error updating config with NIP94 event ID: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+
+				installConfig, err := j.configManager.LoadInstallConfig()
+				if err != nil {
+					log.Printf("Error loading install config: %v", err)
+					timer.Stop()
+					isTimerActive = false
+					return
+				}
+				installConfig.PackagePath = pkgPath
+				err = j.configManager.SaveInstallConfig(installConfig)
+				if err != nil {
+					log.Printf("Error updating install config with package path: %v", err)
 					timer.Stop()
 					isTimerActive = false
 					return
@@ -425,17 +448,17 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	return nil
 }
 
-func (j *Janitor) updateInstallConfig(pkgPath string, nip94EventID string) error {
+func (j *Janitor) updateInstallConfig(pkgPath string, IPAddress string) error {
 	installConfig, err := j.configManager.LoadInstallConfig()
 	if err != nil {
 		return err
 	}
 	if installConfig == nil {
 		installConfig = config_manager.NewInstallConfig(pkgPath)
-		installConfig.NIP94EventID = nip94EventID
+		installConfig.IPAddress = IPAddress
 	} else {
 		installConfig.PackagePath = pkgPath
-		installConfig.NIP94EventID = nip94EventID
+		installConfig.IPAddress = IPAddress
 	}
 	return j.configManager.SaveInstallConfig(installConfig)
 }
@@ -461,7 +484,7 @@ func contains(s []string, str string) bool {
 	return false
 }
 
-// parseNIP94Event extracts package information from a NIP-94 event 
+// parseNIP94Event extracts package information from a NIP-94 event
 func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, error) {
 	requiredTags := []string{"url", "version", "arch", "branch", "filename"}
 	tagMap := make(map[string]string)

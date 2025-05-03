@@ -8,8 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"regexp"
+	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -56,12 +56,13 @@ type PackageInfo struct {
 
 type Config struct {
 	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMints       []string      `json:"accepted_mints"`
+	AcceptedMints      []string       `json:"accepted_mints"`
 	PricePerMinute     int            `json:"price_per_minute"`
 	Bragging           BraggingConfig `json:"bragging"`
 	Relays             []string       `json:"relays"`
 	TrustedMaintainers []string       `json:"trusted_maintainers"`
 	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
+	NIP94EventID       string         `json:"nip94_event_id"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -97,12 +98,11 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 	}, nil
 }
 
-
-
 // InstallConfig holds the installation configuration parameters
+// The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
-	PackagePath string `json:"package_path"`
-	NIP94EventID string `json:"nip94_event_id"`
+	PackagePath         string `json:"package_path"`
+	IPAddressRandomized bool   `json:"ip_address_randomized"`
 }
 
 // NewInstallConfig creates a new InstallConfig instance
@@ -159,6 +159,13 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 	return cm, nil
 }
 
+func getIPAddress() {
+	// Gets the IP address of
+	// root@OpenWrt:/tmp# ifconfig br-lan | grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}'
+	// 172.20.203.1
+	// Use commands like the above or the go net package to get the IP address this device's LAN interface.
+}
+
 func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	installConfig, err := cm.LoadInstallConfig()
 	if err != nil && !os.IsNotExist(err) {
@@ -166,8 +173,8 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	}
 	if installConfig == nil {
 		defaultInstallConfig := &InstallConfig{
-			PackagePath: "/tmp/68f1c71f983b1c51be52eb62e80943cf973e846f4206080dbb9651780d68052a.ipk",
-			NIP94EventID: "0f3c16a9b53fcef3c36015914f234ef8a653d6a6f6267c6d4223f3266e300fb5",
+			PackagePath:         "false",
+			IPAddressRandomized: false,
 		}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
 		if err != nil {
@@ -215,32 +222,32 @@ func GetMintFee(mintURL string) (int, error) {
 // calculateMinPayment calculates the minimum payment based on the mint fee
 func CalculateMinPayment(mintFee int) int {
 	// Stub implementation: return the mint fee as the minimum payment
-	return 2 * mintFee + 1
+	return 2*mintFee + 1
 }
 
 // getInstalledVersion retrieves the installed version of the package
-// TODO: run this every time rather than storing the ouptut in a config file. 
+// TODO: run this every time rather than storing the ouptut in a config file.
 func GetInstalledVersion() (string, error) {
-    _, err := exec.LookPath("opkg")
-    if err != nil {
+	_, err := exec.LookPath("opkg")
+	if err != nil {
 		// opkg not found, return a default version or skip this check
-        return "0.0.1+1cac608", nil
-    }
-    cmd := exec.Command("opkg", "list-installed")
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return "", fmt.Errorf("failed to get installed version: %w", err)
-    }
-    installedPackages := strings.Split(string(output), "\n")
-    for _, pkg := range installedPackages {
-        if strings.Contains(pkg, "tollgate") {
-            parts := strings.Split(pkg, " - ")
-            if len(parts) > 1 {
-                return parts[1], nil
-            }
-        }
-    }
-    return "", fmt.Errorf("tollgate package not found")
+		return "0.0.1+1cac608", nil
+	}
+	cmd := exec.Command("opkg", "list-installed")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get installed version: %w", err)
+	}
+	installedPackages := strings.Split(string(output), "\n")
+	for _, pkg := range installedPackages {
+		if strings.Contains(pkg, "tollgate") {
+			parts := strings.Split(pkg, " - ")
+			if len(parts) > 1 {
+				return parts[1], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("tollgate package not found")
 }
 
 func GetArchitecture() (string, error) {
@@ -277,7 +284,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 
 		defaultConfig := &Config{
 			TollgatePrivateKey: privateKey,
-			AcceptedMints:       []string{"https://mint.minibits.cash/Bitcoin", "https://mint2.nutmix.cash"},
+			AcceptedMints:      []string{"https://mint.minibits.cash/Bitcoin", "https://mint2.nutmix.cash"},
 			PricePerMinute:     1,
 			Bragging: BraggingConfig{
 				Enabled: true,
@@ -298,7 +305,8 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"tollgate_private_key",
 				"trusted_maintainers",
 			},
-		}
+			NIP94EventID: "0f3c16a9b53fcef3c36015914f234ef8a653d6a6f6267c6d4223f3266e300fb5",
+		} // TODO: update the default EventID when we merge to main.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
 			return nil, err

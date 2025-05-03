@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
+	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 type BraggingConfig struct {
@@ -62,9 +62,9 @@ func init() {
 		log.Printf("Error loading install config: %v", err)
 		os.Exit(1)
 	}
-	nip94EventID := installConfig.NIP94EventID
-	log.Printf("NIP94EventID: %s", nip94EventID)
-	nip94Event, err := configManager.GetNIP94Event(nip94EventID)
+	IPAddressRandomized := installConfig.IPAddressRandomized
+	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
+	_, err = configManager.GetNIP94Event(IPAddressRandomized)
 	if err != nil {
 		log.Printf("Error getting NIP94 event: %v", err)
 		os.Exit(1)
@@ -73,7 +73,7 @@ func init() {
 	// Initialize derived configuration values
 	tollgatePrivateKey = config.TollgatePrivateKey
 	pricePerMinute = config.PricePerMinute
-	
+
 	// Create a map of accepted mints and their minimum payments
 	mintMinPayments := make(map[string]int)
 	for _, mintURL := range config.AcceptedMints {
@@ -103,8 +103,8 @@ func init() {
 	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
 
 	tollgateDetailsEvent = nostr.Event{
-		Kind: 21021,
-		Tags: tags,
+		Kind:    21021,
+		Tags:    tags,
 		Content: "",
 	}
 

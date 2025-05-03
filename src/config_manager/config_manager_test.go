@@ -59,7 +59,7 @@ func TestConfigManager(t *testing.T) {
 	// Test SaveConfig
 	newConfig := &Config{
 		TollgatePrivateKey: "test_key",
-		AcceptedMints:       []string{"test_mint"},
+		AcceptedMints:      []string{"test_mint"},
 		PricePerMinute:     2,
 		Bragging: BraggingConfig{
 			Enabled: true,
@@ -103,7 +103,7 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	newInstallConfig := &InstallConfig{
-		PackagePath: "/path/to/package",
+		PackagePath:  "/path/to/package",
 		NIP94EventID: "event-id",
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
