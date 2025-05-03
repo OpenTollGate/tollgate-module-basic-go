@@ -79,12 +79,13 @@ func init() {
 		{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
 	}
 
-	// Create the accepted_mints tag
-	acceptedMintsTag := nostr.Tag{"accepted_mints"}
+	// Create a separate tag for each accepted mint
 	for mint, minPayment := range mintMinPayments {
-		acceptedMintsTag = append(acceptedMintsTag, fmt.Sprintf("%s:%d", mint, minPayment))
+		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
+		// tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
+		fmt.Printf("TODO: include min payment (%d) in future\n", minPayment)
+		tags = append(tags, nostr.Tag{"mint", mint})
 	}
-	tags = append(tags, acceptedMintsTag)
 
 	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
 

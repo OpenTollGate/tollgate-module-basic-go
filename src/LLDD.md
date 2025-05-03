@@ -16,7 +16,7 @@ The `Tags` field includes the following information:
 - `metric`: The metric used for pricing (e.g., "milliseconds")
 - `step_size`: The step size for pricing (e.g., "60000")
 - `price_per_step`: The price per step in satoshis
-- `accepted_mints`: A list of accepted mints with their minimum payments
+- For each accepted mint, a separate tag is created in the format `["mint", "mint_url", "min_payment"]`
 
 ## Code Structure
 
