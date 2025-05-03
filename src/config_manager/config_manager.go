@@ -171,7 +171,6 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("TollgatePrivateKey in config_manager.go: %s", config.TollgatePrivateKey)
 	return &config, nil
 }
 

@@ -60,8 +60,7 @@ func init() {
 	// Initialize derived configuration values
 	tollgatePrivateKey = config.TollgatePrivateKey
 	pricePerMinute = config.PricePerMinute
-	log.Printf("TollgatePrivateKey in main.go: %s", config.TollgatePrivateKey)
-
+	
 	// Create a map of accepted mints and their minimum payments
 	mintMinPayments := make(map[string]int)
 	for _, mintURL := range config.AcceptedMints {
