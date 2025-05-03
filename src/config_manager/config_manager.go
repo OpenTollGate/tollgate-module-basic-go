@@ -55,7 +55,7 @@ type PackageInfo struct {
 
 type Config struct {
 	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMints       []string       `json:"accepted_mints"`
+	AcceptedMints       []string      `json:"accepted_mints"`
 	PricePerMinute     int            `json:"price_per_minute"`
 	Bragging           BraggingConfig `json:"bragging"`
 	Relays             []string       `json:"relays"`

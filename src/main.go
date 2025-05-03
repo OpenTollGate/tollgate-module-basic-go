@@ -59,22 +59,39 @@ func init() {
 
 	// Initialize derived configuration values
 	tollgatePrivateKey = config.TollgatePrivateKey
-	acceptedMint = config.AcceptedMint
 	pricePerMinute = config.PricePerMinute
-	minPayment = config.MinPayment
-	mintFee = config.MintFee
-	cutoffFee = config.CutoffFee
 
-	// Create the nostr event
+	// Create a map of accepted mints and their minimum payments
+	mintMinPayments := make(map[string]int)
+	for _, mintURL := range config.AcceptedMints {
+		mintFee, err := getMintFee(mintURL)
+		if err != nil {
+			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
+			continue
+		}
+		mintMinPayments[mintURL] = calculateMinPayment(mintFee)
+	}
+
+	// Create the nostr event with the mintMinPayments map
+	tags := nostr.Tags{
+		{"metric", "milliseconds"},
+		{"step_size", "60000"},
+		{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
+	}
+
+	// Create the accepted_mints tag
+	acceptedMintsTag := nostr.Tag{"accepted_mints"}
+	for mint, minPayment := range mintMinPayments {
+		acceptedMintsTag = append(acceptedMintsTag, fmt.Sprintf("%s:%d", mint, minPayment))
+	}
+	tags = append(tags, acceptedMintsTag)
+
+	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
+
 	tollgateDetailsEvent = nostr.Event{
 		Kind: 21021,
-		Tags: nostr.Tags{
-			{"metric", "milliseconds"},
-			{"step_size", "60000"},
-			{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
-			{"mint", acceptedMint},
-			{"tips", "1", "2", "3"},
-		},
+		Tags: tags,
+		Content: "",
 		Content: "",
 	}
 
