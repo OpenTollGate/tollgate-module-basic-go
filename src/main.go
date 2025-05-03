@@ -82,8 +82,8 @@ func init() {
 	// Create a separate tag for each accepted mint
 	for mint, minPayment := range mintMinPayments {
 		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
-		// tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
 		fmt.Printf("TODO: include min payment (%d) in future\n", minPayment)
+		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
 		tags = append(tags, nostr.Tag{"mint", mint})
 	}
 
