@@ -62,7 +62,6 @@ type Config struct {
 	Relays             []string       `json:"relays"`
 	TrustedMaintainers []string       `json:"trusted_maintainers"`
 	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
-	NIP94EventID       []string       `json:"EventID_currently_installed"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -153,7 +152,30 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 	if err != nil {
 		return nil, err
 	}
+	_, err = cm.EnsureDefaultInstall()
+	if err != nil {
+		return nil, err
+	}
 	return cm, nil
+}
+
+func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
+	installConfig, err := cm.LoadInstallConfig()
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if installConfig == nil {
+		defaultInstallConfig := &InstallConfig{
+			PackagePath: "/tmp/68f1c71f983b1c51be52eb62e80943cf973e846f4206080dbb9651780d68052a.ipk",
+			NIP94EventID: "0f3c16a9b53fcef3c36015914f234ef8a653d6a6f6267c6d4223f3266e300fb5",
+		}
+		err = cm.SaveInstallConfig(defaultInstallConfig)
+		if err != nil {
+			return nil, err
+		}
+		return defaultInstallConfig, nil
+	}
+	return installConfig, nil
 }
 
 // LoadConfig reads the configuration from the managed file

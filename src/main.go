@@ -57,6 +57,19 @@ func init() {
 	}
 	config = *loadedConfig
 
+	installConfig, err := configManager.LoadInstallConfig()
+	if err != nil {
+		log.Printf("Error loading install config: %v", err)
+		os.Exit(1)
+	}
+	nip94EventID := installConfig.NIP94EventID
+	log.Printf("NIP94EventID: %s", nip94EventID)
+	nip94Event, err := configManager.GetNIP94Event(nip94EventID)
+	if err != nil {
+		log.Printf("Error getting NIP94 event: %v", err)
+		os.Exit(1)
+	}
+
 	// Initialize derived configuration values
 	tollgatePrivateKey = config.TollgatePrivateKey
 	pricePerMinute = config.PricePerMinute
@@ -444,6 +457,7 @@ func main() {
 			os.Exit(1)
 		}
 		nip94EventID := installConfig.NIP94EventID
+		log.Printf("NIP94EventID: %s", nip94EventID)
 		nip94Event, err := configManager.GetNIP94Event(nip94EventID)
 		if err != nil {
 			log.Printf("Error getting NIP94 event: %v", err)
