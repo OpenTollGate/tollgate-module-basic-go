@@ -199,23 +199,26 @@ func CalculateMinPayment(mintFee int) int {
 // getInstalledVersion retrieves the installed version of the package
 // TODO: run this every time rather than storing the ouptut in a config file. 
 func GetInstalledVersion() (string, error) {
-	_, err := exec.LookPath("opkg")
-	if err != nil {
+    _, err := exec.LookPath("opkg")
+    if err != nil {
 		// opkg not found, return a default version or skip this check
-		return "0.0.1+1cac608", nil
-	}
-	cmd := exec.Command("opkg", "list-installed", "tollgate")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get installed version: %w", err)
-	}
-	outputStr := strings.TrimSpace(string(output))
-	parts := strings.Split(outputStr, " - ")
-	if len(parts) != 2 {
-		log.Printf("Output: %s", output)
-		return "", fmt.Errorf("unexpected output format: %s", outputStr)
-	}
-	return parts[1], nil
+        return "0.0.1+1cac608", nil
+    }
+    cmd := exec.Command("opkg", "list-installed")
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        return "", fmt.Errorf("failed to get installed version: %w", err)
+    }
+    installedPackages := strings.Split(string(output), "\n")
+    for _, pkg := range installedPackages {
+        if strings.Contains(pkg, "tollgate") {
+            parts := strings.Split(pkg, " - ")
+            if len(parts) > 1 {
+                return parts[1], nil
+            }
+        }
+    }
+    return "", fmt.Errorf("tollgate package not found")
 }
 
 // getArchitecture retrieves the device architecture
