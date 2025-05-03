@@ -51,6 +51,20 @@ func init() {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
+	loadedConfig, err := configManager.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	config = *loadedConfig
+
+	// Initialize derived configuration values
+	tollgatePrivateKey = config.TollgatePrivateKey
+	acceptedMint = config.AcceptedMint
+	pricePerMinute = config.PricePerMinute
+	minPayment = config.MinPayment
+	mintFee = config.MintFee
+	cutoffFee = config.CutoffFee
+
 	// Create the nostr event
 	tollgateDetailsEvent = nostr.Event{
 		Kind: 21021,
