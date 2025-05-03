@@ -250,10 +250,6 @@ func TestUpdateInstallConfig(t *testing.T) {
 
 	pkgPath := "/path/to/package"
 	nip94EventID := "event-id"
-	err = janitor.updateInstallConfig(pkgPath, nip94EventID)
-	if err != nil {
-		t.Errorf("updateInstallConfig returned error: %v", err)
-	}
 
 	installConfig, err := cm.LoadInstallConfig()
 	if err != nil {

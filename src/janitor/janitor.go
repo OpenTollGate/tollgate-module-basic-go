@@ -448,20 +448,6 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	return nil
 }
 
-func (j *Janitor) updateInstallConfig(pkgPath string, IPAddress string) error {
-	installConfig, err := j.configManager.LoadInstallConfig()
-	if err != nil {
-		return err
-	}
-	if installConfig == nil {
-		installConfig = config_manager.NewInstallConfig(pkgPath)
-		installConfig.IPAddress = IPAddress
-	} else {
-		installConfig.PackagePath = pkgPath
-		installConfig.IPAddress = IPAddress
-	}
-	return j.configManager.SaveInstallConfig(installConfig)
-}
 
 func isNetworkUnreachable(err error) bool {
 	if err == nil {
