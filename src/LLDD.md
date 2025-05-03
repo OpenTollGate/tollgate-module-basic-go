@@ -1,35 +1,58 @@
-# Low-Level Design Document: Integrating New Modules into main.go
+# Low-Level Design Document: main.go
 
-## Introduction
+## Overview
 
-This document outlines the steps and considerations for integrating new modules into the `main.go` file of the TollGate project.
+The `main.go` file is the entry point of the TollGate application. It handles HTTP requests, interacts with the Nostr protocol, and manages configuration.
 
-## Module Structure and Naming Conventions
+## tollgateDetailsEvent Structure
 
-1. Each sub-module should have its own directory under `src/`.
-2. The module path should follow the format `github.com/OpenTollGate/tollgate-module-basic-go/src/<module_name>`.
-3. The `go.mod` file for each sub-module should reflect this path.
+The `tollgateDetailsEvent` is a Nostr event of kind 21021. Its structure includes:
 
-## Updating go.mod Files for Sub-Modules
+- `Kind`: 21021
+- `Tags`: A list of tags containing information such as metric, step_size, price_per_step, and accepted_mints
+- `Content`: An empty string
 
-1. When creating a new sub-module, create a `go.mod` file with the correct module path.
-2. Update the `go.mod` file in the `src/` directory to require the new sub-module.
-3. Use a replace directive in the `src/go.mod` file to point to the local path of the sub-module.
+The `Tags` field includes the following information:
+- `metric`: The metric used for pricing (e.g., "milliseconds")
+- `step_size`: The step size for pricing (e.g., "60000")
+- `price_per_step`: The price per step in satoshis
+- `accepted_mints`: A list of accepted mints with their minimum payments
 
-## Replacing Module Paths in go.mod Files
+## Code Structure
 
-1. Ensure consistency in module paths across the project.
-2. Use relative paths for replace directives when referencing sub-modules.
+The code is structured into several functions:
+- `init()`: Initializes the configuration manager, loads configuration, and sets up the Nostr event
+- `initJanitor()`: Initializes the janitor module
+- `handleRoot()`: Handles HTTP requests to the root endpoint
+- `handleRootPost()`: Handles POST requests to the root endpoint
+- `announceSuccessfulPayment()`: Announces successful payments via Nostr
+- `main()`: The entry point of the application
 
-## Ensuring Consistency in Module Paths
+## Functions
 
-1. Verify that the module path in the `go.mod` file matches the path used in other modules.
-2. Update the `go.mod` files accordingly to maintain consistency.
+### init()
 
-## Best Practices for Requiring and Replacing Modules
+- Initializes the configuration manager using `config_manager.NewConfigManager()`
+- Loads configuration using `configManager.LoadConfig()`
+- Sets up the Nostr event with the accepted mints and their minimum payments
 
-1. Use explicit require statements for direct dependencies.
-2. Use replace directives to point to local paths for sub-modules.
-3. Keep the `go.mod` files up-to-date with the latest module versions.
+### handleRootPost()
 
-By following these guidelines, you can ensure a smooth integration of new modules into the `main.go` file.
+- Handles POST requests to the root endpoint
+- Verifies the event signature and extracts the MAC address and payment token
+- Decodes the Cashu token and verifies its value
+- Processes and swaps the token for fresh proofs
+- Opens the gate for the specified duration using the valve module
+
+### announceSuccessfulPayment()
+
+- Announces successful payments via Nostr if enabled in the configuration
+- Creates a Nostr event with the payment details and publishes it to the configured relays
+
+## Error Handling
+
+- Errors are handled using log statements and HTTP status codes
+
+## Testing
+
+- Unit tests should be written to ensure the correct functionality of the `main.go` file
