@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"regexp"
 
 	"github.com/nbd-wtf/go-nostr"
 )
