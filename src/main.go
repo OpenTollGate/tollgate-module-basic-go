@@ -64,12 +64,12 @@ func init() {
 	// Create a map of accepted mints and their minimum payments
 	mintMinPayments := make(map[string]int)
 	for _, mintURL := range config.AcceptedMints {
-		mintFee, err := getMintFee(mintURL)
+		mintFee, err := config_manager.GetMintFee(mintURL)
 		if err != nil {
 			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
 			continue
 		}
-		mintMinPayments[mintURL] = calculateMinPayment(mintFee)
+		mintMinPayments[mintURL] = config_manager.CalculateMinPayment(mintFee)
 	}
 
 	// Create the nostr event with the mintMinPayments map
@@ -91,7 +91,6 @@ func init() {
 	tollgateDetailsEvent = nostr.Event{
 		Kind: 21021,
 		Tags: tags,
-		Content: "",
 		Content: "",
 	}
 

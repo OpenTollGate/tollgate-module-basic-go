@@ -183,13 +183,13 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 
 // getMintFee retrieves the mint fee for a given mint URL
 // TODO: Run this every time rather than storing the information in a config file.
-func getMintFee(mintURL string) (int, error) {
+func GetMintFee(mintURL string) (int, error) {
 	// Stub implementation: return a default mint fee
 	return 0, nil
 }
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
-func calculateMinPayment(mintFee int) int {
+func CalculateMinPayment(mintFee int) int {
 	// Stub implementation: return the mint fee as the minimum payment
 	return 2 * mintFee + 1
 }
