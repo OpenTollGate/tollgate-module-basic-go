@@ -165,12 +165,12 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 		return nil, nil // Return nil config if file is empty
 	}
 	var config Config
-    log.Printf("TollgatePrivateKey in config_manager.go: %s", config.TollgatePrivateKey)
 
 	err = json.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("TollgatePrivateKey in config_manager.go: %s", config.TollgatePrivateKey)
 	return &config, nil
 }
 
@@ -204,7 +204,7 @@ func GetInstalledVersion() (string, error) {
 		// opkg not found, return a default version or skip this check
 		return "0.0.1+1cac608", nil
 	}
-	cmd := exec.Command("opkg", "list-installed", "tollgate-basic")
+	cmd := exec.Command("opkg", "list-installed", "tollgate")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to get installed version: %w", err)
@@ -212,6 +212,7 @@ func GetInstalledVersion() (string, error) {
 	outputStr := strings.TrimSpace(string(output))
 	parts := strings.Split(outputStr, " - ")
 	if len(parts) != 2 {
+		log.Printf("Output: %s", output)
 		return "", fmt.Errorf("unexpected output format: %s", outputStr)
 	}
 	return parts[1], nil
