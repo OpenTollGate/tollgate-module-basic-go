@@ -62,9 +62,16 @@ func init() {
 		log.Printf("Error loading install config: %v", err)
 		os.Exit(1)
 	}
-	IPAddressRandomized := installConfig.IPAddressRandomized
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		os.Exit(1)
+	}
+	nip94EventID := config.NIP94EventID
+	log.Printf("NIP94EventID: %s", nip94EventID)
+	IPAddressRandomized := fmt.Sprintf("%v", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	_, err = configManager.GetNIP94Event(IPAddressRandomized)
+	_, err = configManager.GetNIP94Event(nip94EventID)
 	if err != nil {
 		log.Printf("Error getting NIP94 event: %v", err)
 		os.Exit(1)
@@ -451,12 +458,12 @@ func main() {
 		log.Printf("Error getting installed version: %v", err)
 	} else {
 		installedVersion := strings.Fields(string(output))[2]
-		installConfig, err := configManager.LoadInstallConfig()
+		config, err := configManager.LoadConfig()
 		if err != nil {
-			log.Printf("Error loading install config: %v", err)
+			log.Printf("Error loading config: %v", err)
 			os.Exit(1)
 		}
-		nip94EventID := installConfig.NIP94EventID
+		nip94EventID := config.NIP94EventID
 		log.Printf("NIP94EventID: %s", nip94EventID)
 		nip94Event, err := configManager.GetNIP94Event(nip94EventID)
 		if err != nil {
