@@ -354,6 +354,21 @@ func DownloadPackage(configManager *config_manager.ConfigManager, url string, ch
 	}
 
 	fmt.Println("Package downloaded successfully to /tmp/")
+
+	// Update DownloadTimestamp in InstallConfig
+	installConfig, err := configManager.LoadInstallConfig()
+	if err != nil {
+		log.Printf("Error loading install config: %v", err)
+		return tmpFile.Name(), pkg, err
+	}
+	currentTime := time.Now().Unix()
+	installConfig.DownloadTimestamp = currentTime
+	err = configManager.SaveInstallConfig(installConfig)
+	if err != nil {
+		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
+		return tmpFile.Name(), pkg, err
+	}
+
 	return tmpFile.Name(), pkg, nil
 }
 

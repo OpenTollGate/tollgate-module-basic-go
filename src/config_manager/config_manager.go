@@ -105,6 +105,8 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 type InstallConfig struct {
 	PackagePath         string `json:"package_path"`
 	IPAddressRandomized bool   `json:"ip_address_randomized"`
+	InstallTimestamp    int64  `json:"install_time"`
+	DownloadTimestamp   int64  `json:"download_time"`
 }
 
 // NewInstallConfig creates a new InstallConfig instance
@@ -177,6 +179,8 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		defaultInstallConfig := &InstallConfig{
 			PackagePath:         "false",
 			IPAddressRandomized: false,
+			InstallTimestamp:    0, // Set InstallTimestamp to 0 (unknown)
+			DownloadTimestamp:   0, // Set DownloadTimestamp to 0 (unknown)
 		}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
 		if err != nil {
@@ -184,6 +188,25 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		}
 		return defaultInstallConfig, nil
 	}
+
+	// If InstallTimestamp is not set, set it to 0 (unknown)
+	if installConfig.InstallTimestamp == 0 {
+		installConfig.InstallTimestamp = 0
+		err = cm.SaveInstallConfig(installConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// If DownloadTimestamp is not set, set it to 0 (unknown)
+	if installConfig.DownloadTimestamp == 0 {
+		installConfig.DownloadTimestamp = 0
+		err = cm.SaveInstallConfig(installConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return installConfig, nil
 }
 
@@ -308,7 +331,7 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		if err != nil {
 			return 0, err
 		}
-		// TODO: Compare the timestamp from the NIP94 event with the timestamp from the filesystme / version number. Throw an error if they are different. 
+		// TODO: Compare the timestamp from the NIP94 event with the timestamp from the filesystme / version number. Throw an error if they are different.
 		return packageInfo.Timestamp, nil
 	} else {
 		installedVersion, err := GetInstalledVersion()
@@ -324,13 +347,44 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		originalVersion := v.Original()
 		re := regexp.MustCompile(`\+(\d+)\.([a-f0-9]+)$`)
 		match := re.FindStringSubmatch(originalVersion)
-		if len(match) < 3 {
+		if len(match) < 2 {
 			return 0, fmt.Errorf("invalid version format: %s", originalVersion)
 		}
-		timestamp, err := strconv.ParseInt(match[1], 10, 64)
-		if err != nil {
-			return 0, err
+
+		if len(match) < 3 {
+			fmt.Printf("Version number only contains two fields: %s\n", originalVersion)
+			installConfig, err := cm.LoadInstallConfig()
+			if err != nil {
+				return 0, err
+			}
+			if installConfig != nil && installConfig.DownloadTimestamp != 0 {
+				return installConfig.DownloadTimestamp, nil
+			}
+
+			var timestamp int64
+			if installConfig != nil {
+				if installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0 {
+					timestamp = min(installConfig.DownloadTimestamp, installConfig.InstallTimestamp)
+				} else if installConfig.DownloadTimestamp != 0 {
+					timestamp = installConfig.DownloadTimestamp
+				} else if installConfig.InstallTimestamp != 0 {
+					timestamp = installConfig.InstallTimestamp
+				} else {
+					return 0, fmt.Errorf("neither download nor install timestamp found in install.json")
+				}
+			} else {
+				return 0, fmt.Errorf("install config not found")
+			}
+			return timestamp, nil
+		} else {
+			fmt.Printf("Version number: %s\n", originalVersion)
+			timestamp, err := strconv.ParseInt(match[1], 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			return timestamp, nil
 		}
+
 		return timestamp, nil
 	}
 }
