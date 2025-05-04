@@ -345,7 +345,7 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 			return 0, err
 		}
 		originalVersion := v.Original()
-		re := regexp.MustCompile(`\+(\d+)\.([a-f0-9]+)$`)
+		re := regexp.MustCompile(`\+([a-f0-9]+)$`)
 		match := re.FindStringSubmatch(originalVersion)
 		if len(match) < 2 {
 			return 0, fmt.Errorf("invalid version format: %s", originalVersion)
