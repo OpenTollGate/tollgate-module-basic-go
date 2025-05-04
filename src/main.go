@@ -453,42 +453,6 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Get installed version
-	cmd := exec.Command("opkg", "list-installed", "tollgate-module-basic-go")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Error getting installed version: %v", err)
-	} else {
-		installedVersion := strings.Fields(string(output))[2]
-		config, err := configManager.LoadConfig()
-		if err != nil {
-			log.Printf("Error loading config: %v", err)
-			os.Exit(1)
-		}
-		nip94EventID := config.NIP94EventID
-		log.Printf("NIP94EventID: %s", nip94EventID)
-		nip94Event, err := configManager.GetNIP94Event(nip94EventID)
-		if err != nil {
-			log.Printf("Error getting NIP94 event: %v", err)
-			os.Exit(1)
-		}
-
-		if nip94EventID != "unknown" {
-			// Extract PackageInfo from nip94Event
-			packageInfo, err := config_manager.ExtractPackageInfo(nip94Event)
-			if err != nil {
-				log.Printf("Error extracting package info: %v", err)
-				os.Exit(1)
-			}
-			configVersion := packageInfo.Version
-
-			if installedVersion != configVersion {
-				log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
-				// os.Exit(1)
-			}
-		}
-	}
-
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
