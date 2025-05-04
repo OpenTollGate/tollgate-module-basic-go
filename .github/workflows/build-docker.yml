@@ -13,7 +13,7 @@ env:
 
 jobs:
   determine-versioning:
-     outputs:
+    outputs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
     steps:
