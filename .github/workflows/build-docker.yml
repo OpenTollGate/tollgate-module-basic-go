@@ -12,19 +12,11 @@ env:
   # GOMIPS: "softfloat"
 
 jobs:
-  build-package:
-    runs-on: ubuntu-latest
-    container:
-      image: openwrt/sdk:mediatek-filogic-23.05.3
-      options: --user root
-
-    # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
+  determine-versioning:
+     outputs:
+      package_version: ${{ steps.determine-package-version.outputs.package_version }}
+      release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 0
-
       - id: commit-hash
         uses: prompt/actions-commit-hash@v3
 
@@ -47,6 +39,19 @@ jobs:
           else
             echo "release_channel=dev" >> $GITHUB_OUTPUT
           fi
+
+  build-package:
+    runs-on: ubuntu-latest
+    container:
+      image: openwrt/sdk:mediatek-filogic-23.05.3
+      options: --user root
+
+    # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.PACKAGE_NAME }}/
+          fetch-depth: 0
 
       - name: Move sources to sdk folder
         run: |
@@ -78,6 +83,7 @@ jobs:
           cd /builder
           env GOARCH=${{ env.GOARCH }} \
               GOMIPS=${{ env.GOMIPS }} \
+              PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
               make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
               ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
@@ -213,8 +219,8 @@ jobs:
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
             architecture=${{ env.MODEL }}
-            version=${{ steps.determine-package-version.outputs.package_version }}
-            release_channel=${{ steps.determine-release-channel.outputs.release_channel }}
+            version=${{ needs.determine-versioning.outputs.package_version }}
+            release_channel=${{ needs.determine-versioning.outputs.release_channel }}
         
       # Debug the outputs to see what's available
       - name: Debug Event ID
