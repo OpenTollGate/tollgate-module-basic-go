@@ -385,7 +385,7 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 			return timestamp, nil
 		}
 
-		return timestamp, nil
+		return 0, fmt.Errorf("failed to parse version number")
 	}
 }
 
