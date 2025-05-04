@@ -235,6 +235,7 @@ jobs:
             wss://relay.damus.io,
             wss://nos.lol,
             wss://nostr.mom/
+            wss://relay.tollgate.me/
 
       - name: Check Package Publication
         # Only run this step if the verification ran and failed
@@ -242,14 +243,6 @@ jobs:
         run: |
           echo "❌ Failed to verify package publication on relays"
           exit 1
-
-      - name: Build Summary
-        run: |
-          echo "Build Summary for ${{ matrix.target.name }}:"
-          echo "✅ Binary successfully built and published"
-          echo "✅ Package successfully built and published"
-          echo "Binary URL: ${{ steps.upload_binary.outputs.blossomUrl }}"
-          echo "Package URL: ${{ steps.upload_package.outputs.blossomUrl }}"
 
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
