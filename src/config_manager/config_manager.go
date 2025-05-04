@@ -365,13 +365,18 @@ func (cm *ConfigManager) GetVersion() (*version.Version, error) {
 		if localVersion != eventVersion {
 			fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
 			fmt.Printf("Setting NIP94EventID to unknown")
-			config.NIP94EventID = "unknown"		
+			config.NIP94EventID = "unknown"
+			err = cm.SaveConfig(config)
+			if err != nil {
+				return nil, err
+			}
 			return nil, fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
 		}
 	}
 
 	return v, nil
 }
+
 func generatePrivateKey() (string, error) {
 	// TODO: Implement proper private key generation or management
 	return "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663", nil
