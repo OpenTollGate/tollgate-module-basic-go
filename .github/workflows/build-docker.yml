@@ -13,6 +13,7 @@ env:
 
 jobs:
   determine-versioning:
+    runs-on: ubuntu-latest
     outputs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
@@ -41,6 +42,7 @@ jobs:
           fi
 
   build-package:
+    needs: determine-versioning
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:mediatek-filogic-23.05.3
