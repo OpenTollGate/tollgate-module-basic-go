@@ -261,10 +261,62 @@ func GetArchitecture() (string, error) {
 	if len(match) < 2 {
 		return "", fmt.Errorf("DISTRIB_ARCH not found in /etc/openwrt_release")
 	}
-
 	return match[1], nil
 }
 
+func (cm *ConfigManager) getTimestamp() (int64, error) {
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return 0, err
+	}
+
+	// TODO: put a timestamp in install.json using the post install script. We can use that as a reference if we don't have any package info from nostr yet.
+
+	if config.NIP94EventID != "unknown" {
+		event, err := cm.GetNIP94Event(config.NIP94EventID)
+		if err != nil {
+			return 0, err
+		}
+		packageInfo, err := ExtractPackageInfo(event)
+		if err != nil {
+			return 0, err
+		}
+		return packageInfo.Timestamp, nil
+	}
+
+	return config.PackageInfo.Timestamp, nil
+}
+func (cm *ConfigManager) GetVersion() (*version.Version, error) {
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	installedVersion, err := GetInstalledVersion()
+	if err != nil {
+		return nil, err
+	}
+
+	v, err := version.NewVersion(installedVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.NIP94EventID != "unknown" {
+		event, err := cm.GetNIP94Event(config.NIP94EventID)
+		if err != nil {
+			return nil, err
+		}
+		packageInfo, err := ExtractPackageInfo(event)
+		if err != nil {
+			return nil, err
+		}
+		eventVersion := packageInfo.Version
+		// TODO: Compare event version with local version. Raise an error message if they are different.
+	}
+
+	return v, nil
+}
 func generatePrivateKey() (string, error) {
 	// TODO: Implement proper private key generation or management
 	return "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663", nil

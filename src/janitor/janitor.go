@@ -158,14 +158,23 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					}
 				}
 
-				if timestamp > config.PackageInfo.Timestamp {
+				timestampConfig, err := configManager.getTimestamp()
+				if err != nil {
+					log.Printf("Error getting timestamp: %v", err)
+					continue
+				}
+				if timestamp > timestampConfig {
 					// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
 					// 	event.ID, packageURL, versionStr, filename, timestamp)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
-				// TODO: Create a function in config_manager to get version (v) from opkg and from config. 
-				if isNewerVersion(versionStr, timestamp, v, config.PackageInfo.Timestamp) {
+				v, err := configManager.GetVersion()
+				if err != nil {
+					log.Printf("Error getting version: %v", err)
+					continue
+				}
+				if isNewerVersion(versionStr, timestamp, v, timestampConfig) {
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
@@ -173,7 +182,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					rightBranchKeys = append(rightBranchKeys, key)
 				}
 
-				// TODO: Create a function in config_manager to get architecture from filesystem and from config. 
+				// TODO: Create a function in config_manager to get architecture from filesystem and from config.
 				if arch == architecture {
 					rightArchKeys = append(rightArchKeys, key)
 				}
@@ -375,8 +384,6 @@ func verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	return nil
 }
 
-
-
 func isNetworkUnreachable(err error) bool {
 	if err == nil {
 		return false
@@ -430,7 +437,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 	return url, version, arch, branch, filename, timestamp, nil
 }
 
-func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version, currentTimestamp int64) bool {
+func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version) bool {
 	cleanedNewVersion := strings.Split(newVersion, "+")[0]
 	newVersionObj, err := version.NewVersion(cleanedNewVersion)
 	if err != nil {
@@ -443,7 +450,7 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 		//log.Printf("Invalid current version: %v", err)
 		return false
 	}
-	return newVersionObj.GreaterThan(cleanedCurrentVersionObj) && newTimestamp > currentTimestamp
+	return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
 }
 
 func intersect(slices ...[]string) []string {
