@@ -11,7 +11,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
+	"strconv"
 )
 
 func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
@@ -250,6 +252,29 @@ func GetInstalledVersion() (string, error) {
 	return "", fmt.Errorf("tollgate package not found")
 }
 
+func (cm *ConfigManager) GetBranch() (string, error) {
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return "", err
+	}
+
+	if config.NIP94EventID == "unknown" {
+		return "main", nil
+	}
+
+	event, err := cm.GetNIP94Event(config.NIP94EventID)
+	if err != nil {
+		return "", err
+	}
+
+	packageInfo, err := ExtractPackageInfo(event)
+	if err != nil {
+		return "", err
+	}
+
+	return packageInfo.Branch, nil
+}
+
 func GetArchitecture() (string, error) {
 	data, err := os.ReadFile("/etc/openwrt_release")
 	if err != nil {
@@ -261,16 +286,18 @@ func GetArchitecture() (string, error) {
 	if len(match) < 2 {
 		return "", fmt.Errorf("DISTRIB_ARCH not found in /etc/openwrt_release")
 	}
+
+	// TODO: Use ExtractPackageInfo to determine architecture from NIP94 event and throw an error if it is different from the architecture that we found on the filesystem. Don't do this check if NIP94EventID is set to `unknown`
 	return match[1], nil
 }
 
-func (cm *ConfigManager) getTimestamp() (int64, error) {
+func (cm *ConfigManager) GetTimestamp() (int64, error) {
 	config, err := cm.LoadConfig()
 	if err != nil {
 		return 0, err
 	}
 
-	// TODO: put a timestamp in install.json using the post install script. We can use that as a reference if we don't have any package info from nostr yet.
+	// TODO: put a timestamp in install.json using the post install script and in the filename using the Makefile. We can use that as a reference if we don't have any package info from nostr yet.
 
 	if config.NIP94EventID != "unknown" {
 		event, err := cm.GetNIP94Event(config.NIP94EventID)
@@ -281,11 +308,33 @@ func (cm *ConfigManager) getTimestamp() (int64, error) {
 		if err != nil {
 			return 0, err
 		}
+		// TODO: Compare the timestamp from the NIP94 event with the timestamp from the filesystme / version number. Throw an error if they are different. 
 		return packageInfo.Timestamp, nil
+	} else {
+		installedVersion, err := GetInstalledVersion()
+		if err != nil {
+			return 0, err
+		}
+		// TODO: include timestamp and commit hash in version number using this format: `1.2.3+20220101.abc123`
+		// Do this in the makefile..
+		v, err := version.NewVersion(installedVersion)
+		if err != nil {
+			return 0, err
+		}
+		originalVersion := v.Original()
+		re := regexp.MustCompile(`\+(\d+)\.([a-f0-9]+)$`)
+		match := re.FindStringSubmatch(originalVersion)
+		if len(match) < 3 {
+			return 0, fmt.Errorf("invalid version format: %s", originalVersion)
+		}
+		timestamp, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return timestamp, nil
 	}
-
-	return config.PackageInfo.Timestamp, nil
 }
+
 func (cm *ConfigManager) GetVersion() (*version.Version, error) {
 	config, err := cm.LoadConfig()
 	if err != nil {
@@ -311,8 +360,11 @@ func (cm *ConfigManager) GetVersion() (*version.Version, error) {
 		if err != nil {
 			return nil, err
 		}
+		localVersion := v.String()
 		eventVersion := packageInfo.Version
-		// TODO: Compare event version with local version. Raise an error message if they are different.
+		if localVersion != eventVersion {
+			return nil, fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
+		}
 	}
 
 	return v, nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -22,6 +21,20 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
 )
+
+type Janitor struct {
+	configManager *config_manager.ConfigManager
+}
+
+func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
+	return &Janitor{
+		configManager: configManager,
+	}, nil
+}
+
+func (j *Janitor) ListenForNIP94Events() {
+	ListenForNIP94Events(j.configManager)
+}
 
 type packageEvent struct {
 	event      *nostr.Event
@@ -158,7 +171,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					}
 				}
 
-				timestampConfig, err := configManager.getTimestamp()
+				timestampConfig, err := configManager.GetTimestamp()
 				if err != nil {
 					log.Printf("Error getting timestamp: %v", err)
 					continue
@@ -174,16 +187,25 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					log.Printf("Error getting version: %v", err)
 					continue
 				}
-				if isNewerVersion(versionStr, timestamp, v, timestampConfig) {
+				if isNewerVersion(versionStr, timestamp, v) {
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
-				if branch == config.PackageInfo.Branch {
+				branchFromNIP94Event, err := configManager.GetBranch()
+				if err != nil {
+					log.Printf("Error getting branch: %v", err)
+					continue
+				}
+				if branch == branchFromNIP94Event {
 					rightBranchKeys = append(rightBranchKeys, key)
 				}
 
-				// TODO: Create a function in config_manager to get architecture from filesystem and from config.
-				if arch == architecture {
+				archFromFilesystem, err := config_manager.GetArchitecture()
+				if err != nil {
+					log.Printf("Error getting architecture: %v", err)
+					continue
+				}
+				if arch == archFromFilesystem {
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
@@ -260,7 +282,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					isTimerActive = false
 					return
 				}
-				config, err := j.configManager.LoadConfig()
+				config, err := configManager.LoadConfig()
 				if err != nil {
 					log.Printf("Error loading config: %v", err)
 					timer.Stop()
@@ -268,7 +290,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 				config.NIP94EventID = event.ID
-				err = j.configManager.SaveConfig(config)
+				err = configManager.SaveConfig(config)
 				if err != nil {
 					log.Printf("Error updating config with NIP94 event ID: %v", err)
 					timer.Stop()
@@ -276,7 +298,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 
-				installConfig, err := j.configManager.LoadInstallConfig()
+				installConfig, err := configManager.LoadInstallConfig()
 				if err != nil {
 					log.Printf("Error loading install config: %v", err)
 					timer.Stop()
@@ -284,7 +306,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 				installConfig.PackagePath = pkgPath
-				err = j.configManager.SaveInstallConfig(installConfig)
+				err = configManager.SaveInstallConfig(installConfig)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
 					timer.Stop()
