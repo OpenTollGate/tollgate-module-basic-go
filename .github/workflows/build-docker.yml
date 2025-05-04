@@ -223,20 +223,11 @@ jobs:
             architecture=${{ env.MODEL }}
             version=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
-        
-      # Debug the outputs to see what's available
-      - name: Debug Event ID
-        run: |
-          echo "EVENT_ID from env: ${{ env.EVENT_ID }}"
-          echo "NOTE_ID from env: ${{ env.NOTE_ID }}"
-          echo "Output from publish step: ${{ steps.publish_package.outputs.eventId || 'not set' }}"
-          echo "Outputs available:"
-          echo "${{ toJSON(steps.publish_package.outputs) }}"
 
       - name: Verify Package NIP-94 Event
         id: verify_package
         # Use environment variable instead of step output
-        if: env.EVENT_ID != ''
+        if: ${{ steps.publish_package.outputs.eventId }} != ''
         uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
         with:
           eventId: ${{ steps.publish_package.outputs.eventId }}
