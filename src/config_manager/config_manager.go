@@ -363,6 +363,9 @@ func (cm *ConfigManager) GetVersion() (*version.Version, error) {
 		localVersion := v.String()
 		eventVersion := packageInfo.Version
 		if localVersion != eventVersion {
+			fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
+			fmt.Printf("Setting NIP94EventID to unknown")
+			config.NIP94EventID = "unknown"		
 			return nil, fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
 		}
 	}
