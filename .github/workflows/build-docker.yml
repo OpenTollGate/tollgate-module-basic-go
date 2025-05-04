@@ -25,6 +25,29 @@ jobs:
           path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
 
+      - id: commit-hash
+        uses: prompt/actions-commit-hash@v3
+
+      - name: Set package_version variable
+        id: determine-package-version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # If this is a tag push, use the tag name
+            echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          else
+            # If this is a branch push, use branch-shortCommitHash format
+            echo "package_version=${GITHUB_REF_NAME}-${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
+          fi
+        
+      - name: Set version variable
+        id: determine-release-channel
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "release_channel=stable" >> $GITHUB_OUTPUT
+          else
+            echo "release_channel=dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Move sources to sdk folder
         run: |
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
@@ -174,7 +197,7 @@ jobs:
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
+        uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
         with:
           relays: >-
             wss://relay.damus.io,
@@ -188,11 +211,11 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.MODEL }}"
-          device_id: "glinet_mt3000"
-          version: "${{ env.PKG_VERSION }}"
-          branch: "${{ env.BRANCH_NAME }}"
-
+          customTags: |
+            architecture=${{ env.MODEL }}
+            version=${{ steps.determine-package-version.outputs.package_version }}
+            release_channel=${{ steps.determine-release-channel.outputs.release_channel }}
+        
       # Debug the outputs to see what's available
       - name: Debug Event ID
         run: |
