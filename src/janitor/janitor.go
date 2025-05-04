@@ -28,86 +28,6 @@ type packageEvent struct {
 	packageURL string
 }
 
-type JanitorConfig struct {
-	Relays             []string `json:"relays"`
-	TrustedMaintainers []string `json:"trusted_maintainers"`
-	PackageInfo        struct {
-		Version   string `json:"version"`
-		Timestamp int64  `json:"timestamp"`
-		Branch    string `json:"branch"`
-		Arch      string `json:"arch"`
-	} `json:"package_info"`
-}
-
-func LoadJanitorConfig(path string) (*JanitorConfig, error) {
-	fmt.Println("Loading configuration from", path)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("Error reading config file: %v", err)
-		return nil, err
-	}
-
-	var config JanitorConfig
-	err = json.Unmarshal(data, &config)
-	if err != nil {
-		log.Printf("Error unmarshaling config: %v", err)
-		return nil, err
-	}
-
-	fmt.Println("Configuration loaded:", config)
-	return &config, nil
-}
-
-type Janitor struct {
-	relays             []string
-	trustedMaintainers []string
-	currentVersion     *version.Version
-	currentTimestamp   int64
-	ConfigBranch       string
-	ConfigArch         string
-	configManager      *config_manager.ConfigManager
-	opkgCmd            string
-}
-
-func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
-	fmt.Println("Creating new Janitor instance")
-
-	log.Printf("Loading config for Janitor instance")
-	config, err := configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Failed to load config: %v", err)
-		return nil, err
-	}
-
-	installedVersion, err := config_manager.GetInstalledVersion()
-	if err != nil {
-		log.Printf("Failed to get installed version: %v", err)
-		return nil, err
-	}
-
-	v, err := version.NewVersion(installedVersion)
-	if err != nil {
-		log.Printf("Invalid current version: %v", err)
-		return nil, err
-	}
-
-	architecture, err := config_manager.GetArchitecture()
-	if err != nil {
-		log.Printf("Failed to get architecture: %v", err)
-		return nil, err
-	}
-
-	return &Janitor{
-		relays:             config.Relays,
-		trustedMaintainers: config.TrustedMaintainers,
-		currentVersion:     v,
-		ConfigBranch:       "main", // Default or fetched from config
-		ConfigArch:         architecture,
-		configManager:      configManager,
-		opkgCmd:            "opkg",
-	}, nil
-}
-
 // Helper functions to get installed version and architecture
 func getInstalledVersion() (string, error) {
 	_, err := exec.LookPath("opkg")
@@ -127,15 +47,21 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
-func (j *Janitor) ListenForNIP94Events() {
+func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
 	relayPool := nostr.NewSimplePool(ctx)
 	eventChan := make(chan *nostr.Event, 1000)
 
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Failed to load config: %v", err)
+		return
+	}
+
 	for {
 		var wg sync.WaitGroup
-		for _, relayURL := range j.relays {
+		for _, relayURL := range config.Relays {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
@@ -201,7 +127,7 @@ func (j *Janitor) ListenForNIP94Events() {
 					return
 				}
 				totalEvents++
-				if !contains(j.trustedMaintainers, event.PubKey) {
+				if !contains(config.TrustedMaintainers, event.PubKey) {
 					untrustedEventCount++
 					continue
 				}
@@ -232,21 +158,23 @@ func (j *Janitor) ListenForNIP94Events() {
 					}
 				}
 
-				if timestamp > j.currentTimestamp {
+				if timestamp > config.PackageInfo.Timestamp {
 					// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
 					// 	event.ID, packageURL, versionStr, filename, timestamp)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
-				if isNewerVersion(versionStr, timestamp, j.currentVersion, j.currentTimestamp) {
+				// TODO: Create a function in config_manager to get version (v) from opkg and from config. 
+				if isNewerVersion(versionStr, timestamp, v, config.PackageInfo.Timestamp) {
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
-				if branch == j.ConfigBranch {
+				if branch == config.PackageInfo.Branch {
 					rightBranchKeys = append(rightBranchKeys, key)
 				}
 
-				if arch == j.ConfigArch {
+				// TODO: Create a function in config_manager to get architecture from filesystem and from config. 
+				if arch == architecture {
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
@@ -255,8 +183,8 @@ func (j *Janitor) ListenForNIP94Events() {
 					fmt.Printf("Started the timer\n")
 					timer.Reset(10 * time.Second)
 					isTimerActive = true
-					fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
-					fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
+					//fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
+					//fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 				}
 
 				if len(intersection) > 0 && !already_printed {
@@ -309,14 +237,14 @@ func (j *Janitor) ListenForNIP94Events() {
 
 				fmt.Printf("Newer package version available: %s\n", versionStr)
 				checksum := getChecksumFromEvent(*latestPackageEvent.event)
-				pkgPath, pkg, err := j.DownloadPackage(latestPackageEvent.packageURL, checksum)
+				pkgPath, pkg, err := DownloadPackage(configManager, latestPackageEvent.packageURL, checksum)
 				if err != nil {
 					log.Printf("Error downloading package: %v", err)
 					timer.Stop()
 					isTimerActive = false
 					return
 				}
-				err = j.verifyPackageChecksum(pkg, *event)
+				err = verifyPackageChecksum(pkg, *event)
 				if err != nil {
 					log.Printf("Error verifying package checksum: %v", err)
 					timer.Stop()
@@ -363,7 +291,7 @@ func (j *Janitor) ListenForNIP94Events() {
 	}
 }
 
-func (j *Janitor) DownloadPackage(url string, checksum string) (string, []byte, error) {
+func DownloadPackage(configManager *config_manager.ConfigManager, url string, checksum string) (string, []byte, error) {
 	filename := checksum + ".ipk"
 	tmpFilePath := filepath.Join("/tmp/", filename)
 	fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
@@ -432,8 +360,7 @@ func (p *progressLogger) Write(b []byte) (int, error) {
 	}
 	return n, nil
 }
-
-func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
+func verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	log.Println("Verifying package checksum")
 	for _, tag := range event.Tags {
 		if len(tag) > 0 && tag[0] == "x" && len(tag) > 1 {
@@ -447,6 +374,7 @@ func (j *Janitor) verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	}
 	return nil
 }
+
 
 
 func isNetworkUnreachable(err error) bool {

@@ -305,7 +305,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"tollgate_private_key",
 				"trusted_maintainers",
 			},
-			NIP94EventID: "0f3c16a9b53fcef3c36015914f234ef8a653d6a6f6267c6d4223f3266e300fb5",
+			NIP94EventID: "unknown",
 		} // TODO: update the default EventID when we merge to main.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {

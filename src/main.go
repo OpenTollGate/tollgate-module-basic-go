@@ -71,10 +71,12 @@ func init() {
 	log.Printf("NIP94EventID: %s", nip94EventID)
 	IPAddressRandomized := fmt.Sprintf("%v", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	_, err = configManager.GetNIP94Event(nip94EventID)
-	if err != nil {
-		log.Printf("Error getting NIP94 event: %v", err)
-		os.Exit(1)
+	if nip94EventID != "unknown" {
+		_, err = configManager.GetNIP94Event(nip94EventID)
+		if err != nil {
+			log.Printf("Error getting NIP94 event: %v", err)
+			os.Exit(1)
+		}
 	}
 
 	// Initialize derived configuration values
@@ -470,17 +472,20 @@ func main() {
 			log.Printf("Error getting NIP94 event: %v", err)
 			os.Exit(1)
 		}
-		// Extract PackageInfo from nip94Event
-		packageInfo, err := config_manager.ExtractPackageInfo(nip94Event)
-		if err != nil {
-			log.Printf("Error extracting package info: %v", err)
-			os.Exit(1)
-		}
-		configVersion := packageInfo.Version
 
-		if installedVersion != configVersion {
-			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
-			os.Exit(1)
+		if nip94EventID != "unknown" {
+			// Extract PackageInfo from nip94Event
+			packageInfo, err := config_manager.ExtractPackageInfo(nip94Event)
+			if err != nil {
+				log.Printf("Error extracting package info: %v", err)
+				os.Exit(1)
+			}
+			configVersion := packageInfo.Version
+
+			if installedVersion != configVersion {
+				log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
+				os.Exit(1)
+			}
 		}
 	}
 
