@@ -484,7 +484,7 @@ func main() {
 
 			if installedVersion != configVersion {
 				log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
-				os.Exit(1)
+				// os.Exit(1)
 			}
 		}
 	}

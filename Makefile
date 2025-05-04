@@ -1,6 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
+# TODO: update PKG_VERSION and the build workflow to a new format: `0.0.1+[timestamp].[commit hash]`, where the version number is set manually, the time stamp is the unix time at the time of executing the makefile and the commit hash is what we already have below.
 PKG_VERSION:=0.0.$(shell git rev-list --count HEAD)+$(shell git rev-parse --short HEAD)
 PKG_FLAGS:=overwrite
 
