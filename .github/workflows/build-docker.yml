@@ -93,7 +93,7 @@ jobs:
               RELEASE_CHANNEL=${{ needs.determine-versioning.outputs.release_channel }} \
               make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
               ${{ env.DEBUG == 'true' && 'V=sc' || '' }} && \
-              echo "IPK_FILE=$(IPK_FILE)"
+              echo "IPK_FILE=$(IPK_FILE)" >> $GITHUB_ENV
 
       - name: List output package(s)
         run: |
