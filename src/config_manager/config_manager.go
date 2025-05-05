@@ -51,9 +51,10 @@ type BraggingConfig struct {
 
 // Config holds the configuration parameters
 type PackageInfo struct {
-	Version   string
-	Branch    string
-	Timestamp int64
+	Version        string
+	Branch         string
+	Timestamp      int64
+	ReleaseChannel string
 }
 
 type Config struct {
@@ -68,6 +69,13 @@ type Config struct {
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
+	var releaseChannel string
+	for _, tag := range event.Tags {
+		if len(tag) > 1 && tag[0] == "release_channel" {
+			releaseChannel = tag[1]
+			break
+		}
+	}
 	if event == nil {
 		return nil, fmt.Errorf("event is nil")
 	}
@@ -94,9 +102,10 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 	}
 
 	return &PackageInfo{
-		Version:   version,
-		Branch:    branch,
-		Timestamp: timestamp,
+		Version:        version,
+		Branch:         branch,
+		Timestamp:      timestamp,
+		ReleaseChannel: releaseChannel,
 	}, nil
 }
 
@@ -489,4 +498,34 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		return defaultConfig, nil
 	}
 	return config, nil
+}
+
+func (cm *ConfigManager) GetReleaseChannel() (string, error) {
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return "", err
+	}
+
+	if config.NIP94EventID == "unknown" {
+		installConfig, err := cm.LoadInstallConfig()
+		if err != nil {
+			return "", err
+		}
+		if installConfig != nil {
+			return installConfig.ReleaseChannel, nil
+		}
+		return "", fmt.Errorf("NIP94EventID is unknown and install config is nil")
+	}
+
+	event, err := cm.GetNIP94Event(config.NIP94EventID)
+	if err != nil {
+		return "", err
+	}
+
+	packageInfo, err := ExtractPackageInfo(event)
+	if err != nil {
+		return "", err
+	}
+
+	return packageInfo.ReleaseChannel, nil
 }

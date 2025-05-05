@@ -36,9 +36,10 @@ The `PackageInfo` struct holds information extracted from NIP-94 events:
 
 ```go
 type PackageInfo struct {
-	Version   string
-	Branch    string
-	Timestamp int64
+	Version        string
+	Branch         string
+	Timestamp      int64
+	ReleaseChannel string
 }
 ```
 
@@ -116,3 +117,8 @@ The `ConfigManager` struct manages both the main configuration file and the inst
 ## Janitor Integration
 
 The `Janitor` updates the `install.json` with the package path and NIP94 event ID when a new package is installed.
+
+## GetReleaseChannel Function
+
+- Retrieves the release channel from the `PackageInfo` struct.
+- Returns the current release channel as a string.

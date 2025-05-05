@@ -163,10 +163,15 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				if releaseChannel != installConfig.ReleaseChannel {
-					continue // Skip if release channel doesn't match
+				// Release channel from currently installed package
+				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
+				if err != nil {
+					log.Printf("Error getting release channel: %v", err)
+					continue
 				}
-
+				if releaseChannel != releaseChannelFromConfigManager {
+					continue // Skip if release of the currently installed file channel doesn't match the release channel of the incoming nostr event
+				}
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
 				ok = eventMap[key] != nil
 				if ok {

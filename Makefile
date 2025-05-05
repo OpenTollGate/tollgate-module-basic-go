@@ -3,8 +3,10 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=tollgate-module-basic-go
 ifeq ($(RELEASE_CHANNEL),dev)
 PKG_VERSION:=$(shell date +%s)-$(shell git rev-parse --short HEAD)
-else
+else ifeq ($(RELEASE_CHANNEL),stable)
 PKG_VERSION:=$(PACKAGE_VERSION)
+else
+$(error Unknown RELEASE_CHANNEL: $(RELEASE_CHANNEL))
 endif
 PKG_FLAGS:=overwrite
 

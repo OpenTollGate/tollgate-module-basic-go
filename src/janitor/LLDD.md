@@ -83,6 +83,10 @@ The code will be structured as follows:
 
 * Install a package using opkg, considering the release channel.
 
+## Version Comparison Logic
+
+The `isNewerVersion` function compares the new version with the current version. For the stable release channel, it uses the `version` package to compare version numbers. If the release channel is dev, it returns an error as version comparison is not applicable for dev builds.
+
 ## Error Handling
 
 The Janitor module will handle errors and exceptions during the package installation process by:

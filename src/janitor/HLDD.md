@@ -43,7 +43,7 @@ For the dev channel, the version string is of the format `[branch_name]-[commit-
 
 1. Listen for NIP-94 events on specified relays.
 2. Verify event signature and trustworthiness.
-3. Compare version numbers considering the release channel to determine if the new package is newer.
+3. Compare version numbers considering the release channel to determine if the new package is newer. For the dev channel, version comparison is not applicable and will result in an error. We must compare the timestamps to determine if events are newer in the dev channel.
 4. Download new package if event is valid and newer.
 5. Verify the SHA256 sum of the downloaded package matches the expected hash from the NIP-94 event.
 6. Install new package using opkg.
