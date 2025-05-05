@@ -9,7 +9,7 @@ The Janitor module is designed to listen for NIP-94 events announcing new OpenWR
 * The module should listen for NIP-94 events signed by trusted maintainers.
 * The module should verify the checksum of the downloaded package before installation.
 * The module should handle errors and exceptions during the package installation process.
-* The module should compare version numbers to determine if a new package is newer than the currently installed one.
+* The module should compare version numbers to determine if a new package is newer than the currently installed one, considering the release channel.
 
 ## Configuration
 
@@ -36,30 +36,31 @@ The configuration data for the Janitor module will be stored in a JSON file name
 }
 ```
 
-This configuration includes various settings for the TollGate system, including the private key, accepted mint, pricing information, bragging settings, relays, trusted maintainers, and package information.
-
 ## NIP-94 Event Format
 
 The NIP-94 event that announces a new OpenWRT package has the following format:
 
 ```json
 {
- "id": "ba736977a4ffe67ed774776032b8f202302f9fa01361c42a7ed907c45edf4576",
- "pubkey": "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
- "created_at": 1735094804,
- "kind": 1063,
- "content": "TollGate Module Package: basic for gl-mt3000",
- "tags": [
- ["url", "https://blossom.swissdash.site/55d4d74b4b9184f6c51af4fc38ae59b9f0318593d0a727b7265d9c3d81a405d5.ipk"],
- ["m", "application/octet-stream"],
- ["x", "55d4d74b4b9184f6c51af4fc38ae59b9f0318593d0a727b7265d9c3d81a405d5"],
- ["filename", "basic-gl-mt3000-aarch64_cortex-a53.ipk"],
- ["arch", "aarch64_cortex-a53"],
- ["version", "1.2.3"],
- ["branch", "main"]
- ]
+  "id": "b5fbf776e2b0bcaca4cc0343a49101787db853cbf32582d15926b536548e83dc",
+  "pubkey": "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
+  "created_at": 1746436890,
+  "kind": 1063,
+  "content": "TollGate Module Package: basic for gl-mt3000",
+  "tags": [
+    ["url", "https://blossom.swissdash.site/28d3dd37c76ab69a3de4eb921db63f509b212a2954cb9abb58c531aac28696e5.ipk"],
+    ["m", "application/octet-stream"],
+    ["x", "28d3dd37c76ab69a3de4eb921db63f509b212a2954cb9abb58c531aac28696e5"],
+    ["ox", "28d3dd37c76ab69a3de4eb921db63f509b212a2954cb9abb58c531aac28696e5"],
+    ["filename", "basic-gl-mt3000-aarch64_cortex-a53.ipk"],
+    ["architecture", "aarch64_cortex-a53"],
+    ["version", "multiple_mints_rebase_taglist-b97e743"],
+    ["release_channel", "dev"]
+  ]
 }
 ```
+
+For the dev channel, the version string is of the format `[branch_name]-[commit-hash]-[timestamp]`. For the stable channel, the version number is just the release tag (e.g., `0.0.1`).
 
 ## Code Structure
 
@@ -80,7 +81,7 @@ The code will be structured as follows:
 
 ### InstallPackage
 
-* Install a package using opkg.
+* Install a package using opkg, considering the release channel.
 
 ## Error Handling
 
@@ -103,15 +104,11 @@ After installing a new package, the Janitor module updates the `install.json` fi
 
 ## Instructions for Engineers Implementing the Feature
 
-1. Update `OpenTollGate/nostr-publish-file-metadata-action/python@main` to include tags for the version and the branch.
-2. Use the `version` and `branch` fields in the NIP-94 metadata to track the package version and branch.
+1. Update the Janitor module to distinguish between dev and stable channels based on the `release_channel` tag in NIP-94 events.
+2. Modify the version comparison logic to handle the new versioning scheme for dev and stable channels.
 
 ## Checklist
 
-- [x] Implement the Janitor module as a separate Go module.
-- [x] Write unit tests for the Janitor module.
-- [x] Ensure that the module logs events and errors correctly.
-- [x] Implement error handling for package installation failures.
-- [x] Verify the checksum of the downloaded package before installation.
-- [x] Compare version numbers to determine if a new package is newer.
-- [x] Run post-install script to update `config.json` if it exists.
+- [ ] Update Janitor module to handle `release_channel`.
+- [ ] Modify version comparison logic.
+- [ ] Update documentation to reflect changes.
