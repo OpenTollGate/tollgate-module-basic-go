@@ -68,7 +68,7 @@ func TestConfigManager(t *testing.T) {
 		Relays:             []string{"test_relay"},
 		TrustedMaintainers: []string{"test_maintainer"},
 		FieldsToBeReviewed: []string{"test_field_to_review"},
-		NIP94EventID:       []string{"test_nip94_event_id"},
+		NIP94EventID:       "test_nip94_event_id",
 	}
 	err = cm.SaveConfig(newConfig)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestConfigManager(t *testing.T) {
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
 		!compareStringSlices(loadedConfig.FieldsToBeReviewed, newConfig.FieldsToBeReviewed) ||
-		!compareStringSlices(loadedConfig.NIP94EventID, newConfig.NIP94EventID) {
+		loadedConfig.NIP94EventID != newConfig.NIP94EventID {
 		t.Errorf("Loaded config does not match saved config")
 	}
 
@@ -102,9 +102,9 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("LoadInstallConfig returned non-nil config")
 	}
 
+
 	newInstallConfig := &InstallConfig{
-		PackagePath:  "/path/to/package",
-		NIP94EventID: "event-id",
+		PackagePath: "/path/to/package",
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
 	if err != nil {
