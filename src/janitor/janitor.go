@@ -152,9 +152,19 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				packageURL, versionStr, arch, branch, filename, timestamp, err := parseNIP94Event(*event)
+				packageURL, versionStr, arch, branch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
 				if err != nil {
 					continue
+				}
+
+				installConfig, err := configManager.LoadInstallConfig()
+				if err != nil {
+					log.Printf("Error loading install config: %v", err)
+					continue
+				}
+
+				if releaseChannel != installConfig.ReleaseChannel {
+					continue // Skip if release channel doesn't match
 				}
 
 				key := fmt.Sprintf("%s-%s", filename, versionStr)

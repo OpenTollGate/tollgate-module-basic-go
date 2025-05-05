@@ -107,6 +107,15 @@ type InstallConfig struct {
 	IPAddressRandomized bool   `json:"ip_address_randomized"`
 	InstallTimestamp    int64  `json:"install_time"`
 	DownloadTimestamp   int64  `json:"download_time"`
+	ReleaseChannel      string `json:"release_channel"`
+}
+
+// NewInstallConfig creates a new InstallConfig instance with the given package path and release channel
+func NewInstallConfig(packagePath string, releaseChannel string) *InstallConfig {
+	return &InstallConfig{
+		PackagePath:    packagePath,
+		ReleaseChannel: releaseChannel,
+	}
 }
 
 // NewInstallConfig creates a new InstallConfig instance
