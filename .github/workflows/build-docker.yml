@@ -55,6 +55,10 @@ jobs:
           path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
 
+      - name: Verify checkout
+        run: |
+          ls -la ${{ env.PACKAGE_NAME }}
+
       - name: Move sources to sdk folder
         run: |
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
