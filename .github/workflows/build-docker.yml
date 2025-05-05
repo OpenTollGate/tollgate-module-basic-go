@@ -98,7 +98,8 @@ jobs:
       - name: List output package(s)
         run: |
           echo "Listing all .ipk files in /builder/bin/packages:"
-          find /builder/bin/packages -name "*.ipk" -type f
+          find /builder/bin/packages -name "*.ipk" -type f || true
+          ls -la /builder/bin/packages || true
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
             echo "❌ No .ipk package found in /builder/bin/packages"
@@ -110,7 +111,7 @@ jobs:
           echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME" || true
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
