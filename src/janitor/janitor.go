@@ -86,9 +86,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 						log.Printf("Failed to connect to relay %s: %v. Retrying in %v...", relayURL, err, retryDelay)
 						time.Sleep(retryDelay)
 						retryDelay *= 2
-						if retryDelay > 1*time.Minute {
-							retryDelay = 1 * time.Minute
-						}
 						continue
 					}
 					fmt.Printf("Connected to relay: %s\n", relayURL)

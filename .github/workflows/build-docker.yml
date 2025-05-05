@@ -212,7 +212,8 @@ jobs:
           relays: >-
             wss://relay.damus.io,
             wss://nos.lol,
-            wss://nostr.mom/
+            wss://nostr.mom,
+            wss://relay.tollgate.me
           url: ${{ env.PACKAGE_URL }}
           mimeType: application/octet-stream
           fileHash: ${{ env.PACKAGE_HASH }}
