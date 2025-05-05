@@ -1,7 +1,20 @@
 #!/bin/sh
 
 echo "Running post-installation script"
-# Add your post-install commands here
+
+# Check if /etc/tollgate/install.json exists
+if [ -f /etc/tollgate/install.json ]; then
+    # Update InstallTimestamp in /etc/tollgate/install.json
+    CURRENT_TIMESTAMP=$(date +%s)
+    jq ".InstallTimestamp = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp
+    mv /tmp/install.json.tmp /etc/tollgate/install.json
+else
+    # Create /etc/tollgate/install.json if it doesn't exist
+    mkdir -p /etc/tollgate
+    CURRENT_TIMESTAMP=$(date +%s)
+    echo "{\"InstallTimestamp\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json
+fi
+
 echo "Verifying banner file ownership:"
 ls -l /etc/banner
 opkg search /etc/banner

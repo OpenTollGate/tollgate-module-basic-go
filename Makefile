@@ -1,6 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
+# TODO: update PKG_VERSION and the build workflow to a new format: `0.0.1+[timestamp].[commit hash]`, where the version number is set manually, the time stamp is the unix time at the time of executing the makefile and the commit hash is what we already have below.
 PKG_VERSION:=0.0.$(shell git rev-list --count HEAD)+$(shell git rev-parse --short HEAD)
 PKG_FLAGS:=overwrite
 
@@ -97,13 +98,6 @@ define Package/$(PKG_NAME)/install
 	# Create required directories
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
-
-	# Tollgate config.json for mint and price
-	$(INSTALL_DIR) $(1)/etc/tollgate
-	$(eval TIMESTAMP := $(shell date +%s))
-		
-	sed -i 's/"timestamp": [0-9]\+/"timestamp": $(TIMESTAMP)/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
 	# Banner for TollGate
 	$(INSTALL_DIR) $(1)/etc

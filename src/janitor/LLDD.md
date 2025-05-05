@@ -19,8 +19,6 @@ The configuration data for the Janitor module will be stored in a JSON file name
 {
   "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
   "accepted_mint": "https://mint.minibits.cash/Bitcoin",
-  "price_per_minute": 1,
-  "min_payment": 1,
   "mint_fee": 0,
   "bragging": {
       "enabled": true,
@@ -29,15 +27,12 @@ The configuration data for the Janitor module will be stored in a JSON file name
   "relays": [
     "wss://relay.damus.io",
     "wss://nos.lol",
-    "wss://nostr.mom"
+    "wss://nostr.mom",
+    "wss://relay.tollgate.me"
   ],
   "trusted_maintainers": [
     "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
-  ],
-  "package_info": {
-      "version": "1.2.3",
-      "timestamp": 1745751288
-  }
+  ]
 }
 ```
 
@@ -51,7 +46,7 @@ The NIP-94 event that announces a new OpenWRT package has the following format:
 {
  "id": "ba736977a4ffe67ed774776032b8f202302f9fa01361c42a7ed907c45edf4576",
  "pubkey": "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
- "created_at": synt1735094804,
+ "created_at": 1735094804,
  "kind": 1063,
  "content": "TollGate Module Package: basic for gl-mt3000",
  "tags": [
@@ -104,7 +99,7 @@ Unit tests will be written to ensure that the Janitor module functions correctly
 
 ## Post-Installation
 
-After installing a new package, if the `config.json` file already exists, a post-install script will be run to update its version and timestamp to match the newly installed package.
+After installing a new package, the Janitor module updates the `install.json` file with the new package path and NIP94 event ID using the ConfigManager.
 
 ## Instructions for Engineers Implementing the Feature
 
@@ -113,10 +108,10 @@ After installing a new package, if the `config.json` file already exists, a post
 
 ## Checklist
 
-- [ ] Implement the Janitor module as a separate Go module.
-- [ ] Write unit tests for the Janitor module.
-- [ ] Ensure that the module logs events and errors correctly.
-- [ ] Implement error handling for package installation failures.
-- [ ] Verify the checksum of the downloaded package before installation.
-- [ ] Compare version numbers to determine if a new package is newer.
-- [ ] Run post-install script to update `config.json` if it exists.
+- [x] Implement the Janitor module as a separate Go module.
+- [x] Write unit tests for the Janitor module.
+- [x] Ensure that the module logs events and errors correctly.
+- [x] Implement error handling for package installation failures.
+- [x] Verify the checksum of the downloaded package before installation.
+- [x] Compare version numbers to determine if a new package is newer.
+- [x] Run post-install script to update `config.json` if it exists.

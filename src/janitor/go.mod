@@ -1,4 +1,4 @@
-module github.com/OpenTollGate/tollgate-module-basic-go/janitor
+module github.com/OpenTollGate/tollgate-module-basic-go/src/janitor
 
 go 1.24.2
 
@@ -33,4 +33,3 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 )
 
-replace github.com/fiatjaf/go-nostr => github.com/nbd-wtf/go-nostr v0.51.10
