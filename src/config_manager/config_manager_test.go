@@ -102,9 +102,8 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("LoadInstallConfig returned non-nil config")
 	}
 
-
 	newInstallConfig := &InstallConfig{
-		PackagePath: "/path/to/package",
+		PackagePath: "/path/to/package"
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
 	if err != nil {

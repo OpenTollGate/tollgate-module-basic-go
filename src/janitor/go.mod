@@ -5,7 +5,6 @@ replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => .
 go 1.24.2
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/go-version v1.7.0
 	github.com/nbd-wtf/go-nostr v0.51.10
 )
@@ -35,3 +34,4 @@ require (
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 )
+

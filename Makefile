@@ -1,13 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
-ifeq ($(RELEASE_CHANNEL),dev)
-	PKG_VERSION:=$(shell date +%s)-$(shell git rev-parse --short HEAD)
-else ifeq ($(RELEASE_CHANNEL),stable)
-	PKG_VERSION:=$(PACKAGE_VERSION)
-else
-	$(error Unknown RELEASE_CHANNEL: $(RELEASE_CHANNEL))
-endif
+PKG_VERSION:=$(PACKAGE_VERSION)
+
 PKG_FLAGS:=overwrite
 
 # Place conditional checks EARLY - before variables that depend on them
