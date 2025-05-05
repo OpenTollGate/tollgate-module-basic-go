@@ -119,14 +119,6 @@ type InstallConfig struct {
 	ReleaseChannel      string `json:"release_channel"`
 }
 
-// NewInstallConfig creates a new InstallConfig instance with the given package path and release channel
-func NewInstallConfig(packagePath string, releaseChannel string) *InstallConfig {
-	return &InstallConfig{
-		PackagePath:    packagePath,
-		ReleaseChannel: releaseChannel,
-	}
-}
-
 // NewInstallConfig creates a new InstallConfig instance
 func NewInstallConfig(packagePath string) *InstallConfig {
 	return &InstallConfig{PackagePath: packagePath}

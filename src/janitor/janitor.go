@@ -157,11 +157,11 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				installConfig, err := configManager.LoadInstallConfig()
-				if err != nil {
-					log.Printf("Error loading install config: %v", err)
-					continue
-				}
+				//installConfig, err := configManager.LoadInstallConfig()
+				//if err != nil {
+				//	log.Printf("Error loading install config: %v", err)
+				//	continue
+				//}
 
 				// Release channel from currently installed package
 				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
@@ -273,7 +273,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				}
 
 				event := latestPackageEvent.event
-				_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
+				_, versionStr, _, _, _, _, releaseChannel, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					timer.Stop()
@@ -321,6 +321,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 				installConfig.PackagePath = pkgPath
+				installConfig.ReleaseChannel = releaseChannel
 				err = configManager.SaveInstallConfig(installConfig)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
@@ -458,8 +459,8 @@ func contains(s []string, str string) bool {
 }
 
 // parseNIP94Event extracts package information from a NIP-94 event
-func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, error) {
-	requiredTags := []string{"url", "version", "arch", "branch", "filename"}
+func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, string, error) {
+	requiredTags := []string{"url", "version", "arch", "branch", "filename", "release_channel"}
 	tagMap := make(map[string]string)
 
 	for _, tag := range event.Tags {
@@ -471,7 +472,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 	// Check if all required tags are present
 	for _, tag := range requiredTags {
 		if _, ok := tagMap[tag]; !ok {
-			return "", "", "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
+			return "", "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
 		}
 	}
 
@@ -483,10 +484,11 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 	timestamp := int64(event.CreatedAt)
 
 	if url == "" || version == "" || timestamp == 0 {
-		return "", "", "", "", "", 0, fmt.Errorf("invalid NIP-94 event: missing required tags")
+		return "", "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tags")
 	}
 
-	return url, version, arch, branch, filename, timestamp, nil
+	releaseChannel := tagMap["release_channel"]
+	return url, version, arch, branch, filename, timestamp, releaseChannel, nil
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version) bool {
