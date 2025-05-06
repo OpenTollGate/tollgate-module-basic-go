@@ -473,7 +473,7 @@ func contains(s []string, str string) bool {
 
 // parseNIP94Event extracts package information from a NIP-94 event
 func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, string, error) {
-	requiredTags := []string{"url", "version", "arch", "branch", "filename", "release_channel"}
+	requiredTags := []string{"url", "version", "architecture", "branch", "filename", "release_channel"}
 	tagMap := make(map[string]string)
 
 	for _, tag := range event.Tags {
@@ -491,7 +491,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 
 	url := tagMap["url"]
 	version := tagMap["version"]
-	arch := tagMap["arch"]
+	arch := tagMap["architecture"]
 	branch := tagMap["branch"]
 	filename := tagMap["filename"]
 	timestamp := int64(event.CreatedAt)
