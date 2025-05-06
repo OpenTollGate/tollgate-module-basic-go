@@ -130,29 +130,35 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 		isTimerActive := false
 		fmt.Println("Starting event processing loop")
 		for {
-			log.Println("Entering event processing loop")
+			//log.Println("Entering event processing loop")
 			select {
 				case event, ok := <-eventChan:
-				log.Printf("Received event from channel: %+v", event)
+				//log.Printf("Received event from channel: %+v", event)
 				if !ok {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
 				totalEvents++
+				log.Printf("Total events: %d", totalEvents)
 				if !contains(config.TrustedMaintainers, event.PubKey) {
 					untrustedEventCount++
+					log.Printf("Untrusted event count: %d", untrustedEventCount)
 					continue
 				}
 
 				trustedEventCount++
+				log.Printf("Trusted event count: %d", trustedEventCount)
 				ok, err := event.CheckSignature()
 				if err != nil || !ok {
-					//log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
+					log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
 					continue
 				}
 
 				packageURL, versionStr, arch, branch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
+				log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Branch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
+					packageURL, versionStr, arch, branch, filename, timestamp, releaseChannel, err)
 				if err != nil {
+					log.Printf("Error parsing NIP-94 event: %v", err)
 					continue
 				}
 
