@@ -227,7 +227,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
-				intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
 				if len(intersection) > 0 && !isTimerActive {
 					fmt.Printf("Started the timer\n")
 					timer.Reset(10 * time.Second)
