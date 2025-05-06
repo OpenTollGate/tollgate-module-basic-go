@@ -176,7 +176,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					collisionCount++
 					//log.Println("Collision! Already encountered this filename and version in the past...")
 				} else {
-					// Its the first time we see this filename & version string
+					// Its the first time we see this filename & version string 
 					eventMap[key] = &packageEvent{
 						event:      event,
 						packageURL: packageURL,
