@@ -130,8 +130,10 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 		isTimerActive := false
 		fmt.Println("Starting event processing loop")
 		for {
+			log.Println("Entering event processing loop")
 			select {
-			case event, ok := <-eventChan:
+				case event, ok := <-eventChan:
+				log.Printf("Received event from channel: %+v", event)
 				if !ok {
 					log.Println("eventChan closed, stopping event processing")
 					return
