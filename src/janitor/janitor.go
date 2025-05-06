@@ -121,7 +121,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 		collisionCount := 0
 		rightTimeKeys := make([]string, 0)
 		var already_printed bool = false
-		rightBranchKeys := make([]string, 0)
 		rightArchKeys := make([]string, 0)
 		rightVersionKeys := make([]string, 0)
 
@@ -154,9 +153,9 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				packageURL, versionStr, arch, branch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
-				log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Branch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
-					packageURL, versionStr, arch, branch, filename, timestamp, releaseChannel, err)
+				packageURL, versionStr, arch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
+				log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
+					packageURL, versionStr, arch, filename, timestamp, releaseChannel, err)
 				if err != nil {
 					if strings.Contains(err.Error(), "missing required tag 'release_channel'") {
 						// log.Printf("Skipping NIP-94 event due to missing 'release_channel' tag: %v", err)
@@ -219,15 +218,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
-				branchFromNIP94Event, err := configManager.GetBranch()
-				if err != nil {
-					log.Printf("Error getting branch: %v", err)
-					continue
-				}
-				if branch == branchFromNIP94Event {
-					rightBranchKeys = append(rightBranchKeys, key)
-				}
-
 				archFromFilesystem, err := config_manager.GetArchitecture()
 				if err != nil {
 					log.Printf("Error getting architecture: %v", err)
@@ -256,7 +246,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					}
 					fmt.Printf("Intersection: %v\n", intersection)
 					printList("Right Time Keys", rightTimeKeys)
-					printList("Right Branch Keys", rightBranchKeys)
 					printList("Right Arch Keys", rightArchKeys)
 					printList("Right Version Keys", rightVersionKeys)
 					already_printed = true
@@ -265,8 +254,8 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 			case <-timer.C:
 				log.Println("Timeout reached, checking for new versions")
 
-				// Compute the intersection of rightTimeKeys, rightBranchKeys, and rightArchKeys.
-				intersection := intersect(rightTimeKeys, rightBranchKeys, rightArchKeys, rightVersionKeys)
+				// Compute the intersection of rightTimeKeys, and rightArchKeys.
+				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
 				qualifyingEventsMap := make(map[string]*packageEvent)
 
 				for _, key := range intersection {
@@ -473,7 +462,7 @@ func contains(s []string, str string) bool {
 
 // parseNIP94Event extracts package information from a NIP-94 event
 func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, string, error) {
-	requiredTags := []string{"url", "version", "architecture", "branch", "filename", "release_channel"}
+	requiredTags := []string{"url", "version", "architecture", "filename", "release_channel"}
 	tagMap := make(map[string]string)
 
 	for _, tag := range event.Tags {
@@ -492,7 +481,6 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 	url := tagMap["url"]
 	version := tagMap["version"]
 	arch := tagMap["architecture"]
-	branch := tagMap["branch"]
 	filename := tagMap["filename"]
 	timestamp := int64(event.CreatedAt)
 
@@ -501,7 +489,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 	}
 
 	releaseChannel := tagMap["release_channel"]
-	return url, version, arch, branch, filename, timestamp, releaseChannel, nil
+	return url, version, arch, filename, timestamp, releaseChannel, nil
 }
 
 func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version) bool {
