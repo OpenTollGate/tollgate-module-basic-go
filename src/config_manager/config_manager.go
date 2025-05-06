@@ -257,7 +257,7 @@ func GetMintFee(mintURL string) (int, error) {
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
 func CalculateMinPayment(mintFee int) int {
-	// Stub implementation: return the mint fee as the minimum payment
+	// Stub implementation: return the mint fee as the minimum payment 
 	return 2*mintFee + 1
 }
 
