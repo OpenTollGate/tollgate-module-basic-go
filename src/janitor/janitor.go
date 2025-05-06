@@ -150,15 +150,15 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
 					packageURL, versionStr, arch, filename, timestamp, releaseChannel, err)
 				if err != nil {
-					if strings.Contains(err.Error(), "missing required tag 'release_channel'") {
-					} else {
-						log.Printf("Error parsing NIP-94 event: %v", err)
-					}
+					// if strings.Contains(err.Error(), "missing required tag 'release_channel'") {
+					// } else {
+					// 	log.Printf("Error parsing NIP-94 event: %v", err)
+					// }
 					continue
 				}
 
 				log.Printf("Debug ping!")
-				
+
 				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
 				if err != nil {
 					log.Printf("Error getting release channel: %v", err)
