@@ -187,11 +187,12 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	}
 	if installConfig == nil {
 		defaultInstallConfig := &InstallConfig{
-			PackagePath:         "false",
-			IPAddressRandomized: false,
-			InstallTimestamp:    0, // Set InstallTimestamp to 0 (unknown)
-			DownloadTimestamp:   0, // Set DownloadTimestamp to 0 (unknown)
-		}
+				PackagePath:         "false",
+				IPAddressRandomized: false,
+				InstallTimestamp:    0, // Set InstallTimestamp to 0 (unknown)
+				DownloadTimestamp:   0, // Set DownloadTimestamp to 0 (unknown)
+				ReleaseChannel:      "stable", // Set default release channel to "main"
+			}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
 		if err != nil {
 			return nil, err
@@ -504,6 +505,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 			return "", err
 		}
 		if installConfig != nil {
+			log.Printf("Returning release channel from install config: %s", installConfig.ReleaseChannel)
 			return installConfig.ReleaseChannel, nil
 		}
 		return "", fmt.Errorf("NIP94EventID is unknown and install config is nil")
