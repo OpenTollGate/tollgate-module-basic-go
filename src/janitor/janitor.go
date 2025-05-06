@@ -139,18 +139,18 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 				totalEvents++
-				log.Printf("Total events: %d", totalEvents)
+				//log.Printf("Total events: %d", totalEvents)
 				if !contains(config.TrustedMaintainers, event.PubKey) {
 					untrustedEventCount++
-					log.Printf("Untrusted event count: %d", untrustedEventCount)
+					// log.Printf("Untrusted event count: %d", untrustedEventCount)
 					continue
 				}
 
 				trustedEventCount++
-				log.Printf("Trusted event count: %d", trustedEventCount)
+				// log.Printf("Trusted event count: %d", trustedEventCount)
 				ok, err := event.CheckSignature()
 				if err != nil || !ok {
-					log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
+					// log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
 					continue
 				}
 
@@ -161,6 +161,8 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					log.Printf("Error parsing NIP-94 event: %v", err)
 					continue
 				}
+
+				log.Printf("Debug ping!")
 
 				//installConfig, err := configManager.LoadInstallConfig()
 				//if err != nil {
