@@ -83,7 +83,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
 					relay, err := relayPool.EnsureRelay(relayURL)
 					if err != nil {
-						// log.Printf("Failed to connect to relay %s: %v. Retrying in %v...", relayURL, err, retryDelay)
 						time.Sleep(retryDelay)
 						retryDelay *= 2
 						continue
@@ -129,27 +128,21 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 		isTimerActive := false
 		fmt.Println("Starting event processing loop")
 		for {
-			//log.Println("Entering event processing loop")
 			select {
-				case event, ok := <-eventChan:
-				//log.Printf("Received event from channel: %+v", event)
+			case event, ok := <-eventChan:
 				if !ok {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
 				totalEvents++
-				//log.Printf("Total events: %d", totalEvents)
 				if !contains(config.TrustedMaintainers, event.PubKey) {
 					untrustedEventCount++
-					// log.Printf("Untrusted event count: %d", untrustedEventCount)
 					continue
 				}
 
 				trustedEventCount++
-				// log.Printf("Trusted event count: %d", trustedEventCount)
 				ok, err := event.CheckSignature()
 				if err != nil || !ok {
-					// log.Printf("Invalid signature for NIP-94 event %s: %v", event.ID, err)
 					continue
 				}
 
@@ -158,7 +151,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					packageURL, versionStr, arch, filename, timestamp, releaseChannel, err)
 				if err != nil {
 					if strings.Contains(err.Error(), "missing required tag 'release_channel'") {
-						// log.Printf("Skipping NIP-94 event due to missing 'release_channel' tag: %v", err)
 					} else {
 						log.Printf("Error parsing NIP-94 event: %v", err)
 					}
@@ -166,14 +158,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				}
 
 				log.Printf("Debug ping!")
-
-				//installConfig, err := configManager.LoadInstallConfig()
-				//if err != nil {
-				//	log.Printf("Error loading install config: %v", err)
-				//	continue
-				//}
-
-				// Release channel from currently installed package
+				
 				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
 				if err != nil {
 					log.Printf("Error getting release channel: %v", err)
@@ -182,16 +167,13 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				log.Printf("Release channel from event: %s, from config: %s", releaseChannel, releaseChannelFromConfigManager)
 				if releaseChannel != releaseChannelFromConfigManager {
 					log.Printf("Skipping event due to release channel mismatch")
-					continue // Skip if release of the currently installed file channel doesn't match the release channel of the incoming nostr event
+					continue
 				}
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
 				ok = eventMap[key] != nil
 				if ok {
-					// We already recorded an event with this filename and version string
 					collisionCount++
-					//log.Println("Collision! Already encountered this filename and version in the past...")
 				} else {
-					// Its the first time we see this filename & version string 
 					eventMap[key] = &packageEvent{
 						event:      event,
 						packageURL: packageURL,
@@ -204,8 +186,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 				if timestamp > timestampConfig {
-					// fmt.Printf("Received event from channel: ID=%s, URL=%s, Version=%s, Filename=%s, Timestamp=%d",
-					// 	event.ID, packageURL, versionStr, filename, timestamp)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
@@ -232,8 +212,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					fmt.Printf("Started the timer\n")
 					timer.Reset(10 * time.Second)
 					isTimerActive = true
-					//fmt.Printf("Started the timer, NIP-94 timestamp: %d, config timestamp: %d\n", timestamp, j.currentTimestamp)
-					//fmt.Printf("Current timestamp %d, current version %s\n", j.currentTimestamp, j.currentVersion.String())
 				}
 
 				if len(intersection) > 0 && !already_printed {
@@ -254,7 +232,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 			case <-timer.C:
 				log.Println("Timeout reached, checking for new versions")
 
-				// Compute the intersection of rightTimeKeys, and rightArchKeys.
 				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
 				qualifyingEventsMap := make(map[string]*packageEvent)
 
@@ -275,7 +252,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				}
 
 				event := latestPackageEvent.event
-				_, versionStr, _, _, _, _, releaseChannel, err := parseNIP94Event(*event)
+				_, versionStr, _, _, _, releaseChannel, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					timer.Stop()
@@ -373,7 +350,6 @@ func DownloadPackage(configManager *config_manager.ConfigManager, url string, ch
 
 	fmt.Println("Package downloaded successfully to /tmp/")
 
-	// Update DownloadTimestamp in InstallConfig
 	installConfig, err := configManager.LoadInstallConfig()
 	if err != nil {
 		log.Printf("Error loading install config: %v", err)
@@ -424,6 +400,7 @@ func (p *progressLogger) Write(b []byte) (int, error) {
 	}
 	return n, nil
 }
+
 func verifyPackageChecksum(pkg []byte, event nostr.Event) error {
 	log.Println("Verifying package checksum")
 	for _, tag := range event.Tags {
@@ -443,7 +420,6 @@ func isNetworkUnreachable(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check if the error is related to network unreachability
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		return opErr.Op == "dial" && opErr.Net == "tcp" && opErr.Err.Error() == "connect: network is unreachable"
@@ -461,7 +437,7 @@ func contains(s []string, str string) bool {
 }
 
 // parseNIP94Event extracts package information from a NIP-94 event
-func parseNIP94Event(event nostr.Event) (string, string, string, string, string, int64, string, error) {
+func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, string, error) {
 	requiredTags := []string{"url", "version", "architecture", "filename", "release_channel"}
 	tagMap := make(map[string]string)
 
@@ -471,10 +447,9 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 		}
 	}
 
-	// Check if all required tags are present
 	for _, tag := range requiredTags {
 		if _, ok := tagMap[tag]; !ok {
-			return "", "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
+			return "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
 		}
 	}
 
@@ -485,7 +460,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, string,
 	timestamp := int64(event.CreatedAt)
 
 	if url == "" || version == "" || timestamp == 0 {
-		return "", "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tags")
+		return "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tags")
 	}
 
 	releaseChannel := tagMap["release_channel"]
@@ -496,13 +471,11 @@ func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *versi
 	cleanedNewVersion := strings.Split(newVersion, "+")[0]
 	newVersionObj, err := version.NewVersion(cleanedNewVersion)
 	if err != nil {
-		//log.Printf("Invalid new version: %v", err)
 		return false
 	}
 	cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
 	cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
 	if err != nil {
-		//log.Printf("Invalid current version: %v", err)
 		return false
 	}
 	return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
@@ -548,7 +521,6 @@ func sortQualifyingEventsByVersion(qualifyingEventsMap map[string]*packageEvent)
 		versionIObj, errI := version.NewVersion(versionI)
 		versionJObj, errJ := version.NewVersion(versionJ)
 		if errI != nil || errJ != nil {
-			// If there's an error parsing versions, fall back to string comparison
 			return keys[i] > keys[j]
 		}
 		return versionIObj.GreaterThan(versionJObj)
