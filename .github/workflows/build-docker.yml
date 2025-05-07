@@ -18,6 +18,11 @@ jobs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
     steps:
+      - name: Checkout code with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - id: commit-hash
         uses: prompt/actions-commit-hash@v3
 
