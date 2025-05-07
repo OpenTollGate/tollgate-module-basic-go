@@ -69,7 +69,7 @@ func init() {
 	}
 	nip94EventID := config.NIP94EventID
 	log.Printf("NIP94EventID: %s", nip94EventID)
-	IPAddressRandomized := fmt.Sprintf("%v", installConfig.IPAddressRandomized)
+	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
 	if nip94EventID != "unknown" {
 		_, err = configManager.GetNIP94Event(nip94EventID)

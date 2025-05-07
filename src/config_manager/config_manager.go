@@ -113,7 +113,7 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 // The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
 	PackagePath            string `json:"package_path"`
-	IPAddressRandomized    bool   `json:"ip_address_randomized"`
+	IPAddressRandomized    string `json:"ip_address_randomized"`
 	InstallTimestamp       int64  `json:"install_time"`
 	DownloadTimestamp      int64  `json:"download_time"`
 	ReleaseChannel         string `json:"release_channel"`
@@ -190,7 +190,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	if installConfig == nil {
 		defaultInstallConfig := &InstallConfig{
 			PackagePath:            "false",
-			IPAddressRandomized:    false,
+			IPAddressRandomized:    "false",
 			InstallTimestamp:       0,              // Set InstallTimestamp to 0 (unknown)
 			DownloadTimestamp:      0,              // Set DownloadTimestamp to 0 (unknown)
 			ReleaseChannel:         "stable",       // Set default release channel to "main"
