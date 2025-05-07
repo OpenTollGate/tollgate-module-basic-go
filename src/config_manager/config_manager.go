@@ -453,7 +453,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 }
 
 func (cm *ConfigManager) UpdateNIP94EventID() error {
-	install installConfig, err := cm.LoadInstallConfig()
+	installConfig, err := cm.LoadInstallConfig()
     if err != nil {
         return err
     }
