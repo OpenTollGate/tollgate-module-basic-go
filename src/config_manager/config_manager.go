@@ -52,7 +52,6 @@ type BraggingConfig struct {
 // Config holds the configuration parameters
 type PackageInfo struct {
 	Version        string
-	Branch         string
 	Timestamp      int64
 	ReleaseChannel string
 }
@@ -69,19 +68,12 @@ type Config struct {
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
-	var releaseChannel string
-	for _, tag := range event.Tags {
-		if len(tag) > 1 && tag[0] == "release_channel" {
-			releaseChannel = tag[1]
-			break
-		}
-	}
 	if event == nil {
 		return nil, fmt.Errorf("event is nil")
 	}
 
 	var version string
-	var branch string
+	var releaseChannel string
 	var timestamp int64
 
 	for _, tag := range event.Tags {
@@ -89,21 +81,20 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 			switch tag[0] {
 			case "version":
 				version = tag[1]
-			case "branch":
-				branch = tag[1]
+			case "release_channel":
+				releaseChannel = tag[1]
 			}
 		}
 	}
 
 	timestamp = int64(event.CreatedAt)
 
-	if version == "" || branch == "" {
-		return nil, fmt.Errorf("required information not found in NIP94 event")
+	if version == "" {
+		return nil, fmt.Errorf("required information 'version' not found in NIP94 event")
 	}
 
 	return &PackageInfo{
 		Version:        version,
-		Branch:         branch,
 		Timestamp:      timestamp,
 		ReleaseChannel: releaseChannel,
 	}, nil
@@ -287,29 +278,6 @@ func GetInstalledVersion() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("tollgate package not found")
-}
-
-func (cm *ConfigManager) GetBranch() (string, error) {
-	config, err := cm.LoadConfig()
-	if err != nil {
-		return "", err
-	}
-
-	if config.NIP94EventID == "unknown" {
-		return "main", nil
-	}
-
-	event, err := cm.GetNIP94Event(config.NIP94EventID)
-	if err != nil {
-		return "", err
-	}
-
-	packageInfo, err := ExtractPackageInfo(event)
-	if err != nil {
-		return "", err
-	}
-
-	return packageInfo.Branch, nil
 }
 
 func GetArchitecture() (string, error) {
