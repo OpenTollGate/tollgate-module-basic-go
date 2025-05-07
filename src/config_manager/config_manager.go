@@ -13,7 +13,6 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
-	"strconv"
 )
 
 func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
@@ -364,7 +363,7 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		}
 		return timestamp, nil
 	}
-	return nil, fmt.Errorf("Unexpected state")
+	return 0, fmt.Errorf("Unexpected state")
 }
 
 func (cm *ConfigManager) GetVersion() (*version.Version, error) {
