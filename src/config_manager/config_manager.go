@@ -187,12 +187,12 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	}
 	if installConfig == nil {
 		defaultInstallConfig := &InstallConfig{
-				PackagePath:         "false",
-				IPAddressRandomized: false,
-				InstallTimestamp:    0, // Set InstallTimestamp to 0 (unknown)
-				DownloadTimestamp:   0, // Set DownloadTimestamp to 0 (unknown)
-				ReleaseChannel:      "stable", // Set default release channel to "main"
-			}
+			PackagePath:         "false",
+			IPAddressRandomized: false,
+			InstallTimestamp:    0,        // Set InstallTimestamp to 0 (unknown)
+			DownloadTimestamp:   0,        // Set DownloadTimestamp to 0 (unknown)
+			ReleaseChannel:      "stable", // Set default release channel to "main"
+		}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
 		if err != nil {
 			return nil, err
@@ -257,7 +257,7 @@ func GetMintFee(mintURL string) (int, error) {
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
 func CalculateMinPayment(mintFee int) int {
-	// Stub implementation: return the mint fee as the minimum payment 
+	// Stub implementation: return the mint fee as the minimum payment
 	return 2*mintFee + 1
 }
 
@@ -331,8 +331,6 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		return 0, err
 	}
 
-	// TODO: put a timestamp in install.json using the post install script and in the filename using the Makefile. We can use that as a reference if we don't have any package info from nostr yet.
-
 	if config.NIP94EventID != "unknown" {
 		event, err := cm.GetNIP94Event(config.NIP94EventID)
 		if err != nil {
@@ -342,62 +340,31 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		if err != nil {
 			return 0, err
 		}
-		// TODO: Compare the timestamp from the NIP94 event with the timestamp from the filesystme / version number. Throw an error if they are different.
+		// Compare the timestamp from the NIP94 event with the timestamp from the filesystem.
+		// For now, we'll just return the NIP94 event timestamp.
 		return packageInfo.Timestamp, nil
 	} else {
-		installedVersion, err := GetInstalledVersion()
+		installConfig, err := cm.LoadInstallConfig()
 		if err != nil {
 			return 0, err
 		}
-		// TODO: include timestamp and commit hash in version number using this format: `1.2.3+20220101.abc123`
-		// Do this in the makefile..
-		v, err := version.NewVersion(installedVersion)
-		if err != nil {
-			return 0, err
-		}
-		originalVersion := v.Original()
-		re := regexp.MustCompile(`\+([a-f0-9]+)$`)
-		match := re.FindStringSubmatch(originalVersion)
-		if len(match) < 2 {
-			return 0, fmt.Errorf("invalid version format: %s", originalVersion)
+		if installConfig == nil {
+			return 0, fmt.Errorf("install config not found")
 		}
 
-		if len(match) < 3 {
-			fmt.Printf("Version number only contains two fields: %s\n", originalVersion)
-			installConfig, err := cm.LoadInstallConfig()
-			if err != nil {
-				return 0, err
-			}
-			if installConfig != nil && installConfig.DownloadTimestamp != 0 {
-				return installConfig.DownloadTimestamp, nil
-			}
-
-			var timestamp int64
-			if installConfig != nil {
-				if installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0 {
-					timestamp = min(installConfig.DownloadTimestamp, installConfig.InstallTimestamp)
-				} else if installConfig.DownloadTimestamp != 0 {
-					timestamp = installConfig.DownloadTimestamp
-				} else if installConfig.InstallTimestamp != 0 {
-					timestamp = installConfig.InstallTimestamp
-				} else {
-					return 0, fmt.Errorf("neither download nor install timestamp found in install.json")
-				}
-			} else {
-				return 0, fmt.Errorf("install config not found")
-			}
-			return timestamp, nil
+		var timestamp int64
+		if installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0 {
+			timestamp = min(installConfig.DownloadTimestamp, installConfig.InstallTimestamp)
+		} else if installConfig.DownloadTimestamp != 0 {
+			timestamp = installConfig.DownloadTimestamp
+		} else if installConfig.InstallTimestamp != 0 {
+			timestamp = installConfig.InstallTimestamp
 		} else {
-			fmt.Printf("Version number: %s\n", originalVersion)
-			timestamp, err := strconv.ParseInt(match[1], 10, 64)
-			if err != nil {
-				return 0, err
-			}
-			return timestamp, nil
+			return 0, fmt.Errorf("neither download nor install timestamp found in install.json")
 		}
-
-		return 0, fmt.Errorf("failed to parse version number")
+		return timestamp, nil
 	}
+	return nil, fmt.Errorf("Unexpected state")
 }
 
 func (cm *ConfigManager) GetVersion() (*version.Version, error) {
@@ -505,7 +472,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 			return "", err
 		}
 		if installConfig != nil {
-			log.Printf("Returning release channel from install config: %s", installConfig.ReleaseChannel)
+			// log.Printf("Returning release channel from install config: %s", installConfig.ReleaseChannel)
 			return installConfig.ReleaseChannel, nil
 		}
 		return "", fmt.Errorf("NIP94EventID is unknown and install config is nil")
