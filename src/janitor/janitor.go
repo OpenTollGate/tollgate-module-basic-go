@@ -194,7 +194,8 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					log.Printf("Error getting version: %v", err)
 					continue
 				}
-				if isNewerVersion(versionStr, timestamp, v) {
+
+				if isNewerVersion(versionStr, v) {
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 

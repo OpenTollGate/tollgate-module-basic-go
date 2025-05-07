@@ -374,11 +374,6 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 }
 
 func (cm *ConfigManager) GetVersion() (string, error) {
-	config, err := cm.LoadConfig()
-	if err != nil {
-		return "", err
-	}
-
 	releaseChannel, err := cm.GetReleaseChannel()
 	if err != nil {
 		return "", err
