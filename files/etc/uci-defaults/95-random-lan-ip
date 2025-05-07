@@ -132,13 +132,5 @@ uci_safe_set network lan broadcast "$BROADCAST"
 # Update install.json with the new random IP
 jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
 
-# Before exiting, update persistent_config.json with the new random_ip
-echo "Updating persistent_config.json with random IP: $RANDOM_IP" >> /tmp/tollgate-debug.log
-# Initialize persistent_config.json if it's empty or doesn't exist
-if [ ! -s "$PERSISTENT_CONFIG_FILE" ]; then
-    echo "{}" > "$PERSISTENT_CONFIG_FILE"
-fi
-jq '.random_ip = "'"$RANDOM_IP"'"' "$PERSISTENT_CONFIG_FILE" > "$PERSISTENT_CONFIG_FILE.tmp" && mv "$PERSISTENT_CONFIG_FILE.tmp" "$PERSISTENT_CONFIG_FILE"
-echo "persistent_config.json update result: $?" >> /tmp/tollgate-debug.log
 
 exit 0
