@@ -158,14 +158,12 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				log.Printf("Debug ping!")
-
 				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
 				if err != nil {
 					log.Printf("Error getting release channel: %v", err)
 					continue
 				}
-				log.Printf("Release channel from event: %s, from config: %s", releaseChannel, releaseChannelFromConfigManager)
+				// log.Printf("Release channel from event: %s, from config: %s", releaseChannel, releaseChannelFromConfigManager)
 				if releaseChannel != releaseChannelFromConfigManager {
 					log.Printf("Skipping event due to release channel mismatch")
 					continue
