@@ -373,57 +373,32 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 	return 0, fmt.Errorf("Unexpected state")
 }
 
-func (cm *ConfigManager) GetVersion() (*version.Version, error) {
+func (cm *ConfigManager) GetVersion() (string, error) {
 	config, err := cm.LoadConfig()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	releaseChannel, err := cm.GetReleaseChannel()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	installedVersion, err := GetInstalledVersion()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	var v *version.Version
 	if releaseChannel == "stable" {
-		v, err = version.NewVersion(installedVersion)
+		_, err := version.NewVersion(installedVersion)
 		if err != nil {
-			return nil, fmt.Errorf("invalid installed version format: %w", err)
+			return "", fmt.Errorf("invalid installed version format: %w", err)
 		}
+		return installedVersion, nil
 	} else {
-		// For dev channel, we can't compare versions directly
-		return nil, fmt.Errorf("dev channel version %s is not comparable", installedVersion)
+		// For dev channel, return the installed version as a string
+		return installedVersion, nil
 	}
-
-	if config.NIP94EventID != "unknown" {
-		event, err := cm.GetNIP94Event(config.NIP94EventID)
-		if err != nil {
-			return nil, err
-		}
-		packageInfo, err := ExtractPackageInfo(event)
-		if err != nil {
-			return nil, err
-		}
-		eventV, err := version.NewVersion(packageInfo.Version)
-		if err != nil {
-			return nil, fmt.Errorf("invalid event version format: %w", err)
-		}
-		if v.LessThan(eventV) {
-			config.NIP94EventID = "unknown"
-			err = cm.SaveConfig(config)
-			if err != nil {
-				return nil, err
-			}
-			return nil, fmt.Errorf("local version %s is older than event version %s", v, eventV)
-		}
-	}
-
-	return v, nil
 }
 
 func generatePrivateKey() (string, error) {
