@@ -453,40 +453,35 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 }
 
 func (cm *ConfigManager) UpdateNIP94EventID() error {
-	// TODO: use GetInstalledVersion() to verify that the version number in the NIP94 event is indeed the same as the version number that is currently installed by opkg. Set the event ID to unknown if it isnt.
-	installConfig, err := cm.LoadInstallConfig()
-    if err != nil {
-        return err
-    }
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return err
+	}
 
-    if installConfig == nil {
-        return fmt.Errorf("install config not found")
-    }
+	if config.NIP94EventID != "unknown" {
+		event, err := cm.GetNIP94Event(config.NIP94EventID)
+		if err != nil {
+			return err
+		}
 
-    config, err := cm.LoadConfig()
-    if err != nil {
-        return err
-    }
+		packageInfo, err := ExtractPackageInfo(event)
+		if err != nil {
+			return err
+		}
 
-    if config.NIP94EventID != "unknown" {
-        event, err := cm.GetNIP94Event(config.NIP94EventID)
-        if err != nil {
-            return err
-        }
+		installedVersion, err := GetInstalledVersion()
+		if err != nil {
+			return err
+		}
 
-        packageInfo, err := ExtractPackageInfo(event)
-        if err != nil {
-            return err
-        }
+		if installedVersion != packageInfo.Version {
+			config.NIP94EventID = "unknown"
+			err = cm.SaveConfig(config)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
-        if installConfig.InstallTimestamp < packageInfo.Timestamp {
-            config.NIP94EventID = "unknown"
-            err = cm.SaveConfig(config)
-            if err != nil {
-                return err
-            }
-        }
-    }
-
-    return nil
+	return nil
 }
