@@ -162,6 +162,10 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = cm.UpdateNIP94EventID()
+	if err != nil {
+		return nil, err
+	}
 	return cm, nil
 }
 
@@ -446,4 +450,42 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 	}
 
 	return packageInfo.ReleaseChannel, nil
+}
+
+func (cm *ConfigManager) UpdateNIP94EventID() error {
+	install installConfig, err := cm.LoadInstallConfig()
+    if err != nil {
+        return err
+    }
+
+    if installConfig == nil {
+        return fmt.Errorf("install config not found")
+    }
+
+    config, err := cm.LoadConfig()
+    if err != nil {
+        return err
+    }
+
+    if config.NIP94EventID != "unknown" {
+        event, err := cm.GetNIP94Event(config.NIP94EventID)
+        if err != nil {
+            return err
+        }
+
+        packageInfo, err := ExtractPackageInfo(event)
+        if err != nil {
+            return err
+        }
+
+        if installConfig.InstallTimestamp < packageInfo.Timestamp {
+            config.NIP94EventID = "unknown"
+            err = cm.SaveConfig(config)
+            if err != nil {
+                return err
+            }
+        }
+    }
+
+    return nil
 }

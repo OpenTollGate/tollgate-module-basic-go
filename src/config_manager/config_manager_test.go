@@ -118,3 +118,30 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
+func TestUpdateNIP94EventID(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cm, err := NewConfigManager(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test UpdateNIP94EventID
+	log.Println("Testing UpdateNIP94EventID")
+	err = cm.UpdateNIP94EventID()
+	if err != nil {
+		t.Errorf("Error updating NIP94EventID: %v", err)
+	} else {
+		log.Println("Successfully updated NIP94EventID")
+	}
+	config, err := cm.LoadConfig()
+	if err != nil {
+		t.Errorf("Error loading config after update: %v", err)
+	} else {
+		log.Printf("NIP94EventID after update: %s", config.NIP94EventID)
+	}
+}
