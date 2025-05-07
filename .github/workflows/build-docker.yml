@@ -28,8 +28,9 @@ jobs:
             # If this is a tag push, use the tag name
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
-            # If this is a branch push, use branch-shortCommitHash format
-            echo "package_version=${GITHUB_REF_NAME}-${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
+            # If this is a branch push, use [branch_name]-[commit_count]-[shortCommitHash] format for dev channel
+            COMMIT_COUNT=$(git rev-list --count HEAD)
+            echo "package_version=${GITHUB_REF_NAME}-${COMMIT_COUNT}-${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
           fi
         
       - name: Set version variable
