@@ -196,8 +196,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				    continue
 				}
 
-
-				releaseChannel, err := configManager.GetReleaseChannel()
+				releaseChannel, err = configManager.GetReleaseChannel()
 				if err != nil {
 				    log.Printf("Error getting release channel: %v", err)
 				    continue
@@ -496,7 +495,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
             return false
         }
 
-        newCommits, err := strconv.Atoi(newVersionParts[1])
+        newCommits, err = strconv.Atoi(newVersionParts[1])
         if err != nil {
             return false
         }
