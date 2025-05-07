@@ -20,6 +20,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
+	"strconv"
 )
 
 type Janitor struct {
@@ -189,14 +190,20 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
-				v, err := configManager.GetVersion()
+				vStr, err := configManager.GetVersion()
 				if err != nil {
-					log.Printf("Error getting version: %v", err)
-					continue
+				    log.Printf("Error getting version: %v", err)
+				    continue
 				}
 
-				if isNewerVersion(versionStr, v) {
-					rightVersionKeys = append(rightVersionKeys, key)
+
+				releaseChannel, err := configManager.GetReleaseChannel()
+				if err != nil {
+				    log.Printf("Error getting release channel: %v", err)
+				    continue
+				}
+				if isNewerVersion(versionStr, vStr, releaseChannel) {
+				    rightVersionKeys = append(rightVersionKeys, key)
 				}
 
 				archFromFilesystem, err := config_manager.GetArchitecture()
@@ -468,11 +475,10 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 	return url, version, arch, filename, timestamp, releaseChannel, nil
 }
 
-func isNewerVersion(newVersion string, currentVersion *version.Version, releaseChannel string) bool {
-    cleanedNewVersion := strings.Split(newVersion, "+")[0]
+func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
     if releaseChannel == "dev" {
-        newVersionParts := strings.Split(cleanedNewVersion, "-")
+        newVersionParts := strings.Split(newVersion, "-")
         if len(newVersionParts) != 3 {
             return false
         }
@@ -481,9 +487,7 @@ func isNewerVersion(newVersion string, currentVersion *version.Version, releaseC
             return false
         }
 		
-        currentVersionStr := currentVersion.String()
-        cleanedCurrentVersion := strings.Split(currentVersionStr, "+")[0]
-        currentVersionParts := strings.Split(cleanedCurrentVersion, "-")
+        currentVersionParts := strings.Split(currentVersion, "-")
         if len(currentVersionParts) != 3 {
             return false
         }
@@ -503,12 +507,11 @@ func isNewerVersion(newVersion string, currentVersion *version.Version, releaseC
 
         return newCommits > currentCommits
     } else {
-        newVersionObj, err := version.NewVersion(cleanedNewVersion)
+        newVersionObj, err := version.NewVersion(newVersion)
         if err != nil {
             return false
         }
-        cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
-        cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
+        cleanedCurrentVersionObj, err := version.NewVersion(currentVersion)
         if err != nil {
             return false
         }
