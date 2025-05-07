@@ -136,20 +136,6 @@ func init() {
 	// Initialize janitor module
 	initJanitor()
 
-	// Test UpdateNIP94EventID
-	log.Println("Testing UpdateNIP94EventID")
-	err = configManager.UpdateNIP94EventID()
-	if err != nil {
-		log.Printf("Error updating NIP94EventID: %v", err)
-	} else {
-		log.Println("Successfully updated NIP94EventID")
-	}
-	config, err = configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Error loading config after update: %v", err)
-	} else {
-		log.Printf("NIP94EventID after update: %s", config.NIP94EventID)
-	}
 }
 
 func initJanitor() {
