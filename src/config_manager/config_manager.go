@@ -379,14 +379,25 @@ func (cm *ConfigManager) GetVersion() (*version.Version, error) {
 		return nil, err
 	}
 
+	releaseChannel, err := cm.GetReleaseChannel()
+	if err != nil {
+		return nil, err
+	}
+
 	installedVersion, err := GetInstalledVersion()
 	if err != nil {
 		return nil, err
 	}
 
-	v, err := version.NewVersion(installedVersion)
-	if err != nil {
-		return nil, err
+	var v *version.Version
+	if releaseChannel == "stable" {
+		v, err = version.NewVersion(installedVersion)
+		if err != nil {
+			return nil, fmt.Errorf("invalid installed version format: %w", err)
+		}
+	} else {
+		// For dev channel, we can't compare versions directly
+		return nil, fmt.Errorf("dev channel version %s is not comparable", installedVersion)
 	}
 
 	if config.NIP94EventID != "unknown" {
@@ -398,17 +409,17 @@ func (cm *ConfigManager) GetVersion() (*version.Version, error) {
 		if err != nil {
 			return nil, err
 		}
-		localVersion := v.String()
-		eventVersion := packageInfo.Version
-		if localVersion != eventVersion {
-			fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
-			fmt.Printf("Setting NIP94EventID to unknown")
+		eventV, err := version.NewVersion(packageInfo.Version)
+		if err != nil {
+			return nil, fmt.Errorf("invalid event version format: %w", err)
+		}
+		if v.LessThan(eventV) {
 			config.NIP94EventID = "unknown"
 			err = cm.SaveConfig(config)
 			if err != nil {
 				return nil, err
 			}
-			return nil, fmt.Errorf("local version %s does not match event version %s", localVersion, eventVersion)
+			return nil, fmt.Errorf("local version %s is older than event version %s", v, eventV)
 		}
 	}
 
