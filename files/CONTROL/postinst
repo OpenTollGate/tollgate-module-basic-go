@@ -6,8 +6,8 @@ echo "Running post-installation script"
 if [ -f /etc/tollgate/install.json ]; then
     # Update InstallTimestamp in /etc/tollgate/install.json
     CURRENT_TIMESTAMP=$(date +%s)
-    if ! jq ".InstallTimestamp = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
-        echo "Error: Failed to update InstallTimestamp using jq" >&2
+    if ! jq ".install_time = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
+        echo "Error: Failed to update install_time using jq" >&2
         exit 1
     fi
     if ! mv /tmp/install.json.tmp /etc/tollgate/install.json; then
