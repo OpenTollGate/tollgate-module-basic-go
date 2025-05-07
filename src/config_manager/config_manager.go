@@ -181,6 +181,7 @@ func getIPAddress() {
 }
 
 func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
+	CURRENT_TIMESTAMP := time.Now().Unix()
 	installConfig, err := cm.LoadInstallConfig()
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
