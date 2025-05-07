@@ -468,18 +468,52 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 	return url, version, arch, filename, timestamp, releaseChannel, nil
 }
 
-func isNewerVersion(newVersion string, newTimestamp int64, currentVersion *version.Version) bool {
-	cleanedNewVersion := strings.Split(newVersion, "+")[0]
-	newVersionObj, err := version.NewVersion(cleanedNewVersion)
-	if err != nil {
-		return false
-	}
-	cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
-	cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
-	if err != nil {
-		return false
-	}
-	return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
+func isNewerVersion(newVersion string, currentVersion *version.Version, releaseChannel string) bool {
+    cleanedNewVersion := strings.Split(newVersion, "+")[0]
+
+    if releaseChannel == "dev" {
+        newVersionParts := strings.Split(cleanedNewVersion, "-")
+        if len(newVersionParts) != 3 {
+            return false
+        }
+		newCommits, err := strconv.Atoi(newVersionParts[1])
+        if err != nil {
+            return false
+        }
+		
+        currentVersionStr := currentVersion.String()
+        cleanedCurrentVersion := strings.Split(currentVersionStr, "+")[0]
+        currentVersionParts := strings.Split(cleanedCurrentVersion, "-")
+        if len(currentVersionParts) != 3 {
+            return false
+        }
+        
+        if newVersionParts[0] != currentVersionParts[0] {
+            return false
+        }
+
+        newCommits, err := strconv.Atoi(newVersionParts[1])
+        if err != nil {
+            return false
+        }
+        currentCommits, err := strconv.Atoi(currentVersionParts[1])
+        if err != nil {
+            return false
+        }
+
+        return newCommits > currentCommits
+    } else {
+        newVersionObj, err := version.NewVersion(cleanedNewVersion)
+        if err != nil {
+            return false
+        }
+        cleanedCurrentVersion := strings.Split(currentVersion.String(), "+")[0]
+        cleanedCurrentVersionObj, err := version.NewVersion(cleanedCurrentVersion)
+        if err != nil {
+            return false
+        }
+        return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
+    }
 }
 
 func intersect(slices ...[]string) []string {
