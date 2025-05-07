@@ -453,6 +453,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 }
 
 func (cm *ConfigManager) UpdateNIP94EventID() error {
+	// TODO: use GetInstalledVersion() to verify that the version number in the NIP94 event is indeed the same as the version number that is currently installed by opkg. Set the event ID to unknown if it isnt.
 	installConfig, err := cm.LoadInstallConfig()
     if err != nil {
         return err
