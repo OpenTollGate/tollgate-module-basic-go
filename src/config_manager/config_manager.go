@@ -100,7 +100,7 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 	}, nil
 }
 
-// InstallConfig holds the installation configuration parameters
+// InstallConfig holds the installation configuration parameters 
 // The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
 	PackagePath            string `json:"package_path"`
