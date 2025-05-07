@@ -111,11 +111,12 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 // InstallConfig holds the installation configuration parameters
 // The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
-	PackagePath         string `json:"package_path"`
-	IPAddressRandomized bool   `json:"ip_address_randomized"`
-	InstallTimestamp    int64  `json:"install_time"`
-	DownloadTimestamp   int64  `json:"download_time"`
-	ReleaseChannel      string `json:"release_channel"`
+	PackagePath            string `json:"package_path"`
+	IPAddressRandomized    bool   `json:"ip_address_randomized"`
+	InstallTimestamp       int64  `json:"install_time"`
+	DownloadTimestamp      int64  `json:"download_time"`
+	ReleaseChannel         string `json:"release_channel"`
+	EnsureDefaultTimestamp int64  `json:"ensure_default_timestamp"`
 }
 
 // NewInstallConfig creates a new InstallConfig instance
@@ -186,11 +187,12 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	}
 	if installConfig == nil {
 		defaultInstallConfig := &InstallConfig{
-			PackagePath:         "false",
-			IPAddressRandomized: false,
-			InstallTimestamp:    0,        // Set InstallTimestamp to 0 (unknown)
-			DownloadTimestamp:   0,        // Set DownloadTimestamp to 0 (unknown)
-			ReleaseChannel:      "stable", // Set default release channel to "main"
+			PackagePath:            "false",
+			IPAddressRandomized:    false,
+			InstallTimestamp:       0,              // Set InstallTimestamp to 0 (unknown)
+			DownloadTimestamp:      0,              // Set DownloadTimestamp to 0 (unknown)
+			ReleaseChannel:         "stable",       // Set default release channel to "main"
+			EnsureDefaultTimestamp: CURRENT_TIMESTAMP, // Set EnsureDefaultTimestamp to current time
 		}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
 		if err != nil {
@@ -352,14 +354,17 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		}
 
 		var timestamp int64
-		if installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0 {
+		switch {
+		case installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0:
 			timestamp = min(installConfig.DownloadTimestamp, installConfig.InstallTimestamp)
-		} else if installConfig.DownloadTimestamp != 0 {
+		case installConfig.DownloadTimestamp != 0:
 			timestamp = installConfig.DownloadTimestamp
-		} else if installConfig.InstallTimestamp != 0 {
+		case installConfig.InstallTimestamp != 0:
 			timestamp = installConfig.InstallTimestamp
-		} else {
-			return 0, fmt.Errorf("neither download nor install timestamp found in install.json")
+		case installConfig.EnsureDefaultTimestamp != 0:
+			timestamp = installConfig.EnsureDefaultTimestamp
+		default:
+			return 0, fmt.Errorf("neither download, install, nor ensure default timestamp found in install.json")
 		}
 		return timestamp, nil
 	}

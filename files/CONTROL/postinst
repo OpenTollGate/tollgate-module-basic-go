@@ -6,13 +6,22 @@ echo "Running post-installation script"
 if [ -f /etc/tollgate/install.json ]; then
     # Update InstallTimestamp in /etc/tollgate/install.json
     CURRENT_TIMESTAMP=$(date +%s)
-    jq ".InstallTimestamp = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp
-    mv /tmp/install.json.tmp /etc/tollgate/install.json
+    if ! jq ".InstallTimestamp = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
+        echo "Error: Failed to update InstallTimestamp using jq" >&2
+        exit 1
+    fi
+    if ! mv /tmp/install.json.tmp /etc/tollgate/install.json; then
+        echo "Error: Failed to move temporary file to /etc/tollgate/install.json" >&2
+        exit 1
+    fi
 else
     # Create /etc/tollgate/install.json if it doesn't exist
     mkdir -p /etc/tollgate
     CURRENT_TIMESTAMP=$(date +%s)
-    echo "{\"InstallTimestamp\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json
+    if ! echo "{\"InstallTimestamp\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
+        echo "Error: Failed to create /etc/tollgate/install.json" >&2
+        exit 1
+    fi
 fi
 
 echo "Verifying banner file ownership:"
