@@ -467,12 +467,14 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 
 	event, err := cm.GetNIP94Event(config.NIP94EventID)
 	if err != nil {
-		return "", err
+		fmt.Println("Failed to get NIP94Event")
+		return "noevent", err
 	}
 
 	packageInfo, err := ExtractPackageInfo(event)
 	if err != nil {
-		return "", err
+		fmt.Println("Failed to extract from NIP94Event")
+		return "noextract", err
 	}
 
 	return packageInfo.ReleaseChannel, nil
