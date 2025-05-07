@@ -4,7 +4,7 @@ echo "Running post-installation script"
 
 # Check if /etc/tollgate/install.json exists
 if [ -f /etc/tollgate/install.json ]; then
-    # Update InstallTimestamp in /etc/tollgate/install.json
+    # Update install_time in /etc/tollgate/install.json
     CURRENT_TIMESTAMP=$(date +%s)
     if ! jq ".install_time = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
         echo "Error: Failed to update install_time using jq" >&2
@@ -18,7 +18,7 @@ else
     # Create /etc/tollgate/install.json if it doesn't exist
     mkdir -p /etc/tollgate
     CURRENT_TIMESTAMP=$(date +%s)
-    if ! echo "{\"InstallTimestamp\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
+    if ! echo "{\"install_time\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
         echo "Error: Failed to create /etc/tollgate/install.json" >&2
         exit 1
     fi
