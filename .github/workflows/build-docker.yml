@@ -7,6 +7,29 @@ on:
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
 
+# Define a workflow-level matrix that can be reused in multiple jobs
+x-matrices:
+  architectures: &architecture-matrix
+    include:
+      # - architecture: amd64
+      #   goarch: amd64
+      #   sdk: x86-64
+      # - architecture: arm_cortex-a7
+      #   goarch: arm
+      #   goarm: 7
+      #   sdk: arm_cortex-a7
+      - architecture: arm64_cortex-a53
+        goarch: arm64
+        sdk: mediatek-filogic
+      # - architecture: mipsel_24kc
+      #   goarch: mipsle
+      #   gomips: softfloat
+      #   sdk: mipsel_24kc
+      # - architecture: mips_24kc
+      #   goarch: mips
+      #   gomips: softfloat
+      #   sdk: mips_24kc
+
 jobs:
   determine-versioning:
     runs-on: ubuntu-latest
@@ -44,26 +67,7 @@ jobs:
       image: openwrt/sdk:${{ matrix.sdk }}-24.10.1 # TODO: dynamic
       options: --user root
     strategy:
-      matrix:
-        include:
-          # - architecture: amd64
-          #   goarch: amd64
-          #   sdk: x86-64
-          # - architecture: arm_cortex-a7
-          #   goarch: arm
-          #   goarm: 7
-          #   sdk: arm_cortex-a7
-          - architecture: arm64_cortex-a53
-            goarch: arm64
-            sdk: mediatek-filogic
-          # - architecture: mipsel_24kc
-          #   goarch: mipsle
-          #   gomips: softfloat
-          #   sdk: mipsel_24kc
-          # - architecture: mips_24kc
-          #   goarch: mips
-          #   gomips: softfloat
-          #   sdk: mips_24kc
+      matrix: *architecture-matrix
     
     steps:
       - uses: actions/checkout@v4
@@ -126,13 +130,171 @@ jobs:
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_FILENAME }}
+          name: ${{ env.PACKAGE_NAME }}_${{ matrix.architecture }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
-
-      - name: Trigger OS Workflow
-        uses: peter-evans/repository-dispatch@v2
+  publish-metadata:
+    needs: build-package
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: *architecture-matrix
+    
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
         with:
-          token: ${{ secrets.REPO_ACCESS_TOKEN }}
-          repository: OpenTollGate/tollgate-os
-          event-type: update-release-json
+          name: ${{ env.PACKAGE_NAME }}_${{ matrix.architecture }}
+          path: ./artifacts
+
+      - name: Prepare package metadata
+        id: package_info
+        run: |
+          PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
+          FILENAME=$(basename "$PACKAGE_PATH")
+          # Extract model from filename
+          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
+            MODEL="aarch64_cortex-a53"
+          else
+            MODEL="generic"
+          fi
+          # Calculate file size
+          FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
+          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
+          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+          echo "MODEL=$MODEL" >> $GITHUB_ENV
+          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
+
+      - name: Set Package Version
+        run: |
+          # Extract version from PACKAGE_PATH
+          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9.]+\+[0-9a-f]+)_.*\.ipk/\1/')
+          echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
+          echo "Set version to $PACKAGE_VERSION"
+
+      - name: Blossom Artifact upload
+        id: blossom_upload
+        uses: Origami74/upload-blossom-action@improve-io
+        with:
+          host: "https://blossom.swissdash.site"
+          filePath: ${{ env.PACKAGE_PATH }}
+
+      - name: Process Blossom response and extract hash
+        run: |
+          echo "Upload outputs:"
+          echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
+          echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
+          echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
+          # Extract hash from URL
+          URL="${{ steps.blossom_upload.outputs.url }}"
+          # Use basename to extract filename from URL
+          FILENAME=$(basename "$URL")
+          # Remove the file extension to get the hash
+          HASH="${FILENAME%.ipk}"
+          echo "Extracted hash from URL: $HASH"
+          # Store values in environment variables
+          echo "PACKAGE_URL=$URL" >> $GITHUB_ENV
+          echo "PACKAGE_HASH=$HASH" >> $GITHUB_ENV
+          # Verify hash was extracted successfully
+          if [ -z "$HASH" ]; then
+            echo "❌ ERROR: Failed to extract hash from URL"
+            exit 1
+          fi
+          # Verify hash is a valid hex string (64 characters for SHA-256)
+          if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
+            echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
+            exit 1
+          fi
+          echo "✅ Successfully extracted hash: $HASH"
+
+      - name: Extract Short Module Name
+        run: |
+          # Extract the basic part from tollgate-module-basic-go
+          if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
+            SHORT_MODULE="${BASH_REMATCH[1]}"
+          else
+            SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
+          fi
+          echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
+          # Create a standardized filename for the package
+          DEVICE="gl-mt3000"  # You might want to make this dynamic
+          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
+          # Create a simplified content format
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          # Set BRANCH_NAME environment variable
+          BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Publish Package NIP-94 Metadata
+        id: publish_package
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
+        with:
+          relays: >-
+            wss://relay.damus.io,
+            wss://nos.lol,
+            wss://nostr.mom/
+          url: ${{ env.PACKAGE_URL }}
+          mimeType: application/octet-stream
+          fileHash: ${{ env.PACKAGE_HASH }}
+          originalHash: ${{ env.PACKAGE_HASH }}
+          filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
+          content: "${{ env.PACKAGE_CONTENT }}"
+          nsec: ${{ secrets.NSEC_HEX }}
+          size: ${{ env.PACKAGE_SIZE }}
+          architecture: "${{ env.MODEL }}"
+          device_id: "glinet_mt3000"
+          version: "${{ env.PKG_VERSION }}"
+          branch: "${{ env.BRANCH_NAME }}"
+
+      # Debug the outputs to see what's available
+      - name: Debug Event ID
+        run: |
+          echo "EVENT_ID from env: ${{ env.EVENT_ID }}"
+          echo "NOTE_ID from env: ${{ env.NOTE_ID }}"
+          echo "Output from publish step: ${{ steps.publish_package.outputs.eventId || 'not set' }}"
+          echo "Outputs available:"
+          echo "${{ toJSON(steps.publish_package.outputs) }}"
+
+      - name: Verify Package NIP-94 Event
+        id: verify_package
+        # Use environment variable instead of step output
+        if: env.EVENT_ID != ''
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
+        with:
+          eventId: ${{ env.EVENT_ID }}
+          relays: >-
+            wss://relay.damus.io,
+            wss://nos.lol,
+            wss://nostr.mom/
+
+      - name: Check Package Publication
+        # Only run this step if the verification ran and failed
+        if: steps.verify_package.outcome == 'failure'
+        run: |
+          echo "❌ Failed to verify package publication on relays"
+          exit 1
+
+      # Add a step to handle the case where EVENT_ID is empty
+      - name: Check Event ID
+        if: env.EVENT_ID == ''
+        run: |
+          echo "❌ No event ID was generated by the publish step"
+          exit 1
+
+      - name: Build Summary
+        run: |
+          echo "Build Summary for ${{ matrix.architecture }}:"
+          echo "✅ Binary successfully built and published"
+          echo "✅ Package successfully built and published"
+          echo "Package URL: ${{ env.PACKAGE_URL }}"
+          
+    trigger-build-os:
+      name: Trigger new build TollGate OS
+      runs-on: ubuntu-latest
+      steps:
+        - name: Trigger OS Workflow
+          uses: peter-evans/repository-dispatch@v2
+          with:
+            token: ${{ secrets.REPO_ACCESS_TOKEN }}
+            repository: OpenTollGate/tollgate-os
+            event-type: update-release-json
