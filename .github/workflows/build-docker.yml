@@ -121,7 +121,7 @@ jobs:
           echo "✅ Found package at: $PACKAGE_PATH"
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
