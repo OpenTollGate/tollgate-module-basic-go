@@ -95,7 +95,7 @@ jobs:
         run: |
           cd /builder
 
-          env GOARCH=${{ env.GOARCH }}
+          env GOARCH=${{ matrix.GOARCH }}
           env PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }}
 
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
@@ -129,8 +129,6 @@ jobs:
           name: package-${{ env.PACKAGE_NAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
-
-
 
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
