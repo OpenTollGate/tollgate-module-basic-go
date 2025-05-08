@@ -68,7 +68,7 @@ jobs:
           fetch-depth: 0
       
       - name: Build Package using custom action
-        uses: ./build-package
+        uses: ./actions/build-package
         with:
           architecture: ${{ matrix.architecture }}
           sdk: ${{ matrix.sdk }}
