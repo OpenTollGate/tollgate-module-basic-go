@@ -27,12 +27,6 @@ jobs:
                 "sdk": "mediatek-filogic",
                 "openwrt_version": "24.10.1"
               },
-              # {
-              #   "architecture": "amd64", # TODO: broken, fix
-              #   "goarch": "amd64",
-              #   "sdk": "x86-generic",
-              #   "openwrt_version": "24.10.1"
-              # },
               {
                 "architecture": "arm_cortex-a7",
                 "goarch": "arm",
@@ -57,6 +51,14 @@ jobs:
             ]
           }
           EOF
+
+          # TODO: build fails, fix
+          # {
+          #   "architecture": "amd64", 
+          #   "goarch": "amd64",
+          #   "sdk": "x86-generic",
+          #   "openwrt_version": "24.10.1"
+          # },
           
           # Create a properly escaped JSON for GitHub output
           # We need to use jq to compact the JSON and properly escape it
