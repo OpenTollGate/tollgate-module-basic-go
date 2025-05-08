@@ -223,6 +223,7 @@ jobs:
             architecture=${{ env.MODEL }}
             version=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
+            package_name=$PACKAGE_NAME
 
       - name: Verify Package NIP-94 Event
         id: verify_package
