@@ -27,12 +27,12 @@ jobs:
                 "sdk": "mediatek-filogic",
                 "openwrt_version": "24.10.1"
               },
-              {
-                "architecture": "amd64",
-                "goarch": "amd64",
-                "sdk": "x86-generic",
-                "openwrt_version": "24.10.1"
-              },
+              # {
+              #   "architecture": "amd64", # TODO: broken, fix
+              #   "goarch": "amd64",
+              #   "sdk": "x86-generic",
+              #   "openwrt_version": "24.10.1"
+              # },
               {
                 "architecture": "arm_cortex-a7",
                 "goarch": "arm",
