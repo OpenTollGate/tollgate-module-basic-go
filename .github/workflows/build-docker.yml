@@ -101,7 +101,7 @@ jobs:
           fi
 
           env GOARCH=${{ matrix.GOARCH }} \
-            GOMIPS=${ GOMIPS } \
+            GOMIPS=$GOMIPS \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
             make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
             ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
