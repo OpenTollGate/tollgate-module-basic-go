@@ -194,11 +194,10 @@ jobs:
           fi
           echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
           # Create a standardized filename for the package
-          DEVICE="gl-mt3000"  # You might want to make this dynamic
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
+          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${MODEL}.ipk"
           echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
           # Create a simplified content format
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
+          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE}" >> $GITHUB_ENV
           # Set BRANCH_NAME environment variable
           BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
