@@ -42,7 +42,7 @@ type packageEvent struct {
 	packageURL string
 }
 
-// Helper functions to get installed version and architecture 
+// Helper functions to get installed version and architecture
 func getInstalledVersion() (string, error) {
 	_, err := exec.LookPath("opkg")
 	if err != nil {
