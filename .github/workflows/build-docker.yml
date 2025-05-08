@@ -6,6 +6,7 @@ on:
 ## Add global env vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
+  OPENWRT_VERSION: "24.10.1"
 
 # Define the architecture matrix once for reuse across jobs
 # This allows us to maintain architecture configurations in one place
@@ -58,7 +59,7 @@ jobs:
     needs: [determine-versioning, define-matrix]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-24.10.1 # TODO: dynamic
+      image: openwrt/sdk:${{ matrix.sdk }}-${{ env.OPENWRT_VERSION }}
       options: --user root
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
@@ -134,7 +135,6 @@ jobs:
   publish-metadata:
     needs: [build-package, define-matrix]
     runs-on: ubuntu-latest
-    # We need to apply the matrix here too to access matrix variables
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
       
