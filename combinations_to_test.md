@@ -15,3 +15,5 @@
 | dev     | Already Installed | branch-commit_count-hash | known              | Update Successfully if new commits                                                 |             |
 | dev     | Already Installed | branch-commit_count-hash | unknown            | Update Successfully if new commits                                                 |             |
 | stable  | New Branch        | version_number           | unknown            | Update if version number is higher, irrespective of branch name, and NIP94 eventID |             |
+
+

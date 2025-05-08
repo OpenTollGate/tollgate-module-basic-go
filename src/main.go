@@ -79,7 +79,7 @@ func init() {
 		}
 	}
 
-	// Initialize derived configuration values 
+	// Initialize derived configuration values
 	tollgatePrivateKey = config.TollgatePrivateKey
 	pricePerMinute = config.PricePerMinute
 

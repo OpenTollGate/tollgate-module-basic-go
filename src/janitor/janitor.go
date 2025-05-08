@@ -313,8 +313,6 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					isTimerActive = false
 					return
 				}
-				fmt.Printf("New package version %s is ready to be installed by cronjob\n", versionStr)
-
 				timer.Stop()
 				isTimerActive = false
 			}
@@ -323,37 +321,56 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 }
 
 func DownloadPackage(configManager *config_manager.ConfigManager, url string, checksum string) (string, []byte, error) {
-	filename := checksum + ".ipk"
-	tmpFilePath := filepath.Join("/tmp/", filename)
-	fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
+    filename := checksum + ".ipk"
+    tmpFilePath := filepath.Join("/tmp/", filename)
 
-	tmpFile, err := os.Create(tmpFilePath)
-	if err != nil {
-		log.Printf("Error creating file: %v", err)
-		return "", nil, err
-	}
+    // Check if file already exists
+    pkg, err := os.ReadFile(tmpFilePath)
+    if err == nil {
+        // Verify checksum if file exists
+        event := nostr.Event{
+            Tags: nostr.Tags{
+                {"x", checksum},
+            },
+        }
+        err = verifyPackageChecksum(pkg, event)
+        if err == nil {
+            fmt.Printf("Package %s already exists with correct checksum, skipping download\n", tmpFilePath)
+            return tmpFilePath, pkg, nil
+        } else {
+            log.Printf("Existing package checksum verification failed: %v", err)
+        }
+    }
 
-	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Error downloading package: %v, output: %s", err, output)
-		return "", nil, err
-	}
-	var downloaded int64
-	progress := &progressLogger{
-		total:      getContentLength(url),
-		downloaded: &downloaded,
-		lastLog:    time.Now(),
-	}
-	progress.Write(output)
+    fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
+    tmpFile, err := os.Create(tmpFilePath)
+    if err != nil {
+        log.Printf("Error creating file: %v", err)
+        return "", nil, err
+    }
 
-	pkg, err := os.ReadFile(tmpFile.Name())
-	if err != nil {
-		log.Printf("Error reading downloaded package: %v", err)
-		return "", nil, err
-	}
+    cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        log.Printf("Error downloading package: %v, output: %s", err, output)
+        return "", nil, err
+    }
 
-	fmt.Println("Package downloaded successfully to /tmp/")
+    var downloaded int64
+    progress := &progressLogger{
+        total:      getContentLength(url),
+        downloaded: &downloaded,
+        lastLog:    time.Now(),
+    }
+    progress.Write(output)
+
+    pkg, err = os.ReadFile(tmpFile.Name())
+    if err != nil {
+        log.Printf("Error reading downloaded package: %v", err)
+        return "", nil, err
+    }
+
+    fmt.Println("Package downloaded successfully to /tmp/")
 
 	installConfig, err := configManager.LoadInstallConfig()
 	if err != nil {
@@ -366,6 +383,8 @@ func DownloadPackage(configManager *config_manager.ConfigManager, url string, ch
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err
+	} else {
+	    fmt.Println("New package version is ready to be installed by cronjob")
 	}
 
 	return tmpFile.Name(), pkg, nil
