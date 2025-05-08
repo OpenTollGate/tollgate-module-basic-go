@@ -126,7 +126,7 @@ jobs:
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ env.PACKAGE_NAME }}
+          name: ${{ env.PACKAGE_FILENAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
 
