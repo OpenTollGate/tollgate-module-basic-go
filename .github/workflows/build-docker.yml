@@ -3,9 +3,12 @@ name: Build and Publish
 on:
   push:
 
-## Add global env vars and matrix configuration for the whole workflow
+## Add global vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
+
+# Define workflow-level variables that can be used in expressions
+vars:
   OPENWRT_VERSION: "24.10.1"
 
 # Define the architecture matrix once for reuse across jobs
@@ -59,7 +62,7 @@ jobs:
     needs: [determine-versioning, define-matrix]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-${{ env.OPENWRT_VERSION }}
+      image: openwrt/sdk:${{ matrix.sdk }}-${{ vars.OPENWRT_VERSION }}
       options: --user root
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
@@ -197,7 +200,7 @@ jobs:
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
+        uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
         with:
           relays: >-
             wss://relay.damus.io,
@@ -211,10 +214,10 @@ jobs:
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
-          architecture: "${{ env.MODEL }}"
-          device_id: "glinet_mt3000"
-          version: "${{ env.PKG_VERSION }}"
-          branch: "${{ env.BRANCH_NAME }}"
+          customTags: |
+            architecture=${{ env.MODEL }}
+            version=${{ needs.determine-versioning.outputs.package_version }}
+            release_channel=${{ needs.determine-versioning.outputs.release_channel }}
 
       # Debug the outputs to see what's available
       - name: Debug Event ID
@@ -229,7 +232,7 @@ jobs:
         id: verify_package
         # Use environment variable instead of step output
         if: env.EVENT_ID != ''
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@v0.1.0
         with:
           eventId: ${{ env.EVENT_ID }}
           relays: >-
