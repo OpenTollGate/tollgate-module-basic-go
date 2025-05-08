@@ -99,7 +99,7 @@ jobs:
           env PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }}
 
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-          if [[ "${GOARCH,,}" == "mips" || "${GOARCH,,}" == "mipsle" ]]; then
+          if [[ "${{ matrix.GOARCH }}" == "mips" || "${{ matrix.GOARCH }}" == "mipsle" ]]; then
             env GOMIPS=softfloat
           fi
 
