@@ -40,6 +40,9 @@ jobs:
   build-package:
     needs: determine-versioning
     runs-on: ubuntu-latest
+    container:
+      image: openwrt/sdk:${{ matrix.sdk }}-23.05.3 # TODO: dynamic
+      options: --user root
     strategy:
       matrix:
         include:
@@ -65,25 +68,69 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
-      
-      - name: Build Package using custom action
-        uses: ./actions/build-package
+
+      - name: Move sources to sdk folder
+        run: |
+          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+
+      - name: Install Golang
+        run: |
+          # Add golang-backports repository
+          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update
+          # Install Go from backports
+          apt-get install -y -t bookworm-backports golang-go
+
+      - name: Configure SDK
+        run: |
+          cd /builder
+          # Generate default configuration
+          make defconfig
+          # Update configuration for our needs
+          echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
+
+      - name: Compile Package
+        run: |
+          cd /builder
+
+
+          # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
+          if [[ "${GOARCH,,}" == "mips" || "${GOARCH,,}" == "mipsle" ]]; then
+            env GOMIPS=softfloat
+          fi
+
+          env GOARCH=${{ env.GOARCH }} \
+              PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
+              make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
+              ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+
+      - name: List output package(s)
+        run: |
+          echo "Listing all .ipk files in /builder/bin/packages:"
+          find /builder/bin/packages -name "*.ipk" -type f
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No .ipk package found in /builder/bin/packages"
+            exit 1
+          fi
+          echo "✅ Found package at: $PACKAGE_PATH"
+          # Extract model from filename for later use
+          FILENAME=$(basename "$PACKAGE_PATH")
+          echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
+          # Copy file to a location GitHub can access
+          mkdir -p /github/workspace/artifacts
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
+
+      - name: GitHub Artifact upload
+        uses: actions/upload-artifact@v4
         with:
-          architecture: ${{ matrix.architecture }}
-          sdk: ${{ matrix.sdk }}
-          openwrt_version: '23.05.3'
-          package_version: ${{ needs.determine-versioning.outputs.package_version }}
-          release_channel: ${{ needs.determine-versioning.outputs.release_channel }}
-          nostr_secret_key: ${{ secrets.NOSTR_SECRET_KEY }}
-          nostr_public_key: ${{ secrets.NOSTR_PUBLIC_KEY }}
-          nostr_relays: 'wss://relay.damus.io,wss://nos.lol,wss://nostr.mom'
-          nsecbech: ${{ secrets.NSECBECH }}
-          nsec: ${{ secrets.NSEC_HEX }}
-          # Pass arch-specific environment variables
-          GOARCH: ${{ matrix.goarch }}
-          GOMIPS: ${{ matrix.gomips }}
-          GOARM: ${{ matrix.goarm }}
+          name: package-${{ env.PACKAGE_NAME }}
+          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+          retention-days: 5
+
+
 
       - name: Trigger OS Workflow
         uses: peter-evans/repository-dispatch@v2
