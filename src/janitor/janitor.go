@@ -327,7 +327,7 @@ func DownloadPackage(configManager *config_manager.ConfigManager, url string, ch
     // Check if file already exists
     pkg, err := os.ReadFile(tmpFilePath)
     if err == nil {
-        // Verify checksum if file exists
+        // Verify checksum if file exists 
         event := nostr.Event{
             Tags: nostr.Tags{
                 {"x", checksum},
