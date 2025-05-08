@@ -195,7 +195,7 @@ jobs:
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
-            architecture=${{ env.MODEL }}
+            architecture=${{ matrix.architecture }}
             version=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
 
