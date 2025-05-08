@@ -136,6 +136,15 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
+      
+
+      - name: Initialize
+        id: init
+        run: |
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}
+          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
+
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
@@ -145,12 +154,8 @@ jobs:
       - name: Prepare package metadata
         id: package_info
         run: |
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}" >> $GITHUB_ENV
-          echo "ℹ️ PACKAGE_FILENAME: ${{ env.PACKAGE_FILENAME }}"
-
           PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
           echo "ℹ️ PACKAGE_PATH: ${{ env.PACKAGE_PATH }}"
-
 
           # Calculate file size
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
