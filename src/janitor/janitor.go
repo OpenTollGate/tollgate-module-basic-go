@@ -165,7 +165,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				}
 				// log.Printf("Release channel from event: %s, from config: %s", releaseChannel, releaseChannelFromConfigManager)
 				if releaseChannel != releaseChannelFromConfigManager {
-					log.Printf("Skipping event due to release channel mismatch")
+					// log.Printf("Skipping event due to release channel mismatch")
 					continue
 				}
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
