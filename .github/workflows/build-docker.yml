@@ -71,8 +71,9 @@ jobs:
 
       - name: Initialize
         run: |
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}" >> $GITHUB_ENV
-          echo "ℹ️ PACKAGE_FILENAME: ${{ env.PACKAGE_FILENAME }}"
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}
+          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
 
           # Move sources to sdk folder
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
@@ -118,17 +119,14 @@ jobs:
             exit 1
           fi
           echo "✅ Found package at: $PACKAGE_PATH"
-          # Extract model from filename for later use
-          FILENAME=$(basename "$PACKAGE_PATH")
-          echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
 
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}_${{ matrix.architecture }}
+          name: ${{ env.PACKAGE_FILENAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
 
