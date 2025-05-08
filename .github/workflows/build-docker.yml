@@ -133,12 +133,12 @@ jobs:
           name: ${{ env.PACKAGE_NAME }}_${{ matrix.architecture }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
+  
   publish-metadata:
     needs: build-package
     runs-on: ubuntu-latest
     strategy:
       matrix: *architecture-matrix
-    
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
