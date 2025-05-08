@@ -43,7 +43,8 @@ jobs:
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
             # If this is a branch push, use branch-shortCommitHash format
-            echo "package_version=${GITHUB_REF_NAME}-${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
+            COMMIT_HEIGHT=$(git rev-list --count HEAD)
+            echo "package_version=${GITHUB_REF_NAME}_${COMMIT_HEIGHT}_${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
           fi
         
       - name: Set version variable
