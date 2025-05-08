@@ -1,5 +1,5 @@
-name: 'Build OpenWRT Image'
-description: 'Builds an OpenWRT firmware image with TollGate packages'
+name: 'Build OpenWRT package'
+description: 'Builds an OpenWRT TollGate package'
 author: 'c03rad0r'
 
 branding:
@@ -45,220 +45,217 @@ outputs:
 
 runs:
   using: "composite"
-  build-package:
-    needs: determine-versioning
-    runs-on: ubuntu-latest
-    container:
-      image: openwrt/sdk:mediatek-filogic-${{ inputs.openwrt_version }}
-      options: --user root
+  container:
+    image: openwrt/sdk:mediatek-filogic-${{ inputs.openwrt_version }}
+    options: --user root
 
-    # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 0
+  # https://github.com/actions/checkout/issues/1575#issuecomment-2536435128
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        path: ${{ env.PACKAGE_NAME }}/
+        fetch-depth: 0
 
-      - name: Move sources to sdk folder
-        run: |
-          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+    - name: Move sources to sdk folder
+      run: |
+        mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
 
-      - name: Install Golang
-        run: |
-          # Add golang-backports repository
-          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
-          apt-get update
-          # Install Go from backports
-          apt-get install -y -t bookworm-backports golang-go
+    - name: Install Golang
+      run: |
+        # Add golang-backports repository
+        echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+        apt-get update
+        # Install Go from backports
+        apt-get install -y -t bookworm-backports golang-go
 
-      - name: Configure SDK
-        run: |
-          cd /builder
-          # Generate default configuration
-          make defconfig
-          # Update configuration for our needs
-          echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
+    - name: Configure SDK
+      run: |
+        cd /builder
+        # Generate default configuration
+        make defconfig
+        # Update configuration for our needs
+        echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
 
-      - name: Compile Package
-        run: |
-          cd /builder
+    - name: Compile Package
+      run: |
+        cd /builder
 
 
-          # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-          if [[ "${GOARCH,,}" == "mips" || "${GOARCH,,}" == "mipsle" ]]; then
-            env GOMIPS=softfloat
-          fi
+        # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
+        if [[ "${GOARCH,,}" == "mips" || "${GOARCH,,}" == "mipsle" ]]; then
+          env GOMIPS=softfloat
+        fi
 
-          env GOARCH=${{ env.GOARCH }} \
-              PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
-              make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
-              ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+        env GOARCH=${{ env.GOARCH }} \
+            PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
+            make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
+            ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
-      - name: List output package(s)
-        run: |
-          echo "Listing all .ipk files in /builder/bin/packages:"
-          find /builder/bin/packages -name "*.ipk" -type f
-          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
-          if [ -z "$PACKAGE_PATH" ]; then
-            echo "❌ No .ipk package found in /builder/bin/packages"
-            exit 1
-          fi
-          echo "✅ Found package at: $PACKAGE_PATH"
-          # Extract model from filename for later use
-          FILENAME=$(basename "$PACKAGE_PATH")
-          echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
-          # Copy file to a location GitHub can access
-          mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
-
-      - name: GitHub Artifact upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-${{ env.PACKAGE_NAME }}
-          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
-          retention-days: 5
-  
-  
-  publish-metadata:
-    needs: [build-package, determine-versioning]
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm_cortex-a7, arm64_cortex-a53, mipsel_24kc, mips_24kc]
-
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.PACKAGE_NAME }}-${{ matrix.arch }}
-          path: ./artifacts
-
-      - name: Prepare package metadata
-        id: package_info
-        run: |
-          PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
-          FILENAME=$(basename "$PACKAGE_PATH")
-          # Extract model from filename
-          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
-            MODEL="aarch64_cortex-a53"
-          else
-            MODEL="generic"
-          fi
-          # Calculate file size
-          FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
-          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "MODEL=${{ matrix.arch }}" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${{ matrix.arch }}.ipk" >> $GITHUB_ENV
-
-      - name: Set Package Version
-        run: |
-          # Extract version from PACKAGE_PATH
-          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9.]+\+[0-9a-f]+)_.*\.ipk/\1/')
-          echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
-          echo "Set version to $PACKAGE_VERSION"
-
-      - name: Blossom Artifact upload
-        id: blossom_upload
-        uses: Origami74/upload-blossom-action@improve-io
-        with:
-          host: "https://blossom.swissdash.site"
-          filePath: ${{ env.PACKAGE_PATH }}
-
-      - name: Process Blossom response and extract hash
-        run: |
-          echo "Upload outputs:"
-          echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
-          echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
-          echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
-          # Extract hash from URL
-          URL="${{ steps.blossom_upload.outputs.url }}"
-          # Use basename to extract filename from URL
-          FILENAME=$(basename "$URL")
-          # Remove the file extension to get the hash
-          HASH="${FILENAME%.ipk}"
-          echo "Extracted hash from URL: $HASH"
-          # Store values in environment variables
-          echo "PACKAGE_URL=$URL" >> $GITHUB_ENV
-          echo "PACKAGE_HASH=$HASH" >> $GITHUB_ENV
-          # Verify hash was extracted successfully
-          if [ -z "$HASH" ]; then
-            echo "❌ ERROR: Failed to extract hash from URL"
-            exit 1
-          fi
-          # Verify hash is a valid hex string (64 characters for SHA-256)
-          if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
-            echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
-            exit 1
-          fi
-          echo "✅ Successfully extracted hash: $HASH"
-
-      - name: Extract Short Module Name
-        run: |
-          # Extract the basic part from tollgate-module-basic-go
-          if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
-            SHORT_MODULE="${BASH_REMATCH[1]}"
-          else
-            SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
-          fi
-          echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
-          # Create a standardized filename for the package
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${MODEL}.ipk"
-          echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
-          # Create a simplified content format
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE}" >> $GITHUB_ENV
-          # Set BRANCH_NAME environment variable
-          BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
-
-      - name: Publish Package NIP-94 Metadata
-        id: publish_package
-        uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
-        with:
-          relays: >-
-            wss://relay.damus.io,
-            wss://nos.lol,
-            wss://nostr.mom/
-          url: ${{ env.PACKAGE_URL }}
-          mimeType: application/octet-stream
-          fileHash: ${{ env.PACKAGE_HASH }}
-          originalHash: ${{ env.PACKAGE_HASH }}
-          filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
-          content: "${{ env.PACKAGE_CONTENT }}"
-          nsec: ${{ secrets.NSEC_HEX }}
-          size: ${{ env.PACKAGE_SIZE }}
-          customTags: |
-            architecture=${{ matrix.arch }}
-            version=${{ needs.determine-versioning.outputs.package_version }}
-            release_channel=${{ needs.determine-versioning.outputs.release_channel }}
-            package_name=$PACKAGE_NAME
-
-      - name: Verify Package NIP-94 Event
-        id: verify_package
-        # Use environment variable instead of step output
-        if: ${{ steps.publish_package.outputs.eventId }} != ''
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
-        with:
-          eventId: ${{ steps.publish_package.outputs.eventId }}
-          relays: >-
-            wss://relay.damus.io,
-            wss://nos.lol,
-            wss://nostr.mom/
-            wss://relay.tollgate.me/
-
-      - name: Check Package Publication
-        # Only run this step if the verification ran and failed
-        if: steps.verify_package.outcome == 'failure'
-        run: |
-          echo "❌ Failed to verify package publication on relays"
+    - name: List output package(s)
+      run: |
+        echo "Listing all .ipk files in /builder/bin/packages:"
+        find /builder/bin/packages -name "*.ipk" -type f
+        PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
+        if [ -z "$PACKAGE_PATH" ]; then
+          echo "❌ No .ipk package found in /builder/bin/packages"
           exit 1
+        fi
+        echo "✅ Found package at: $PACKAGE_PATH"
+        # Extract model from filename for later use
+        FILENAME=$(basename "$PACKAGE_PATH")
+        echo "PACKAGE_FILENAME=$FILENAME" >> $GITHUB_ENV
+        # Copy file to a location GitHub can access
+        mkdir -p /github/workspace/artifacts
+        cp "$PACKAGE_PATH" "/github/workspace/artifacts/$FILENAME"
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PACKAGE_NAME }}-${{ matrix.architecture }}
-          path: /github/workspace/artifacts/*.ipk
-          retention-days: 5
+    - name: GitHub Artifact upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: package-${{ env.PACKAGE_NAME }}
+        path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+        retention-days: 5
+  
+  
+  # publish-metadata:
+  #   needs: [build-package, determine-versioning]
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       arch: [amd64, arm_cortex-a7, arm64_cortex-a53, mipsel_24kc, mips_24kc]
+
+  #   steps:
+  #     - name: Download artifact
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: ${{ env.PACKAGE_NAME }}-${{ matrix.arch }}
+  #         path: ./artifacts
+
+  #     - name: Prepare package metadata
+  #       id: package_info
+  #       run: |
+  #         PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
+  #         FILENAME=$(basename "$PACKAGE_PATH")
+  #         # Extract model from filename
+  #         if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
+  #           MODEL="aarch64_cortex-a53"
+  #         else
+  #           MODEL="generic"
+  #         fi
+  #         # Calculate file size
+  #         FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
+  #         echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
+  #         echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+  #         echo "MODEL=${{ matrix.arch }}" >> $GITHUB_ENV
+  #         echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${{ matrix.arch }}.ipk" >> $GITHUB_ENV
+
+  #     - name: Set Package Version
+  #       run: |
+  #         # Extract version from PACKAGE_PATH
+  #         PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9.]+\+[0-9a-f]+)_.*\.ipk/\1/')
+  #         echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
+  #         echo "Set version to $PACKAGE_VERSION"
+
+  #     - name: Blossom Artifact upload
+  #       id: blossom_upload
+  #       uses: Origami74/upload-blossom-action@improve-io
+  #       with:
+  #         host: "https://blossom.swissdash.site"
+  #         filePath: ${{ env.PACKAGE_PATH }}
+
+  #     - name: Process Blossom response and extract hash
+  #       run: |
+  #         echo "Upload outputs:"
+  #         echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
+  #         echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
+  #         echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
+  #         # Extract hash from URL
+  #         URL="${{ steps.blossom_upload.outputs.url }}"
+  #         # Use basename to extract filename from URL
+  #         FILENAME=$(basename "$URL")
+  #         # Remove the file extension to get the hash
+  #         HASH="${FILENAME%.ipk}"
+  #         echo "Extracted hash from URL: $HASH"
+  #         # Store values in environment variables
+  #         echo "PACKAGE_URL=$URL" >> $GITHUB_ENV
+  #         echo "PACKAGE_HASH=$HASH" >> $GITHUB_ENV
+  #         # Verify hash was extracted successfully
+  #         if [ -z "$HASH" ]; then
+  #           echo "❌ ERROR: Failed to extract hash from URL"
+  #           exit 1
+  #         fi
+  #         # Verify hash is a valid hex string (64 characters for SHA-256)
+  #         if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
+  #           echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
+  #           exit 1
+  #         fi
+  #         echo "✅ Successfully extracted hash: $HASH"
+
+  #     - name: Extract Short Module Name
+  #       run: |
+  #         # Extract the basic part from tollgate-module-basic-go
+  #         if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
+  #           SHORT_MODULE="${BASH_REMATCH[1]}"
+  #         else
+  #           SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
+  #         fi
+  #         echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
+  #         # Create a standardized filename for the package
+  #         PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${MODEL}.ipk"
+  #         echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
+  #         # Create a simplified content format
+  #         echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE}" >> $GITHUB_ENV
+  #         # Set BRANCH_NAME environment variable
+  #         BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
+  #         echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+  #     - name: Publish Package NIP-94 Metadata
+  #       id: publish_package
+  #       uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
+  #       with:
+  #         relays: >-
+  #           wss://relay.damus.io,
+  #           wss://nos.lol,
+  #           wss://nostr.mom/
+  #         url: ${{ env.PACKAGE_URL }}
+  #         mimeType: application/octet-stream
+  #         fileHash: ${{ env.PACKAGE_HASH }}
+  #         originalHash: ${{ env.PACKAGE_HASH }}
+  #         filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
+  #         content: "${{ env.PACKAGE_CONTENT }}"
+  #         nsec: ${{ secrets.NSEC_HEX }}
+  #         size: ${{ env.PACKAGE_SIZE }}
+  #         customTags: |
+  #           architecture=${{ matrix.arch }}
+  #           version=${{ needs.determine-versioning.outputs.package_version }}
+  #           release_channel=${{ needs.determine-versioning.outputs.release_channel }}
+  #           package_name=$PACKAGE_NAME
+
+  #     - name: Verify Package NIP-94 Event
+  #       id: verify_package
+  #       # Use environment variable instead of step output
+  #       if: ${{ steps.publish_package.outputs.eventId }} != ''
+  #       uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@main
+  #       with:
+  #         eventId: ${{ steps.publish_package.outputs.eventId }}
+  #         relays: >-
+  #           wss://relay.damus.io,
+  #           wss://nos.lol,
+  #           wss://nostr.mom/
+  #           wss://relay.tollgate.me/
+
+  #     - name: Check Package Publication
+  #       # Only run this step if the verification ran and failed
+  #       if: steps.verify_package.outcome == 'failure'
+  #       run: |
+  #         echo "❌ Failed to verify package publication on relays"
+  #         exit 1
+
+  #     - name: Upload Artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: ${{ env.PACKAGE_NAME }}-${{ matrix.architecture }}
+  #         path: /github/workspace/artifacts/*.ipk
+  #         retention-days: 5
 
       
   
