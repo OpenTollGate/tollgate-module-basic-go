@@ -41,7 +41,7 @@ jobs:
     needs: determine-versioning
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-23.05.3 # TODO: dynamic
+      image: openwrt/sdk:${{ matrix.sdk }}-24.10.1 # TODO: dynamic
       options: --user root
     strategy:
       matrix:
