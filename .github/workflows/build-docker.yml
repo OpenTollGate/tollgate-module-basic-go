@@ -3,34 +3,28 @@ name: Build and Publish
 on:
   push:
 
-## Add global env vars for the whole workflow
+## Add global env vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
 
-# Define a workflow-level matrix that can be reused in multiple jobs
-x-matrices:
-  architectures: &architecture-matrix
-    include:
-      # - architecture: amd64
-      #   goarch: amd64
-      #   sdk: x86-64
-      # - architecture: arm_cortex-a7
-      #   goarch: arm
-      #   goarm: 7
-      #   sdk: arm_cortex-a7
-      - architecture: arm64_cortex-a53
-        goarch: arm64
-        sdk: mediatek-filogic
-      # - architecture: mipsel_24kc
-      #   goarch: mipsle
-      #   gomips: softfloat
-      #   sdk: mipsel_24kc
-      # - architecture: mips_24kc
-      #   goarch: mips
-      #   gomips: softfloat
-      #   sdk: mips_24kc
-
+# Define the architecture matrix once for reuse across jobs
+# This allows us to maintain architecture configurations in one place
 jobs:
+  define-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          # Define architecture matrix as JSON
+          echo "matrix={\"include\":[{\"architecture\":\"arm64_cortex-a53\",\"goarch\":\"arm64\",\"sdk\":\"mediatek-filogic\"}]}" >> $GITHUB_OUTPUT
+          # Uncomment additional architectures as needed:
+          # {\"architecture\":\"amd64\",\"goarch\":\"amd64\",\"sdk\":\"x86-64\"},
+          # {\"architecture\":\"arm_cortex-a7\",\"goarch\":\"arm\",\"goarm\":\"7\",\"sdk\":\"arm_cortex-a7\"},
+          # {\"architecture\":\"mipsel_24kc\",\"goarch\":\"mipsle\",\"gomips\":\"softfloat\",\"sdk\":\"mipsel_24kc\"},
+          # {\"architecture\":\"mips_24kc\",\"goarch\":\"mips\",\"gomips\":\"softfloat\",\"sdk\":\"mips_24kc\"}
+
   determine-versioning:
     runs-on: ubuntu-latest
     outputs:
@@ -61,22 +55,25 @@ jobs:
           fi
 
   build-package:
-    needs: determine-versioning
+    needs: [determine-versioning, define-matrix]
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-24.10.1 # TODO: dynamic
       options: --user root
     strategy:
-      matrix: *architecture-matrix
-    
+      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
           path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
 
-      - name: Move sources to sdk folder
+      - name: Initialize
         run: |
+          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}" >> $GITHUB_ENV
+          echo "ℹ️ PACKAGE_FILENAME: ${{ env.PACKAGE_FILENAME }}"
+
+          # Move sources to sdk folder
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
 
       - name: Install Golang
@@ -100,11 +97,11 @@ jobs:
           cd /builder
 
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-          if [[ "${{ matrix.GOARCH }}" == "mips" || "${{ matrix.GOARCH }}" == "mipsle" ]]; then
+          if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
             GOMIPS=softfloat
           fi
 
-          env GOARCH=${{ matrix.GOARCH }} \
+          env GOARCH=${{ matrix.goarch }} \
             GOMIPS=$GOMIPS \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
             make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
@@ -133,12 +130,14 @@ jobs:
           name: ${{ env.PACKAGE_NAME }}_${{ matrix.architecture }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
-  
+
   publish-metadata:
-    needs: build-package
+    needs: [build-package, define-matrix]
     runs-on: ubuntu-latest
+    # We need to apply the matrix here too to access matrix variables
     strategy:
-      matrix: *architecture-matrix
+      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
+      
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -149,27 +148,17 @@ jobs:
       - name: Prepare package metadata
         id: package_info
         run: |
-          PACKAGE_PATH=$(find ./artifacts -name "*.ipk" -type f | head -n1)
-          FILENAME=$(basename "$PACKAGE_PATH")
-          # Extract model from filename
-          if [[ $FILENAME =~ _aarch64_cortex-a53 ]]; then
-            MODEL="aarch64_cortex-a53"
-          else
-            MODEL="generic"
-          fi
+          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}" >> $GITHUB_ENV
+          echo "ℹ️ PACKAGE_FILENAME: ${{ env.PACKAGE_FILENAME }}"
+
+          PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
+          echo "ℹ️ PACKAGE_PATH: ${{ env.PACKAGE_PATH }}"
+
+
           # Calculate file size
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-          echo "MODEL=$MODEL" >> $GITHUB_ENV
-          echo "PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}-${MODEL}-${{ env.GOARCH }}.ipk" >> $GITHUB_ENV
-
-      - name: Set Package Version
-        run: |
-          # Extract version from PACKAGE_PATH
-          PACKAGE_VERSION=$(echo "${{ env.PACKAGE_PATH }}" | sed -E 's/.*_([0-9.]+\+[0-9a-f]+)_.*\.ipk/\1/')
-          echo "PKG_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
-          echo "Set version to $PACKAGE_VERSION"
 
       - name: Blossom Artifact upload
         id: blossom_upload
@@ -206,25 +195,6 @@ jobs:
           fi
           echo "✅ Successfully extracted hash: $HASH"
 
-      - name: Extract Short Module Name
-        run: |
-          # Extract the basic part from tollgate-module-basic-go
-          if [[ "${{ env.PACKAGE_NAME }}" =~ tollgate-module-(.+)-go ]]; then
-            SHORT_MODULE="${BASH_REMATCH[1]}"
-          else
-            SHORT_MODULE="$(echo "${{ env.PACKAGE_NAME }}" | sed 's/tollgate-module-//g' | sed 's/-go//g')"
-          fi
-          echo "SHORT_MODULE=$SHORT_MODULE" >> $GITHUB_ENV
-          # Create a standardized filename for the package
-          DEVICE="gl-mt3000"  # You might want to make this dynamic
-          PACKAGE_SHORT_FILENAME="${SHORT_MODULE}-${DEVICE}-${MODEL}.ipk"
-          echo "PACKAGE_SHORT_FILENAME=$PACKAGE_SHORT_FILENAME" >> $GITHUB_ENV
-          # Create a simplified content format
-          echo "PACKAGE_CONTENT=TollGate Module Package: ${SHORT_MODULE} for ${DEVICE}" >> $GITHUB_ENV
-          # Set BRANCH_NAME environment variable
-          BRANCH_NAME=$(echo "${GITHUB_REF#refs/heads/}" | sed 's/refs\/pull\///g')
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
-
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action/python@main
@@ -237,7 +207,7 @@ jobs:
           mimeType: application/octet-stream
           fileHash: ${{ env.PACKAGE_HASH }}
           originalHash: ${{ env.PACKAGE_HASH }}
-          filename: "${{ env.PACKAGE_SHORT_FILENAME }}"
+          filename: "${{ env.PACKAGE_FILENAME }}"
           content: "${{ env.PACKAGE_CONTENT }}"
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
@@ -286,15 +256,16 @@ jobs:
           echo "Build Summary for ${{ matrix.architecture }}:"
           echo "✅ Binary successfully built and published"
           echo "✅ Package successfully built and published"
-          echo "Package URL: ${{ env.PACKAGE_URL }}"
-          
-    trigger-build-os:
-      name: Trigger new build TollGate OS
-      runs-on: ubuntu-latest
-      steps:
-        - name: Trigger OS Workflow
-          uses: peter-evans/repository-dispatch@v2
-          with:
-            token: ${{ secrets.REPO_ACCESS_TOKEN }}
-            repository: OpenTollGate/tollgate-os
-            event-type: update-release-json
+          echo "Binary URL: ${{ steps.upload_binary.outputs.blossomUrl }}"
+          echo "Package URL: ${{ steps.upload_package.outputs.blossomUrl }}"
+  trigger-build-os:
+    name: Trigger new build TollGate OS
+    runs-on: ubuntu-latest
+    needs: publish-metadata
+    steps:
+    - name: Trigger OS Workflow
+      uses: peter-evans/repository-dispatch@v2
+      with:
+        token: ${{ secrets.REPO_ACCESS_TOKEN }}
+        repository: OpenTollGate/tollgate-os
+        event-type: update-release-json
