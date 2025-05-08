@@ -21,6 +21,7 @@ func (s *Service) PublishEvent(event *nostr.Event) error {
 		go func(url string) {
 			defer wg.Done()
 			for attempt := 1; attempt <= 3; attempt++ {
+				log.Printf("Attempting to connect to relay %s (attempt %d)", url, attempt)
 				relay, err := s.relayPool.EnsureRelay(url)
 				if err != nil {
 					log.Printf("Relay connection failed (attempt %d): %v", attempt, err)
@@ -30,6 +31,8 @@ func (s *Service) PublishEvent(event *nostr.Event) error {
 				status := relay.Publish(ctx, *event)
 				if status != nil {
 					log.Printf("Publish failed (attempt %d): %s", attempt, status)
+				} else {
+					log.Printf("Successfully published to relay %s", url)
 				} else {
 					return
 				}

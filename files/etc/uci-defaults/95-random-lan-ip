@@ -1,18 +1,16 @@
 #!/bin/sh
 # TollGate - Generate random LAN IP address on first boot
 
-# Check if random_ip is already set in persistent_config.json
-PERSISTENT_CONFIG_FILE="/etc/tollgate/persistent_config.json"
-if [ -f "$PERSISTENT_CONFIG_FILE" ]; then
-    echo "Checking random_ip in persistent_config.json..." >> /tmp/tollgate-debug.log
-    RANDOM_IP_CONFIG=$(jq -r '.random_ip' "$PERSISTENT_CONFIG_FILE")
-    echo "random_ip value: $RANDOM_IP_CONFIG" >> /tmp/tollgate-debug.log
-    if [ "$RANDOM_IP_CONFIG" != "null" ] && [ -n "$RANDOM_IP_CONFIG" ]; then
-        echo "random_ip is already set to $RANDOM_IP_CONFIG in persistent_config.json. Exiting." >> /tmp/tollgate-debug.log
+INSTALL_JSON="/etc/tollgate/install.json"
+if [ -f "$INSTALL_JSON" ]; then
+    IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
+    if [ "$IP_RANDOMIZED" != "false" ]; then
+        echo "IP is already randomized or not set to false. Exiting."
         exit 0
     fi
 else
-    echo "persistent_config.json not found. Proceeding with random IP generation." >> /tmp/tollgate-debug.log
+    echo "install.json not found. Exiting."
+    exit 1
 fi
 
 # We don't need to check for a flag file since uci-defaults scripts 
@@ -128,16 +126,11 @@ uci_safe_set network lan broadcast "$BROADCAST"
 # No need for a flag file - uci-defaults handles this automatically
 
 # Schedule network restart (safer than immediate restart during boot)
-(sleep 5 && /etc/init.d/network restart && 
+(sleep 5 && /etc/init.d/network restart &&
  [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
 
-# Before exiting, update persistent_config.json with the new random_ip
-echo "Updating persistent_config.json with random IP: $RANDOM_IP" >> /tmp/tollgate-debug.log
-# Initialize persistent_config.json if it's empty or doesn't exist
-if [ ! -s "$PERSISTENT_CONFIG_FILE" ]; then
-    echo "{}" > "$PERSISTENT_CONFIG_FILE"
-fi
-jq '.random_ip = "'"$RANDOM_IP"'"' "$PERSISTENT_CONFIG_FILE" > "$PERSISTENT_CONFIG_FILE.tmp" && mv "$PERSISTENT_CONFIG_FILE.tmp" "$PERSISTENT_CONFIG_FILE"
-echo "persistent_config.json update result: $?" >> /tmp/tollgate-debug.log
+# Update install.json with the new random IP
+jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
+
 
 exit 0

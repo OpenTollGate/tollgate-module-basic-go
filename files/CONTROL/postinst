@@ -1,9 +1,12 @@
 #!/bin/sh
 
-echo "Running post-installation script"
-# Add your post-install commands here
+echo "Running post-installation script: Starting postinst execution"
+echo "Current working directory: $(pwd)"
+echo "Current timestamp: $(date)"
+
 echo "Verifying banner file ownership:"
 ls -l /etc/banner
 opkg search /etc/banner
 /etc/init.d/tollgate-basic restart
+echo "Post-installation script completed successfully"
 exit 0
