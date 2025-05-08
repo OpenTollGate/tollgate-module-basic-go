@@ -71,7 +71,7 @@ jobs:
 
       - name: Initialize
         run: |
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
 
@@ -139,7 +139,7 @@ jobs:
       - name: Initialize
         id: init
         run: |
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
 
@@ -222,6 +222,7 @@ jobs:
           echo "Build Summary for ${{ matrix.architecture }}:"
           echo "✅ Package Release EventId: ${{ steps.publish_package.outputs.eventId }}"
           echo "✅ Package URL: ${{ steps.blossom_upload.outputs.url }}"
+
   trigger-build-os:
     name: Trigger new build TollGate OS
     runs-on: ubuntu-latest
