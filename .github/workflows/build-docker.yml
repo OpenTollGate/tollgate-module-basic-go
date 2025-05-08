@@ -6,7 +6,6 @@ on:
 ## Add global env vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  OPENWRT_VERSION: "24.10.1"
 
 # Define the architecture matrix once for reuse across jobs
 # This allows us to maintain architecture configurations in one place
@@ -18,13 +17,50 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          # Define architecture matrix as JSON with OpenWRT version included
-          echo "matrix={\"include\":[{\"architecture\":\"arm64_cortex-a53\",\"goarch\":\"arm64\",\"sdk\":\"mediatek-filogic\",\"openwrt_version\":\"24.10.1\"}]}" >> $GITHUB_OUTPUT
-          # Uncomment additional architectures as needed:
-          # {\"architecture\":\"amd64\",\"goarch\":\"amd64\",\"sdk\":\"x86-64\"},
-          # {\"architecture\":\"arm_cortex-a7\",\"goarch\":\"arm\",\"goarm\":\"7\",\"sdk\":\"arm_cortex-a7\"},
-          # {\"architecture\":\"mipsel_24kc\",\"goarch\":\"mipsle\",\"gomips\":\"softfloat\",\"sdk\":\"mipsel_24kc\"},
-          # {\"architecture\":\"mips_24kc\",\"goarch\":\"mips\",\"gomips\":\"softfloat\",\"sdk\":\"mips_24kc\"
+          # Create a human-readable matrix definition
+          cat > matrix.json << 'EOF'
+          {
+            "include": [
+              {
+                "architecture": "arm64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "amd64",
+                "goarch": "amd64",
+                "sdk": "x86-generic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "arm_cortex-a7",
+                "goarch": "arm",
+                "goarm": "7",
+                "sdk": "bcm27xx-bcm2709",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1"
+              }
+            ]
+          }
+          EOF
+          
+          # Read the JSON file and escape it for GitHub output
+          MATRIX_JSON=$(cat matrix.json | tr -d '\n' | sed 's/"/\\"/g')
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
   determine-versioning:
     runs-on: ubuntu-latest
