@@ -135,7 +135,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
-      
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
