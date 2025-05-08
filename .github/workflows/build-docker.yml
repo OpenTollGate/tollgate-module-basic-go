@@ -131,13 +131,11 @@ jobs:
           retention-days: 5
 
   publish-metadata:
-    needs: [build-package, define-matrix]
+    needs: [determine-versioning, build-package, define-matrix]
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
-      
-
       - name: Initialize
         id: init
         run: |
@@ -175,28 +173,11 @@ jobs:
           echo "  URL: ${{ steps.blossom_upload.outputs.url }}"
           echo "  Hash: ${{ steps.blossom_upload.outputs.hash }}"
           echo "  Size: ${{ env.PACKAGE_SIZE }} bytes"
-          # Extract hash from URL
-          URL="${{ steps.blossom_upload.outputs.url }}"
-          # Use basename to extract filename from URL
-          FILENAME=$(basename "$URL")
-          # Remove the file extension to get the hash
-          HASH="${FILENAME%.ipk}"
-          echo "Extracted hash from URL: $HASH"
-          # Store values in environment variables
-          echo "PACKAGE_URL=$URL" >> $GITHUB_ENV
-          echo "PACKAGE_HASH=$HASH" >> $GITHUB_ENV
-          # Verify hash was extracted successfully
-          if [ -z "$HASH" ]; then
-            echo "❌ ERROR: Failed to extract hash from URL"
-            exit 1
-          fi
-          # Verify hash is a valid hex string (64 characters for SHA-256)
-          if ! [[ $HASH =~ ^[0-9a-f]{64}$ ]]; then
-            echo "❌ ERROR: Extracted hash doesn't appear to be a valid SHA-256 hash"
-            exit 1
-          fi
-          echo "✅ Successfully extracted hash: $HASH"
-
+          
+          
+          echo "PACKAGE_URL=${{ steps.blossom_upload.outputs.url }}" >> $GITHUB_ENV
+          echo "PACKAGE_HASH=${{ steps.blossom_upload.outputs.hash }}" >> $GITHUB_ENV
+          
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
