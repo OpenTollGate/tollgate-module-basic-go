@@ -58,9 +58,9 @@ jobs:
           }
           EOF
           
-          # Read the JSON file and escape it for GitHub output
-          MATRIX_JSON=$(cat matrix.json | tr -d '\n' | sed 's/"/\\"/g')
-          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+          # Create a properly escaped JSON for GitHub output
+          # We need to use jq to compact the JSON and properly escape it
+          echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
 
   determine-versioning:
     runs-on: ubuntu-latest
