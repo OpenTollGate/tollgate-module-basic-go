@@ -24,7 +24,7 @@ jobs:
           # {\"architecture\":\"amd64\",\"goarch\":\"amd64\",\"sdk\":\"x86-64\"},
           # {\"architecture\":\"arm_cortex-a7\",\"goarch\":\"arm\",\"goarm\":\"7\",\"sdk\":\"arm_cortex-a7\"},
           # {\"architecture\":\"mipsel_24kc\",\"goarch\":\"mipsle\",\"gomips\":\"softfloat\",\"sdk\":\"mipsel_24kc\"},
-          # {\"architecture\":\"mips_24kc\",\"goarch\":\"mips\",\"gomips\":\"softfloat\",\"sdk\":\"mips_24kc\"}
+          # {\"architecture\":\"mips_24kc\",\"goarch\":\"mips\",\"gomips\":\"softfloat\",\"sdk\":\"mips_24kc\"
 
   determine-versioning:
     runs-on: ubuntu-latest
@@ -191,13 +191,14 @@ jobs:
           fileHash: ${{ env.PACKAGE_HASH }}
           originalHash: ${{ env.PACKAGE_HASH }}
           filename: "${{ env.PACKAGE_FILENAME }}"
-          content: "${{ env.PACKAGE_CONTENT }}"
+          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}"
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
             architecture=${{ matrix.architecture }}
             version=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
+            package_name=${{ needs.determine-versioning.outputs.release_channel }}
 
       - name: Verify Package NIP-94 Event
         id: verify_package
