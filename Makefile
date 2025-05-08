@@ -55,8 +55,7 @@ endef
 define Build/Compile
 	cd $(PKG_BUILD_DIR) && \
 	echo "Building with GOARCH=$(GOARCH) $(if $(GOMIPS),GOMIPS=$(GOMIPS))" && \
-	env CGO_ENABLED=0 \ 
-	GOOS=linux \
+	env CGO_ENABLED=0 GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
@@ -154,3 +153,4 @@ $(eval $(call BuildPackage,$(PKG_NAME)))
 
 # Print IPK path after successful compilation
 PKG_FINISH:=$(shell echo "Successfully built: $(IPK_FILE)" >&2)
+

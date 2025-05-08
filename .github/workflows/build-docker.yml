@@ -95,16 +95,16 @@ jobs:
         run: |
           cd /builder
 
-          env GOARCH=${{ matrix.GOARCH }}
-          env PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }}
-
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
           if [[ "${{ matrix.GOARCH }}" == "mips" || "${{ matrix.GOARCH }}" == "mipsle" ]]; then
-            env GOMIPS=softfloat
+            GOMIPS=softfloat
           fi
 
-          make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
-          ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
+          env GOARCH=${{ matrix.GOARCH }} \
+            GOMIPS=${ GOMIPS } \
+            PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
+            make -j$(nproc) V=sc package/${{ env.PACKAGE_NAME }}/compile \
+            ${{ env.DEBUG == 'true' && 'V=sc' || '' }}
 
       - name: List output package(s)
         run: |
