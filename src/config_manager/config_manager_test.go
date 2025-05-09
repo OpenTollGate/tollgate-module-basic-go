@@ -1,7 +1,6 @@
 package config_manager
 
 import (
-"github.com/nbd-wtf/go-nostr"
 	"log"
 	"os"
 	"reflect"
@@ -176,7 +175,7 @@ func TestSetUsername(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	cm, err := NewConfigManager(tmpFile.Name())
+	_, err = NewConfigManager(tmpFile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
