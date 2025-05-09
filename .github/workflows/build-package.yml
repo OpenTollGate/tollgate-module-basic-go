@@ -141,13 +141,14 @@ jobs:
 
       - name: Compile Package
         run: |
+          #!/bin/bash
           cd /builder
-
+          
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
           if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
             GOMIPS=softfloat
           fi
-
+          
           env GOARCH=${{ matrix.goarch }} \
             GOMIPS=$GOMIPS \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
