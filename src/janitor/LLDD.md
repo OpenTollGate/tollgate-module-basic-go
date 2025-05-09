@@ -116,3 +116,7 @@ After installing a new package, the Janitor module updates the `install.json` fi
 - [ ] Update Janitor module to handle `release_channel`.
 - [ ] Modify version comparison logic.
 - [ ] Update documentation to reflect changes.
+
+## Handling Multiple Mints
+
+The Janitor module has been updated to handle multiple mints. The `ConfigManager` now supports multiple accepted mints through the `accepted_mints` field in the `Config` struct. This enhancement allows the TollGate to process NIP-94 events for multiple mints, improving its functionality and user experience.
