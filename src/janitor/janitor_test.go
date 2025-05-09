@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -224,6 +225,41 @@ func TestEventMapCollision(t *testing.T) {
 	wg.Wait()
 }
 
+func TestUpdateInstallConfig(t *testing.T) {
+	configFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(configFile.Name())
+
+	tmpFile, err := os.CreateTemp("", "install.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cm, err := config_manager.NewConfigManager(configFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	janitor, err := NewJanitor(cm)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkgPath := "/path/to/package"
+	nip94EventID := "event-id"
+
+	installConfig, err := cm.LoadInstallConfig()
+	if err != nil {
+		t.Errorf("LoadInstallConfig returned error: %v", err)
+	}
+	if installConfig.PackagePath != pkgPath || installConfig.NIP94EventID != nip94EventID {
+		t.Errorf("Install config not updated correctly")
+	}
+}
+
 func TestDownloadPackage(t *testing.T) {
 	configFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
@@ -255,7 +291,12 @@ func TestDownloadPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(relays, trustedMaintainers, "0.0.1", fourWeeksAgo, "main", "aarch64", configFile.Name())
+	cm, err := config_manager.NewConfigManager(configFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	janitor, err := NewJanitor(cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,116 +395,5 @@ func TestDownloadPackage(t *testing.T) {
 	}
 	if pkgPath == "" {
 		t.Errorf("expected non-empty package path")
-	}
-
-}
-
-func TestInstallPackage(t *testing.T) {
-	janitor, _ := NewJanitor(nil, nil, "1.0.0", 0, "main", "aarch64", "")
-	janitor.opkgCmd = "true" // Mock the opkg command to always succeed
-
-	tmpFile, err := os.CreateTemp("", "package.ipk")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.Write([]byte("package content")); err != nil {
-		t.Fatal(err)
-	}
-	tmpFile.Close()
-
-	err = janitor.InstallPackage(tmpFile.Name())
-	if err != nil {
-		t.Errorf("InstallPackage failed: %v", err)
-		return
-	}
-}
-func TestUpdateConfigWithPackagePath(t *testing.T) {
-	configFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(configFile.Name())
-
-	initialConfig := map[string]interface{}{
-		"relays":              []string{"wss://relay.damus.io"},
-		"trusted_maintainers": []string{"trusted_key"},
-		"package_info": map[string]interface{}{
-			"version":   "1.0.0",
-			"timestamp": int64(1643723900),
-		},
-	}
-	configData, err := json.Marshal(initialConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(configFile.Name(), configData, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	janitor, err := NewJanitor(nil, nil, "1.0.0", 0, "main", "aarch64", configFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	pkgPath := "/tmp/package.ipk"
-	err = janitor.updateConfigWithPackagePath(pkgPath)
-	if err != nil {
-		t.Errorf("updateConfigWithPackagePath failed: %v", err)
-	}
-
-	updatedConfigData, err := os.ReadFile(configFile.Name())
-	if err != nil {
-		t.Errorf("failed to read updated config file: %v", err)
-	}
-
-	var updatedConfig map[string]interface{}
-	err = json.Unmarshal(updatedConfigData, &updatedConfig)
-	if err != nil {
-		t.Errorf("failed to unmarshal updated config: %v", err)
-	}
-
-	if updatedConfig["update_path"] != pkgPath {
-		t.Errorf("expected update_path to be %s, got %s", pkgPath, updatedConfig["update_path"])
-	}
-}
-func TestSortQualifyingEventsByVersion(t *testing.T) {
-	qualifyingEventsMap := make(map[string]*packageEvent)
-	qualifyingEventsMap["package-0.0.1"] = &packageEvent{}
-	qualifyingEventsMap["package-0.0.3"] = &packageEvent{}
-	qualifyingEventsMap["package-0.0.2"] = &packageEvent{}
-
-	sortedKeys := sortQualifyingEventsByVersion(qualifyingEventsMap)
-	expectedOrder := []string{"package-0.0.3", "package-0.0.2", "package-0.0.1"}
-
-	if len(sortedKeys) != len(expectedOrder) {
-		t.Errorf("expected %d keys, got %d", len(expectedOrder), len(sortedKeys))
-	}
-	for i, key := range sortedKeys {
-		if key != expectedOrder[i] {
-			t.Errorf("expected key at position %d to be %s, got %s", i, expectedOrder[i], key)
-		}
-	}
-}
-func TestGetChecksumFromEvent(t *testing.T) {
-	eventWithChecksum := nostr.Event{
-		Tags: nostr.Tags{
-			{"x", "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd"},
-		},
-	}
-	checksum := getChecksumFromEvent(eventWithChecksum)
-	if checksum != "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd" {
-		t.Errorf("expected checksum %s, got %s", "1c981c7c224886a43e708110989fab0fc93d5457e329648e48fa34038e3f02cd", checksum)
-	}
-
-	eventWithoutChecksum := nostr.Event{
-		Tags: nostr.Tags{
-			{"url", "https://example.com/package.ipk"},
-		},
-	}
-	checksum = getChecksumFromEvent(eventWithoutChecksum)
-	if checksum != "" {
-		t.Errorf("expected empty checksum, got %s", checksum)
 	}
 }

@@ -8,4 +8,31 @@ echo "Removing existing banner file if present..."
 [ -f /etc/banner- ] && rm -f /etc/banner-
 
 
+# Check if /etc/tollgate/install.json exists
+if [ -f /etc/tollgate/install.json ]; then
+    # Update install_time in /etc/tollgate/install.json
+    CURRENT_TIMESTAMP=$(date +%s)
+    if ! jq ".install_time = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
+        echo "Error: Failed to update install_time using jq" >&2
+        echo "$(date) - Error: Failed to update install_time using jq" >> /tmp/tollgate-setup.log
+        exit 1
+    fi
+    if ! mv /tmp/install.json.tmp /etc/tollgate/install.json; then
+        echo "Error: Failed to move temporary file to /etc/tollgate/install.json" >&2
+        echo "$(date) - Error: Failed to move temporary file to /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
+        exit 1
+    fi
+else
+    # Create /etc/tollgate/install.json if it doesn't exist
+    mkdir -p /etc/tollgate
+    CURRENT_TIMESTAMP=$(date +%s)
+    if ! echo "{\"install_time\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
+        echo "Error: Failed to create /etc/tollgate/install.json" >&2
+        echo "$(date) - Error: Failed to create /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
+        exit 1
+    fi
+    echo "$(date) - install_time set to $CURRENT_TIMESTAMP" >> /tmp/tollgate-setup.log
+fi
+
+
 exit 0

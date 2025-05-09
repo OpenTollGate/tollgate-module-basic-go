@@ -1,7 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-module-basic-go
-PKG_VERSION:=0.0.$(shell git rev-list --count HEAD)+$(shell git rev-parse --short HEAD)
+PKG_VERSION:=$(PACKAGE_VERSION)
+
 PKG_FLAGS:=overwrite
 
 # Place conditional checks EARLY - before variables that depend on them
@@ -97,13 +98,6 @@ define Package/$(PKG_NAME)/install
 	# Create required directories
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
-
-	# Tollgate config.json for mint and price
-	$(INSTALL_DIR) $(1)/etc/tollgate
-	$(eval TIMESTAMP := $(shell date +%s))
-		
-	sed -i 's/"timestamp": [0-9]\+/"timestamp": $(TIMESTAMP)/g' $(PKG_BUILD_DIR)/files/etc/tollgate/config.json
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/config.json $(1)/etc/tollgate/config.json
 
 	# Banner for TollGate
 	$(INSTALL_DIR) $(1)/etc

@@ -12,29 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"tollgate-module-basic-go/src/janitor"
-	"tollgate-module-basic-go/src/modules"
 )
-
-// Config structure to hold all configuration parameters
-type Config struct {
-	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMint       string         `json:"accepted_mint"`
-	PricePerMinute     int            `json:"price_per_minute"`
-	MinPayment         int            `json:"min_payment"`
-	MintFee            int            `json:"mint_fee"`
-	Relays             []string       `json:"relays"`
-	Bragging           BraggingConfig `json:"bragging"`
-	PackageInfo        struct {
-		Version   string `json:"version"`
-		Timestamp int64  `json:"timestamp"`
-		Branch    string `json:"branch"`
-		Arch      string `json:"arch"`
-	} `json:"package_info"`
-	UpdatePath *string `json:"update_path,omitempty"`
-}
 
 type BraggingConfig struct {
 	Enabled bool     `json:"enabled"`
@@ -43,8 +26,9 @@ type BraggingConfig struct {
 }
 
 // Global configuration variable
-var config Config
-var configFile string = "/etc/tollgate/config.json"
+// Define configFile at a higher scope
+var configManager *config_manager.ConfigManager
+var config config_manager.Config
 
 // Derived configuration values
 var tollgatePrivateKey string
@@ -61,40 +45,75 @@ var tollgateDetailsString string
 var relayPool *nostr.SimplePool
 
 func init() {
-	cmd := exec.Command("sh", "-c", "opkg list-installed | grep 'tollgate-module-basic-go'")
-	output, err := cmd.CombinedOutput()
+	var err error
+	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
 	if err != nil {
-		log.Fatalf("Failed to get installed version: %v", err)
+		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	version := strings.TrimSpace(string(output))
-	parts := strings.Split(version, " - ")
-	if len(parts) < 2 {
-		log.Fatalf("Unexpected output format from opkg list-installed: %s", version)
-	}
-	installedVersion := parts[1]
-
-	// Check if we need to run post-install script
-	_, err = PostInstallSetup(configFile, installedVersion)
+	loadedConfig, err := configManager.LoadConfig()
 	if err != nil {
-		log.Fatalf("Error running post-install script: %v", err)
-	}
-
-	// Load configuration
-	if err := loadConfig(); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+	config = *loadedConfig
 
-	// Create the nostr event
+	installConfig, err := configManager.LoadInstallConfig()
+	if err != nil {
+		log.Printf("Error loading install config: %v", err)
+		os.Exit(1)
+	}
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		os.Exit(1)
+	}
+	nip94EventID := config.NIP94EventID
+	log.Printf("NIP94EventID: %s", nip94EventID)
+	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
+	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
+	if nip94EventID != "unknown" {
+		_, err = configManager.GetNIP94Event(nip94EventID)
+		if err != nil {
+			log.Printf("Error getting NIP94 event: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	// Initialize derived configuration values
+	tollgatePrivateKey = config.TollgatePrivateKey
+	pricePerMinute = config.PricePerMinute
+
+	// Create a map of accepted mints and their minimum payments
+	mintMinPayments := make(map[string]int)
+	for _, mintURL := range config.AcceptedMints {
+		mintFee, err := config_manager.GetMintFee(mintURL)
+		if err != nil {
+			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
+			continue
+		}
+		mintMinPayments[mintURL] = config_manager.CalculateMinPayment(mintFee)
+	}
+
+	// Create the nostr event with the mintMinPayments map
+	tags := nostr.Tags{
+		{"metric", "milliseconds"},
+		{"step_size", "60000"},
+		{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
+	}
+
+	// Create a separate tag for each accepted mint
+	for mint, minPayment := range mintMinPayments {
+		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
+		fmt.Printf("TODO: include min payment (%d) for %s in future\n", minPayment, mint)
+		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
+		tags = append(tags, nostr.Tag{"mint", mint})
+	}
+
+	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
+
 	tollgateDetailsEvent = nostr.Event{
-		Kind: 21021,
-		Tags: nostr.Tags{
-			{"metric", "milliseconds"},
-			{"step_size", "60000"},
-			{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
-			{"mint", acceptedMint},
-			{"tips", "1", "2", "3"},
-		},
+		Kind:    21021,
+		Tags:    tags,
 		Content: "",
 	}
 
@@ -116,74 +135,23 @@ func init() {
 
 	// Initialize janitor module
 	initJanitor()
+
 }
 
 func initJanitor() {
-	config, err := janitor.LoadJanitorConfig(configFile)
+	loadedConfig, err := configManager.LoadConfig()
 	if err != nil {
-		log.Fatalf("Failed to load janitor config: %v", err)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
+	config = *loadedConfig
 
-	janitorInstance, err := janitor.NewJanitor(config.Relays, config.TrustedMaintainers, config.PackageInfo.Version, config.PackageInfo.Timestamp, config.PackageInfo.Branch, config.PackageInfo.Arch, configFile)
+	janitorInstance, err := janitor.NewJanitor(configManager)
 	if err != nil {
 		log.Fatalf("Failed to create janitor instance: %v", err)
 	}
 
 	go janitorInstance.ListenForNIP94Events()
 	log.Println("Janitor module initialized and listening for NIP-94 events")
-}
-
-// loadConfig reads configuration from /etc/tollgate/config.json
-func loadConfig() error {
-	// Read the existing config file
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Create a default config if it doesn't exist
-			config := Config{
-				TollgatePrivateKey: "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
-				AcceptedMint:       "",
-				PricePerMinute:     1,
-				MinPayment:         1,
-				MintFee:            1,
-			}
-			defaultConfig, err := json.MarshalIndent(config, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to marshal default config: %v", err)
-			}
-			err = os.MkdirAll("/etc/tollgate", 0755)
-			if err != nil {
-				log.Printf("WARNING: Failed to create config directory: %v", err)
-			}
-			err = os.WriteFile(configFile, defaultConfig, 0644)
-			if err != nil {
-				log.Printf("WARNING: Failed to write default config file: %v", err)
-			}
-			data = defaultConfig
-		} else {
-			return fmt.Errorf("failed to read config file: %v", err)
-		}
-	}
-
-	// Parse the config file
-	if err := json.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("failed to parse config file: %v", err)
-	}
-
-	fmt.Println("Relays loaded from config:", config.Relays)
-
-	// Update global variables
-	tollgatePrivateKey = config.TollgatePrivateKey
-	acceptedMint = config.AcceptedMint
-	pricePerMinute = config.PricePerMinute
-	minPayment = config.MinPayment
-	mintFee = config.MintFee
-	cutoffFee = 2*mintFee + minPayment
-
-	fmt.Printf("Configuration loaded: mint=%s, price=%d, fee=%d\n",
-		acceptedMint, pricePerMinute, mintFee)
-
-	return nil
 }
 
 func getMacAddress(ipAddress string) (string, error) {
@@ -485,86 +453,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
 }
 
-func PostInstallSetup(configPath, newVersion string) (int64, error) {
-	fmt.Printf("Running post-install script")
-
-	// Read existing config
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		log.Printf("Error reading config file: %v", err)
-		return 0, err
-	}
-
-	var configMap map[string]interface{}
-	err = json.Unmarshal(configData, &configMap)
-	if err != nil {
-		log.Printf("Error unmarshaling config: %v", err)
-		return 0, err
-	}
-
-	// Get package_info map or create it if it doesn't exist
-	packageInfo, ok := configMap["package_info"].(map[string]interface{})
-	if !ok {
-		packageInfo = make(map[string]interface{})
-		configMap["package_info"] = packageInfo
-	}
-
-	// Determine DISTRIB_ARCH by running the command
-	cmd := exec.Command("sh", "-c", ". /etc/openwrt_release && echo $DISTRIB_ARCH")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Failed to determine DISTRIB_ARCH: %v", err)
-		return 0, err
-	}
-	distribArch := strings.TrimSpace(string(output))
-
-	// Update package_info
-	newTimestamp := time.Now().Unix()
-	packageInfo["version"] = newVersion
-	packageInfo["arch"] = distribArch
-
-	// Only set timestamp if it doesn't already exist
-	if _, ok := packageInfo["timestamp"]; !ok {
-		packageInfo["timestamp"] = newTimestamp
-	}
-
-	// Handle branch field
-	if _, ok := packageInfo["branch"]; !ok {
-		packageInfo["branch"] = "main"
-	}
-
-	// Marshal and write back to config file
-	data, err := json.MarshalIndent(configMap, "", "  ")
-	if err != nil {
-		log.Printf("Error marshaling config: %v", err)
-		return 0, err
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		log.Printf("Error writing config file: %v", err)
-		return 0, err
-	}
-
-	fmt.Printf("Post-install script completed successfully")
-	return newTimestamp, nil
-}
-
 func main() {
-	// Get installed version
-	cmd := exec.Command("opkg", "list-installed", "tollgate-module-basic-go")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Error getting installed version: %v", err)
-	} else {
-		installedVersion := strings.Fields(string(output))[2]
-		configVersion := config.PackageInfo.Version
-
-		if installedVersion != configVersion {
-			log.Printf("Installed version (%s) is different from config version (%s)", installedVersion, configVersion)
-			os.Exit(1)
-		}
-	}
-
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate - TIP-01")
 	fmt.Println("Listening on all interfaces on port", port)
