@@ -284,7 +284,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
 	// Decode the Cashu token
-	tokenValue, err := DecodeCashuToken(paymentToken)
+	tokenValue, tokenMint, err := DecodeCashuToken(paymentToken)
 	if err != nil {
 		log.Printf("Error decoding Cashu token: %v", err)
 		w.WriteHeader(http.StatusBadRequest)

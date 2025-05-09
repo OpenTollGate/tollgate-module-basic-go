@@ -80,21 +80,25 @@ func (k *SimpleKeyer) Decrypt(ctx context.Context, pubkey, ciphertext string) (s
 }
 
 // decodeCashuToken decodes a Cashu token and returns the total value in sats
-func DecodeCashuToken(token string) (int, error) {
+func DecodeCashuToken(token string) (int, string, error) {
 	fmt.Println("Decoding Cashu token:", token)
 
 	// Only support cashuB tokens
 	if !strings.HasPrefix(strings.ToLower(token), "cashub") {
-		return 0, fmt.Errorf("only cashuB tokens are supported")
+		return 0, "", fmt.Errorf("only cashuB tokens are supported")
 	}
 
 	// Try to decode token and get proofs and mint
-	proofs, _, err := nip60.GetProofsAndMint(token)
+	proofs, mint, err := nip60.GetProofsAndMint(token)
 	if err != nil {
 		// Fall back to basic token parsing if there's an error
 		log.Printf("Failed to use nip60 to decode token: %v, using fallback", err)
 
-		return int(proofs.Amount()), nil
+		var amount uint64
+		for _, proof := range proofs {
+			amount += proof.Amount
+		}
+		return int(amount), mint, nil
 	}
 
 	// Sum up the token amount
@@ -103,7 +107,7 @@ func DecodeCashuToken(token string) (int, error) {
 		amount += proof.Amount
 	}
 
-	return int(amount), nil
+	return int(amount), mint, nil
 }
 
 // CollectPayment processes a Cashu token and swaps it for fresh proofs
