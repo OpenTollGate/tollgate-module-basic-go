@@ -3,3 +3,7 @@
 echo "Running post-installation script: Starting postinst execution"
 echo "Current working directory: $(pwd)"
 echo "Current timestamp: $(date)"
+
+/etc/init.d/tollgate-basic restart
+echo "Post-installation script completed successfully"
+exit 0
