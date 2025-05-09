@@ -369,8 +369,8 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 }
 
 func generatePrivateKey() (string, error) {
-	// TODO: Implement proper private key generation or management
-	return "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663", nil
+	privateKey := nostr.GeneratePrivateKey()
+	return privateKey, nil
 }
 
 // EnsureDefaultConfig ensures a default configuration exists, creating it if necessary

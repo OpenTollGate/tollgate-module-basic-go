@@ -1,6 +1,7 @@
 package config_manager
 
 import (
+	"log"
 	"os"
 	"reflect"
 	"testing"
@@ -103,7 +104,7 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	newInstallConfig := &InstallConfig{
-		PackagePath: "/path/to/package"
+		PackagePath: "/path/to/package",
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
 	if err != nil {
