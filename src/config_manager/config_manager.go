@@ -186,9 +186,9 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		defaultInstallConfig := &InstallConfig{
 			PackagePath:            "false",
 			IPAddressRandomized:    "false",
-			InstallTimestamp:       0,              // Set InstallTimestamp to 0 (unknown)
-			DownloadTimestamp:      0,              // Set DownloadTimestamp to 0 (unknown)
-			ReleaseChannel:         "stable",       // Set default release channel to "main"
+			InstallTimestamp:       0,                 // Set InstallTimestamp to 0 (unknown)
+			DownloadTimestamp:      0,                 // Set DownloadTimestamp to 0 (unknown)
+			ReleaseChannel:         "stable",          // Set default release channel to "main"
 			EnsureDefaultTimestamp: CURRENT_TIMESTAMP, // Set EnsureDefaultTimestamp to current time
 		}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
@@ -368,9 +368,55 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 	}
 }
 
-func generatePrivateKey() (string, error) {
-	// TODO: Implement proper private key generation or management
-	return "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663", nil
+func (cm *ConfigManager) generatePrivateKey() (string, error) {
+	privateKey := nostr.GeneratePrivateKey()
+	err := cm.setUsername(privateKey, "c03rad0r")
+	if err != nil {
+		log.Printf("Failed to set username: %v", err)
+	}
+	return privateKey, nil
+}
+
+func (cm *ConfigManager) setUsername(privateKey string, username string) error {
+	relayPool := nostr.NewSimplePool(context.Background())
+	if relayPool == nil {
+		return fmt.Errorf("failed to create relay pool")
+	}
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return err
+	}
+
+	if config == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	event := nostr.Event{
+		Kind: nostr.KindProfileMetadata,
+		Tags: nostr.Tags{{
+			"d",
+			username,
+		}},
+		Content: `{"name":"` + username + `"}`,
+	}
+
+	event.ID = event.GetID()
+
+	event.Sign(privateKey)
+
+	for _, relayURL := range config.Relays {
+		relay, err := relayPool.EnsureRelay(relayURL)
+		if err != nil {
+			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+			continue
+		}
+		err = relay.Publish(context.Background(), event)
+		if err != nil {
+			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
+		}
+	}
+
+	return nil
 }
 
 // EnsureDefaultConfig ensures a default configuration exists, creating it if necessary
@@ -380,7 +426,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		return nil, err
 	}
 	if config == nil {
-		privateKey, err := generatePrivateKey()
+		privateKey, err := cm.generatePrivateKey()
 		if err != nil {
 			return nil, err
 		}

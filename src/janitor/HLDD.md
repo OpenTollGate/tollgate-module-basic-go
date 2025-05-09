@@ -37,7 +37,7 @@ Events have the following structure:
 }
 ```
 
-For the dev channel, the version string is of the format `[branch_name]-[commit-hash]-[timestamp]`. For the stable channel, the version number is just the release tag (e.g., `0.0.1`).
+For the dev channel, the version string is of the format `[branch_name].[commit_count].[commit_hash]`. For the stable channel, the version number is just the release tag (e.g., `0.0.1`).
 
 ## Workflow
 

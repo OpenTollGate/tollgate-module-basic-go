@@ -494,7 +494,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
     if releaseChannel == "dev" {
-        newVersionParts := strings.Split(newVersion, "-")
+        newVersionParts := strings.Split(newVersion, ".")
         if len(newVersionParts) != 3 {
             return false
         }
