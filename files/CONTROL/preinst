@@ -1,13 +1,5 @@
 #!/bin/sh
 
-# Remove existing banner file before installation
-echo "Removing existing banner file if present..."
-[ -f /etc/banner ] && rm -f /etc/banner
-
-# Clean up any backup files that might cause conflicts
-[ -f /etc/banner- ] && rm -f /etc/banner-
-
-
 # Check if /etc/tollgate/install.json exists
 if [ -f /etc/tollgate/install.json ]; then
     # Update install_time in /etc/tollgate/install.json
