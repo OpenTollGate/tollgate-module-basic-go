@@ -98,10 +98,6 @@ define Package/$(PKG_NAME)/install
 	# Create required directories
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
-
-	# Banner for TollGate
-	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/banner $(1)/etc/banner
 	
 	# NoDogSplash static files (CSS, JS, media)
 	$(INSTALL_DIR) $(1)/etc/nodogsplash/htdocs/static/css
