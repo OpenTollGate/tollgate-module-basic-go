@@ -1,6 +1,6 @@
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=tollgate-module-tip01-go
+PKG_NAME:=tollgate-module-basic-go
 
 # Dynamic version generation
 define Package/$(PKG_NAME)/GetGitInfo
@@ -26,7 +26,7 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
 
-GO_PKG:=https://github.com/OpenTollGate/tollgate-module-tip01-go.git
+GO_PKG:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
 GO_PKG_BUILD_PKG:=$(GO_PKG)
 
 include $(INCLUDE_DIR)/package.mk
