@@ -1,6 +1,7 @@
 name: Build and Publish
 
 on:
+  workflow_dispatch:
   push:
 
 ## Add global env vars and matrix configuration for the whole workflow
