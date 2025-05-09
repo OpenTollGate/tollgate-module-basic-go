@@ -9,3 +9,4 @@ tollgate-basic
 build_deleteme.yml.orig
 squash_tool.sh
 .github/workflows/roo-auto-commit.yml
+vendor/
