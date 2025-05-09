@@ -24,7 +24,7 @@ jobs:
           {
             "include": [
               {
-                "architecture": "arm64_cortex-a53",
+                "architecture": "aarch64_cortex-a53",
                 "goarch": "arm64",
                 "sdk": "mediatek-filogic",
                 "openwrt_version": "24.10.1"
@@ -48,12 +48,6 @@ jobs:
                 "goarch": "mips",
                 "gomips": "softfloat",
                 "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "aarch64_cortex-a53",
-                "goarch": "arm64",
-                "sdk": "mediatek-filogic",
                 "openwrt_version": "24.10.1"
               }
             ]
@@ -155,9 +149,14 @@ jobs:
           cd /builder
           
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-          if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
-            GOMIPS=softfloat
-          fi
+         if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
+           GOMIPS=softfloat
+         fi
+         
+         # Set GOARM for ARM architectures
+         if [[ "${{ matrix.goarch }}" == "arm" ]]; then
+           GOARM=${{ matrix.goarm }}
+         fi
           
           env GOARCH=${{ matrix.goarch }} \
             GOMIPS=$GOMIPS \
