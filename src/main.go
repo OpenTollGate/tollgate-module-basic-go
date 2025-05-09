@@ -284,10 +284,25 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
 	// Decode the Cashu token
-	tokenValue, err := DecodeCashuToken(paymentToken)
+	tokenValue, tokenMint, err := DecodeCashuToken(paymentToken)
 	if err != nil {
 		log.Printf("Error decoding Cashu token: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Check if the token mint is accepted
+	accepted := false
+	for _, acceptedMint := range config.AcceptedMints {
+		if tokenMint == acceptedMint {
+			accepted = true
+			break
+		}
+	}
+	if !accepted {
+		log.Printf("Error: token mint %s is not accepted", tokenMint)
+		w.WriteHeader(http.StatusPaymentRequired)
+		fmt.Fprintf(w, "Payment required. Token mint %s is not accepted.", tokenMint)
 		return
 	}
 
@@ -307,19 +322,16 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
 		return
-		// We can still continue with the token we have
 	} else {
 		fmt.Println("Successfully swapped token for fresh proofs")
 	}
 
 	// Calculate the actual value after deducting fees
-	// First mint fee for the payment and second fee for consolidation transaction
 	var valueAfterFees = tokenValue - 2*mintFee
 	if valueAfterFees < minPayment {
 		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, minPayment)
 		w.WriteHeader(http.StatusPaymentRequired)
-		return // Not enough value to open the gate
-		// This should have been caught by the token value check above
+		return
 	}
 
 	// Calculate minutes based on the net value
