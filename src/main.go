@@ -284,12 +284,15 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
 	// Decode the Cashu token
-	tokenValue, tokenMint, err := DecodeCashuToken(paymentToken)
+	tokenValue, err := DecodeCashuToken(paymentToken)
 	if err != nil {
 		log.Printf("Error decoding Cashu token: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	// Example usage of decodedToken, adjust according to actual type and usage
+	fmt.Printf("Decoded Token value: %+v\n", tokenValue)
 
 	// Check if the token mint is accepted
 	accepted := false
