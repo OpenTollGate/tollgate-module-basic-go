@@ -368,10 +368,54 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 	}
 }
 
-func generatePrivateKey() (string, error) {
+func (cm *ConfigManager) generatePrivateKey() (string, error) {
 	privateKey := nostr.GeneratePrivateKey()
+	// err := cm.setUsername(privateKey, "c03rad0r")
+	// if err != nil {
+	// 	log.Printf("Failed to set username: %v", err)
+	// }
 	return privateKey, nil
 }
+
+// func (cm *ConfigManager) setUsername(privateKey string, username string) error {
+// 	relayPool := nostr.NewSimplePool(context.Background())
+// 	config, err := cm.LoadConfig()
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	sk := nostr.PrivateKey{}
+// 	err = sk.Decode(privateKey)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	event := nostr.Event{
+// 		Kind: nostr.KindProfileMetadata,
+// 		Tags: nostr.Tags{{
+// 			"d",
+// 			username,
+// 		}},
+// 		Content: `{"name":"` + username + `"}`,
+// 	}
+
+// 	event.ID = event.GetID()
+// 	event.Sign(sk)
+
+// 	for _, relayURL := range config.Relays {
+// 		relay, err := relayPool.EnsureRelay(relayURL)
+// 		if err != nil {
+// 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+// 			continue
+// 		}
+// 		err = relay.Publish(context.Background(), event)
+// 		if err != nil {
+// 			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
+// 		}
+// 	}
+
+// 	return nil
+// }
 
 // EnsureDefaultConfig ensures a default configuration exists, creating it if necessary
 func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
@@ -380,7 +424,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		return nil, err
 	}
 	if config == nil {
-		privateKey, err := generatePrivateKey()
+		privateKey, err := cm.generatePrivateKey()
 		if err != nil {
 			return nil, err
 		}

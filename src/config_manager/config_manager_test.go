@@ -1,6 +1,7 @@
 package config_manager
 
 import (
+"github.com/nbd-wtf/go-nostr"
 	"log"
 	"os"
 	"reflect"
@@ -145,4 +146,45 @@ func TestUpdateNIP94EventID(t *testing.T) {
 	} else {
 		log.Printf("NIP94EventID after update: %s", config.NIP94EventID)
 	}
+}
+
+func TestGeneratePrivateKey(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cm, err := NewConfigManager(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	privateKey, err := cm.generatePrivateKey()
+	if err != nil {
+		t.Errorf("generatePrivateKey returned error: %v", err)
+	}
+	if privateKey == "" {
+		t.Errorf("generatePrivateKey returned empty private key")
+	}
+}
+
+func TestSetUsername(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cm, err := NewConfigManager(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// privateKey := nostr.GeneratePrivateKey()
+	// err = cm.setUsername(privateKey, "test_c03rad0r")
+	// if err != nil {
+	// 	t.Errorf("setUsername returned error: %v", err)
+	// }
+	// Additional checks can be added here to verify the username is set correctly on relays
 }
