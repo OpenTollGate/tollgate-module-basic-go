@@ -80,6 +80,7 @@ func init() {
 	}
 
 	// Initialize derived configuration values
+	log.Printf("Accepted Mints: %v", config.AcceptedMints)
 	tollgatePrivateKey = config.TollgatePrivateKey
 	pricePerMinute = config.PricePerMinute
 
