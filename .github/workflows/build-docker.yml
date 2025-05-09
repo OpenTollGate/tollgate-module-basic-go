@@ -159,7 +159,7 @@ jobs:
 
       - name: Blossom Artifact upload
         id: blossom_upload
-        uses: Origami74/upload-blossom-action@improve-io
+        uses: Origami74/upload-blossom-action@v0.1.1
         with:
           host: "https://blossom.swissdash.site"
           filePath: ${{ env.PACKAGE_PATH }}
