@@ -147,16 +147,10 @@ jobs:
       - name: Compile Package
         run: |
           cd /builder
-          
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-         if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
-           GOMIPS=softfloat
-         fi
-         
-         # Set GOARM for ARM architectures
-         if [[ "${{ matrix.goarch }}" == "arm" ]]; then
-           GOARM=${{ matrix.goarm }}
-         fi
+          if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
+            GOMIPS=softfloat
+          fi
           
           env GOARCH=${{ matrix.goarch }} \
             GOMIPS=$GOMIPS \
