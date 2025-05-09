@@ -84,8 +84,6 @@ The `ConfigManager` struct manages both the main configuration file and the inst
 - Ensures a default main configuration exists, creating it if necessary.
 - Includes defaults for `bragging`, `relays`, `trusted_maintainers`, and other parameters.
 
-
-
 ## EnsureDefaultConfig Function
 
 - Attempts to load the configuration from the managed file.
@@ -122,3 +120,7 @@ The `Janitor` updates the `install.json` with the package path and NIP94 event I
 
 - Retrieves the release channel from the `PackageInfo` struct.
 - Returns the current release channel as a string.
+
+## Handling Multiple Mints
+
+The `Config` struct now supports multiple accepted mints through the `accepted_mints` field. This change allows the TollGate to accept payments from multiple mints, enhancing flexibility and user experience.
