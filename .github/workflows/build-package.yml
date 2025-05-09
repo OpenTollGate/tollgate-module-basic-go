@@ -1,0 +1,272 @@
+name: Build and Publish
+
+on:
+  push:
+
+## Add global env vars and matrix configuration for the whole workflow
+env:
+  PACKAGE_NAME: "tollgate-module-basic-go"
+  DEBUG: "false"
+
+# Define the architecture matrix once for reuse across jobs
+# This allows us to maintain architecture configurations in one place
+jobs:
+  define-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          # Create a human-readable matrix definition
+          cat > matrix.json << 'EOF'
+          {
+            "include": [
+              {
+                "architecture": "arm64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "arm_cortex-a7",
+                "goarch": "arm",
+                "goarm": "7",
+                "sdk": "bcm27xx-bcm2709",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1"
+              }
+            ]
+          }
+          EOF
+
+          # TODO: AMD64 build currently fails with the following error:
+          # Error: Architecture 'amd64' not supported by the SDK 'x86-generic-24.10.1'.
+          # This will be re-enabled after fixing SDK compatibility issues.
+          # {
+          #   "architecture": "amd64",
+          #   "goarch": "amd64",
+          #   "sdk": "x86-generic",
+          #   "openwrt_version": "24.10.1"
+          # },
+          
+          # Create a properly escaped JSON for GitHub output
+          # We need to use jq to compact the JSON and properly escape it
+          echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
+
+  determine-versioning:
+    runs-on: ubuntu-latest
+    outputs:
+      package_version: ${{ steps.determine-package-version.outputs.package_version }}
+      release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for commit height
+      - id: commit-hash
+        uses: prompt/actions-commit-hash@v3
+
+      - name: Set package_version variable
+        id: determine-package-version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # If this is a tag push, use the tag name (vX.X.X)
+            echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          else
+            # If this is a branch push, use [branch].[height].[hash] format
+            COMMIT_HEIGHT=$(git rev-list --count HEAD)
+            echo "package_version=${GITHUB_REF_NAME}.${COMMIT_HEIGHT}.${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
+          fi
+        
+      - name: Set version variable
+        id: determine-release-channel
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "release_channel=stable" >> $GITHUB_OUTPUT
+          else
+            echo "release_channel=dev" >> $GITHUB_OUTPUT
+          fi
+
+  build-package:
+    needs: [determine-versioning, define-matrix]
+    runs-on: ubuntu-latest
+    container:
+      image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
+      options: --user root
+    strategy:
+      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.PACKAGE_NAME }}/
+          fetch-depth: 0
+
+      - name: Initialize
+        run: |
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
+          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
+
+          # Move sources to sdk folder
+          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
+
+      - name: Install Golang
+        run: |
+          # Add golang-backports repository
+          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update
+          # Install Go from backports
+          apt-get install -y -t bookworm-backports golang-go
+
+      - name: Configure SDK
+        run: |
+          cd /builder
+          # Generate default configuration
+          make defconfig
+          # Update configuration for our needs
+          echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
+
+      - name: Compile Package
+        run: |
+          cd /builder
+
+          # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
+          if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
+            GOMIPS=softfloat
+          fi
+
+          env GOARCH=${{ matrix.goarch }} \
+            GOMIPS=$GOMIPS \
+            PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
+            make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${{ env.PACKAGE_NAME }}/compile
+
+      - name: List output package(s)
+        run: |
+          echo "Listing all .ipk files in /builder/bin/packages:"
+          find /builder/bin/packages -name "*.ipk" -type f
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "❌ No .ipk package found in /builder/bin/packages"
+            exit 1
+          fi
+          echo "✅ Found package at: $PACKAGE_PATH"
+          # Copy file to a location GitHub can access
+          mkdir -p /github/workspace/artifacts
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
+
+      - name: GitHub Artifact upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_FILENAME }}
+          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
+          retention-days: 5
+
+  publish-metadata:
+    needs: [determine-versioning, build-package, define-matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
+    steps:
+      - name: Initialize
+        id: init
+        run: |
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
+          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_FILENAME }}
+          path: ./artifacts
+
+      - name: Prepare package metadata
+        id: package_info
+        run: |
+          PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
+          FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
+
+          echo "ℹ️ PACKAGE_PATH: $PACKAGE_PATH, FILE_SIZE: $FILE_SIZE"
+          
+          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
+          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
+
+      - name: Blossom Artifact upload
+        id: blossom_upload
+        uses: Origami74/upload-blossom-action@v0.1.1
+        with:
+          host: "https://blossom.swissdash.site"
+          filePath: ${{ env.PACKAGE_PATH }}
+          
+      - name: Publish Package NIP-94 Metadata
+        id: publish_package
+        uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
+        with:
+          relays: >-
+            wss://relay.damus.io,
+            wss://nos.lol,
+            wss://nostr.mom/
+            wss://relay.tollgate.me/
+          url: ${{ steps.blossom_upload.outputs.url }}
+          mimeType: application/octet-stream
+          fileHash: ${{ steps.blossom_upload.outputs.hash }}
+          originalHash: ${{ steps.blossom_upload.outputs.hash }}
+          filename: "${{ env.PACKAGE_FILENAME }}"
+          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}"
+          nsec: ${{ secrets.NSEC_HEX }}
+          size: ${{ env.PACKAGE_SIZE }}
+          customTags: |
+            architecture=${{ matrix.architecture }}
+            version=${{ needs.determine-versioning.outputs.package_version }}
+            release_channel=${{ needs.determine-versioning.outputs.release_channel }}
+            package_name=${{ env.PACKAGE_NAME }}
+
+      - name: Verify Package NIP-94 Event
+        id: verify_package
+        if: ${{ steps.publish_package.outputs.eventId }} != ''
+        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@v0.1.0
+        with:
+          eventId: ${{ steps.publish_package.outputs.eventId }}
+          relays: >-
+            wss://relay.damus.io,
+            wss://nos.lol,
+            wss://nostr.mom/,
+            wss://relay.tollgate.me/
+
+      - name: Check Package Publication
+        # Only run this step if the verification ran and failed
+        if: steps.verify_package.outcome == 'failure'
+        run: |
+          echo "❌ Failed to verify package publication on relays"
+          exit 1
+
+      - name: Build Summary
+        run: |
+          echo "Build Summary for ${{ matrix.architecture }}:"
+          echo "✅ Package Release EventId: ${{ steps.publish_package.outputs.eventId }}"
+          echo "✅ Package URL: ${{ steps.blossom_upload.outputs.url }}"
+
+  trigger-build-os:
+    name: Trigger new build TollGate OS
+    runs-on: ubuntu-latest
+    needs: publish-metadata
+    steps:
+    - name: Trigger OS Workflow
+      uses: peter-evans/repository-dispatch@v2
+      with:
+        token: ${{ secrets.REPO_ACCESS_TOKEN }}
+        repository: OpenTollGate/tollgate-os
+        event-type: update-release-json
