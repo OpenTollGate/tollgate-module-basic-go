@@ -49,6 +49,12 @@ jobs:
                 "gomips": "softfloat",
                 "sdk": "ath79-generic",
                 "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "aarch64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1"
               }
             ]
           }
