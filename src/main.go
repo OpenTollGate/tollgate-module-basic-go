@@ -47,7 +47,9 @@ var relayPool *nostr.SimplePool
 
 func init() {
 	var err error
-	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
+	// Initialize relay pool for NIP-60 operations
+	relayPool = nostr.NewSimplePool(context.Background())
+	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json", relayPool)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
@@ -136,9 +138,6 @@ func init() {
 		log.Fatalf("Failed to marshal tollgate event: %v", err)
 	}
 	tollgateDetailsString = string(detailsBytes)
-
-	// Initialize relay pool for NIP-60 operations
-	relayPool = nostr.NewSimplePool(context.Background())
 
 	// Initialize janitor module
 	initJanitor(relayPool)

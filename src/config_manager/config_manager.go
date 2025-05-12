@@ -152,8 +152,11 @@ type ConfigManager struct {
 }
 
 // NewConfigManager creates a new ConfigManager instance
-func NewConfigManager(filePath string) (*ConfigManager, error) {
-	cm := &ConfigManager{FilePath: filePath}
+func NewConfigManager(filePath string, relayPool *nostr.SimplePool) (*ConfigManager, error) {
+	cm := &ConfigManager{
+		FilePath:  filePath,
+		RelayPool: relayPool,
+	}
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
 		return nil, err
