@@ -61,7 +61,7 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
-var relaySemaphore = make(chan bool, 5) // Allow up to 5 concurrent relay subscriptions
+var relaySemaphore = make(chan bool, 5) // Allow up to 5 concurrent relay subscriptions 
 
 func (j *Janitor) listenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
