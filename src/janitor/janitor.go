@@ -514,7 +514,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 			return false
 		}
 
-		currentVersionParts := strings.Split(currentVersion, "-")
+		currentVersionParts := strings.Split(currentVersion, ".")
 		if len(currentVersionParts) != 3 {
 			log.Printf("Invalid current version format: %s, newVersion=%s", currentVersion, newVersion)
 			return false
