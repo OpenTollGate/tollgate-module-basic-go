@@ -441,7 +441,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"wss://relay.damus.io",
 				"wss://nos.lol",
 				"wss://nostr.mom",
-				"wss://relay.tollgate.me",
+				//"wss://relay.tollgate.me",
 			},
 			TrustedMaintainers: []string{
 				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
