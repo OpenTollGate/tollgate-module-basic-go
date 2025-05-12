@@ -270,6 +270,7 @@ func GetInstalledVersion() (string, error) {
 	cmd := exec.Command("opkg", "list-installed")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		fmt.Println("Opkg output: %s", output)
 		return "", fmt.Errorf("failed to get installed version: %w", err)
 	}
 	installedPackages := strings.Split(string(output), "\n")
@@ -359,7 +360,8 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 	if releaseChannel == "stable" {
 		_, err := version.NewVersion(installedVersion)
 		if err != nil {
-			return "", fmt.Errorf("invalid installed version format: %w", err)
+			log.Printf("Warning: Invalid installed version format for stable release channel: %v", err)
+			return installedVersion, nil // Return the version despite the format issue
 		}
 		return installedVersion, nil
 	} else {
