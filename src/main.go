@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 )
 
 type BraggingConfig struct {

@@ -510,7 +510,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
 		if err != nil {
-			log.Printf("Error converting new commits to integer: %v, newVersion=%s" err, newVersion)
+			log.Printf("Error converting new commits to integer: %v, newVersion=%s", err, newVersion)
 			return false
 		}
 
