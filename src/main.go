@@ -325,6 +325,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
+		fmt.Fprintf(w, "Payment required. Error swapping token: %v", swapError)
 		return
 	} else {
 		fmt.Println("Successfully swapped token for fresh proofs")

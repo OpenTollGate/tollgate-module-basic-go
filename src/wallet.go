@@ -14,6 +14,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip60"
+	"sync"
 )
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
@@ -171,19 +172,30 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	freshPool := nostr.NewSimplePool(swapCtx)
 
 	log.Printf("Relays: %s", relays)
+
+	var wg sync.WaitGroup
+	var relayMutex sync.Mutex
+
 	// Ensure at least one relay is connected
 	connectedRelays := 0
 	for _, relay := range relays {
-		log.Printf("Attempting to connect to relay: %s", relay)
-		_, err := freshPool.EnsureRelay(relay)
-		if err != nil {
-			log.Printf("Warning: failed to connect to relay %s: %v", relay, err)
-			// Continue with other relays
-		} else {
-			connectedRelays++
-			log.Printf("Successfully connected to relay: %s", relay)
-		}
+		wg.Add(1)
+		go func(relay string) {
+			defer wg.Done()
+			log.Printf("Attempting to connect to relay: %s", relay)
+			_, err := freshPool.EnsureRelay(relay)
+			relayMutex.Lock()
+			if err != nil {
+				log.Printf("Warning: failed to connect to relay %s: %v", relay, err)
+			} else {
+				connectedRelays++
+				log.Printf("Successfully connected to relay: %s", relay)
+			}
+			relayMutex.Unlock()
+		}(relay)
 	}
+
+	wg.Wait()
 
 	if connectedRelays == 0 {
 		return fmt.Errorf("failed to connect to any relays")
