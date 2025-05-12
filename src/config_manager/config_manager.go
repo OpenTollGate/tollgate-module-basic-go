@@ -147,7 +147,7 @@ func (cm *ConfigManager) installFilePath() string {
 
 // ConfigManager manages the configuration file
 type ConfigManager struct {
-	FilePath string
+	FilePath  string
 	RelayPool *nostr.SimplePool
 }
 
@@ -270,22 +270,18 @@ func GetInstalledVersion() (string, error) {
 		// opkg not found, return a default version or skip this check
 		return "0.0.1+1cac608", nil
 	}
-	cmd := exec.Command("opkg", "list-installed")
+	cmd := exec.Command("sh", "-c", "opkg list-installed | grep tollgate")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Println("Opkg output: %s", output)
+		log.Printf("Opkg output: %s", output)
 		return "", fmt.Errorf("failed to get installed version: %w", err)
 	}
-	installedPackages := strings.Split(string(output), "\n")
-	for _, pkg := range installedPackages {
-		if strings.Contains(pkg, "tollgate") {
-			parts := strings.Split(pkg, " - ")
-			if len(parts) > 1 {
-				return parts[1], nil
-			}
-		}
+	outputStr := strings.TrimSpace(string(output))
+	parts := strings.Split(outputStr, " - ")
+	if len(parts) > 1 {
+		return parts[1], nil
 	}
-	return "", fmt.Errorf("tollgate package not found")
+	return "", fmt.Errorf("tollgate package not found or invalid output format")
 }
 
 func (cm *ConfigManager) GetArchitecture() (string, error) {

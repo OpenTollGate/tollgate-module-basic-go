@@ -507,7 +507,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 
 	//log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
 	if releaseChannel == "dev" {
-		log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
+		//log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
 		newVersionParts := strings.Split(newVersion, ".")
 		if len(newVersionParts) != 3 {
 			log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
@@ -542,7 +542,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 			return false
 		}
 
-		log.Printf("Comparing commits: newCommits=%d, currentCommits=%d, newVersion=%s", newCommits, currentCommits, newVersion)
+		// log.Printf("Comparing commits: newCommits=%d, currentCommits=%d, newVersion=%s", newCommits, currentCommits, newVersion)
 		return newCommits > currentCommits
 	} else {
 		newVersionObj, err := version.NewVersion(newVersion)
