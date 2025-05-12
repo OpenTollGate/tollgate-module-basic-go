@@ -510,7 +510,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		//log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
 		newVersionParts := strings.Split(newVersion, ".")
 		if len(newVersionParts) != 3 {
-			log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
+			//log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
 			return false
 		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
