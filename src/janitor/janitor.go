@@ -134,7 +134,7 @@ func (j *Janitor) listenForNIP94Events() {
 		for {
 			select {
 			case event, ok := <-eventChan:
-				fmt.Printf("Received event: %+v\n", event)
+				// fmt.Printf("Received event: %+v\n", event)
 				if !ok {
 					log.Println("eventChan closed, stopping event processing")
 					return
@@ -209,7 +209,7 @@ func (j *Janitor) listenForNIP94Events() {
 				    rightVersionKeys = append(rightVersionKeys, key)
 				}
 
-				archFromFilesystem, err := config_manager.GetArchitecture()
+				archFromFilesystem, err := j.configManager.GetArchitecture()
 				if err != nil {
 					log.Printf("Error getting architecture: %v", err)
 					continue

@@ -288,7 +288,7 @@ func GetInstalledVersion() (string, error) {
 	return "", fmt.Errorf("tollgate package not found")
 }
 
-func GetArchitecture() (string, error) {
+func (cm *ConfigManager) GetArchitecture() (string, error) {
 	data, err := os.ReadFile("/etc/openwrt_release")
 	if err != nil {
 		return "", fmt.Errorf("failed to read /etc/openwrt_release: %w", err)
