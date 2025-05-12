@@ -124,3 +124,7 @@ The `Janitor` updates the `install.json` with the package path and NIP94 event I
 ## Handling Multiple Mints
 
 The `Config` struct now supports multiple accepted mints through the `accepted_mints` field. This change allows the TollGate to accept payments from multiple mints, enhancing flexibility and user experience.
+
+## Centralized Rate Limiting for relayPool
+
+To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool` within `config_manager`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.

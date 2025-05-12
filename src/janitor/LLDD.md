@@ -120,3 +120,6 @@ After installing a new package, the Janitor module updates the `install.json` fi
 ## Handling Multiple Mints
 
 The Janitor module has been updated to handle multiple mints. The `ConfigManager` now supports multiple accepted mints through the `accepted_mints` field in the `Config` struct. This enhancement allows the TollGate to process NIP-94 events for multiple mints, improving its functionality and user experience.
+## Centralized Rate Limiting for relayPool
+
+To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool` within `config_manager`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool`, including the Janitor module, are rate-limited, preventing excessive concurrent requests to relays.
