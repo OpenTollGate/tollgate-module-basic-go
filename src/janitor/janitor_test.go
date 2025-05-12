@@ -3,9 +3,9 @@ package janitor
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -178,7 +178,7 @@ func TestEventMapCollision(t *testing.T) {
 				}
 			}
 		}
-		// Check the final state of eventMap 
+		// Check the final state of eventMap
 		if len(eventMap) != 1 {
 			t.Errorf("expected eventMap to have 1 entry, got %d", len(eventMap))
 		}

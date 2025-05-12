@@ -194,18 +194,18 @@ func (j *Janitor) listenForNIP94Events() {
 
 				vStr, err := j.configManager.GetVersion()
 				if err != nil {
-				    log.Printf("Error getting version: %v", err)
-				    continue
+					log.Printf("Error getting version: %v", err)
+					continue
 				}
-				
+
 				releaseChannel, err = j.configManager.GetReleaseChannel()
 				if err != nil {
-				    log.Printf("Error getting release channel: %v", err)
-				    continue
+					log.Printf("Error getting release channel: %v", err)
+					continue
 				}
 				if isNewerVersion(versionStr, vStr, releaseChannel) {
 					log.Printf("Found rightversion: %s", key)
-				    rightVersionKeys = append(rightVersionKeys, key)
+					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
 				archFromFilesystem, err := j.configManager.GetArchitecture()
@@ -328,56 +328,56 @@ func (j *Janitor) listenForNIP94Events() {
 }
 
 func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, error) {
-    filename := checksum + ".ipk"
-    tmpFilePath := filepath.Join("/tmp/", filename)
+	filename := checksum + ".ipk"
+	tmpFilePath := filepath.Join("/tmp/", filename)
 
-    // Check if file already exists
-    pkg, err := os.ReadFile(tmpFilePath)
-    if err == nil {
-        // Verify checksum if file exists 
-        event := nostr.Event{
-            Tags: nostr.Tags{
-                {"x", checksum},
-            },
-        }
-        err = verifyPackageChecksum(pkg, event)
-        if err == nil {
-            fmt.Printf("Package %s already exists with correct checksum, skipping download\n", tmpFilePath)
-            return tmpFilePath, pkg, nil
-        } else {
-            log.Printf("Existing package checksum verification failed: %v", err)
-        }
-    }
+	// Check if file already exists
+	pkg, err := os.ReadFile(tmpFilePath)
+	if err == nil {
+		// Verify checksum if file exists
+		event := nostr.Event{
+			Tags: nostr.Tags{
+				{"x", checksum},
+			},
+		}
+		err = verifyPackageChecksum(pkg, event)
+		if err == nil {
+			fmt.Printf("Package %s already exists with correct checksum, skipping download\n", tmpFilePath)
+			return tmpFilePath, pkg, nil
+		} else {
+			log.Printf("Existing package checksum verification failed: %v", err)
+		}
+	}
 
-    fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
-    tmpFile, err := os.Create(tmpFilePath)
-    if err != nil {
-        log.Printf("Error creating file: %v", err)
-        return "", nil, err
-    }
+	fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
+	tmpFile, err := os.Create(tmpFilePath)
+	if err != nil {
+		log.Printf("Error creating file: %v", err)
+		return "", nil, err
+	}
 
-    cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        log.Printf("Error downloading package: %v, output: %s", err, output)
-        return "", nil, err
-    }
+	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error downloading package: %v, output: %s", err, output)
+		return "", nil, err
+	}
 
-    var downloaded int64
-    progress := &progressLogger{
-        total:      getContentLength(url),
-        downloaded: &downloaded,
-        lastLog:    time.Now(),
-    }
-    progress.Write(output)
+	var downloaded int64
+	progress := &progressLogger{
+		total:      getContentLength(url),
+		downloaded: &downloaded,
+		lastLog:    time.Now(),
+	}
+	progress.Write(output)
 
-    pkg, err = os.ReadFile(tmpFile.Name())
-    if err != nil {
-        log.Printf("Error reading downloaded package: %v", err)
-        return "", nil, err
-    }
+	pkg, err = os.ReadFile(tmpFile.Name())
+	if err != nil {
+		log.Printf("Error reading downloaded package: %v", err)
+		return "", nil, err
+	}
 
-    fmt.Println("Package downloaded successfully to /tmp/")
+	fmt.Println("Package downloaded successfully to /tmp/")
 
 	installConfig, err := j.configManager.LoadInstallConfig()
 	if err != nil {
@@ -391,7 +391,7 @@ func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, e
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err
 	} else {
-	    fmt.Println("New package version is ready to be installed by cronjob")
+		fmt.Println("New package version is ready to be installed by cronjob")
 	}
 
 	return tmpFile.Name(), pkg, nil
@@ -500,47 +500,56 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
-    if releaseChannel == "dev" {
-        newVersionParts := strings.Split(newVersion, ".")
-        if len(newVersionParts) != 3 {
-            return false
+	log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
+	if releaseChannel == "dev" {
+		log.Println("isNewerVersion: Processing dev release channel")
+		newVersionParts := strings.Split(newVersion, ".")
+		if len(newVersionParts) != 3 {
+			log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
+			return false
 		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
-        if err != nil {
-            return false
-        }
-		
-        currentVersionParts := strings.Split(currentVersion, "-")
-        if len(currentVersionParts) != 3 {
-            return false
-        }
-        
-        if newVersionParts[0] != currentVersionParts[0] {
-            return false
-        }
+		if err != nil {
+			log.Printf("Error converting new commits to integer: %v", err)
+			return false
+		}
 
-        newCommits, err = strconv.Atoi(newVersionParts[1])
-        if err != nil {
-            return false
-        }
-        currentCommits, err := strconv.Atoi(currentVersionParts[1])
-        if err != nil {
-            return false
-        }
+		currentVersionParts := strings.Split(currentVersion, "-")
+		if len(currentVersionParts) != 3 {
+			log.Printf("Invalid current version format: %s", currentVersion)
+			return false
+		}
 
-        log.Printf("Comparing commits: newCommits=%d, currentCommits=%d", newCommits, currentCommits)
-        return newCommits > currentCommits
-    } else {
-        newVersionObj, err := version.NewVersion(newVersion)
-        if err != nil {
-            return false
-        }
-        cleanedCurrentVersionObj, err := version.NewVersion(currentVersion)
-        if err != nil {
-            return false
-        }
-        return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
-    }
+		if newVersionParts[0] != currentVersionParts[0] {
+			log.Printf("Major version mismatch: new=%s, current=%s", newVersionParts[0], currentVersionParts[0])
+			return false
+		}
+
+		newCommits, err = strconv.Atoi(newVersionParts[1])
+		if err != nil {
+			log.Printf("Error converting new commits to integer: %v", err)
+			return false
+		}
+
+		currentCommits, err := strconv.Atoi(currentVersionParts[1])
+		if err != nil {
+			log.Printf("Error converting current commits to integer: %v", err)
+			return false
+		}
+
+		log.Printf("Comparing commits: newCommits=%d, currentCommits=%d", newCommits, currentCommits)
+		return newCommits > currentCommits
+	} else {
+		newVersionObj, err := version.NewVersion(newVersion)
+		if err != nil {
+			return false
+		}
+		cleanedCurrentVersionObj, err := version.NewVersion(currentVersion)
+		if err != nil {
+			return false
+		}
+		return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
+	}
 }
 
 func intersect(slices ...[]string) []string {
@@ -608,4 +617,4 @@ func getChecksumFromEvent(event nostr.Event) string {
 		}
 	}
 	return ""
-        }
+}
