@@ -61,7 +61,14 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
-var relaySemaphore = make(chan bool, 5) // Allow up to 5 concurrent relay subscriptions 
+var subscriptionSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent relay subscriptions
+
+func rateLimitedSubscribe(relay *nostr.Relay, ctx context.Context, filters []nostr.Filter) (*nostr.Subscription, error) {
+    subscriptionSemaphore <- struct{}{}
+    defer func() { <-subscriptionSemaphore }()
+    
+    return relay.Subscribe(ctx, filters)
+}
 
 func (j *Janitor) listenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
@@ -80,8 +87,8 @@ func (j *Janitor) listenForNIP94Events() {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
-				relaySemaphore <- true              // Acquire semaphore
-				defer func() { <-relaySemaphore }() // Release semaphore
+				subscriptionSemaphore <- struct{}{}              // Acquire semaphore
+				defer func() { <-subscriptionSemaphore }() // Release semaphore
 
 				retryDelay := 5 * time.Second
 				for {
@@ -98,7 +105,7 @@ func (j *Janitor) listenForNIP94Events() {
 					}
 					fmt.Printf("Connected to relay: %s\n", relayURL)
 
-					sub, err := relay.Subscribe(ctx, []nostr.Filter{
+					sub, err := rateLimitedSubscribe(relay, ctx, []nostr.Filter{
 						{
 							Kinds: []int{1063},
 						},
