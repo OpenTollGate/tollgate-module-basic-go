@@ -134,7 +134,6 @@ func (j *Janitor) listenForNIP94Events() {
 		for {
 			select {
 			case event, ok := <-eventChan:
-				// fmt.Printf("Received event: %+v\n", event)
 				if !ok {
 					log.Println("eventChan closed, stopping event processing")
 					return
@@ -215,6 +214,7 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if arch == archFromFilesystem {
+					fmt.Printf("Received event: %+v\n", event)
 					log.Printf("Found rightarch: %s", key)
 					rightArchKeys = append(rightArchKeys, key)
 				}
