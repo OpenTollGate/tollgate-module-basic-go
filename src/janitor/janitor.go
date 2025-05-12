@@ -528,6 +528,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
             return false
         }
 
+        log.Printf("Comparing commits: newCommits=%d, currentCommits=%d", newCommits, currentCommits)
         return newCommits > currentCommits
     } else {
         newVersionObj, err := version.NewVersion(newVersion)
