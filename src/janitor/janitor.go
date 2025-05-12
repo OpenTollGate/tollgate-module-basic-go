@@ -188,7 +188,7 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if timestamp > timestampConfig {
-					log.Printf("Found righttime: %s", key)
+					//log.Printf("Found righttime: %s", key)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
@@ -214,8 +214,8 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if arch == archFromFilesystem {
-					fmt.Printf("Received event: %+v\n", event)
-					log.Printf("Found rightarch: %s", key)
+					//fmt.Printf("Received event: %+v\n", event)
+					//log.Printf("Found rightarch: %s", key)
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
@@ -500,7 +500,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
-	log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
+	//log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
 	if releaseChannel == "dev" {
 		log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
 		newVersionParts := strings.Split(newVersion, ".")
