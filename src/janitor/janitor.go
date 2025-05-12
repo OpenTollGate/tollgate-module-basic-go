@@ -34,7 +34,7 @@ func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 }
 
 func (j *Janitor) ListenForNIP94Events() {
-	ListenForNIP94Events(j.configManager)
+	j.listenForNIP94Events()
 }
 
 type packageEvent struct {
@@ -61,13 +61,12 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
-func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
+func (j *Janitor) listenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
-	relayPool := nostr.NewSimplePool(ctx)
 	eventChan := make(chan *nostr.Event, 1000)
 
-	config, err := configManager.LoadConfig()
+	config, err := j.configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load config: %v", err)
 		return
@@ -82,7 +81,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				retryDelay := 5 * time.Second
 				for {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
-					relay, err := relayPool.EnsureRelay(relayURL)
+					relay, err := j.configManager.RelayPool.EnsureRelay(relayURL)
 					if err != nil {
 						time.Sleep(retryDelay)
 						retryDelay *= 2
@@ -159,7 +158,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
+				releaseChannelFromConfigManager, err := j.configManager.GetReleaseChannel()
 				if err != nil {
 					log.Printf("Error getting release channel: %v", err)
 					continue
@@ -180,7 +179,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					}
 				}
 
-				timestampConfig, err := configManager.GetTimestamp()
+				timestampConfig, err := j.configManager.GetTimestamp()
 				if err != nil {
 					log.Printf("Error getting timestamp: %v", err)
 					continue
@@ -190,13 +189,13 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
-				vStr, err := configManager.GetVersion()
+				vStr, err := j.configManager.GetVersion()
 				if err != nil {
 				    log.Printf("Error getting version: %v", err)
 				    continue
 				}
-
-				releaseChannel, err = configManager.GetReleaseChannel()
+				
+				releaseChannel, err = j.configManager.GetReleaseChannel()
 				if err != nil {
 				    log.Printf("Error getting release channel: %v", err)
 				    continue
@@ -271,7 +270,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 
 				fmt.Printf("Newer package version available: %s\n", versionStr)
 				checksum := getChecksumFromEvent(*latestPackageEvent.event)
-				pkgPath, pkg, err := DownloadPackage(configManager, latestPackageEvent.packageURL, checksum)
+				pkgPath, pkg, err := DownloadPackage(j, latestPackageEvent.packageURL, checksum)
 				if err != nil {
 					log.Printf("Error downloading package: %v", err)
 					timer.Stop()
@@ -285,7 +284,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					isTimerActive = false
 					return
 				}
-				config, err := configManager.LoadConfig()
+				config, err := j.configManager.LoadConfig()
 				if err != nil {
 					log.Printf("Error loading config: %v", err)
 					timer.Stop()
@@ -293,7 +292,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 				config.NIP94EventID = event.ID
-				err = configManager.SaveConfig(config)
+				err = j.configManager.SaveConfig(config)
 				if err != nil {
 					log.Printf("Error updating config with NIP94 event ID: %v", err)
 					timer.Stop()
@@ -301,7 +300,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					return
 				}
 
-				installConfig, err := configManager.LoadInstallConfig()
+				installConfig, err := j.configManager.LoadInstallConfig()
 				if err != nil {
 					log.Printf("Error loading install config: %v", err)
 					timer.Stop()
@@ -310,7 +309,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				}
 				installConfig.PackagePath = pkgPath
 				installConfig.ReleaseChannel = releaseChannel
-				err = configManager.SaveInstallConfig(installConfig)
+				err = j.configManager.SaveInstallConfig(installConfig)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
 					timer.Stop()
@@ -324,7 +323,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 	}
 }
 
-func DownloadPackage(configManager *config_manager.ConfigManager, url string, checksum string) (string, []byte, error) {
+func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, error) {
     filename := checksum + ".ipk"
     tmpFilePath := filepath.Join("/tmp/", filename)
 
@@ -376,14 +375,14 @@ func DownloadPackage(configManager *config_manager.ConfigManager, url string, ch
 
     fmt.Println("Package downloaded successfully to /tmp/")
 
-	installConfig, err := configManager.LoadInstallConfig()
+	installConfig, err := j.configManager.LoadInstallConfig()
 	if err != nil {
 		log.Printf("Error loading install config: %v", err)
 		return tmpFile.Name(), pkg, err
 	}
 	currentTime := time.Now().Unix()
 	installConfig.DownloadTimestamp = currentTime
-	err = configManager.SaveInstallConfig(installConfig)
+	err = j.configManager.SaveInstallConfig(installConfig)
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err

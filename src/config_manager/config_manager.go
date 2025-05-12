@@ -17,13 +17,12 @@ import (
 )
 
 func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
-	relayPool := nostr.NewSimplePool(context.Background())
 	config, err := cm.LoadConfig()
 	if err != nil {
 		return nil, err
 	}
 	for _, relayURL := range config.Relays {
-		relay, err := relayPool.EnsureRelay(relayURL)
+		relay, err := cm.RelayPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
@@ -143,17 +142,18 @@ func (cm *ConfigManager) SaveInstallConfig(installConfig *InstallConfig) error {
 }
 
 func (cm *ConfigManager) installFilePath() string {
-	return filepath.Join(filepath.Dir(cm.filePath), "install.json")
+	return filepath.Join(filepath.Dir(cm.FilePath), "install.json")
 }
 
 // ConfigManager manages the configuration file
 type ConfigManager struct {
-	filePath string
+	FilePath string
+	RelayPool *nostr.SimplePool
 }
 
 // NewConfigManager creates a new ConfigManager instance
 func NewConfigManager(filePath string) (*ConfigManager, error) {
-	cm := &ConfigManager{filePath: filePath}
+	cm := &ConfigManager{FilePath: filePath}
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
 		return nil, err
@@ -221,7 +221,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 
 // LoadConfig reads the configuration from the managed file
 func (cm *ConfigManager) LoadConfig() (*Config, error) {
-	data, err := os.ReadFile(cm.filePath)
+	data, err := os.ReadFile(cm.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(cm.filePath, data, 0644)
+	return os.WriteFile(cm.FilePath, data, 0644)
 }
 
 // getMintFee retrieves the mint fee for a given mint URL
@@ -380,10 +380,6 @@ func (cm *ConfigManager) generatePrivateKey() (string, error) {
 }
 
 func (cm *ConfigManager) setUsername(privateKey string, username string) error {
-	relayPool := nostr.NewSimplePool(context.Background())
-	if relayPool == nil {
-		return fmt.Errorf("failed to create relay pool")
-	}
 	config, err := cm.LoadConfig()
 	if err != nil {
 		return err
@@ -407,7 +403,7 @@ func (cm *ConfigManager) setUsername(privateKey string, username string) error {
 	event.Sign(privateKey)
 
 	for _, relayURL := range config.Relays {
-		relay, err := relayPool.EnsureRelay(relayURL)
+		relay, err := cm.RelayPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue

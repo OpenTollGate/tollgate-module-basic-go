@@ -1,7 +1,6 @@
 package bragging
 
 import (
-	"context"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -20,7 +19,11 @@ type Config struct {
 	UserOptIn bool
 }
 
-func NewService(config Config, privateKey string) (*Service, error) {
+func (s *Service) Config() Config {
+	return s.config
+}
+
+func NewBraggingService(config Config, privateKey string, relayPool *nostr.SimplePool) (*Service, error) {
 	pubKey, err := nostr.GetPublicKey(privateKey)
 	if err != nil {
 		return nil, err
@@ -29,6 +32,6 @@ func NewService(config Config, privateKey string) (*Service, error) {
 		config:     config,
 		publicKey:  pubKey,
 		privateKey: privateKey,
-		relayPool:  nostr.NewSimplePool(context.Background()),
+		relayPool:  relayPool,
 	}, nil
 }

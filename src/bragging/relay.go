@@ -33,7 +33,6 @@ func (s *Service) PublishEvent(event *nostr.Event) error {
 					log.Printf("Publish failed (attempt %d): %s", attempt, status)
 				} else {
 					log.Printf("Successfully published to relay %s", url)
-				} else {
 					return
 				}
 			}

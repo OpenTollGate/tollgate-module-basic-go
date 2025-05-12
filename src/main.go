@@ -17,6 +17,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 )
 
 type BraggingConfig struct {
@@ -62,7 +63,12 @@ func init() {
 		log.Printf("Error loading install config: %v", err)
 		os.Exit(1)
 	}
-	config, err := configManager.LoadConfig()
+	loadedConfig, err = configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		os.Exit(1)
+	}
+	config = *loadedConfig
 	if err != nil {
 		log.Printf("Error loading config: %v", err)
 		os.Exit(1)
@@ -135,11 +141,10 @@ func init() {
 	relayPool = nostr.NewSimplePool(context.Background())
 
 	// Initialize janitor module
-	initJanitor()
-
+	initJanitor(relayPool)
 }
 
-func initJanitor() {
+func initJanitor(relayPool *nostr.SimplePool) {
 	loadedConfig, err := configManager.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -375,7 +380,17 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-	if !config.Bragging.Enabled {
+	braggingService, err := bragging.NewBraggingService(bragging.Config{
+		Enabled: config.Bragging.Enabled,
+		Relays:  config.Relays,
+		Fields:  config.Bragging.Fields,
+	}, tollgatePrivateKey, relayPool)
+	if err != nil {
+		log.Printf("Failed to create bragging service: %v", err)
+		return err
+	}
+
+	if !braggingService.Config().Enabled {
 		log.Println("Bragging is disabled in configuration")
 		return nil
 	}
@@ -432,9 +447,8 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 	log.Printf("Bragging event ID: %s", event.ID)
 	log.Printf("Bragging npub: %s", npub)
 
-	log.Printf("Initializing relay pool for bragging event publication")
+	log.Printf("Using existing relay pool for bragging event publication")
 	log.Printf("Relays configured for bragging: %v", config.Relays)
-	relayPool := nostr.NewSimplePool(context.Background())
 	for _, relayURL := range config.Relays {
 		relay, err := relayPool.EnsureRelay(relayURL)
 		if err != nil {
