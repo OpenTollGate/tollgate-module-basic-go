@@ -467,7 +467,7 @@ func contains(s []string, str string) bool {
 	return false
 }
 
-// parseNIP94Event extracts package information from a NIP-94 event
+// parseNIP94Event extracts package information from a NIP-94 event 
 func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, string, error) {
 	requiredTags := []string{"url", "version", "architecture", "filename", "release_channel"}
 	tagMap := make(map[string]string)
