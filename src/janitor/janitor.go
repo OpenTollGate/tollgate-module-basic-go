@@ -82,6 +82,10 @@ func (j *Janitor) listenForNIP94Events() {
 				for {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
 					relay, err := j.configManager.RelayPool.EnsureRelay(relayURL)
+					if err != nil || relay == nil {
+						log.Errorf("Failed to ensure relay %s: %v", relayURL, err)
+						continue
+					}
 					if err != nil {
 						time.Sleep(retryDelay)
 						retryDelay *= 2
