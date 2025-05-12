@@ -131,6 +131,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 		for {
 			select {
 			case event, ok := <-eventChan:
+				fmt.Printf("Received event: %+v\n", event)
 				if !ok {
 					log.Println("eventChan closed, stopping event processing")
 					return
@@ -185,6 +186,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 				if timestamp > timestampConfig {
+					log.Printf("Found righttime: %s", key)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
@@ -200,6 +202,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				    continue
 				}
 				if isNewerVersion(versionStr, vStr, releaseChannel) {
+					log.Printf("Found rightversion: %s", key)
 				    rightVersionKeys = append(rightVersionKeys, key)
 				}
 
@@ -209,6 +212,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 				if arch == archFromFilesystem {
+					log.Printf("Found rightarch: %s", key)
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
@@ -497,7 +501,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
         newVersionParts := strings.Split(newVersion, ".")
         if len(newVersionParts) != 3 {
             return false
-        }
+		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
         if err != nil {
             return false
@@ -600,4 +604,4 @@ func getChecksumFromEvent(event nostr.Event) string {
 		}
 	}
 	return ""
-}
+        }
