@@ -521,7 +521,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		}
 
 		if newVersionParts[0] != currentVersionParts[0] {
-			log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
+			// log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
 			return false
 		}
 
