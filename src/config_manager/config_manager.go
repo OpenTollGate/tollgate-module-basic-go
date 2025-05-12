@@ -270,18 +270,35 @@ func GetInstalledVersion() (string, error) {
 		// opkg not found, return a default version or skip this check
 		return "0.0.1+1cac608", nil
 	}
-	cmd := exec.Command("sh", "-c", "opkg list-installed | grep tollgate")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Opkg output: %s", output)
-		return "", fmt.Errorf("failed to get installed version: %w", err)
+
+	maxAttempts := 5
+	delay := 100 * time.Millisecond
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		cmd := exec.Command("sh", "-c", "opkg list-installed | grep tollgate")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			outputStr := strings.TrimSpace(string(output))
+			if strings.Contains(outputStr, "Could not lock /var/lock/opkg.lock: Resource temporarily unavailable") {
+				log.Printf("Opkg output: %s", output)
+				log.Printf("Attempt %d failed: %v. Retrying in %v...", attempt+1, err, delay)
+				time.Sleep(delay)
+				delay *= 2 // Exponential backoff
+				continue
+			}
+			log.Printf("Opkg output: %s", output)
+			return "", fmt.Errorf("failed to get installed version: %w", err)
+		}
+
+		outputStr := strings.TrimSpace(string(output))
+		parts := strings.Split(outputStr, " - ")
+		if len(parts) > 1 {
+			return parts[1], nil
+		}
+		return "", fmt.Errorf("tollgate package not found or invalid output format")
 	}
-	outputStr := strings.TrimSpace(string(output))
-	parts := strings.Split(outputStr, " - ")
-	if len(parts) > 1 {
-		return parts[1], nil
-	}
-	return "", fmt.Errorf("tollgate package not found or invalid output format")
+
+	return "", fmt.Errorf("failed to get installed version after %d attempts", maxAttempts)
 }
 
 func (cm *ConfigManager) GetArchitecture() (string, error) {
