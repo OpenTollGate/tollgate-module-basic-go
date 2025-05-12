@@ -61,6 +61,8 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
+var relaySemaphore = make(chan bool, 5) // Allow up to 5 concurrent relay subscriptions
+
 func (j *Janitor) listenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
@@ -78,6 +80,9 @@ func (j *Janitor) listenForNIP94Events() {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
+				relaySemaphore <- true              // Acquire semaphore
+				defer func() { <-relaySemaphore }() // Release semaphore
+
 				retryDelay := 5 * time.Second
 				for {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
@@ -467,7 +472,7 @@ func contains(s []string, str string) bool {
 	return false
 }
 
-// parseNIP94Event extracts package information from a NIP-94 event 
+// parseNIP94Event extracts package information from a NIP-94 event
 func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, string, error) {
 	requiredTags := []string{"url", "version", "architecture", "filename", "release_channel"}
 	tagMap := make(map[string]string)
@@ -521,7 +526,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		}
 
 		if newVersionParts[0] != currentVersionParts[0] {
-			// log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
+			//log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
 			return false
 		}
 
