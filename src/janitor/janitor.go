@@ -502,7 +502,7 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 
 	log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
 	if releaseChannel == "dev" {
-		log.Println("isNewerVersion: Processing dev release channel")
+		log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
 		newVersionParts := strings.Split(newVersion, ".")
 		if len(newVersionParts) != 3 {
 			log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
@@ -510,34 +510,34 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
 		if err != nil {
-			log.Printf("Error converting new commits to integer: %v", err)
+			log.Printf("Error converting new commits to integer: %v, newVersion=%s" err, newVersion)
 			return false
 		}
 
 		currentVersionParts := strings.Split(currentVersion, "-")
 		if len(currentVersionParts) != 3 {
-			log.Printf("Invalid current version format: %s", currentVersion)
+			log.Printf("Invalid current version format: %s, newVersion=%s", currentVersion, newVersion)
 			return false
 		}
 
 		if newVersionParts[0] != currentVersionParts[0] {
-			log.Printf("Major version mismatch: new=%s, current=%s", newVersionParts[0], currentVersionParts[0])
+			log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
 			return false
 		}
 
 		newCommits, err = strconv.Atoi(newVersionParts[1])
 		if err != nil {
-			log.Printf("Error converting new commits to integer: %v", err)
+			log.Printf("Error converting new commits to integer: %v, newVersion=%s", err, newVersion)
 			return false
 		}
 
 		currentCommits, err := strconv.Atoi(currentVersionParts[1])
 		if err != nil {
-			log.Printf("Error converting current commits to integer: %v", err)
+			log.Printf("Error converting current commits to integer: %v, newVersion=%s", err, newVersion)
 			return false
 		}
 
-		log.Printf("Comparing commits: newCommits=%d, currentCommits=%d", newCommits, currentCommits)
+		log.Printf("Comparing commits: newCommits=%d, currentCommits=%d, newVersion=%s", newCommits, currentCommits, newVersion)
 		return newCommits > currentCommits
 	} else {
 		newVersionObj, err := version.NewVersion(newVersion)
