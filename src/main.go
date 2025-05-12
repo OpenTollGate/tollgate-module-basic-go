@@ -42,14 +42,11 @@ var cutoffFee int
 var tollgateDetailsEvent nostr.Event
 var tollgateDetailsString string
 
-// Initialize the nostr pool for Cashu operations
-var relayPool *nostr.SimplePool
 
 func init() {
 	var err error
 	// Initialize relay pool for NIP-60 operations
-	relayPool = nostr.NewSimplePool(context.Background())
-	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json", relayPool)
+	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}

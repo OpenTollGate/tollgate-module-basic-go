@@ -161,7 +161,8 @@ type ConfigManager struct {
 }
 
 // NewConfigManager creates a new ConfigManager instance
-func NewConfigManager(filePath string, relayPool *nostr.SimplePool) (*ConfigManager, error) {
+func NewConfigManager(filePath string) (*ConfigManager, error) {
+	relayPool := nostr.NewSimplePool(context.Background())
 	cm := &ConfigManager{
 		FilePath:  filePath,
 		RelayPool: relayPool,
@@ -553,4 +554,10 @@ func (cm *ConfigManager) UpdateNIP94EventID() error {
 	}
 
 	return nil
+:start_line:556
+-------
+}
+
+func (cm *ConfigManager) GetRelayPool() *nostr.SimplePool {
+	return cm.RelayPool
 }

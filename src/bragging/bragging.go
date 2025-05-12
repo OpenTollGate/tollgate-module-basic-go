@@ -18,10 +18,9 @@ func rateLimitedRelayRequest(relay *nostr.Relay, event nostr.Event) error {
 }
 
 type Service struct {
-	config     Config
+	configManager configManager
 	publicKey  string
 	privateKey string
-	relayPool  *nostr.SimplePool
 }
 
 type Config struct {
@@ -59,15 +58,15 @@ func (s *Service) publishEvent(event nostr.Event) error {
     return nil
 }
 
-func NewBraggingService(config Config, privateKey string, relayPool *nostr.SimplePool) (*Service, error) {
+func NewBraggingService(configManager *config_manager.ConfigManager) (*Service, error) {
+	privateKey := configManager.Config.TollgatePrivateKey
 	pubKey, err := nostr.GetPublicKey(privateKey)
 	if err != nil {
 		return nil, err
 	}
 	return &Service{
-		config:     config,
-		publicKey:  pubKey,
-		privateKey: privateKey,
-		relayPool:  relayPool,
+		configManager: configManager,
+		publicKey:     pubKey,
+		privateKey:    privateKey
 	}, nil
 }
