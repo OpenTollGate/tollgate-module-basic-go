@@ -321,7 +321,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Process and swap the token for fresh proofs - only if value is sufficient
 	relays := config.Relays
 	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, tollgatePrivateKey, relayPool, relays)
+	swapError := CollectPayment(paymentToken, tollgatePrivateKey, relayPool, relays, tokenMint)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
