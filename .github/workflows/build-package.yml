@@ -37,6 +37,13 @@ jobs:
                 "openwrt_version": "24.10.1"
               },
               {
+                "architecture":      "arm_cortex-a7",
+                "goarch":            "arm",
+                "goarm":             "7",
+                "sdk":               "ipq40xx-generic",
+                "openwrt_version":   "24.10.1"
+              },
+              {
                 "architecture": "mipsel_24kc",
                 "goarch":       "mipsle",
                 "gomips":       "softfloat",
