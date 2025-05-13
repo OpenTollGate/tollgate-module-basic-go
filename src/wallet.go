@@ -15,6 +15,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip60"
 	"sync"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
@@ -231,7 +232,12 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	log.Printf("Successfully received proofs, now swapping for fresh ones, balance: %d", wallet.Balance())
 
 	balance := wallet.Balance()
-	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx)
+	mintFee, err := config_manager.GetMintFee(tokenMint)
+	if err != nil {
+	    log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
+	    // Handle the error accordingly
+	}
+	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx, mintFee)
 	if payoutErr != nil {
 		log.Printf("Failed to payout profit payout: %v", payoutErr)
 		return payoutErr
@@ -240,7 +246,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	return nil
 }
 
-func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context) error {
+func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context, mintFee int) error {
 	log.Printf("Paying out %d sats to %s", amount, address)
 
 	// Skip processing if amount is zero
@@ -249,10 +255,8 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 		return nil
 	}
 
-	extimatedFee := uint64(mintFee)
-
 	// Then swap for fresh proofs - use SendExternal to send to ourselves
-	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-extimatedFee)
+	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-uint64(mintFee))
 	if swapErr != nil {
 		log.Printf("Failed to swap proofs: %v", swapErr)
 		if len(freshProofs) == 0 {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,14 +16,9 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
-type BraggingConfig struct {
-	Enabled bool     `json:"enabled"`
-	Relays  []string `json:"relays"`
-	Fields  []string `json:"fields"`
-}
+
 
 // Global configuration variable
 // Define configFile at a higher scope
@@ -193,12 +187,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusInternalServerError)
         return
     }
-    config, err := configManager.LoadConfig()
-    if err != nil {
-        log.Printf("Error loading config: %v", err)
-        w.WriteHeader(http.StatusInternalServerError)
-        return
-    }
+
 	// Log the request details
 	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
 	// Only process POST requests
@@ -315,9 +304,9 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process and swap the token for fresh proofs - only if value is sufficient
-	relays := config.Relays
+	relays := mainConfig.Relays
 	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, configManager, relays, tokenMint)
+	swapError := CollectPayment(paymentToken, mainConfig.TollgatePrivateKey, configManager.RelayPool, relays, tokenMint)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -370,83 +359,21 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-	err := bragging.AnnounceSuccessfulPayment(configManager, macAddress, amount, durationSeconds)
+	mainConfig, err := configManager.LoadConfig()
 	if err != nil {
-		log.Printf("Failed to create bragging service: %v", err)
-		return err
+	    log.Printf("Error loading config: %v", err)
+	    return err
 	}
 
-	if !braggingService.Config().Enabled {
+	if !mainConfig.Bragging.Enabled {
 		log.Println("Bragging is disabled in configuration")
 		return nil
 	}
 
-	privateKey := tollgatePrivateKey
-	event := nostr.Event{
-		Kind:      1,
-		CreatedAt: nostr.Now(),
-		Tags:      make(nostr.Tags, 0),
-		Content:   "",
-	}
-
-	var content string
-	for _, field := range config.Bragging.Fields {
-		switch field {
-		case "amount":
-			event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
-			content += fmt.Sprintf("Amount: %d sats,\n", amount)
-		case "mint":
-			event.Tags = append(event.Tags, nostr.Tag{"mint", acceptedMint})
-			content += fmt.Sprintf("Mint: %s,\n", acceptedMint)
-		case "duration":
-			event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
-			content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
-		}
-	}
-
-	// Trim the trailing comma and space if content is not empty
-	if content != "" {
-		content = strings.TrimSuffix(content, ",")
-		content += "\n\n#BraggingTollGateRawData"
-	}
-
-	event.Content = content
-
-	pubkey, err := nostr.GetPublicKey(privateKey)
+	err = bragging.AnnounceSuccessfulPayment(configManager, amount, durationSeconds)
 	if err != nil {
-		log.Printf("Failed to get public key: %v", err)
+		log.Printf("Failed to create bragging service: %v", err)
 		return err
-	}
-	npub, err := nip19.EncodePublicKey(pubkey)
-	if err != nil {
-		log.Printf("Failed to encode public key to npub: %v", err)
-		return err
-	}
-	log.Printf("Encoded public key to npub: %s", npub)
-	log.Printf("Attempting to sign bragging event")
-	err = event.Sign(privateKey)
-	if err != nil {
-		log.Printf("Failed to sign bragging event: %v", err)
-		return err
-	}
-	log.Printf("Successfully signed bragging event")
-	log.Printf("Bragging event ID: %s", event.ID)
-	log.Printf("Bragging npub: %s", npub)
-
-	log.Printf("Using existing relay pool for bragging event publication")
-	log.Printf("Relays configured for bragging: %v", config.Relays)
-	for _, relayURL := range config.Relays {
-		relay, err := relayPool.EnsureRelay(relayURL)
-		if err != nil {
-			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-			continue
-		}
-		err = relay.Publish(context.Background(), event)
-		if err != nil {
-			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
-		} else {
-			fmt.Printf("Successfully published event to relay %s\n", relayURL)
-		}
 	}
 
 	if err != nil {

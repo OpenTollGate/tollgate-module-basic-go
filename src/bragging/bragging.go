@@ -9,12 +9,13 @@ import (
 	"strings"
 )
 
-func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, macAddress string, amount int64, durationSeconds int64) error {
+func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, amount int64, durationSeconds int64) error {
 	config, err := configManager.LoadConfig()
 	if err != nil {
 		return err
 	}
 	privateKey := config.TollgatePrivateKey
+
 
 	event := nostr.Event{
 		Kind:      1,
