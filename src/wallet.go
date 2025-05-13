@@ -12,10 +12,10 @@ import (
 
 	"encoding/base64"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip60"
 	"sync"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
@@ -234,8 +234,8 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	balance := wallet.Balance()
 	mintFee, err := config_manager.GetMintFee(tokenMint)
 	if err != nil {
-	    log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
-	    // Handle the error accordingly
+		log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
+		// Handle the error accordingly
 	}
 	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx, mintFee)
 	if payoutErr != nil {

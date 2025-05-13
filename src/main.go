@@ -18,11 +18,10 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-
-
 // Global configuration variable
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
+var tollgateDetailsString string
 
 func init() {
 	var err error
@@ -31,7 +30,6 @@ func init() {
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
-
 
 	installConfig, err := configManager.LoadInstallConfig()
 	if err != nil {
@@ -98,7 +96,8 @@ func init() {
 	}
 
 	// Convert to JSON string for storage
-	_, err = json.Marshal(tollgateDetailsEvent)
+	detailsBytes, err := json.Marshal(tollgateDetailsEvent)
+	tollgateDetailsString = string(detailsBytes)
 	if err != nil {
 		log.Fatalf("Failed to marshal tollgate event: %v", err)
 	}
@@ -166,27 +165,19 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
-    mainConfig, err := configManager.LoadConfig()
-    if err != nil {
-        log.Printf("Error loading config: %v", err)
-        w.WriteHeader(http.StatusInternalServerError)
-        return
-    }
-    // Create the details string
-    tollgateDetailsString := fmt.Sprintf("Tollgate Details: %+v", mainConfig)
-    fmt.Println("Details requested")
-    fmt.Fprint(w, tollgateDetailsString)
+	fmt.Println("Details requested")
+	fmt.Fprint(w, tollgateDetailsString)
 }
 
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
-    // Load the configuration at the start of the function
-    mainConfig, err := configManager.LoadConfig()
-    if err != nil {
-        log.Printf("Error loading config: %v", err)
-        w.WriteHeader(http.StatusInternalServerError)
-        return
-    }
+	// Load the configuration at the start of the function
+	mainConfig, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
 	// Log the request details
 	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
@@ -290,9 +281,9 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	mintFee, err := config_manager.GetMintFee(tokenMint)
 	if err != nil {
-	    log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
-	    w.WriteHeader(http.StatusInternalServerError)
-	    return
+		log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	minPayment := config_manager.CalculateMinPayment(mintFee)
 	// Verify the token has sufficient value before redeeming it
@@ -319,7 +310,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Calculate the actual value after deducting fees
 	var valueAfterFees = tokenValue - 2*mintFee
 	if valueAfterFees < 1 {
-		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, 2*mintFee + 1)
+		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, 2*mintFee+1)
 		w.WriteHeader(http.StatusPaymentRequired)
 		return
 	}
@@ -361,8 +352,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
 	mainConfig, err := configManager.LoadConfig()
 	if err != nil {
-	    log.Printf("Error loading config: %v", err)
-	    return err
+		log.Printf("Error loading config: %v", err)
+		return err
 	}
 
 	if !mainConfig.Bragging.Enabled {
