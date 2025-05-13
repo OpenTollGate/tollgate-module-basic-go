@@ -91,7 +91,7 @@ func init() {
 
 	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
 
-	tollgateDetailsEvent = nostr.Event{
+	tollgateDetailsEvent := nostr.Event{
 		Kind:    21021,
 		Tags:    tags,
 		Content: "",
@@ -172,12 +172,33 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Details requested")
-	fmt.Fprint(w, tollgateDetailsString)
+    mainConfig, err := configManager.LoadConfig()
+    if err != nil {
+        log.Printf("Error loading config: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        return
+    }
+    // Create the details string
+    tollgateDetailsString := fmt.Sprintf("Tollgate Details: %+v", mainConfig)
+    fmt.Println("Details requested")
+    fmt.Fprint(w, tollgateDetailsString)
 }
 
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
+    // Load the configuration at the start of the function
+    mainConfig, err := configManager.LoadConfig()
+    if err != nil {
+        log.Printf("Error loading config: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        return
+    }
+    config, err := configManager.LoadConfig()
+    if err != nil {
+        log.Printf("Error loading config: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        return
+    }
 	// Log the request details
 	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
 	// Only process POST requests
@@ -278,18 +299,25 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mintFee, err := config_manager.GetMintFee(tokenMint)
+	if err != nil {
+	    log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
+	    w.WriteHeader(http.StatusInternalServerError)
+	    return
+	}
+	minPayment := config_manager.CalculateMinPayment(mintFee)
 	// Verify the token has sufficient value before redeeming it
-	if tokenValue < cutoffFee {
-		log.Printf("Token value too low (%d sats). Minimum %d sats required.", tokenValue, cutoffFee)
+	if tokenValue < minPayment {
+		log.Printf("Token value too low (%d sats). Minimum %d sats required.", tokenValue, minPayment)
 		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum %d sats required.", tokenValue, cutoffFee)
+		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum %d sats required.", tokenValue, minPayment)
 		return
 	}
 
 	// Process and swap the token for fresh proofs - only if value is sufficient
 	relays := config.Relays
 	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, tollgatePrivateKey, configManager, relays, tokenMint)
+	swapError := CollectPayment(paymentToken, configManager, relays, tokenMint)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -301,16 +329,15 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Calculate the actual value after deducting fees
 	var valueAfterFees = tokenValue - 2*mintFee
-	if valueAfterFees < minPayment {
-		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, minPayment)
+	if valueAfterFees < 1 {
+		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, 2*mintFee + 1)
 		w.WriteHeader(http.StatusPaymentRequired)
 		return
 	}
-
 	// Calculate minutes based on the net value
 	// TODO: Update frontend to show the correct duration after fees
 	//       Already tested to verify that allottedMinutes is correct
-	var allottedMinutes = int64(valueAfterFees / pricePerMinute)
+	var allottedMinutes = int64(valueAfterFees / mainConfig.PricePerMinute)
 	if allottedMinutes < 1 {
 		allottedMinutes = 1 // Minimum 1 minute
 	}
