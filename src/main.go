@@ -29,19 +29,6 @@ type BraggingConfig struct {
 // Global configuration variable
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
-var config config_manager.Config
-
-// Derived configuration values
-var tollgatePrivateKey string
-var acceptedMint string
-var pricePerMinute int
-var minPayment int
-var mintFee int
-var cutoffFee int
-
-var tollgateDetailsEvent nostr.Event
-var tollgateDetailsString string
-
 
 func init() {
 	var err error
@@ -51,28 +38,18 @@ func init() {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	loadedConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-	config = *loadedConfig
 
 	installConfig, err := configManager.LoadInstallConfig()
 	if err != nil {
 		log.Printf("Error loading install config: %v", err)
 		os.Exit(1)
 	}
-	loadedConfig, err = configManager.LoadConfig()
+	mainConfig, err := configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Error loading config: %v", err)
 		os.Exit(1)
 	}
-	config = *loadedConfig
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		os.Exit(1)
-	}
-	nip94EventID := config.NIP94EventID
+	nip94EventID := mainConfig.NIP94EventID
 	log.Printf("NIP94EventID: %s", nip94EventID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
@@ -85,13 +62,10 @@ func init() {
 	}
 
 	// Initialize derived configuration values
-	log.Printf("Accepted Mints: %v", config.AcceptedMints)
-	tollgatePrivateKey = config.TollgatePrivateKey
-	pricePerMinute = config.PricePerMinute
-
+	log.Printf("Accepted Mints: %v", mainConfig.AcceptedMints)
 	// Create a map of accepted mints and their minimum payments
 	mintMinPayments := make(map[string]int)
-	for _, mintURL := range config.AcceptedMints {
+	for _, mintURL := range mainConfig.AcceptedMints {
 		mintFee, err := config_manager.GetMintFee(mintURL)
 		if err != nil {
 			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
@@ -104,7 +78,7 @@ func init() {
 	tags := nostr.Tags{
 		{"metric", "milliseconds"},
 		{"step_size", "60000"},
-		{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
+		{"price_per_step", fmt.Sprintf("%d", mainConfig.PricePerMinute), "sat"},
 	}
 
 	// Create a separate tag for each accepted mint
@@ -124,29 +98,22 @@ func init() {
 	}
 
 	// Override the existing signature with a newly generated one
-	err = tollgateDetailsEvent.Sign(tollgatePrivateKey)
+	err = tollgateDetailsEvent.Sign(mainConfig.TollgatePrivateKey)
 	if err != nil {
 		log.Fatalf("Failed to sign tollgate event: %v", err)
 	}
 
 	// Convert to JSON string for storage
-	detailsBytes, err := json.Marshal(tollgateDetailsEvent)
+	_, err = json.Marshal(tollgateDetailsEvent)
 	if err != nil {
 		log.Fatalf("Failed to marshal tollgate event: %v", err)
 	}
-	tollgateDetailsString = string(detailsBytes)
 
 	// Initialize janitor module
-	initJanitor(relayPool)
+	initJanitor()
 }
 
-func initJanitor(relayPool *nostr.SimplePool) {
-	loadedConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-	config = *loadedConfig
-
+func initJanitor() {
 	janitorInstance, err := janitor.NewJanitor(configManager)
 	if err != nil {
 		log.Fatalf("Failed to create janitor instance: %v", err)
@@ -298,7 +265,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the token mint is accepted
 	accepted := false
-	for _, acceptedMint := range config.AcceptedMints {
+	for _, acceptedMint := range mainConfig.AcceptedMints {
 		if tokenMint == acceptedMint {
 			accepted = true
 			break
@@ -322,7 +289,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Process and swap the token for fresh proofs - only if value is sufficient
 	relays := config.Relays
 	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, tollgatePrivateKey, relayPool, relays, tokenMint)
+	swapError := CollectPayment(paymentToken, tollgatePrivateKey, configManager, relays, tokenMint)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -376,11 +343,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-	braggingService, err := bragging.NewBraggingService(bragging.Config{
-		Enabled: config.Bragging.Enabled,
-		Relays:  config.Relays,
-		Fields:  config.Bragging.Fields,
-	}, tollgatePrivateKey, relayPool)
+	err := bragging.AnnounceSuccessfulPayment(configManager, macAddress, amount, durationSeconds)
 	if err != nil {
 		log.Printf("Failed to create bragging service: %v", err)
 		return err

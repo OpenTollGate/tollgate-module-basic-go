@@ -554,8 +554,6 @@ func (cm *ConfigManager) UpdateNIP94EventID() error {
 	}
 
 	return nil
-:start_line:556
--------
 }
 
 func (cm *ConfigManager) GetRelayPool() *nostr.SimplePool {
