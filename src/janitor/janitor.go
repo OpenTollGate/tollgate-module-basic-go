@@ -216,7 +216,7 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if isNewerVersion(versionStr, vStr, releaseChannel) {
-					log.Printf("Found rightversion: %s", key)
+					//log.Printf("Found rightversion: %s", key)
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
