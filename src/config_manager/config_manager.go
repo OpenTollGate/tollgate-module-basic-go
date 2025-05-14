@@ -421,7 +421,8 @@ func (cm *ConfigManager) setUsername(privateKey string, username string) error {
 			"d",
 			username,
 		}},
-		Content: `{"name":"` + username + `"}`,
+		Content:   `{"name":"` + username + `"}`,
+		CreatedAt: nostr.Now(),
 	}
 
 	event.ID = event.GetID()

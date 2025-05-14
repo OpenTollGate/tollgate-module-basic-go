@@ -1,9 +1,11 @@
 package config_manager
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -32,7 +34,7 @@ func compareStringSlices(a, b []string) bool {
 func TestConfigManager(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
-			t.Fatal(err)
+		t.Fatal(err)
 	}
 	defer os.Remove(tmpFile.Name())
 
@@ -166,12 +168,22 @@ func TestGeneratePrivateKey(t *testing.T) {
 	if err != nil {
 		t.Errorf("EnsureDefaultConfig returned error: %v", err)
 	}
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
 	privateKey, err := cm.generatePrivateKey()
 	if err != nil {
 		t.Errorf("generatePrivateKey returned error: %v", err)
 	}
 	if privateKey == "" {
 		t.Errorf("generatePrivateKey returned empty private key")
+	} else {
+		log.Printf("Generated private key: %s", privateKey)
+	}
+	logOutput := buf.String()
+	if strings.Contains(logOutput, "Failed to publish event to relay") {
+		t.Errorf("Event publication failed during private key generation: %s", logOutput)
 	}
 }
 
