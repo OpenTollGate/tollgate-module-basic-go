@@ -5,6 +5,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/nbd-wtf/go-nostr"
 )
 
 // Helper functions for comparison
@@ -30,7 +32,7 @@ func compareStringSlices(a, b []string) bool {
 func TestConfigManager(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
-		t.Fatal(err)
+			t.Fatal(err)
 	}
 	defer os.Remove(tmpFile.Name())
 
@@ -66,10 +68,10 @@ func TestConfigManager(t *testing.T) {
 			Enabled: true,
 			Fields:  []string{"test_field"},
 		},
-		Relays:             []string{"test_relay"},
-		TrustedMaintainers: []string{"test_maintainer"},
-		ShowSetup:          true,
-		CurrentInstallationID:       "test_current_installation_id",
+		Relays:                []string{"test_relay"},
+		TrustedMaintainers:    []string{"test_maintainer"},
+		ShowSetup:             true,
+		CurrentInstallationID: "test_current_installation_id",
 	}
 	err = cm.SaveConfig(newConfig)
 	if err != nil {
@@ -119,6 +121,7 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
+
 func TestUpdateCurrentInstallationID(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
@@ -159,6 +162,10 @@ func TestGeneratePrivateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	_, err = cm.EnsureDefaultConfig()
+	if err != nil {
+		t.Errorf("EnsureDefaultConfig returned error: %v", err)
+	}
 	privateKey, err := cm.generatePrivateKey()
 	if err != nil {
 		t.Errorf("generatePrivateKey returned error: %v", err)
@@ -175,15 +182,19 @@ func TestSetUsername(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	_, err = NewConfigManager(tmpFile.Name())
+	cm, err := NewConfigManager(tmpFile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// privateKey := nostr.GeneratePrivateKey()
-	// err = cm.setUsername(privateKey, "test_c03rad0r")
-	// if err != nil {
-	// 	t.Errorf("setUsername returned error: %v", err)
-	// }
+	privateKey := nostr.GeneratePrivateKey()
+	_, err = cm.EnsureDefaultConfig()
+	if err != nil {
+		t.Errorf("EnsureDefaultConfig returned error: %v", err)
+	}
+	err = cm.setUsername(privateKey, "test_c03rad0r")
+	if err != nil {
+		t.Errorf("setUsername returned error: %v", err)
+	}
 	// Additional checks can be added here to verify the username is set correctly on relays
 }

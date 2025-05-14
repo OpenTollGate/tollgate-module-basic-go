@@ -19,10 +19,10 @@ import (
 var relayRequestSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent requests
 
 func rateLimitedRelayRequest(relay *nostr.Relay, event nostr.Event) error {
-    relayRequestSemaphore <- struct{}{}
-    defer func() { <-relayRequestSemaphore }()
-    
-    return relay.Publish(context.Background(), event)
+	relayRequestSemaphore <- struct{}{}
+	defer func() { <-relayRequestSemaphore }()
+
+	return relay.Publish(context.Background(), event)
 }
 
 func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
@@ -65,14 +65,14 @@ type PackageInfo struct {
 }
 
 type Config struct {
-	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMints      []string       `json:"accepted_mints"`
-	PricePerMinute     int            `json:"price_per_minute"`
-	Bragging           BraggingConfig `json:"bragging"`
-	Relays             []string       `json:"relays"`
-	TrustedMaintainers []string       `json:"trusted_maintainers"`
-	ShowSetup          bool           `json:"show_setup"`
-	CurrentInstallationID string      `json:"current_installation_id"`
+	TollgatePrivateKey    string         `json:"tollgate_private_key"`
+	AcceptedMints         []string       `json:"accepted_mints"`
+	PricePerMinute        int            `json:"price_per_minute"`
+	Bragging              BraggingConfig `json:"bragging"`
+	Relays                []string       `json:"relays"`
+	TrustedMaintainers    []string       `json:"trusted_maintainers"`
+	ShowSetup             bool           `json:"show_setup"`
+	CurrentInstallationID string         `json:"current_installation_id"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -333,7 +333,7 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		return 0, err
 	}
 
-	if config.CurrentInstallationID != "unknown" {
+	if config.CurrentInstallationID != "" {
 		event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 		if err != nil {
 			return 0, err
@@ -467,15 +467,15 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"wss://relay.damus.io",
 				"wss://nos.lol",
 				"wss://nostr.mom",
-				//"wss://relay.tollgate.me",
+				"wss://relay.tollgate.me",
 			},
 			TrustedMaintainers: []string{
 				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
 			},
-			ShowSetup: true,
-			CurrentInstallationID: "unknown",
+			ShowSetup:             true,
+			CurrentInstallationID: "",
 		} // TODO: update the default EventID when we merge to main.
-		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to. 
+		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
 			return nil, err
@@ -491,7 +491,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 		return "", err
 	}
 
-	if config.CurrentInstallationID == "unknown" {
+	if config.CurrentInstallationID == "" {
 		installConfig, err := cm.LoadInstallConfig()
 		if err != nil {
 			return "", err
@@ -502,7 +502,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 		}
 		return "", fmt.Errorf("CurrentInstallationID is unknown and install config is nil")
 	}
-	
+
 	event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 	if err != nil {
 		fmt.Println("Failed to get NIP94Event")
@@ -524,7 +524,7 @@ func (cm *ConfigManager) UpdateCurrentInstallationID() error {
 		return err
 	}
 
-	if config.CurrentInstallationID != "unknown" {
+	if config.CurrentInstallationID != "" {
 		event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 		if err != nil {
 			return err
@@ -541,7 +541,7 @@ func (cm *ConfigManager) UpdateCurrentInstallationID() error {
 		}
 
 		if installedVersion != packageInfo.Version {
-			config.CurrentInstallationID = "unknown"
+			config.CurrentInstallationID = ""
 			err = cm.SaveConfig(config)
 			if err != nil {
 				return err

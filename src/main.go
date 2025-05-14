@@ -41,13 +41,13 @@ func init() {
 		log.Printf("Error loading config: %v", err)
 		os.Exit(1)
 	}
-	
+
 	currentInstallationID := mainConfig.CurrentInstallationID
 	log.Printf("CurrentInstallationID: %s", currentInstallationID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	if nip94EventID != "unknown" {
-		_, err = configManager.GetNIP94Event(nip94EventID)
+	if CurrentInstallationID != "" {
+		_, err = configManager.GetNIP94Event(CurrentInstallationID)
 		if err != nil {
 			log.Printf("Error getting NIP94 event: %v", err)
 			os.Exit(1)
