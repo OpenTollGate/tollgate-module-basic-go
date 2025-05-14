@@ -75,7 +75,7 @@ func (j *Janitor) listenForNIP94Events() {
 	ctx := context.Background()
 	eventChan := make(chan *nostr.Event, 1000)
 
-	config, err := j.configManager.LoadConfig()
+	mainConfig, err := j.configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load config: %v", err)
 		return
@@ -83,7 +83,7 @@ func (j *Janitor) listenForNIP94Events() {
 
 	for {
 		var wg sync.WaitGroup
-		for _, relayURL := range config.Relays {
+		for _, relayURL := range mainConfig.Relays {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
@@ -130,17 +130,13 @@ func (j *Janitor) listenForNIP94Events() {
 		}()
 
 		eventMap := make(map[string]*packageEvent)
-		totalEvents := 0
-		untrustedEventCount := 0
-		trustedEventCount := 0
-		collisionCount := 0
 		rightTimeKeys := make([]string, 0)
 		var already_printed bool = false
 		rightArchKeys := make([]string, 0)
 		rightVersionKeys := make([]string, 0)
 
-		timer := time.NewTimer(10 * time.Second)
-		timer.Stop()
+		debounceTimer := time.NewTimer(10 * time.Second)
+		debounceTimer.Stop()
 		isTimerActive := false
 		fmt.Println("Starting event processing loop")
 		for {
@@ -150,13 +146,10 @@ func (j *Janitor) listenForNIP94Events() {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
-				totalEvents++
 				if !contains(config.TrustedMaintainers, event.PubKey) {
-					untrustedEventCount++
 					continue
 				}
 
-				trustedEventCount++
 				ok, err := event.CheckSignature()
 				if err != nil || !ok {
 					continue
@@ -186,7 +179,7 @@ func (j *Janitor) listenForNIP94Events() {
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
 				ok = eventMap[key] != nil
 				if ok {
-					collisionCount++
+					//collisionCount++
 				} else {
 					eventMap[key] = &packageEvent{
 						event:      event,
@@ -234,7 +227,7 @@ func (j *Janitor) listenForNIP94Events() {
 				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
 				if len(intersection) > 0 && !isTimerActive {
 					fmt.Printf("Started the timer\n")
-					timer.Reset(10 * time.Second)
+					debounceTimer.Reset(10 * time.Second)
 					isTimerActive = true
 				}
 
@@ -253,7 +246,7 @@ func (j *Janitor) listenForNIP94Events() {
 					already_printed = true
 				}
 
-			case <-timer.C:
+			case <-debounceTimer.C:
 				log.Println("Timeout reached, checking for new versions")
 
 				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
@@ -270,16 +263,16 @@ func (j *Janitor) listenForNIP94Events() {
 				latestPackageEvent := qualifyingEventsMap[latestKey]
 				if latestPackageEvent == nil {
 					log.Println("Latest package event is nil")
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 
 				event := latestPackageEvent.event
-				_, versionStr, _, _, _, releaseChannel, err := parseNIP94Event(*event)
+				_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
@@ -289,21 +282,21 @@ func (j *Janitor) listenForNIP94Events() {
 				pkgPath, pkg, err := DownloadPackage(j, latestPackageEvent.packageURL, checksum)
 				if err != nil {
 					log.Printf("Error downloading package: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				err = verifyPackageChecksum(pkg, *event)
 				if err != nil {
 					log.Printf("Error verifying package checksum: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				config, err := j.configManager.LoadConfig()
 				if err != nil {
 					log.Printf("Error loading config: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
@@ -311,7 +304,7 @@ func (j *Janitor) listenForNIP94Events() {
 				err = j.configManager.SaveConfig(config)
 				if err != nil {
 					log.Printf("Error updating config with NIP94 event ID: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
@@ -319,20 +312,19 @@ func (j *Janitor) listenForNIP94Events() {
 				installConfig, err := j.configManager.LoadInstallConfig()
 				if err != nil {
 					log.Printf("Error loading install config: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				installConfig.PackagePath = pkgPath
-				installConfig.ReleaseChannel = releaseChannel
 				err = j.configManager.SaveInstallConfig(installConfig)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
-				timer.Stop()
+				debounceTimer.Stop()
 				isTimerActive = false
 			}
 		}

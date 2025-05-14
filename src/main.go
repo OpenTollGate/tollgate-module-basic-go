@@ -41,6 +41,7 @@ func init() {
 		log.Printf("Error loading config: %v", err)
 		os.Exit(1)
 	}
+	
 	nip94EventID := mainConfig.NIP94EventID
 	log.Printf("NIP94EventID: %s", nip94EventID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
