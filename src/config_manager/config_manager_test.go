@@ -68,7 +68,7 @@ func TestConfigManager(t *testing.T) {
 		},
 		Relays:             []string{"test_relay"},
 		TrustedMaintainers: []string{"test_maintainer"},
-		FieldsToBeReviewed: []string{"test_field_to_review"},
+		ShowSetup:          true,
 		CurrentInstallationID:       "test_current_installation_id",
 	}
 	err = cm.SaveConfig(newConfig)
@@ -87,7 +87,7 @@ func TestConfigManager(t *testing.T) {
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
-		!compareStringSlices(loadedConfig.FieldsToBeReviewed, newConfig.FieldsToBeReviewed) ||
+		loadedConfig.ShowSetup != newConfig.ShowSetup ||
 		loadedConfig.CurrentInstallationID != newConfig.CurrentInstallationID {
 		t.Errorf("Loaded config does not match saved config")
 	}

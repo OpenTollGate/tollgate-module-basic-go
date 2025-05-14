@@ -71,7 +71,7 @@ type Config struct {
 	Bragging           BraggingConfig `json:"bragging"`
 	Relays             []string       `json:"relays"`
 	TrustedMaintainers []string       `json:"trusted_maintainers"`
-	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
+	ShowSetup          bool           `json:"show_setup"`
 	CurrentInstallationID string      `json:"current_installation_id"`
 }
 
@@ -472,14 +472,10 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			TrustedMaintainers: []string{
 				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
 			},
-			FieldsToBeReviewed: []string{
-				"price_per_minute",
-				"relays",
-				"tollgate_private_key",
-				"trusted_maintainers",
-			},
+			ShowSetup: true,
 			CurrentInstallationID: "unknown",
 		} // TODO: update the default EventID when we merge to main.
+		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to. 
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
 			return nil, err
