@@ -72,7 +72,7 @@ type Config struct {
 	Relays             []string       `json:"relays"`
 	TrustedMaintainers []string       `json:"trusted_maintainers"`
 	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
-	NIP94EventID       string         `json:"nip94_event_id"`
+	CurrentInstallationID string      `json:"current_installation_id"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -175,7 +175,7 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = cm.UpdateNIP94EventID()
+	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func (cm *ConfigManager) GetArchitecture() (string, error) {
 		return "", fmt.Errorf("DISTRIB_ARCH not found in /etc/openwrt_release")
 	}
 
-	// TODO: Use ExtractPackageInfo to determine architecture from NIP94 event and throw an error if it is different from the architecture that we found on the filesystem. Don't do this check if NIP94EventID is set to `unknown`
+	// TODO: Use ExtractPackageInfo to determine architecture from NIP94 event and throw an error if it is different from the architecture that we found on the filesystem. Don't do this check if CurrentInstallationID is set to `unknown`
 	return match[1], nil
 }
 
@@ -333,8 +333,8 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		return 0, err
 	}
 
-	if config.NIP94EventID != "unknown" {
-		event, err := cm.GetNIP94Event(config.NIP94EventID)
+	if config.CurrentInstallationID != "unknown" {
+		event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 		if err != nil {
 			return 0, err
 		}
@@ -478,7 +478,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"tollgate_private_key",
 				"trusted_maintainers",
 			},
-			NIP94EventID: "unknown",
+			CurrentInstallationID: "unknown",
 		} // TODO: update the default EventID when we merge to main.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
@@ -495,7 +495,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 		return "", err
 	}
 
-	if config.NIP94EventID == "unknown" {
+	if config.CurrentInstallationID == "unknown" {
 		installConfig, err := cm.LoadInstallConfig()
 		if err != nil {
 			return "", err
@@ -504,10 +504,10 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 			// log.Printf("Returning release channel from install config: %s", installConfig.ReleaseChannel)
 			return installConfig.ReleaseChannel, nil
 		}
-		return "", fmt.Errorf("NIP94EventID is unknown and install config is nil")
+		return "", fmt.Errorf("CurrentInstallationID is unknown and install config is nil")
 	}
-
-	event, err := cm.GetNIP94Event(config.NIP94EventID)
+	
+	event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 	if err != nil {
 		fmt.Println("Failed to get NIP94Event")
 		return "noevent", err
@@ -522,14 +522,14 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 	return packageInfo.ReleaseChannel, nil
 }
 
-func (cm *ConfigManager) UpdateNIP94EventID() error {
+func (cm *ConfigManager) UpdateCurrentInstallationID() error {
 	config, err := cm.LoadConfig()
 	if err != nil {
 		return err
 	}
 
-	if config.NIP94EventID != "unknown" {
-		event, err := cm.GetNIP94Event(config.NIP94EventID)
+	if config.CurrentInstallationID != "unknown" {
+		event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 		if err != nil {
 			return err
 		}
@@ -545,7 +545,7 @@ func (cm *ConfigManager) UpdateNIP94EventID() error {
 		}
 
 		if installedVersion != packageInfo.Version {
-			config.NIP94EventID = "unknown"
+			config.CurrentInstallationID = "unknown"
 			err = cm.SaveConfig(config)
 			if err != nil {
 				return err

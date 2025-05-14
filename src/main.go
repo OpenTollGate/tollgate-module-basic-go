@@ -42,8 +42,8 @@ func init() {
 		os.Exit(1)
 	}
 	
-	nip94EventID := mainConfig.NIP94EventID
-	log.Printf("NIP94EventID: %s", nip94EventID)
+	currentInstallationID := mainConfig.CurrentInstallationID
+	log.Printf("CurrentInstallationID: %s", currentInstallationID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
 	if nip94EventID != "unknown" {

@@ -300,7 +300,7 @@ func (j *Janitor) listenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				config.NIP94EventID = event.ID
+				config.CurrentInstallationID = event.ID
 				err = j.configManager.SaveConfig(config)
 				if err != nil {
 					log.Printf("Error updating config with NIP94 event ID: %v", err)

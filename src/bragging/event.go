@@ -45,7 +45,7 @@ func CreateEvent(configManager *config_manager.ConfigManager, saleData map[strin
 	    "tollgate_private_key",
 	    "trusted_maintainers"
 	  ],
-	  "nip94_event_id": "32354ac5fbe5b777a7da16549c6233f709d96b1a1d9d30b71c888fb23ddc1652"
+	  "current_installation_id": "32354ac5fbe5b777a7da16549c6233f709d96b1a1d9d30b71c888fb23ddc1652"
 	
 		return nil, nil
 	

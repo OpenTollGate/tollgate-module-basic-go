@@ -69,7 +69,7 @@ func TestConfigManager(t *testing.T) {
 		Relays:             []string{"test_relay"},
 		TrustedMaintainers: []string{"test_maintainer"},
 		FieldsToBeReviewed: []string{"test_field_to_review"},
-		NIP94EventID:       "test_nip94_event_id",
+		CurrentInstallationID:       "test_current_installation_id",
 	}
 	err = cm.SaveConfig(newConfig)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestConfigManager(t *testing.T) {
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
 		!compareStringSlices(loadedConfig.FieldsToBeReviewed, newConfig.FieldsToBeReviewed) ||
-		loadedConfig.NIP94EventID != newConfig.NIP94EventID {
+		loadedConfig.CurrentInstallationID != newConfig.CurrentInstallationID {
 		t.Errorf("Loaded config does not match saved config")
 	}
 
@@ -119,7 +119,7 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
-func TestUpdateNIP94EventID(t *testing.T) {
+func TestUpdateCurrentInstallationID(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
 		t.Fatal(err)
@@ -131,19 +131,19 @@ func TestUpdateNIP94EventID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test UpdateNIP94EventID
-	log.Println("Testing UpdateNIP94EventID")
-	err = cm.UpdateNIP94EventID()
+	// Test UpdateCurrentInstallationID
+	log.Println("Testing UpdateCurrentInstallationID")
+	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
-		t.Errorf("Error updating NIP94EventID: %v", err)
+		t.Errorf("Error updating CurrentInstallationID: %v", err)
 	} else {
-		log.Println("Successfully updated NIP94EventID")
+		log.Println("Successfully updated CurrentInstallationID")
 	}
 	config, err := cm.LoadConfig()
 	if err != nil {
 		t.Errorf("Error loading config after update: %v", err)
 	} else {
-		log.Printf("NIP94EventID after update: %s", config.NIP94EventID)
+		log.Printf("CurrentInstallationID after update: %s", config.CurrentInstallationID)
 	}
 }
 

@@ -26,7 +26,7 @@ The `Config` struct holds the main configuration parameters as defined:
     "tollgate_private_key",
     "trusted_maintainers"
   ],
-  "NIP94EventID_currently_installed": []
+  "CurrentInstallationID_currently_installed": []
 }
 ```
 
@@ -50,7 +50,7 @@ The `InstallConfig` struct holds the installation configuration parameters:
 ```json
 {
   "package_path": "/path/to/package",
-  "nip94_event_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597"
+  "current_installation_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597"
 }
 ```
 
@@ -90,7 +90,7 @@ The `ConfigManager` struct manages both the main configuration file and the inst
 - If no configuration file exists or is invalid, creates a default `Config` struct with the following defaults:
   - `accepted_mint`: "https://mint.minibits.cash/Bitcoin"
   - `bragging`: enabled with fields "amount", "mint", "duration"
-  - `nip94_event_id`: the ID of the NIP94 event announcing the package
+  - `current_installation_id`: the ID of the NIP94 event announcing the package
   - `price_per_minute`: hardcoded value if not set
   - `relays`: hardcoded list if not set
   - `tollgate_private_key`: generated using nostr tools if not set
