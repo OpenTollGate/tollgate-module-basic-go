@@ -178,6 +178,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	var relayMutex sync.Mutex
 
 	// Ensure at least one relay is connected
+	// TODO: shouldn't these connections be managed by config_manager.go instead?
 	connectedRelays := 0
 	for _, relay := range relays {
 		wg.Add(1)
@@ -187,7 +188,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 			_, err := freshPool.EnsureRelay(relay)
 			relayMutex.Lock()
 			if err != nil {
-				log.Printf("Warning: failed to connect to relay %s: %v", relay, err)
+				// log.Printf("Warning: failed to connect to relay %s: %v", relay, err)
 			} else {
 				connectedRelays++
 				log.Printf("Successfully connected to relay: %s", relay)
