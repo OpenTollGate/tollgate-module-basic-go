@@ -129,8 +129,13 @@ jobs:
           # Add golang-backports repository
           echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update
-          # Install Go from backports and upx for compression
-          apt-get install -y -t bookworm-backports golang-go upx
+          # Install Go from backports
+          apt-get install -y -t bookworm-backports golang-go
+
+          # ✅ Download static UPX binary
+          curl -L -o upx.tar.xz https://github.com/upx/upx/releases/download/v5.0.1/upx-5.0.1-amd64_linux.tar.xz
+          tar -xf upx.tar.xz
+          cp upx*/upx /usr/local/bin/
 
       - name: Configure SDK
         run: |
