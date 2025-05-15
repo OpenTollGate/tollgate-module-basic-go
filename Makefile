@@ -60,10 +60,13 @@ define Build/Compile
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
-	echo before upx
-	/usr/bin/upx --help
-    /usr/bin/upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME)
-	echo after upx
+	@echo "Checking for UPX availability..."
+	@if which upx >/dev/null 2>&1; then \
+		echo "UPX found, compressing binary..."; \
+		upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
+	else \
+		echo "UPX not available, skipping compression"; \
+	fi
 endef
 
 define Package/$(PKG_NAME)/install
