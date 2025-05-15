@@ -60,7 +60,9 @@ define Build/Compile
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
-    /usr/bin/upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME);
+	echo before upx
+    /usr/bin/upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME)
+	echo after upx
 endef
 
 define Package/$(PKG_NAME)/install
