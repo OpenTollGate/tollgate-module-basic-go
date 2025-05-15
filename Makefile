@@ -66,8 +66,8 @@ define Build/Compile
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" && \
-	if [ "$(UPX_AVAILABLE)" = "1" ]; then upx --brute $(PKG_NAME); else echo "Skipping UPX compression"; fi
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
+	upx --brute $(PKG_NAME)
 endef
 
 define Package/$(PKG_NAME)/install
