@@ -7,7 +7,7 @@ on:
 ## Add global env vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  DEBUG: "false"
+  DEBUG: "true"
 
 # Define the architecture matrix once for reuse across jobs
 # This allows us to maintain architecture configurations in one place
