@@ -146,7 +146,7 @@ func (j *Janitor) listenForNIP94Events() {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
-				if !contains(config.TrustedMaintainers, event.PubKey) {
+				if !contains(mainConfig.TrustedMaintainers, event.PubKey) {
 					continue
 				}
 
