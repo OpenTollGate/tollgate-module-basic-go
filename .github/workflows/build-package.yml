@@ -129,8 +129,8 @@ jobs:
           # Add golang-backports repository
           echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update
-          # Install Go from backports
-          apt-get install -y -t bookworm-backports golang-go
+          # Install Go from backports and upx for compression
+          apt-get install -y -t bookworm-backports golang-go upx
 
       - name: Configure SDK
         run: |
