@@ -7,7 +7,7 @@ on:
 ## Add global env vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-module-basic-go"
-  DEBUG: "false"
+  DEBUG: "true"
 
 # Define the architecture matrix once for reuse across jobs
 # This allows us to maintain architecture configurations in one place
@@ -24,7 +24,7 @@ jobs:
           {
             "include": [
               {
-                "architecture": "arm64_cortex-a53",
+                "architecture": "aarch64_cortex-a53",
                 "goarch": "arm64",
                 "sdk": "mediatek-filogic",
                 "openwrt_version": "24.10.1"
@@ -40,7 +40,7 @@ jobs:
                 "architecture": "mipsel_24kc",
                 "goarch": "mipsle",
                 "gomips": "softfloat",
-                "sdk": "ath79-generic",
+                "sdk": "ramips-mt7621",
                 "openwrt_version": "24.10.1"
               },
               {
@@ -139,16 +139,19 @@ jobs:
           make defconfig
           # Update configuration for our needs
           echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
+          # Make dependencies available to opkg
+          echo "CONFIG_PACKAGE_nodogsplash=y" >> .config
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_PACKAGE_jq=y" >> .config
 
       - name: Compile Package
         run: |
           cd /builder
-
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
           if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
             GOMIPS=softfloat
           fi
-
+          
           env GOARCH=${{ matrix.goarch }} \
             GOMIPS=$GOMIPS \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
