@@ -61,7 +61,7 @@ define Build/Compile
 	GOMIPS=$(GOMIPS) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
 	echo before upx
-    /usr/bin/upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME)
+    #/usr/bin/upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME)
 	echo after upx
 endef
 
