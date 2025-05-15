@@ -46,8 +46,8 @@ func init() {
 	log.Printf("CurrentInstallationID: %s", currentInstallationID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	if CurrentInstallationID != "" {
-		_, err = configManager.GetNIP94Event(CurrentInstallationID)
+	if currentInstallationID != "" {
+		_, err = configManager.GetNIP94Event(currentInstallationID)
 		if err != nil {
 			log.Printf("Error getting NIP94 event: %v", err)
 			os.Exit(1)
