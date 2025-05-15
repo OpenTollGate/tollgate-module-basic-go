@@ -135,9 +135,8 @@ jobs:
           # ✅ Download static UPX binary
           curl -L -o upx.tar.xz https://github.com/upx/upx/releases/download/v5.0.1/upx-5.0.1-amd64_linux.tar.xz
           tar -xf upx.tar.xz
-          cp upx*/upx /usr/local/bin/
-          /usr/local/bin/upx --version
-          /usr/local/bin/upx --help
+          cp upx*/upx /usr/bin/
+          /usr/bin/upx --help
 
       - name: Configure SDK
         run: |

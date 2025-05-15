@@ -25,13 +25,6 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
 
-# Check if upx is available
-UPX := $(shell command -v upx 2>/dev/null)
-
-ifeq ($(UPX_AVAILABLE),0)
-  $(warning "upx not found in PATH. Binary will not be compressed.")
-endif
-
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
 
 include $(INCLUDE_DIR)/package.mk
@@ -67,7 +60,11 @@ define Build/Compile
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
-	/usr/local/bin/upx --brute $(PKG_NAME)
+    if command -v upx >/dev/null 2>&1; then \
+        upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
+    else \
+        echo "UPX not found, skipping compression"; \
+    fi
 endef
 
 define Package/$(PKG_NAME)/install
