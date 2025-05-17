@@ -1,9 +1,14 @@
 package config_manager
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/nbd-wtf/go-nostr"
 )
 
 // Helper functions for comparison
@@ -65,10 +70,10 @@ func TestConfigManager(t *testing.T) {
 			Enabled: true,
 			Fields:  []string{"test_field"},
 		},
-		Relays:             []string{"test_relay"},
-		TrustedMaintainers: []string{"test_maintainer"},
-		FieldsToBeReviewed: []string{"test_field_to_review"},
-		NIP94EventID:       "test_nip94_event_id",
+		Relays:                []string{"test_relay"},
+		TrustedMaintainers:    []string{"test_maintainer"},
+		ShowSetup:             true,
+		CurrentInstallationID: "test_current_installation_id",
 	}
 	err = cm.SaveConfig(newConfig)
 	if err != nil {
@@ -86,8 +91,8 @@ func TestConfigManager(t *testing.T) {
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
-		!compareStringSlices(loadedConfig.FieldsToBeReviewed, newConfig.FieldsToBeReviewed) ||
-		loadedConfig.NIP94EventID != newConfig.NIP94EventID {
+		loadedConfig.ShowSetup != newConfig.ShowSetup ||
+		loadedConfig.CurrentInstallationID != newConfig.CurrentInstallationID {
 		t.Errorf("Loaded config does not match saved config")
 	}
 
@@ -103,7 +108,7 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	newInstallConfig := &InstallConfig{
-		PackagePath: "/path/to/package"
+		PackagePath: "/path/to/package",
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
 	if err != nil {
@@ -118,7 +123,8 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
-func TestUpdateNIP94EventID(t *testing.T) {
+
+func TestUpdateCurrentInstallationID(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
 		t.Fatal(err)
@@ -130,18 +136,77 @@ func TestUpdateNIP94EventID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test UpdateNIP94EventID
-	log.Println("Testing UpdateNIP94EventID")
-	err = cm.UpdateNIP94EventID()
+	// Test UpdateCurrentInstallationID
+	log.Println("Testing UpdateCurrentInstallationID")
+	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
-		t.Errorf("Error updating NIP94EventID: %v", err)
+		t.Errorf("Error updating CurrentInstallationID: %v", err)
 	} else {
-		log.Println("Successfully updated NIP94EventID")
+		log.Println("Successfully updated CurrentInstallationID")
 	}
 	config, err := cm.LoadConfig()
 	if err != nil {
 		t.Errorf("Error loading config after update: %v", err)
 	} else {
-		log.Printf("NIP94EventID after update: %s", config.NIP94EventID)
+		log.Printf("CurrentInstallationID after update: %s", config.CurrentInstallationID)
 	}
+}
+
+func TestGeneratePrivateKey(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cm, err := NewConfigManager(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = cm.EnsureDefaultConfig()
+	if err != nil {
+		t.Errorf("EnsureDefaultConfig returned error: %v", err)
+	}
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	privateKey, err := cm.generatePrivateKey()
+	if err != nil {
+		t.Errorf("generatePrivateKey returned error: %v", err)
+	}
+	if privateKey == "" {
+		t.Errorf("generatePrivateKey returned empty private key")
+	} else {
+		log.Printf("Generated private key: %s", privateKey)
+	}
+	logOutput := buf.String()
+	if strings.Contains(logOutput, "Failed to publish event to relay") {
+		t.Errorf("Event publication failed during private key generation: %s", logOutput)
+	}
+}
+
+func TestSetUsername(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cm, err := NewConfigManager(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	privateKey := nostr.GeneratePrivateKey()
+	_, err = cm.EnsureDefaultConfig()
+	if err != nil {
+		t.Errorf("EnsureDefaultConfig returned error: %v", err)
+	}
+	err = cm.setUsername(privateKey, "test_c03rad0r")
+	if err != nil {
+		t.Errorf("setUsername returned error: %v", err)
+	}
+	// Additional checks can be added here to verify the username is set correctly on relays
 }
