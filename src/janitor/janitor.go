@@ -34,7 +34,7 @@ func NewJanitor(configManager *config_manager.ConfigManager) (*Janitor, error) {
 }
 
 func (j *Janitor) ListenForNIP94Events() {
-	ListenForNIP94Events(j.configManager)
+	j.listenForNIP94Events()
 }
 
 type packageEvent struct {
@@ -61,13 +61,21 @@ func getInstalledVersion() (string, error) {
 	return parts[1], nil
 }
 
-func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
+var subscriptionSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent relay subscriptions
+
+func rateLimitedSubscribe(relay *nostr.Relay, ctx context.Context, filters []nostr.Filter) (*nostr.Subscription, error) {
+    subscriptionSemaphore <- struct{}{}
+    defer func() { <-subscriptionSemaphore }()
+    
+    return relay.Subscribe(ctx, filters)
+}
+
+func (j *Janitor) listenForNIP94Events() {
 	log.Println("Starting to listen for NIP-94 events")
 	ctx := context.Background()
-	relayPool := nostr.NewSimplePool(ctx)
 	eventChan := make(chan *nostr.Event, 1000)
 
-	config, err := configManager.LoadConfig()
+	mainConfig, err := j.configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load config: %v", err)
 		return
@@ -75,14 +83,21 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 
 	for {
 		var wg sync.WaitGroup
-		for _, relayURL := range config.Relays {
+		for _, relayURL := range mainConfig.Relays {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
+				subscriptionSemaphore <- struct{}{}              // Acquire semaphore
+				defer func() { <-subscriptionSemaphore }() // Release semaphore
+
 				retryDelay := 5 * time.Second
 				for {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
-					relay, err := relayPool.EnsureRelay(relayURL)
+					relay, err := j.configManager.RelayPool.EnsureRelay(relayURL)
+					if err != nil || relay == nil {
+						log.Printf("Failed to ensure relay %s: %v", relayURL, err)
+						continue
+					}
 					if err != nil {
 						time.Sleep(retryDelay)
 						retryDelay *= 2
@@ -90,7 +105,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					}
 					fmt.Printf("Connected to relay: %s\n", relayURL)
 
-					sub, err := relay.Subscribe(ctx, []nostr.Filter{
+					sub, err := rateLimitedSubscribe(relay, ctx, []nostr.Filter{
 						{
 							Kinds: []int{1063},
 						},
@@ -115,17 +130,13 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 		}()
 
 		eventMap := make(map[string]*packageEvent)
-		totalEvents := 0
-		untrustedEventCount := 0
-		trustedEventCount := 0
-		collisionCount := 0
 		rightTimeKeys := make([]string, 0)
 		var already_printed bool = false
 		rightArchKeys := make([]string, 0)
 		rightVersionKeys := make([]string, 0)
 
-		timer := time.NewTimer(10 * time.Second)
-		timer.Stop()
+		debounceTimer := time.NewTimer(10 * time.Second)
+		debounceTimer.Stop()
 		isTimerActive := false
 		fmt.Println("Starting event processing loop")
 		for {
@@ -135,13 +146,10 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
-				totalEvents++
-				if !contains(config.TrustedMaintainers, event.PubKey) {
-					untrustedEventCount++
+				if !contains(mainConfig.TrustedMaintainers, event.PubKey) {
 					continue
 				}
 
-				trustedEventCount++
 				ok, err := event.CheckSignature()
 				if err != nil || !ok {
 					continue
@@ -158,7 +166,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					continue
 				}
 
-				releaseChannelFromConfigManager, err := configManager.GetReleaseChannel()
+				releaseChannelFromConfigManager, err := j.configManager.GetReleaseChannel()
 				if err != nil {
 					log.Printf("Error getting release channel: %v", err)
 					continue
@@ -171,7 +179,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
 				ok = eventMap[key] != nil
 				if ok {
-					collisionCount++
+					//collisionCount++
 				} else {
 					eventMap[key] = &packageEvent{
 						event:      event,
@@ -179,43 +187,47 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					}
 				}
 
-				timestampConfig, err := configManager.GetTimestamp()
+				timestampConfig, err := j.configManager.GetTimestamp()
 				if err != nil {
 					log.Printf("Error getting timestamp: %v", err)
 					continue
 				}
 				if timestamp > timestampConfig {
+					//log.Printf("Found righttime: %s", key)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
-				vStr, err := configManager.GetVersion()
+				vStr, err := j.configManager.GetVersion()
 				if err != nil {
-				    log.Printf("Error getting version: %v", err)
-				    continue
+					log.Printf("Error getting version: %v", err)
+					continue
 				}
 
-				releaseChannel, err = configManager.GetReleaseChannel()
+				releaseChannel, err = j.configManager.GetReleaseChannel()
 				if err != nil {
-				    log.Printf("Error getting release channel: %v", err)
-				    continue
+					log.Printf("Error getting release channel: %v", err)
+					continue
 				}
 				if isNewerVersion(versionStr, vStr, releaseChannel) {
-				    rightVersionKeys = append(rightVersionKeys, key)
+					//log.Printf("Found rightversion: %s", key)
+					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
-				archFromFilesystem, err := config_manager.GetArchitecture()
+				archFromFilesystem, err := j.configManager.GetArchitecture()
 				if err != nil {
 					log.Printf("Error getting architecture: %v", err)
 					continue
 				}
 				if arch == archFromFilesystem {
+					//fmt.Printf("Received event: %+v\n", event)
+					//log.Printf("Found rightarch: %s", key)
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
 				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
 				if len(intersection) > 0 && !isTimerActive {
 					fmt.Printf("Started the timer\n")
-					timer.Reset(10 * time.Second)
+					debounceTimer.Reset(10 * time.Second)
 					isTimerActive = true
 				}
 
@@ -234,7 +246,7 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 					already_printed = true
 				}
 
-			case <-timer.C:
+			case <-debounceTimer.C:
 				log.Println("Timeout reached, checking for new versions")
 
 				intersection := intersect(rightTimeKeys, rightArchKeys, rightVersionKeys)
@@ -251,140 +263,139 @@ func ListenForNIP94Events(configManager *config_manager.ConfigManager) {
 				latestPackageEvent := qualifyingEventsMap[latestKey]
 				if latestPackageEvent == nil {
 					log.Println("Latest package event is nil")
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 
 				event := latestPackageEvent.event
-				_, versionStr, _, _, _, releaseChannel, err := parseNIP94Event(*event)
+				_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 
 				fmt.Printf("Newer package version available: %s\n", versionStr)
 				checksum := getChecksumFromEvent(*latestPackageEvent.event)
-				pkgPath, pkg, err := DownloadPackage(configManager, latestPackageEvent.packageURL, checksum)
+				pkgPath, pkg, err := DownloadPackage(j, latestPackageEvent.packageURL, checksum)
 				if err != nil {
 					log.Printf("Error downloading package: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				err = verifyPackageChecksum(pkg, *event)
 				if err != nil {
 					log.Printf("Error verifying package checksum: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
-				config, err := configManager.LoadConfig()
+				config, err := j.configManager.LoadConfig()
 				if err != nil {
 					log.Printf("Error loading config: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
-				config.NIP94EventID = event.ID
-				err = configManager.SaveConfig(config)
+				config.CurrentInstallationID = event.ID
+				err = j.configManager.SaveConfig(config)
 				if err != nil {
 					log.Printf("Error updating config with NIP94 event ID: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 
-				installConfig, err := configManager.LoadInstallConfig()
+				installConfig, err := j.configManager.LoadInstallConfig()
 				if err != nil {
 					log.Printf("Error loading install config: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				installConfig.PackagePath = pkgPath
-				installConfig.ReleaseChannel = releaseChannel
-				err = configManager.SaveInstallConfig(installConfig)
+				err = j.configManager.SaveInstallConfig(installConfig)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
-					timer.Stop()
+					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
-				timer.Stop()
+				debounceTimer.Stop()
 				isTimerActive = false
 			}
 		}
 	}
 }
 
-func DownloadPackage(configManager *config_manager.ConfigManager, url string, checksum string) (string, []byte, error) {
-    filename := checksum + ".ipk"
-    tmpFilePath := filepath.Join("/tmp/", filename)
+func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, error) {
+	filename := checksum + ".ipk"
+	tmpFilePath := filepath.Join("/tmp/", filename)
 
-    // Check if file already exists
-    pkg, err := os.ReadFile(tmpFilePath)
-    if err == nil {
-        // Verify checksum if file exists 
-        event := nostr.Event{
-            Tags: nostr.Tags{
-                {"x", checksum},
-            },
-        }
-        err = verifyPackageChecksum(pkg, event)
-        if err == nil {
-            fmt.Printf("Package %s already exists with correct checksum, skipping download\n", tmpFilePath)
-            return tmpFilePath, pkg, nil
-        } else {
-            log.Printf("Existing package checksum verification failed: %v", err)
-        }
-    }
+	// Check if file already exists
+	pkg, err := os.ReadFile(tmpFilePath)
+	if err == nil {
+		// Verify checksum if file exists
+		event := nostr.Event{
+			Tags: nostr.Tags{
+				{"x", checksum},
+			},
+		}
+		err = verifyPackageChecksum(pkg, event)
+		if err == nil {
+			fmt.Printf("Package %s already exists with correct checksum, skipping download\n", tmpFilePath)
+			return tmpFilePath, pkg, nil
+		} else {
+			log.Printf("Existing package checksum verification failed: %v", err)
+		}
+	}
 
-    fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
-    tmpFile, err := os.Create(tmpFilePath)
-    if err != nil {
-        log.Printf("Error creating file: %v", err)
-        return "", nil, err
-    }
+	fmt.Printf("Downloading package from %s to %s\n", url, tmpFilePath)
+	tmpFile, err := os.Create(tmpFilePath)
+	if err != nil {
+		log.Printf("Error creating file: %v", err)
+		return "", nil, err
+	}
 
-    cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        log.Printf("Error downloading package: %v, output: %s", err, output)
-        return "", nil, err
-    }
+	cmd := exec.Command("wget", "-O", tmpFile.Name(), url)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error downloading package: %v, output: %s", err, output)
+		return "", nil, err
+	}
 
-    var downloaded int64
-    progress := &progressLogger{
-        total:      getContentLength(url),
-        downloaded: &downloaded,
-        lastLog:    time.Now(),
-    }
-    progress.Write(output)
+	var downloaded int64
+	progress := &progressLogger{
+		total:      getContentLength(url),
+		downloaded: &downloaded,
+		lastLog:    time.Now(),
+	}
+	progress.Write(output)
 
-    pkg, err = os.ReadFile(tmpFile.Name())
-    if err != nil {
-        log.Printf("Error reading downloaded package: %v", err)
-        return "", nil, err
-    }
+	pkg, err = os.ReadFile(tmpFile.Name())
+	if err != nil {
+		log.Printf("Error reading downloaded package: %v", err)
+		return "", nil, err
+	}
 
-    fmt.Println("Package downloaded successfully to /tmp/")
+	fmt.Println("Package downloaded successfully to /tmp/")
 
-	installConfig, err := configManager.LoadInstallConfig()
+	installConfig, err := j.configManager.LoadInstallConfig()
 	if err != nil {
 		log.Printf("Error loading install config: %v", err)
 		return tmpFile.Name(), pkg, err
 	}
 	currentTime := time.Now().Unix()
 	installConfig.DownloadTimestamp = currentTime
-	err = configManager.SaveInstallConfig(installConfig)
+	err = j.configManager.SaveInstallConfig(installConfig)
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err
 	} else {
-	    fmt.Println("New package version is ready to be installed by cronjob")
+		fmt.Println("New package version is ready to be installed by cronjob")
 	}
 
 	return tmpFile.Name(), pkg, nil
@@ -493,46 +504,56 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
-    if releaseChannel == "dev" {
-        newVersionParts := strings.Split(newVersion, "-")
-        if len(newVersionParts) != 3 {
-            return false
-        }
+	//log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
+	if releaseChannel == "dev" {
+		//log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
+		newVersionParts := strings.Split(newVersion, ".")
+		if len(newVersionParts) != 3 {
+			//log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
+			return false
+		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
-        if err != nil {
-            return false
-        }
-		
-        currentVersionParts := strings.Split(currentVersion, "-")
-        if len(currentVersionParts) != 3 {
-            return false
-        }
-        
-        if newVersionParts[0] != currentVersionParts[0] {
-            return false
-        }
+		if err != nil {
+			log.Printf("Error converting new commits to integer: %v, newVersion=%s", err, newVersion)
+			return false
+		}
 
-        newCommits, err = strconv.Atoi(newVersionParts[1])
-        if err != nil {
-            return false
-        }
-        currentCommits, err := strconv.Atoi(currentVersionParts[1])
-        if err != nil {
-            return false
-        }
+		currentVersionParts := strings.Split(currentVersion, ".")
+		if len(currentVersionParts) != 3 {
+			log.Printf("Invalid current version format: %s, newVersion=%s", currentVersion, newVersion)
+			return false
+		}
 
-        return newCommits > currentCommits
-    } else {
-        newVersionObj, err := version.NewVersion(newVersion)
-        if err != nil {
-            return false
-        }
-        cleanedCurrentVersionObj, err := version.NewVersion(currentVersion)
-        if err != nil {
-            return false
-        }
-        return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
-    }
+		if newVersionParts[0] != currentVersionParts[0] {
+			//log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
+			return false
+		}
+
+		newCommits, err = strconv.Atoi(newVersionParts[1])
+		if err != nil {
+			log.Printf("Error converting new commits to integer: %v, newVersion=%s", err, newVersion)
+			return false
+		}
+
+		currentCommits, err := strconv.Atoi(currentVersionParts[1])
+		if err != nil {
+			log.Printf("Error converting current commits to integer: %v, newVersion=%s", err, newVersion)
+			return false
+		}
+
+		// log.Printf("Comparing commits: newCommits=%d, currentCommits=%d, newVersion=%s", newCommits, currentCommits, newVersion)
+		return newCommits > currentCommits
+	} else {
+		newVersionObj, err := version.NewVersion(newVersion)
+		if err != nil {
+			return false
+		}
+		cleanedCurrentVersionObj, err := version.NewVersion(currentVersion)
+		if err != nil {
+			return false
+		}
+		return newVersionObj.GreaterThan(cleanedCurrentVersionObj)
+	}
 }
 
 func intersect(slices ...[]string) []string {

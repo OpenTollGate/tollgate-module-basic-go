@@ -26,7 +26,7 @@ The `Config` struct holds the main configuration parameters as defined:
     "tollgate_private_key",
     "trusted_maintainers"
   ],
-  "NIP94EventID_currently_installed": []
+  "CurrentInstallationID_currently_installed": []
 }
 ```
 
@@ -50,7 +50,7 @@ The `InstallConfig` struct holds the installation configuration parameters:
 ```json
 {
   "package_path": "/path/to/package",
-  "nip94_event_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597"
+  "current_installation_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597"
 }
 ```
 
@@ -84,15 +84,13 @@ The `ConfigManager` struct manages both the main configuration file and the inst
 - Ensures a default main configuration exists, creating it if necessary.
 - Includes defaults for `bragging`, `relays`, `trusted_maintainers`, and other parameters.
 
-
-
 ## EnsureDefaultConfig Function
 
 - Attempts to load the configuration from the managed file.
 - If no configuration file exists or is invalid, creates a default `Config` struct with the following defaults:
   - `accepted_mint`: "https://mint.minibits.cash/Bitcoin"
   - `bragging`: enabled with fields "amount", "mint", "duration"
-  - `nip94_event_id`: the ID of the NIP94 event announcing the package
+  - `current_installation_id`: the ID of the NIP94 event announcing the package
   - `price_per_minute`: hardcoded value if not set
   - `relays`: hardcoded list if not set
   - `tollgate_private_key`: generated using nostr tools if not set
@@ -122,3 +120,11 @@ The `Janitor` updates the `install.json` with the package path and NIP94 event I
 
 - Retrieves the release channel from the `PackageInfo` struct.
 - Returns the current release channel as a string.
+
+## Handling Multiple Mints
+
+The `Config` struct now supports multiple accepted mints through the `accepted_mints` field. This change allows the TollGate to accept payments from multiple mints, enhancing flexibility and user experience.
+
+## Centralized Rate Limiting for relayPool
+
+To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool` within `config_manager`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.

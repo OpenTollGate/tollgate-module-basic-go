@@ -12,8 +12,10 @@ import (
 
 	"encoding/base64"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip60"
+	"sync"
 )
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
@@ -80,21 +82,25 @@ func (k *SimpleKeyer) Decrypt(ctx context.Context, pubkey, ciphertext string) (s
 }
 
 // decodeCashuToken decodes a Cashu token and returns the total value in sats
-func DecodeCashuToken(token string) (int, error) {
+func DecodeCashuToken(token string) (int, string, error) {
 	fmt.Println("Decoding Cashu token:", token)
 
 	// Only support cashuB tokens
 	if !strings.HasPrefix(strings.ToLower(token), "cashub") {
-		return 0, fmt.Errorf("only cashuB tokens are supported")
+		return 0, "", fmt.Errorf("only cashuB tokens are supported")
 	}
 
 	// Try to decode token and get proofs and mint
-	proofs, _, err := nip60.GetProofsAndMint(token)
+	proofs, mint, err := nip60.GetProofsAndMint(token)
 	if err != nil {
 		// Fall back to basic token parsing if there's an error
 		log.Printf("Failed to use nip60 to decode token: %v, using fallback", err)
 
-		return int(proofs.Amount()), nil
+		var amount uint64
+		for _, proof := range proofs {
+			amount += proof.Amount
+		}
+		return int(amount), mint, nil
 	}
 
 	// Sum up the token amount
@@ -103,12 +109,12 @@ func DecodeCashuToken(token string) (int, error) {
 		amount += proof.Amount
 	}
 
-	return int(amount), nil
+	return int(amount), mint, nil
 }
 
 // CollectPayment processes a Cashu token and swaps it for fresh proofs
 // Returns the fresh proofs and token directly
-func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool, relays []string) error {
+func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool, relays []string, acceptedMint string) error {
 	// Extract proofs from token and process them
 	proofs, tokenMint, err := nip60.GetProofsAndMint(token)
 	if err != nil {
@@ -166,33 +172,55 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	// Create a new relay pool
 	freshPool := nostr.NewSimplePool(swapCtx)
 
-	log.Printf("Relays: %s", relays)
+	log.Printf("Relays: %v", relays)
+
+	var wg sync.WaitGroup
+	var relayMutex sync.Mutex
+	var connectedRelaysList []string
+
 	// Ensure at least one relay is connected
+	// TODO: shouldn't these connections be managed by config_manager.go instead?
 	connectedRelays := 0
 	for _, relay := range relays {
-		log.Printf("Attempting to connect to relay: %s", relay)
-		_, err := freshPool.EnsureRelay(relay)
-		if err != nil {
-			log.Printf("Warning: failed to connect to relay %s: %v", relay, err)
-			// Continue with other relays
-		} else {
-			connectedRelays++
-			log.Printf("Successfully connected to relay: %s", relay)
-		}
+		wg.Add(1)
+		go func(relay string) {
+			defer wg.Done()
+			delay := 1 * time.Second
+			for attempt := 0; attempt < 2; attempt++ { // Try up to 5 times
+				log.Printf("Attempting to connect to relay %s (attempt %d)", relay, attempt+1)
+				_, err := freshPool.EnsureRelay(relay)
+				relayMutex.Lock()
+				if err == nil {
+					connectedRelays++
+					connectedRelaysList = append(connectedRelaysList, relay)
+					log.Printf("Successfully connected to relay: %s", relay)
+				} else {
+					log.Printf("Failed to connect to relay %s (attempt %d): %v", relay, attempt+1, err)
+				}
+				relayMutex.Unlock()
+				if err == nil {
+					break
+				}
+				time.Sleep(delay)
+				delay *= 2 // Exponential backoff
+			}
+		}(relay)
 	}
+
+	wg.Wait()
 
 	if connectedRelays == 0 {
 		return fmt.Errorf("failed to connect to any relays")
 	}
 
-	log.Printf("Connected to %d relays successfully", connectedRelays)
+	log.Printf("Connected to %d relays successfully: %v", connectedRelays, connectedRelaysList)
 
 	// Create a wallet just for swapping these proofs
 	wallet := nip60.LoadWallet(
 		swapCtx,
 		simpleKeyer,
 		freshPool,
-		relays,
+		connectedRelaysList,
 	)
 
 	wallet.PublishUpdate = func(event nostr.Event, deleted *nip60.Token, received *nip60.Token, change *nip60.Token, isHistory bool) {
@@ -215,7 +243,12 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	log.Printf("Successfully received proofs, now swapping for fresh ones, balance: %d", wallet.Balance())
 
 	balance := wallet.Balance()
-	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx)
+	mintFee, err := config_manager.GetMintFee(tokenMint)
+	if err != nil {
+		log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
+		// Handle the error accordingly
+	}
+	payoutErr := Payout(CombinedPayout, int(balance), wallet, swapCtx, mintFee)
 	if payoutErr != nil {
 		log.Printf("Failed to payout profit payout: %v", payoutErr)
 		return payoutErr
@@ -224,7 +257,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	return nil
 }
 
-func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context) error {
+func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context, mintFee int) error {
 	log.Printf("Paying out %d sats to %s", amount, address)
 
 	// Skip processing if amount is zero
@@ -233,10 +266,8 @@ func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Co
 		return nil
 	}
 
-	extimatedFee := uint64(mintFee)
-
 	// Then swap for fresh proofs - use SendExternal to send to ourselves
-	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-extimatedFee)
+	freshProofs, tokenMint, swapErr := wallet.Send(swapCtx, uint64(amount)-uint64(mintFee))
 	if swapErr != nil {
 		log.Printf("Failed to swap proofs: %v", swapErr)
 		if len(freshProofs) == 0 {

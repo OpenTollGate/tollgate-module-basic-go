@@ -3,18 +3,15 @@ package bragging
 import (
 	"bytes"
 	"fmt"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"log"
 	"text/template"
 )
 
 var defaultTemplate = `New sale! {{.amount}} sats via {{.mint}} for {{.duration}} sec`
 
-func (s *Service) renderTemplate(data map[string]interface{}) string {
-	tpl, err := template.New("").Parse(s.config.Template)
-	if err != nil {
-		log.Printf("Template parsing error: %v. Using default template.", err)
-		tpl = template.Must(template.New("").Parse(defaultTemplate))
-	}
+func renderTemplate(configManager *config_manager.ConfigManager, data map[string]interface{}) string {
+	tpl := template.Must(template.New("").Parse(defaultTemplate))
 
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, data); err != nil {
