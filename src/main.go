@@ -344,10 +344,44 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error announcing successful payment: %v", err)
 	}
 
-	// Return a success status with token info
+	// Calculate expiry time
+	expiryTime := time.Now().Add(time.Duration(durationSeconds) * time.Second)
+
+	// Create a Nostr event with the response
+	responseEvent := nostr.Event{
+		Kind:      21022, // Custom kind for tollgate response
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			{"status", "granted"},
+			{"seconds", fmt.Sprintf("%d", durationSeconds)},
+			{"expiry", fmt.Sprintf("%d", expiryTime.Unix())},
+			{"payment", fmt.Sprintf("%d", valueAfterFees)},
+			{"fees", fmt.Sprintf("%d", 2*mintFee)},
+		},
+		Content: fmt.Sprintf("Access granted for %d minutes (payment: %d sats, fees: %d sats)",
+			allottedMinutes, valueAfterFees, 2*mintFee),
+	}
+
+	// Sign the event with the tollgate private key
+	err = responseEvent.Sign(mainConfig.TollgatePrivateKey)
+	if err != nil {
+		log.Printf("Error signing response event: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Convert the event to JSON
+	responseJSON, err := json.Marshal(responseEvent)
+	if err != nil {
+		log.Printf("Error marshaling response event: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Return the response
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)",
-		allottedMinutes, valueAfterFees, 2*mintFee)
+	w.Write(responseJSON)
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
@@ -389,6 +423,82 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
 }
 
+// handleStatus returns the remaining time for a client
+func handleStatus(w http.ResponseWriter, r *http.Request) {
+	log.Printf("DEBUG: Hit /status endpoint from %s", r.RemoteAddr)
+
+	// Get the client's IP address
+	clientIP := getIP(r)
+	log.Printf("Client IP: %s", clientIP)
+
+	// Get the client's MAC address
+	macAddress, err := getMacAddress(clientIP)
+	if err != nil {
+		log.Printf("Error getting MAC address: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if macAddress == "nil" || macAddress == "" {
+		log.Printf("Could not find MAC address for IP %s", clientIP)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	log.Printf("Found MAC address: %s", macAddress)
+
+	// Get the remaining time for the MAC address
+	remainingSeconds, expiryTime, exists := modules.GetRemainingTime(macAddress)
+	if !exists {
+		log.Printf("No active timer for MAC address %s", macAddress)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	// Load config to get private key for signing
+	mainConfig, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Create a Nostr event with the response
+	responseEvent := nostr.Event{
+		Kind:      21023, // Custom kind for tollgate status
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			{"status", "active"},
+			{"seconds_remaining", fmt.Sprintf("%d", remainingSeconds)},
+			{"expiry", fmt.Sprintf("%d", expiryTime.Unix())},
+			{"mac", macAddress},
+		},
+		Content: fmt.Sprintf("Access active for %d more seconds (expires at %s)",
+			remainingSeconds, expiryTime.Format(time.RFC3339)),
+	}
+
+	// Sign the event with the tollgate private key
+	err = responseEvent.Sign(mainConfig.TollgatePrivateKey)
+	if err != nil {
+		log.Printf("Error signing response event: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Convert the event to JSON
+	responseJSON, err := json.Marshal(responseEvent)
+	if err != nil {
+		log.Printf("Error marshaling response event: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Return the response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseJSON)
+}
+
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate - TIP-01")
@@ -411,6 +521,11 @@ func main() {
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit /whoami endpoint from %s", r.RemoteAddr)
 		corsMiddleware(handler)(w, r)
+	})
+
+	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("DEBUG: Hit /status endpoint from %s", r.RemoteAddr)
+		corsMiddleware(handleStatus)(w, r)
 	})
 
 	log.Println("Starting HTTP server on all interfaces...")
