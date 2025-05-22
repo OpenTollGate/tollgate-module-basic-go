@@ -15,6 +15,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -24,6 +25,22 @@ var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
 
 func init() {
+	tollWallet, walletErr := tollwallet.New("./hi", []string{"https://mint.minibits.cash/Bitcoin"})
+
+	if walletErr != nil {
+		log.Fatalf("Failed to create wallet: %v", walletErr)
+		os.Exit(1)
+	}
+
+	if tollWallet != nil {
+
+		log.Printf("hello")
+	}
+
+	balance := tollWallet.GetBalance()
+
+	log.Printf("Balance: %d", balance)
+
 	var err error
 	// Initialize relay pool for NIP-60 operations
 	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
