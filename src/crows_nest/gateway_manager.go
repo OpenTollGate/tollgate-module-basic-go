@@ -140,6 +140,6 @@ func (gm *GatewayManager) SetLocalAPVendorElements(elements map[string]string) e
 }
 
 // GetLocalAPVendorElements retrieves the currently configured vendor elements on the local AP.
-func (gm *GatewayManager) GetLocalAPVendorElements() (string, error) {
+func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) {
 	return gm.vendorProcessor.GetLocalAPVendorElements()
 }

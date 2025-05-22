@@ -86,14 +86,22 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 	return nil
 }
 
-func (v *VendorElementProcessor) GetLocalAPVendorElements() (string, error) {
+func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, error) {
 	cmd := "get wireless.default_radio0.ie"
-	output := v.connector.ExecuteUCI(cmd)
-	if output != nil {
-		return "", output
+	err := v.connector.ExecuteUCI(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := v.getUCIOutput(cmd)
+	if err != nil {
+		return nil, err
 	}
 
 	vendorIE, err := hex.DecodeString(output)
+	if err != nil {
+		return nil, err
+	}
 	if err != nil {
 		return nil, err
 	}
