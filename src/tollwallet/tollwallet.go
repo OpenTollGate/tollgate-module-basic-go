@@ -40,7 +40,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}, nil
 }
 
-func (w *TollWallet) Receive(token cashu.Token) error {
+func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	mint := token.Mint()
 
 	swapToTrusted := false
@@ -48,13 +48,13 @@ func (w *TollWallet) Receive(token cashu.Token) error {
 	// If mint is untrusted, check if operator allows swapping or rejects untrusted mints.
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
-			return fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
+			return 0, fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
 		}
 		swapToTrusted = true
 	}
 
-	_, err := w.wallet.Receive(token, swapToTrusted)
-	return err
+	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
+	return amountAfterSwap, err
 }
 
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {

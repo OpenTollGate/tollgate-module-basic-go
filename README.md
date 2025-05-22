@@ -30,10 +30,10 @@ scp -O tip01 root@192.168.8.1:/tmp/tip01
 
 ```bash
 cd ./src
-env GOOS=linux GOARCH=arm64 go build -o tip01 -trimpath -ldflags="-s -w"
+env GOOS=linux GOARCH=arm64 go build -o tollgate-basic -trimpath -ldflags="-s -w"
 
 # Hint: copy to connected router 
-scp -O tip01 root@192.168.1.1:/root/tip01 # X.X == Router IP
+scp -O tollgate-basic root@192.168.1.1:/usr/bin/tollgate-basic 
 ```
 
 ## Required Firewall rules 

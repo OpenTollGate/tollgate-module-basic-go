@@ -14,8 +14,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -23,7 +22,7 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
-var tWallet tollwallet.TollWallet
+var merchantInstance *merchant.Merchant
 
 func init() {
 	var err error
@@ -56,66 +55,17 @@ func init() {
 		}
 	}
 
-	// Initialize derived configuration values
-	log.Printf("Accepted Mints: %v", mainConfig.AcceptedMints)
-
-	x, walletErr := tollwallet.New("/etc/tollgate", mainConfig.AcceptedMints, false)
-	tWallet = *x
-
-	if walletErr != nil {
-		log.Fatalf("Failed to create wallet: %v", walletErr)
-		os.Exit(1)
+	var err2 error
+	merchantInstance, err2 = merchant.New(configManager)
+	if err2 != nil {
+		log.Fatalf("Failed to create merchant: %v", err2)
 	}
 
-	balance := tWallet.GetBalance()
-	log.Printf("Balance: %d", balance)
-
-	// Create a map of accepted mints and their minimum payments
-	mintMinPayments := make(map[string]uint64)
-	for _, mintURL := range mainConfig.AcceptedMints {
-		mintFee, err := config_manager.GetMintFee(mintURL)
-		if err != nil {
-			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
-			continue
-		}
-		mintMinPayments[mintURL] = config_manager.CalculateMinPayment(mintFee)
-	}
-
-	// Create the nostr event with the mintMinPayments map
-	tags := nostr.Tags{
-		{"metric", "milliseconds"},
-		{"step_size", "60000"},
-		{"price_per_step", fmt.Sprintf("%d", mainConfig.PricePerMinute), "sat"},
-	}
-
-	// Create a separate tag for each accepted mint
-	for mint, minPayment := range mintMinPayments {
-		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
-		fmt.Printf("TODO: include min payment (%d) for %s in future\n", minPayment, mint)
-		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
-		tags = append(tags, nostr.Tag{"mint", mint})
-	}
-
-	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
-
-	tollgateDetailsEvent := nostr.Event{
-		Kind:    21021,
-		Tags:    tags,
-		Content: "",
-	}
-
-	// Override the existing signature with a newly generated one
-	err = tollgateDetailsEvent.Sign(mainConfig.TollgatePrivateKey)
 	if err != nil {
-		log.Fatalf("Failed to sign tollgate event: %v", err)
+		log.Fatalf("Failed to create merchant: %v", err)
 	}
 
-	// Convert to JSON string for storage
-	detailsBytes, err := json.Marshal(tollgateDetailsEvent)
-	tollgateDetailsString = string(detailsBytes)
-	if err != nil {
-		log.Fatalf("Failed to marshal tollgate event: %v", err)
-	}
+	merchantInstance.StartPayoutRoutine()
 
 	// Initialize janitor module
 	initJanitor()
@@ -180,20 +130,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Details requested")
-	fmt.Fprint(w, tollgateDetailsString)
+	fmt.Fprint(w, merchantInstance.GetAdvertisement())
 }
 
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
-	// Load the configuration at the start of the function
-	mainConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
 	// Log the request details
 	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
 	// Only process POST requests
@@ -268,104 +209,35 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Extracted MAC address: %s\n", macAddress)
 	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
-	// Decode the Cashu token
-	token, err := tWallet.ParseToken(paymentToken)
-	if err != nil {
-		log.Printf("Error decoding Cashu token: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	purchaseSessionResult, err := merchantInstance.PurchaseSession(paymentToken, macAddress)
 
-	// Example usage of decodedToken, adjust according to actual type and usage
-	fmt.Printf("Decoded Token value: %+v\n", token)
+	// Set response headers and prepare JSON response
+	w.Header().Set("Content-Type", "application/json")
 
-	// Check if the token mint is accepted
-	accepted := false
-	for _, acceptedMint := range mainConfig.AcceptedMints {
-		if token.Mint() == acceptedMint {
-			accepted = true
-			break
-		}
-	}
-
-	if !accepted {
-		log.Printf("Error: token mint %s is not accepted", token.Mint())
+	// Use a switch statement for better readability and maintainability
+	switch purchaseSessionResult.Status {
+	case "success":
+		w.WriteHeader(http.StatusOK)
+	case "rejected":
 		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token mint %s is not accepted.", token.Mint())
-		return
-	}
-
-	mintFee, err := config_manager.GetMintFee(token.Mint())
-	if err != nil {
-		log.Printf("Error getting mint fee for %s: %v", token.Mint(), err)
+	default:
+		// Log unexpected errors for easier debugging
+		log.Printf("Purchase session failed with status: %s, reason: %s",
+			purchaseSessionResult.Status, purchaseSessionResult.Description)
 		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	minPayment := config_manager.CalculateMinPayment(mintFee)
-	// Verify the token has sufficient value before redeeming it
-	tokenValue := token.Proofs().Amount()
-	if tokenValue < minPayment {
-		log.Printf("Token value too low (%d sats). Minimum %d sats required.", tokenValue, minPayment)
-		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum %d sats required.", tokenValue, minPayment)
-		return
 	}
 
-	swapError := tWallet.Receive(token)
-
-	// Process and swap the token for fresh proofs - only if value is sufficient
-	// relays := mainConfig.Relays
-	// log.Printf("Relays being passed to CollectPayment: %v", relays)
-	// swapError := CollectPayment(paymentToken, mainConfig.TollgatePrivateKey, configManager.RelayPool, relays, tokenMint)
-	if swapError != nil {
-		log.Printf("Error swapping token: %v", swapError)
-		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Error swapping token: %v", swapError)
-		return
-	} else {
-		fmt.Println("Successfully swapped token for fresh proofs")
+	// Return meaningful response to the client with the operation status and reason
+	response := map[string]string{"status": purchaseSessionResult.Status}
+	if purchaseSessionResult.Description != "" {
+		response["reason"] = purchaseSessionResult.Description
 	}
 
-	// Calculate the actual value after deducting fees
-	var valueAfterFees = tokenValue - 2*mintFee
-	if valueAfterFees < 1 {
-		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, 2*mintFee+1)
-		w.WriteHeader(http.StatusPaymentRequired)
-		return
-	}
-	// Calculate minutes based on the net value
-	// TODO: Update frontend to show the correct duration after fees
-	//       Already tested to verify that allottedMinutes is correct
-	var allottedMinutes = int64(valueAfterFees / mainConfig.PricePerMinute)
-	if allottedMinutes < 1 {
-		allottedMinutes = 1 // Minimum 1 minute
+	// Handle potential encoding errors
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding response: %v", err)
 	}
 
-	// Convert to seconds for gate opening
-	durationSeconds := int64(allottedMinutes * 60)
-
-	// Log the calculation for transparency
-	fmt.Printf("Calculated minutes: %d (from value %d, minus fees %d)\n",
-		allottedMinutes, tokenValue, 2*mintFee)
-
-	// Open gate for the specified duration using the valve module
-	err = modules.OpenGate(macAddress, durationSeconds)
-	if err != nil {
-		log.Printf("Error opening gate: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	// Announce successful payment via Nostr if enabled
-	err = announceSuccessfulPayment(macAddress, int64(valueAfterFees), durationSeconds)
-	if err != nil {
-		log.Printf("Error announcing successful payment: %v", err)
-	}
-
-	// Return a success status with token info
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)",
-		allottedMinutes, valueAfterFees, 2*mintFee)
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {

@@ -3,17 +3,18 @@ module github.com/OpenTollGate/tollgate-module-basic-go
 go 1.24.2
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging v0.0.0-00010101000000-000000000000
-	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250508155752-c38b5e886bf9
+	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging v0.0.0-20250522085419-17692bf154f8
+	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250522085419-17692bf154f8
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
-	github.com/OpenTollGate/tollgate-module-basic-go/src/modules v0.0.0-00010101000000-000000000000
-	github.com/nbd-wtf/go-nostr v0.51.10
-	github.com/stretchr/testify v1.10.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0-00010101000000-000000000000
+	github.com/nbd-wtf/go-nostr v0.51.11
 )
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0-00010101000000-000000000000 // indirect
+	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0-00010101000000-000000000000 // indirect
+	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0-00010101000000-000000000000 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
@@ -45,6 +46,7 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect
@@ -52,6 +54,7 @@ require (
 	github.com/kkdai/bstream v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
@@ -63,14 +66,17 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
+	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
@@ -96,6 +102,8 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
-	github.com/OpenTollGate/tollgate-module-basic-go/src/modules => ./modules
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
+	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
+	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
 )
