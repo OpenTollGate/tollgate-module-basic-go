@@ -12,10 +12,11 @@ import (
 
 	"encoding/base64"
 
+	"sync"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip60"
-	"sync"
 )
 
 var payoutPubkey = "bbb5dda0e15567979f0543407bdc2033d6f0bbb30f72512a981cfdb2f09e2747"
@@ -257,7 +258,7 @@ func CollectPayment(token string, privateKey string, relayPool *nostr.SimplePool
 	return nil
 }
 
-func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context, mintFee int) error {
+func Payout(address string, amount int, wallet *nip60.Wallet, swapCtx context.Context, mintFee uint64) error {
 	log.Printf("Paying out %d sats to %s", amount, address)
 
 	// Skip processing if amount is zero

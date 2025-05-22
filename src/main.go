@@ -23,24 +23,9 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
+var tWallet tollwallet.TollWallet
 
 func init() {
-	tollWallet, walletErr := tollwallet.New("./hi", []string{"https://mint.minibits.cash/Bitcoin"})
-
-	if walletErr != nil {
-		log.Fatalf("Failed to create wallet: %v", walletErr)
-		os.Exit(1)
-	}
-
-	if tollWallet != nil {
-
-		log.Printf("hello")
-	}
-
-	balance := tollWallet.GetBalance()
-
-	log.Printf("Balance: %d", balance)
-
 	var err error
 	// Initialize relay pool for NIP-60 operations
 	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
@@ -73,8 +58,20 @@ func init() {
 
 	// Initialize derived configuration values
 	log.Printf("Accepted Mints: %v", mainConfig.AcceptedMints)
+
+	x, walletErr := tollwallet.New("/etc/tollgate", mainConfig.AcceptedMints, false)
+	tWallet = *x
+
+	if walletErr != nil {
+		log.Fatalf("Failed to create wallet: %v", walletErr)
+		os.Exit(1)
+	}
+
+	balance := tWallet.GetBalance()
+	log.Printf("Balance: %d", balance)
+
 	// Create a map of accepted mints and their minimum payments
-	mintMinPayments := make(map[string]int)
+	mintMinPayments := make(map[string]uint64)
 	for _, mintURL := range mainConfig.AcceptedMints {
 		mintFee, err := config_manager.GetMintFee(mintURL)
 		if err != nil {
@@ -272,7 +269,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Extracted payment token: %s\n", paymentToken)
 
 	// Decode the Cashu token
-	tokenValue, tokenMint, err := DecodeCashuToken(paymentToken)
+	token, err := tWallet.ParseToken(paymentToken)
 	if err != nil {
 		log.Printf("Error decoding Cashu token: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -280,31 +277,33 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Example usage of decodedToken, adjust according to actual type and usage
-	fmt.Printf("Decoded Token value: %+v\n", tokenValue)
+	fmt.Printf("Decoded Token value: %+v\n", token)
 
 	// Check if the token mint is accepted
 	accepted := false
 	for _, acceptedMint := range mainConfig.AcceptedMints {
-		if tokenMint == acceptedMint {
+		if token.Mint() == acceptedMint {
 			accepted = true
 			break
 		}
 	}
+
 	if !accepted {
-		log.Printf("Error: token mint %s is not accepted", tokenMint)
+		log.Printf("Error: token mint %s is not accepted", token.Mint())
 		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token mint %s is not accepted.", tokenMint)
+		fmt.Fprintf(w, "Payment required. Token mint %s is not accepted.", token.Mint())
 		return
 	}
 
-	mintFee, err := config_manager.GetMintFee(tokenMint)
+	mintFee, err := config_manager.GetMintFee(token.Mint())
 	if err != nil {
-		log.Printf("Error getting mint fee for %s: %v", tokenMint, err)
+		log.Printf("Error getting mint fee for %s: %v", token.Mint(), err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	minPayment := config_manager.CalculateMinPayment(mintFee)
 	// Verify the token has sufficient value before redeeming it
+	tokenValue := token.Proofs().Amount()
 	if tokenValue < minPayment {
 		log.Printf("Token value too low (%d sats). Minimum %d sats required.", tokenValue, minPayment)
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -312,10 +311,12 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	swapError := tWallet.Receive(token)
+
 	// Process and swap the token for fresh proofs - only if value is sufficient
-	relays := mainConfig.Relays
-	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, mainConfig.TollgatePrivateKey, configManager.RelayPool, relays, tokenMint)
+	// relays := mainConfig.Relays
+	// log.Printf("Relays being passed to CollectPayment: %v", relays)
+	// swapError := CollectPayment(paymentToken, mainConfig.TollgatePrivateKey, configManager.RelayPool, relays, tokenMint)
 	if swapError != nil {
 		log.Printf("Error swapping token: %v", swapError)
 		w.WriteHeader(http.StatusPaymentRequired)

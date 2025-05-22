@@ -50,7 +50,7 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 			return event, nil
 		}
 	}
-	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file.. 
+	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file..
 	cm.SaveConfig(config)
 	return nil, fmt.Errorf("NIP-94 event not found with ID %s", eventID)
 }
@@ -71,7 +71,7 @@ type PackageInfo struct {
 type Config struct {
 	TollgatePrivateKey    string         `json:"tollgate_private_key"`
 	AcceptedMints         []string       `json:"accepted_mints"`
-	PricePerMinute        int            `json:"price_per_minute"`
+	PricePerMinute        uint64         `json:"price_per_minute"`
 	Bragging              BraggingConfig `json:"bragging"`
 	Relays                []string       `json:"relays"`
 	TrustedMaintainers    []string       `json:"trusted_maintainers"`
@@ -265,13 +265,13 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 
 // getMintFee retrieves the mint fee for a given mint URL
 // TODO: Run this every time rather than storing the information in a config file.
-func GetMintFee(mintURL string) (int, error) {
+func GetMintFee(mintURL string) (uint64, error) {
 	// Stub implementation: return a default mint fee
 	return 0, nil
 }
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
-func CalculateMinPayment(mintFee int) int {
+func CalculateMinPayment(mintFee uint64) uint64 {
 	// Stub implementation: return the mint fee as the minimum payment
 	return 2*mintFee + 1
 }

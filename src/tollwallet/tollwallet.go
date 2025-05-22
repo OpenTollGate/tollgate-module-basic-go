@@ -16,7 +16,7 @@ type TollWallet struct {
 }
 
 // New creates a new Cashu wallet instance
-func New(walletPath string, acceptedMints []string) (*TollWallet, error) {
+func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (*TollWallet, error) {
 
 	// TODO: We want to restore from our mnemnonic seed phrase on startup as we have to keep our db in memory
 	// TODO: Copy approach from alby: https://github.com/getAlby/hub/blob/158d4a2539307bda289149792c3748d44c9fed37/lnclient/cashu/cashu.go#L46
@@ -34,7 +34,9 @@ func New(walletPath string, acceptedMints []string) (*TollWallet, error) {
 	}
 
 	return &TollWallet{
-		wallet: cashuWallet,
+		wallet:                     cashuWallet,
+		acceptedMints:              acceptedMints,
+		allowAndSwapUntrustedMints: allowAndSwapUntrustedMints,
 	}, nil
 }
 
@@ -65,6 +67,10 @@ func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cash
 	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true) // TODO: Support multi unit
 
 	return token, nil
+}
+
+func (w *TollWallet) ParseToken(token string) (cashu.Token, error) {
+	return cashu.DecodeToken(token)
 }
 
 // contains checks if a string exists in a slice of strings
