@@ -3,6 +3,8 @@ package crows_nest
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -10,23 +12,23 @@ import (
 
 // GatewayManager orchestrates the gateway management operations.
 type GatewayManager struct {
-	scanner       *Scanner
-	connector     *Connector
-	vendorProcessor *VendorElementProcessor
-	mu            sync.RWMutex
+	scanner           *Scanner
+	connector         *Connector
+	vendorProcessor   *VendorElementProcessor
+	mu                sync.RWMutex
 	availableGateways map[string]Gateway
-	scanInterval  time.Duration
-	stopChan      chan struct{}
-	log           *log.Logger
+	scanInterval      time.Duration
+	stopChan          chan struct{}
+	log               *log.Logger
 }
 
 // Gateway represents a Wi-Fi gateway with its details.
 type Gateway struct {
-	BSSID string `json:"bssid"`
-	SSID string `json:"ssid"`
-	Signal int `json:"signal"`
-	Encryption string `json:"encryption"`
-	Score int `json:"score"`
+	BSSID          string            `json:"bssid"`
+	SSID           string            `json:"ssid"`
+	Signal         int               `json:"signal"`
+	Encryption     string            `json:"encryption"`
+	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
 }
 
@@ -34,16 +36,16 @@ type Gateway struct {
 func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 	scanner := &Scanner{log: logger}
 	connector := &Connector{log: logger}
-	vendorProcessor := &VendorElementProcessor{log: logger}
+	vendorProcessor := &VendorElementProcessor{log: logger, connector: connector}
 
 	gm := &GatewayManager{
-		scanner:       scanner,
-		connector:     connector,
-		vendorProcessor: vendorProcessor,
+		scanner:           scanner,
+		connector:         connector,
+		vendorProcessor:   vendorProcessor,
 		availableGateways: make(map[string]Gateway),
-		scanInterval:  30 * time.Second,
-		stopChan:      make(chan struct{}),
-		log:           logger,
+		scanInterval:      30 * time.Second,
+		stopChan:          make(chan struct{}),
+		log:               logger,
 	}
 
 	go gm.RunPeriodicScan(ctx)
@@ -86,16 +88,24 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		}
 
 		gateway := Gateway{
-			BSSID: network.BSSID,
-			SSID:  network.SSID,
-			Signal: network.Signal,
-			Encryption: network.Encryption,
-			Score: score,
-			VendorElements: vendorElements,
+			BSSID:          network.BSSID,
+			SSID:           network.SSID,
+			Signal:         network.Signal,
+			Encryption:     network.Encryption,
+			Score:          score,
+			VendorElements: convertToStringMap(vendorElements),
 		}
 
 		gm.availableGateways[network.BSSID] = gateway
 	}
+}
+
+func convertToStringMap(m map[string]interface{}) map[string]string {
+	stringMap := make(map[string]string)
+	for k, v := range m {
+		stringMap[k] = fmt.Sprintf("%v", v)
+	}
+	return stringMap
 }
 
 // GetAvailableGateways returns a snapshot of the currently available gateways.
@@ -130,6 +140,6 @@ func (gm *GatewayManager) SetLocalAPVendorElements(elements map[string]string) e
 }
 
 // GetLocalAPVendorElements retrieves the currently configured vendor elements on the local AP.
-func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) {
+func (gm *GatewayManager) GetLocalAPVendorElements() (string, error) {
 	return gm.vendorProcessor.GetLocalAPVendorElements()
 }

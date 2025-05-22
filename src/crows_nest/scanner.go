@@ -17,11 +17,11 @@ type Scanner struct {
 
 // NetworkInfo represents information about a Wi-Fi network.
 type NetworkInfo struct {
-	BSSID string
-	SSID string
-	Signal int
+	BSSID      string
+	SSID       string
+	Signal     int
 	Encryption string
-	RawIEs []byte
+	RawIEs     []byte
 }
 
 // ScanNetworks scans for available Wi-Fi networks.
