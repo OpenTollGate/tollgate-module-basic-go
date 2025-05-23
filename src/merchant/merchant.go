@@ -95,26 +95,35 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 	}
 
 	// Calculate target balance
-	targetBalance := mintConfig.MinBalance
 
-	// Check if balance exceeds minimum balance + tolerance
-	if balance > targetBalance+(targetBalance*mintConfig.BalanceTolerancePercent/100) {
-		// Calculate payout amount
-		payoutAmount := balance - targetBalance
+	// Get the amount we intend to payout to the owner.
+	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
+	aimedPaymentAmount := balance - mintConfig.MinBalance
+	tolerancePaymentAmount := aimedPaymentAmount + (aimedPaymentAmount * mintConfig.BalanceTolerancePercent / 100)
 
-		log.Printf("Processing payout for mint %s: %d sats", mintConfig.URL, payoutAmount)
+	log.Printf("Processing payout for mint %s: aiming for %d sats with %d sats tolerance", mintConfig.URL, aimedPaymentAmount, tolerancePaymentAmount)
+	tokenToMelt, sendErr := m.tollwallet.Send(aimedPaymentAmount+tolerancePaymentAmount, mintConfig.URL, true)
 
-		// Simulate melt by sending tokens
-		_, err := m.tollwallet.Send(payoutAmount, mintConfig.URL, true)
-
-		if err != nil {
-			log.Printf("Error processing payout for mint %s: %v", mintConfig.URL, err)
-			return
-		}
-
-		log.Printf("Payout of %d sats completed for mint %s", payoutAmount, mintConfig.URL)
+	if sendErr != nil {
+		log.Printf("Error during payou for mint %s. Error taking cashu from wallet. Skipping... %v", mintConfig.URL, sendErr)
+		return
 	}
 
+	changeToken, meltErr := m.tollwallet.MeltToLightning(aimedPaymentAmount, tokenToMelt, mintConfig.PayoutLNURL)
+
+	// If melting fails try to return the money to the wallet
+	if meltErr != nil {
+		log.Printf("Error during payout for mint %s. Error melting to lightning. Skipping... %v", mintConfig.URL, meltErr)
+
+		log.Printf("Returning payout for mint to wallet, token: %s", mintConfig.URL)
+		m.tollwallet.Receive(tokenToMelt)
+		return
+	}
+
+	log.Printf("Payout to lightning for %s succesful! Returning %d in change to wallet.", mintConfig.URL)
+	m.tollwallet.Receive(changeToken)
+
+	log.Printf("Payout completed for mint %s", mintConfig.URL)
 }
 
 type PurchaseSessionResult struct {
