@@ -4,9 +4,9 @@ go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250522085419-17692bf154f8
-	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0-00010101000000-000000000000
-	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0-00010101000000-000000000000
-	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/elnosh/gonuts v0.4.0
 	github.com/nbd-wtf/go-nostr v0.51.11
 )
