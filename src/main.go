@@ -272,7 +272,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
-	fmt.Println("Starting Tollgate - TIP-01")
+	fmt.Println("Starting Tollgate Core")
 	fmt.Println("Listening on all interfaces on port", port)
 
 	// Add verbose logging for debugging

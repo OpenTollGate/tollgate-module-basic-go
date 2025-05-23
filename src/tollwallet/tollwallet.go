@@ -89,3 +89,10 @@ func (w *TollWallet) GetBalance() uint64 {
 
 	return balance
 }
+
+// GetBalance returns the current balance of the wallet
+func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
+	balanceByMints := w.wallet.GetBalanceByMints()
+
+	return balanceByMints[mintUrl]
+}

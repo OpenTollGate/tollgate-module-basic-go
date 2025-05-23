@@ -31,6 +31,23 @@ func compareStringSlices(a, b []string) bool {
 	return true
 }
 
+func compareMintConfigs(a, b []MintConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].URL != b[i].URL ||
+			a[i].MinBalance != b[i].MinBalance ||
+			a[i].BalanceTolerancePercent != b[i].BalanceTolerancePercent ||
+			a[i].PayoutIntervalSeconds != b[i].PayoutIntervalSeconds ||
+			a[i].PayoutLNURL != b[i].PayoutLNURL ||
+			a[i].MinPayoutAmount != b[i].MinPayoutAmount {
+			return false
+		}
+	}
+	return true
+}
+
 func TestConfigManager(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config.json")
 	if err != nil {
@@ -64,8 +81,17 @@ func TestConfigManager(t *testing.T) {
 	// Test SaveConfig
 	newConfig := &Config{
 		TollgatePrivateKey: "test_key",
-		AcceptedMints:      []string{"test_mint"},
-		PricePerMinute:     2,
+		AcceptedMints: []MintConfig{
+			{
+				URL:                     "test_mint",
+				MinBalance:              100,
+				BalanceTolerancePercent: 10,
+				PayoutIntervalSeconds:   60,
+				PayoutLNURL:             "test_lnurl",
+				MinPayoutAmount:         1000,
+			},
+		},
+		PricePerMinute: 2,
 		Bragging: BraggingConfig{
 			Enabled: true,
 			Fields:  []string{"test_field"},
@@ -86,7 +112,7 @@ func TestConfigManager(t *testing.T) {
 	}
 	// Verify all fields
 	if loadedConfig.TollgatePrivateKey != "test_key" ||
-		!compareStringSlices(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
+		!compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
 		loadedConfig.PricePerMinute != 2 ||
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -26,8 +27,14 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 
 	config, _ := configManager.LoadConfig()
 
+	// Extract mint URLs from MintConfig
+	mintURLs := make([]string, len(config.AcceptedMints))
+	for i, mint := range config.AcceptedMints {
+		mintURLs[i] = mint.URL
+	}
+
 	log.Printf("Setting up wallet...")
-	tollwallet, walletErr := tollwallet.New("/etc/tollgate", config.AcceptedMints, false)
+	tollwallet, walletErr := tollwallet.New("/etc/tollgate", mintURLs, false)
 
 	if walletErr != nil {
 		log.Fatalf("Failed to create wallet: %v", walletErr)
@@ -52,8 +59,62 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 }
 
 func (m *Merchant) StartPayoutRoutine() {
+	log.Printf("Starting payout routine")
 
-	print("StartPayoutRoutine not implemented")
+	// Create timer for each mint
+	for _, mint := range m.config.AcceptedMints {
+		go func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+
+			for range ticker.C {
+				m.processPayout(mint)
+			}
+		}()
+	}
+
+	log.Printf("Payout routine started")
+}
+
+// processPayout checks balances and processes payouts for each mint
+func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
+	// Skip if no LNURL is configured
+	if mintConfig.PayoutLNURL == "" {
+		log.Printf("Cannot payout %s, no destination LNURL provided.", mintConfig.URL)
+		return
+	}
+
+	// Get current balance
+	// Note: The current implementation only returns total balance, not per mint
+	balance := m.tollwallet.GetBalanceByMint(mintConfig.URL)
+
+	// Skip if balance is below minimum payout amount
+	if balance < mintConfig.MinPayoutAmount {
+		log.Printf("Skipping payout %s, Balance %d does not meet threshold of %d", mintConfig.URL, balance, mintConfig.MinPayoutAmount)
+		return
+	}
+
+	// Calculate target balance
+	targetBalance := mintConfig.MinBalance
+
+	// Check if balance exceeds minimum balance + tolerance
+	if balance > targetBalance+(targetBalance*mintConfig.BalanceTolerancePercent/100) {
+		// Calculate payout amount
+		payoutAmount := balance - targetBalance
+
+		log.Printf("Processing payout for mint %s: %d sats", mintConfig.URL, payoutAmount)
+
+		// Simulate melt by sending tokens
+		_, err := m.tollwallet.Send(payoutAmount, mintConfig.URL, true)
+
+		if err != nil {
+			log.Printf("Error processing payout for mint %s: %v", mintConfig.URL, err)
+			return
+		}
+
+		log.Printf("Payout of %d sats completed for mint %s", payoutAmount, mintConfig.URL)
+	}
+
 }
 
 type PurchaseSessionResult struct {
@@ -77,7 +138,7 @@ func (m *Merchant) PurchaseSession(paymentToken string, macAddress string) (Purc
 
 	if err != nil {
 		return PurchaseSessionResult{
-			Status:      "Sprintf",
+			Status:      "rejected",
 			Description: "Invalid cashu token",
 		}, nil
 	}
@@ -143,13 +204,14 @@ func (m *Merchant) GetAdvertisement() string {
 func CreateAdvertisement(config *config_manager.Config) (string, error) {
 	// Create a map of accepted mints and their minimum payments
 	mintMinPayments := make(map[string]uint64)
-	for _, mintURL := range config.AcceptedMints {
-		mintFee, err := config_manager.GetMintFee(mintURL)
+	for _, mintConfig := range config.AcceptedMints {
+		mintFee, err := config_manager.GetMintFee(mintConfig.URL)
 		if err != nil {
-			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
+			log.Printf("Error getting mint fee for %s: %v", mintConfig.URL, err)
 			continue
 		}
-		mintMinPayments[mintURL] = config_manager.CalculateMinPayment(mintFee)
+		paymentAmount := uint64(config_manager.CalculateMinPayment(mintFee))
+		mintMinPayments[mintConfig.URL] = paymentAmount
 	}
 
 	// Create the nostr event with the mintMinPayments map

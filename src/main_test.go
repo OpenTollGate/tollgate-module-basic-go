@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -20,12 +21,27 @@ func TestLoadConfig(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	configFile := filepath.Join(tmpDir, "config.json")
-	config := Config{
+	config := config_manager.Config{
 		TollgatePrivateKey: "test_private_key",
-		AcceptedMint:       "https://example.com/mint",
-		PricePerMinute:     1,
-		MinPayment:         1,
-		MintFee:            1,
+		AcceptedMints: []config_manager.MintConfig{
+			{
+				URL:                     "https://mint.minibits.cash/Bitcoin",
+				MinBalance:              100,
+				BalanceTolerancePercent: 10,
+				PayoutIntervalSeconds:   60,
+				PayoutLNURL:             "",
+				MinPayoutAmount:         1000,
+			},
+			{
+				URL:                     "https://mint2.nutmix.cash",
+				MinBalance:              100,
+				BalanceTolerancePercent: 10,
+				PayoutIntervalSeconds:   60,
+				PayoutLNURL:             "",
+				MinPayoutAmount:         1000,
+			},
+		},
+		PricePerMinute: 1,
 	}
 
 	configData, err := json.Marshal(config)
@@ -42,9 +58,14 @@ func TestLoadConfig(t *testing.T) {
 	configFile = configFile
 	defer func() { configFile = oldConfigFile }()
 
-	err = loadConfig()
+	configManager, err := config_manager.NewConfigManager(configFile)
 	if err != nil {
-		t.Errorf("loadConfig failed: %v", err)
+		t.Errorf("Failed to create config manager: %v", err)
+	}
+
+	_, err2 := configManager.LoadConfig()
+	if err2 != nil {
+		t.Errorf("loadConfig failed: %v", err2)
 	}
 }
 

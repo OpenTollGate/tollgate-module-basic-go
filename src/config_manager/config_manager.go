@@ -61,6 +61,16 @@ type BraggingConfig struct {
 	Fields  []string `json:"fields"`
 }
 
+// MintConfig holds configuration for a specific mint including payout settings
+type MintConfig struct {
+	URL                     string `json:"url"`
+	MinBalance              uint64 `json:"min_balance"`
+	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
+	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
+	PayoutLNURL             string `json:"payout_lnurl"`
+	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+}
+
 // Config holds the configuration parameters
 type PackageInfo struct {
 	Version        string
@@ -70,7 +80,7 @@ type PackageInfo struct {
 
 type Config struct {
 	TollgatePrivateKey    string         `json:"tollgate_private_key"`
-	AcceptedMints         []string       `json:"accepted_mints"`
+	AcceptedMints         []MintConfig   `json:"accepted_mints"`
 	PricePerMinute        uint64         `json:"price_per_minute"`
 	Bragging              BraggingConfig `json:"bragging"`
 	Relays                []string       `json:"relays"`
@@ -462,8 +472,25 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 
 		defaultConfig := &Config{
 			TollgatePrivateKey: privateKey,
-			AcceptedMints:      []string{"https://mint.minibits.cash/Bitcoin", "https://mint2.nutmix.cash"},
-			PricePerMinute:     1,
+			AcceptedMints: []MintConfig{
+				{
+					URL:                     "https://mint.minibits.cash/Bitcoin",
+					MinBalance:              100,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					PayoutLNURL:             "",
+					MinPayoutAmount:         200,
+				},
+				{
+					URL:                     "https://mint2.nutmix.cash",
+					MinBalance:              100,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					PayoutLNURL:             "",
+					MinPayoutAmount:         200,
+				},
+			},
+			PricePerMinute: 1,
 			Bragging: BraggingConfig{
 				Enabled: true,
 				Fields:  []string{"amount", "mint", "duration"},
