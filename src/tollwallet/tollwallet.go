@@ -2,8 +2,10 @@ package tollwallet
 
 import (
 	"fmt"
+	"log"
 	"os"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/wallet"
 )
@@ -95,4 +97,67 @@ func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
 	balanceByMints := w.wallet.GetBalanceByMints()
 
 	return balanceByMints[mintUrl]
+}
+
+// MeltToLightning melts a token to a lightning invoice using LNURL
+// It attempts to melt for the target amount, reducing by 5% each time if fees are too high
+// Returns any remaining token as change
+func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
+	log.Printf("Attempting to melt %d sats to LNURL %s with max %d sats", targetAmount, lnurl, maxCost)
+
+	// Start with the aimed payment amount
+	currentAmount := targetAmount
+	maxAttempts := 10
+	attempts := 0
+
+	var meltError error
+
+	// Try to melt with reducing amounts if needed
+	for attempts < maxAttempts {
+		log.Printf("Attempt %d: Trying to melt %d sats", attempts+1, currentAmount)
+
+		// Get a Lightning invoice from the LNURL
+		invoice, err := lightning.GetInvoiceFromLightningAddress(lnurl, currentAmount)
+		if err != nil {
+			log.Printf("Error getting invoice: %v", err)
+			meltError = err
+			attempts++
+			continue
+		}
+
+		// Try to pay the invoice using the wallet
+		meltQuote, err := w.wallet.RequestMeltQuote(invoice, mintUrl)
+
+		if err != nil {
+			log.Printf("Error requesting melt quote for %s: %v", mintUrl, err)
+			meltError = err
+			attempts++
+			continue
+		}
+
+		if meltQuote.Amount > maxCost {
+			log.Printf("Melting %d to %s costs too much, reducing by 5%: %v", targetAmount, lnurl)
+			meltError = err
+			currentAmount = currentAmount - (currentAmount * 5 / 100) // Reduce by 5%
+			attempts++
+			continue
+		}
+
+		meltResult, meltErr := w.wallet.Melt(meltQuote.Quote)
+
+		if meltErr != nil {
+			log.Printf("Error melting quote %s for %s: %v", meltQuote.Quote, mintUrl, err)
+			meltError = err
+			attempts++
+			continue
+		}
+
+		log.Printf("meltResult: %s", meltResult.State)
+		log.Printf("Successfully melted %d sats with %d sats in fees", currentAmount, meltResult.FeeReserve)
+		return nil
+
+	}
+
+	// If we get here, all attempts failed
+	return fmt.Errorf("failed to melt after %d attempts: %w", attempts, meltError)
 }

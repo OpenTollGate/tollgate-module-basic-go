@@ -102,26 +102,15 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 	tolerancePaymentAmount := aimedPaymentAmount + (aimedPaymentAmount * mintConfig.BalanceTolerancePercent / 100)
 
 	log.Printf("Processing payout for mint %s: aiming for %d sats with %d sats tolerance", mintConfig.URL, aimedPaymentAmount, tolerancePaymentAmount)
-	tokenToMelt, sendErr := m.tollwallet.Send(aimedPaymentAmount+tolerancePaymentAmount, mintConfig.URL, true)
 
-	if sendErr != nil {
-		log.Printf("Error during payou for mint %s. Error taking cashu from wallet. Skipping... %v", mintConfig.URL, sendErr)
-		return
-	}
-
-	changeToken, meltErr := m.tollwallet.MeltToLightning(aimedPaymentAmount, tokenToMelt, mintConfig.PayoutLNURL)
+	maxCost := aimedPaymentAmount + tolerancePaymentAmount
+	meltErr := m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, mintConfig.PayoutLNURL)
 
 	// If melting fails try to return the money to the wallet
 	if meltErr != nil {
 		log.Printf("Error during payout for mint %s. Error melting to lightning. Skipping... %v", mintConfig.URL, meltErr)
-
-		log.Printf("Returning payout for mint to wallet, token: %s", mintConfig.URL)
-		m.tollwallet.Receive(tokenToMelt)
 		return
 	}
-
-	log.Printf("Payout to lightning for %s succesful! Returning %d in change to wallet.", mintConfig.URL)
-	m.tollwallet.Receive(changeToken)
 
 	log.Printf("Payout completed for mint %s", mintConfig.URL)
 }
