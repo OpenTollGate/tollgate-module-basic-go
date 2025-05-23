@@ -165,7 +165,7 @@ func (m *Merchant) PurchaseSession(paymentToken string, macAddress string) (Purc
 	// Convert to seconds for gate opening
 	durationSeconds := int64(allottedMinutes * 60)
 
-	fmt.Printf("Calculated minutes: %d (from value %d, minus fees %d)\n",
+	fmt.Printf("Calculated minutes: %d (from value %d)\n",
 		allottedMinutes, amountAfterSwap)
 
 	// Open gate for the specified duration using the valve module

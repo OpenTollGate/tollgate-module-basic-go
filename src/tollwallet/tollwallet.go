@@ -101,7 +101,6 @@ func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
 
 // MeltToLightning melts a token to a lightning invoice using LNURL
 // It attempts to melt for the target amount, reducing by 5% each time if fees are too high
-// Returns any remaining token as change
 func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
 	log.Printf("Attempting to melt %d sats to LNURL %s with max %d sats", targetAmount, lnurl, maxCost)
 

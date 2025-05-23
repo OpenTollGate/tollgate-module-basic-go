@@ -25,14 +25,14 @@ func TestLoadConfig(t *testing.T) {
 		TollgatePrivateKey: "test_private_key",
 		AcceptedMints: []config_manager.MintConfig{
 			{
-				URL:                     "https://mint.minibits.cash/Bitcoin",
+				Url:                     "https://mint.minibits.cash/Bitcoin",
 				MinBalance:              100,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
 				MinPayoutAmount:         1000,
 			},
 			{
-				URL:                     "https://mint2.nutmix.cash",
+				Url:                     "https://mint2.nutmix.cash",
 				MinBalance:              100,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
