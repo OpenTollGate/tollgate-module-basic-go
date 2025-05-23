@@ -52,6 +52,7 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 }
 
 func (m *Merchant) StartPayoutRoutine() {
+
 	print("StartPayoutRoutine not implemented")
 }
 

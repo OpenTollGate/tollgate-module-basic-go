@@ -26,7 +26,7 @@ var merchantInstance *merchant.Merchant
 
 func init() {
 	var err error
-	// Initialize relay pool for NIP-60 operations
+
 	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
@@ -186,11 +186,6 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if macAddress == "" {
-		log.Println("Missing or invalid device-identifier tag")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
 
 	// Extract payment token from payment tag
 	var paymentToken string
@@ -199,11 +194,6 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 			paymentToken = tag[1]
 			break
 		}
-	}
-	if paymentToken == "" {
-		log.Println("Missing or invalid payment tag")
-		w.WriteHeader(http.StatusBadRequest)
-		return
 	}
 
 	fmt.Printf("Extracted MAC address: %s\n", macAddress)
@@ -214,7 +204,6 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Set response headers and prepare JSON response
 	w.Header().Set("Content-Type", "application/json")
 
-	// Use a switch statement for better readability and maintainability
 	switch purchaseSessionResult.Status {
 	case "success":
 		w.WriteHeader(http.StatusOK)
@@ -237,6 +226,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Error encoding response: %v", err)
 	}
+
+	fmt.Fprint(w, response)
 
 }
 
