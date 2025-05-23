@@ -40,7 +40,6 @@ func compareMintConfigs(a, b []MintConfig) bool {
 			a[i].MinBalance != b[i].MinBalance ||
 			a[i].BalanceTolerancePercent != b[i].BalanceTolerancePercent ||
 			a[i].PayoutIntervalSeconds != b[i].PayoutIntervalSeconds ||
-			a[i].PayoutLNURL != b[i].PayoutLNURL ||
 			a[i].MinPayoutAmount != b[i].MinPayoutAmount {
 			return false
 		}
@@ -87,7 +86,6 @@ func TestConfigManager(t *testing.T) {
 				MinBalance:              100,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
-				PayoutLNURL:             "test_lnurl",
 				MinPayoutAmount:         1000,
 			},
 		},

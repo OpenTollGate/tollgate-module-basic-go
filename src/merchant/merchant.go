@@ -79,12 +79,6 @@ func (m *Merchant) StartPayoutRoutine() {
 
 // processPayout checks balances and processes payouts for each mint
 func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
-	// Skip if no LNURL is configured
-	if mintConfig.PayoutLNURL == "" {
-		log.Printf("Cannot payout %s, no destination LNURL provided.", mintConfig.URL)
-		return
-	}
-
 	// Get current balance
 	// Note: The current implementation only returns total balance, not per mint
 	balance := m.tollwallet.GetBalanceByMint(mintConfig.URL)
@@ -99,11 +93,10 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
 	aimedPaymentAmount := balance - mintConfig.MinBalance
 
-	aimedOperatorShare := uint64(math.Round(float64(aimedPaymentAmount) * 0.70))
-	aimedDeveloperShare := aimedPaymentAmount - aimedOperatorShare
-
-	m.PayoutShare(mintConfig, aimedOperatorShare, mintConfig.PayoutLNURL)
-	m.PayoutShare(mintConfig, aimedDeveloperShare, "tollgate@minibits.cash")
+	for _, profitShare := range m.config.ProfitShare {
+		aimedAmount := uint64(math.Round(float64(aimedPaymentAmount) * profitShare.Factor))
+		m.PayoutShare(mintConfig, aimedAmount, profitShare.LightningAddress)
+	}
 
 	log.Printf("Payout completed for mint %s", mintConfig.URL)
 }

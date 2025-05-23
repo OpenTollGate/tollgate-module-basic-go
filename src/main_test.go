@@ -29,7 +29,6 @@ func TestLoadConfig(t *testing.T) {
 				MinBalance:              100,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
-				PayoutLNURL:             "",
 				MinPayoutAmount:         1000,
 			},
 			{
@@ -37,7 +36,6 @@ func TestLoadConfig(t *testing.T) {
 				MinBalance:              100,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
-				PayoutLNURL:             "",
 				MinPayoutAmount:         1000,
 			},
 		},

@@ -67,8 +67,12 @@ type MintConfig struct {
 	MinBalance              uint64 `json:"min_balance"`
 	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
 	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
-	PayoutLNURL             string `json:"payout_lnurl"`
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+}
+
+type ProfitShareConfig struct {
+	Factor           float64 `json:"factor"`
+	LightningAddress string  `json:"lightning_address"`
 }
 
 // Config holds the configuration parameters
@@ -79,14 +83,15 @@ type PackageInfo struct {
 }
 
 type Config struct {
-	TollgatePrivateKey    string         `json:"tollgate_private_key"`
-	AcceptedMints         []MintConfig   `json:"accepted_mints"`
-	PricePerMinute        uint64         `json:"price_per_minute"`
-	Bragging              BraggingConfig `json:"bragging"`
-	Relays                []string       `json:"relays"`
-	TrustedMaintainers    []string       `json:"trusted_maintainers"`
-	ShowSetup             bool           `json:"show_setup"`
-	CurrentInstallationID string         `json:"current_installation_id"`
+	TollgatePrivateKey    string              `json:"tollgate_private_key"`
+	AcceptedMints         []MintConfig        `json:"accepted_mints"`
+	ProfitShare           []ProfitShareConfig `json:"profit_share"`
+	PricePerMinute        uint64              `json:"price_per_minute"`
+	Bragging              BraggingConfig      `json:"bragging"`
+	Relays                []string            `json:"relays"`
+	TrustedMaintainers    []string            `json:"trusted_maintainers"`
+	ShowSetup             bool                `json:"show_setup"`
+	CurrentInstallationID string              `json:"current_installation_id"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -478,7 +483,6 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 					MinBalance:              100,
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
-					PayoutLNURL:             "",
 					MinPayoutAmount:         200,
 				},
 				{
@@ -486,9 +490,12 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 					MinBalance:              100,
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
-					PayoutLNURL:             "",
 					MinPayoutAmount:         200,
 				},
+			},
+			ProfitShare: []ProfitShareConfig{
+				{0.70, "tollgate@minibits.cash"}, // User should change this
+				{0.30, "tollgate@minibits.cash"},
 			},
 			PricePerMinute: 1,
 			Bragging: BraggingConfig{
