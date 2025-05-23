@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -94,25 +95,32 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 		return
 	}
 
-	// Calculate target balance
-
 	// Get the amount we intend to payout to the owner.
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
 	aimedPaymentAmount := balance - mintConfig.MinBalance
+
+	aimedOperatorShare := uint64(math.Round(float64(aimedPaymentAmount) * 0.70))
+	aimedDeveloperShare := aimedPaymentAmount - aimedOperatorShare
+
+	m.PayoutShare(mintConfig, aimedOperatorShare, mintConfig.PayoutLNURL)
+	m.PayoutShare(mintConfig, aimedDeveloperShare, "tollgate@minibits.cash")
+
+	log.Printf("Payout completed for mint %s", mintConfig.URL)
+}
+
+func (m *Merchant) PayoutShare(mintConfig config_manager.MintConfig, aimedPaymentAmount uint64, lightningAddress string) {
 	tolerancePaymentAmount := aimedPaymentAmount + (aimedPaymentAmount * mintConfig.BalanceTolerancePercent / 100)
 
 	log.Printf("Processing payout for mint %s: aiming for %d sats with %d sats tolerance", mintConfig.URL, aimedPaymentAmount, tolerancePaymentAmount)
 
 	maxCost := aimedPaymentAmount + tolerancePaymentAmount
-	meltErr := m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, mintConfig.PayoutLNURL)
+	meltErr := m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, lightningAddress)
 
 	// If melting fails try to return the money to the wallet
 	if meltErr != nil {
 		log.Printf("Error during payout for mint %s. Error melting to lightning. Skipping... %v", mintConfig.URL, meltErr)
 		return
 	}
-
-	log.Printf("Payout completed for mint %s", mintConfig.URL)
 }
 
 type PurchaseSessionResult struct {
