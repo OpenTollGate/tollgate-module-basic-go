@@ -1,0 +1,97 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          basic
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Starts/stops basic service
+# Description:       A basic init script that starts, stops, and checks status
+### END INIT INFO
+
+NAME="basic"
+DAEMON="/home/root/basic"
+PIDFILE="/var/run/$NAME.pid"
+
+start_service() {
+    echo "Starting $NAME..."
+
+    # If a PID file already exists, assume the service (or stale file) is present
+    if [ -f "$PIDFILE" ]; then
+        echo "$NAME is already running or a stale PID file exists."
+        exit 1
+    fi
+
+    # Start the daemon in the background
+    "$DAEMON" &
+    
+    # Wait briefly to let the daemon fully spawn (especially if it forks)
+    sleep 1
+
+    # Grab the PID of the first matching process. Adjust pattern if needed.
+    PID="$(pgrep -f "$DAEMON" | head -n 1)"
+
+    if [ -n "$PID" ]; then
+        echo "$PID" > "$PIDFILE"
+        echo "$NAME started with PID $PID."
+    else
+        echo "Failed to start $NAME. No matching process found."
+    fi
+}
+
+stop_service() {
+    echo "Stopping $NAME..."
+
+    if [ ! -f "$PIDFILE" ]; then
+        echo "$NAME is not running (no PID file)."
+        exit 1
+    fi
+
+    PID="$(cat "$PIDFILE")"
+
+    # Attempt to stop the process
+    if kill "$PID" 2>/dev/null; then
+        rm -f "$PIDFILE"
+        echo "$NAME stopped."
+    else
+        echo "Could not kill process $PID. Removing stale PID file."
+        rm -f "$PIDFILE"
+    fi
+}
+
+status_service() {
+    if [ -f "$PIDFILE" ]; then
+        PID="$(cat "$PIDFILE")"
+        # Check whether that PID is still running and matches our daemon
+        if pgrep -f "$DAEMON" | grep -q "^$PID\$"; then
+            echo "$NAME is running with PID $PID."
+        else
+            echo "$NAME is not running, but PID file exists. Removing stale PID file..."
+            rm -f "$PIDFILE"
+        fi
+    else
+        echo "$NAME is not running."
+    fi
+}
+
+case "$1" in
+    start)
+        start_service
+        ;;
+    stop)
+        stop_service
+        ;;
+    status)
+        status_service
+        ;;
+    restart)
+        stop_service
+        start_service
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0
