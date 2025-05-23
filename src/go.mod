@@ -10,6 +10,17 @@ require (
 	github.com/nbd-wtf/go-nostr v0.51.11
 )
 
+replace (
+	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
+	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
+	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
+	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
+	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
+)
+
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
@@ -124,15 +135,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	pgregory.net/rapid v1.2.0 // indirect
-)
-
-replace (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
-	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
-	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
-	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
-	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
-	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
-	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
-	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
 )
