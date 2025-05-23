@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -26,7 +25,10 @@ type Merchant struct {
 func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	log.Printf("=== Merchant Initializing ===")
 
-	config, _ := configManager.LoadConfig()
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
 
 	// Extract mint URLs from MintConfig
 	mintURLs := make([]string, len(config.AcceptedMints))
@@ -38,14 +40,16 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	tollwallet, walletErr := tollwallet.New("/etc/tollgate", mintURLs, false)
 
 	if walletErr != nil {
-		log.Fatalf("Failed to create wallet: %v", walletErr)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
 	}
 	balance := tollwallet.GetBalance()
 
 	// Set advertisement
 	var advertisementStr string
-	advertisementStr, _ = CreateAdvertisement(config)
+	advertisementStr, err = CreateAdvertisement(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create advertisement: %w", err)
+	}
 
 	log.Printf("Accepted Mints: %v", config.AcceptedMints)
 	log.Printf("Wallet Balance: %d", balance)
@@ -64,14 +68,14 @@ func (m *Merchant) StartPayoutRoutine() {
 
 	// Create timer for each mint
 	for _, mint := range m.config.AcceptedMints {
-		go func() {
+		go func(mintConfig config_manager.MintConfig) {
 			ticker := time.NewTicker(1 * time.Minute)
 			defer ticker.Stop()
 
 			for range ticker.C {
-				m.processPayout(mint)
+				m.processPayout(mintConfig)
 			}
-		}()
+		}(mint)
 	}
 
 	log.Printf("Payout routine started")
@@ -145,14 +149,14 @@ func (m *Merchant) PurchaseSession(paymentToken string, macAddress string) (Purc
 
 	// TODO: distinguish between rejection and errors
 	if err != nil {
-		fmt.Printf("Error Processing payment. %s", err)
+		log.Printf("Error Processing payment. %s", err)
 		return PurchaseSessionResult{
 			Status:      "error",
 			Description: fmt.Sprintf("Error Processing payment"),
 		}, nil
 	}
 
-	print(amountAfterSwap)
+	log.Printf("Amount after swap: %d", amountAfterSwap)
 
 	// Calculate minutes based on the net value
 	// TODO: Update frontend to show the correct duration after fees
@@ -165,7 +169,7 @@ func (m *Merchant) PurchaseSession(paymentToken string, macAddress string) (Purc
 	// Convert to seconds for gate opening
 	durationSeconds := int64(allottedMinutes * 60)
 
-	fmt.Printf("Calculated minutes: %d (from value %d)\n",
+	log.Printf("Calculated minutes: %d (from value %d)",
 		allottedMinutes, amountAfterSwap)
 
 	// Open gate for the specified duration using the valve module
@@ -188,7 +192,7 @@ func (m *Merchant) PurchaseSession(paymentToken string, macAddress string) (Purc
 		// }
 	}
 
-	fmt.Printf("Access granted to %s for %d minutes\n", macAddress, allottedMinutes)
+	log.Printf("Access granted to %s for %d minutes", macAddress, allottedMinutes)
 
 	return PurchaseSessionResult{
 		Status:      "success",
@@ -224,7 +228,7 @@ func CreateAdvertisement(config *config_manager.Config) (string, error) {
 	// Create a separate tag for each accepted mint
 	for mint, minPayment := range mintMinPayments {
 		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
-		fmt.Printf("TODO: include min payment (%d) for %s in future\n", minPayment, mint)
+		log.Printf("TODO: include min payment (%d) for %s in future", minPayment, mint)
 		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
 		tags = append(tags, nostr.Tag{"mint", mint})
 	}

@@ -3,7 +3,6 @@ package tollwallet
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/elnosh/gonuts/cashu"
@@ -24,8 +23,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	// TODO: Copy approach from alby: https://github.com/getAlby/hub/blob/158d4a2539307bda289149792c3748d44c9fed37/lnclient/cashu/cashu.go#L46
 
 	if len(acceptedMints) < 1 {
-		fmt.Errorf("FATAL: Wallet requires at least 1 accepted mint, none were provided")
-		os.Exit(1)
+		return nil, fmt.Errorf("No mints provided. Wallet requires at least 1 accepted mint, none were provided")
 	}
 
 	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
@@ -92,11 +90,14 @@ func (w *TollWallet) GetBalance() uint64 {
 	return balance
 }
 
-// GetBalance returns the current balance of the wallet
+// GetBalanceByMint returns the balance of a specific mint in the wallet
 func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
 	balanceByMints := w.wallet.GetBalanceByMints()
 
-	return balanceByMints[mintUrl]
+	if balance, exists := balanceByMints[mintUrl]; exists {
+		return balance
+	}
+	return 0
 }
 
 // MeltToLightning melts a token to a lightning invoice using LNURL
@@ -125,18 +126,18 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 		}
 
 		// Try to pay the invoice using the wallet
-		meltQuote, err := w.wallet.RequestMeltQuote(invoice, mintUrl)
+		meltQuote, meltQuoteErr := w.wallet.RequestMeltQuote(invoice, mintUrl)
 
-		if err != nil {
-			log.Printf("Error requesting melt quote for %s: %v", mintUrl, err)
-			meltError = err
+		if meltQuoteErr != nil {
+			log.Printf("Error requesting melt quote for %s: %v", mintUrl, meltQuoteErr)
+			meltError = meltQuoteErr
 			attempts++
 			continue
 		}
 
 		if meltQuote.Amount > maxCost {
-			log.Printf("Melting %d to %s costs too much, reducing by 5%: %v", targetAmount, lnurl)
-			meltError = err
+			log.Printf("Melting %d to %s costs too much, reducing by 5%%", targetAmount, lnurl)
+			meltError = fmt.Errorf("melt cost exceeds maximum allowed: %d > %d", meltQuote.Amount, maxCost)
 			currentAmount = currentAmount - (currentAmount * 5 / 100) // Reduce by 5%
 			attempts++
 			continue
@@ -145,8 +146,8 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 		meltResult, meltErr := w.wallet.Melt(meltQuote.Quote)
 
 		if meltErr != nil {
-			log.Printf("Error melting quote %s for %s: %v", meltQuote.Quote, mintUrl, err)
-			meltError = err
+			log.Printf("Error melting quote %s for %s: %v", meltQuote.Quote, mintUrl, meltErr)
+			meltError = meltErr
 			attempts++
 			continue
 		}

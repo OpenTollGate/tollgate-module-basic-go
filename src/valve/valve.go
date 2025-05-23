@@ -2,6 +2,7 @@ package valve
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ func OpenGate(macAddress string, durationSeconds int64) error {
 		durationMinutes = 1
 	}
 
-	fmt.Printf("Opening gate for %s for the duration of %d minute(s)\n", macAddress, durationMinutes)
+	log.Printf("Opening gate for %s for the duration of %d minute(s)", macAddress, durationMinutes)
 
 	// Check if there's already a timer for this MAC address
 	timerMutex.Lock()
@@ -35,9 +36,9 @@ func OpenGate(macAddress string, durationSeconds int64) error {
 		if err != nil {
 			return fmt.Errorf("error authorizing MAC: %w", err)
 		}
-		fmt.Printf("New authorization for MAC %s\n", macAddress)
+		log.Printf("New authorization for MAC %s", macAddress)
 	} else {
-		fmt.Printf("Extending access for already authorized MAC %s\n", macAddress)
+		log.Printf("Extending access for already authorized MAC %s", macAddress)
 	}
 
 	// Cancel any existing timers for this MAC address
@@ -48,9 +49,9 @@ func OpenGate(macAddress string, durationSeconds int64) error {
 	timer := time.AfterFunc(duration, func() {
 		err := deauthorizeMAC(macAddress)
 		if err != nil {
-			fmt.Printf("Error deauthorizing MAC %s after timeout: %v\n", macAddress, err)
+			log.Printf("Error deauthorizing MAC %s after timeout: %v", macAddress, err)
 		} else {
-			fmt.Printf("Successfully deauthorized MAC %s after timeout of %d minutes\n", macAddress, durationMinutes)
+			log.Printf("Successfully deauthorized MAC %s after timeout of %d minutes", macAddress, durationMinutes)
 		}
 
 		// Remove the timer from the map once it's executed
@@ -75,7 +76,7 @@ func cancelExistingTimer(macAddress string) {
 	if timer, exists := activeTimers[macAddress]; exists {
 		timer.Stop()
 		delete(activeTimers, macAddress)
-		fmt.Printf("Canceled existing timer for MAC %s\n", macAddress)
+		log.Printf("Canceled existing timer for MAC %s", macAddress)
 	}
 }
 
@@ -84,11 +85,11 @@ func authorizeMAC(macAddress string) error {
 	cmd := exec.Command("ndsctl", "auth", macAddress)
 	output, err := cmd.Output()
 	if err != nil {
-		fmt.Printf("Error authorizing MAC address %s: %v\n", macAddress, err)
+		log.Printf("Error authorizing MAC address %s: %v", macAddress, err)
 		return err
 	}
 
-	fmt.Printf("Authorization successful for MAC %s: %s\n", macAddress, string(output))
+	log.Printf("Authorization successful for MAC %s: %s", macAddress, string(output))
 	return nil
 }
 
@@ -97,11 +98,11 @@ func deauthorizeMAC(macAddress string) error {
 	cmd := exec.Command("ndsctl", "deauth", macAddress)
 	output, err := cmd.Output()
 	if err != nil {
-		fmt.Printf("Error deauthorizing MAC address %s: %v\n", macAddress, err)
+		log.Printf("Error deauthorizing MAC address %s: %v", macAddress, err)
 		return err
 	}
 
-	fmt.Printf("Deauthorization successful for MAC %s: %s\n", macAddress, string(output))
+	log.Printf("Deauthorization successful for MAC %s: %s", macAddress, string(output))
 	return nil
 }
 

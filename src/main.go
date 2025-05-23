@@ -136,7 +136,7 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
-	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
+	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -196,8 +196,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Printf("Extracted MAC address: %s\n", macAddress)
-	fmt.Printf("Extracted payment token: %s\n", paymentToken)
+	log.Printf("Extracted MAC address: %s", macAddress)
+	log.Printf("Extracted payment token: %s", paymentToken)
 
 	purchaseSessionResult, err := merchantInstance.PurchaseSession(paymentToken, macAddress)
 
@@ -253,7 +253,7 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 		return err
 	}
 
-	fmt.Printf("Successfully announced payment for MAC %s\n", macAddress)
+	log.Printf("Successfully announced payment for MAC %s", macAddress)
 	return nil
 }
 
@@ -267,7 +267,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
+	log.Printf("Received %s request from %s to %s", r.Method, getIP(r), r.URL.Path)
 }
 
 func main() {
