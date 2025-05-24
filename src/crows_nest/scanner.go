@@ -26,9 +26,11 @@ type NetworkInfo struct {
 
 // ScanNetworks scans for available Wi-Fi networks.
 func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
+	s.log.Println("[crows_nest] Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
 	interfaceName, err := getInterfaceName()
 	if err != nil {
+		s.log.Printf("[crows_nest] ERROR: Failed to get interface name: %v", err)
 		return nil, err
 	}
 
@@ -41,10 +43,15 @@ func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
 		s.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v, stderr: %s", err, stderr.String())
 		return nil, err
 	}
+	s.log.Printf("[crows_nest] Successfully scanned %d networks", len(networks))
+	}
 
 	networks, err := parseScanOutput(stdout.Bytes())
 	if err != nil {
 		s.log.Printf("[crows_nest] ERROR: Failed to parse scan output: %v", err)
+		return nil, err
+	}
+	s.log.Printf("[crows_nest] Parsed scan output into %d NetworkInfo structures", len(networks))
 		return nil, err
 	}
 

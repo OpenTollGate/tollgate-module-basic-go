@@ -70,6 +70,7 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+	gm.log.Println("[crows_nest] Starting network scan for gateway selection")
 	networks, err := gm.scanner.ScanNetworks()
 	if err != nil {
 		gm.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v", err)
@@ -79,10 +80,12 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 
+	gm.log.Printf("[crows_nest] Processing %d networks for gateway selection", len(networks))
 	gm.availableGateways = make(map[string]Gateway)
 	for _, network := range networks {
 		vendorElements, score, err := gm.vendorProcessor.ExtractAndScore(network)
 		if err != nil {
+			gm.log.Printf("[crows_nest] WARN: Failed to extract vendor elements for %s: %v", network.BSSID, err)
 			gm.log.Printf("[crows_nest] WARN: Failed to extract vendor elements for %s: %v", network.BSSID, err)
 			continue
 		}
@@ -98,6 +101,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 
 		gm.availableGateways[network.BSSID] = gateway
 	}
+	gm.log.Printf("[crows_nest] Identified %d available gateways", len(gm.availableGateways))
 }
 
 func convertToStringMap(m map[string]interface{}) map[string]string {
