@@ -194,19 +194,25 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 		PublicPool: publicPool,
 		LocalPool:  localPool,
 	}
+	return cm, nil
+}
+
+// EnsureInitializedConfig ensures a default configuration and install configuration exist.
+// This function will be called explicitly where needed, not during NewConfigManager if possible in test code.
+func (cm *ConfigManager) EnsureInitializedConfig() error {
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	_, err = cm.EnsureDefaultInstall()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return cm, nil
+	return nil
 }
 
 func getIPAddress() {

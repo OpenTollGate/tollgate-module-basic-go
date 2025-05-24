@@ -23,6 +23,7 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
+var gatewayManager *crows_nest.GatewayManager
 var merchantInstance *merchant.Merchant
 
 // getConfigPath returns the configuration file path, checking environment variable first, then default
