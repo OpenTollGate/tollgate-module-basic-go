@@ -43,17 +43,15 @@ func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
 		s.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v, stderr: %s", err, stderr.String())
 		return nil, err
 	}
-	s.log.Printf("[crows_nest] Successfully scanned %d networks", len(networks))
-	}
 
+	s.log.Printf("[crows_nest] Successfully scanned networks")
+	
 	networks, err := parseScanOutput(stdout.Bytes())
 	if err != nil {
 		s.log.Printf("[crows_nest] ERROR: Failed to parse scan output: %v", err)
 		return nil, err
 	}
 	s.log.Printf("[crows_nest] Parsed scan output into %d NetworkInfo structures", len(networks))
-		return nil, err
-	}
 
 	return networks, nil
 }
