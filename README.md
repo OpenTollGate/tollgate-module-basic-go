@@ -1,94 +1,118 @@
-# Tollgate Module - tip01 (go)
+# TollGate - OpenWRT Router Payment Gateway
 
-This Tollgate module is a payment gateway that allows users to pay for internet access using Cashu tokens. It provides an HTTP server that handles payments and manages access control.
+![tollgate-logo](docs/TollGate_Logo-C-black.png)
 
-## Design Documents
+TollGate transforms your OpenWRT router into a payment gateway for selling internet access using Cashu payments. This implementation follows the TollGate protocol, allowing users to pay for internet time using satoshis (sats).
 
-The following design documents are available for the various components of this module:
+## Core Technologies
+- Cashu - [cashu.space](https://cashu.space)
+- Nostr - [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md)
+- Bitcoin Lightning
 
-* [src/config_manager/HLDD.md](src/config_manager/HLDD.md)
-* [src/config_manager/LLDD.md](src/config_manager/LLDD.md)
-* [src/janitor/HLDD.md](src/janitor/HLDD.md)
-* [src/janitor/LLDD.md](src/janitor/LLDD.md)
-* [src/HLDD.md](src/HLDD.md)
-* [src/LLDD.md](src/LLDD.md)
-* [src/integrating_modules.md](src/integrating_modules.md)
+## Features
 
-# Compile for ATH79 (GL-AR300 NOR)
+- **Base Implementation to Sell Sats**: Core functionality to accept payments for internet access
+- **Lightning Integration**: Get paid out automatically over Lightning to your configured address
+- **Auto-Update System**: Janitor module keeps your TollGate up-to-date with the latest features
+- **Cashu Token Support**: Accept Cashu tokens as payment method
+- **Configurable Pricing**: Set your own rates for internet access
+- **Profit Sharing**: Configure multiple Lightning addresses with different percentage splits
+- **Bragging**: Optionally post about purchases on Nostr relays
 
-```bash
-cd ./src
-env GOOS=linux GOARCH=mips GOMIPS=softfloat go build -o tip01 -trimpath -ldflags="-s -w"
+## Modules
 
-# Hint: copy to connected router 
-scp -O tip01 root@192.168.8.1:/tmp/tip01
+TollGate is built with a modular architecture, making it extensible and maintainable:
+
+### Merchant Module
+
+The financial brain of TollGate. This module:
+- Handles payment processing
+- Manages pricing and conversions
+- Calculates internet time based on payment amount
+- Schedules and processes Lightning payouts
+- Creates network advertisements
+
+### Valve Module
+
+Controls access to your network. This module:
+- Opens and closes network access using ndsctl
+- Authorizes and deauthorizes MAC addresses
+- Manages access timers
+
+### Janitor Module
+
+Keeps your TollGate up-to-date. This module:
+- Listens for update events via Nostr
+- Downloads and verifies updated packages
+- Handles architecture-specific updates
+
+### Bragging Module
+
+(Optional) Posts about successful payments. This module:
+- Announces payments on Nostr relays
+- Configurable fields to include (amount, duration, etc.)
+- Uses your TollGate's identity for signing
+
+### Other Supporting Modules
+
+- **Config Manager**: Handles configuration file operations
+- **Lightning**: Interfaces with Lightning Network for invoices
+- **TollWallet**: Manages Cashu token operations
+- **Utils**: Provides common utility functions
+
+## Configuration
+
+Configure TollGate by editing the `/etc/tollgate/config.json` file:
+
+```json
+{
+  "tollgate_private_key": "YOUR_PRIVATE_KEY",
+  "accepted_mints": [
+    {
+      "url": "https://mint.example.com/Bitcoin",
+      "min_balance": 100,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 3600,
+      "min_payout_amount": 1000
+    }
+  ],
+  "profit_share": [
+    {
+      "factor": 0.7,
+      "lightning_address": "your-address@lightning.provider"
+    },
+    {
+      "factor": 0.3,
+      "lightning_address": "tollgate@minibits.cash"
+    }
+  ],
+  "price_per_minute": 1,
+  "bragging": {
+    "enabled": true,
+    "fields": ["amount", "duration"]
+  }
+}
 ```
 
-# Compile for GL-MT3000
+**Important configuration fields:**
+- `tollgate_private_key`: Used for signing Nostr events
+- `accepted_mints`: List of Cashu mints you accept tokens from
+- `profit_share`: Configure Lightning addresses for payouts and their percentages
+- `price_per_minute`: Base rate for internet access
+- `bragging`: Enable/disable payment announcements
 
-## Build
+## Documentation
 
-```bash
-cd ./src
-env GOOS=linux GOARCH=arm64 go build -o tollgate-basic -trimpath -ldflags="-s -w"
+For more detailed information about TollGate modules and usage:
 
-# Hint: copy to connected router 
-scp -O tollgate-basic root@192.168.1.1:/usr/bin/tollgate-basic 
-```
-
-## Required Firewall rules 
-
-First, test if the tip01 is up by going to your router's ip on port `2122`. You should get a JSON response with your IP and mac address.
-
-Add to `/etc/config/firewall`:
-```uci
-config rule
-	option name 'Allow-tip01-In'
-	option src 'lan'
-	option proto 'tcp'
-	option dest_port '2122' # tip01 port
-	option target 'ACCEPT'
-
-config redirect
-	option name 'TollGate - Nostr tip01 DNAT'
-	option src 'lan'
-	option dest 'lan'
-	option proto 'tcp'
-	option src_dip '192.168.21.21'
-	option src_dport '2121'
-	option dest_ip '192.168.X.X' # Router IP
-	option dest_port '2122' # tip01 port
-	option target 'DNAT'
-
-config redirect
-        option name 'TollGate - Nostr tip01 DNAT port'
-        option src 'lan'
-        option dest 'lan'
-        option proto 'tcp'
-        option src_dip '192.168.X.X' # Router IP
-        option src_dport '2121'
-        option dest_ip '192.168.X.X' # Router IP
-        option dest_port '2122' # tip01 port
-        option target 'DNAT'
-```
-
-Run `service firewall restart` to make changes go into effect.
-
-To test the firewall rule, go to `192.168.21.21:2122`. You should be greeted with the same JSON.
-
-## OpenNDS rules
-**Prerequisite: OpenNDS is installed**
-
-To allow unauthenticated clients to reach the tip01, we need to explicitly allow access.
-
-Add to `/etc/config/opennds` under `config opennds`:
-```uci
-config opennds
-    list users_to_router 'allow tcp port 2122' # tip01 port
-    list preauthenticated_users 'allow tcp port 2122 to 192.168.21.21'
-```
-
-Run `service opennds restart` to make changes go into effect.
+- [High-Level Design Document](src/HLDD.md)
+- [Low-Level Design Document](src/LLDD.md)
+- [Module Integration Guide](src/integrating_modules.md)
+- [TollGate Configuration Manager HLDD](src/config_manager/HLDD.md)
+- [TollGate Configuration Manager LLDD](src/config_manager/LLDD.md)
+- [Janitor Module HLDD](src/janitor/HLDD.md)
+- [Janitor Module LLDD](src/janitor/LLDD.md)
 
 ## License
+
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
