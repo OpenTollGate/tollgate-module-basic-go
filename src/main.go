@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
 	"github.com/nbd-wtf/go-nostr"
@@ -22,6 +24,7 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
+var gatewayManager *crows_nest.GatewayManager
 
 func init() {
 	var err error
@@ -105,6 +108,11 @@ func init() {
 
 	// Initialize janitor module
 	initJanitor()
+
+	gatewayManager, err = crows_nest.Init(context.Background(), log.New(os.Stdout, "crows_nest: ", log.LstdFlags))
+	if err != nil {
+		log.Fatalf("Failed to initialize GatewayManager: %v", err)
+	}
 }
 
 func initJanitor() {

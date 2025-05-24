@@ -9,7 +9,7 @@ import (
 
 func TestDecodeCashuToken(t *testing.T) {
 	token := "invalid_token"
-	_, err := decodeCashuToken(token)
+	_, _, err := DecodeCashuToken(token)
 	if err == nil {
 		t.Errorf("decodeCashuToken should fail for invalid token")
 	}
