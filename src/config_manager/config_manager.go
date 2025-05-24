@@ -50,7 +50,7 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 			return event, nil
 		}
 	}
-	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file.. 
+	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file..
 	cm.SaveConfig(config)
 	return nil, fmt.Errorf("NIP-94 event not found with ID %s", eventID)
 }
@@ -61,6 +61,20 @@ type BraggingConfig struct {
 	Fields  []string `json:"fields"`
 }
 
+// MintConfig holds configuration for a specific mint including payout settings
+type MintConfig struct {
+	URL                     string `json:"url"`
+	MinBalance              uint64 `json:"min_balance"`
+	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
+	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
+	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+}
+
+type ProfitShareConfig struct {
+	Factor           float64 `json:"factor"`
+	LightningAddress string  `json:"lightning_address"`
+}
+
 // Config holds the configuration parameters
 type PackageInfo struct {
 	Version        string
@@ -69,14 +83,15 @@ type PackageInfo struct {
 }
 
 type Config struct {
-	TollgatePrivateKey    string         `json:"tollgate_private_key"`
-	AcceptedMints         []string       `json:"accepted_mints"`
-	PricePerMinute        int            `json:"price_per_minute"`
-	Bragging              BraggingConfig `json:"bragging"`
-	Relays                []string       `json:"relays"`
-	TrustedMaintainers    []string       `json:"trusted_maintainers"`
-	ShowSetup             bool           `json:"show_setup"`
-	CurrentInstallationID string         `json:"current_installation_id"`
+	TollgatePrivateKey    string              `json:"tollgate_private_key"`
+	AcceptedMints         []MintConfig        `json:"accepted_mints"`
+	ProfitShare           []ProfitShareConfig `json:"profit_share"`
+	PricePerMinute        uint64              `json:"price_per_minute"`
+	Bragging              BraggingConfig      `json:"bragging"`
+	Relays                []string            `json:"relays"`
+	TrustedMaintainers    []string            `json:"trusted_maintainers"`
+	ShowSetup             bool                `json:"show_setup"`
+	CurrentInstallationID string              `json:"current_installation_id"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -265,13 +280,13 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 
 // getMintFee retrieves the mint fee for a given mint URL
 // TODO: Run this every time rather than storing the information in a config file.
-func GetMintFee(mintURL string) (int, error) {
+func GetMintFee(mintURL string) (uint64, error) {
 	// Stub implementation: return a default mint fee
 	return 0, nil
 }
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
-func CalculateMinPayment(mintFee int) int {
+func CalculateMinPayment(mintFee uint64) uint64 {
 	// Stub implementation: return the mint fee as the minimum payment
 	return 2*mintFee + 1
 }
@@ -462,8 +477,27 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 
 		defaultConfig := &Config{
 			TollgatePrivateKey: privateKey,
-			AcceptedMints:      []string{"https://mint.minibits.cash/Bitcoin", "https://mint2.nutmix.cash"},
-			PricePerMinute:     1,
+			AcceptedMints: []MintConfig{
+				{
+					URL:                     "https://mint.minibits.cash/Bitcoin",
+					MinBalance:              100,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					MinPayoutAmount:         200,
+				},
+				{
+					URL:                     "https://mint2.nutmix.cash",
+					MinBalance:              100,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					MinPayoutAmount:         200,
+				},
+			},
+			ProfitShare: []ProfitShareConfig{
+				{0.70, "tollgate@minibits.cash"}, // User should change this
+				{0.30, "tollgate@minibits.cash"},
+			},
+			PricePerMinute: 1,
 			Bragging: BraggingConfig{
 				Enabled: true,
 				Fields:  []string{"amount", "mint", "duration"},

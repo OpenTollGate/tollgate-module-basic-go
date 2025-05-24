@@ -3,10 +3,11 @@ package bragging
 import (
 	"context"
 	"fmt"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/nbd-wtf/go-nostr"
 	"log"
 	"strings"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/nbd-wtf/go-nostr"
 )
 
 func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, amount int64, durationSeconds int64) error {
@@ -15,7 +16,6 @@ func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, amou
 		return err
 	}
 	privateKey := config.TollgatePrivateKey
-
 
 	event := nostr.Event{
 		Kind:      1,
@@ -31,8 +31,8 @@ func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, amou
 			event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
 			content += fmt.Sprintf("Amount: %d sats,\n", amount)
 		case "mint":
-			event.Tags = append(event.Tags, nostr.Tag{"mint", config.AcceptedMints[0]})
-			content += fmt.Sprintf("Mint: %s,\n", config.AcceptedMints[0])
+			event.Tags = append(event.Tags, nostr.Tag{"mint", config.AcceptedMints[0].URL})
+			content += fmt.Sprintf("Mint: %s,\n", config.AcceptedMints[0].URL)
 		case "duration":
 			event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
 			content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
