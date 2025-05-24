@@ -7,7 +7,6 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250522085419-17692bf154f8
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0-00010101000000-000000000000
-	github.com/digineo/go-uci v0.0.0-20210918132103-37c7b10c14fa
 	github.com/nbd-wtf/go-nostr v0.51.11
 )
 
