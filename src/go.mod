@@ -52,4 +52,5 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
 	github.com/OpenTollGate/tollgate-module-basic-go/src/modules => ./modules
 	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest => ./crows_nest
 )
