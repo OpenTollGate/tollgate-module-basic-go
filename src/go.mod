@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging v0.0.0-20250522085419-17692bf154f8
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250522085419-17692bf154f8
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0-20250526110008-c13aa6acd08e
 	github.com/nbd-wtf/go-nostr v0.51.11
@@ -13,6 +14,7 @@ require (
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest => ./crows_nest
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/nbd-wtf/go-nostr"
@@ -22,11 +24,11 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
+var gatewayManager *crows_nest.GatewayManager
 var merchantInstance *merchant.Merchant
 
 func init() {
 	var err error
-
 	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
@@ -69,6 +71,11 @@ func init() {
 
 	// Initialize janitor module
 	initJanitor()
+
+	gatewayManager, err = crows_nest.Init(context.Background(), log.New(os.Stdout, "crows_nest: ", log.LstdFlags))
+	if err != nil {
+		log.Fatalf("Failed to initialize GatewayManager: %v", err)
+	}
 }
 
 func initJanitor() {
@@ -186,6 +193,12 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	if macAddress == "" {
+		// Keep this for now since its related to an error that users are reporting
+		log.Println("Missing or invalid device-identifier tag")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	// Extract payment token from payment tag
 	var paymentToken string
@@ -194,6 +207,11 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 			paymentToken = tag[1]
 			break
 		}
+	}
+	if paymentToken == "" {
+		log.Println("Missing or invalid payment tag")
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	log.Printf("Extracted MAC address: %s", macAddress)
