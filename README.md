@@ -105,14 +105,17 @@ Configure TollGate by editing the `/etc/tollgate/config.json` file:
 
 For more detailed information about TollGate modules and usage:
 
-- [High-Level Design Document](src/HLDD.md)
-- [Low-Level Design Document](src/LLDD.md)
-- [Module Integration Guide](src/integrating_modules.md)
-- [TollGate Configuration Manager HLDD](src/config_manager/HLDD.md)
-- [TollGate Configuration Manager LLDD](src/config_manager/LLDD.md)
-- [Janitor Module HLDD](src/janitor/HLDD.md)
-- [Janitor Module LLDD](src/janitor/LLDD.md)
+- Main project
+	- [HLDD](src/HLDD.md)
+	- [LLDD](src/LLDD.md)
+- Configuration Manager
+	- [HLDD](src/config_manager/HLDD.md)
+	- [LLDD](src/config_manager/LLDD.md)
+- Janitor
+	- [HLDD](src/janitor/HLDD.md)
+	- [LLDD](src/janitor/LLDD.md)
 
+You can find the [Module Integration Guide](src/integrating_modules.md) here.
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
