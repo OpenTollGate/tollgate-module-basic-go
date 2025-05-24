@@ -228,7 +228,6 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, response)
-
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {

@@ -25,6 +25,7 @@ The code is structured into several functions:
 - `initJanitor()`: Initializes the janitor module
 - `handleRoot()`: Handles HTTP requests to the root endpoint
 - `handleRootPost()`: Handles POST requests to the root endpoint
+- `handleStatus()`: Returns the remaining time for a client
 - `announceSuccessfulPayment()`: Announces successful payments via Nostr
 - `main()`: The entry point of the application
 
@@ -43,6 +44,21 @@ The code is structured into several functions:
 - Decodes the Cashu token and verifies its value
 - Processes and swaps the token for fresh proofs
 - Opens the gate for the specified duration using the valve module
+- Returns a 200 OK response with a JSON Nostr event containing:
+  - Granted time in seconds
+  - Expiry timestamp
+  - Access status
+  - Payment details (amount, fees)
+
+### handleStatus()
+
+- Handles GET requests to the `/status` endpoint
+- Automatically identifies the client's MAC address
+- Queries the valve module to retrieve the remaining time for the MAC address
+- Returns a 404 Not Found status if the MAC address has no active timer
+- Returns a 200 OK status with a JSON Nostr event containing:
+  - Expiry timestamp (Unix timestamp)
+  - Access status (via the `status` tag)
 
 ### announceSuccessfulPayment()
 
@@ -52,11 +68,22 @@ The code is structured into several functions:
 ## Error Handling
 
 - Errors are handled using log statements and HTTP status codes
+- For the status endpoint, returns 404 when the MAC address has no active timer
+- For the payment endpoint, returns appropriate error codes for invalid payments
 
 ## Testing
 
 - Unit tests should be written to ensure the correct functionality of the `main.go` file
+- Tests should cover both the payment processing and status checking functionality
 
 ## Centralized Rate Limiting for relayPool
 
 To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.
+
+## Implementation Tasks
+
+1. Modify the payment success response in `handleRootPost()` to return a structured JSON Nostr event
+2. Create a new HTTP handler function `handleStatus()` for the `/status` endpoint
+3. Implement MAC address detection in the status handler
+4. Add a function in the valve module to get remaining time for a MAC address
+5. Update the HTTP server routing to include the new status endpoint
