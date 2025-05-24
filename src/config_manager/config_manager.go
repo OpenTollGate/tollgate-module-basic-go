@@ -50,7 +50,7 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 			return event, nil
 		}
 	}
-	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file.. 
+	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file..
 	cm.SaveConfig(config)
 	return nil, fmt.Errorf("NIP-94 event not found with ID %s", eventID)
 }
@@ -171,19 +171,25 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 		FilePath:  filePath,
 		RelayPool: relayPool,
 	}
+	return cm, nil
+}
+
+// EnsureInitializedConfig ensures a default configuration and install configuration exist.
+// This function will be called explicitly where needed, not during NewConfigManager if possible in test code.
+func (cm *ConfigManager) EnsureInitializedConfig() error {
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	_, err = cm.EnsureDefaultInstall()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return cm, nil
+	return nil
 }
 
 func getIPAddress() {
