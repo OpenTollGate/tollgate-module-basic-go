@@ -78,7 +78,7 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 
 	hexVendorIE := hex.EncodeToString(vendorIE)
 	cmd := fmt.Sprintf("set wireless.default_radio0.ie='%s'", hexVendorIE)
-	err = v.connector.ExecuteUCI(cmd)
+	_, err = v.connector.ExecuteUCI(cmd)
 	if err != nil {
 		return err
 	}
@@ -88,12 +88,7 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 
 func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, error) {
 	cmd := "get wireless.default_radio0.ie"
-	err := v.connector.ExecuteUCI(cmd)
-	if err != nil {
-		return nil, err
-	}
-
-	output, err := v.getUCIOutput(cmd)
+	output, err := v.connector.ExecuteUCI(cmd)
 	if err != nil {
 		return nil, err
 	}

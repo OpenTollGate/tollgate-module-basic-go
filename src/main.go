@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -108,7 +109,6 @@ func init() {
 	// Initialize janitor module
 	initJanitor()
 
-	var err error
 	gatewayManager, err = crows_nest.Init(context.Background(), log.New(os.Stdout, "crows_nest: ", log.LstdFlags))
 	if err != nil {
 		log.Fatalf("Failed to initialize GatewayManager: %v", err)

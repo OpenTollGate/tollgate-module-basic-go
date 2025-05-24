@@ -15,46 +15,46 @@ type Connector struct {
 // Connect configures the network to connect to the specified gateway.
 func (c *Connector) Connect(gateway Gateway) error {
 	// Configure network.wwan (STA interface) with DHCP
-	if err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
+	if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "network.wwan.proto='dhcp'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "network.wwan.proto='dhcp'"); err != nil {
 		return err
 	}
 
 	// Disable existing wlan0 AP, configure wireless.wifinetX for STA mode
-	if err := c.ExecuteUCI("set", "wireless.wifinet0=wifi-iface"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0=wifi-iface"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.device='radio0'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.device='radio0'"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.mode='sta'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.mode='sta'"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.network='wwan'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.network='wwan'"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.ssid='"+gateway.SSID+"'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.ssid='"+gateway.SSID+"'"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.bssid='"+gateway.BSSID+"'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.bssid='"+gateway.BSSID+"'"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.encryption='psk2'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.encryption='psk2'"); err != nil {
 		return err
 	}
 	// Assuming password is stored securely elsewhere and passed here
 	password := "your_password_here"
-	if err := c.ExecuteUCI("set", "wireless.wifinet0.key='"+password+"'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.key='"+password+"'"); err != nil {
 		return err
 	}
 
 	// Commit changes and restart network
-	if err := c.ExecuteUCI("commit", "network"); err != nil {
+	if _, err := c.ExecuteUCI("commit", "network"); err != nil {
 		return err
 	}
-	if err := c.ExecuteUCI("commit", "wireless"); err != nil {
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
 	if err := c.restartNetwork(); err != nil {
@@ -65,17 +65,18 @@ func (c *Connector) Connect(gateway Gateway) error {
 }
 
 // ExecuteUCI executes a UCI command.
-func (c *Connector) ExecuteUCI(args ...string) error {
+func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	cmd := exec.Command("uci", args...)
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		c.log.Printf("[crows_nest] ERROR: Failed to execute UCI command: %v, stderr: %s", err, stderr.String())
-		return err
+		return "", err
 	}
 
-	return nil
+	return stdout.String(), nil
 }
 
 func (c *Connector) restartNetwork() error {
