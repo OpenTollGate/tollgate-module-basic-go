@@ -83,6 +83,7 @@ type PackageInfo struct {
 }
 
 type Config struct {
+	ConfigVersion         string              `json:"config_version"`
 	TollgatePrivateKey    string              `json:"tollgate_private_key"`
 	AcceptedMints         []MintConfig        `json:"accepted_mints"`
 	ProfitShare           []ProfitShareConfig `json:"profit_share"`
@@ -476,6 +477,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 
 		defaultConfig := &Config{
+			ConfigVersion:      "v0.0.2",
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
 				{
