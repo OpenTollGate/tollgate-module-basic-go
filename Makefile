@@ -74,14 +74,18 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 
+	# UCI defaults for config migration (runs before 99-tollgate-setup)
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration $(1)/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration
+	
 	# UCI defaults for random LAN IP
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
-	
+
 	# UCI defaults for NoDogSplash files
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-nodogsplash-files $(1)/etc/uci-defaults/
-	
+
 	# Keep only TollGate-specific configs
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/config/firewall-tollgate $(1)/etc/config/
@@ -130,6 +134,7 @@ FILES_$(PKG_NAME) += \
 	/etc/profile \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/99-tollgate-setup \
+	/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration \
 	/etc/uci-defaults/95-random-lan-ip \
 	/etc/nodogsplash/htdocs/*.json \
 	/etc/nodogsplash/htdocs/*.html \

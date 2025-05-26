@@ -1,0 +1,41 @@
+#!/bin/sh
+
+# TollGate configuration migration script
+
+CONFIG_DIR="/etc/tollgate"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+
+# Function to create timestamped backup
+create_backup() {
+    TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+    cp "$1" "$1.backup.$TIMESTAMP"
+}
+
+# Check if migration is needed
+if [ ! -f "$CONFIG_FILE" ] || jq -e '.accepted_mints | type == "object"' "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration is already in new format or doesn't exist. Exiting."
+    exit 0
+fi
+
+# Create backups
+create_backup "$CONFIG_FILE"
+
+# Migrate config.json
+jq '.config_version = "v0.0.2"
+    | .accepted_mints |= map({url: ., min_balance: 100, balance_tolerance_percent: 10, payout_interval_seconds: 60, min_payout_amount: 200})
+    | .profit_share |= [
+        {factor: 0.7, lightning_address: "tollgate@minibits.cash"},
+        {factor: 0.3, lightning_address: "tollgate@minibits.cash"}
+    ]' "$CONFIG_FILE.backup.$TIMESTAMP" > "$CONFIG_FILE"
+
+# Verify migration success
+if [ $? -eq 0 ]; then
+    echo "Configuration migration completed successfully"
+else
+    echo "Error during configuration migration"
+    # Restore backups on failure
+    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+    exit 1
+fi
+
+exit 0
