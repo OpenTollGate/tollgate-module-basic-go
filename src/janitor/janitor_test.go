@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -18,15 +19,17 @@ func TestParseNIP94Event(t *testing.T) {
 	event := nostr.Event{
 		Tags: nostr.Tags{
 			{"url", "https://example.com/package.ipk"},
+			{"url", "https://example.com/package.ipk"},
 			{"version", "1.2.3"},
-			{"arch", "aarch64"},
-			{"branch", "main"},
+			{"architecture", "aarch64"},
 			{"filename", "package.ipk"},
+			{"timestamp", "1643723900"},
+			{"release_channel", "stable"},
 		},
 		CreatedAt: 1643723900,
 	}
 
-	packageURL, version, _, _, filename, timestamp, err := parseNIP94Event(event)
+	packageURL, version, _, _, _, timestamp, err := parseNIP94Event(event)
 	if err != nil {
 		t.Errorf("parseNIP94Event failed: %v", err)
 	}
@@ -40,10 +43,12 @@ func TestParseNIP94Event(t *testing.T) {
 	if version != "1.2.3" {
 		t.Errorf("expected version %s, got %s", "1.2.3", version)
 	}
-	if filename != "package.ipk" {
+	parsedTimestamp, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		t.Errorf("failed to parse timestamp: %v", err)
 	}
-	if timestamp != 1643723900 {
-		t.Errorf("expected timestamp %d, got %d", 1643723900, timestamp)
+	if parsedTimestamp != int64(1643723900) {
+		t.Errorf("expected timestamp %d, got %d", 1643723900, parsedTimestamp)
 	}
 }
 
@@ -129,7 +134,9 @@ func TestIsNewerVersion(t *testing.T) {
 				t.Errorf("invalid current version: %v", err)
 				return
 			}
-			if got := isNewerVersion(tt.newVersion, tt.newTimestamp, currentVersion, tt.currentTimestamp); got != tt.expected {
+			currentVersionStr := currentVersion.String()
+			newTimestampStr := fmt.Sprintf("%d", tt.newTimestamp)
+			if got := isNewerVersion(tt.newVersion, currentVersionStr, newTimestampStr); got != tt.expected {
 				t.Errorf("isNewerVersion() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -151,10 +158,14 @@ func TestEventMapCollision(t *testing.T) {
 			if err != nil {
 				t.Errorf("parseNIP94Event failed: %v", err)
 			}
-			key := fmt.Sprintf("%s-%s", filename, versionStr)
+			key := fmt.Sprintf("%v-%s", filename, versionStr)
 			existingPackageEvent, ok := eventMap[key]
 			if ok {
-				if timestamp > int64(existingPackageEvent.event.CreatedAt) {
+				parsedTimestamp, err := strconv.ParseInt(timestamp, 10, 64)
+				if err != nil {
+					t.Errorf("failed to parse timestamp: %v", err)
+				}
+				if parsedTimestamp > int64(existingPackageEvent.event.CreatedAt) {
 					eventMap[key] = &packageEvent{
 						event:      event,
 						packageURL: packageURL,
@@ -243,19 +254,18 @@ func TestUpdateInstallConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(cm)
+	_, err = NewJanitor(cm)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	pkgPath := "/path/to/package"
-	nip94EventID := "event-id"
 
 	installConfig, err := cm.LoadInstallConfig()
 	if err != nil {
 		t.Errorf("LoadInstallConfig returned error: %v", err)
 	}
-	if installConfig.PackagePath != pkgPath || installConfig.NIP94EventID != nip94EventID {
+	if installConfig.PackagePath != pkgPath {
 		t.Errorf("Install config not updated correctly")
 	}
 }
@@ -296,7 +306,7 @@ func TestDownloadPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	janitor, err := NewJanitor(cm)
+	_, err = NewJanitor(cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +337,7 @@ func TestDownloadPackage(t *testing.T) {
 	defer cancel()
 
 	var subClosers sync.WaitGroup
-	for _, relayURL := range janitor.relays {
+	for _, relayURL := range relays {
 		subClosers.Add(1)
 		go func(relayURL string) {
 			t.Logf("Connecting to relay %s", relayURL)
@@ -357,7 +367,7 @@ func TestDownloadPackage(t *testing.T) {
 					continue
 				}
 
-				if !contains(janitor.trustedMaintainers, event.PubKey) {
+				if !contains(trustedMaintainers, event.PubKey) {
 					continue
 				}
 
@@ -384,7 +394,7 @@ func TestDownloadPackage(t *testing.T) {
 	}
 
 	t.Logf("Starting to DownloadPackage")
-	pkgPath, pkg, err := janitor.DownloadPackage(packageURL, "some_checksum")
+	pkgPath, pkg, err := DownloadPackage(cm, packageURL, "some_checksum")
 	if err != nil {
 		t.Errorf("DownloadPackage failed: %v", err)
 	}

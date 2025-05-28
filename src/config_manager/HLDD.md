@@ -24,3 +24,7 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 ## Handling Release Channel
 
 The `config_manager` will be updated to store the `release_channel` information in the installation configuration (`install.json`).
+
+## Centralized Rate Limiting for relayPool
+
+To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool` within `config_manager`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.

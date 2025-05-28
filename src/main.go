@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,139 +11,67 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/modules"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 )
-
-type BraggingConfig struct {
-	Enabled bool     `json:"enabled"`
-	Relays  []string `json:"relays"`
-	Fields  []string `json:"fields"`
-}
 
 // Global configuration variable
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
-var config config_manager.Config
-
-// Derived configuration values
-var tollgatePrivateKey string
-var acceptedMint string
-var pricePerMinute int
-var minPayment int
-var mintFee int
-var cutoffFee int
-
-var tollgateDetailsEvent nostr.Event
 var tollgateDetailsString string
-
-// Initialize the nostr pool for Cashu operations
-var relayPool *nostr.SimplePool
+var merchantInstance *merchant.Merchant
 
 func init() {
 	var err error
+
 	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
-
-	loadedConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-	config = *loadedConfig
 
 	installConfig, err := configManager.LoadInstallConfig()
 	if err != nil {
 		log.Printf("Error loading install config: %v", err)
 		os.Exit(1)
 	}
-	config, err := configManager.LoadConfig()
+	mainConfig, err := configManager.LoadConfig()
 	if err != nil {
 		log.Printf("Error loading config: %v", err)
 		os.Exit(1)
 	}
-	nip94EventID := config.NIP94EventID
-	log.Printf("NIP94EventID: %s", nip94EventID)
+
+	currentInstallationID := mainConfig.CurrentInstallationID
+	log.Printf("CurrentInstallationID: %s", currentInstallationID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	if nip94EventID != "unknown" {
-		_, err = configManager.GetNIP94Event(nip94EventID)
+	if currentInstallationID != "" {
+		_, err = configManager.GetNIP94Event(currentInstallationID)
 		if err != nil {
 			log.Printf("Error getting NIP94 event: %v", err)
 			os.Exit(1)
 		}
 	}
 
-	// Initialize derived configuration values
-	tollgatePrivateKey = config.TollgatePrivateKey
-	pricePerMinute = config.PricePerMinute
-
-	// Create a map of accepted mints and their minimum payments
-	mintMinPayments := make(map[string]int)
-	for _, mintURL := range config.AcceptedMints {
-		mintFee, err := config_manager.GetMintFee(mintURL)
-		if err != nil {
-			log.Printf("Error getting mint fee for %s: %v", mintURL, err)
-			continue
-		}
-		mintMinPayments[mintURL] = config_manager.CalculateMinPayment(mintFee)
+	var err2 error
+	merchantInstance, err2 = merchant.New(configManager)
+	if err2 != nil {
+		log.Fatalf("Failed to create merchant: %v", err2)
 	}
 
-	// Create the nostr event with the mintMinPayments map
-	tags := nostr.Tags{
-		{"metric", "milliseconds"},
-		{"step_size", "60000"},
-		{"price_per_step", fmt.Sprintf("%d", pricePerMinute), "sat"},
-	}
-
-	// Create a separate tag for each accepted mint
-	for mint, minPayment := range mintMinPayments {
-		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
-		fmt.Printf("TODO: include min payment (%d) for %s in future\n", minPayment, mint)
-		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
-		tags = append(tags, nostr.Tag{"mint", mint})
-	}
-
-	tags = append(tags, nostr.Tag{"tips", "1", "2", "3"})
-
-	tollgateDetailsEvent = nostr.Event{
-		Kind:    21021,
-		Tags:    tags,
-		Content: "",
-	}
-
-	// Override the existing signature with a newly generated one
-	err = tollgateDetailsEvent.Sign(tollgatePrivateKey)
 	if err != nil {
-		log.Fatalf("Failed to sign tollgate event: %v", err)
+		log.Fatalf("Failed to create merchant: %v", err)
 	}
 
-	// Convert to JSON string for storage
-	detailsBytes, err := json.Marshal(tollgateDetailsEvent)
-	if err != nil {
-		log.Fatalf("Failed to marshal tollgate event: %v", err)
-	}
-	tollgateDetailsString = string(detailsBytes)
-
-	// Initialize relay pool for NIP-60 operations
-	relayPool = nostr.NewSimplePool(context.Background())
+	merchantInstance.StartPayoutRoutine()
 
 	// Initialize janitor module
 	initJanitor()
-
 }
 
 func initJanitor() {
-	loadedConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-	config = *loadedConfig
-
 	janitorInstance, err := janitor.NewJanitor(configManager)
 	if err != nil {
 		log.Fatalf("Failed to create janitor instance: %v", err)
@@ -203,14 +130,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Details requested")
-	fmt.Fprint(w, tollgateDetailsString)
+	fmt.Fprint(w, merchantInstance.GetAdvertisement())
 }
 
 // handleRootPost handles POST requests to the root endpoint
 func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
-	fmt.Printf("Received handleRootPost %s request from %s\n", r.Method, r.RemoteAddr)
+	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -260,11 +186,6 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if macAddress == "" {
-		log.Println("Missing or invalid device-identifier tag")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
 
 	// Extract payment token from payment tag
 	var paymentToken string
@@ -274,169 +195,65 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if paymentToken == "" {
-		log.Println("Missing or invalid payment tag")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
 
-	fmt.Printf("Extracted MAC address: %s\n", macAddress)
-	fmt.Printf("Extracted payment token: %s\n", paymentToken)
+	log.Printf("Extracted MAC address: %s", macAddress)
+	log.Printf("Extracted payment token: %s", paymentToken)
 
-	// Decode the Cashu token
-	tokenValue, err := DecodeCashuToken(paymentToken)
-	if err != nil {
-		log.Printf("Error decoding Cashu token: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	purchaseSessionResult, err := merchantInstance.PurchaseSession(paymentToken, macAddress)
 
-	// Verify the token has sufficient value before redeeming it
-	if tokenValue < cutoffFee {
-		log.Printf("Token value too low (%d sats). Minimum %d sats required.", tokenValue, cutoffFee)
+	// Set response headers and prepare JSON response
+	w.Header().Set("Content-Type", "application/json")
+
+	switch purchaseSessionResult.Status {
+	case "success":
+		w.WriteHeader(http.StatusOK)
+	case "rejected":
 		w.WriteHeader(http.StatusPaymentRequired)
-		fmt.Fprintf(w, "Payment required. Token value too low (%d sats). Minimum %d sats required.", tokenValue, cutoffFee)
-		return
-	}
-
-	// Process and swap the token for fresh proofs - only if value is sufficient
-	relays := config.Relays
-	log.Printf("Relays being passed to CollectPayment: %v", relays)
-	swapError := CollectPayment(paymentToken, tollgatePrivateKey, relayPool, relays)
-	if swapError != nil {
-		log.Printf("Error swapping token: %v", swapError)
-		w.WriteHeader(http.StatusPaymentRequired)
-		return
-		// We can still continue with the token we have
-	} else {
-		fmt.Println("Successfully swapped token for fresh proofs")
-	}
-
-	// Calculate the actual value after deducting fees
-	// First mint fee for the payment and second fee for consolidation transaction
-	var valueAfterFees = tokenValue - 2*mintFee
-	if valueAfterFees < minPayment {
-		log.Printf("ValueAfterFees: Token value too low (%d sats). Minimum %d sats required.", valueAfterFees, minPayment)
-		w.WriteHeader(http.StatusPaymentRequired)
-		return // Not enough value to open the gate
-		// This should have been caught by the token value check above
-	}
-
-	// Calculate minutes based on the net value
-	// TODO: Update frontend to show the correct duration after fees
-	//       Already tested to verify that allottedMinutes is correct
-	var allottedMinutes = int64(valueAfterFees / pricePerMinute)
-	if allottedMinutes < 1 {
-		allottedMinutes = 1 // Minimum 1 minute
-	}
-
-	// Convert to seconds for gate opening
-	durationSeconds := int64(allottedMinutes * 60)
-
-	// Log the calculation for transparency
-	fmt.Printf("Calculated minutes: %d (from value %d, minus fees %d)\n",
-		allottedMinutes, tokenValue, 2*mintFee)
-
-	// Open gate for the specified duration using the valve module
-	err = modules.OpenGate(macAddress, durationSeconds)
-	if err != nil {
-		log.Printf("Error opening gate: %v", err)
+	default:
+		// Log unexpected errors for easier debugging
+		log.Printf("Purchase session failed with status: %s, reason: %s",
+			purchaseSessionResult.Status, purchaseSessionResult.Description)
 		w.WriteHeader(http.StatusInternalServerError)
-		return
 	}
 
-	// Announce successful payment via Nostr if enabled
-	err = announceSuccessfulPayment(macAddress, int64(valueAfterFees), durationSeconds)
-	if err != nil {
-		log.Printf("Error announcing successful payment: %v", err)
+	// Return meaningful response to the client with the operation status and reason
+	response := map[string]string{"status": purchaseSessionResult.Status}
+	if purchaseSessionResult.Description != "" {
+		response["reason"] = purchaseSessionResult.Description
 	}
 
-	// Return a success status with token info
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Access granted for %d minutes (payment: %d sats, fees: %d sats)",
-		allottedMinutes, valueAfterFees, 2*mintFee)
+	// Handle potential encoding errors
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+
+	fmt.Fprint(w, response)
+
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-	if !config.Bragging.Enabled {
+	mainConfig, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		return err
+	}
+
+	if !mainConfig.Bragging.Enabled {
 		log.Println("Bragging is disabled in configuration")
 		return nil
 	}
 
-	privateKey := tollgatePrivateKey
-	event := nostr.Event{
-		Kind:      1,
-		CreatedAt: nostr.Now(),
-		Tags:      make(nostr.Tags, 0),
-		Content:   "",
-	}
-
-	var content string
-	for _, field := range config.Bragging.Fields {
-		switch field {
-		case "amount":
-			event.Tags = append(event.Tags, nostr.Tag{"amount", fmt.Sprintf("%d", amount)})
-			content += fmt.Sprintf("Amount: %d sats,\n", amount)
-		case "mint":
-			event.Tags = append(event.Tags, nostr.Tag{"mint", acceptedMint})
-			content += fmt.Sprintf("Mint: %s,\n", acceptedMint)
-		case "duration":
-			event.Tags = append(event.Tags, nostr.Tag{"duration", fmt.Sprintf("%d", durationSeconds)})
-			content += fmt.Sprintf("Duration: %d seconds", durationSeconds)
-		}
-	}
-
-	// Trim the trailing comma and space if content is not empty
-	if content != "" {
-		content = strings.TrimSuffix(content, ",")
-		content += "\n\n#BraggingTollGateRawData"
-	}
-
-	event.Content = content
-
-	pubkey, err := nostr.GetPublicKey(privateKey)
+	err = bragging.AnnounceSuccessfulPayment(configManager, amount, durationSeconds)
 	if err != nil {
-		log.Printf("Failed to get public key: %v", err)
+		log.Printf("Failed to create bragging service: %v", err)
 		return err
-	}
-	npub, err := nip19.EncodePublicKey(pubkey)
-	if err != nil {
-		log.Printf("Failed to encode public key to npub: %v", err)
-		return err
-	}
-	log.Printf("Encoded public key to npub: %s", npub)
-	log.Printf("Attempting to sign bragging event")
-	err = event.Sign(privateKey)
-	if err != nil {
-		log.Printf("Failed to sign bragging event: %v", err)
-		return err
-	}
-	log.Printf("Successfully signed bragging event")
-	log.Printf("Bragging event ID: %s", event.ID)
-	log.Printf("Bragging npub: %s", npub)
-
-	log.Printf("Initializing relay pool for bragging event publication")
-	log.Printf("Relays configured for bragging: %v", config.Relays)
-	relayPool := nostr.NewSimplePool(context.Background())
-	for _, relayURL := range config.Relays {
-		relay, err := relayPool.EnsureRelay(relayURL)
-		if err != nil {
-			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
-			continue
-		}
-		err = relay.Publish(context.Background(), event)
-		if err != nil {
-			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
-		} else {
-			fmt.Printf("Successfully published event to relay %s\n", relayURL)
-		}
 	}
 
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Successfully announced payment for MAC %s\n", macAddress)
+	log.Printf("Successfully announced payment for MAC %s", macAddress)
 	return nil
 }
 
@@ -450,12 +267,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Received %s request from %s to %s\n", r.Method, getIP(r), r.URL.Path)
+	log.Printf("Received %s request from %s to %s", r.Method, getIP(r), r.URL.Path)
 }
 
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
-	fmt.Println("Starting Tollgate - TIP-01")
+	fmt.Println("Starting Tollgate Core")
 	fmt.Println("Listening on all interfaces on port", port)
 
 	// Add verbose logging for debugging

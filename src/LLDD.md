@@ -56,3 +56,7 @@ The code is structured into several functions:
 ## Testing
 
 - Unit tests should be written to ensure the correct functionality of the `main.go` file
+
+## Centralized Rate Limiting for relayPool
+
+To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.

@@ -28,6 +28,9 @@ start_service() {
     # Add dependency on nodogsplash
     procd_set_param depends nodogsplash
     
+    # Add respawn parameters: tries 3 times with 5-second intervals and retries indefinitely
+    procd_set_param respawn 3 5 0
+    
     procd_close_instance
     
     # Log the start for debugging

@@ -2,27 +2,41 @@ package bragging
 
 import (
 	"context"
-	"fmt"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 	"log"
 	"sync"
 	"time"
 )
 
-func (s *Service) PublishEvent(event *nostr.Event) error {
+var sem = make(chan bool, 5) // Allow up to 5 concurrent publishes
+
+func PublishEvent(configManager *config_manager.ConfigManager, event *nostr.Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var wg sync.WaitGroup
-	errors := make(chan error, len(s.config.Relays))
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		return err
+	}
 
-	for _, relayURL := range s.config.Relays {
+	for _, relayURL := range config.Relays {
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
+			relay, err := configManager.RelayPool.EnsureRelay(url)
+			if err != nil {
+				log.Printf("Failed to connect to relay %s: %v", url, err)
+				return
+			}
+			sem <- true              // Acquire semaphore
+			defer func() { <-sem }() // Release semaphore
+
 			for attempt := 1; attempt <= 3; attempt++ {
 				log.Printf("Attempting to connect to relay %s (attempt %d)", url, attempt)
-				relay, err := s.relayPool.EnsureRelay(url)
+				var err error
+				relay, err = configManager.RelayPool.EnsureRelay(url)
 				if err != nil {
 					log.Printf("Relay connection failed (attempt %d): %v", attempt, err)
 					continue
@@ -33,15 +47,10 @@ func (s *Service) PublishEvent(event *nostr.Event) error {
 					log.Printf("Publish failed (attempt %d): %s", attempt, status)
 				} else {
 					log.Printf("Successfully published to relay %s", url)
-				} else {
-					return
 				}
 			}
-			errors <- fmt.Errorf("failed to publish to %s after 3 attempts", url)
 		}(relayURL)
 	}
-
 	wg.Wait()
-	close(errors)
-	return <-errors // Return first error if any
+	return nil
 }

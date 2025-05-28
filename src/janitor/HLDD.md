@@ -37,7 +37,7 @@ Events have the following structure:
 }
 ```
 
-For the dev channel, the version string is of the format `[branch_name]-[commit-hash]-[timestamp]`. For the stable channel, the version number is just the release tag (e.g., `0.0.1`).
+For the dev channel, the version string is of the format `[branch_name].[commit_count].[commit_hash]`. For the stable channel, the version number is just the release tag (e.g., `0.0.1`).
 
 ## Workflow
 
@@ -73,3 +73,7 @@ Unit tests will be written to ensure correct functionality and error handling.
 ## Conclusion
 
 The Janitor module will be updated to handle the new release channel concept and versioning scheme, ensuring the security and integrity of the OpenWRT package update process on the TollGate device.
+
+## Centralized Rate Limiting for relayPool
+
+To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool` within `config_manager`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool`, including the Janitor module, are rate-limited, preventing excessive concurrent requests to relays.

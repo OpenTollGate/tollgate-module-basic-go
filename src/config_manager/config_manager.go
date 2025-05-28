@@ -16,18 +16,28 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+var relayRequestSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent requests
+
+func rateLimitedRelayRequest(relay *nostr.Relay, event nostr.Event) error {
+	relayRequestSemaphore <- struct{}{}
+	defer func() { <-relayRequestSemaphore }()
+
+	return relay.Publish(context.Background(), event)
+}
+
 func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
-	relayPool := nostr.NewSimplePool(context.Background())
 	config, err := cm.LoadConfig()
 	if err != nil {
 		return nil, err
 	}
+	workingRelays := []string{}
 	for _, relayURL := range config.Relays {
-		relay, err := relayPool.EnsureRelay(relayURL)
+		relay, err := cm.RelayPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
 		}
+		workingRelays = append(workingRelays, relayURL)
 		filter := nostr.Filter{
 			IDs: []string{eventID},
 		}
@@ -40,6 +50,8 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 			return event, nil
 		}
 	}
+	config.Relays = workingRelays // TODO: use a separate file to store program state. This doesn't belong in the config file..
+	cm.SaveConfig(config)
 	return nil, fmt.Errorf("NIP-94 event not found with ID %s", eventID)
 }
 
@@ -47,6 +59,20 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 type BraggingConfig struct {
 	Enabled bool     `json:"enabled"`
 	Fields  []string `json:"fields"`
+}
+
+// MintConfig holds configuration for a specific mint including payout settings
+type MintConfig struct {
+	URL                     string `json:"url"`
+	MinBalance              uint64 `json:"min_balance"`
+	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
+	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
+	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+}
+
+type ProfitShareConfig struct {
+	Factor           float64 `json:"factor"`
+	LightningAddress string  `json:"lightning_address"`
 }
 
 // Config holds the configuration parameters
@@ -57,14 +83,16 @@ type PackageInfo struct {
 }
 
 type Config struct {
-	TollgatePrivateKey string         `json:"tollgate_private_key"`
-	AcceptedMints      []string       `json:"accepted_mints"`
-	PricePerMinute     int            `json:"price_per_minute"`
-	Bragging           BraggingConfig `json:"bragging"`
-	Relays             []string       `json:"relays"`
-	TrustedMaintainers []string       `json:"trusted_maintainers"`
-	FieldsToBeReviewed []string       `json:"fields_to_be_reviewed"`
-	NIP94EventID       string         `json:"nip94_event_id"`
+	ConfigVersion         string              `json:"config_version"`
+	TollgatePrivateKey    string              `json:"tollgate_private_key"`
+	AcceptedMints         []MintConfig        `json:"accepted_mints"`
+	ProfitShare           []ProfitShareConfig `json:"profit_share"`
+	PricePerMinute        uint64              `json:"price_per_minute"`
+	Bragging              BraggingConfig      `json:"bragging"`
+	Relays                []string            `json:"relays"`
+	TrustedMaintainers    []string            `json:"trusted_maintainers"`
+	ShowSetup             bool                `json:"show_setup"`
+	CurrentInstallationID string              `json:"current_installation_id"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -143,17 +171,22 @@ func (cm *ConfigManager) SaveInstallConfig(installConfig *InstallConfig) error {
 }
 
 func (cm *ConfigManager) installFilePath() string {
-	return filepath.Join(filepath.Dir(cm.filePath), "install.json")
+	return filepath.Join(filepath.Dir(cm.FilePath), "install.json")
 }
 
 // ConfigManager manages the configuration file
 type ConfigManager struct {
-	filePath string
+	FilePath  string
+	RelayPool *nostr.SimplePool
 }
 
 // NewConfigManager creates a new ConfigManager instance
 func NewConfigManager(filePath string) (*ConfigManager, error) {
-	cm := &ConfigManager{filePath: filePath}
+	relayPool := nostr.NewSimplePool(context.Background())
+	cm := &ConfigManager{
+		FilePath:  filePath,
+		RelayPool: relayPool,
+	}
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
 		return nil, err
@@ -162,7 +195,7 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = cm.UpdateNIP94EventID()
+	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +219,9 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		defaultInstallConfig := &InstallConfig{
 			PackagePath:            "false",
 			IPAddressRandomized:    "false",
-			InstallTimestamp:       0,              // Set InstallTimestamp to 0 (unknown)
-			DownloadTimestamp:      0,              // Set DownloadTimestamp to 0 (unknown)
-			ReleaseChannel:         "stable",       // Set default release channel to "main"
+			InstallTimestamp:       0,                 // Set InstallTimestamp to 0 (unknown)
+			DownloadTimestamp:      0,                 // Set DownloadTimestamp to 0 (unknown)
+			ReleaseChannel:         "stable",          // Set default release channel to "main"
 			EnsureDefaultTimestamp: CURRENT_TIMESTAMP, // Set EnsureDefaultTimestamp to current time
 		}
 		err = cm.SaveInstallConfig(defaultInstallConfig)
@@ -221,7 +254,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 
 // LoadConfig reads the configuration from the managed file
 func (cm *ConfigManager) LoadConfig() (*Config, error) {
-	data, err := os.ReadFile(cm.filePath)
+	data, err := os.ReadFile(cm.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -243,18 +276,18 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(cm.filePath, data, 0644)
+	return os.WriteFile(cm.FilePath, data, 0644)
 }
 
 // getMintFee retrieves the mint fee for a given mint URL
 // TODO: Run this every time rather than storing the information in a config file.
-func GetMintFee(mintURL string) (int, error) {
+func GetMintFee(mintURL string) (uint64, error) {
 	// Stub implementation: return a default mint fee
 	return 0, nil
 }
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
-func CalculateMinPayment(mintFee int) int {
+func CalculateMinPayment(mintFee uint64) uint64 {
 	// Stub implementation: return the mint fee as the minimum payment
 	return 2*mintFee + 1
 }
@@ -267,24 +300,38 @@ func GetInstalledVersion() (string, error) {
 		// opkg not found, return a default version or skip this check
 		return "0.0.1+1cac608", nil
 	}
-	cmd := exec.Command("opkg", "list-installed")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get installed version: %w", err)
-	}
-	installedPackages := strings.Split(string(output), "\n")
-	for _, pkg := range installedPackages {
-		if strings.Contains(pkg, "tollgate") {
-			parts := strings.Split(pkg, " - ")
-			if len(parts) > 1 {
-				return parts[1], nil
+
+	maxAttempts := 5
+	delay := 100 * time.Millisecond
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		cmd := exec.Command("sh", "-c", "opkg list-installed | grep tollgate")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			outputStr := strings.TrimSpace(string(output))
+			if strings.Contains(outputStr, "Could not lock /var/lock/opkg.lock: Resource temporarily unavailable") {
+				log.Printf("Opkg output: %s", output)
+				log.Printf("Attempt %d failed: %v. Retrying in %v...", attempt+1, err, delay)
+				time.Sleep(delay)
+				delay *= 2 // Exponential backoff
+				continue
 			}
+			log.Printf("Opkg output: %s", output)
+			return "", fmt.Errorf("failed to get installed version: %w", err)
 		}
+
+		outputStr := strings.TrimSpace(string(output))
+		parts := strings.Split(outputStr, " - ")
+		if len(parts) > 1 {
+			return parts[1], nil
+		}
+		return "", fmt.Errorf("tollgate package not found or invalid output format")
 	}
-	return "", fmt.Errorf("tollgate package not found")
+
+	return "", fmt.Errorf("failed to get installed version after %d attempts", maxAttempts)
 }
 
-func GetArchitecture() (string, error) {
+func (cm *ConfigManager) GetArchitecture() (string, error) {
 	data, err := os.ReadFile("/etc/openwrt_release")
 	if err != nil {
 		return "", fmt.Errorf("failed to read /etc/openwrt_release: %w", err)
@@ -296,7 +343,7 @@ func GetArchitecture() (string, error) {
 		return "", fmt.Errorf("DISTRIB_ARCH not found in /etc/openwrt_release")
 	}
 
-	// TODO: Use ExtractPackageInfo to determine architecture from NIP94 event and throw an error if it is different from the architecture that we found on the filesystem. Don't do this check if NIP94EventID is set to `unknown`
+	// TODO: Use ExtractPackageInfo to determine architecture from NIP94 event and throw an error if it is different from the architecture that we found on the filesystem. Don't do this check if CurrentInstallationID is set to `unknown`
 	return match[1], nil
 }
 
@@ -306,8 +353,8 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 		return 0, err
 	}
 
-	if config.NIP94EventID != "unknown" {
-		event, err := cm.GetNIP94Event(config.NIP94EventID)
+	if config.CurrentInstallationID != "" {
+		event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 		if err != nil {
 			return 0, err
 		}
@@ -359,7 +406,8 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 	if releaseChannel == "stable" {
 		_, err := version.NewVersion(installedVersion)
 		if err != nil {
-			return "", fmt.Errorf("invalid installed version format: %w", err)
+			log.Printf("Warning: Invalid installed version format for stable release channel: %v", err)
+			return installedVersion, nil // Return the version despite the format issue
 		}
 		return installedVersion, nil
 	} else {
@@ -368,9 +416,52 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 	}
 }
 
-func generatePrivateKey() (string, error) {
-	// TODO: Implement proper private key generation or management
-	return "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663", nil
+func (cm *ConfigManager) generatePrivateKey() (string, error) {
+	privateKey := nostr.GeneratePrivateKey()
+	err := cm.setUsername(privateKey, "c03rad0r")
+	if err != nil {
+		log.Printf("Failed to set username: %v", err)
+	}
+	return privateKey, nil
+}
+
+func (cm *ConfigManager) setUsername(privateKey string, username string) error {
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return err
+	}
+
+	if config == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	event := nostr.Event{
+		Kind: nostr.KindProfileMetadata,
+		Tags: nostr.Tags{{
+			"d",
+			username,
+		}},
+		Content:   `{"name":"` + username + `"}`,
+		CreatedAt: nostr.Now(),
+	}
+
+	event.ID = event.GetID()
+
+	event.Sign(privateKey)
+
+	for _, relayURL := range config.Relays {
+		relay, err := cm.RelayPool.EnsureRelay(relayURL)
+		if err != nil {
+			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
+			continue
+		}
+		err = rateLimitedRelayRequest(relay, event)
+		if err != nil {
+			log.Printf("Failed to publish event to relay %s: %v", relayURL, err)
+		}
+	}
+
+	return nil
 }
 
 // EnsureDefaultConfig ensures a default configuration exists, creating it if necessary
@@ -380,15 +471,35 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		return nil, err
 	}
 	if config == nil {
-		privateKey, err := generatePrivateKey()
+		privateKey, err := cm.generatePrivateKey()
 		if err != nil {
 			return nil, err
 		}
 
 		defaultConfig := &Config{
+			ConfigVersion:      "v0.0.2",
 			TollgatePrivateKey: privateKey,
-			AcceptedMints:      []string{"https://mint.minibits.cash/Bitcoin", "https://mint2.nutmix.cash"},
-			PricePerMinute:     1,
+			AcceptedMints: []MintConfig{
+				{
+					URL:                     "https://mint.minibits.cash/Bitcoin",
+					MinBalance:              100,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					MinPayoutAmount:         200,
+				},
+				{
+					URL:                     "https://mint2.nutmix.cash",
+					MinBalance:              100,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					MinPayoutAmount:         200,
+				},
+			},
+			ProfitShare: []ProfitShareConfig{
+				{0.70, "tollgate@minibits.cash"}, // User should change this
+				{0.30, "tollgate@minibits.cash"},
+			},
+			PricePerMinute: 1,
 			Bragging: BraggingConfig{
 				Enabled: true,
 				Fields:  []string{"amount", "mint", "duration"},
@@ -397,19 +508,15 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				"wss://relay.damus.io",
 				"wss://nos.lol",
 				"wss://nostr.mom",
-				"wss://relay.tollgate.me",
+				//"wss://relay.tollgate.me", // TODO: make it more resillient to broken relays..
 			},
 			TrustedMaintainers: []string{
 				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
 			},
-			FieldsToBeReviewed: []string{
-				"price_per_minute",
-				"relays",
-				"tollgate_private_key",
-				"trusted_maintainers",
-			},
-			NIP94EventID: "unknown",
+			ShowSetup:             true,
+			CurrentInstallationID: "",
 		} // TODO: update the default EventID when we merge to main.
+		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
 			return nil, err
@@ -425,7 +532,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 		return "", err
 	}
 
-	if config.NIP94EventID == "unknown" {
+	if config.CurrentInstallationID == "" {
 		installConfig, err := cm.LoadInstallConfig()
 		if err != nil {
 			return "", err
@@ -434,10 +541,10 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 			// log.Printf("Returning release channel from install config: %s", installConfig.ReleaseChannel)
 			return installConfig.ReleaseChannel, nil
 		}
-		return "", fmt.Errorf("NIP94EventID is unknown and install config is nil")
+		return "", fmt.Errorf("CurrentInstallationID is unknown and install config is nil")
 	}
 
-	event, err := cm.GetNIP94Event(config.NIP94EventID)
+	event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 	if err != nil {
 		fmt.Println("Failed to get NIP94Event")
 		return "noevent", err
@@ -452,14 +559,14 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 	return packageInfo.ReleaseChannel, nil
 }
 
-func (cm *ConfigManager) UpdateNIP94EventID() error {
+func (cm *ConfigManager) UpdateCurrentInstallationID() error {
 	config, err := cm.LoadConfig()
 	if err != nil {
 		return err
 	}
 
-	if config.NIP94EventID != "unknown" {
-		event, err := cm.GetNIP94Event(config.NIP94EventID)
+	if config.CurrentInstallationID != "" {
+		event, err := cm.GetNIP94Event(config.CurrentInstallationID)
 		if err != nil {
 			return err
 		}
@@ -475,7 +582,7 @@ func (cm *ConfigManager) UpdateNIP94EventID() error {
 		}
 
 		if installedVersion != packageInfo.Version {
-			config.NIP94EventID = "unknown"
+			config.CurrentInstallationID = ""
 			err = cm.SaveConfig(config)
 			if err != nil {
 				return err
@@ -484,4 +591,8 @@ func (cm *ConfigManager) UpdateNIP94EventID() error {
 	}
 
 	return nil
+}
+
+func (cm *ConfigManager) GetRelayPool() *nostr.SimplePool {
+	return cm.RelayPool
 }
