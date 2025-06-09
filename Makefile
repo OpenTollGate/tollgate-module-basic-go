@@ -59,7 +59,7 @@ define Build/Compile
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" && upx $(PKG_NAME)
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" && upx --lzma $(PKG_NAME)
 endef
 
 define Package/$(PKG_NAME)/install
