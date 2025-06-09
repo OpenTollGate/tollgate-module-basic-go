@@ -59,7 +59,14 @@ define Build/Compile
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" && upx --lzma $(PKG_NAME)
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w"
+	@echo "Checking for UPX availability..."
+	@if which upx >/dev/null 2>&1; then \
+		echo "UPX found, compressing binary..."; \
+		upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
+	else \
+		echo "UPX not available, skipping compression"; \
+	fi
 endef
 
 define Package/$(PKG_NAME)/install
