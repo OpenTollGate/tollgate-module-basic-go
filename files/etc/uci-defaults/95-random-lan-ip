@@ -2,15 +2,16 @@
 # TollGate - Generate random LAN IP address on first boot
 
 INSTALL_JSON="/etc/tollgate/install.json"
-if [ -f "$INSTALL_JSON" ]; then
-    IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
-    if [ "$IP_RANDOMIZED" != "false" ]; then
-        echo "IP is already randomized or not set to false. Exiting."
-        exit 0
-    fi
-else
-    echo "install.json not found. Exiting."
-    exit 1
+if [ ! -f "$INSTALL_JSON" ]; then
+    echo "Creating default install.json"
+    mkdir -p /etc/tollgate
+    echo '{"ip_address_randomized": "false"}' > "$INSTALL_JSON"
+fi
+
+IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
+if [ "$IP_RANDOMIZED" != "false" ]; then
+    echo "IP is already randomized or not set to false. Exiting."
+    exit 0
 fi
 
 # We don't need to check for a flag file since uci-defaults scripts 
