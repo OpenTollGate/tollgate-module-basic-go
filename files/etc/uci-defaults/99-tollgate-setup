@@ -85,14 +85,12 @@ uci_safe_add_list() {
 
 # 1. Firewall configuration
 log_message "Configuring firewall rules"
-if ! uci -q get firewall.tollgate_rules >/dev/null 2>&1; then
-    uci add firewall include >/dev/null 2>&1
-    uci_safe_set firewall @include[-1] path '/etc/config/firewall-tollgate'
-    uci rename firewall.@include[-1]='tollgate_rules' >/dev/null 2>&1
-    uci commit firewall
-    log_message "Added firewall-tollgate include section"
+FIREWALL_RULE="iptables -A zone_lan_input -p tcp --dport 2121 -j ACCEPT"
+if ! grep -q "$FIREWALL_RULE" /etc/config/firewall-tollgate 2>/dev/null; then
+    echo "$FIREWALL_RULE" >> /etc/config/firewall-tollgate
+    log_message "Added firewall rule for TollGate"
 else
-    log_message "Firewall tollgate_rules already exists"
+    log_message "Firewall rule for TollGate already exists"
 fi
 
 # 2. Configure uhttpd listener ports and settings
