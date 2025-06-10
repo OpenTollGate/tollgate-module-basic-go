@@ -59,7 +59,7 @@ define Build/Compile
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" 
+	$(if $(filter mips,$(GOARCH)),go build -o $(PKG_NAME),go build -o $(PKG_NAME) -trimpath -ldflags="-s -w")
 endef
 
 define Package/$(PKG_NAME)/install
