@@ -55,11 +55,10 @@ endef
 
 define Build/Compile
 	cd $(PKG_BUILD_DIR) && \
-	echo "Building with GOARCH=$(GOARCH) $(if $(GOMIPS),GOMIPS=$(GOMIPS))" && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	$(if $(filter mips,$(GOARCH)),go build -o $(PKG_NAME),go build -o $(PKG_NAME) -trimpath -ldflags="-s -w")
+	go build -o $(PKG_NAME) main.go
 endef
 
 define Package/$(PKG_NAME)/install
