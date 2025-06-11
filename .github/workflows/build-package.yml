@@ -144,12 +144,16 @@ jobs:
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_PACKAGE_jq=y" >> .config
 
+      - name: Check Go Version
+        run: |
+        go version
+
       - name: Compile Package
         run: |
           cd /builder
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-          if [[ "${{ matrix.goarch }}" == "mips" || "${{ matrix.goarch }}" == "mipsle" ]]; then
-            GOMIPS=softfloat
+          if [ "${{ matrix.goarch }}" = "mips" ] || [ "${{ matrix.goarch }}" = "mipsle" ]; then
+            export GOMIPS=softfloat
           fi
           
           env GOARCH=${{ matrix.goarch }} \
