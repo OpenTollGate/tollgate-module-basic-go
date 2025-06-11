@@ -55,6 +55,7 @@ endef
 
 define Build/Compile
 	cd $(PKG_BUILD_DIR) && \
+	echo "DEBUG: GOARCH=$(GOARCH) GOMIPS=$(GOMIPS)" && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
