@@ -146,7 +146,7 @@ jobs:
 
       - name: Check Go Version
         run: |
-        go version
+          go version
 
       - name: Compile Package
         run: |
