@@ -82,15 +82,15 @@ fi
 
 # Stop service, deploy executable, start service
 echo "Stopping service $EXECUTABLE_NAME on router..."
-ssh -o ConnectTimeout=3 $ROUTER_USERNAME@$ROUTER_IP "service $EXECUTABLE_NAME stop"
+ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $ROUTER_USERNAME@$ROUTER_IP "service $EXECUTABLE_NAME stop"
 echo "Stopped service $EXECUTABLE_NAME on router"
 
 echo "Copying binary to router..."
-scp -o ConnectTimeout=3 -O $EXECUTABLE_NAME $ROUTER_USERNAME@$ROUTER_IP:$EXECUTABLE_PATH
+scp -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -O $EXECUTABLE_NAME $ROUTER_USERNAME@$ROUTER_IP:$EXECUTABLE_PATH
 echo "Binary copied to router"
 
 echo "Starting service $EXECUTABLE_NAME on router..."
-ssh -o ConnectTimeout=3 $ROUTER_USERNAME@$ROUTER_IP "service $EXECUTABLE_NAME start"
+ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $ROUTER_USERNAME@$ROUTER_IP "service $EXECUTABLE_NAME start"
 echo "Started service $EXECUTABLE_NAME on router"
 
 echo "Done"

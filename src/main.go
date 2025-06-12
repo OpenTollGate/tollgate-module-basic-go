@@ -147,21 +147,23 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("Error reading request body:", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Error reading request body: %v", err), "")
 		return
 	}
 	defer r.Body.Close()
 
 	// Print the request body to console
 	bodyStr := string(body)
-	log.Println("Received POST request with body:", bodyStr)
+	log.Printf("Received POST request with body: %s", bodyStr)
 
 	// Parse the request body as a nostr event
 	var event nostr.Event
 	err = json.Unmarshal(body, &event)
 	if err != nil {
 		log.Println("Error parsing nostr event:", err)
-		w.WriteHeader(http.StatusBadRequest)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Error parsing nostr event: %v", err), "")
 		return
 	}
 
@@ -169,7 +171,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	ok, err := event.CheckSignature()
 	if err != nil || !ok {
 		log.Println("Invalid signature for nostr event:", err)
-		w.WriteHeader(http.StatusBadRequest)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Invalid signature for nostr event"), event.PubKey)
 		return
 	}
 
@@ -178,57 +181,49 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	log.Println("  - Kind:", event.Kind)
 	log.Println("  - Pubkey:", event.PubKey)
 
-	// Extract MAC address from device-identifier tag
-	var macAddress string
-	for _, tag := range event.Tags {
-		if len(tag) > 0 && tag[0] == "device-identifier" && len(tag) >= 3 {
-			macAddress = tag[2]
-			break
-		}
+	// Validate that this is a payment event (kind 21000)
+	if event.Kind != 21000 {
+		log.Printf("Invalid event kind: %d, expected 21000", event.Kind)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Invalid event kind: %d, expected 21000", event.Kind), event.PubKey)
+		return
 	}
 
-	// Extract payment token from payment tag
-	var paymentToken string
-	for _, tag := range event.Tags {
-		if len(tag) > 0 && tag[0] == "payment" && len(tag) >= 2 {
-			paymentToken = tag[1]
-			break
-		}
-	}
+	// Process payment and get session event
+	sessionEvent, err := merchantInstance.PurchaseSession(event)
 
-	log.Printf("Extracted MAC address: %s", macAddress)
-	log.Printf("Extracted payment token: %s", paymentToken)
-
-	purchaseSessionResult, err := merchantInstance.PurchaseSession(paymentToken, macAddress)
-
-	// Set response headers and prepare JSON response
+	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
 
-	switch purchaseSessionResult.Status {
-	case "success":
-		w.WriteHeader(http.StatusOK)
-	case "rejected":
-		w.WriteHeader(http.StatusPaymentRequired)
-	default:
-		// Log unexpected errors for easier debugging
-		log.Printf("Purchase session failed with status: %s, reason: %s",
-			purchaseSessionResult.Status, purchaseSessionResult.Description)
+	if err != nil {
+		log.Printf("Payment processing failed: %v", err)
+		sendNoticeResponse(w, merchantInstance, http.StatusPaymentRequired, "error", "payment-error",
+			fmt.Sprintf("Payment processing failed: %v", err), event.PubKey)
+		return
+	}
+
+	// Return session event on success (TIP-03 compliance)
+	w.WriteHeader(http.StatusOK)
+	err = json.NewEncoder(w).Encode(sessionEvent)
+	if err != nil {
+		log.Printf("Error encoding session response: %v", err)
+	}
+
+}
+
+// sendNoticeResponse creates and sends a notice event response
+func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Merchant, statusCode int, level, code, message, customerPubkey string) {
+	noticeEvent, err := merchantInstance.CreateNoticeEvent(level, code, message, customerPubkey)
+	if err != nil {
+		log.Printf("Error creating notice event: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
+		return
 	}
 
-	// Return meaningful response to the client with the operation status and reason
-	response := map[string]string{"status": purchaseSessionResult.Status}
-	if purchaseSessionResult.Description != "" {
-		response["reason"] = purchaseSessionResult.Description
-	}
-
-	// Handle potential encoding errors
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding response: %v", err)
-	}
-
-	fmt.Fprint(w, response)
-
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(noticeEvent)
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {

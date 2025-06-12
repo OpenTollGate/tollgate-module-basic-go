@@ -1,10 +1,14 @@
-module github.com/OpenTollGate/tollgate-module-basic-go/src/valve
+module github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest
 
 go 1.24.2
 
+toolchain go1.24.3
+
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
-	github.com/nbd-wtf/go-nostr v0.51.11
+	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-00010101000000-000000000000
+	github.com/jackpal/gateway v1.0.10
+	github.com/nbd-wtf/go-nostr v0.51.10
+	github.com/vishvananda/netlink v1.1.0
 )
 
 require (
@@ -29,8 +33,10 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
+	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 )
 
