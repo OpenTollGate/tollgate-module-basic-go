@@ -14,7 +14,7 @@ func TestParseMerchantAdvertisement(t *testing.T) {
 
 	// Create a sample advertisement
 	event := &nostr.Event{
-		Kind: 21021,
+		Kind: 10021,
 		Tags: nostr.Tags{
 			{"metric", "milliseconds"},
 			{"step_size", "60000"},
@@ -63,7 +63,7 @@ func TestFetchMerchantAdvertisement(t *testing.T) {
 
 	// Create a test server
 	event := &nostr.Event{
-		Kind: 21021,
+		Kind: 10021,
 		Tags: nostr.Tags{
 			{"metric", "milliseconds"},
 			{"step_size", "60000"},
@@ -93,7 +93,7 @@ func TestFetchMerchantAdvertisement(t *testing.T) {
 		t.Fatalf("Failed to unmarshal advertisement: %v", err)
 	}
 
-	if parsedEvent.Kind != 21021 {
-		t.Errorf("Expected Kind=21021, got %d", parsedEvent.Kind)
+	if parsedEvent.Kind != 10021 {
+		t.Errorf("Expected Kind=10021, got %d", parsedEvent.Kind)
 	}
 }

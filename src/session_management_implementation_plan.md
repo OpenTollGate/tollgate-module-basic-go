@@ -57,7 +57,7 @@ func GetActiveSessionTimers() map[string]*SessionTimer
 
 ### 3.2 Protocol Compliance
 - Ensure response format matches TIP-03 specification
-- Return kind=21022 session events on successful payments
+- Return kind=1022 session events on successful payments
 - Maintain proper error status codes (402, 500, etc.)
 
 ## Phase 4: Integration and Testing
@@ -115,9 +115,9 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, purchasedSteps u
     customerPubkey := paymentEvent.PubKey
     deviceIdentifier := extractDeviceIdentifier(paymentEvent)
     
-    // Create session event (kind=21022)
+    // Create session event (kind=1022)
     sessionEvent := &nostr.Event{
-        Kind:      21022,
+        Kind:      1022,
         PubKey:    m.config.TollgatePrivateKey,
         CreatedAt: nostr.Now(),
         Tags: nostr.Tags{
@@ -219,7 +219,7 @@ func OpenGateForSession(sessionEvent nostr.Event, merchantConfig *config_manager
 // Helper function to extract step_size from merchant configuration
 func getStepSizeFromConfig(config *config_manager.Config) (uint64, error) {
     // Parse the advertisement event to get step_size
-    // This should match the step_size from the discovery event (kind=21021)
+    // This should match the step_size from the discovery event (kind=10021)
     // Default to 60000ms (1 minute) if not found
     return 60000, nil // TODO: Parse from actual advertisement event
 }

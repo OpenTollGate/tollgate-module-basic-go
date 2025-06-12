@@ -190,16 +190,16 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		log.Printf("Created new session for customer %s", customerPubkey)
 	}
 
-	// Publish session event to relay pool
-	err = m.publishEvent(sessionEvent)
-	if err != nil {
-		log.Printf("Warning: failed to publish session event: %v", err)
-	}
-
 	// Update valve with session information
 	err = valve.OpenGateForSession(*sessionEvent, m.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open gate for session: %w", err)
+	}
+
+	// Publish session event to local pool only (for privacy)
+	err = m.publishLocal(sessionEvent)
+	if err != nil {
+		log.Printf("Warning: failed to publish session event to local pool: %v", err)
 	}
 
 	return sessionEvent, nil
@@ -294,7 +294,7 @@ func CreateAdvertisement(config *config_manager.Config) (string, error) {
 	}
 
 	advertisementEvent := nostr.Event{
-		Kind:    21021,
+		Kind:    10021,
 		Tags:    tags,
 		Content: "",
 	}
@@ -355,12 +355,99 @@ func (m *Merchant) calculateAllotmentMs(amountSats uint64) (uint64, error) {
 	return totalMs, nil
 }
 
-// getLatestSession queries the relay pool for the most recent session by customer pubkey
+// getLatestSession queries the local relay pool for the most recent session by customer pubkey
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
-	// For now, return nil to indicate no existing session
-	// In a full implementation, this would query the relay pool for existing sessions
 	log.Printf("Querying for existing session for customer %s", customerPubkey)
+
+	// Get the public key from the private key
+	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	if err != nil {
+		log.Printf("Error getting public key from private key: %v", err)
+		return nil, err
+	}
+
+	// Create filter to find session events for this customer created by this tollgate
+	filters := []nostr.Filter{
+		{
+			Kinds:   []int{1022},              // Session events
+			Authors: []string{tollgatePubkey}, // Only sessions created by this tollgate
+			Tags: map[string][]string{
+				"p": {customerPubkey}, // Customer pubkey tag
+			},
+			Limit: 50, // Get recent sessions to find the latest one
+		},
+	}
+
+	log.Printf("DEBUG: Querying with filter - Kinds: %v, Authors: %v, Tags: %v",
+		filters[0].Kinds, filters[0].Authors, filters[0].Tags)
+
+	// Query the local relay pool
+	events, err := m.configManager.GetLocalPoolEvents(filters)
+	if err != nil {
+		log.Printf("Error querying local pool for sessions: %v", err)
+		return nil, err
+	}
+
+	log.Printf("DEBUG: Found %d events from local pool", len(events))
+	for i, event := range events {
+		log.Printf("DEBUG: Event %d - ID: %s, Kind: %d, Author: %s, CreatedAt: %d",
+			i, event.ID, event.Kind, event.PubKey, event.CreatedAt)
+	}
+
+	if len(events) == 0 {
+		log.Printf("No existing sessions found for customer %s", customerPubkey)
+		return nil, nil
+	}
+
+	// Find the most recent session event
+	var latestSession *nostr.Event
+	for _, event := range events {
+		if latestSession == nil || event.CreatedAt > latestSession.CreatedAt {
+			latestSession = event
+		}
+	}
+
+	if latestSession != nil {
+		log.Printf("Found latest session for customer %s: event ID %s, created at %d",
+			customerPubkey, latestSession.ID, latestSession.CreatedAt)
+
+		// Check if the session is still active (hasn't expired)
+		if m.isSessionActive(latestSession) {
+			return latestSession, nil
+		} else {
+			log.Printf("Latest session for customer %s has expired", customerPubkey)
+			return nil, nil
+		}
+	}
+
 	return nil, nil
+}
+
+// isSessionActive checks if a session event is still active (not expired)
+func (m *Merchant) isSessionActive(sessionEvent *nostr.Event) bool {
+	// Extract allotment from session
+	allotmentMs, err := m.extractAllotment(sessionEvent)
+	if err != nil {
+		log.Printf("Failed to extract allotment from session: %v", err)
+		return false
+	}
+
+	// Calculate session expiration time
+	sessionCreatedAt := time.Unix(int64(sessionEvent.CreatedAt), 0)
+	sessionExpiresAt := sessionCreatedAt.Add(time.Duration(allotmentMs) * time.Millisecond)
+
+	// Check if session is still active
+	isActive := time.Now().Before(sessionExpiresAt)
+
+	if isActive {
+		timeLeft := time.Until(sessionExpiresAt)
+		log.Printf("Session is active, %v remaining", timeLeft)
+	} else {
+		timeExpired := time.Since(sessionExpiresAt)
+		log.Printf("Session expired %v ago", timeExpired)
+	}
+
+	return isActive
 }
 
 // createSessionEvent creates a new session event
@@ -371,9 +458,15 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotmentMs uint
 		return nil, fmt.Errorf("failed to extract device identifier: %w", err)
 	}
 
+	// Get the public key from the private key
+	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get public key: %w", err)
+	}
+
 	sessionEvent := &nostr.Event{
-		Kind:      21022,
-		PubKey:    m.config.TollgatePrivateKey,
+		Kind:      1022,
+		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
 			{"p", customerPubkey},
@@ -435,10 +528,16 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalMs
 		return nil, fmt.Errorf("failed to extract customer or device info from existing session")
 	}
 
+	// Get the public key from the private key
+	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get public key: %w", err)
+	}
+
 	// Create new session event with extended duration
 	sessionEvent := &nostr.Event{
-		Kind:      21022,
-		PubKey:    m.config.TollgatePrivateKey,
+		Kind:      1022,
+		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
 			{"p", customerPubkey},
@@ -472,19 +571,53 @@ func (m *Merchant) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 	return 0, fmt.Errorf("no allotment tag found in session event")
 }
 
-// publishEvent publishes a nostr event to the relay pool
-func (m *Merchant) publishEvent(event *nostr.Event) error {
-	// For now, just log the event publication
-	// In a full implementation, this would publish to a local relay
-	log.Printf("Publishing event kind=%d id=%s to relay pool", event.Kind, event.ID)
+// publishLocal publishes a nostr event to the local relay pool
+func (m *Merchant) publishLocal(event *nostr.Event) error {
+	log.Printf("Publishing event kind=%d id=%s to local pool", event.Kind, event.ID)
+
+	err := m.configManager.PublishToLocalPool(*event)
+	if err != nil {
+		log.Printf("Failed to publish event to local pool: %v", err)
+		return err
+	}
+
+	log.Printf("Successfully published event %s to local pool", event.ID)
+	return nil
+}
+
+// publishPublic publishes a nostr event to public relay pools
+func (m *Merchant) publishPublic(event *nostr.Event) error {
+	log.Printf("Publishing event kind=%d id=%s to public pools", event.Kind, event.ID)
+
+	for _, relayURL := range m.config.Relays {
+		relay, err := m.configManager.GetPublicPool().EnsureRelay(relayURL)
+		if err != nil {
+			log.Printf("Failed to connect to public relay %s: %v", relayURL, err)
+			continue
+		}
+
+		err = relay.Publish(m.configManager.GetPublicPool().Context, *event)
+		if err != nil {
+			log.Printf("Failed to publish event to public relay %s: %v", relayURL, err)
+		} else {
+			log.Printf("Successfully published event %s to public relay %s", event.ID, relayURL)
+		}
+	}
+
 	return nil
 }
 
 // CreateNoticeEvent creates a notice event for error communication
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
+	// Get the public key from the private key
+	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get public key: %w", err)
+	}
+
 	noticeEvent := &nostr.Event{
 		Kind:      21023,
-		PubKey:    m.config.TollgatePrivateKey,
+		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
 			{"level", level},
@@ -499,7 +632,7 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	}
 
 	// Sign with tollgate private key
-	err := noticeEvent.Sign(m.config.TollgatePrivateKey)
+	err = noticeEvent.Sign(m.config.TollgatePrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}

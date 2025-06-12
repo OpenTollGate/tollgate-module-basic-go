@@ -247,8 +247,8 @@ func (c *Crowsnest) parseMerchantAdvertisement(advertisementJSON string, ifaceNa
 		return NetworkInterface{}, fmt.Errorf("failed to parse advertisement JSON: %w", err)
 	}
 
-	if event.Kind != 21021 {
-		return NetworkInterface{}, fmt.Errorf("invalid event kind: %d, expected 21021", event.Kind)
+	if event.Kind != 10021 {
+		return NetworkInterface{}, fmt.Errorf("invalid event kind: %d, expected 10021", event.Kind)
 	}
 
 	// Extract information from tags

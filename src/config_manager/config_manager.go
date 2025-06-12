@@ -32,7 +32,7 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 	}
 	workingRelays := []string{}
 	for _, relayURL := range config.Relays {
-		relay, err := cm.RelayPool.EnsureRelay(relayURL)
+		relay, err := cm.PublicPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
@@ -176,16 +176,19 @@ func (cm *ConfigManager) installFilePath() string {
 
 // ConfigManager manages the configuration file
 type ConfigManager struct {
-	FilePath  string
-	RelayPool *nostr.SimplePool
+	FilePath   string
+	PublicPool *nostr.SimplePool
+	LocalPool  *nostr.SimplePool
 }
 
 // NewConfigManager creates a new ConfigManager instance
 func NewConfigManager(filePath string) (*ConfigManager, error) {
-	relayPool := nostr.NewSimplePool(context.Background())
+	publicPool := nostr.NewSimplePool(context.Background())
+	localPool := nostr.NewSimplePool(context.Background())
 	cm := &ConfigManager{
-		FilePath:  filePath,
-		RelayPool: relayPool,
+		FilePath:   filePath,
+		PublicPool: publicPool,
+		LocalPool:  localPool,
 	}
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
@@ -450,7 +453,7 @@ func (cm *ConfigManager) setUsername(privateKey string, username string) error {
 	event.Sign(privateKey)
 
 	for _, relayURL := range config.Relays {
-		relay, err := cm.RelayPool.EnsureRelay(relayURL)
+		relay, err := cm.PublicPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
@@ -593,6 +596,94 @@ func (cm *ConfigManager) UpdateCurrentInstallationID() error {
 	return nil
 }
 
+func (cm *ConfigManager) GetPublicPool() *nostr.SimplePool {
+	return cm.PublicPool
+}
+
+// GetLocalPool returns the local pool that connects to the local relay
+func (cm *ConfigManager) GetLocalPool() *nostr.SimplePool {
+	return cm.LocalPool
+}
+
+// PublishToLocalPool publishes an event to the local relay pool
+func (cm *ConfigManager) PublishToLocalPool(event nostr.Event) error {
+	localRelayURL := "ws://localhost:4242"
+
+	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
+	if err != nil {
+		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
+		return err
+	}
+
+	err = relay.Publish(context.Background(), event)
+	if err != nil {
+		log.Printf("Failed to publish event to local relay %s: %v", localRelayURL, err)
+		return err
+	}
+
+	log.Printf("Successfully published event %s to local relay", event.ID)
+	return nil
+}
+
+// QueryLocalPool queries events from the local relay pool
+func (cm *ConfigManager) QueryLocalPool(filters []nostr.Filter) (chan *nostr.Event, error) {
+	localRelayURL := "ws://localhost:4242"
+
+	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
+	if err != nil {
+		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	sub, err := relay.Subscribe(context.Background(), filters)
+	if err != nil {
+		log.Printf("Failed to subscribe to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	log.Printf("Successfully subscribed to local relay for %d filters", len(filters))
+	return sub.Events, nil
+}
+
+// GetLocalPoolEvents retrieves all events from the local pool matching filters
+func (cm *ConfigManager) GetLocalPoolEvents(filters []nostr.Filter) ([]*nostr.Event, error) {
+	eventsChan, err := cm.QueryLocalPool(filters)
+	if err != nil {
+		return nil, err
+	}
+
+	var events []*nostr.Event
+	timeout := time.NewTimer(2 * time.Second) // 2 second timeout for collecting events
+	defer timeout.Stop()
+
+	for {
+		select {
+		case event, ok := <-eventsChan:
+			if !ok {
+				return events, nil
+			}
+			events = append(events, event)
+		case <-timeout.C:
+			return events, nil
+		}
+	}
+}
+
+// Deprecated methods for backward compatibility
+// GetPrivatePool returns the local pool (for backward compatibility)
+// Deprecated: Use GetLocalPool() instead
+func (cm *ConfigManager) GetPrivatePool() *nostr.SimplePool {
+	return cm.LocalPool
+}
+
+// PublishToPrivatePool publishes an event to the local relay pool (for backward compatibility)
+// Deprecated: Use PublishToLocalPool() instead
+func (cm *ConfigManager) PublishToPrivatePool(event nostr.Event) error {
+	return cm.PublishToLocalPool(event)
+}
+
+// GetRelayPool returns the public pool (for backward compatibility)
+// Deprecated: Use GetPublicPool() instead
 func (cm *ConfigManager) GetRelayPool() *nostr.SimplePool {
-	return cm.RelayPool
+	return cm.PublicPool
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -69,6 +70,9 @@ func init() {
 
 	// Initialize janitor module
 	initJanitor()
+
+	// Initialize private relay
+	initPrivateRelay()
 }
 
 func initJanitor() {
@@ -79,6 +83,43 @@ func initJanitor() {
 
 	go janitorInstance.ListenForNIP94Events()
 	log.Println("Janitor module initialized and listening for NIP-94 events")
+}
+
+func initPrivateRelay() {
+	go startPrivateRelayWithAutoRestart()
+	log.Println("Private relay initialization started")
+}
+
+func startPrivateRelayWithAutoRestart() {
+	for {
+		log.Println("Starting TollGate private relay on ws://localhost:4242")
+
+		// Create a new private relay instance
+		privateRelay := relay.NewPrivateRelay()
+
+		// Set up relay metadata
+		privateRelay.GetRelay().Info.Name = "TollGate Private Relay"
+		privateRelay.GetRelay().Info.Description = "In-memory relay for TollGate protocol events (kinds 21000-21023)"
+		privateRelay.GetRelay().Info.PubKey = ""
+		privateRelay.GetRelay().Info.Contact = ""
+		privateRelay.GetRelay().Info.SupportedNIPs = []any{1, 11}
+		privateRelay.GetRelay().Info.Software = "https://github.com/OpenTollGate/tollgate-module-basic-go"
+		privateRelay.GetRelay().Info.Version = "v0.0.1"
+
+		log.Printf("Accepting event kinds: 21000 (Payment), 10021 (Discovery), 1022 (Session), 21023 (Notice)")
+
+		// Start the relay (this blocks until error)
+		err := privateRelay.Start(":4242")
+
+		if err != nil {
+			log.Printf("Private relay crashed: %v", err)
+			log.Println("Restarting private relay in 5 seconds...")
+			time.Sleep(5 * time.Second)
+		} else {
+			log.Println("Private relay stopped normally")
+			break
+		}
+	}
 }
 
 func getMacAddress(ipAddress string) (string, error) {

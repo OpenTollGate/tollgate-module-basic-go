@@ -84,7 +84,7 @@ func TestHandleRoot(t *testing.T) {
 
 func TestHandleRootPost(t *testing.T) {
 	event := nostr.Event{
-		Kind: 21022,
+		Kind: 1022,
 		Tags: nostr.Tags{
 			nostr.Tag{"device-identifier", "", "00:11:22:33:44:55"},
 			nostr.Tag{"payment", "test_token"},

@@ -6,9 +6,9 @@ The `main.go` file is the entry point of the TollGate application. It handles HT
 
 ## tollgateDetailsEvent Structure
 
-The `tollgateDetailsEvent` is a Nostr event of kind 21021. Its structure includes:
+The `tollgateDetailsEvent` is a Nostr event of kind 10021. Its structure includes:
 
-- `Kind`: 21021
+- `Kind`: 10021
 - `Tags`: A list of tags containing information such as metric, step_size, price_per_step, and accepted_mints
 - `Content`: An empty string
 

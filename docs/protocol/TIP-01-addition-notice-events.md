@@ -10,15 +10,14 @@ Notice events are used by TollGates to communicate issues, warnings, and informa
 ```json
 {
     "kind": 21023,
-    "pubkey": "tollgate_pubkey",
+    "pubkey": "<tollgate_pubkey>",
     "tags": [
         ["p", "customer_pubkey"], // Optional - only when addressing specific customer
         ["level", "<error|warning|info|debug>"],
         ["code", "<text-code>"]
     ],
     "content": "Human-readable message",
-    "created_at": timestamp,
-    "sig": "signature"
+    // ...
 }
 ```
 
