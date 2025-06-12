@@ -647,43 +647,40 @@ func (cm *ConfigManager) QueryLocalPool(filters []nostr.Filter) (chan *nostr.Eve
 
 // GetLocalPoolEvents retrieves all events from the local pool matching filters
 func (cm *ConfigManager) GetLocalPoolEvents(filters []nostr.Filter) ([]*nostr.Event, error) {
-	eventsChan, err := cm.QueryLocalPool(filters)
+	localRelayURL := "ws://localhost:4242"
+
+	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
 	if err != nil {
+		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	sub, err := relay.Subscribe(context.Background(), filters)
+	if err != nil {
+		log.Printf("Failed to subscribe to local relay %s: %v", localRelayURL, err)
 		return nil, err
 	}
 
 	var events []*nostr.Event
-	timeout := time.NewTimer(2 * time.Second) // 2 second timeout for collecting events
+	timeout := time.NewTimer(5 * time.Second) // Fallback timeout in case EOSE is never received
 	defer timeout.Stop()
 
 	for {
 		select {
-		case event, ok := <-eventsChan:
+		case event, ok := <-sub.Events:
 			if !ok {
+				// Channel closed, return what we have
 				return events, nil
 			}
 			events = append(events, event)
+		case <-sub.EndOfStoredEvents:
+			// End of stored events received, return immediately
+			log.Printf("EOSE received, returning %d events", len(events))
+			return events, nil
 		case <-timeout.C:
+			// Fallback timeout in case EOSE is never received
+			log.Printf("Timeout waiting for EOSE, returning %d events", len(events))
 			return events, nil
 		}
 	}
-}
-
-// Deprecated methods for backward compatibility
-// GetPrivatePool returns the local pool (for backward compatibility)
-// Deprecated: Use GetLocalPool() instead
-func (cm *ConfigManager) GetPrivatePool() *nostr.SimplePool {
-	return cm.LocalPool
-}
-
-// PublishToPrivatePool publishes an event to the local relay pool (for backward compatibility)
-// Deprecated: Use PublishToLocalPool() instead
-func (cm *ConfigManager) PublishToPrivatePool(event nostr.Event) error {
-	return cm.PublishToLocalPool(event)
-}
-
-// GetRelayPool returns the public pool (for backward compatibility)
-// Deprecated: Use GetPublicPool() instead
-func (cm *ConfigManager) GetRelayPool() *nostr.SimplePool {
-	return cm.PublicPool
 }
