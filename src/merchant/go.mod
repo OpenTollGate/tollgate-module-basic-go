@@ -68,7 +68,6 @@ require (
 
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
-	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest => ../crowsnest
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils

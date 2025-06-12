@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -128,34 +129,70 @@ type PurchaseSessionResult struct {
 	Description string
 }
 
-// PurchaseSession processes a payment event and returns a session event
+// PurchaseSession processes a payment event and returns either a session event or a notice event
 func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, error) {
 	// Extract payment token from payment event
 	paymentToken, err := m.extractPaymentToken(paymentEvent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract payment token: %w", err)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-payment-token",
+			fmt.Sprintf("Failed to extract payment token: %v", err), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("failed to extract payment token and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	// Extract device identifier from payment event
 	deviceIdentifier, err := m.extractDeviceIdentifier(paymentEvent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract device identifier: %w", err)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-device-identifier",
+			fmt.Sprintf("Failed to extract device identifier: %v", err), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("failed to extract device identifier and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	// Validate MAC address
 	if !utils.ValidateMACAddress(deviceIdentifier) {
-		return nil, fmt.Errorf("invalid MAC address: %s", deviceIdentifier)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-mac-address",
+			fmt.Sprintf("Invalid MAC address: %s", deviceIdentifier), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("invalid MAC address and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	// Process payment
 	paymentCashuToken, err := cashu.DecodeToken(paymentToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cashu token: %w", err)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
+			fmt.Sprintf("Invalid cashu token: %v", err), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("invalid cashu token and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	amountAfterSwap, err := m.tollwallet.Receive(paymentCashuToken)
 	if err != nil {
-		return nil, fmt.Errorf("payment processing failed: %w", err)
+		var errorCode string
+		var errorMessage string
+
+		// Check for specific error types
+		if strings.Contains(err.Error(), "Token already spent") {
+			errorCode = "payment-error-token-spent"
+			errorMessage = "Token has already been spent"
+		} else {
+			errorCode = "payment-processing-failed"
+			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
+		}
+
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("payment processing failed and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	log.Printf("Amount after swap: %d", amountAfterSwap)
@@ -163,7 +200,12 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	// Calculate allotment in milliseconds from payment amount
 	allotmentMs, err := m.calculateAllotmentMs(amountAfterSwap)
 	if err != nil {
-		return nil, fmt.Errorf("failed to calculate allotment: %w", err)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "allotment-calculation-failed",
+			fmt.Sprintf("Failed to calculate allotment: %v", err), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("failed to calculate allotment and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	// Check for existing session
@@ -178,14 +220,24 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		// Extend existing session
 		sessionEvent, err = m.extendSessionEvent(existingSession, allotmentMs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extend session: %w", err)
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-extension-failed",
+				fmt.Sprintf("Failed to extend session: %v", err), paymentEvent.PubKey)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("failed to extend session and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
 		}
 		log.Printf("Extended session for customer %s", customerPubkey)
 	} else {
 		// Create new session
 		sessionEvent, err = m.createSessionEvent(paymentEvent, allotmentMs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create session: %w", err)
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-creation-failed",
+				fmt.Sprintf("Failed to create session: %v", err), paymentEvent.PubKey)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("failed to create session and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
 		}
 		log.Printf("Created new session for customer %s", customerPubkey)
 	}
@@ -193,7 +245,12 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	// Update valve with session information
 	err = valve.OpenGateForSession(*sessionEvent, m.config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open gate for session: %w", err)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-opening-failed",
+			fmt.Sprintf("Failed to open gate for session: %v", err), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("failed to open gate for session and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	// Publish session event to local pool only (for privacy)
@@ -265,38 +322,31 @@ func (m *Merchant) GetAdvertisement() string {
 }
 
 func CreateAdvertisement(config *config_manager.Config) (string, error) {
-	// Create a map of accepted mints and their minimum payments
-	mintMinPayments := make(map[string]uint64)
+	advertisementEvent := nostr.Event{
+		Kind: 10021,
+		Tags: nostr.Tags{
+			{"metric", "milliseconds"},
+			{"step_size", "60000"},
+			{"tips", "1", "2", "3"},
+		},
+		Content: "",
+	}
+
+	// Create a map of prices mints and their fees
 	for _, mintConfig := range config.AcceptedMints {
 		mintFee, err := config_manager.GetMintFee(mintConfig.URL)
 		if err != nil {
 			log.Printf("Error getting mint fee for %s: %v", mintConfig.URL, err)
 			continue
 		}
-		paymentAmount := uint64(config_manager.CalculateMinPayment(mintFee))
-		mintMinPayments[mintConfig.URL] = paymentAmount
-	}
 
-	// Create the nostr event with the mintMinPayments map
-	tags := nostr.Tags{
-		{"metric", "milliseconds"},
-		{"step_size", "60000"},
-		{"price_per_step", fmt.Sprintf("%d", config.PricePerMinute), "sat"},
-		{"tips", "1", "2", "3"},
-	}
-
-	// Create a separate tag for each accepted mint
-	for mint, minPayment := range mintMinPayments {
-		// TODO: include min payment in future - requires TIP-01 & frontend logic adjustment
-		log.Printf("TODO: include min payment (%d) for %s in future", minPayment, mint)
-		//tags = append(tags, nostr.Tag{"mint", mint, fmt.Sprintf("%d", minPayment)})
-		tags = append(tags, nostr.Tag{"mint", mint})
-	}
-
-	advertisementEvent := nostr.Event{
-		Kind:    10021,
-		Tags:    tags,
-		Content: "",
+		advertisementEvent.Tags = append(advertisementEvent.Tags, nostr.Tag{
+			"price_per_step",
+			"cashu",
+			fmt.Sprintf("%d", config.PricePerMinute),
+			"sat", mintConfig.URL,
+			fmt.Sprintf("%d", mintFee),
+		})
 	}
 
 	// Sign

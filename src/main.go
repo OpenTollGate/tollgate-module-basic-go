@@ -25,10 +25,21 @@ var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
 
+// getConfigPath returns the configuration file path, checking environment variable first, then default
+func getConfigPath() string {
+	if configPath := os.Getenv("TOLLGATE_CONFIG_PATH"); configPath != "" {
+		return configPath
+	}
+	return "/etc/tollgate/config.json"
+}
+
 func init() {
 	var err error
 
-	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
+	configPath := getConfigPath()
+	log.Printf("Using config path: %s", configPath)
+
+	configManager, err = config_manager.NewConfigManager(configPath)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
@@ -231,21 +242,29 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process payment and get session event
-	sessionEvent, err := merchantInstance.PurchaseSession(event)
+	responseEvent, err := merchantInstance.PurchaseSession(event)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
 		log.Printf("Payment processing failed: %v", err)
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "payment-error",
-			fmt.Sprintf("Payment processing failed: %v", err), event.PubKey)
+		sendNoticeResponse(w, merchantInstance, http.StatusInternalServerError, "error", "internal-error",
+			fmt.Sprintf("Internal error during payment processing: %v", err), event.PubKey)
 		return
 	}
 
-	// Return session event on success (TIP-03 compliance)
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(sessionEvent)
+	// Check if the response is a notice event (kind 21023) or session event (kind 1022)
+	if responseEvent.Kind == 21023 {
+		// It's a notice event (error case), return with appropriate status
+		w.WriteHeader(http.StatusBadRequest)
+		err = json.NewEncoder(w).Encode(responseEvent)
+	} else {
+		// It's a session event (success case), return with OK status
+		w.WriteHeader(http.StatusOK)
+		err = json.NewEncoder(w).Encode(responseEvent)
+	}
+
 	if err != nil {
 		log.Printf("Error encoding session response: %v", err)
 	}
