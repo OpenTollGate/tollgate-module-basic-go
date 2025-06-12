@@ -238,7 +238,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("Payment processing failed: %v", err)
-		sendNoticeResponse(w, merchantInstance, http.StatusPaymentRequired, "error", "payment-error",
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "payment-error",
 			fmt.Sprintf("Payment processing failed: %v", err), event.PubKey)
 		return
 	}
@@ -302,10 +302,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func testHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Received %s request from %s to %s", r.Method, getIP(r), r.URL.Path)
-}
-
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate Core")
@@ -314,11 +310,6 @@ func main() {
 	// Add verbose logging for debugging
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("Registering handlers...")
-
-	http.HandleFunc("/x", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("DEBUG: Hit /x endpoint from %s", r.RemoteAddr)
-		testHandler(w, r)
-	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)
