@@ -197,8 +197,9 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 
 	log.Printf("Amount after swap: %d", amountAfterSwap)
 
-	// Calculate allotment in milliseconds from payment amount
-	allotmentMs, err := m.calculateAllotmentMs(amountAfterSwap)
+	// Calculate allotment using the configured metric and mint-specific pricing
+	mintURL := paymentCashuToken.Mint()
+	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "allotment-calculation-failed",
 			fmt.Sprintf("Failed to calculate allotment: %v", err), paymentEvent.PubKey)
@@ -218,7 +219,7 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	var sessionEvent *nostr.Event
 	if existingSession != nil {
 		// Extend existing session
-		sessionEvent, err = m.extendSessionEvent(existingSession, allotmentMs)
+		sessionEvent, err = m.extendSessionEvent(existingSession, allotment)
 		if err != nil {
 			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-extension-failed",
 				fmt.Sprintf("Failed to extend session: %v", err), paymentEvent.PubKey)
@@ -230,7 +231,7 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		log.Printf("Extended session for customer %s", customerPubkey)
 	} else {
 		// Create new session
-		sessionEvent, err = m.createSessionEvent(paymentEvent, allotmentMs)
+		sessionEvent, err = m.createSessionEvent(paymentEvent, allotment)
 		if err != nil {
 			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-creation-failed",
 				fmt.Sprintf("Failed to create session: %v", err), paymentEvent.PubKey)
@@ -262,61 +263,6 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	return sessionEvent, nil
 }
 
-// Legacy method for backwards compatibility (will be removed)
-func (m *Merchant) PurchaseSessionLegacy(paymentToken string, macAddress string) (PurchaseSessionResult, error) {
-	valid := utils.ValidateMACAddress(macAddress)
-
-	if !valid {
-		return PurchaseSessionResult{
-			Status:      "rejected",
-			Description: fmt.Sprintf("%s is not a valid MAC address", macAddress),
-		}, nil
-	}
-
-	paymentCashuToken, err := cashu.DecodeToken(paymentToken)
-	if err != nil {
-		return PurchaseSessionResult{
-			Status:      "rejected",
-			Description: "Invalid cashu token",
-		}, nil
-	}
-
-	amountAfterSwap, err := m.tollwallet.Receive(paymentCashuToken)
-	if err != nil {
-		log.Printf("Error Processing payment. %s", err)
-		return PurchaseSessionResult{
-			Status:      "error",
-			Description: fmt.Sprintf("Error Processing payment"),
-		}, nil
-	}
-
-	log.Printf("Amount after swap: %d", amountAfterSwap)
-
-	var allottedMinutes = uint64(amountAfterSwap / m.config.PricePerMinute)
-	if allottedMinutes < 1 {
-		allottedMinutes = 1 // Minimum 1 minute
-	}
-
-	durationSeconds := int64(allottedMinutes * 60)
-	log.Printf("Calculated minutes: %d (from value %d)", allottedMinutes, amountAfterSwap)
-
-	err = valve.OpenGate(macAddress, durationSeconds)
-	if err != nil {
-		log.Printf("Error opening gate for MAC %s: %v", macAddress, err)
-		return PurchaseSessionResult{
-			Status:      "error",
-			Description: fmt.Sprintf("Error while opening gate for %s", macAddress),
-		}, nil
-	}
-
-	log.Printf("Access granted to %s for %d minutes", macAddress, allottedMinutes)
-
-	return PurchaseSessionResult{
-		Status:      "success",
-		Description: "",
-	}, nil
-}
-
 func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
@@ -325,27 +271,22 @@ func CreateAdvertisement(config *config_manager.Config) (string, error) {
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
 		Tags: nostr.Tags{
-			{"metric", "milliseconds"},
-			{"step_size", "60000"},
-			{"tips", "1", "2", "3"},
+			{"metric", config.Metric},
+			{"step_size", fmt.Sprintf("%d", config.StepSize)},
+			{"tips", "1", "2", "3", "4"},
 		},
 		Content: "",
 	}
 
 	// Create a map of prices mints and their fees
 	for _, mintConfig := range config.AcceptedMints {
-		mintFee, err := config_manager.GetMintFee(mintConfig.URL)
-		if err != nil {
-			log.Printf("Error getting mint fee for %s: %v", mintConfig.URL, err)
-			continue
-		}
-
 		advertisementEvent.Tags = append(advertisementEvent.Tags, nostr.Tag{
 			"price_per_step",
 			"cashu",
-			fmt.Sprintf("%d", config.PricePerMinute),
-			"sat", mintConfig.URL,
-			fmt.Sprintf("%d", mintFee),
+			fmt.Sprintf("%d", mintConfig.PricePerStep),
+			mintConfig.PriceUnit,
+			mintConfig.URL,
+			fmt.Sprintf("%d", mintConfig.MinPurchaseSteps),
 		})
 	}
 
@@ -384,26 +325,78 @@ func (m *Merchant) extractDeviceIdentifier(paymentEvent nostr.Event) (string, er
 	return "", fmt.Errorf("no device-identifier tag found in event")
 }
 
-// getStepSizeMs returns the step size in milliseconds from the merchant configuration
-func (m *Merchant) getStepSizeMs() uint64 {
-	// Parse the advertisement event to get step_size
-	// For now, default to 60000ms (1 minute) as defined in CreateAdvertisement
-	return 60000
-}
-
-// calculateAllotmentMs calculates allotment in milliseconds from payment amount
-func (m *Merchant) calculateAllotmentMs(amountSats uint64) (uint64, error) {
-	// Calculate minutes from payment amount
-	allottedMinutes := amountSats / m.config.PricePerMinute
-	if allottedMinutes < 1 {
-		allottedMinutes = 1 // Minimum 1 minute
+// calculateAllotment calculates allotment using the configured metric and mint-specific pricing
+func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64, error) {
+	// Find the mint configuration for this mint
+	var mintConfig *config_manager.MintConfig
+	for _, mint := range m.config.AcceptedMints {
+		if mint.URL == mintURL {
+			mintConfig = &mint
+			break
+		}
 	}
 
-	// Convert minutes to milliseconds
-	totalMs := allottedMinutes * 60000 // Total milliseconds purchased
+	if mintConfig == nil {
+		return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
+	}
+
+	steps := amountSats / mintConfig.PricePerStep
+
+	// Check if payment meets minimum purchase requirement
+	if steps < mintConfig.MinPurchaseSteps {
+		return 0, fmt.Errorf("payment only covers %d steps, but minimum purchase is %d steps", steps, mintConfig.MinPurchaseSteps)
+	}
+
+	switch m.config.Metric {
+	case "milliseconds":
+		return m.calculateAllotmentMs(steps, mintConfig)
+	// case "bytes":
+	//     return m.calculateAllotmentBytes(steps, mintConfig)
+	default:
+		return 0, fmt.Errorf("unsupported metric: %s", m.config.Metric)
+	}
+}
+
+// calculateAllotmentMs calculates allotment in milliseconds from steps
+func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+	// Convert steps to milliseconds using configured step size
+	totalMs := steps * m.config.StepSize
+
+	log.Printf("Converting %d steps to %d ms using step size %d",
+		steps, totalMs, m.config.StepSize)
 
 	return totalMs, nil
 }
+
+// calculateAllotmentBytes calculates allotment in bytes from payment amount using mint-specific pricing
+// func (m *Merchant) calculateAllotmentBytes(amountSats uint64, mintURL string) (uint64, error) {
+//     // Find the mint configuration for this mint
+//     var mintConfig *MintConfig
+//     for _, mint := range m.config.AcceptedMints {
+//         if mint.URL == mintURL {
+//             mintConfig = &mint
+//             break
+//         }
+//     }
+//
+//     if mintConfig == nil {
+//         return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
+//     }
+//
+//     // Calculate steps from payment amount using mint-specific pricing
+//     allottedSteps := amountSats / mintConfig.PricePerStep
+//     if allottedSteps < 1 {
+//         allottedSteps = 1 // Minimum 1 step
+//     }
+//
+//     // Convert steps to bytes using configured step size
+//     totalBytes := allottedSteps * m.config.StepSize
+//
+//     log.Printf("Calculated %d steps (%d bytes) from %d sats at %d sats per step",
+//         allottedSteps, totalBytes, amountSats, mintConfig.PricePerStep)
+//
+//     return totalBytes, nil
+// }
 
 // getLatestSession queries the local relay pool for the most recent session by customer pubkey
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
@@ -501,7 +494,7 @@ func (m *Merchant) isSessionActive(sessionEvent *nostr.Event) bool {
 }
 
 // createSessionEvent creates a new session event
-func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotmentMs uint64) (*nostr.Event, error) {
+func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64) (*nostr.Event, error) {
 	customerPubkey := paymentEvent.PubKey
 	deviceIdentifier, err := m.extractDeviceIdentifier(paymentEvent)
 	if err != nil {
@@ -521,8 +514,8 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotmentMs uint
 		Tags: nostr.Tags{
 			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
-			{"allotment", fmt.Sprintf("%d", allotmentMs)},
-			{"metric", "milliseconds"},
+			{"allotment", fmt.Sprintf("%d", allotment)},
+			{"metric", m.config.Metric},
 		},
 		Content: "",
 	}
@@ -537,29 +530,38 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotmentMs uint
 }
 
 // extendSessionEvent creates a new session event with extended duration
-func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalMs uint64) (*nostr.Event, error) {
+func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAllotment uint64) (*nostr.Event, error) {
 	// Extract existing allotment from the session
-	existingAllotmentMs, err := m.extractAllotment(existingSession)
+	existingAllotment, err := m.extractAllotment(existingSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract existing allotment: %w", err)
 	}
 
-	// Calculate how much time has passed since session creation
-	sessionCreatedAt := time.Unix(int64(existingSession.CreatedAt), 0)
-	timePassed := time.Since(sessionCreatedAt)
-	timePassedMs := uint64(timePassed.Milliseconds())
+	// Calculate leftover allotment based on metric type
+	var leftoverAllotment uint64 = 0
+	if m.config.Metric == "milliseconds" {
+		// For time-based metrics, calculate how much time has passed
+		sessionCreatedAt := time.Unix(int64(existingSession.CreatedAt), 0)
+		timePassed := time.Since(sessionCreatedAt)
+		timePassedInMetric := uint64(timePassed.Milliseconds())
 
-	// Calculate leftover time
-	leftoverMs := uint64(0)
-	if existingAllotmentMs > timePassedMs {
-		leftoverMs = existingAllotmentMs - timePassedMs
+		if existingAllotment > timePassedInMetric {
+			leftoverAllotment = existingAllotment - timePassedInMetric
+		}
+
+		log.Printf("Session extension: existing=%d %s, passed=%d %s, leftover=%d %s, additional=%d %s",
+			existingAllotment, m.config.Metric, timePassedInMetric, m.config.Metric,
+			leftoverAllotment, m.config.Metric, additionalAllotment, m.config.Metric)
+	} else {
+		// For non-time metrics (like bytes), keep the full existing allotment
+		leftoverAllotment = existingAllotment
+		log.Printf("Session extension: existing=%d %s, leftover=%d %s (no decay), additional=%d %s",
+			existingAllotment, m.config.Metric, leftoverAllotment, m.config.Metric,
+			additionalAllotment, m.config.Metric)
 	}
 
-	log.Printf("Session extension: existing=%d ms, passed=%d ms, leftover=%d ms, additional=%d ms",
-		existingAllotmentMs, timePassedMs, leftoverMs, additionalMs)
-
 	// Calculate new total allotment
-	newTotalMs := leftoverMs + additionalMs
+	newTotalAllotment := leftoverAllotment + additionalAllotment
 
 	// Extract customer and device info from existing session
 	customerPubkey := ""
@@ -592,7 +594,7 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalMs
 		Tags: nostr.Tags{
 			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
-			{"allotment", fmt.Sprintf("%d", newTotalMs)},
+			{"allotment", fmt.Sprintf("%d", newTotalAllotment)},
 			{"metric", "milliseconds"},
 		},
 		Content: "",

@@ -30,6 +30,8 @@ func TestLoadConfig(t *testing.T) {
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
 				MinPayoutAmount:         1000,
+				PricePerStep:            1,
+				MinPurchaseSteps:        0,
 			},
 			{
 				URL:                     "https://mint2.nutmix.cash",
@@ -37,9 +39,12 @@ func TestLoadConfig(t *testing.T) {
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
 				MinPayoutAmount:         1000,
+				PricePerStep:            1,
+				MinPurchaseSteps:        0,
 			},
 		},
-		PricePerMinute: 1,
+		Metric:   "milliseconds",
+		StepSize: 60000,
 	}
 
 	configData, err := json.Marshal(config)

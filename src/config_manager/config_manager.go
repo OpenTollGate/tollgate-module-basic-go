@@ -68,6 +68,9 @@ type MintConfig struct {
 	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
 	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+	PricePerStep            uint64 `json:"price_per_step"`
+	PriceUnit               string `json:"price_unit"`
+	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
 }
 
 type ProfitShareConfig struct {
@@ -87,7 +90,8 @@ type Config struct {
 	TollgatePrivateKey    string              `json:"tollgate_private_key"`
 	AcceptedMints         []MintConfig        `json:"accepted_mints"`
 	ProfitShare           []ProfitShareConfig `json:"profit_share"`
-	PricePerMinute        uint64              `json:"price_per_minute"`
+	StepSize              uint64              `json:"step_size"`
+	Metric                string              `json:"metric"`
 	Bragging              BraggingConfig      `json:"bragging"`
 	Relays                []string            `json:"relays"`
 	TrustedMaintainers    []string            `json:"trusted_maintainers"`
@@ -273,20 +277,13 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 	return &config, nil
 }
 
-// SaveConfig writes the configuration to the managed file
+// SaveConfig writes the configuration to the managed file with pretty formatting
 func (cm *ConfigManager) SaveConfig(config *Config) error {
-	data, err := json.Marshal(config)
+	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(cm.FilePath, data, 0644)
-}
-
-// getMintFee retrieves the mint fee for a given mint URL
-// TODO: Run this every time rather than storing the information in a config file.
-func GetMintFee(mintURL string) (uint64, error) {
-	// Stub implementation: return a default mint fee
-	return 0, nil
 }
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
@@ -480,7 +477,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 
 		defaultConfig := &Config{
-			ConfigVersion:      "v0.0.2",
+			ConfigVersion:      "v0.0.3",
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
 				{
@@ -489,6 +486,8 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
 					MinPayoutAmount:         200,
+					PricePerStep:            1,
+					MinPurchaseSteps:        0,
 				},
 				{
 					URL:                     "https://mint2.nutmix.cash",
@@ -496,13 +495,16 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
 					MinPayoutAmount:         200,
+					PricePerStep:            1,
+					MinPurchaseSteps:        0,
 				},
 			},
 			ProfitShare: []ProfitShareConfig{
 				{0.70, "tollgate@minibits.cash"}, // User should change this
 				{0.30, "tollgate@minibits.cash"},
 			},
-			PricePerMinute: 1,
+			Metric:   "milliseconds",
+			StepSize: 600000,
 			Bragging: BraggingConfig{
 				Enabled: true,
 				Fields:  []string{"amount", "mint", "duration"},
