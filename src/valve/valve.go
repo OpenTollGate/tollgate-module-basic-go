@@ -9,8 +9,10 @@ import (
 )
 
 // activeTimers keeps track of active timers for each MAC address
+// timerExpiry keeps track of when each MAC address's access will expire
 var (
 	activeTimers = make(map[string]*time.Timer)
+	timerExpiry  = make(map[string]time.Time)
 	timerMutex   = &sync.Mutex{}
 )
 
@@ -60,9 +62,11 @@ func OpenGate(macAddress string, durationSeconds int64) error {
 		timerMutex.Unlock()
 	})
 
-	// Store the timer in the map
+	// Store the timer and expiry time in the maps
+	expiryTime := time.Now().Add(duration)
 	timerMutex.Lock()
 	activeTimers[macAddress] = timer
+	timerExpiry[macAddress] = expiryTime
 	timerMutex.Unlock()
 
 	return nil
@@ -76,6 +80,7 @@ func cancelExistingTimer(macAddress string) {
 	if timer, exists := activeTimers[macAddress]; exists {
 		timer.Stop()
 		delete(activeTimers, macAddress)
+		delete(timerExpiry, macAddress)
 		log.Printf("Canceled existing timer for MAC %s", macAddress)
 	}
 }
@@ -111,4 +116,28 @@ func GetActiveTimers() int {
 	timerMutex.Lock()
 	defer timerMutex.Unlock()
 	return len(activeTimers)
+}
+
+// GetRemainingTime returns the remaining time in seconds for a MAC address,
+// the expiry timestamp, and a boolean indicating whether the MAC address has an active timer
+func GetRemainingTime(macAddress string) (int64, time.Time, bool) {
+	timerMutex.Lock()
+	defer timerMutex.Unlock()
+
+	// Check if the MAC address has an active timer
+	_, timerExists := activeTimers[macAddress]
+	if !timerExists {
+		return 0, time.Time{}, false
+	}
+
+	// Get the expiry time
+	expiryTime := timerExpiry[macAddress]
+	
+	// Calculate the remaining time
+	remainingTime := time.Until(expiryTime).Seconds()
+	if remainingTime < 0 {
+		remainingTime = 0
+	}
+
+	return int64(remainingTime), expiryTime, true
 }
