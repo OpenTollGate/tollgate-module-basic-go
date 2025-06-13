@@ -144,10 +144,6 @@ jobs:
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_PACKAGE_jq=y" >> .config
 
-      - name: Check Go Version
-        run: |
-          go version
-
       - name: Compile Package
         run: |
           cd /builder
