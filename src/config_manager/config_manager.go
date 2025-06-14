@@ -32,7 +32,7 @@ func (cm *ConfigManager) GetNIP94Event(eventID string) (*nostr.Event, error) {
 	}
 	workingRelays := []string{}
 	for _, relayURL := range config.Relays {
-		relay, err := cm.RelayPool.EnsureRelay(relayURL)
+		relay, err := cm.PublicPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
@@ -68,6 +68,9 @@ type MintConfig struct {
 	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
 	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+	PricePerStep            uint64 `json:"price_per_step"`
+	PriceUnit               string `json:"price_unit"`
+	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
 }
 
 type ProfitShareConfig struct {
@@ -87,7 +90,8 @@ type Config struct {
 	TollgatePrivateKey    string              `json:"tollgate_private_key"`
 	AcceptedMints         []MintConfig        `json:"accepted_mints"`
 	ProfitShare           []ProfitShareConfig `json:"profit_share"`
-	PricePerMinute        uint64              `json:"price_per_minute"`
+	StepSize              uint64              `json:"step_size"`
+	Metric                string              `json:"metric"`
 	Bragging              BraggingConfig      `json:"bragging"`
 	Relays                []string            `json:"relays"`
 	TrustedMaintainers    []string            `json:"trusted_maintainers"`
@@ -176,16 +180,19 @@ func (cm *ConfigManager) installFilePath() string {
 
 // ConfigManager manages the configuration file
 type ConfigManager struct {
-	FilePath  string
-	RelayPool *nostr.SimplePool
+	FilePath   string
+	PublicPool *nostr.SimplePool
+	LocalPool  *nostr.SimplePool
 }
 
 // NewConfigManager creates a new ConfigManager instance
 func NewConfigManager(filePath string) (*ConfigManager, error) {
-	relayPool := nostr.NewSimplePool(context.Background())
+	publicPool := nostr.NewSimplePool(context.Background())
+	localPool := nostr.NewSimplePool(context.Background())
 	cm := &ConfigManager{
-		FilePath:  filePath,
-		RelayPool: relayPool,
+		FilePath:   filePath,
+		PublicPool: publicPool,
+		LocalPool:  localPool,
 	}
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
@@ -270,20 +277,13 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 	return &config, nil
 }
 
-// SaveConfig writes the configuration to the managed file
+// SaveConfig writes the configuration to the managed file with pretty formatting
 func (cm *ConfigManager) SaveConfig(config *Config) error {
-	data, err := json.Marshal(config)
+	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(cm.FilePath, data, 0644)
-}
-
-// getMintFee retrieves the mint fee for a given mint URL
-// TODO: Run this every time rather than storing the information in a config file.
-func GetMintFee(mintURL string) (uint64, error) {
-	// Stub implementation: return a default mint fee
-	return 0, nil
 }
 
 // calculateMinPayment calculates the minimum payment based on the mint fee
@@ -450,7 +450,7 @@ func (cm *ConfigManager) setUsername(privateKey string, username string) error {
 	event.Sign(privateKey)
 
 	for _, relayURL := range config.Relays {
-		relay, err := cm.RelayPool.EnsureRelay(relayURL)
+		relay, err := cm.PublicPool.EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue
@@ -477,7 +477,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 
 		defaultConfig := &Config{
-			ConfigVersion:      "v0.0.2",
+			ConfigVersion:      "v0.0.3",
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
 				{
@@ -486,6 +486,8 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
 					MinPayoutAmount:         16,
+					PricePerStep:            1,
+					MinPurchaseSteps:        0,
 				},
 				{
 					URL:                     "https://mint2.nutmix.cash",
@@ -493,13 +495,16 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
 					MinPayoutAmount:         16,
+					PricePerStep:            1,
+					MinPurchaseSteps:        0,
 				},
 			},
 			ProfitShare: []ProfitShareConfig{
 				{0.70, "tollgate@minibits.cash"}, // User should change this
 				{0.30, "tollgate@minibits.cash"},
 			},
-			PricePerMinute: 1,
+			Metric:   "milliseconds",
+			StepSize: 600000,
 			Bragging: BraggingConfig{
 				Enabled: true,
 				Fields:  []string{"amount", "mint", "duration"},
@@ -593,6 +598,91 @@ func (cm *ConfigManager) UpdateCurrentInstallationID() error {
 	return nil
 }
 
-func (cm *ConfigManager) GetRelayPool() *nostr.SimplePool {
-	return cm.RelayPool
+func (cm *ConfigManager) GetPublicPool() *nostr.SimplePool {
+	return cm.PublicPool
+}
+
+// GetLocalPool returns the local pool that connects to the local relay
+func (cm *ConfigManager) GetLocalPool() *nostr.SimplePool {
+	return cm.LocalPool
+}
+
+// PublishToLocalPool publishes an event to the local relay pool
+func (cm *ConfigManager) PublishToLocalPool(event nostr.Event) error {
+	localRelayURL := "ws://localhost:4242"
+
+	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
+	if err != nil {
+		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
+		return err
+	}
+
+	err = relay.Publish(context.Background(), event)
+	if err != nil {
+		log.Printf("Failed to publish event to local relay %s: %v", localRelayURL, err)
+		return err
+	}
+
+	log.Printf("Successfully published event %s to local relay", event.ID)
+	return nil
+}
+
+// QueryLocalPool queries events from the local relay pool
+func (cm *ConfigManager) QueryLocalPool(filters []nostr.Filter) (chan *nostr.Event, error) {
+	localRelayURL := "ws://localhost:4242"
+
+	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
+	if err != nil {
+		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	sub, err := relay.Subscribe(context.Background(), filters)
+	if err != nil {
+		log.Printf("Failed to subscribe to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	log.Printf("Successfully subscribed to local relay for %d filters", len(filters))
+	return sub.Events, nil
+}
+
+// GetLocalPoolEvents retrieves all events from the local pool matching filters
+func (cm *ConfigManager) GetLocalPoolEvents(filters []nostr.Filter) ([]*nostr.Event, error) {
+	localRelayURL := "ws://localhost:4242"
+
+	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
+	if err != nil {
+		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	sub, err := relay.Subscribe(context.Background(), filters)
+	if err != nil {
+		log.Printf("Failed to subscribe to local relay %s: %v", localRelayURL, err)
+		return nil, err
+	}
+
+	var events []*nostr.Event
+	timeout := time.NewTimer(5 * time.Second) // Fallback timeout in case EOSE is never received
+	defer timeout.Stop()
+
+	for {
+		select {
+		case event, ok := <-sub.Events:
+			if !ok {
+				// Channel closed, return what we have
+				return events, nil
+			}
+			events = append(events, event)
+		case <-sub.EndOfStoredEvents:
+			// End of stored events received, return immediately
+			log.Printf("EOSE received, returning %d events", len(events))
+			return events, nil
+		case <-timeout.C:
+			// Fallback timeout in case EOSE is never received
+			log.Printf("Timeout waiting for EOSE, returning %d events", len(events))
+			return events, nil
+		}
+	}
 }

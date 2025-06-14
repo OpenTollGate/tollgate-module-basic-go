@@ -87,9 +87,12 @@ func TestConfigManager(t *testing.T) {
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
 				MinPayoutAmount:         1000,
+				MinPurchaseSteps:        1,
+				PricePerStep:            1,
 			},
 		},
-		PricePerMinute: 2,
+		Metric:   "milliseconds",
+		StepSize: 120000,
 		Bragging: BraggingConfig{
 			Enabled: true,
 			Fields:  []string{"test_field"},
@@ -111,7 +114,8 @@ func TestConfigManager(t *testing.T) {
 	// Verify all fields
 	if loadedConfig.TollgatePrivateKey != "test_key" ||
 		!compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
-		loadedConfig.PricePerMinute != 2 ||
+		loadedConfig.Metric != "milliseconds" ||
+		loadedConfig.StepSize != 120000 ||
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||

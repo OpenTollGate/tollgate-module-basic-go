@@ -53,7 +53,7 @@ func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, amou
 	}
 
 	for _, relayURL := range config.Relays {
-		relay, err := configManager.RelayPool.EnsureRelay(relayURL)
+		relay, err := configManager.GetPublicPool().EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to relay %s: %v", relayURL, err)
 			continue

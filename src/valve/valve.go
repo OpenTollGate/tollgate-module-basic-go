@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/nbd-wtf/go-nostr"
 )
 
 // activeTimers keeps track of active timers for each MAC address
@@ -111,4 +115,59 @@ func GetActiveTimers() int {
 	timerMutex.Lock()
 	defer timerMutex.Unlock()
 	return len(activeTimers)
+}
+
+// OpenGateForSession authorizes network access based on a session event
+func OpenGateForSession(sessionEvent nostr.Event, config *config_manager.Config) error {
+	// Extract MAC address from session event
+	macAddress, err := extractMACFromSession(sessionEvent)
+	if err != nil {
+		return fmt.Errorf("failed to extract MAC address from session: %w", err)
+	}
+
+	// Extract allotment from session event
+	allotmentMs, err := extractAllotmentFromSession(sessionEvent)
+	if err != nil {
+		return fmt.Errorf("failed to extract allotment from session: %w", err)
+	}
+
+	// Convert allotment to duration
+	durationSeconds := int64(allotmentMs / 1000)
+
+	log.Printf("Opening gate for session: MAC=%s, allotment=%d ms, duration=%d seconds",
+		macAddress, allotmentMs, durationSeconds)
+
+	// Use the existing OpenGate function
+	return OpenGate(macAddress, durationSeconds)
+}
+
+// extractMACFromSession extracts the MAC address from a session event
+func extractMACFromSession(sessionEvent nostr.Event) (string, error) {
+	for _, tag := range sessionEvent.Tags {
+		if len(tag) >= 3 && tag[0] == "device-identifier" && tag[1] == "mac" {
+			return tag[2], nil
+		}
+	}
+	return "", fmt.Errorf("no MAC address found in session event")
+}
+
+// extractAllotmentFromSession extracts allotment from a session event
+func extractAllotmentFromSession(sessionEvent nostr.Event) (uint64, error) {
+	for _, tag := range sessionEvent.Tags {
+		if len(tag) >= 2 && tag[0] == "allotment" {
+			allotment, err := strconv.ParseUint(tag[1], 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("failed to parse allotment: %w", err)
+			}
+			return allotment, nil
+		}
+	}
+	return 0, fmt.Errorf("no allotment found in session event")
+}
+
+// getStepSizeFromConfig gets the step size from configuration
+func getStepSizeFromConfig(config *config_manager.Config) uint64 {
+	// For now, return the default step size of 60000ms (1 minute)
+	// In a full implementation, this would parse the merchant's advertisement
+	return 60000
 }
