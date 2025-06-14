@@ -45,7 +45,6 @@ require (
 	github.com/lightningnetwork/lnd/tlv v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
-	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect

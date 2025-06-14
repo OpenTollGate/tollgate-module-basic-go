@@ -318,8 +318,6 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/nbd-wtf/go-nostr v0.51.12 h1:MRQcrShiW/cHhnYSVDQ4SIEc7DlYV7U7gg/l4H4gbbE=
 github.com/nbd-wtf/go-nostr v0.51.12/go.mod h1:IF30/Cm4AS90wd1GjsFJbBqq7oD1txo+2YUFYXqK3Nc=
-github.com/nbd-wtf/ln-decodepay v1.13.0 h1:ic32UwT6cBVbLw72fQ7vr0nTMziYTj67baQ2COwlxZk=
-github.com/nbd-wtf/ln-decodepay v1.13.0/go.mod h1:SNcdOd7Mv7+PY6Q5E/flUAOfnFdr/W/PK2O6wyzpra8=
 github.com/ncruces/go-strftime v0.1.9 h1:bY0MQC28UADQmHmaF5dgpLmImcShSi2kHU9XLdhx/f4=
 github.com/ncruces/go-strftime v0.1.9/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
