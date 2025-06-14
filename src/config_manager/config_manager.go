@@ -482,19 +482,19 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			AcceptedMints: []MintConfig{
 				{
 					URL:                     "https://mint.minibits.cash/Bitcoin",
-					MinBalance:              100,
+					MinBalance:              8,
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
-					MinPayoutAmount:         200,
+					MinPayoutAmount:         16,
 					PricePerStep:            1,
 					MinPurchaseSteps:        0,
 				},
 				{
 					URL:                     "https://mint2.nutmix.cash",
-					MinBalance:              100,
+					MinBalance:              8,
 					BalanceTolerancePercent: 10,
 					PayoutIntervalSeconds:   60,
-					MinPayoutAmount:         200,
+					MinPayoutAmount:         16,
 					PricePerStep:            1,
 					MinPurchaseSteps:        0,
 				},
