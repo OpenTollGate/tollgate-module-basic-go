@@ -138,6 +138,7 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration \
 	/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration \
 	/etc/uci-defaults/95-random-lan-ip \
+	/etc/uci-defaults/90-tollgate-nodogsplash-files \
 	/etc/nodogsplash/htdocs/*.json \
 	/etc/nodogsplash/htdocs/*.html \
 	/etc/nodogsplash/htdocs/static/css/* \
