@@ -82,6 +82,9 @@ define Package/$(PKG_NAME)/install
 	# UCI defaults for random LAN IP
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
+	
+	# UCI defaults for captive portal symlink
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 
 
 	# Keep only TollGate-specific configs
@@ -126,6 +129,7 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration \
 	/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration \
 	/etc/uci-defaults/95-random-lan-ip \
+	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root
 
