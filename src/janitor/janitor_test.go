@@ -306,7 +306,7 @@ func TestDownloadPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = NewJanitor(cm)
+	janitor, err := NewJanitor(cm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestDownloadPackage(t *testing.T) {
 	}
 
 	t.Logf("Starting to DownloadPackage")
-	pkgPath, pkg, err := DownloadPackage(cm, packageURL, "some_checksum")
+	pkgPath, pkg, err := DownloadPackage(janitor, packageURL, "some_checksum")
 	if err != nil {
 		t.Errorf("DownloadPackage failed: %v", err)
 	}
