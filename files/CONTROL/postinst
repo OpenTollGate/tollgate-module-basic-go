@@ -4,6 +4,28 @@ echo "Running post-installation script: Starting postinst execution"
 echo "Current working directory: $(pwd)"
 echo "Current timestamp: $(date)"
 
+# TollGate Captive Portal Symlink Migration
+echo "Setting up TollGate NoDogSplash symlink..."
+
+# Check if /etc/nodogsplash/htdocs is already a symlink
+if [ -L "/etc/nodogsplash/htdocs" ]; then
+    echo "Symlink already exists at /etc/nodogsplash/htdocs"
+else
+    # If it's a directory, back it up first
+    if [ -d "/etc/nodogsplash/htdocs" ]; then
+        echo "Backing up existing /etc/nodogsplash/htdocs to /etc/nodogsplash/htdocs.backup"
+        mv /etc/nodogsplash/htdocs /etc/nodogsplash/htdocs.backup
+    fi
+    
+    # Create the symlink
+    echo "Creating symlink from /etc/nodogsplash/htdocs to /etc/tollgate/tollgate-captive-portal-site"
+    ln -sf /etc/tollgate/tollgate-captive-portal-site /etc/nodogsplash/htdocs
+fi
+
+# Restart nodogsplash to apply changes
+/etc/init.d/nodogsplash restart 2>/dev/null || true
+echo "TollGate NoDogSplash symlink setup completed"
+
 /etc/init.d/tollgate-basic restart
 echo "Post-installation script completed successfully"
 exit 0

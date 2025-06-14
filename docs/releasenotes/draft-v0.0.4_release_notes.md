@@ -69,3 +69,4 @@ The migration script automatically:
 ## Added by author todo's 
 - [ ] describe internally added relay
 - [ ] Describe session extensions
+- [ ] Added alpha + beta release channels
