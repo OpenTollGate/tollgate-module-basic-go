@@ -64,3 +64,8 @@ The migration script automatically:
 - Adds `metric: "milliseconds"` and `step_size: 60000` to main config
 - Preserves all existing mint configurations
 - Creates timestamped backups before migration
+
+
+## Added by author todo's 
+- [ ] describe internally added relay
+- [ ] Describe session extensions
