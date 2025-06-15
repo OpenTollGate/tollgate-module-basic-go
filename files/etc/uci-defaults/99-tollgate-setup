@@ -261,6 +261,19 @@ else
     log_message "first-login-setup hook already exists in profile"
 fi
 
+# 8. Enable modem interfaces if they exist
+log_message "Checking for modem interfaces to enable"
+for section in $(uci show network | cut -d. -f2); do
+    if [[ "$section" == "modem_"* ]]; then
+        if uci -q get "network.$section" >/dev/null 2>&1; then
+            uci_safe_set network "$section" disabled '0'
+            log_message "Enabled modem interface: $section"
+        fi
+    fi
+done
+uci commit network
+log_message "Committed network configuration changes"
+
 # Final log message
 log_message "TollGate setup completed successfully"
 
