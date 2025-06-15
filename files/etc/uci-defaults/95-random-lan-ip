@@ -5,7 +5,8 @@ INSTALL_JSON="/etc/tollgate/install.json"
 if [ -f "$INSTALL_JSON" ]; then
     IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
     echo "DEBUG: IP_RANDOMIZED value: $IP_RANDOMIZED"
-    if [[ $IP_RANDOMIZED =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    valid_ip=$(echo "$IP_RANDOMIZED" | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
+    if [ -n "$valid_ip" ]; then
         echo "IP is already randomized to $IP_RANDOMIZED. Exiting."
         exit 0
     fi
