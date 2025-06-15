@@ -110,6 +110,10 @@ define Package/$(PKG_NAME)/install
 	# Install cron table
 	$(INSTALL_DIR) $(1)/etc/crontabs
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/crontabs/root $(1)/etc/crontabs/
+	
+	# Install backup configuration for sysupgrade
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/lib/upgrade/keep.d/tollgate $(1)/lib/upgrade/keep.d/
 
 	# Install control scripts
 	$(INSTALL_DIR) $(1)/CONTROL
@@ -131,7 +135,8 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/95-random-lan-ip \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/tollgate/tollgate-captive-portal-site/* \
-	/etc/crontabs/root
+	/etc/crontabs/root \
+	/lib/upgrade/keep.d/tollgate
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
