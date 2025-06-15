@@ -1,3 +1,5 @@
 # This file is used to preserve configuration during sysupgrade
 /etc/config/firewall-tollgate
+/etc/config/network
+/etc/config/wireless
 /etc/tollgate
