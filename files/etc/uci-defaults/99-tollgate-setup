@@ -160,8 +160,15 @@ log_message "dnsmasq configuration completed"
 log_message "Configuring WiFi networks"
 # Generate a random 4-character suffix for the SSID
 RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
-SSID_BASE="TollGate-${RANDOM_SUFFIX}"
-log_message "Generated random SSID: $SSID_BASE"
+# Check if SSID is already configured with TollGate prefix
+current_ssid=$(uci -q get wireless.default_radio0.ssid)
+if [[ "$current_ssid" == "TollGate-"* ]]; then
+    SSID_BASE="$current_ssid"
+    log_message "Using existing SSID: $SSID_BASE"
+else
+    SSID_BASE="TollGate-${RANDOM_SUFFIX}"
+    log_message "Generated new random SSID: $SSID_BASE"
+fi
 
 # Check if default radio0 exists before configuring
 if uci -q get wireless.default_radio0 >/dev/null; then
@@ -169,6 +176,7 @@ if uci -q get wireless.default_radio0 >/dev/null; then
     uci_safe_set wireless default_radio0 name 'tollgate_2g_open'
     uci_safe_set wireless default_radio0 ssid "${SSID_BASE}"
     uci_safe_set wireless default_radio0 encryption 'none'
+    uci_safe_set wireless default_radio0 disabled '0'  # Ensure the interface is enabled
     log_message "Configured 2.4GHz WiFi with SSID: ${SSID_BASE}"
 else
     log_message "No 2.4GHz radio (default_radio0) found"
@@ -180,6 +188,7 @@ if uci -q get wireless.default_radio1 >/dev/null; then
     uci_safe_set wireless default_radio1 name 'tollgate_5g_open'
     uci_safe_set wireless default_radio1 ssid "${SSID_BASE}"
     uci_safe_set wireless default_radio1 encryption 'none'
+    uci_safe_set wireless default_radio1 disabled '0'  # Ensure the interface is enabled
     log_message "Configured 5GHz WiFi with SSID: ${SSID_BASE}"
 else
     log_message "No 5GHz radio (default_radio1) found"
