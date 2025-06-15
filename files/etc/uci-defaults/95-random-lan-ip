@@ -4,8 +4,9 @@
 INSTALL_JSON="/etc/tollgate/install.json"
 if [ -f "$INSTALL_JSON" ]; then
     IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
+    echo "DEBUG: IP_RANDOMIZED value: $IP_RANDOMIZED"
     if [ "$IP_RANDOMIZED" != "false" ]; then
-        echo "IP is already randomized or not set to false. Exiting."
+        echo "IP is already randomized or not set to false. Current value: $IP_RANDOMIZED. Exiting."
         exit 0
     fi
 else
