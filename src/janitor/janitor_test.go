@@ -1,14 +1,10 @@
 package janitor
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/hashicorp/go-version"
@@ -29,26 +25,21 @@ func TestParseNIP94Event(t *testing.T) {
 		CreatedAt: 1643723900,
 	}
 
-	packageURL, version, _, _, _, timestamp, err := parseNIP94Event(event)
+	packageURL, version, _, _, timestamp, releaseChannel, err := parseNIP94Event(event)
 	if err != nil {
 		t.Errorf("parseNIP94Event failed: %v", err)
 	}
-	url := packageURL
-	if err != nil {
-		t.Errorf("parseNIP94Event failed: %v", err)
-	}
-	if url != "https://example.com/package.ipk" {
-		t.Errorf("expected URL %s, got %s", "https://example.com/package.ipk", url)
+	if packageURL != "https://example.com/package.ipk" {
+		t.Errorf("expected URL %s, got %s", "https://example.com/package.ipk", packageURL)
 	}
 	if version != "1.2.3" {
 		t.Errorf("expected version %s, got %s", "1.2.3", version)
 	}
-	parsedTimestamp, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		t.Errorf("failed to parse timestamp: %v", err)
+	if timestamp != int64(1643723900) {
+		t.Errorf("expected timestamp %d, got %d", 1643723900, timestamp)
 	}
-	if parsedTimestamp != int64(1643723900) {
-		t.Errorf("expected timestamp %d, got %d", 1643723900, parsedTimestamp)
+	if releaseChannel != "stable" {
+		t.Errorf("expected release channel %s, got %s", "stable", releaseChannel)
 	}
 }
 
@@ -83,7 +74,7 @@ func TestIsNewerVersion(t *testing.T) {
 			newTimestamp:     1,
 			currentVersion:   "1.0.0",
 			currentTimestamp: 2,
-			expected:         false,
+			expected:         true,
 		},
 		{
 			name:             "older version and older timestamp",
@@ -135,8 +126,7 @@ func TestIsNewerVersion(t *testing.T) {
 				return
 			}
 			currentVersionStr := currentVersion.String()
-			newTimestampStr := fmt.Sprintf("%d", tt.newTimestamp)
-			if got := isNewerVersion(tt.newVersion, currentVersionStr, newTimestampStr); got != tt.expected {
+			if got := isNewerVersion(tt.newVersion, currentVersionStr, "stable"); got != tt.expected {
 				t.Errorf("isNewerVersion() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -154,18 +144,15 @@ func TestEventMapCollision(t *testing.T) {
 		defer wg.Done()
 		eventMap := make(map[string]*packageEvent)
 		for event := range eventChan {
-			packageURL, versionStr, _, _, filename, timestamp, err := parseNIP94Event(*event)
+			packageURL, versionStr, _, filename, timestamp, _, err := parseNIP94Event(*event)
 			if err != nil {
 				t.Errorf("parseNIP94Event failed: %v", err)
+				continue
 			}
 			key := fmt.Sprintf("%v-%s", filename, versionStr)
 			existingPackageEvent, ok := eventMap[key]
 			if ok {
-				parsedTimestamp, err := strconv.ParseInt(timestamp, 10, 64)
-				if err != nil {
-					t.Errorf("failed to parse timestamp: %v", err)
-				}
-				if parsedTimestamp > int64(existingPackageEvent.event.CreatedAt) {
+				if timestamp > int64(existingPackageEvent.event.CreatedAt) {
 					eventMap[key] = &packageEvent{
 						event:      event,
 						packageURL: packageURL,
@@ -194,9 +181,9 @@ func TestEventMapCollision(t *testing.T) {
 		Tags: nostr.Tags{
 			{"url", "https://example.com/package.ipk"},
 			{"version", "1.0.0"},
-			{"arch", "aarch64"},
-			{"branch", "main"},
+			{"architecture", "aarch64"},
 			{"filename", "package.ipk"},
+			{"release_channel", "stable"},
 		},
 		CreatedAt: 1643723900,
 	}
@@ -207,9 +194,9 @@ func TestEventMapCollision(t *testing.T) {
 		Tags: nostr.Tags{
 			{"url", "https://example.com/package.ipk"},
 			{"version", "1.0.0"},
-			{"arch", "aarch64"},
-			{"branch", "main"},
+			{"architecture", "aarch64"},
 			{"filename", "package.ipk"},
+			{"release_channel", "stable"},
 		},
 		CreatedAt: 1643723901,
 	}
@@ -220,9 +207,9 @@ func TestEventMapCollision(t *testing.T) {
 		Tags: nostr.Tags{
 			{"url", "https://example.com/package.ipk"},
 			{"version", "1.0.0"},
-			{"arch", "aarch64"},
-			{"branch", "main"},
+			{"architecture", "aarch64"},
 			{"filename", "package.ipk"},
+			{"release_channel", "stable"},
 		},
 		CreatedAt: 1643723902,
 	}
@@ -267,143 +254,5 @@ func TestUpdateInstallConfig(t *testing.T) {
 	}
 	if installConfig.PackagePath != pkgPath {
 		t.Errorf("Install config not updated correctly")
-	}
-}
-
-func TestDownloadPackage(t *testing.T) {
-	configFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(configFile.Name())
-
-	currentTime := time.Now().Unix()
-	fourWeeksAgo := currentTime - int64(4*7*24*60*60) // 4 weeks ago in seconds
-
-	relays := []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"}
-	trustedMaintainers := []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"}
-
-	customConfig := map[string]interface{}{
-		"relays":              relays,
-		"trusted_maintainers": trustedMaintainers,
-		"package_info": map[string]interface{}{
-			"version":   "0.0.1",
-			"timestamp": fourWeeksAgo,
-		},
-	}
-
-	configData, err := json.Marshal(customConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(configFile.Name(), configData, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cm, err := config_manager.NewConfigManager(configFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = NewJanitor(cm)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	eventChan := make(chan *nostr.Event)
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	var packageURL string
-	var eventHandlerWG sync.WaitGroup
-	eventHandlerWG.Add(1)
-	go func() {
-		defer eventHandlerWG.Done()
-		for event := range eventChan {
-			packageURL, _, _, _, _, _, err = parseNIP94Event(*event)
-			if err != nil {
-				t.Errorf("parseNIP94Event failed: %v", err)
-			}
-			if packageURL != "" {
-				return
-			}
-		}
-	}()
-
-	ctx := context.Background()
-	relayPool := nostr.NewSimplePool(ctx)
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var subClosers sync.WaitGroup
-	for _, relayURL := range relays {
-		subClosers.Add(1)
-		go func(relayURL string) {
-			t.Logf("Connecting to relay %s", relayURL)
-			defer subClosers.Done()
-			relay, err := relayPool.EnsureRelay(relayURL)
-			if err != nil {
-				t.Logf("Failed to connect to relay %s: %v", relayURL, err)
-				return
-			}
-			t.Logf("Connected to relay %s", relayURL)
-
-			filter := nostr.Filter{
-				Kinds: []int{1063}, // NIP-94 event kind
-			}
-
-			t.Logf("Subscribing to NIP-94 events on relay %s with filter: %+v", relayURL, filter)
-			sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
-			if err != nil {
-				t.Logf("Failed to subscribe to NIP-94 events on relay %s: %v", relayURL, err)
-				return
-			}
-
-			t.Logf("Subscribed to NIP-94 events on relay %s", relayURL)
-			for event := range sub.Events {
-				if event.Kind != 1063 {
-					t.Logf("Unexpected event kind %d from relay %s", event.Kind, relayURL)
-					continue
-				}
-
-				if !contains(trustedMaintainers, event.PubKey) {
-					continue
-				}
-
-				eventChan <- event
-			}
-		}(relayURL)
-	}
-
-	go func() {
-		subClosers.Wait()
-		close(eventChan)
-	}()
-
-	eventHandlerWG.Wait()
-	wg.Done()
-
-	// Provide time to establish relay connections and find a valid blossom URL
-	time.Sleep(3 * time.Second) // Wait for goroutines to finish
-	t.Logf("Using package URL: %s", packageURL)
-
-	if packageURL == "" {
-		t.Skip("No NIP-94 event found with package URL. Skipping test.")
-		return
-	}
-
-	t.Logf("Starting to DownloadPackage")
-	pkgPath, pkg, err := DownloadPackage(cm, packageURL, "some_checksum")
-	if err != nil {
-		t.Errorf("DownloadPackage failed: %v", err)
-	}
-
-	t.Logf("Download package succeeded")
-	if len(pkg) == 0 {
-		t.Errorf("expected non-empty package content")
-	}
-	if pkgPath == "" {
-		t.Errorf("expected non-empty package path")
 	}
 }

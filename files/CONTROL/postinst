@@ -5,5 +5,22 @@ echo "Current working directory: $(pwd)"
 echo "Current timestamp: $(date)"
 
 /etc/init.d/tollgate-basic restart
+
+# Update TollGate Captive Portal Symlink
+echo "Setting up TollGate NoDogSplash symlink..."
+if [ -L "/etc/nodogsplash/htdocs" ]; then
+    echo "Symlink already exists at /etc/nodogsplash/htdocs"
+else
+    if [ -d "/etc/nodogsplash/htdocs" ]; then
+        echo "Backing up existing /etc/nodogsplash/htdocs to /etc/nodogsplash/htdocs.backup"
+        mv /etc/nodogsplash/htdocs /etc/nodogsplash/htdocs.backup
+    fi
+    rm -rf /etc/nodogsplash/htdocs
+    ln -sf /etc/tollgate/tollgate-captive-portal-site /etc/nodogsplash/htdocs
+    echo "Created symlink from /etc/nodogsplash/htdocs to /etc/tollgate/tollgate-captive-portal-site"
+fi
+/etc/init.d/nodogsplash restart 2>/dev/null || true
+echo "TollGate NoDogSplash symlink setup completed"
+
 echo "Post-installation script completed successfully"
 exit 0

@@ -5,6 +5,7 @@ artifacts/
 bin/
 tollgate
 tollgate-basic
+tollgate-module-basic-go
 *.orig
 build_deleteme.yml.orig
 squash_tool.sh

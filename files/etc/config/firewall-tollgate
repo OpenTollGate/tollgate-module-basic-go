@@ -4,3 +4,10 @@ config rule
 	option proto 'tcp'
 	option dest_port '2121'
 	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Relay-In'
+	option src 'lan'
+	option proto 'tcp'
+	option dest_port '4242'
+	option target 'ACCEPT'
