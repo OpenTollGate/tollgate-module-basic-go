@@ -11,9 +11,14 @@ create_backup() {
     cp "$1" "$1.backup.$TIMESTAMP"
 }
 
-# Check if migration is needed
-if [ ! -f "$CONFIG_FILE" ] || jq -e '.accepted_mints | type == "object"' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration is already in new format or doesn't exist. Exiting."
+# Check if migration is needed - only run if config.json exists and has NO config_version field
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Configuration file doesn't exist. Exiting."
+    exit 0
+fi
+
+if jq -e '.config_version' "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration already has config_version field. Migration not needed."
     exit 0
 fi
 

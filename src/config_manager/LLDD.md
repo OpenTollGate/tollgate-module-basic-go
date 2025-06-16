@@ -1,12 +1,41 @@
-## Config Struct
+# Config Manager Low-Level Design Document
 
-The `Config` struct holds the main configuration parameters as defined:
+## Overview (Updated v0.0.4)
+
+The `config_manager` package provides configuration management with migration support, pretty-printed JSON output, and flexible metric-based pricing structure.
+
+## Config Struct (v0.0.3)
+
+The `Config` struct has been updated for flexible metric-based pricing:
 
 ```json
 {
+  "config_version": "v0.0.3",
   "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
-  "accepted_mints": ["https://mint.minibits.cash/Bitcoin"],
-  "price_per_minute": 1,
+  "accepted_mints": [
+    {
+      "url": "https://mint.minibits.cash/Bitcoin",
+      "min_balance": 100,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 200,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    }
+  ],
+  "profit_share": [
+    {
+      "factor": 0.70,
+      "lightning_address": "tollgate@minibits.cash"
+    },
+    {
+      "factor": 0.30,
+      "lightning_address": "tollgate@minibits.cash"
+    }
+  ],
+  "step_size": 60000,
+  "metric": "milliseconds",
   "bragging": {
     "enabled": true,
     "fields": ["amount", "mint", "duration"]
@@ -14,21 +43,68 @@ The `Config` struct holds the main configuration parameters as defined:
   "relays": [
     "wss://relay.damus.io",
     "wss://nos.lol",
-    "wss://nostr.mom",
-    "wss://relay.tollgate.me"
+    "wss://nostr.mom"
   ],
   "trusted_maintainers": [
     "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
   ],
-  "fields_to_be_reviewed": [
-    "price_per_minute",
-    "relays",
-    "tollgate_private_key",
-    "trusted_maintainers"
-  ],
-  "CurrentInstallationID_currently_installed": []
+  "show_setup": true,
+  "current_installation_id": ""
 }
 ```
+
+## Configuration Structure Changes
+
+### Removed Fields:
+- `price_per_minute`: Global pricing removed
+
+### Added Fields:
+- `step_size`: Configurable step size (e.g., 60000 for 1 minute in milliseconds)
+- `metric`: Pricing metric ("milliseconds", "bytes", etc.)
+
+### Enhanced MintConfig:
+- `price_per_step`: Individual pricing per mint
+- `price_unit`: Unit of pricing (e.g., "sat")
+- `purchase_min_steps`: Minimum purchase requirement per mint
+
+## Migration Support
+
+### Migration Functions:
+- Automatic version detection in `EnsureDefaultConfig()`
+- Migration scripts handle v0.0.2 → v0.0.3 transformation
+- Backup creation with timestamped files
+- Error recovery with backup restoration
+
+### Migration Process:
+1. Check configuration version
+2. Create timestamped backup
+3. Transform configuration structure
+4. Convert `price_per_minute` to mint-specific `price_per_step`
+5. Add `metric` and `step_size` fields
+6. Verify migration success
+
+## Core Functions
+
+### NewConfigManager Function
+- Creates a new `ConfigManager` instance with the specified file path
+- Calls `EnsureDefaultConfig` to ensure valid configuration exists
+- Initializes relay pools for centralized rate limiting
+
+### LoadConfig Function
+- Reads the main configuration from the managed file
+- Handles version detection and migration triggers
+
+### SaveConfig Function (Enhanced)
+- Writes configuration using `json.MarshalIndent()` with 2-space indentation
+- Creates human-readable, easily editable configuration files
+
+### EnsureDefaultConfig Function (Updated)
+- Ensures default v0.0.3 configuration exists
+- Creates configuration with:
+  - `metric`: "milliseconds"
+  - `step_size`: 60000
+  - Mint-specific `price_per_step`: 1
+  - Default accepted mints with complete configuration
 
 ## PackageInfo Struct
 
@@ -37,7 +113,6 @@ The `PackageInfo` struct holds information extracted from NIP-94 events:
 ```go
 type PackageInfo struct {
 	Version        string
-	Branch         string
 	Timestamp      int64
 	ReleaseChannel string
 }
@@ -50,81 +125,34 @@ The `InstallConfig` struct holds the installation configuration parameters:
 ```json
 {
   "package_path": "/path/to/package",
-  "current_installation_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597"
+  "current_installation_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597",
+  "download_timestamp": 1674567890
 }
 ```
 
-## ConfigManager Struct
+## Helper Functions
 
-The `ConfigManager` struct manages both the main configuration file and the installation configuration file (`install.json`).
+### ExtractPackageInfo Function
+- Extracts `PackageInfo` from a given NIP-94 event
+- Handles version, timestamp, and release channel extraction
 
-## NewConfigManager Function
-
-- Creates a new `ConfigManager` instance with the specified file path for the main configuration.
-- Calls `EnsureDefaultConfig` to ensure a valid main configuration exists.
-
-## LoadConfig Function
-
-- Reads the main configuration from the managed file.
-
-## SaveConfig Function
-
-- Writes the main configuration to the managed file.
-
-## LoadInstallConfig Function
-
-- Reads the installation configuration from `install.json`.
-
-## SaveInstallConfig Function
-
-- Writes the installation configuration to `install.json`.
-
-## EnsureDefaultConfig Function
-
-- Ensures a default main configuration exists, creating it if necessary.
-- Includes defaults for `bragging`, `relays`, `trusted_maintainers`, and other parameters.
-
-## EnsureDefaultConfig Function
-
-- Attempts to load the configuration from the managed file.
-- If no configuration file exists or is invalid, creates a default `Config` struct with the following defaults:
-  - `accepted_mint`: "https://mint.minibits.cash/Bitcoin"
-  - `bragging`: enabled with fields "amount", "mint", "duration"
-  - `current_installation_id`: the ID of the NIP94 event announcing the package
-  - `price_per_minute`: hardcoded value if not set
-  - `relays`: hardcoded list if not set
-  - `tollgate_private_key`: generated using nostr tools if not set
-  - `trusted_maintainers`: hardcoded list with a warning to review
-  - `fields_to_be_reviewed`: list of fields that require user attention, including:
-    - `price_per_minute` if not already set
-    - `relays` if not already set
-    - `tollgate_private_key` if not already set
-    - `trusted_maintainers` if not already set
-- Saves the default configuration to the managed file.
-- Returns the loaded or default configuration and any error encountered.
-
-## GetNIP94Event Function
-
-- Fetches a NIP-94 event from a relay using the provided event ID.
-- Iterates through the configured relays to find the event.
-
-## ExtractPackageInfo Function
-
-- Extracts `PackageInfo` from a given NIP-94 event.
-
-## Janitor Integration
-
-The `Janitor` updates the `install.json` with the package path and NIP94 event ID when a new package is installed.
-
-## GetReleaseChannel Function
-
-- Retrieves the release channel from the `PackageInfo` struct.
-- Returns the current release channel as a string.
-
-## Handling Multiple Mints
-
-The `Config` struct now supports multiple accepted mints through the `accepted_mints` field. This change allows the TollGate to accept payments from multiple mints, enhancing flexibility and user experience.
+### GetNIP94Event Function
+- Fetches a NIP-94 event from a relay using the provided event ID
+- Iterates through configured relays to find the event
+- Implements rate limiting for relay requests
 
 ## Centralized Rate Limiting for relayPool
 
-To address the 'too many concurrent REQs' error, we will implement centralized rate limiting for `relayPool` within `config_manager`. This involves initializing `relayPool` in `config_manager` and providing a controlled access mechanism through a member function. This approach ensures that all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.
+To address the 'too many concurrent REQs' error, we implement centralized rate limiting for `relayPool` within `config_manager`. This involves:
+
+- Initializing `relayPool` in `config_manager`
+- Providing controlled access through member functions
+- Ensuring all services using `relayPool` are rate-limited
+- Preventing excessive concurrent requests to relays
+
+## Testing
+
+- Updated test files for new configuration structure
+- Migration testing with v0.0.2 configuration samples
+- Pretty-printed JSON output validation
+- Backward compatibility verification

@@ -15,6 +15,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -24,10 +25,21 @@ var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
 
+// getConfigPath returns the configuration file path, checking environment variable first, then default
+func getConfigPath() string {
+	if configPath := os.Getenv("TOLLGATE_CONFIG_PATH"); configPath != "" {
+		return configPath
+	}
+	return "/etc/tollgate/config.json"
+}
+
 func init() {
 	var err error
 
-	configManager, err = config_manager.NewConfigManager("/etc/tollgate/config.json")
+	configPath := getConfigPath()
+	log.Printf("Using config path: %s", configPath)
+
+	configManager, err = config_manager.NewConfigManager(configPath)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
@@ -69,6 +81,9 @@ func init() {
 
 	// Initialize janitor module
 	initJanitor()
+
+	// Initialize private relay
+	initPrivateRelay()
 }
 
 func initJanitor() {
@@ -79,6 +94,43 @@ func initJanitor() {
 
 	go janitorInstance.ListenForNIP94Events()
 	log.Println("Janitor module initialized and listening for NIP-94 events")
+}
+
+func initPrivateRelay() {
+	go startPrivateRelayWithAutoRestart()
+	log.Println("Private relay initialization started")
+}
+
+func startPrivateRelayWithAutoRestart() {
+	for {
+		log.Println("Starting TollGate private relay on ws://localhost:4242")
+
+		// Create a new private relay instance
+		privateRelay := relay.NewPrivateRelay()
+
+		// Set up relay metadata
+		privateRelay.GetRelay().Info.Name = "TollGate Private Relay"
+		privateRelay.GetRelay().Info.Description = "In-memory relay for TollGate protocol events (kinds 21000-21023)"
+		privateRelay.GetRelay().Info.PubKey = ""
+		privateRelay.GetRelay().Info.Contact = ""
+		privateRelay.GetRelay().Info.SupportedNIPs = []any{1, 11}
+		privateRelay.GetRelay().Info.Software = "https://github.com/OpenTollGate/tollgate-module-basic-go"
+		privateRelay.GetRelay().Info.Version = "v0.0.1"
+
+		log.Printf("Accepting event kinds: 21000 (Payment), 10021 (Discovery), 1022 (Session), 21023 (Notice)")
+
+		// Start the relay (this blocks until error)
+		err := privateRelay.Start(":4242")
+
+		if err != nil {
+			log.Printf("Private relay crashed: %v", err)
+			log.Println("Restarting private relay in 5 seconds...")
+			time.Sleep(5 * time.Second)
+		} else {
+			log.Println("Private relay stopped normally")
+			break
+		}
+	}
 }
 
 func getMacAddress(ipAddress string) (string, error) {
@@ -147,21 +199,23 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("Error reading request body:", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Error reading request body: %v", err), "")
 		return
 	}
 	defer r.Body.Close()
 
 	// Print the request body to console
 	bodyStr := string(body)
-	log.Println("Received POST request with body:", bodyStr)
+	log.Printf("Received POST request with body: %s", bodyStr)
 
 	// Parse the request body as a nostr event
 	var event nostr.Event
 	err = json.Unmarshal(body, &event)
 	if err != nil {
 		log.Println("Error parsing nostr event:", err)
-		w.WriteHeader(http.StatusBadRequest)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Error parsing nostr event: %v", err), "")
 		return
 	}
 
@@ -169,7 +223,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	ok, err := event.CheckSignature()
 	if err != nil || !ok {
 		log.Println("Invalid signature for nostr event:", err)
-		w.WriteHeader(http.StatusBadRequest)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Invalid signature for nostr event"), event.PubKey)
 		return
 	}
 
@@ -178,57 +233,57 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	log.Println("  - Kind:", event.Kind)
 	log.Println("  - Pubkey:", event.PubKey)
 
-	// Extract MAC address from device-identifier tag
-	var macAddress string
-	for _, tag := range event.Tags {
-		if len(tag) > 0 && tag[0] == "device-identifier" && len(tag) >= 3 {
-			macAddress = tag[2]
-			break
-		}
+	// Validate that this is a payment event (kind 21000)
+	if event.Kind != 21000 {
+		log.Printf("Invalid event kind: %d, expected 21000", event.Kind)
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+			fmt.Sprintf("Invalid event kind: %d, expected 21000", event.Kind), event.PubKey)
+		return
 	}
 
-	// Extract payment token from payment tag
-	var paymentToken string
-	for _, tag := range event.Tags {
-		if len(tag) > 0 && tag[0] == "payment" && len(tag) >= 2 {
-			paymentToken = tag[1]
-			break
-		}
-	}
+	// Process payment and get session event
+	responseEvent, err := merchantInstance.PurchaseSession(event)
 
-	log.Printf("Extracted MAC address: %s", macAddress)
-	log.Printf("Extracted payment token: %s", paymentToken)
-
-	purchaseSessionResult, err := merchantInstance.PurchaseSession(paymentToken, macAddress)
-
-	// Set response headers and prepare JSON response
+	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
 
-	switch purchaseSessionResult.Status {
-	case "success":
+	if err != nil {
+		log.Printf("Payment processing failed: %v", err)
+		sendNoticeResponse(w, merchantInstance, http.StatusInternalServerError, "error", "internal-error",
+			fmt.Sprintf("Internal error during payment processing: %v", err), event.PubKey)
+		return
+	}
+
+	// Check if the response is a notice event (kind 21023) or session event (kind 1022)
+	if responseEvent.Kind == 21023 {
+		// It's a notice event (error case), return with appropriate status
+		w.WriteHeader(http.StatusBadRequest)
+		err = json.NewEncoder(w).Encode(responseEvent)
+	} else {
+		// It's a session event (success case), return with OK status
 		w.WriteHeader(http.StatusOK)
-	case "rejected":
-		w.WriteHeader(http.StatusPaymentRequired)
-	default:
-		// Log unexpected errors for easier debugging
-		log.Printf("Purchase session failed with status: %s, reason: %s",
-			purchaseSessionResult.Status, purchaseSessionResult.Description)
+		err = json.NewEncoder(w).Encode(responseEvent)
+	}
+
+	if err != nil {
+		log.Printf("Error encoding session response: %v", err)
+	}
+
+}
+
+// sendNoticeResponse creates and sends a notice event response
+func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Merchant, statusCode int, level, code, message, customerPubkey string) {
+	noticeEvent, err := merchantInstance.CreateNoticeEvent(level, code, message, customerPubkey)
+	if err != nil {
+		log.Printf("Error creating notice event: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
+		return
 	}
 
-	// Return meaningful response to the client with the operation status and reason
-	response := map[string]string{"status": purchaseSessionResult.Status}
-	if purchaseSessionResult.Description != "" {
-		response["reason"] = purchaseSessionResult.Description
-	}
-
-	// Handle potential encoding errors
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding response: %v", err)
-	}
-
-	fmt.Fprint(w, response)
-
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(noticeEvent)
 }
 
 func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
@@ -266,10 +321,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func testHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Received %s request from %s to %s", r.Method, getIP(r), r.URL.Path)
-}
-
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate Core")
@@ -278,11 +329,6 @@ func main() {
 	// Add verbose logging for debugging
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("Registering handlers...")
-
-	http.HandleFunc("/x", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("DEBUG: Hit /x endpoint from %s", r.RemoteAddr)
-		testHandler(w, r)
-	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)

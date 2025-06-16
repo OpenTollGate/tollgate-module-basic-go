@@ -17,10 +17,11 @@ import (
 	"sync"
 	"time"
 
+	"strconv"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
-	"strconv"
 )
 
 type Janitor struct {
@@ -64,10 +65,10 @@ func getInstalledVersion() (string, error) {
 var subscriptionSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent relay subscriptions
 
 func rateLimitedSubscribe(relay *nostr.Relay, ctx context.Context, filters []nostr.Filter) (*nostr.Subscription, error) {
-    subscriptionSemaphore <- struct{}{}
-    defer func() { <-subscriptionSemaphore }()
-    
-    return relay.Subscribe(ctx, filters)
+	subscriptionSemaphore <- struct{}{}
+	defer func() { <-subscriptionSemaphore }()
+
+	return relay.Subscribe(ctx, filters)
 }
 
 func (j *Janitor) listenForNIP94Events() {
@@ -87,13 +88,13 @@ func (j *Janitor) listenForNIP94Events() {
 			wg.Add(1)
 			go func(relayURL string) {
 				defer wg.Done()
-				subscriptionSemaphore <- struct{}{}              // Acquire semaphore
+				subscriptionSemaphore <- struct{}{}        // Acquire semaphore
 				defer func() { <-subscriptionSemaphore }() // Release semaphore
 
 				retryDelay := 5 * time.Second
 				for {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
-					relay, err := j.configManager.RelayPool.EnsureRelay(relayURL)
+					relay, err := j.configManager.GetPublicPool().EnsureRelay(relayURL)
 					if err != nil || relay == nil {
 						log.Printf("Failed to ensure relay %s: %v", relayURL, err)
 						continue

@@ -96,7 +96,22 @@ jobs:
         id: determine-release-channel
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
-            echo "release_channel=stable" >> $GITHUB_OUTPUT
+            # Extract tag name from refs/tags/v1.2.3 format
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+            
+            if [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+             # Strict check for v1.2.3-alpha4 format (alpha releases only)
+              echo "release_channel=alpha" >> $GITHUB_OUTPUT
+            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
+             # Strict check for v1.2.3-beta4 format (beta releases only)
+              echo "release_channel=beta" >> $GITHUB_OUTPUT
+            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              # Strict check for v1.2.3 format (stable releases only)
+              echo "release_channel=stable" >> $GITHUB_OUTPUT
+            else
+              # Tag exists but doesn't match expected patterns
+              echo "release_channel=dev" >> $GITHUB_OUTPUT
+            fi
           else
             echo "release_channel=dev" >> $GITHUB_OUTPUT
           fi

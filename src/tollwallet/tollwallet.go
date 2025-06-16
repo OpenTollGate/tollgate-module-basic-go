@@ -54,6 +54,7 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	}
 
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
+
 	return amountAfterSwap, err
 }
 
