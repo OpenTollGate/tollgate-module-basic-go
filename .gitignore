@@ -13,3 +13,6 @@ squash_tool.sh
 vendor/
 
 **/tollwallet_db/*
+
+## Reference material for AI
+reference-material/*
