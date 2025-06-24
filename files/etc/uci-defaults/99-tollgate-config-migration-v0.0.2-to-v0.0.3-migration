@@ -11,34 +11,47 @@ create_backup() {
     cp "$1" "$1.backup.$TIMESTAMP"
 }
 
-# Check if migration is needed
+# This migration is ONLY for upgrading from EXACTLY v0.0.2 to v0.0.3
+# Fresh installs of v0.0.3+ should never run this script
+
+# Check if configuration file exists
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Configuration file doesn't exist. Exiting."
+    echo "Configuration file doesn't exist. This is likely a fresh install - exiting."
     exit 0
 fi
 
-# Check if already migrated to v0.0.3
-if jq -e '.config_version == "v0.0.3"' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration is already v0.0.3 format. Exiting."
+# CRITICAL: Only run if config_version is EXACTLY "v0.0.2"
+CURRENT_VERSION=$(jq -r '.config_version // "none"' "$CONFIG_FILE" 2>/dev/null)
+if [ "$CURRENT_VERSION" != "v0.0.2" ]; then
+    echo "Configuration version is '$CURRENT_VERSION', not 'v0.0.2'. Migration not needed."
     exit 0
 fi
 
-# Check if configuration is v0.0.2 (the version we want to migrate from)
-if ! jq -e '.config_version == "v0.0.2"' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration is not v0.0.2 format. Migration not needed."
+# Additional safety check: Wait a moment for any concurrent config updates and check again
+sleep 2
+CURRENT_VERSION_AFTER_WAIT=$(jq -r '.config_version // "none"' "$CONFIG_FILE" 2>/dev/null)
+if [ "$CURRENT_VERSION_AFTER_WAIT" != "v0.0.2" ]; then
+    echo "Configuration version changed to '$CURRENT_VERSION_AFTER_WAIT' after wait. Migration not needed."
     exit 0
 fi
 
-# Check if we have the old format with price_per_minute
+# Validate this looks like a genuine v0.0.2 config (should have price_per_minute)
 if ! jq -e '.price_per_minute' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration doesn't have price_per_minute field. Cannot migrate."
+    echo "Configuration doesn't have price_per_minute field. This doesn't look like v0.0.2 - cannot migrate."
+    exit 0
+fi
+
+# Validate JSON is not corrupted
+if ! jq empty "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration file is corrupted JSON. Cannot migrate safely."
     exit 0
 fi
 
 # Create backups
 create_backup "$CONFIG_FILE"
 
-# Migrate config.json from v0.0.2 to v0.0.3
+# Migrate config.json from v0.0.2 to v0.0.3 (atomic operation using temporary file)
+echo "Starting migration from v0.0.2 to v0.0.3..."
 jq --argjson stepsize 60000 --arg metric "milliseconds" '
     .config_version = "v0.0.3"
     | .step_size = $stepsize
@@ -52,14 +65,39 @@ jq --argjson stepsize 60000 --arg metric "milliseconds" '
         end
     )
     | del(.price_per_minute)
-' "$CONFIG_FILE.backup.$TIMESTAMP" > "$CONFIG_FILE"
+' "$CONFIG_FILE.backup.$TIMESTAMP" > "$CONFIG_FILE.tmp"
 
-# Verify migration success
+# Verify the migrated config is valid JSON and has expected structure
+if ! jq empty "$CONFIG_FILE.tmp" > /dev/null 2>&1; then
+    echo "Error: Migration resulted in invalid JSON"
+    rm -f "$CONFIG_FILE.tmp"
+    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+    exit 1
+fi
+
+# Verify the migrated config has the expected version
+MIGRATED_VERSION=$(jq -r '.config_version' "$CONFIG_FILE.tmp" 2>/dev/null)
+if [ "$MIGRATED_VERSION" != "v0.0.3" ]; then
+    echo "Error: Migration did not set correct version (got: $MIGRATED_VERSION)"
+    rm -f "$CONFIG_FILE.tmp"
+    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+    exit 1
+fi
+
+# Verify price_per_minute was removed
+if jq -e '.price_per_minute' "$CONFIG_FILE.tmp" > /dev/null 2>&1; then
+    echo "Error: Migration did not remove price_per_minute field"
+    rm -f "$CONFIG_FILE.tmp"
+    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+    exit 1
+fi
+
+# Atomically replace the original file
+mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 if [ $? -eq 0 ]; then
     echo "Configuration migration from v0.0.2 to v0.0.3 completed successfully"
 else
-    echo "Error during configuration migration"
-    # Restore backups on failure
+    echo "Error: Failed to replace configuration file"
     mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
     exit 1
 fi
