@@ -12,10 +12,6 @@ ifneq ($(TOPDIR),)
 	PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
 	PKG_SOURCE_VERSION:=$(shell git rev-parse HEAD) # Use exact current commit
 	PKG_MIRROR_HASH:=skip
-	# Get current branch name and sanitize it for use in file paths
-	BRANCH_NAME_RAW:=$(shell git rev-parse --abbrev-ref HEAD)
-	BRANCH_NAME_SANITIZED:=$(subst /,-,$(BRANCH_NAME_RAW))
-	PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(BRANCH_NAME_SANITIZED).$(shell git rev-parse --short HEAD)
 else
 	# SDK build context (local files)
 	PKG_BUILD_DIR:=$(CURDIR)
