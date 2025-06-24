@@ -78,6 +78,18 @@ type ProfitShareConfig struct {
 	LightningAddress string  `json:"lightning_address"`
 }
 
+// UpstreamConfig holds upstream router configuration
+type UpstreamConfig struct {
+	Enabled                          bool   `json:"enabled"`
+	AlwaysMaintainUpstreamConnection bool   `json:"always_maintain_upstream_connection"`
+	PreferredPurchaseAmountMs        uint64 `json:"preferred_purchase_amount_ms"`
+	PreferredPurchaseAmountBytes     uint64 `json:"preferred_purchase_amount_bytes"`
+	PurchaseTriggerBufferMs          uint64 `json:"purchase_trigger_buffer_ms"`
+	PurchaseTriggerBufferBytes       uint64 `json:"purchase_trigger_buffer_bytes"`
+	RetryAttempts                    int    `json:"retry_attempts"`
+	RetryBackoffSeconds              int    `json:"retry_backoff_seconds"`
+}
+
 // Config holds the configuration parameters
 type PackageInfo struct {
 	Version        string
@@ -97,6 +109,7 @@ type Config struct {
 	TrustedMaintainers    []string            `json:"trusted_maintainers"`
 	ShowSetup             bool                `json:"show_setup"`
 	CurrentInstallationID string              `json:"current_installation_id"`
+	UpstreamConfig        UpstreamConfig      `json:"upstream_config"`
 }
 
 func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
@@ -470,6 +483,9 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+
+	configUpdated := false
+
 	if config == nil {
 		privateKey, err := cm.generatePrivateKey()
 		if err != nil {
@@ -520,6 +536,16 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			},
 			ShowSetup:             true,
 			CurrentInstallationID: "",
+			UpstreamConfig: UpstreamConfig{
+				Enabled:                          true, // Enabled by default
+				AlwaysMaintainUpstreamConnection: true,
+				PreferredPurchaseAmountMs:        10000,   // 10 seconds
+				PreferredPurchaseAmountBytes:     1000000, // 1MB
+				PurchaseTriggerBufferMs:          5000,    // 5 seconds
+				PurchaseTriggerBufferBytes:       500000,  // 500KB
+				RetryAttempts:                    3,
+				RetryBackoffSeconds:              5,
+			},
 		} // TODO: update the default EventID when we merge to main.
 		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
 		err = cm.SaveConfig(defaultConfig)
@@ -528,6 +554,39 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 		return defaultConfig, nil
 	}
+
+	// Check for missing fields and add defaults if necessary
+	if config.UpstreamConfig.PreferredPurchaseAmountMs == 0 &&
+		config.UpstreamConfig.PreferredPurchaseAmountBytes == 0 &&
+		config.UpstreamConfig.PurchaseTriggerBufferMs == 0 &&
+		config.UpstreamConfig.PurchaseTriggerBufferBytes == 0 &&
+		config.UpstreamConfig.RetryAttempts == 0 &&
+		config.UpstreamConfig.RetryBackoffSeconds == 0 {
+		// UpstreamConfig appears to be completely missing or empty, add defaults
+		config.UpstreamConfig = UpstreamConfig{
+			Enabled:                          true, // Enabled by default
+			AlwaysMaintainUpstreamConnection: true,
+			PreferredPurchaseAmountMs:        10000,   // 10 seconds
+			PreferredPurchaseAmountBytes:     1000000, // 1MB
+			PurchaseTriggerBufferMs:          5000,    // 5 seconds
+			PurchaseTriggerBufferBytes:       500000,  // 500KB
+			RetryAttempts:                    3,
+			RetryBackoffSeconds:              5,
+		}
+		configUpdated = true
+		log.Printf("Added default upstream configuration to existing config")
+	}
+
+	// Save config if it was updated with new defaults
+	if configUpdated {
+		err = cm.SaveConfig(config)
+		if err != nil {
+			log.Printf("Failed to save updated config with new defaults: %v", err)
+			return nil, err
+		}
+		log.Printf("Saved updated configuration with new default fields")
+	}
+
 	return config, nil
 }
 

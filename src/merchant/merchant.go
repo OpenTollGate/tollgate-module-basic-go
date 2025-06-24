@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/elnosh/gonuts/cashu"
@@ -19,10 +21,13 @@ import (
 
 // Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
-	config        *config_manager.Config
-	configManager *config_manager.ConfigManager
-	tollwallet    tollwallet.TollWallet
-	advertisement string
+	config                 *config_manager.Config
+	configManager          *config_manager.ConfigManager
+	tollwallet             tollwallet.TollWallet
+	advertisement          string
+	crowsnest              *crowsnest.Crowsnest
+	upstreamSessionManager *upstream_session_manager.UpstreamSessionManager
+	sessionMonitorActive   bool
 }
 
 func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
@@ -45,7 +50,8 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	if walletErr != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
 	}
-	balance := tollwallet.GetBalance()
+
+	var balance uint64 = tollwallet.GetBalance()
 
 	// Set advertisement
 	var advertisementStr string

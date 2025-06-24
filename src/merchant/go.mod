@@ -4,7 +4,9 @@ go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/elnosh/gonuts v0.4.0
@@ -63,8 +65,10 @@ require (
 
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest => ../crowsnest
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager => ../upstream_session_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ../valve
 )

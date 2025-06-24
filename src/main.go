@@ -13,9 +13,11 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -24,6 +26,8 @@ import (
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
+var crowsnestInstance *crowsnest.Crowsnest
+var upstreamSessionManager *upstream_session_manager.UpstreamSessionManager
 
 // getConfigPath returns the configuration file path, checking environment variable first, then default
 func getConfigPath() string {
@@ -79,11 +83,173 @@ func init() {
 
 	merchantInstance.StartPayoutRoutine()
 
+	// Initialize upstream purchasing modules
+	initUpstreamModules()
+
 	// Initialize janitor module
 	initJanitor()
 
 	// Initialize private relay
 	initPrivateRelay()
+}
+
+func initUpstreamModules() {
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		log.Printf("Failed to load config for upstream modules: %v", err)
+		return
+	}
+
+	// Initialize crowsnest for upstream discovery
+	crowsnestInstance = crowsnest.New()
+	log.Printf("Crowsnest module initialized")
+
+	// Always start discovery (even if upstream purchasing is disabled)
+	// This allows us to detect upstream routers and inform the user
+	go startUpstreamDiscovery()
+
+	// Check if upstream is enabled in configuration
+	if !config.UpstreamConfig.Enabled {
+		log.Printf("Upstream purchasing disabled in configuration (discovery still active)")
+		return
+	}
+
+	log.Printf("Upstream purchasing enabled - starting monitoring")
+	log.Printf("  - Always maintain connection: %v", config.UpstreamConfig.AlwaysMaintainUpstreamConnection)
+	log.Printf("  - Preferred purchase amount (ms): %d", config.UpstreamConfig.PreferredPurchaseAmountMs)
+	log.Printf("  - Purchase trigger buffer (ms): %d", config.UpstreamConfig.PurchaseTriggerBufferMs)
+
+	// Start crowsnest monitoring
+	crowsnestInstance.StartMonitoring()
+
+	// Initialize upstream session manager
+	upstreamSessionManager = upstream_session_manager.New("", "tollgate-device")
+	log.Printf("Upstream session manager initialized")
+
+	// Start session monitoring routine
+	if config.UpstreamConfig.AlwaysMaintainUpstreamConnection {
+		go startUpstreamSessionMonitoring()
+		log.Printf("Started upstream session monitoring (always-maintain mode)")
+	} else {
+		log.Printf("Upstream session monitoring configured for on-demand mode")
+	}
+}
+
+func startUpstreamSessionMonitoring() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Check if we have an upstream connection
+		if !crowsnestInstance.IsUpstreamAvailable() {
+			continue
+		}
+
+		// Check if upstream session manager has an active session
+		if !upstreamSessionManager.IsUpstreamActive() {
+			continue
+		}
+
+		// Get current metric to determine monitoring strategy
+		metric, err := upstreamSessionManager.GetCurrentMetric()
+		if err != nil {
+			continue
+		}
+
+		if metric == "milliseconds" {
+			// Time-based monitoring
+			timeRemaining, err := upstreamSessionManager.GetTimeUntilExpiry()
+			if err != nil {
+				continue
+			}
+
+			config, err := configManager.LoadConfig()
+			if err != nil {
+				continue
+			}
+
+			// Check if we need to trigger a purchase (5 seconds before expiry by default)
+			if timeRemaining <= config.UpstreamConfig.PurchaseTriggerBufferMs {
+				log.Printf("Upstream session expiring in %d ms - would trigger renewal purchase", timeRemaining)
+				// TODO: Trigger actual purchase through merchant when merchant integration is complete
+			}
+		} else if metric == "bytes" {
+			// Data-based monitoring
+			bytesRemaining, err := upstreamSessionManager.GetBytesRemaining()
+			if err != nil {
+				continue
+			}
+
+			config, err := configManager.LoadConfig()
+			if err != nil {
+				continue
+			}
+
+			// Check if we need to trigger a purchase
+			if bytesRemaining <= config.UpstreamConfig.PurchaseTriggerBufferBytes {
+				log.Printf("Upstream session has %d bytes remaining - would trigger renewal purchase", bytesRemaining)
+				// TODO: Trigger actual purchase through merchant when merchant integration is complete
+			}
+		}
+	}
+}
+
+func startUpstreamDiscovery() {
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	defer ticker.Stop()
+
+	log.Printf("Starting periodic upstream discovery (every 30 seconds)")
+
+	// Try discovery immediately
+	go func() {
+		log.Printf("Attempting initial upstream discovery...")
+		upstreamURL, err := crowsnestInstance.DiscoverUpstreamRouter()
+		if err != nil {
+			log.Printf("Initial upstream discovery failed: %v", err)
+		} else {
+			log.Printf("✅ Discovered upstream router at: %s", upstreamURL)
+
+			// Get pricing information
+			pricing, err := crowsnestInstance.GetUpstreamPricing(upstreamURL)
+			if err != nil {
+				log.Printf("Failed to get upstream pricing: %v", err)
+			} else {
+				log.Printf("✅ Upstream pricing - Metric: %s, StepSize: %d, Mints: %d",
+					pricing.Metric, pricing.StepSize, len(pricing.AcceptedMints))
+
+				// Update session manager with discovered upstream
+				if upstreamSessionManager != nil {
+					upstreamSessionManager.SetUpstreamURL(upstreamURL)
+					log.Printf("✅ Updated session manager with discovered upstream")
+				}
+			}
+		}
+	}()
+
+	// Periodic discovery
+	for range ticker.C {
+		if !crowsnestInstance.IsUpstreamAvailable() {
+			log.Printf("No upstream available, attempting discovery...")
+			upstreamURL, err := crowsnestInstance.DiscoverUpstreamRouter()
+			if err != nil {
+				log.Printf("Upstream discovery failed: %v", err)
+			} else {
+				log.Printf("✅ Discovered upstream router at: %s", upstreamURL)
+
+				// Update session manager with newly discovered upstream
+				if upstreamSessionManager != nil {
+					upstreamSessionManager.SetUpstreamURL(upstreamURL)
+					log.Printf("✅ Updated session manager with newly discovered upstream")
+				}
+			}
+		} else {
+			// Verify existing upstream is still available
+			err := crowsnestInstance.MonitorUpstreamConnection()
+			if err != nil {
+				log.Printf("Lost connection to existing upstream: %v", err)
+			}
+		}
+	}
 }
 
 func initJanitor() {

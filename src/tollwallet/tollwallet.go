@@ -26,7 +26,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		return nil, fmt.Errorf("No mints provided. Wallet requires at least 1 accepted mint, none were provided")
 	}
 
-	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
+	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]} // CurrentMintURL removed to load in offline mode
 	cashuWallet, err := wallet.LoadWallet(config)
 
 	if err != nil {
