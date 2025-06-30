@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context" // Added for context.Background()
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
@@ -23,8 +25,14 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
-var gatewayManager *crows_nest.GatewayManager
 var merchantInstance *merchant.Merchant
+var gatewayManager *crows_nest.GatewayManager
+
+func isOnline() bool {
+	cmd := exec.Command("ping", "-c", "1", "8.8.8.8")
+	err := cmd.Run()
+	return err == nil
+}
 
 // getConfigPath returns the configuration file path, checking environment variable first, then default
 func getConfigPath() string {
@@ -57,6 +65,11 @@ func init() {
 	}
 
 	currentInstallationID := mainConfig.CurrentInstallationID
+
+	gatewayManager, err = crows_nest.Init(context.Background(), log.Default())
+	if err != nil {
+		log.Fatalf("Failed to initialize gateway manager: %v", err)
+	}
 	log.Printf("CurrentInstallationID: %s", currentInstallationID)
 	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
@@ -351,6 +364,35 @@ func main() {
 	}
 
 	log.Fatal(server.ListenAndServe())
+
+	go func() {
+		for {
+			if !isOnline() {
+				log.Println("Device is offline. Initiating gateway scan...")
+				// No need to assign the result of RunPeriodicScan, as it runs in a goroutine internally.
+				// We need to fetch the available gateways using GetAvailableGateways() instead.
+				availableGateways, err := gatewayManager.GetAvailableGateways()
+				if err != nil {
+					log.Printf("Error getting available gateways: %v", err)
+					continue
+				}
+				if len(availableGateways) > 0 {
+					log.Println("Available gateways found. Attempting to connect...")
+					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "") // Correct usage of ConnectToGateway
+					if err != nil {
+						log.Printf("Error connecting to gateway: %v", err)
+					} else {
+						log.Println("Successfully connected to a TollGate gateway.")
+					}
+				} else {
+					log.Println("No suitable TollGate gateways found to connect to.")
+				}
+			} else {
+				log.Println("Device is online. No action needed.")
+			}
+			time.Sleep(5 * time.Minute)
+		}
+	}()
 
 	fmt.Println("Shutting down Tollgate - Whoami")
 }
