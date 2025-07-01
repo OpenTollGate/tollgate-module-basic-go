@@ -11,5 +11,7 @@ build_deleteme.yml.orig
 squash_tool.sh
 .github/workflows/roo-auto-commit.yml
 vendor/
-
 **/tollwallet_db/*
+prompts.md
+src/crows_nest/root/*.sh
+src/basic

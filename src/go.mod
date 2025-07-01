@@ -14,6 +14,7 @@ require (
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest => ./crows_nest
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
@@ -25,6 +26,7 @@ replace (
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0 // indirect
