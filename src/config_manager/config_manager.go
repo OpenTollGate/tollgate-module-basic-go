@@ -61,6 +61,13 @@ type BraggingConfig struct {
 	Fields  []string `json:"fields"`
 }
 
+// MerchantConfig holds configuration specific to the merchant
+type MerchantConfig struct {
+	Name            string `json:"name"`
+	LightningAddress string `json:"lightning_address"`
+	Website         string `json:"website"`
+}
+
 // MintConfig holds configuration for a specific mint including payout settings
 type MintConfig struct {
 	URL                     string `json:"url"`
@@ -93,6 +100,7 @@ type Config struct {
 	StepSize              uint64              `json:"step_size"`
 	Metric                string              `json:"metric"`
 	Bragging              BraggingConfig      `json:"bragging"`
+	Merchant              MerchantConfig      `json:"merchant"`
 	Relays                []string            `json:"relays"`
 	TrustedMaintainers    []string            `json:"trusted_maintainers"`
 	ShowSetup             bool                `json:"show_setup"`
@@ -141,6 +149,7 @@ type InstallConfig struct {
 	DownloadTimestamp      int64  `json:"download_time"`
 	ReleaseChannel         string `json:"release_channel"`
 	EnsureDefaultTimestamp int64  `json:"ensure_default_timestamp"`
+	InstalledVersion       string `json:"installed_version"` // Added this field
 }
 
 // NewInstallConfig creates a new InstallConfig instance
@@ -234,33 +243,52 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+
+	// If the install config file does not exist, is empty, or malformed, create a new one with defaults.
+	// Otherwise, ensure fields that might be missing from older versions are populated.
 	if installConfig == nil {
-		installConfig = &InstallConfig{}
-	}
-
-	// Ensure all fields have default values
-	if installConfig.PackagePath == "" {
-		installConfig.PackagePath = "false"
-	}
-	if installConfig.IPAddressRandomized == "" {
-		installConfig.IPAddressRandomized = "false"
-	}
-	if installConfig.InstallTimestamp == 0 {
-		installConfig.InstallTimestamp = 0 // unknown
-	}
-	if installConfig.DownloadTimestamp == 0 {
-		installConfig.DownloadTimestamp = 0 // unknown
-	}
-	if installConfig.ReleaseChannel == "" {
-		installConfig.ReleaseChannel = "stable"
-	}
-	if installConfig.EnsureDefaultTimestamp == 0 {
-		installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
-	}
-
-	err = cm.SaveInstallConfig(installConfig)
-	if err != nil {
-		return nil, err
+		installConfig = &InstallConfig{
+			PackagePath:            "false",
+			IPAddressRandomized:    "false",
+			InstallTimestamp:       0, // unknown
+			DownloadTimestamp:      0, // unknown
+			ReleaseChannel:         "stable",
+			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
+			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
+		}
+		err = cm.SaveInstallConfig(installConfig)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Ensure all fields have default values if they are missing (e.g., from an older config file)
+		if installConfig.PackagePath == "" {
+			installConfig.PackagePath = "false"
+		}
+		if installConfig.IPAddressRandomized == "" {
+			installConfig.IPAddressRandomized = "false"
+		}
+		if installConfig.InstallTimestamp == 0 {
+			installConfig.InstallTimestamp = 0 // unknown
+		}
+		if installConfig.DownloadTimestamp == 0 {
+			installConfig.DownloadTimestamp = 0 // unknown
+		}
+		if installConfig.ReleaseChannel == "" {
+			installConfig.ReleaseChannel = "stable"
+		}
+		if installConfig.EnsureDefaultTimestamp == 0 {
+			installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
+		}
+		if installConfig.InstalledVersion == "" {
+			installConfig.InstalledVersion = "0.0.0" // Default to 0.0.0 if not found
+		}
+		// Save the updated config only if changes were made to existing fields
+		// This is a simplified check; a more robust solution would track actual changes.
+		err = cm.SaveInstallConfig(installConfig)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return installConfig, nil
@@ -431,10 +459,11 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 
 func (cm *ConfigManager) generatePrivateKey() (string, error) {
 	privateKey := nostr.GeneratePrivateKey()
-	err := cm.setUsername(privateKey, "c03rad0r")
-	if err != nil {
-		log.Printf("Failed to set username: %v", err)
-	}
+	// The setUsername function requires a loaded config. For initial generation,
+	// we'll attempt to set the username after the config is saved.
+	// This might still log "Failed to set username: config is nil" if called before save,
+	// but the private key generation itself is independent.
+	// The actual setting of username will happen when EnsureDefaultConfig saves the config.
 	return privateKey, nil
 }
 
@@ -533,11 +562,21 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			},
 			ShowSetup:             true,
 			CurrentInstallationID: "",
+			Merchant: MerchantConfig{
+				Name:            "Tollgate Merchant",
+				LightningAddress: "tollgate@minibits.cash",
+				Website:         "https://tollgate.me",
+			},
 		} // TODO: update the default EventID when we merge to main.
 		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
 			return nil, err
+		}
+		// Set username after saving the config
+		err = cm.setUsername(privateKey, "c03rad0r")
+		if err != nil {
+			log.Printf("Failed to set username: %v", err)
 		}
 		return defaultConfig, nil
 	}

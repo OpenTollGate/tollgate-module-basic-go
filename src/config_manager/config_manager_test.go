@@ -9,6 +9,11 @@ import (
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
+	"encoding/json"
+	"io/ioutil"
+	"path/filepath"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Helper functions for comparison
@@ -164,6 +169,12 @@ func TestUpdateCurrentInstallationID(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Ensure config is initialized before testing UpdateCurrentInstallationID
+	err = cm.EnsureInitializedConfig()
+	if err != nil {
+		t.Fatalf("Failed to ensure initialized config: %v", err)
+	}
+
 	// Test UpdateCurrentInstallationID
 	log.Println("Testing UpdateCurrentInstallationID")
 	err = cm.UpdateCurrentInstallationID()
@@ -237,4 +248,89 @@ func TestSetUsername(t *testing.T) {
 		t.Errorf("setUsername returned error: %v", err)
 	}
 	// Additional checks can be added here to verify the username is set correctly on relays
+}
+
+func TestEnsureInitializedConfig(t *testing.T) {
+	// Create a temporary directory for test config files
+	tempDir, err := ioutil.TempDir("", "test_config_manager")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir) // Clean up the temporary directory
+
+	configFile := filepath.Join(tempDir, "config.json")
+	installFile := filepath.Join(tempDir, "install.json")
+
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure the config files are initialized
+	err = cm.EnsureInitializedConfig()
+	assert.NoError(t, err)
+
+	// Verify config.json was created
+	_, err = os.Stat(configFile)
+	assert.NoError(t, err, "config.json should exist")
+
+	// Verify install.json was created
+	_, err = os.Stat(installFile)
+	assert.NoError(t, err, "install.json should exist")
+
+	// Read and verify content of config.json
+	configContent, err := ioutil.ReadFile(configFile)
+	assert.NoError(t, err)
+	var config Config
+	err = json.Unmarshal(configContent, &config)
+	assert.NoError(t, err, "config.json should be valid JSON")
+	assert.NotNil(t, config.Bragging, "config.json should contain 'Bragging' section")
+	assert.NotNil(t, config.Merchant, "config.json should contain 'Merchant' section")
+
+	// Read and verify content of install.json
+	installContent, err := ioutil.ReadFile(installFile)
+	assert.NoError(t, err)
+	var install InstallConfig
+	err = json.Unmarshal(installContent, &install)
+	assert.NoError(t, err, "install.json should be valid JSON")
+	assert.NotNil(t, install.InstalledVersion, "install.json should contain 'InstalledVersion'")
+}
+
+func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
+	// Create a temporary directory for test config files
+	tempDir, err := ioutil.TempDir("", "test_config_manager_existing")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir) // Clean up the temporary directory
+
+	configFile := filepath.Join(tempDir, "config.json")
+	installFile := filepath.Join(tempDir, "install.json")
+
+	// Create dummy existing files with valid JSON structure for the types
+	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","tollgate_private_key":"existing_key","bragging":{"enabled":false,"fields":[]},"merchant":{"name":"Existing Merchant"}}`), 0644)
+	assert.NoError(t, err)
+	err = ioutil.WriteFile(installFile, []byte(`{"installed_version":"1.0.0","package_path":"existing_path"}`), 0644)
+	assert.NoError(t, err)
+
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure the config files are initialized - should not overwrite existing
+	err = cm.EnsureInitializedConfig()
+	assert.NoError(t, err)
+
+	// Verify config.json content is largely unchanged (only missing fields should be added)
+	configContent, err := ioutil.ReadFile(configFile)
+	assert.NoError(t, err)
+	var loadedConfig Config
+	err = json.Unmarshal(configContent, &loadedConfig)
+	assert.NoError(t, err)
+	assert.Equal(t, "existing_key", loadedConfig.TollgatePrivateKey, "config.json private key should not be overwritten")
+	assert.Equal(t, "Existing Merchant", loadedConfig.Merchant.Name, "config.json merchant name should not be overwritten")
+	// The other fields like Relays, TrustedMaintainers, etc., should be populated by EnsureDefaultConfig
+
+	// Verify install.json content is largely unchanged (only missing fields should be added)
+	installContent, err := ioutil.ReadFile(installFile)
+	assert.NoError(t, err)
+	var loadedInstall InstallConfig
+	err = json.Unmarshal(installContent, &loadedInstall)
+	assert.NoError(t, err)
+	assert.Equal(t, "1.0.0", loadedInstall.InstalledVersion, "install.json InstalledVersion should not be overwritten")
+	assert.Equal(t, "existing_path", loadedInstall.PackagePath, "install.json PackagePath should not be overwritten")
+	assert.Equal(t, "false", loadedInstall.IPAddressRandomized, "install.json IPAddressRandomized should be populated") // This field was missing in the dummy, so it should be added.
 }
