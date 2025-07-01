@@ -16,7 +16,19 @@ create_backup() {
 
 # Check if configuration file exists
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Configuration file doesn't exist. This is likely a fresh install - exiting."
+    echo "Configuration file '$CONFIG_FILE' doesn't exist. This is likely a fresh install - exiting."
+    exit 0
+fi
+
+# Check if configuration file is empty
+if [ ! -s "$CONFIG_FILE" ]; then
+    echo "Configuration file '$CONFIG_FILE' is empty. This is likely a fresh install or an issue - exiting."
+    exit 0
+fi
+
+# Validate JSON is not corrupted before proceeding with version check
+if ! jq empty "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration file '$CONFIG_FILE' is corrupted JSON. Cannot migrate safely - exiting."
     exit 0
 fi
 
@@ -30,23 +42,9 @@ if jq -e '.config_version' "$CONFIG_FILE" > /dev/null 2>&1; then
     exit 0
 fi
 
-# Additional safety check: Wait a moment for any concurrent config creation and check again
-sleep 2
-if jq -e '.config_version' "$CONFIG_FILE" > /dev/null 2>&1; then
-    CURRENT_VERSION=$(jq -r '.config_version' "$CONFIG_FILE" 2>/dev/null || echo "unknown")
-    echo "Configuration version appeared after wait: $CURRENT_VERSION. This is not v0.0.1 - exiting."
-    exit 0
-fi
-
-# Validate this looks like a genuine v0.0.1 config structure
-if ! jq -e '.accepted_mints' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration doesn't have expected v0.0.1 structure (missing accepted_mints). Cannot migrate safely."
-    exit 0
-fi
-
-# Validate JSON is not corrupted
-if ! jq empty "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration file is corrupted JSON. Cannot migrate safely."
+# Validate this looks like a genuine v0.0.1 config structure (accepted_mints should exist and not be null)
+if ! jq -e '.accepted_mints | arrays' "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration doesn't have expected v0.0.1 structure (accepted_mints not an array or missing). Cannot migrate safely."
     exit 0
 fi
 

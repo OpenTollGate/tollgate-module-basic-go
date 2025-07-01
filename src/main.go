@@ -44,6 +44,12 @@ func init() {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
+	// Ensure default configurations are initialized before attempting to load them
+	err = configManager.EnsureInitializedConfig()
+	if err != nil {
+		log.Fatalf("Failed to ensure initialized config: %v", err)
+	}
+
 	installConfig, err := configManager.LoadInstallConfig()
 	if err != nil {
 		log.Printf("Error loading install config: %v", err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -155,12 +156,18 @@ func (cm *ConfigManager) LoadInstallConfig() (*InstallConfig, error) {
 		if os.IsNotExist(err) {
 			return nil, nil // Return nil config if file does not exist
 		}
-		return nil, err
+		return nil, fmt.Errorf("error reading install config file: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil // Return nil config if file is empty
 	}
 	var installConfig InstallConfig
 	err = json.Unmarshal(data, &installConfig)
 	if err != nil {
-		return nil, err
+		// Treat unmarshalling errors (e.g., malformed JSON) as if the file was empty/non-existent
+		// to trigger default install config creation.
+		log.Printf("Error unmarshalling install config file %s: %v. Treating as empty/non-existent.", cm.installFilePath(), err)
+		return nil, nil
 	}
 	return &installConfig, nil
 }
@@ -264,7 +271,10 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 func (cm *ConfigManager) LoadConfig() (*Config, error) {
 	data, err := os.ReadFile(cm.FilePath)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return nil, nil // Return nil config if file does not exist
+		}
+		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 	if len(data) == 0 {
 		return nil, nil // Return nil config if file is empty
@@ -273,7 +283,10 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 
 	err = json.Unmarshal(data, &config)
 	if err != nil {
-		return nil, err
+		// Treat unmarshalling errors (e.g., malformed JSON) as if the file was empty/non-existent
+		// to trigger default config creation.
+		log.Printf("Error unmarshalling config file %s: %v. Treating as empty/non-existent.", cm.FilePath, err)
+		return nil, nil
 	}
 	return &config, nil
 }

@@ -16,7 +16,19 @@ create_backup() {
 
 # Check if configuration file exists
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Configuration file doesn't exist. This is likely a fresh install - exiting."
+    echo "Configuration file '$CONFIG_FILE' doesn't exist. This is likely a fresh install - exiting."
+    exit 0
+fi
+
+# Check if configuration file is empty
+if [ ! -s "$CONFIG_FILE" ]; then
+    echo "Configuration file '$CONFIG_FILE' is empty. This is likely a fresh install or an issue - exiting."
+    exit 0
+fi
+
+# Validate JSON is not corrupted before proceeding with version check
+if ! jq empty "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration file '$CONFIG_FILE' is corrupted JSON. Cannot migrate safely - exiting."
     exit 0
 fi
 
@@ -27,23 +39,9 @@ if [ "$CURRENT_VERSION" != "v0.0.2" ]; then
     exit 0
 fi
 
-# Additional safety check: Wait a moment for any concurrent config updates and check again
-sleep 2
-CURRENT_VERSION_AFTER_WAIT=$(jq -r '.config_version // "none"' "$CONFIG_FILE" 2>/dev/null)
-if [ "$CURRENT_VERSION_AFTER_WAIT" != "v0.0.2" ]; then
-    echo "Configuration version changed to '$CURRENT_VERSION_AFTER_WAIT' after wait. Migration not needed."
-    exit 0
-fi
-
-# Validate this looks like a genuine v0.0.2 config (should have price_per_minute)
-if ! jq -e '.price_per_minute' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration doesn't have price_per_minute field. This doesn't look like v0.0.2 - cannot migrate."
-    exit 0
-fi
-
-# Validate JSON is not corrupted
-if ! jq empty "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration file is corrupted JSON. Cannot migrate safely."
+# Validate this looks like a genuine v0.0.2 config (should have price_per_minute and it should not be null)
+if ! jq -e '.price_per_minute | numbers' "$CONFIG_FILE" > /dev/null 2>&1; then
+    echo "Configuration doesn't have price_per_minute field or it's not a number. This doesn't look like v0.0.2 - cannot migrate safely."
     exit 0
 fi
 
