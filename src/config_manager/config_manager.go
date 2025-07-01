@@ -563,7 +563,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			ShowSetup:             true,
 			CurrentInstallationID: "",
 			Merchant: MerchantConfig{
-				Name:            "Tollgate Merchant",
+				Name:            "c03rad0r",
 				LightningAddress: "tollgate@minibits.cash",
 				Website:         "https://tollgate.me",
 			},

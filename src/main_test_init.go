@@ -48,7 +48,7 @@ func init() {
 	// Initialize global variables used by main.go with mock implementations
 	// This prevents main.go's initializeApplication from being called and
 	// trying to access /etc/tollgate/config.json
-	
+
 	// Create a mock config manager
 	mockConfig := new(MockConfigManager)
 	// Set up expectations for methods that might be called during tests
