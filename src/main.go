@@ -190,8 +190,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "mac=", mac)
 }
 
-func handleDetails(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, merchantInstance.GetAdvertisement())
+func handleDetails(merchantSvc merchant.MerchantService, w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, merchantSvc.GetAdvertisement())
 }
 
 // handleRootPost handles POST requests to the root endpoint
@@ -326,7 +326,7 @@ func handleRoot(merchantSvc merchant.MerchantService, w http.ResponseWriter, r *
 	if r.Method == http.MethodPost {
 		handleRootPost(merchantSvc, w, r)
 	} else {
-		handleDetails(w, r)
+		handleDetails(merchantSvc, w, r)
 	}
 }
 
@@ -344,7 +344,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)
 		corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
-			handleRoot(merchantInstance, w, r)
+			handleRoot(merchantInstance, w, r) // merchantInstance is global, will be mocked in tests
 		})(w, r)
 	})
 

@@ -3,8 +3,6 @@
 package main
 
 import (
-	"log"
-
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant" // Import the merchant package
 	"github.com/nbd-wtf/go-nostr"
@@ -15,15 +13,6 @@ import (
 type MockConfigManager struct {
 	mock.Mock
 }
-
-
-// MockMerchant is a mock implementation of merchant.MerchantService
-type MockMerchant struct {
-	mock.Mock
-}
-
-// Ensure MockMerchant implements merchant.MerchantService
-var _ merchant.MerchantService = (*MockMerchant)(nil)
 
 func (m *MockConfigManager) LoadConfig() (*config_manager.Config, error) {
 	args := m.Called()
@@ -55,35 +44,7 @@ func (m *MockConfigManager) GetNIP94Event(installationID string) (string, error)
 	return args.String(0), args.Error(1)
 }
 
-
-
-func (m *MockMerchant) PurchaseSession(event nostr.Event) (*nostr.Event, error) {
-	args := m.Called(event)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*nostr.Event), args.Error(1)
-}
-
-func (m *MockMerchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	args := m.Called(level, code, message, customerPubkey)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*nostr.Event), args.Error(1)
-}
-
-func (m *MockMerchant) GetAdvertisement() string {
-	args := m.Called()
-	return args.String(0)
-}
-
-func (m *MockMerchant) StartPayoutRoutine() {
-	m.Called()
-}
-
 func init() {
-
 	// Initialize global variables used by main.go with mock implementations
 	// This prevents main.go's initializeApplication from being called and
 	// trying to access /etc/tollgate/config.json
@@ -99,12 +60,6 @@ func init() {
 
 	configManager = mockConfig
 
-	// Create a mock merchant instance
-	mockMerchant := new(MockMerchant)
-	mockMerchant.On("PurchaseSession", mock.Anything).Return(&nostr.Event{}, nil)
-	mockMerchant.On("CreateNoticeEvent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&nostr.Event{}, nil)
-	mockMerchant.On("GetAdvertisement").Return("Test Advertisement")
-	mockMerchant.On("StartPayoutRoutine").Return()
-
-	merchantInstance = mockMerchant
+	// merchantInstance is now initialized directly in test functions or handlers_test.go
+	// as MockMerchant is now defined in main_test.go
 }

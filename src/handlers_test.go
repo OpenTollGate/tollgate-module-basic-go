@@ -105,6 +105,7 @@ func TestEventValidation(t *testing.T) {
 			rr := httptest.NewRecorder()
 			mockMerchant := &MockMerchant{}
 			mockMerchant.On("PurchaseSession", tt.event).Return(&nostr.Event{Kind: 1022}, nil) // Mock a successful session event response
+		mockMerchant.On("CreateNoticeEvent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&nostr.Event{Kind: 21023}, nil) // Mock notice event creation for errors
 			
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				handleRootPost(mockMerchant, w, r)
@@ -146,7 +147,8 @@ func TestEventSignatureValidation(t *testing.T) {
 	mockMerchant := &MockMerchant{}
 	// Expect PurchaseSession to be called, but it will panic with invalid signature, so we don't set a return value
 	// mockMerchant.On("PurchaseSession", mock.Anything).Return(nil, errors.New("mocked error")) // This won't be hit if signature validation fails first
-	
+	mockMerchant.On("CreateNoticeEvent", "error", "invalid-event", "Invalid signature for nostr event", testPublicKeyHex).Return(&nostr.Event{Kind: 21023}, nil)
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleRootPost(mockMerchant, w, r)
 	})
