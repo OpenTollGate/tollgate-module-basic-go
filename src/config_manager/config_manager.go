@@ -194,19 +194,25 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 		PublicPool: publicPool,
 		LocalPool:  localPool,
 	}
+	return cm, nil
+}
+
+// EnsureInitializedConfig ensures a default configuration and install configuration exist.
+// This function will be called explicitly where needed, not during NewConfigManager if possible in test code.
+func (cm *ConfigManager) EnsureInitializedConfig() error {
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	_, err = cm.EnsureDefaultInstall()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return cm, nil
+	return nil
 }
 
 func getIPAddress() {
@@ -223,37 +229,32 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		return nil, err
 	}
 	if installConfig == nil {
-		defaultInstallConfig := &InstallConfig{
-			PackagePath:            "false",
-			IPAddressRandomized:    "false",
-			InstallTimestamp:       0,                 // Set InstallTimestamp to 0 (unknown)
-			DownloadTimestamp:      0,                 // Set DownloadTimestamp to 0 (unknown)
-			ReleaseChannel:         "stable",          // Set default release channel to "main"
-			EnsureDefaultTimestamp: CURRENT_TIMESTAMP, // Set EnsureDefaultTimestamp to current time
-		}
-		err = cm.SaveInstallConfig(defaultInstallConfig)
-		if err != nil {
-			return nil, err
-		}
-		return defaultInstallConfig, nil
+		installConfig = &InstallConfig{}
 	}
 
-	// If InstallTimestamp is not set, set it to 0 (unknown)
+	// Ensure all fields have default values
+	if installConfig.PackagePath == "" {
+		installConfig.PackagePath = "false"
+	}
+	if installConfig.IPAddressRandomized == "" {
+		installConfig.IPAddressRandomized = "false"
+	}
 	if installConfig.InstallTimestamp == 0 {
-		installConfig.InstallTimestamp = 0
-		err = cm.SaveInstallConfig(installConfig)
-		if err != nil {
-			return nil, err
-		}
+		installConfig.InstallTimestamp = 0 // unknown
+	}
+	if installConfig.DownloadTimestamp == 0 {
+		installConfig.DownloadTimestamp = 0 // unknown
+	}
+	if installConfig.ReleaseChannel == "" {
+		installConfig.ReleaseChannel = "stable"
+	}
+	if installConfig.EnsureDefaultTimestamp == 0 {
+		installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
 	}
 
-	// If DownloadTimestamp is not set, set it to 0 (unknown)
-	if installConfig.DownloadTimestamp == 0 {
-		installConfig.DownloadTimestamp = 0
-		err = cm.SaveInstallConfig(installConfig)
-		if err != nil {
-			return nil, err
-		}
+	err = cm.SaveInstallConfig(installConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	return installConfig, nil
