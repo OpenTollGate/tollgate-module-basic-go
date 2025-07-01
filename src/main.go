@@ -23,7 +23,7 @@ import (
 // Define configFile at a higher scope
 var configManager *config_manager.ConfigManager
 var tollgateDetailsString string
-var merchantInstance *merchant.Merchant
+var merchantInstance merchant.MerchantService
 
 // getConfigPath returns the configuration file path, checking environment variable first, then default
 func getConfigPath() string {
@@ -33,7 +33,7 @@ func getConfigPath() string {
 	return "/etc/tollgate/config.json"
 }
 
-func init() {
+func initializeApplication() {
 	var err error
 
 	configPath := getConfigPath()
@@ -73,11 +73,14 @@ func init() {
 		}
 	}
 
+	// Initialize merchantInstance as the MerchantService interface
 	var err2 error
-	merchantInstance, err2 = merchant.New(configManager)
+	var concreteMerchant *merchant.Merchant
+	concreteMerchant, err2 = merchant.New(configManager)
 	if err2 != nil {
 		log.Fatalf("Failed to create merchant: %v", err2)
 	}
+	merchantInstance = concreteMerchant
 
 	if err != nil {
 		log.Fatalf("Failed to create merchant: %v", err)
@@ -192,7 +195,7 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRootPost handles POST requests to the root endpoint
-func handleRootPost(w http.ResponseWriter, r *http.Request) {
+func handleRootPost(merchantSvc merchant.MerchantService, w http.ResponseWriter, r *http.Request) {
 	// Log the request details
 	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
 	// Only process POST requests
@@ -205,7 +208,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("Error reading request body:", err)
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+		sendNoticeResponse(w, merchantSvc, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Error reading request body: %v", err), "")
 		return
 	}
@@ -220,7 +223,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(body, &event)
 	if err != nil {
 		log.Println("Error parsing nostr event:", err)
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+		sendNoticeResponse(w, merchantSvc, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Error parsing nostr event: %v", err), "")
 		return
 	}
@@ -229,7 +232,7 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	ok, err := event.CheckSignature()
 	if err != nil || !ok {
 		log.Println("Invalid signature for nostr event:", err)
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+		sendNoticeResponse(w, merchantSvc, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Invalid signature for nostr event"), event.PubKey)
 		return
 	}
@@ -242,13 +245,13 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Validate that this is a payment event (kind 21000)
 	if event.Kind != 21000 {
 		log.Printf("Invalid event kind: %d, expected 21000", event.Kind)
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+		sendNoticeResponse(w, merchantSvc, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Invalid event kind: %d, expected 21000", event.Kind), event.PubKey)
 		return
 	}
 
 	// Process payment and get session event
-	responseEvent, err := merchantInstance.PurchaseSession(event)
+	responseEvent, err := merchantSvc.PurchaseSession(event)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
@@ -278,8 +281,8 @@ func handleRootPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendNoticeResponse creates and sends a notice event response
-func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Merchant, statusCode int, level, code, message, customerPubkey string) {
-	noticeEvent, err := merchantInstance.CreateNoticeEvent(level, code, message, customerPubkey)
+func sendNoticeResponse(w http.ResponseWriter, merchantService merchant.MerchantService, statusCode int, level, code, message, customerPubkey string) {
+	noticeEvent, err := merchantService.CreateNoticeEvent(level, code, message, customerPubkey)
 	if err != nil {
 		log.Printf("Error creating notice event: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -319,15 +322,17 @@ func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds 
 }
 
 // handleRoot routes requests based on method
-func handleRoot(w http.ResponseWriter, r *http.Request) {
+func handleRoot(merchantSvc merchant.MerchantService, w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		handleRootPost(w, r)
+		handleRootPost(merchantSvc, w, r)
 	} else {
 		handleDetails(w, r)
 	}
 }
 
 func main() {
+	initializeApplication() // Call the initialization function
+
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate Core")
 	fmt.Println("Listening on all interfaces on port", port)
@@ -338,7 +343,9 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)
-		corsMiddleware(handleRoot)(w, r)
+		corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			handleRoot(merchantInstance, w, r)
+		})(w, r)
 	})
 
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {

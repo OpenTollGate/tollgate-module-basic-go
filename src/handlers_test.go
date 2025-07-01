@@ -8,7 +8,32 @@ import (
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/stretchr/testify/mock"
 )
+
+// Define the nsec1 secret key for testing
+const testNsec = "nsec1hxu5xv3kltn78mu60kkf4f2cgzss03tp28tpljnl76axzyvdkgzqnazz52"
+
+var (
+	testPrivateKeyHex string
+	testPublicKeyHex  string
+)
+
+func init() {
+	// Decode the nsec1 key to get the hex private key
+	_, decoded, err := nip19.Decode(testNsec)
+	if err != nil {
+		panic("Failed to decode nsec1 key: " + err.Error())
+	}
+	testPrivateKeyHex = decoded.(string)
+
+	// Derive the public key from the private key
+	testPublicKeyHex, err = nostr.GetPublicKey(testPrivateKeyHex)
+	if err != nil {
+		panic("Failed to get public key from private key: " + err.Error())
+	}
+}
 
 // TestEventValidation tests basic event validation without merchant dependency
 func TestEventValidation(t *testing.T) {
@@ -26,7 +51,7 @@ func TestEventValidation(t *testing.T) {
 					nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
 					nostr.Tag{"payment", "test_token"},
 				},
-				PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
+				PubKey: testPublicKeyHex,
 			},
 			expectedStatus: http.StatusBadRequest, // Will fail at merchant processing, but structure is valid
 			description:    "Valid payment event structure",
@@ -39,7 +64,7 @@ func TestEventValidation(t *testing.T) {
 					nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
 					nostr.Tag{"payment", "test_token"},
 				},
-				PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
+				PubKey: testPublicKeyHex,
 			},
 			expectedStatus: http.StatusBadRequest,
 			description:    "Should reject non-payment event kinds",
@@ -51,17 +76,17 @@ func TestEventValidation(t *testing.T) {
 				Tags: nostr.Tags{
 					nostr.Tag{"payment", "test_token"},
 				},
-				PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
+				PubKey: testPublicKeyHex,
 			},
 			expectedStatus: http.StatusBadRequest,
 			description:    "Should reject events without device identifier",
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Sign the event for testing
-			err := tt.event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+			err := tt.event.Sign(testPrivateKeyHex)
 			if err != nil {
 				t.Fatal("Failed to sign event:", err)
 			}
@@ -78,7 +103,12 @@ func TestEventValidation(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(handleRootPost)
+			mockMerchant := &MockMerchant{}
+			mockMerchant.On("PurchaseSession", tt.event).Return(&nostr.Event{Kind: 1022}, nil) // Mock a successful session event response
+			
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handleRootPost(mockMerchant, w, r)
+			})
 			handler.ServeHTTP(rr, req)
 
 			if status := rr.Code; status != tt.expectedStatus {
@@ -97,7 +127,7 @@ func TestEventSignatureValidation(t *testing.T) {
 			nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
 			nostr.Tag{"payment", "test_token"},
 		},
-		PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
+		PubKey: testPublicKeyHex,
 		Sig:    "invalid_signature",
 	}
 
@@ -113,7 +143,13 @@ func TestEventSignatureValidation(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(handleRootPost)
+	mockMerchant := &MockMerchant{}
+	// Expect PurchaseSession to be called, but it will panic with invalid signature, so we don't set a return value
+	// mockMerchant.On("PurchaseSession", mock.Anything).Return(nil, errors.New("mocked error")) // This won't be hit if signature validation fails first
+	
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleRootPost(mockMerchant, w, r)
+	})
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid signature
@@ -193,11 +229,11 @@ func TestMACAddressValidation(t *testing.T) {
 					nostr.Tag{"device-identifier", "mac", tt.macAddress},
 					nostr.Tag{"payment", "test_token"},
 				},
-				PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
+				PubKey: testPublicKeyHex,
 			}
-
+	
 			// Sign the event for testing
-			err := event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+			err := event.Sign(testPrivateKeyHex)
 			if err != nil {
 				t.Fatal("Failed to sign event:", err)
 			}
@@ -214,7 +250,12 @@ func TestMACAddressValidation(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(handleRootPost)
+			mockMerchant := &MockMerchant{}
+			mockMerchant.On("PurchaseSession", event).Return(&nostr.Event{Kind: 1022}, nil) // Mock a successful session event response
+			
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handleRootPost(mockMerchant, w, r)
+			})
 			handler.ServeHTTP(rr, req)
 
 			// All should return BadRequest since we don't have merchant setup,

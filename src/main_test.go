@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -79,7 +81,9 @@ func TestHandleRoot(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(corsMiddleware(handleRoot))
+	handler := http.HandlerFunc(corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		handleRoot(merchantInstance, w, r)
+	}))
 	handler.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusOK {
@@ -116,7 +120,11 @@ func TestHandleRootPost(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(handleRootPost)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mockMerchant := new(MockMerchant)
+		mockMerchant.On("PurchaseSession", mock.Anything).Return(&nostr.Event{}, nil)
+		handleRootPost(mockMerchant, w, r)
+	})
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to missing merchant instance (but signature should be valid)
@@ -154,7 +162,11 @@ func TestHandleRootPostInvalidKind(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(handleRootPost)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mockMerchant := new(MockMerchant)
+		mockMerchant.On("PurchaseSession", mock.Anything).Return(&nostr.Event{}, nil) // This specific mock might not be strictly needed for this test, but it's good practice for consistency
+		handleRootPost(mockMerchant, w, r)
+	})
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid kind
@@ -198,7 +210,11 @@ func TestHandleRootPostInvalidSignature(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(handleRootPost)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mockMerchant := new(MockMerchant)
+		mockMerchant.On("PurchaseSession", mock.Anything).Return(&nostr.Event{}, nil) // This specific mock might not be strictly needed for this test, but it's good practice for consistency
+		handleRootPost(mockMerchant, w, r)
+	})
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid signature
