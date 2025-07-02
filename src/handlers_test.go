@@ -9,6 +9,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/stretchr/testify/mock" // Added import for mock
 )
 
 // Define the nsec1 secret key for testing
@@ -35,89 +36,98 @@ func init() {
 }
 
 // TestEventValidation tests basic event validation without merchant dependency
-// func TestEventValidation(t *testing.T) {
-// 	tests := []struct {
-// 		name           string
-// 		event          nostr.Event
-// 		expectedStatus int
-// 		description    string
-// 	}{
-// 		{
-// 			name: "Valid Payment Event Structure",
-// 			event: nostr.Event{
-// 				Kind: 21000, // Payment event kind
-// 				Tags: nostr.Tags{
-// 					nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
-// 					nostr.Tag{"payment", "test_token"},
-// 				},
-// 				PubKey: testPublicKeyHex,
-// 			},
-// 			expectedStatus: http.StatusBadRequest, // Will fail at merchant processing, but structure is valid
-// 			description:    "Valid payment event structure",
-// 		},
-// 		{
-// 			name: "Invalid Event Kind",
-// 			event: nostr.Event{
-// 				Kind: 1022, // Session event kind (invalid for payment endpoint)
-// 				Tags: nostr.Tags{
-// 					nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
-// 					nostr.Tag{"payment", "test_token"},
-// 				},
-// 				PubKey: testPublicKeyHex,
-// 			},
-// 			expectedStatus: http.StatusBadRequest,
-// 			description:    "Should reject non-payment event kinds",
-// 		},
-// 		{
-// 			name: "Missing MAC Address",
-// 			event: nostr.Event{
-// 				Kind: 21000,
-// 				Tags: nostr.Tags{
-// 					nostr.Tag{"payment", "test_token"},
-// 				},
-// 				PubKey: testPublicKeyHex,
-// 			},
-// 			expectedStatus: http.StatusBadRequest,
-// 			description:    "Should reject events without device identifier",
-// 		},
-// 	}
+func TestEventValidation(t *testing.T) {
+	tests := []struct {
+		name           string
+		event          nostr.Event
+		expectedStatus int
+		description    string
+	}{
+		{
+			name: "Valid Payment Event Structure",
+			event: nostr.Event{
+				Kind: 21000, // Payment event kind
+				Tags: nostr.Tags{
+					nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
+					nostr.Tag{"payment", "test_token"},
+				},
+				PubKey: testPublicKeyHex,
+			},
+			expectedStatus: http.StatusOK, // Should now pass through to merchant and return OK
+			description:    "Valid payment event structure",
+		},
+		{
+			name: "Invalid Event Kind",
+			event: nostr.Event{
+				Kind: 1022, // Session event kind (invalid for payment endpoint)
+				Tags: nostr.Tags{
+					nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
+					nostr.Tag{"payment", "test_token"},
+				},
+				PubKey: testPublicKeyHex,
+			},
+			expectedStatus: http.StatusBadRequest,
+			description:    "Should reject non-payment event kinds",
+		},
+		{
+			name: "Missing MAC Address",
+			event: nostr.Event{
+				Kind: 21000,
+				Tags: nostr.Tags{
+					nostr.Tag{"payment", "test_token"},
+				},
+				PubKey: testPublicKeyHex,
+			},
+			expectedStatus: http.StatusBadRequest,
+			description:    "Should reject events without device identifier",
+		},
+	}
 
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			// Sign the event for testing
-// 			err := tt.event.Sign(testPrivateKeyHex)
-// 			if err != nil {
-// 				t.Fatal("Failed to sign event:", err)
-// 			}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Sign the event for testing
+			err := tt.event.Sign(testPrivateKeyHex)
+			if err != nil {
+				t.Fatal("Failed to sign event:", err)
+			}
 
-// 			eventJSON, err := json.Marshal(tt.event)
-// 			if err != nil {
-// 				t.Fatal(err)
-// 			}
+			eventJSON, err := json.Marshal(tt.event)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-// 			req, err := http.NewRequest("POST", "/", bytes.NewBuffer(eventJSON))
-// 			if err != nil {
-// 				t.Fatal(err)
-// 			}
-// 			req.Header.Set("Content-Type", "application/json")
+			req, err := http.NewRequest("POST", "/", bytes.NewBuffer(eventJSON))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
 
-// 			rr := httptest.NewRecorder()
-// 			mockMerchant := &MockMerchant{}
-// 			mockMerchant.On("PurchaseSession", tt.event).Return(&nostr.Event{Kind: 1022}, nil)                                                      // Mock a successful session event response
-// 			mockMerchant.On("CreateNoticeEvent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&nostr.Event{Kind: 21023}, nil) // Mock notice event creation for errors
+			rr := httptest.NewRecorder()
+			mockMerchant := &MockMerchant{}
+			// Mock PurchaseSession to return a successful session event or an error notice event
+			if tt.expectedStatus == http.StatusOK {
+				mockMerchant.On("PurchaseSession", mock.AnythingOfType("nostr.Event")).Return(&nostr.Event{Kind: 1022}, nil)
+			} else if tt.name == "Missing MAC Address" {
+				// For missing MAC address, merchant should return a notice event
+				mockMerchant.On("PurchaseSession", mock.AnythingOfType("nostr.Event")).Return(&nostr.Event{Kind: 21023}, nil)
+			} else {
+				// For invalid event kind, PurchaseSession won't be called, but CreateNoticeEvent will be
+				mockMerchant.On("PurchaseSession", mock.AnythingOfType("nostr.Event")).Return(nil, nil) // This mock won't be hit for invalid kind
+				mockMerchant.On("CreateNoticeEvent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&nostr.Event{Kind: 21023}, nil)
+			}
 
-// 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 				handleRootPost(mockMerchant, w, r)
-// 			})
-// 			handler.ServeHTTP(rr, req)
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handleRootPost(mockMerchant, w, r)
+			})
+			handler.ServeHTTP(rr, req)
 
-// 			if status := rr.Code; status != tt.expectedStatus {
-// 				t.Errorf("%s: handler returned wrong status code: got %v want %v",
-// 					tt.description, status, tt.expectedStatus)
-// 			}
-// 		})
-// 	}
-// }
+			if status := rr.Code; status != tt.expectedStatus {
+				t.Errorf("%s: handler returned wrong status code: got %v want %v",
+					tt.description, status, tt.expectedStatus)
+			}
+		})
+	}
+}
 
 // TestEventSignatureValidation tests signature validation specifically
 func TestEventSignatureValidation(t *testing.T) {
