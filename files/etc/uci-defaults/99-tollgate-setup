@@ -156,53 +156,48 @@ uci commit network
 uci commit dhcp
 log_message "dnsmasq configuration completed"
 
-# 4. Configure WiFi networks
-log_message "Configuring WiFi networks"
+# 4. Configure TollGate WiFi networks (AP mode)
+log_message "Configuring TollGate WiFi networks (AP mode)"
 # Generate a random 4-character suffix for the SSID
 RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
-# Check if SSID is already configured with TollGate prefix
-current_ssid=$(uci -q get wireless.default_radio0.ssid)
-if [[ "$current_ssid" == "TollGate-"* ]]; then
-    SSID_BASE="$current_ssid"
-    log_message "Using existing SSID: $SSID_BASE"
-else
-    SSID_BASE="TollGate-${RANDOM_SUFFIX}"
-    log_message "Generated new random SSID: $SSID_BASE"
-fi
+SSID_BASE="TollGate-${RANDOM_SUFFIX}"
+log_message "Generated new random SSID: $SSID_BASE"
 
-# Check if default radio0 exists before configuring
-if uci -q get wireless.default_radio0 >/dev/null; then
-    # Configure 2.4GHz WiFi with random suffix
-    uci_safe_set wireless default_radio0 name 'tollgate_2g_open'
-    uci_safe_set wireless default_radio0 ssid "${SSID_BASE}"
-    uci_safe_set wireless default_radio0 encryption 'none'
-    uci_safe_set wireless default_radio0 disabled '0'  # Ensure the interface is enabled
-    log_message "Configured 2.4GHz WiFi with SSID: ${SSID_BASE}"
-else
-    log_message "No 2.4GHz radio (default_radio0) found"
-fi
+# Get all wifi-device sections (e.g., radio0, radio1, mt798111, mt798112)
+# We use 'uci -q show wireless | grep "\.type='"' to get the section name
+# e.g., wireless.mt798111=wifi-device
+for device_section in $(uci -q show wireless | grep "\.type='" | cut -d'.' -f2 | cut -d'=' -f1); do
+    log_message "Processing wifi-device: $device_section"
+    
+    # Check if the device is already disabled
+    DEVICE_DISABLED=$(uci -q get wireless."$device_section".disabled)
+    if [ "$DEVICE_DISABLED" = "1" ]; then
+        log_message "Enabling wifi-device: $device_section"
+        uci_safe_set wireless "$device_section" disabled '0'
+    fi
 
-# Check if default radio1 exists before configuring
-if uci -q get wireless.default_radio1 >/dev/null; then
-    # Configure 5GHz WiFi with the same random suffix
-    uci_safe_set wireless default_radio1 name 'tollgate_5g_open'
-    uci_safe_set wireless default_radio1 ssid "${SSID_BASE}"
-    uci_safe_set wireless default_radio1 encryption 'none'
-    uci_safe_set wireless default_radio1 disabled '0'  # Ensure the interface is enabled
-    log_message "Configured 5GHz WiFi with SSID: ${SSID_BASE}"
-else
-    log_message "No 5GHz radio (default_radio1) found"
-fi
+    # Create a new wifi-iface for the TollGate AP on this device
+    # Use a unique name for the new interface to avoid conflicts
+    NEW_IFACE_NAME="tollgate_ap_${device_section}"
+    
+    # Check if this specific TollGate AP interface already exists
+    if ! uci -q get wireless."$NEW_IFACE_NAME" >/dev/null 2>&1; then
+        uci add wireless wifi-iface >/dev/null 2>&1
+        uci rename wireless.@wifi-iface[-1]="$NEW_IFACE_NAME" >/dev/null 2>&1
+        log_message "Created new wifi-iface section: $NEW_IFACE_NAME"
+    else
+        log_message "TollGate AP interface $NEW_IFACE_NAME already exists."
+    fi
 
-# Enable wireless interfaces if they exist
-if uci -q get wireless.radio0 >/dev/null; then
-    uci_safe_set wireless radio0 disabled '0'
-    log_message "Enabled radio0"
-fi
-if uci -q get wireless.radio1 >/dev/null; then
-    uci_safe_set wireless radio1 disabled '0'
-    log_message "Enabled radio1"
-fi
+    # Configure the new TollGate AP interface
+    uci_safe_set wireless "$NEW_IFACE_NAME" device "$device_section"
+    uci_safe_set wireless "$NEW_IFACE_NAME" mode 'ap'
+    uci_safe_set wireless "$NEW_IFACE_NAME" network 'lan'
+    uci_safe_set wireless "$NEW_IFACE_NAME" ssid "${SSID_BASE}"
+    uci_safe_set wireless "$NEW_IFACE_NAME" encryption 'none'
+    uci_safe_set wireless "$NEW_IFACE_NAME" disabled '0'
+    log_message "Configured $NEW_IFACE_NAME on device $device_section with SSID: ${SSID_BASE}"
+done
 
 # Commit wireless changes
 uci commit wireless
