@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"         // Added import for bytes
+	"bytes" // Added import for bytes
 	"encoding/json"
-	"net/http"      // Added import for net/http
+	"net/http"          // Added import for net/http
 	"net/http/httptest" // Added import for net/http/httptest
 	"os"
 	"path/filepath"
@@ -292,12 +292,3 @@ func TestHandleRootPostInvalidSignature(t *testing.T) {
 
 	mockMerchant.AssertExpectations(t)
 }
-// 		handleRootPost(mockMerchant, w, r)
-// 	})
-// 	handler.ServeHTTP(rr, req)
-
-// 	// Should return BadRequest due to invalid signature
-// 	if status := rr.Code; status != http.StatusBadRequest {
-// 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
-// 	}
-// }
