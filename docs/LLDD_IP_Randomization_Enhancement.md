@@ -25,113 +25,116 @@ The IP check logic in `files/etc/uci-defaults/95-random-lan-ip` (lines 5-12 in t
     }
     ```
 
-*   **Modify the initial check block and conditionalize network restart:** The existing IP check logic will be replaced with a more comprehensive one that utilizes the `is_default_ip` function and a `RANDOMIZE_IP` flag. The `network restart` will be moved inside the conditional block that executes only when a new IP is generated.
+*   **Refine IP Randomization Logic and Conditionalize Network Restart:** The existing IP check logic will be replaced with a more robust approach using the `is_default_ip` function and a `RANDOMIZE_IP` flag. The `RANDOMIZE_IP` flag will be determined as follows:
+    *   Initialize `RANDOMIZE_IP` to `1` (randomize).
+    *   Retrieve the `CURRENT_LAN_IP` from UCI.
+    *   If `CURRENT_LAN_IP` is a common default vendor IP (e.g., `192.168.1.1`), `RANDOMIZE_IP` remains `1`.
+    *   Otherwise (if `CURRENT_LAN_IP` is *not* a default IP):
+        *   Check `install.json` for a `ip_address_randomized` value (`STORED_RANDOM_IP`).
+        *   If `install.json` exists, and `STORED_RANDOM_IP` is a valid, non-default randomized IP, and `CURRENT_LAN_IP` matches `STORED_RANDOM_IP`, then set `RANDOMIZE_IP` to `0` (do not randomize).
+        *   In all other cases (e.g., `install.json` missing, `ip_address_randomized` null/invalid, or `CURRENT_LAN_IP` doesn't match a valid stored random IP), `RANDOMIZE_IP` remains `1`.
+    *   The `network restart` and `install.json` update will only occur if `RANDOMIZE_IP` is `1`.
 
 **Detailed Diff for `95-random-lan-ip`:**
 
 ```diff
---- a/files/etc/uci-defaults/95-random-lan-ip
-+++ b/files/etc/uci-defaults/95-random-lan-ip
-@@ -3,18 +3,41 @@
-      
-      INSTALL_JSON="/etc/tollgate/install.json"
-      if [ -f "$INSTALL_JSON" ]; then
-    -    IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
-    -    echo "DEBUG: IP_RANDOMIZED value: $IP_RANDOMIZED"
-    -    valid_ip=$(echo "$IP_RANDOMIZED" | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
-    -    if [ -n "$valid_ip" ]; then
-    -        echo "IP is already randomized to $IP_RANDOMIZED. Exiting."
-    +    STORED_RANDOM_IP=$(jq -r '.ip_address_randomized // "null"' "$INSTALL_JSON")
-+        echo "DEBUG: Stored IP_RANDOMIZED in install.json: $STORED_RANDOM_IP"
-+    fi
-+    
-    +# Function to check if an IP address is a common default vendor IP
-    +is_default_ip() {
-    +    local ip="$1"
-    +    # Common default IPs: 192.168.1.1, 192.168.8.1, 192.168.X.1
-    +    if echo "$ip" | grep -Eq "^192\.168\.(1|8|([0-9]{1,3}))\.1$"; then
-    +        return 0 # It is a default IP
-    +    else
-    +        return 1 # It is not a default IP
-    +    fi
-    +}
-    +
-    +# Determine if randomization is needed
-    +RANDOMIZE_IP=1 # Assume we need to randomize by default
-    +
-    +if [ -n "$STORED_RANDOM_IP" ] && [ "$STORED_RANDOM_IP" != "null" ]; then
-    +    # If there's a stored randomized IP, check if it's a valid non-default IP
-    +    if echo "$STORED_RANDOM_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && ! is_default_ip "$STORED_RANDOM_IP"; then
-    +        echo "Stored IP '$STORED_RANDOM_IP' is a valid, non-default randomized IP. Checking current LAN IP."
-    +        CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr)
-    +        if [ "$CURRENT_LAN_IP" = "$STORED_RANDOM_IP" ]; then
-    +            echo "Current LAN IP matches stored randomized IP. No randomization needed."
-    +            RANDOMIZE_IP=0
-    +        else
-    +            echo "Current LAN IP '$CURRENT_LAN_IP' does not match stored randomized IP. Will re-randomize."
-+        fi
-+    else
-+        echo "Stored IP '$STORED_RANDOM_IP' is null, invalid, or a default IP. Will randomize."
-+    fi
-+else
-+    echo "install.json not found or ip_address_randomized is missing/null. Will randomize."
-+fi
-+
-+if [ "$RANDOMIZE_IP" -eq 0 ]; then
-+    echo "IP is already randomized and set. Exiting 95-random-lan-ip."
-     exit 0
-- fi
--else
--    echo "install.json not found. Exiting."
--    exit 1
-- fi
-- 
-- # We don't need to check for a flag file since uci-defaults scripts 
-- # are automatically run only once after installation or upgrade
-  
-   # Helper function to safely set UCI values with error handling
-   uci_safe_set() {
-@@ -90,10 +113,12 @@
-   # Construct the random IP with last octet as 1
-   RANDOM_IP="$OCTET1.$OCTET2.$OCTET3.1"
-   echo "Setting random LAN IP to: $RANDOM_IP"
-+fi # End of RANDOMIZE_IP block
+ b/files/etc/uci-defaults/95-random-lan-ip
+@@ -1,22 +1,78 @@
+ #!/bin/sh
+ # This script randomizes the LAN IP address of the OpenWRT router.
+ # It ensures that the router's LAN IP is not a common default (e.g., 192.168.1.1)
++# and avoids unnecessary re-randomization on subsequent boots if an IP has already been set.
+ 
+ INSTALL_JSON="/etc/tollgate/install.json"
+ 
+
+# Function to check if an IP address is a common default vendor IP
+is_default_ip() {
+    local ip="$1"
+    # Common default IPs: 192.168.1.1, 192.168.8.1, 192.168.X.1
+    if echo "$ip" | grep -Eq "^192\.168\.(1|8|([0-9]{1,3}))\.1$"; then
+        return 0 # It is a default IP
+    else
+        return 1 # It is not a default IP
+    fi
+ }
+
+# Determine if randomization is needed
+RANDOMIZE_IP=1 # Assume we need to randomize by default
+
+CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr)
+echo "DEBUG: Current LAN IP: $CURRENT_LAN_IP"
+
+if is_default_ip "$CURRENT_LAN_IP"; then
+    echo "Current LAN IP is a default vendor IP. Will randomize."
+    RANDOMIZE_IP=1
+else
+    # Current LAN IP is NOT a default IP. Now check install.json.
+    if [ -f "$INSTALL_JSON" ]; then
+        STORED_RANDOM_IP=$(jq -r '.ip_address_randomized // "null"' $INSTALL_JSON")
+        echo "DEBUG: Stored IP_RANDOMIZED in install.json: $STORED_RANDOM_IP"
+
+        if [ -n "$STORED_RANDOM_IP" ] && [ "$STORED_RANDOM_IP" != "null" ]; then
+            if echo "$STORED_RANDOM_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && ! is_default_ip "$STORED_RANDOM_IP"; then
+                if [ "$CURRENT_LAN_IP" = "$STORED_RANDOM_IP" ]; then
+                    echo "Current LAN IP matches stored randomized IP. No randomization needed."
+                    RANDOMIZE_IP=0
+                else
+                    echo "Current LAN IP '$CURRENT_LAN_IP' does not match stored randomized IP '$STORED_RANDOM_IP'. Will re-randomize."
+                    RANDOMIZE_IP=1 # Re-randomize if current doesn't match stored valid random
+                fi
+            else
+                echo "Stored IP '$STORED_RANDOM_IP' is invalid or a default IP. Will randomize."
+                RANDOMIZE_IP=1
+            fi
+        else
+            echo "install.json found, but ip_address_randomized is missing/null. Will randomize."
+            RANDOMIZE_IP=1
+        fi
+    else
+        echo "install.json not found. Will randomize."
+        RANDOMIZE_IP=1
+    fi
+fi
+
+if [ "$RANDOMIZE_IP" -eq 0 ]; then
+    echo "IP is already randomized and set. Exiting 95-random-lan-ip."
+    exit 0
+fi
+ 
+ # We don't need to check for a flag file since uci-defaults scripts 
+ # are automatically run only once after installation or upgrade
    
-- # Update network config using UCI
-- uci_safe_set network lan ipaddr "$RANDOM_IP"
-- uci commit network
-+if [ "$RANDOMIZE_IP" -eq 1 ]; then
-+    # Update network config using UCI
-+    uci_safe_set network lan ipaddr "$RANDOM_IP"
-+    uci commit network
-   
-   # Update hosts file
-   if grep -q "status.client" /etc/hosts; then
-@@ -118,12 +143,12 @@
-   BROADCAST="$OCTET1.$OCTET2.$OCTET3.255"
-   uci_safe_set network lan broadcast "$BROADCAST"
-   
-- # No need for a flag file - uci-defaults handles this automatically
-- 
-- # Schedule network restart (safer than immediate restart during boot)
-- (sleep 5 && /etc/init.d/network restart &&
--  [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
-- 
-- # Update install.json with the new random IP
-- jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
-- 
-- 
-- exit 0
-+    # Schedule network restart (safer than immediate restart during boot)
-+    # This restart is crucial for the new IP to take effect.
-+    (sleep 5 && /etc/init.d/network restart &&
-+     [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
-+    
-+    # Update install.json with the new random IP
-+    jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
-+fi
-+
-+exit 0
+    # Helper function to safely set UCI values with error handling
+    uci_safe_set() {
+@@ -90,10 +146,26 @@
+    # Construct the random IP with last octet as 1
+    RANDOM_IP="$OCTET1.$OCTET2.$OCTET3.1"
+    echo "Setting random LAN IP to: $RANDOM_IP"
+
+
+if [ "$RANDOMIZE_IP" -eq 1 ]; then
+    # Update network config using UCI
+    uci_safe_set network lan ipaddr "$RANDOM_IP"
+    uci commit network
+    
+    # Update hosts file
+    if grep -q "status.client" /etc/hosts; then
+@@ -118,12 +190,12 @@
+    BROADCAST="$OCTET1.$OCTET2.$OCTET3.255"
+    uci_safe_set network lan broadcast "$BROADCAST"
+    
+
+    # Schedule network restart (safer than immediate restart during boot)
+    # This restart is crucial for the new IP to take effect.
+    (sleep 5 && /etc/init.d/network restart &&
+     [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
+    
+    # Update install.json with the new random IP
+    jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
+fi
+
+exit 0
 ```
 
 ### 2.3. Data Structures and Algorithms:
@@ -156,7 +159,7 @@ The IP check logic in `files/etc/uci-defaults/95-random-lan-ip` (lines 5-12 in t
     *   `install.json` does not contain a valid, non-default randomized IP.
     *   OR, the currently configured `network.lan.ipaddr` is a common default vendor IP (`192.168.1.1`, `192.168.8.1`, `192.168.X.1`).
 *   The transient network disconnection during fresh installs is mitigated by conditionalizing the `network restart` within `95-random-lan-ip`.
-*   The `ping 8.8.8.8` command succeeds after installation on a freshly configured system, even when config files are initially absent.
+*   The `ping 8.8.8.8` command succeeds after installation on a freshly configured system, even when config files are_initially absent.
 
 ## 4. Task Checklist (for Code Mode)
 

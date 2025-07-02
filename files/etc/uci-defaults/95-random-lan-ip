@@ -2,11 +2,6 @@
 # TollGate - Generate random LAN IP address on first boot
 
 INSTALL_JSON="/etc/tollgate/install.json"
-if [ -f "$INSTALL_JSON" ]; then
-    STORED_RANDOM_IP=$(jq -r '.ip_address_randomized // "null"' "$INSTALL_JSON")
-    echo "DEBUG: Stored IP_RANDOMIZED in install.json: $STORED_RANDOM_IP"
-fi
-
 # Function to check if an IP address is a common default vendor IP
 is_default_ip() {
     local ip="$1"
@@ -21,22 +16,39 @@ is_default_ip() {
 # Determine if randomization is needed
 RANDOMIZE_IP=1 # Assume we need to randomize by default
 
-if [ -n "$STORED_RANDOM_IP" ] && [ "$STORED_RANDOM_IP" != "null" ]; then
-    # If there's a stored randomized IP, check if it's a valid non-default IP
-    if echo "$STORED_RANDOM_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && ! is_default_ip "$STORED_RANDOM_IP"; then
-        echo "Stored IP '$STORED_RANDOM_IP' is a valid, non-default randomized IP. Checking current LAN IP."
-        CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr)
-        if [ "$CURRENT_LAN_IP" = "$STORED_RANDOM_IP" ]; then
-            echo "Current LAN IP matches stored randomized IP. No randomization needed."
-            RANDOMIZE_IP=0
+CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr)
+echo "DEBUG: Current LAN IP: $CURRENT_LAN_IP"
+
+if is_default_ip "$CURRENT_LAN_IP"; then
+    echo "Current LAN IP is a default vendor IP. Will randomize."
+    RANDOMIZE_IP=1
+else
+    # Current LAN IP is NOT a default IP. Now check install.json.
+    if [ -f "$INSTALL_JSON" ]; then
+        STORED_RANDOM_IP=$(jq -r '.ip_address_randomized // "null"' "$INSTALL_JSON")
+        echo "DEBUG: Stored IP_RANDOMIZED in install.json: $STORED_RANDOM_IP"
+
+        if [ -n "$STORED_RANDOM_IP" ] && [ "$STORED_RANDOM_IP" != "null" ]; then
+            if echo "$STORED_RANDOM_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && ! is_default_ip "$STORED_RANDOM_IP"; then
+                if [ "$CURRENT_LAN_IP" = "$STORED_RANDOM_IP" ]; then
+                    echo "Current LAN IP matches stored randomized IP. No randomization needed."
+                    RANDOMIZE_IP=0
+                else
+                    echo "Current LAN IP '$CURRENT_LAN_IP' does not match stored randomized IP '$STORED_RANDOM_IP'. Will re-randomize."
+                    RANDOMIZE_IP=1 # Re-randomize if current doesn't match stored valid random
+                fi
+            else
+                echo "Stored IP '$STORED_RANDOM_IP' is invalid or a default IP. Will randomize."
+                RANDOMIZE_IP=1
+            fi
         else
-            echo "Current LAN IP '$CURRENT_LAN_IP' does not match stored randomized IP. Will re-randomize."
+            echo "install.json found, but ip_address_randomized is missing/null. Will randomize."
+            RANDOMIZE_IP=1
         fi
     else
-        echo "Stored IP '$STORED_RANDOM_IP' is null, invalid, or a default IP. Will randomize."
+        echo "install.json not found. Will randomize."
+        RANDOMIZE_IP=1
     fi
-else
-    echo "install.json not found or ip_address_randomized is missing/null. Will randomize."
 fi
 
 if [ "$RANDOMIZE_IP" -eq 0 ]; then
