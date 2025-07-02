@@ -183,59 +183,63 @@ func TestHandleRootPost(t *testing.T) {
 	mockMerchant.AssertExpectations(t)
 }
 
-// // TestHandleRootPostInvalidKind tests rejection of non-payment events
-// func TestHandleRootPostInvalidKind(t *testing.T) {
-// 	event := nostr.Event{
-// 		Kind: 1022, // Session event kind (invalid for payment endpoint)
-// 		Tags: nostr.Tags{
-// 			nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
-// 			nostr.Tag{"payment", "test_token"},
-// 		},
-// 		PubKey: testPublicKeyHex,
-// 	}
+// TestHandleRootPostInvalidKind tests rejection of non-payment events
+func TestHandleRootPostInvalidKind(t *testing.T) {
+	event := nostr.Event{
+		Kind: 1022, // Session event kind (invalid for payment endpoint)
+		Tags: nostr.Tags{
+			nostr.Tag{"device-identifier", "mac", "00:11:22:33:44:55"},
+			nostr.Tag{"payment", "test_token"},
+		},
+		PubKey: testPublicKeyHex,
+	}
 
-// 	// Sign the event
-// 	err := event.Sign(testPrivateKeyHex)
-// 	if err != nil {
-// 		t.Fatal("Failed to sign event:", err)
-// 	}
+	// Sign the event
+	err := event.Sign(testPrivateKeyHex)
+	if err != nil {
+		t.Fatal("Failed to sign event:", err)
+	}
 
-// 	eventJSON, err := json.Marshal(event)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	req, err := http.NewRequest("POST", "/", bytes.NewBuffer(eventJSON))
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	req.Header.Set("Content-Type", "application/json")
+	req, err := http.NewRequest("POST", "/", bytes.NewBuffer(eventJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
 
-// 	rr := httptest.NewRecorder()
-// 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		mockMerchant := new(MockMerchant)
-// 		mockMerchant.On("PurchaseSession", mock.Anything).Return(&nostr.Event{}, nil)                                                      // This specific mock might not be strictly needed for this test, but it's good practice for consistency
-// 		mockMerchant.On("CreateNoticeEvent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&nostr.Event{Kind: 21023}, nil) // Mock notice event creation for errors
-// 		handleRootPost(mockMerchant, w, r)
-// 	})
-// 	handler.ServeHTTP(rr, req)
+	rr := httptest.NewRecorder()
+	mockMerchant := new(MockMerchant)
+	// For invalid kind, PurchaseSession should NOT be called.
+	// Expect CreateNoticeEvent to be called when an invalid event kind is processed
+	mockMerchant.On("CreateNoticeEvent", "error", "invalid-event", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(&nostr.Event{Kind: 21023}, nil)
 
-// 	// Should return BadRequest due to invalid kind
-// 	if status := rr.Code; status != http.StatusBadRequest {
-// 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
-// 	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleRootPost(mockMerchant, w, r)
+	})
+	handler.ServeHTTP(rr, req)
 
-// 	// Check that the response contains error about invalid kind
-// 	var response map[string]interface{}
-// 	err = json.Unmarshal(rr.Body.Bytes(), &response)
-// 	if err != nil {
-// 		t.Fatal("Failed to parse response:", err)
-// 	}
+	// Should return BadRequest due to invalid kind
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
+	}
 
-// 	if response["kind"] != float64(21023) { // Notice event
-// 		t.Errorf("Expected notice event in response")
-// 	}
-// }
+	// Check that the response contains error about invalid kind
+	var response map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &response)
+	if err != nil {
+		t.Fatal("Failed to parse response:", err)
+	}
+
+	if response["kind"] != float64(21023) { // Notice event
+		t.Errorf("Expected notice event in response")
+	}
+
+	mockMerchant.AssertExpectations(t)
+}
 
 // // TestHandleRootPostInvalidSignature tests rejection of events with invalid signatures
 // func TestHandleRootPostInvalidSignature(t *testing.T) {
