@@ -19,36 +19,61 @@ Enhance the IP address randomization check in `files/etc/uci-defaults/95-random-
     *   Schedules `network restart` (sleep 5) and `nodogsplash restart` at the end of its execution.
 
 ## 4. Proposed Solution Architecture
-The `95-random-lan-ip` script will be modified to include a refined check for existing randomized IPs and common default IPs.
+The `95-random-lan-ip` script will be modified to include a refined check for existing randomized IPs and common default IPs, and to persist the current non-default IP if `install.json` is not properly populated.
 
 *   A new shell function `is_default_ip()` will be introduced. This function will use regex to check if a given IP address matches common vendor default patterns (`^192\.168\.(1|8|([0-9]{1,3}))\.1$`).
-*   The main logic in `95-random-lan-ip` will be modified to determine the `RANDOMIZE_IP` flag based on the following refined rules:
-    1.  Initialize `RANDOMIZE_IP` to `1` (meaning "randomize").
-    2.  Get the `CURRENT_LAN_IP` from UCI (`network.lan.ipaddr`).
-    3.  **If `CURRENT_LAN_IP` is a common default vendor IP** (checked using `is_default_ip`), then `RANDOMIZE_IP` *must* remain `1` (randomization is required).
-    4.  **If `CURRENT_LAN_IP` is *not* a default IP:**
-        *   Check if `install.json` exists.
-        *   If `install.json` exists, retrieve `STORED_RANDOM_IP` from it.
-        *   If `STORED_RANDOM_IP` is a valid, non-default randomized IP, AND `CURRENT_LAN_IP` is *exactly equal* to `STORED_RANDOM_IP`, then set `RANDOMIZE_IP` to `0` (meaning "do not randomize").
-        *   In all other cases (e.g., `install.json` missing, `ip_address_randomized` null/invalid, or `CURRENT_LAN_IP` does not match `STORED_RANDOM_IP`), `RANDOMIZE_IP` will remain `1`.
-    5.  If `RANDOMIZE_IP` is `0`, the script will exit early.
-    6.  Otherwise, if `RANDOMIZE_IP` is `1`, the script will proceed with generating a new random IP, applying it, updating `/etc/hosts`, and then updating `install.json` with the new randomized IP. The `network restart` will only be triggered within this `if` block.
+*   The main logic in `95-random-lan-ip` will determine whether to randomize the IP (`RANDOMIZE_IP=1`), persist the current non-default IP (`PERSIST_CURRENT_IP=1`), or do nothing (`EXIT_EARLY=1`).
+
+    1.  Get the `CURRENT_LAN_IP` from UCI (`network.lan.ipaddr`).
+    2.  Get the `STORED_RANDOM_IP` from `install.json` (if `install.json` exists and the value is valid).
+
+    3.  **Decision Flow:**
+        *   **If `is_default_ip(CURRENT_LAN_IP)` is true:**
+            *   Set `RANDOMIZE_IP = 1`. (Always randomize if current is a default IP).
+        *   **Else (`CURRENT_LAN_IP` is NOT a default IP):**
+            *   **If `STORED_RANDOM_IP` is valid AND `CURRENT_LAN_IP` equals `STORED_RANDOM_IP`:**
+                *   Set `EXIT_EARLY = 1`. (No action needed, IP is already randomized and stored).
+            *   **Else (`STORED_RANDOM_IP` is invalid/missing OR `CURRENT_LAN_IP` does not match `STORED_RANDOM_IP`):**
+                *   Set `PERSIST_CURRENT_IP = 1`. (Persist `CURRENT_LAN_IP` to `install.json` without re-randomizing).
+
+*   **Execution based on Flags:**
+    *   **If `RANDOMIZE_IP = 1`:**
+        *   Generate a new random LAN IP.
+        *   Update network config with the new IP.
+        *   Update `/etc/hosts`.
+        *   Update `install.json` with the *new* randomized IP.
+        *   Schedule `network restart`.
+    *   **Else If `PERSIST_CURRENT_IP = 1`:**
+        *   Update `install.json` with `CURRENT_LAN_IP`. (No network restart needed).
+    *   **Else If `EXIT_EARLY = 1`:**
+        *   Exit the script.
 
 ## 5. Data Flow Diagram (Mermaid)
 
 ```mermaid
 graph TD
-    A[Start 95-random-lan-ip] --> B{Read ip_address_randomized from install.json}
-    B --> C{Get current network.lan.ipaddr}
-    C --> D{Define is_default_ip() function}
-    D --> E{Determine RANDOMIZE_IP flag}
-    E -- RANDOMIZE_IP == 0 (no randomization needed) --> F[Exit]
-    E -- RANDOMIZE_IP == 1 (randomize) --> G[Generate new random LAN IP]
-    G --> H[Update network config with new IP]
-    H --> I[Update hosts file]
-    I --> J[Update install.json with new IP]
-    J --> K[Schedule network restart]
-    K --> F
+    A[Start 95-random-lan-ip] --> B{Get CURRENT_LAN_IP and STORED_RANDOM_IP}
+    B --> C{Is CURRENT_LAN_IP a default IP?}
+    C -- Yes --> D[Set RANDOMIZE_IP = 1]
+    C -- No --> E{Is STORED_RANDOM_IP valid and matches CURRENT_LAN_IP?}
+    E -- Yes --> F[Set EXIT_EARLY = 1]
+    E -- No --> G[Set PERSIST_CURRENT_IP = 1]
+
+    D --> H{Execute Action}
+    F --> H
+    G --> H
+
+    H -- RANDOMIZE_IP = 1 --> I[Generate new random LAN IP]
+    I --> J[Update network config with new IP]
+    J --> K[Update hosts file]
+    K --> L[Update install.json with NEW_RANDOM_IP]
+    L --> M[Schedule network restart]
+    M --> N[End]
+
+    H -- PERSIST_CURRENT_IP = 1 --> O[Update install.json with CURRENT_LAN_IP]
+    O --> N
+
+    H -- EXIT_EARLY = 1 --> N
 ```
 
 ## 6. Future Extensibility Considerations

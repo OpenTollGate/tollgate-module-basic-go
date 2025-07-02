@@ -1,5 +1,8 @@
 #!/bin/sh
-# TollGate - Generate random LAN IP address on first boot
+# This script randomizes the LAN IP address of the OpenWRT router.
+# It ensures that the router's LAN IP is not a common default (e.g., 192.168.1.1)
+# and avoids unnecessary re-randomization on subsequent boots if an IP has already been set,
+# or persists the current non-default IP if install.json is not properly populated.
 
 INSTALL_JSON="/etc/tollgate/install.json"
 # Function to check if an IP address is a common default vendor IP
@@ -13,36 +16,36 @@ is_default_ip() {
     fi
 }
 
-# Determine if randomization is needed
-RANDOMIZE_IP=1 # Assume we need to randomize by default
+# Determine if randomization or persistence is needed
+RANDOMIZE_IP=0 # Assume no randomization by default
+PERSIST_CURRENT_IP=0 # Assume no persistence by default
+EXIT_EARLY=0 # Assume we don't exit early by default
 
 CURRENT_LAN_IP=$(uci -q get network.lan.ipaddr)
 echo "DEBUG: Current LAN IP: $CURRENT_LAN_IP"
+
+STORED_RANDOM_IP="null"
+if [ -f "$INSTALL_JSON" ]; then
+    STORED_RANDOM_IP=$(jq -r '.ip_address_randomized // "null"' "$INSTALL_JSON")
+fi
+echo "DEBUG: Stored IP_RANDOMIZED in install.json: $STORED_RANDOM_IP"
 
 if is_default_ip "$CURRENT_LAN_IP"; then
     echo "Current LAN IP is a default vendor IP. Will randomize."
     RANDOMIZE_IP=1
 else
-    # Current LAN IP is NOT a default IP. Now check install.json.
-    if [ -f "$INSTALL_JSON" ]; then
-        STORED_RANDOM_IP=$(jq -r '.ip_address_randomized // "null"' "$INSTALL_JSON")
-        echo "DEBUG: Stored IP_RANDOMIZED in install.json: $STORED_RANDOM_IP"
-
-        if [ -n "$STORED_RANDOM_IP" ] && [ "$STORED_RANDOM_IP" != "null" ]; then
-            if echo "$STORED_RANDOM_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && ! is_default_ip "$STORED_RANDOM_IP"; then
-                if [ "$CURRENT_LAN_IP" = "$STORED_RANDOM_IP" ]; then
-                    echo "Current LAN IP matches stored randomized IP. No randomization needed."
-                    RANDOMIZE_IP=0
-                else
-                    echo "Current LAN IP '$CURRENT_LAN_IP' does not match stored randomized IP '$STORED_RANDOM_IP'. Will re-randomize."
-                    RANDOMIZE_IP=1 # Re-randomize if current doesn't match stored valid random
-                fi
+    # Current LAN IP is NOT a default IP.
+    if [ -n "$STORED_RANDOM_IP" ] && [ "$STORED_RANDOM_IP" != "null" ]; then
+        if echo "$STORED_RANDOM_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && ! is_default_ip "$STORED_RANDOM_IP"; then
+            if [ "$CURRENT_LAN_IP" = "$STORED_RANDOM_IP" ]; then
+                echo "Current LAN IP matches stored randomized IP. No action needed."
+                EXIT_EARLY=1
             else
-                echo "Stored IP '$STORED_RANDOM_IP' is invalid or a default IP. Will randomize."
-                RANDOMIZE_IP=1
+                echo "Current LAN IP '$CURRENT_LAN_IP' does not match stored randomized IP '$STORED_RANDOM_IP'. Will re-randomize."
+                RANDOMIZE_IP=1 # Re-randomize if current doesn't match stored valid random
             fi
         else
-            echo "install.json found, but ip_address_randomized is missing/null. Will randomize."
+            echo "Stored IP '$STORED_RANDOM_IP' is invalid or a default IP. Will randomize."
             RANDOMIZE_IP=1
         fi
     else
@@ -51,7 +54,51 @@ else
     fi
 fi
 
-if [ "$RANDOMIZE_IP" -eq 0 ]; then
+if [ "$RANDOMIZE_IP" -eq 1 ]; then
+    # Update network config using UCI
+    uci_safe_set network lan ipaddr "$RANDOM_IP"
+    uci commit network
+    
+    # Update hosts file
+    if grep -q "status.client" /etc/hosts; then
+        # Replace existing entry
+        sed -i "s/.*status\.client/$RANDOM_IP status.client/" /etc/hosts
+    else
+        # Add new entry
+        echo "$RANDOM_IP status.client" >> /etc/hosts
+    fi
+
+    # NoDogSplash config check and update (only if installed)
+    if [ -f "/etc/config/nodogsplash" ]; then
+        if uci -q get nodogsplash.@nodogsplash[0] >/dev/null; then
+            # statuspath is typically a URI path, not an IP
+            # If you need to set it to a full URL:
+            # uci set nodogsplash.@nodogsplash[0].statuspath="http://$RANDOM_IP/status"
+            # uci commit nodogsplash
+            echo "NoDogSplash detected, would update its config if needed"
+        fi
+    fi
+
+    # Also update the default gateway and broadcast address accordingly
+    NETMASK="255.255.255.0"  # Using standard /24 subnet
+    uci_safe_set network lan netmask "$NETMASK"
+    
+    # Calculate subnet information for correct operation
+    # For a /24 network, the broadcast is always x.y.z.255
+    BROADCAST="$OCTET1.$OCTET2.$OCTET3.255"
+    uci_safe_set network lan broadcast "$BROADCAST"
+    
+    # Schedule network restart (safer than immediate restart during boot)
+    # This restart is crucial for the new IP to take effect.
+    (sleep 5 && /etc/init.d/network restart &&
+     [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
+    
+    # Update install.json with the new random IP
+    jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
+elif [ "$PERSIST_CURRENT_IP" -eq 1 ]; then
+    echo "Persisting current LAN IP '$CURRENT_LAN_IP' to install.json."
+    jq '.ip_address_randomized = "'"$CURRENT_LAN_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
+elif [ "$EXIT_EARLY" -eq 1 ]; then
     echo "IP is already randomized and set. Exiting 95-random-lan-ip."
     exit 0
 fi
