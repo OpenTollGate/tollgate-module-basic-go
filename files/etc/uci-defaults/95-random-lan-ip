@@ -117,7 +117,6 @@ fi
 # Construct the random IP with last octet as 1
 RANDOM_IP="$OCTET1.$OCTET2.$OCTET3.1"
 echo "Setting random LAN IP to: $RANDOM_IP"
-fi # End of RANDOMIZE_IP block
 
 if [ "$RANDOMIZE_IP" -eq 1 ]; then
     # Update network config using UCI
