@@ -88,17 +88,20 @@ Updated to support dynamic metrics:
 
 ## Testing
 
-- Updated test files for new configuration structure
-- Merchant module handles most payment logic testing
-- Main focuses on HTTP handling and event routing
+The testing strategy has been significantly enhanced to improve modularity and testability, particularly for the `merchant` module.
+
+- **Mocking Strategy**: Introduction of interfaces (e.g., `MerchantService`) and mock implementations (`MockMerchant` in `src/merchant/merchant_test.go` and `src/main_test.go`) allows for isolated unit testing of components. `src/main_test_init.go` sets up these mocks for test runs, preventing real file system or network access.
+- **Configuration Manager Tests**: Expanded tests for `ConfigManager` functions, including `EnsureDefaultConfig`, `Load/SaveConfig`, `Load/SaveInstallConfig`, `UpdateCurrentInstallationID`, `generatePrivateKey`, and `setUsername`, utilizing temporary files for isolation. Refer to [Config Manager LLDD](src/config_manager/LLDD.md) for details.
+- **Merchant Module Tests**: While some merchant-related HTTP handler tests in `src/handlers_test.go` and `src/main_test.go` are currently commented out, the new `MerchantService` interface and `MockMerchant` provide the necessary infrastructure to re-enable and fix these tests. Refer to [Merchant LLDD](src/merchant/LLDD.md) for details on the mocking strategy and pending test tasks.
+- **Main Focus**: `main.go` tests now primarily focus on HTTP handling and event routing, with business logic delegated to mocked dependencies.
 
 ## Dependencies Integration
 
-- **Merchant**: All financial decisions and payment processing
-- **TollWallet**: Cashu token operations
-- **Config Manager**: Migration support and pretty-printed configs
-- **Valve**: Network access control with session events
-- **Janitor**: Auto-update functionality preserved
+- **Merchant**: All financial decisions and payment processing, now exposed via the `MerchantService` interface for testability.
+- **TollWallet**: Cashu token operations.
+- **Config Manager**: Robust configuration management, including migration support and pretty-printed configs.
+- **Valve**: Network access control with session events.
+- **Janitor**: Auto-update functionality preserved.
 
 ## Centralized Rate Limiting for relayPool
 
