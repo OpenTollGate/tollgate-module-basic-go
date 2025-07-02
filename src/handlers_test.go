@@ -181,112 +181,125 @@ func TestEventSignatureValidation(t *testing.T) {
 }
 
 // TestMACAddressValidation tests the MAC address validation
-// func TestMACAddressValidation(t *testing.T) {
-// 	tests := []struct {
-// 		name        string
-// 		macAddress  string
-// 		shouldPass  bool
-// 		description string
-// 	}{
-// 		{
-// 			name:        "Valid MAC with colons",
-// 			macAddress:  "00:11:22:33:44:55",
-// 			shouldPass:  true,
-// 			description: "Standard colon-separated MAC address",
-// 		},
-// 		{
-// 			name:        "Valid MAC with hyphens",
-// 			macAddress:  "00-11-22-33-44-55",
-// 			shouldPass:  true,
-// 			description: "Hyphen-separated MAC address",
-// 		},
-// 		{
-// 			name:        "Valid MAC without separators",
-// 			macAddress:  "001122334455",
-// 			shouldPass:  false, // This format requires at least one A-F to be valid
-// 			description: "No separator MAC address with only numbers",
-// 		},
-// 		{
-// 			name:        "Valid MAC without separators with hex",
-// 			macAddress:  "00112233445A",
-// 			shouldPass:  true,
-// 			description: "No separator MAC address with hex digits",
-// 		},
-// 		{
-// 			name:        "Invalid MAC too short",
-// 			macAddress:  "00:11:22:33:44",
-// 			shouldPass:  false,
-// 			description: "MAC address with insufficient octets",
-// 		},
-// 		{
-// 			name:        "Invalid MAC too long",
-// 			macAddress:  "00:11:22:33:44:55:66",
-// 			shouldPass:  false,
-// 			description: "MAC address with too many octets",
-// 		},
-// 		{
-// 			name:        "Invalid characters",
-// 			macAddress:  "00:11:22:33:44:ZZ",
-// 			shouldPass:  false,
-// 			description: "MAC address with invalid hex characters",
-// 		},
-// 	}
+func TestMACAddressValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		macAddress  string
+		shouldPass  bool
+		description string
+	}{
+		{
+			name:        "Valid MAC with colons",
+			macAddress:  "00:11:22:33:44:55",
+			shouldPass:  true,
+			description: "Standard colon-separated MAC address",
+		},
+		{
+			name:        "Valid MAC with hyphens",
+			macAddress:  "00-11-22-33-44-55",
+			shouldPass:  true,
+			description: "Hyphen-separated MAC address",
+		},
+		{
+			name:        "Valid MAC without separators",
+			macAddress:  "001122334455",
+			shouldPass:  false, // This format requires at least one A-F to be valid
+			description: "No separator MAC address with only numbers",
+		},
+		{
+			name:        "Valid MAC without separators with hex",
+			macAddress:  "00112233445A",
+			shouldPass:  true,
+			description: "No separator MAC address with hex digits",
+		},
+		{
+			name:        "Invalid MAC too short",
+			macAddress:  "00:11:22:33:44",
+			shouldPass:  false,
+			description: "MAC address with insufficient octets",
+		},
+		{
+			name:        "Invalid MAC too long",
+			macAddress:  "00:11:22:33:44:55:66",
+			shouldPass:  false,
+			description: "MAC address with too many octets",
+		},
+		{
+			name:        "Invalid characters",
+			macAddress:  "00:11:22:33:44:ZZ",
+			shouldPass:  false,
+			description: "MAC address with invalid hex characters",
+		},
+	}
 
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			event := nostr.Event{
-// 				Kind: 21000,
-// 				Tags: nostr.Tags{
-// 					nostr.Tag{"device-identifier", "mac", tt.macAddress},
-// 					nostr.Tag{"payment", "test_token"},
-// 				},
-// 				PubKey: testPublicKeyHex,
-// 			}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := nostr.Event{
+				Kind: 21000,
+				Tags: nostr.Tags{
+					nostr.Tag{"device-identifier", "mac", tt.macAddress},
+					nostr.Tag{"payment", "test_token"},
+				},
+				PubKey: testPublicKeyHex,
+			}
 
-// 			// Sign the event for testing
-// 			err := event.Sign(testPrivateKeyHex)
-// 			if err != nil {
-// 				t.Fatal("Failed to sign event:", err)
-// 			}
+			// Sign the event for testing
+			err := event.Sign(testPrivateKeyHex)
+			if err != nil {
+				t.Fatal("Failed to sign event:", err)
+			}
 
-// 			eventJSON, err := json.Marshal(event)
-// 			if err != nil {
-// 				t.Fatal(err)
-// 			}
+			eventJSON, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-// 			req, err := http.NewRequest("POST", "/", bytes.NewBuffer(eventJSON))
-// 			if err != nil {
-// 				t.Fatal(err)
-// 			}
-// 			req.Header.Set("Content-Type", "application/json")
+			req, err := http.NewRequest("POST", "/", bytes.NewBuffer(eventJSON))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
 
-// 			rr := httptest.NewRecorder()
-// 			mockMerchant := &MockMerchant{}
-// 			mockMerchant.On("PurchaseSession", event).Return(&nostr.Event{Kind: 1022}, nil) // Mock a successful session event response
+			rr := httptest.NewRecorder()
+			mockMerchant := &MockMerchant{}
 
-// 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 				handleRootPost(mockMerchant, w, r)
-// 			})
-// 			handler.ServeHTTP(rr, req)
+			if tt.shouldPass {
+				// If MAC is valid, PurchaseSession should be called and return success
+				mockMerchant.On("PurchaseSession", mock.AnythingOfType("nostr.Event")).Return(&nostr.Event{Kind: 1022}, nil)
+			} else {
+				// If MAC is invalid, PurchaseSession should be called and return a notice event
+				mockMerchant.On("PurchaseSession", mock.AnythingOfType("nostr.Event")).Return(&nostr.Event{Kind: 21023}, nil)
+			}
 
-// 			// All should return BadRequest since we don't have merchant setup,
-// 			// but we can check the response content to see if MAC validation occurred
-// 			if status := rr.Code; status != http.StatusBadRequest {
-// 				t.Errorf("%s: handler returned wrong status code: got %v want %v",
-// 					tt.description, status, http.StatusBadRequest)
-// 			}
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handleRootPost(mockMerchant, w, r)
+			})
+			handler.ServeHTTP(rr, req)
 
-// 			// For invalid MAC addresses, we should get a specific error about invalid MAC
-// 			if !tt.shouldPass {
-// 				var response map[string]interface{}
-// 				err = json.Unmarshal(rr.Body.Bytes(), &response)
-// 				if err == nil {
-// 					// Check if it's a notice event (which indicates our validation worked)
-// 					if response["kind"] == float64(21023) {
-// 						t.Logf("%s: Correctly identified as invalid MAC address", tt.description)
-// 					}
-// 				}
-// 			}
-// 		})
-// 	}
-// }
+			// All should return BadRequest since we don't have merchant setup,
+			// but we can check the response content to see if MAC validation occurred
+			// Update: With proper mocking, valid MACs should result in OK, invalid in BadRequest.
+			expectedStatus := http.StatusOK
+			if !tt.shouldPass {
+				expectedStatus = http.StatusBadRequest
+			}
+
+			if status := rr.Code; status != expectedStatus {
+				t.Errorf("%s: handler returned wrong status code: got %v want %v",
+					tt.description, status, expectedStatus)
+			}
+
+			// For invalid MAC addresses, we should get a specific error about invalid MAC
+			if !tt.shouldPass {
+				var response map[string]interface{}
+				err = json.Unmarshal(rr.Body.Bytes(), &response)
+				if err == nil {
+					// Check if it's a notice event (which indicates our validation worked)
+					if response["kind"] == float64(21023) {
+						t.Logf("%s: Correctly identified as invalid MAC address", tt.description)
+					}
+				}
+			}
+		})
+	}
+}
