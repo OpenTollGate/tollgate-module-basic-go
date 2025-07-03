@@ -18,6 +18,14 @@ import (
 )
 
 // Merchant represents the financial decision maker for the tollgate
+type MerchantService interface {
+	PurchaseSession(event nostr.Event) (*nostr.Event, error)
+	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
+	GetAdvertisement() string
+	StartPayoutRoutine()
+}
+
+// Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
 	config        *config_manager.Config
 	configManager *config_manager.ConfigManager

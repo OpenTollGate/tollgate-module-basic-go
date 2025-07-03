@@ -114,6 +114,9 @@ For more detailed information about TollGate modules and usage:
 - Janitor
 	- [HLDD](src/janitor/HLDD.md)
 	- [LLDD](src/janitor/LLDD.md)
+- Merchant
+	- [HLDD](src/merchant/HLDD.md)
+	- [LLDD](src/merchant/LLDD.md)
 
 You can find the [Module Integration Guide](src/integrating_modules.md) here.
 ## License

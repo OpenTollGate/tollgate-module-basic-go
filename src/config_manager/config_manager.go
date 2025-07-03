@@ -16,6 +16,12 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// CurrentConfigVersion is the latest version of the config.json format.
+const CurrentConfigVersion = "v0.0.3"
+
+// CurrentInstallVersion is the latest version of the install.json format.
+const CurrentInstallVersion = "v0.0.2"
+
 var relayRequestSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent requests
 
 func rateLimitedRelayRequest(relay *nostr.Relay, event nostr.Event) error {
@@ -61,6 +67,13 @@ type BraggingConfig struct {
 	Fields  []string `json:"fields"`
 }
 
+// MerchantConfig holds configuration specific to the merchant
+type MerchantConfig struct {
+	Name             string `json:"name"`
+	LightningAddress string `json:"lightning_address"`
+	Website          string `json:"website"`
+}
+
 // MintConfig holds configuration for a specific mint including payout settings
 type MintConfig struct {
 	URL                     string `json:"url"`
@@ -93,6 +106,7 @@ type Config struct {
 	StepSize              uint64              `json:"step_size"`
 	Metric                string              `json:"metric"`
 	Bragging              BraggingConfig      `json:"bragging"`
+	Merchant              MerchantConfig      `json:"merchant"`
 	Relays                []string            `json:"relays"`
 	TrustedMaintainers    []string            `json:"trusted_maintainers"`
 	ShowSetup             bool                `json:"show_setup"`
@@ -135,12 +149,14 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 // InstallConfig holds the installation configuration parameters
 // The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
+	ConfigVersion          string `json:"config_version"`
 	PackagePath            string `json:"package_path"`
-	IPAddressRandomized    string `json:"ip_address_randomized"`
+	IPAddressRandomized    bool   `json:"ip_address_randomized"`
 	InstallTimestamp       int64  `json:"install_time"`
 	DownloadTimestamp      int64  `json:"download_time"`
 	ReleaseChannel         string `json:"release_channel"`
 	EnsureDefaultTimestamp int64  `json:"ensure_default_timestamp"`
+	InstalledVersion       string `json:"installed_version"` // Added this field
 }
 
 // NewInstallConfig creates a new InstallConfig instance
@@ -155,12 +171,18 @@ func (cm *ConfigManager) LoadInstallConfig() (*InstallConfig, error) {
 		if os.IsNotExist(err) {
 			return nil, nil // Return nil config if file does not exist
 		}
-		return nil, err
+		return nil, fmt.Errorf("error reading install config file: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil // Return nil config if file is empty
 	}
 	var installConfig InstallConfig
 	err = json.Unmarshal(data, &installConfig)
 	if err != nil {
-		return nil, err
+		// Treat unmarshalling errors (e.g., malformed JSON) as if the file was empty/non-existent
+		// to trigger default install config creation.
+		log.Printf("Error unmarshalling install config file %s: %v. Treating as empty/non-existent.", cm.installFilePath(), err)
+		return nil, nil
 	}
 	return &installConfig, nil
 }
@@ -194,19 +216,25 @@ func NewConfigManager(filePath string) (*ConfigManager, error) {
 		PublicPool: publicPool,
 		LocalPool:  localPool,
 	}
+	return cm, nil
+}
+
+// EnsureInitializedConfig ensures a default configuration and install configuration exist.
+// This function will be called explicitly where needed, not during NewConfigManager if possible in test code.
+func (cm *ConfigManager) EnsureInitializedConfig() error {
 	_, err := cm.EnsureDefaultConfig()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	_, err = cm.EnsureDefaultInstall()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return cm, nil
+	return nil
 }
 
 func getIPAddress() {
@@ -222,34 +250,50 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	if installConfig == nil {
-		defaultInstallConfig := &InstallConfig{
-			PackagePath:            "false",
-			IPAddressRandomized:    "false",
-			InstallTimestamp:       0,                 // Set InstallTimestamp to 0 (unknown)
-			DownloadTimestamp:      0,                 // Set DownloadTimestamp to 0 (unknown)
-			ReleaseChannel:         "stable",          // Set default release channel to "main"
-			EnsureDefaultTimestamp: CURRENT_TIMESTAMP, // Set EnsureDefaultTimestamp to current time
-		}
-		err = cm.SaveInstallConfig(defaultInstallConfig)
-		if err != nil {
-			return nil, err
-		}
-		return defaultInstallConfig, nil
-	}
 
-	// If InstallTimestamp is not set, set it to 0 (unknown)
-	if installConfig.InstallTimestamp == 0 {
-		installConfig.InstallTimestamp = 0
+	// If the install config file does not exist, is empty, or malformed, create a new one with defaults.
+	// Otherwise, ensure fields that might be missing from older versions are populated.
+	if installConfig == nil {
+		installConfig = &InstallConfig{
+			ConfigVersion:          CurrentInstallVersion, // Set default version for new installs
+			PackagePath:            "",                    // Default to empty string for package path
+			IPAddressRandomized:    false,
+			InstallTimestamp:       0,        // unknown
+			DownloadTimestamp:      0,        // unknown
+			ReleaseChannel:         "stable",
+			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
+			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
+		}
 		err = cm.SaveInstallConfig(installConfig)
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	// If DownloadTimestamp is not set, set it to 0 (unknown)
-	if installConfig.DownloadTimestamp == 0 {
-		installConfig.DownloadTimestamp = 0
+	} else {
+		// Ensure all fields have default values if they are missing (e.g., from an older config file)
+		if installConfig.ConfigVersion == "" {
+			installConfig.ConfigVersion = CurrentInstallVersion // Mark unversioned configs as the current version
+		}
+		// The original `PackagePath` was "false" for uninitialized. Now it's ""
+		if installConfig.PackagePath == "false" {
+			installConfig.PackagePath = ""
+		}
+		if installConfig.InstallTimestamp == 0 {
+			installConfig.InstallTimestamp = 0 // unknown
+		}
+		if installConfig.DownloadTimestamp == 0 {
+			installConfig.DownloadTimestamp = 0 // unknown
+		}
+		if installConfig.ReleaseChannel == "" {
+			installConfig.ReleaseChannel = "stable"
+		}
+		if installConfig.EnsureDefaultTimestamp == 0 {
+			installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
+		}
+		if installConfig.InstalledVersion == "" {
+			installConfig.InstalledVersion = "0.0.0" // Default to 0.0.0 if not found
+		}
+		// Save the updated config only if changes were made to existing fields
+		// This is a simplified check; a more robust solution would track actual changes.
 		err = cm.SaveInstallConfig(installConfig)
 		if err != nil {
 			return nil, err
@@ -263,7 +307,10 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 func (cm *ConfigManager) LoadConfig() (*Config, error) {
 	data, err := os.ReadFile(cm.FilePath)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return nil, nil // Return nil config if file does not exist
+		}
+		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 	if len(data) == 0 {
 		return nil, nil // Return nil config if file is empty
@@ -272,7 +319,10 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 
 	err = json.Unmarshal(data, &config)
 	if err != nil {
-		return nil, err
+		// Treat unmarshalling errors (e.g., malformed JSON) as if the file was empty/non-existent
+		// to trigger default config creation.
+		log.Printf("Error unmarshalling config file %s: %v. Treating as empty/non-existent.", cm.FilePath, err)
+		return nil, nil
 	}
 	return &config, nil
 }
@@ -418,10 +468,11 @@ func (cm *ConfigManager) GetVersion() (string, error) {
 
 func (cm *ConfigManager) generatePrivateKey() (string, error) {
 	privateKey := nostr.GeneratePrivateKey()
-	err := cm.setUsername(privateKey, "c03rad0r")
-	if err != nil {
-		log.Printf("Failed to set username: %v", err)
-	}
+	// The setUsername function requires a loaded config. For initial generation,
+	// we'll attempt to set the username after the config is saved.
+	// This might still log "Failed to set username: config is nil" if called before save,
+	// but the private key generation itself is independent.
+	// The actual setting of username will happen when EnsureDefaultConfig saves the config.
 	return privateKey, nil
 }
 
@@ -477,7 +528,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 
 		defaultConfig := &Config{
-			ConfigVersion:      "v0.0.3",
+			ConfigVersion:      CurrentConfigVersion,
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
 				{
@@ -520,11 +571,21 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			},
 			ShowSetup:             true,
 			CurrentInstallationID: "",
+			Merchant: MerchantConfig{
+				Name:             "c03rad0r",
+				LightningAddress: "tollgate@minibits.cash",
+				Website:          "https://tollgate.me",
+			},
 		} // TODO: update the default EventID when we merge to main.
 		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
 			return nil, err
+		}
+		// Set username after saving the config
+		err = cm.setUsername(privateKey, "c03rad0r")
+		if err != nil {
+			log.Printf("Failed to set username: %v", err)
 		}
 		return defaultConfig, nil
 	}

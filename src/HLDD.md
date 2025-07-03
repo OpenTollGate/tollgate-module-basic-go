@@ -14,10 +14,13 @@ The `main.go` file is the entry point of the TollGate application. It handles HT
 
 ## Architecture Changes (v0.0.4)
 
-- **Merchant Integration**: Payment processing logic moved to merchant module
-- **Metric-Agnostic**: Support for flexible pricing metrics (milliseconds, bytes, etc.)
-- **Error Handling**: Enhanced with granular error codes and notice events
-- **Session Management**: Dynamic metric support in session events
+This release focuses on enhancing the robustness of configuration management and improving the testability and modularity of the merchant functionality.
+
+- **Configuration Management Robustness**: Improved handling of missing or malformed configuration files, ensuring the application can always start with a valid default configuration. Migration scripts now include more rigorous validation checks.
+- **Merchant Module Refactoring for Testability**: The core payment processing logic has been refactored to introduce a `MerchantService` interface and a mock implementation, enabling isolated unit testing of components that depend on merchant functionality. This significantly improves the maintainability and testability of the application.
+- **Metric-Agnostic Payment Processing**: Support for flexible pricing metrics (milliseconds, bytes, etc.) has been integrated, allowing for diverse payment models.
+- **Enhanced Error Handling**: Error handling is now more granular, with specific error codes and the use of Nostr notice events (Kind 21023) for clear communication of issues.
+- **Dynamic Session Management**: Session events (Kind 1022) now dynamically support various metrics, providing flexibility in how internet access time or data usage is managed.
 
 ## Interfaces
 
