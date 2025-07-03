@@ -16,6 +16,12 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// CurrentConfigVersion is the latest version of the config.json format.
+const CurrentConfigVersion = "v0.0.3"
+
+// CurrentInstallVersion is the latest version of the install.json format.
+const CurrentInstallVersion = "v0.0.2"
+
 var relayRequestSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent requests
 
 func rateLimitedRelayRequest(relay *nostr.Relay, event nostr.Event) error {
@@ -249,8 +255,8 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	// Otherwise, ensure fields that might be missing from older versions are populated.
 	if installConfig == nil {
 		installConfig = &InstallConfig{
-			ConfigVersion:          "v0.0.2", // Set default version for new installs
-			PackagePath:            "",       // Default to empty string for package path
+			ConfigVersion:          CurrentInstallVersion, // Set default version for new installs
+			PackagePath:            "",                    // Default to empty string for package path
 			IPAddressRandomized:    false,
 			InstallTimestamp:       0,        // unknown
 			DownloadTimestamp:      0,        // unknown
@@ -264,9 +270,8 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		}
 	} else {
 		// Ensure all fields have default values if they are missing (e.g., from an older config file)
-		// Ensure all fields have default values if they are missing (e.g., from an older config file)
 		if installConfig.ConfigVersion == "" {
-			installConfig.ConfigVersion = "v0.0.1" // Mark unversioned configs as v0.0.1
+			installConfig.ConfigVersion = CurrentInstallVersion // Mark unversioned configs as the current version
 		}
 		// The original `PackagePath` was "false" for uninitialized. Now it's ""
 		if installConfig.PackagePath == "false" {
@@ -523,7 +528,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 
 		defaultConfig := &Config{
-			ConfigVersion:      "v0.0.3",
+			ConfigVersion:      CurrentConfigVersion,
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
 				{
