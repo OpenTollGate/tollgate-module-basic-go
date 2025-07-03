@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
 	"encoding/json"
+	"github.com/nbd-wtf/go-nostr"
 	"io/ioutil"
 	"path/filepath"
 
@@ -141,7 +141,8 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	newInstallConfig := &InstallConfig{
-		PackagePath: "/path/to/package",
+		PackagePath:         "/path/to/package",
+		IPAddressRandomized: true, // Initialize as boolean true
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
 	if err != nil {
@@ -304,7 +305,7 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	// Create dummy existing files with valid JSON structure for the types
 	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","tollgate_private_key":"existing_key","bragging":{"enabled":false,"fields":[]},"merchant":{"name":"Existing Merchant"}}`), 0644)
 	assert.NoError(t, err)
-	err = ioutil.WriteFile(installFile, []byte(`{"installed_version":"1.0.0","package_path":"existing_path"}`), 0644)
+	err = ioutil.WriteFile(installFile, []byte(`{"installed_version":"1.0.0","package_path":"existing_path","ip_address_randomized":true}`), 0644)
 	assert.NoError(t, err)
 
 	cm, err := NewConfigManager(configFile)
@@ -332,5 +333,5 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "1.0.0", loadedInstall.InstalledVersion, "install.json InstalledVersion should not be overwritten")
 	assert.Equal(t, "existing_path", loadedInstall.PackagePath, "install.json PackagePath should not be overwritten")
-	assert.Equal(t, "false", loadedInstall.IPAddressRandomized, "install.json IPAddressRandomized should be populated") // This field was missing in the dummy, so it should be added.
+	assert.Equal(t, true, loadedInstall.IPAddressRandomized, "install.json IPAddressRandomized should be populated")
 }

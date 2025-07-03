@@ -1,53 +1,30 @@
 # Low-Level Design Document (LLDD) - IP Randomization Enhancement
 
 ## 1. Context
-This document details the implementation plan to enhance the IP address randomization logic in `files/etc/uci-defaults/95-random-lan-ip`. The current script is not robust enough to identify common vendor default IP addresses as "not randomized" and can trigger unnecessary IP changes and transient network disconnections.
+This document details the implementation plan to simplify the IP address randomization logic in `files/etc/uci-defaults/95-random-lan-ip`. The goal is to ensure IP randomization occurs only once and to clearly indicate its status.
 
 ## 2. Implementation Details for `files/etc/uci-defaults/95-random-lan-ip`
 
 ### 2.1. Identify the problematic section:
-The IP check logic in `files/etc/uci-defaults/95-random-lan-ip` (lines 5-12 in the original file) needs to be enhanced. The network restart at lines 130-132 (in the original file) will be conditionalized.
+The IP check logic in `files/etc/uci-defaults/95-random-lan-ip` needs to be simplified. The network restart will be conditionalized.
 
 ### 2.2. Proposed Changes:
 
-*   **Add `is_default_ip` function:** This function will be added at the beginning of the script, after the initial `INSTALL_JSON` check.
+*   **Remove `is_default_ip` function:** This function is no longer needed as we are simplifying the randomization trigger.
 
-    ```bash
-    # Function to check if an IP address is a common default vendor IP
-    is_default_ip() {
-        local ip="$1"
-        # Common default IPs: 192.168.1.1, 192.168.8.1, 192.168.X.1
-        if echo "$ip" | grep -Eq "^192\.168\.(1|8|([0-9]{1,3}))\.1$"; then
-            return 0 # It is a default IP
-        else
-            return 1 # It is not a default IP
-        fi
-    }
-    ```
+*   **Simplify IP Randomization Logic and Conditionalize Network Restart:** The existing IP check logic will be replaced with a simpler approach based solely on the `ip_address_randomized` flag in `install.json`.
 
-*   **Refine IP Randomization Logic and Conditionalize Network Restart:** The existing IP check logic will be replaced with a more robust approach using the `is_default_ip` function and flags to control randomization and persistence.
-
-    *   Initialize `RANDOMIZE_IP=0`, `PERSIST_CURRENT_IP=0`, `EXIT_EARLY=0`.
-    *   Retrieve the `CURRENT_LAN_IP` from UCI.
-    *   Retrieve the `STORED_RANDOM_IP` from `install.json` (if it exists and is valid).
+    *   Retrieve the `ip_address_randomized` flag from `install.json`.
 
     *   **Decision Logic:**
-        *   **If `is_default_ip(CURRENT_LAN_IP)` is true:**
-            *   Set `RANDOMIZE_IP = 1`. (Always randomize if current is a default IP).
-        *   **Else (`CURRENT_LAN_IP` is NOT a default IP):**
-            *   **If `STORED_RANDOM_IP` is valid AND `CURRENT_LAN_IP` equals `STORED_RANDOM_IP`:**
-                *   Set `EXIT_EARLY = 1`. (No action needed, IP is already randomized and stored).
-            *   **Else (`STORED_RANDOM_IP` is invalid/missing OR `CURRENT_LAN_IP` does not match `STORED_RANDOM_IP`):**
-                *   Set `PERSIST_CURRENT_IP = 1`. (Persist `CURRENT_LAN_IP` to `install.json` without re-randomizing).
-
-    *   **Execution based on Flags:**
-        *   **If `RANDOMIZE_IP = 1`:**
-            *   Proceed with generating a new random IP, applying it, updating `/etc/hosts`, and then updating `install.json` with the *new* randomized IP.
+        *   **If `install.json` does not exist, or `ip_address_randomized` is `false` or absent:**
+            *   Generate a new random LAN IP.
+            *   Update network config with the new IP in `/etc/config/network`.
+            *   Update `/etc/hosts` with the new IP.
+            *   Set `ip_address_randomized` to `true` in `install.json`.
             *   Schedule `network restart`.
-        *   **Else If `PERSIST_CURRENT_IP = 1`:**
-            *   Update `install.json` with `CURRENT_LAN_IP`. (No network restart needed).
-        *   **Else If `EXIT_EARLY = 1`:**
-            *   Exit the script.
+        *   **Else (if `ip_address_randomized` is `true`):**
+            *   Exit the script. No action needed.
 
 **Detailed Diff for `95-random-lan-ip`:**
 
@@ -203,14 +180,13 @@ The IP check logic in `files/etc/uci-defaults/95-random-lan-ip` (lines 5-12 in t
 
 ### 2.3. Data Structures and Algorithms:
 
-*   **`is_default_ip()` function:** Uses a regex pattern to match common default IP addresses (e.g., `192.168.1.1`, `192.168.8.1`, `192.168.X.1`).
-*   **`RANDOMIZE_IP` flag:** A boolean-like variable (0 or 1) to control whether IP randomization and network restart should occur.
-*   **Conditional Logic:** The script's flow is controlled by `if` statements that evaluate the `RANDOMIZE_IP` flag and the results of `is_default_ip()`.
+*   **`RANDOMIZE_IP_FLAG`:** A boolean-like variable (`"true"` or `"false"`) read from `install.json` to control whether IP randomization should occur.
+*   **Random IP Generation:** Generates a `10.X.Y.1` IP address.
+*   **Conditional Logic:** The script's flow is controlled by an `if` statement that evaluates the `RANDOMIZE_IP_FLAG`.
 
 ### 2.4. Error Handling and Edge Cases:
 
 *   **`install.json` absence/null:** The script gracefully handles cases where `install.json` is missing or the `ip_address_randomized` field is null/missing, correctly defaulting to randomization.
-*   **Invalid `ip_address_randomized`:** The script checks if `STORED_RANDOM_IP` is a valid IP format before using it for comparison.
 *   **`network restart` conditionalization:** The network restart and `install.json` update only occur if a new random IP is actually generated and set, preventing unnecessary disruptions.
 
 ### 2.5. Performance Considerations for OpenWRT Environments:
@@ -219,14 +195,15 @@ The IP check logic in `files/etc/uci-defaults/95-random-lan-ip` (lines 5-12 in t
 
 ## 3. Acceptance Criteria
 
-*   The router's LAN IP address is randomized only if the currently configured `network.lan.ipaddr` is a common default vendor IP (`192.168.1.1`, `192.168.8.1`, `192.168.X.1`).
-*   If `network.lan.ipaddr` is not a common default vendor IP, and `install.json` does not contain this IP as `ip_address_randomized`, then `install.json` is updated with the current `network.lan.ipaddr` without re-randomization.
-*   If `network.lan.ipaddr` is not a common default vendor IP, and `install.json` already contains this IP as `ip_address_randomized`, then no action is taken.
-*   The transient network disconnection during fresh installs is mitigated by conditionalizing the `network restart` within `95-random-lan-ip`.
-*   The `ping 8.8.8.8` command succeeds after installation on a freshly configured system, even when config files are_initially absent.
+*   The router's LAN IP address is randomized if and only if the `ip_address_randomized` flag in `/etc/tollgate/install.json` is `false` or absent.
+*   The randomized IP address is stored *only* in `/etc/config/network`.
+*   The `/etc/tollgate/install.json` file contains *only* a boolean flag `ip_address_randomized` set to `true` after randomization.
+*   The `ping 8.8.8.8` command succeeds after installation on a freshly configured system.
 
 ## 4. Task Checklist (for Code Mode)
 
 *   [ ] Implement the changes in `files/etc/uci-defaults/95-random-lan-ip` as per the detailed diff.
+*   [ ] Update `src/config_manager/config_manager.go` to reflect the new `install.json` format (boolean `ip_address_randomized` flag).
+*   [ ] Update `src/config_manager/config_manager_test.go` to test the new `install.json` format.
 *   [ ] Create a git commit with a meaningful message.
 *   [ ] Request Architect mode review.
