@@ -78,14 +78,18 @@ The `Config` struct has been updated for flexible metric-based pricing:
     - **Purpose:** Migrates `config.json` from `v0.0.2` to `v0.0.3`.
     - **Validation:** Similar robust checks for file existence, non-emptiness, and valid JSON. Crucially, it specifically checks that `config_version` is *exactly* `v0.0.2` and that `price_per_minute` exists (and is not null) to ensure correct migration.
     - **Changes:** Converts `price_per_minute` to mint-specific `price_per_step`, adds `metric` and `step_size` fields, and updates the `config_version` to `v0.0.3`.
+- **`97-tollgate-install-config-migration-v0.0.1-to-v0.0.2`**:
+    - **Purpose:** Migrates `install.json` from `v0.0.1` (no `config_version` field) to `v0.0.2`.
+    - **Validation:** Includes robust checks for file existence, non-emptiness, and valid JSON. It also verifies the absence of `config_version` field to confirm it's a `v0.0.1` structure.
+    - **Changes:** Adds the `config_version` field and sets it to `"v0.0.1"`. (Note: The `config_manager` will then treat this as `v0.0.1` and new installs will be `v0.0.2`).
 
 ### General Migration Process:
-1.  **Existence and Integrity Checks:** Scripts first verify the presence, non-emptiness, and JSON validity of the `config.json` file.
+1.  **Existence and Integrity Checks:** Scripts first verify the presence, non-emptiness, and JSON validity of the configuration file.
 2.  **Version Check:** Determine the current `config_version`. If it's already the target version or newer, the migration exits.
-3.  **Backup Creation:** A timestamped backup of the original `config.json` is created before any modifications.
+3.  **Backup Creation:** A timestamped backup of the original configuration file is created before any modifications.
 4.  **Transformation:** `jq` is used to perform the necessary JSON transformations (e.g., adding/removing fields, modifying values).
 5.  **Error Recovery:** The presence of backups allows for manual recovery in case of unexpected issues during migration.
-6.  **Post-Migration Validation:** Implicitly, the `config_manager`'s `LoadConfig` and `EnsureDefaultConfig` functions will validate the migrated config's structure upon application startup.
+6.  **Post-Migration Validation:** Implicitly, the `config_manager`'s `LoadConfig` and `EnsureDefaultConfig` (or `LoadInstallConfig` and `EnsureDefaultInstall`) functions will validate the migrated config's structure upon application startup.
 
 ## Core Functions
 
@@ -117,8 +121,10 @@ The `Config` struct has been updated for flexible metric-based pricing:
 - Calls `setUsername` after saving the initial config to publish profile metadata.
 
 ### EnsureDefaultInstall Function (Updated)
-- Ensures a default `InstallConfig` exists. If `LoadInstallConfig` returns `nil`, it creates a new `InstallConfig` with default values (e.g., `InstalledVersion: "0.0.0"`, `ReleaseChannel: "stable"`).
-- If an existing `install.json` is loaded but is missing fields from older versions, it populates those fields with default values, ensuring backward compatibility.
+- Ensures a default `InstallConfig` exists.
+- If `LoadInstallConfig` returns `nil` (due to missing/invalid file), it creates a new `InstallConfig` with default values, including `ConfigVersion: "v0.0.2"`.
+- If an existing `install.json` is loaded but is missing the `ConfigVersion` field, it will be populated with `"v0.0.1"` to signify its original unversioned state. This enables future migration scripts to identify and upgrade it.
+- Populates missing fields from older versions with default values, ensuring backward compatibility.
 
 ### UpdateCurrentInstallationID Function
 - Loads the current `Config`.
@@ -171,14 +177,15 @@ type PackageInfo struct {
 }
 ```
 
-## InstallConfig Struct
+## InstallConfig Struct (v0.0.2)
 
-The `InstallConfig` struct holds the installation configuration parameters, including details about the installed package and timestamps:
+The `InstallConfig` struct holds the installation configuration parameters, including details about the installed package, timestamps, and config version:
 
 ```go
 type InstallConfig struct {
+	ConfigVersion          string `json:"config_version"`
 	PackagePath            string `json:"package_path"`
-	IPAddressRandomized    string `json:"ip_address_randomized"`
+	IPAddressRandomized    bool   `json:"ip_address_randomized"`
 	InstallTimestamp       int64  `json:"install_time"`
 	DownloadTimestamp      int64  `json:"download_time"`
 	ReleaseChannel         string `json:"release_channel"`
@@ -188,8 +195,9 @@ type InstallConfig struct {
 ```
 
 **Fields:**
+- `ConfigVersion`: The version of the `install.json` schema. New installations will default to `"v0.0.2"`. Unversioned existing files will be treated as `"v0.0.1"`.
 - `PackagePath`: Path to the installed package.
-- `IPAddressRandomized`: Indicates if the IP address has been randomized.
+- `IPAddressRandomized`: Indicates if the IP address has been randomized (boolean).
 - `InstallTimestamp`: Timestamp of the installation.
 - `DownloadTimestamp`: Timestamp of the package download.
 - `ReleaseChannel`: The release channel (e.g., "stable", "dev").

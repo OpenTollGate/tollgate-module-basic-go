@@ -63,8 +63,7 @@ func initializeApplication() {
 
 	currentInstallationID := mainConfig.CurrentInstallationID
 	log.Printf("CurrentInstallationID: %s", currentInstallationID)
-	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
-	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
+	log.Printf("IPAddressRandomized: %t", installConfig.IPAddressRandomized)
 	if currentInstallationID != "" {
 		_, err = configManager.GetNIP94Event(currentInstallationID)
 		if err != nil {

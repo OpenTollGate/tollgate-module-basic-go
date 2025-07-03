@@ -16,6 +16,12 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// CurrentConfigVersion is the latest version of the config.json format.
+const CurrentConfigVersion = "v0.0.3"
+
+// CurrentInstallVersion is the latest version of the install.json format.
+const CurrentInstallVersion = "v0.0.2"
+
 var relayRequestSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent requests
 
 func rateLimitedRelayRequest(relay *nostr.Relay, event nostr.Event) error {
@@ -63,9 +69,9 @@ type BraggingConfig struct {
 
 // MerchantConfig holds configuration specific to the merchant
 type MerchantConfig struct {
-	Name            string `json:"name"`
+	Name             string `json:"name"`
 	LightningAddress string `json:"lightning_address"`
-	Website         string `json:"website"`
+	Website          string `json:"website"`
 }
 
 // MintConfig holds configuration for a specific mint including payout settings
@@ -143,8 +149,9 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 // InstallConfig holds the installation configuration parameters
 // The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
+	ConfigVersion          string `json:"config_version"`
 	PackagePath            string `json:"package_path"`
-	IPAddressRandomized    string `json:"ip_address_randomized"`
+	IPAddressRandomized    bool   `json:"ip_address_randomized"`
 	InstallTimestamp       int64  `json:"install_time"`
 	DownloadTimestamp      int64  `json:"download_time"`
 	ReleaseChannel         string `json:"release_channel"`
@@ -248,10 +255,11 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	// Otherwise, ensure fields that might be missing from older versions are populated.
 	if installConfig == nil {
 		installConfig = &InstallConfig{
-			PackagePath:            "false",
-			IPAddressRandomized:    "false",
-			InstallTimestamp:       0, // unknown
-			DownloadTimestamp:      0, // unknown
+			ConfigVersion:          CurrentInstallVersion, // Set default version for new installs
+			PackagePath:            "",                    // Default to empty string for package path
+			IPAddressRandomized:    false,
+			InstallTimestamp:       0,        // unknown
+			DownloadTimestamp:      0,        // unknown
 			ReleaseChannel:         "stable",
 			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
 			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
@@ -262,11 +270,12 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		}
 	} else {
 		// Ensure all fields have default values if they are missing (e.g., from an older config file)
-		if installConfig.PackagePath == "" {
-			installConfig.PackagePath = "false"
+		if installConfig.ConfigVersion == "" {
+			installConfig.ConfigVersion = CurrentInstallVersion // Mark unversioned configs as the current version
 		}
-		if installConfig.IPAddressRandomized == "" {
-			installConfig.IPAddressRandomized = "false"
+		// The original `PackagePath` was "false" for uninitialized. Now it's ""
+		if installConfig.PackagePath == "false" {
+			installConfig.PackagePath = ""
 		}
 		if installConfig.InstallTimestamp == 0 {
 			installConfig.InstallTimestamp = 0 // unknown
@@ -519,7 +528,7 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		}
 
 		defaultConfig := &Config{
-			ConfigVersion:      "v0.0.3",
+			ConfigVersion:      CurrentConfigVersion,
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
 				{
@@ -563,9 +572,9 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			ShowSetup:             true,
 			CurrentInstallationID: "",
 			Merchant: MerchantConfig{
-				Name:            "c03rad0r",
+				Name:             "c03rad0r",
 				LightningAddress: "tollgate@minibits.cash",
-				Website:         "https://tollgate.me",
+				Website:          "https://tollgate.me",
 			},
 		} // TODO: update the default EventID when we merge to main.
 		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
