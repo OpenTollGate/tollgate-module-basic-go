@@ -8,7 +8,7 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 
 - Initialize with a specific file path for the main configuration
 - Load and save configuration with pretty-printed JSON formatting, handling missing/corrupted files gracefully
-- Manage migration between configuration versions (v0.0.1 → v0.0.2 → v0.0.3) with robust validation
+- Manage migration between configuration versions (v0.0.1 → v0.0.2 → v0.0.3) for `config.json` and `install.json` with robust validation
 - Ensure default configuration and installation configuration exist and are properly initialized
 - Track and manage the current installed version and installation ID, ensuring consistency with NIP94 events
 - Provide resilient retrieval of installed package version, including retry mechanisms for OpenWRT `opkg`
@@ -18,7 +18,7 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 
 ## Configuration Structure Changes
 
-### Main Config:
+### Main Config (`config.json`):
 - **Removed**: `PricePerMinute` (global pricing)
 - **Added**: `Metric` and `StepSize` for flexible pricing units
 - **Enhanced**: Mint-specific configuration with detailed settings
@@ -28,6 +28,9 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 - `PriceUnit`: Unit of pricing (e.g., "sat")
 - `MinPurchaseSteps`: Minimum purchase requirement per mint
 - Existing fields: URL, MinBalance, BalanceTolerancePercent, etc.
+
+### Install Config (`install.json`):
+- **Added**: `ConfigVersion` for version tracking of the `install.json` schema.
 
 ## Interfaces
 
@@ -55,11 +58,17 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 
 ## Migration Support
 
-### Configuration Migration:
+### Configuration Migration (`config.json`):
 - Automatic detection of configuration version
 - Migration scripts for v0.0.2 → v0.0.3 transformation
 - Backup creation and error recovery
 - Version-specific migration guards
+
+### Install Configuration Migration (`install.json`):
+- Migration script for unversioned (`v0.0.1`) to `v0.0.2` transformation.
+- Automatic detection of `install.json` version.
+- Backup creation and error recovery.
+- Version-specific migration guards.
 
 ### Default Configuration (v0.0.3):
 - `Metric`: "milliseconds"

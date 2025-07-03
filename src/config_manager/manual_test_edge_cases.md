@@ -17,6 +17,7 @@ The following scenarios should be thoroughly tested to ensure robust configurati
     *   [`install.json`](src/config_manager/config_manager.go) does not exist:
         *   [ ] Verify `tollgate` service starts successfully.
         *   [ ] Verify a default `install.json` is generated with correct default values.
+        *   [ ] Verify the generated `install.json` contains `config_version: "v0.0.2"`.
         *   [ ] Verify `InstalledVersion` in `install.json` reflects the current package version (e.g., from `opkg`).
 
 *   **Empty File:**
@@ -39,7 +40,7 @@ The following scenarios should be thoroughly tested to ensure robust configurati
 
 #### **II. Migration Script Specific Scenarios**
 
-*   **`98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration`:**
+*   **`98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration`:** (Existing)
     *   **Scenario: `config.json` is `v0.0.1` and valid:**
         *   [ ] Create a `config.json` with `config_version: "v0.0.1"` and existing `accepted_mints` (as an array of strings).
         *   [ ] Run the migration script.
@@ -57,7 +58,7 @@ The following scenarios should be thoroughly tested to ensure robust configurati
         *   [ ] Verify the script exits, indicating migration is not needed.
         *   [ ] Verify the `config.json` content remains unchanged.
 
-*   **`99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration`:**
+*   **`99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration`:** (Existing)
     *   **Scenario: `config.json` is `v0.0.2` and valid:**
         *   [ ] Create a `config.json` with `config_version: "v0.0.2"` and existing `price_per_minute`.
         *   [ ] Run the migration script.
@@ -74,6 +75,19 @@ The following scenarios should be thoroughly tested to ensure robust configurati
         *   [ ] Run the migration script.
         *   [ ] Verify the script exits, indicating migration is not needed.
         *   [ ] Verify the `config.json` content remains unchanged.
+
+*   **`97-tollgate-install-config-migration-v0.0.1-to-v0.0.2`:** (New)
+    *   **Purpose:** Migrates `install.json` from `v0.0.1` (no `config_version` field) to `v0.0.2`.
+    *   **Scenario: `install.json` is `v0.0.1` and valid (no `config_version` field):**
+        *   [ ] Create an `install.json` without a `config_version` field.
+        *   [ ] Run the migration script.
+        *   [ ] Verify `config_version` is added and set to `"v0.0.1"`.
+        *   [ ] Verify existing fields (e.g., `PackagePath`, `IPAddressRandomized`) are preserved.
+    *   **Scenario: `install.json` exists but is *not* `v0.0.1` (e.g., already `v0.0.2` or malformed):**
+        *   [ ] Create an `install.json` with `config_version: "v0.0.2"` or a malformed JSON.
+        *   [ ] Run the migration script.
+        *   [ ] Verify the script exits, indicating migration is not needed or cannot be performed safely.
+        *   [ ] Verify the `install.json` content remains unchanged.
 
 #### **III. Data Preservation During Default Generation**
 

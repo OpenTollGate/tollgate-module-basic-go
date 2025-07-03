@@ -1,0 +1,79 @@
+#!/bin/sh
+
+# TollGate install.json configuration migration script
+
+CONFIG_DIR="/etc/tollgate"
+INSTALL_FILE="$CONFIG_DIR/install.json"
+
+# Function to create timestamped backup
+create_backup() {
+    TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+    cp "$1" "$1.backup.$TIMESTAMP"
+}
+
+# This migration is ONLY for upgrading from unversioned (v0.0.1) to v0.0.2
+# Fresh installs of v0.0.2+ should never run this script
+
+# Check if installation configuration file exists
+if [ ! -f "$INSTALL_FILE" ]; then
+    echo "Installation configuration file '$INSTALL_FILE' doesn't exist. This is likely a fresh install - exiting."
+    exit 0
+fi
+
+# Check if configuration file is empty
+if [ ! -s "$INSTALL_FILE" ]; then
+    echo "Installation configuration file '$INSTALL_FILE' is empty. This is likely a fresh install or an issue - exiting."
+    exit 0
+fi
+
+# Validate JSON is not corrupted before proceeding with version check
+if ! jq empty "$INSTALL_FILE" > /dev/null 2>&1; then
+    echo "Installation configuration file '$INSTALL_FILE' is corrupted JSON. Cannot migrate safely - exiting."
+    exit 0
+fi
+
+# CRITICAL: This script should ONLY run on unversioned v0.0.1 install.json configs (which have NO config_version field)
+# If ANY config_version exists, this means it's NOT v0.0.1 and should not be migrated
+
+# Check if install.json already has ANY config_version (any version means it's not v0.0.1)
+if jq -e '.config_version' "$INSTALL_FILE" > /dev/null 2>&1; then
+    CURRENT_VERSION=$(jq -r '.config_version' "$INSTALL_FILE" 2>/dev/null || echo "unknown")
+    echo "Installation configuration already has config_version: $CURRENT_VERSION. This is not v0.0.1 - exiting."
+    exit 0
+fi
+
+# Create backups
+create_backup "$INSTALL_FILE"
+
+# Migrate install.json (atomic operation using temporary file)
+echo "Starting migration of install.json from unversioned (v0.0.1) to v0.0.2..."
+jq '.config_version = "v0.0.1"' "$INSTALL_FILE.backup.$TIMESTAMP" > "$INSTALL_FILE.tmp"
+
+# Verify the migrated config is valid JSON and has expected structure
+if ! jq empty "$INSTALL_FILE.tmp" > /dev/null 2>&1; then
+    echo "Error: Migration resulted in invalid JSON"
+    rm -f "$INSTALL_FILE.tmp"
+    mv "$INSTALL_FILE.backup.$TIMESTAMP" "$INSTALL_FILE"
+    exit 1
+fi
+
+# Verify the migrated config has the expected version
+MIGRATED_VERSION=$(jq -r '.config_version' "$INSTALL_FILE.tmp" 2>/dev/null)
+if [ "$MIGRATED_VERSION" != "v0.0.1" ]; then
+    echo "Error: Migration did not set correct version (got: $MIGRATED_VERSION)"
+    rm -f "$INSTALL_FILE.tmp"
+    mv "$INSTALL_FILE.backup.$TIMESTAMP" "$INSTALL_FILE"
+    exit 1
+fi
+
+# Atomically replace the original file
+mv "$INSTALL_FILE.tmp" "$INSTALL_FILE"
+if [ $? -eq 0 ]; then
+    echo "Installation configuration migration from unversioned (v0.0.1) to v0.0.2 completed successfully"
+else
+    echo "Error: Failed to replace installation configuration file"
+    mv "$INSTALL_FILE.backup.$TIMESTAMP" "$INSTALL_FILE"
+    exit 1
+fi
+
+exit 0

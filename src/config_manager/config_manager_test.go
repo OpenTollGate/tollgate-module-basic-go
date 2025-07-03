@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"log"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -141,21 +140,63 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	newInstallConfig := &InstallConfig{
+		ConfigVersion:       "v0.0.2", // New installs get v0.0.2
 		PackagePath:         "/path/to/package",
 		IPAddressRandomized: true, // Initialize as boolean true
 	}
 	err = cm.SaveInstallConfig(newInstallConfig)
-	if err != nil {
-		t.Errorf("SaveInstallConfig returned error: %v", err)
-	}
+	assert.NoError(t, err)
 
 	loadedInstallConfig, err := cm.LoadInstallConfig()
-	if err != nil {
-		t.Errorf("LoadInstallConfig returned error after SaveInstallConfig: %v", err)
-	}
-	if !reflect.DeepEqual(loadedInstallConfig, newInstallConfig) {
-		t.Errorf("Loaded install config does not match saved config")
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, newInstallConfig.ConfigVersion, loadedInstallConfig.ConfigVersion)
+	assert.Equal(t, newInstallConfig.PackagePath, loadedInstallConfig.PackagePath)
+	assert.Equal(t, newInstallConfig.IPAddressRandomized, loadedInstallConfig.IPAddressRandomized)
+	assert.Equal(t, newInstallConfig.InstallTimestamp, loadedInstallConfig.InstallTimestamp)
+	assert.Equal(t, newInstallConfig.DownloadTimestamp, loadedInstallConfig.DownloadTimestamp)
+	assert.Equal(t, newInstallConfig.ReleaseChannel, loadedInstallConfig.ReleaseChannel)
+	assert.Equal(t, newInstallConfig.EnsureDefaultTimestamp, loadedInstallConfig.EnsureDefaultTimestamp)
+	assert.Equal(t, newInstallConfig.InstalledVersion, loadedInstallConfig.InstalledVersion)
+}
+
+func TestEnsureDefaultInstall_UnversionedConfig(t *testing.T) {
+	// Create a temporary directory for test config files
+	tempDir, err := ioutil.TempDir("", "test_ensure_default_install_unversioned")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir) // Clean up the temporary directory
+
+	installFile := filepath.Join(tempDir, "install.json")
+	configFile := filepath.Join(tempDir, "config.json") // Need a dummy config.json for NewConfigManager
+
+	// Create an unversioned install.json file (simulating v0.0.1)
+	unversionedContent := `{"package_path":"/old/path","ip_address_randomized":false}`
+	err = ioutil.WriteFile(installFile, []byte(unversionedContent), 0644)
+	assert.NoError(t, err)
+
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default install should load the unversioned and add the version
+	installConfig, err := cm.EnsureDefaultInstall()
+	assert.NoError(t, err)
+	assert.NotNil(t, installConfig)
+
+	// Verify the config_version is set to v0.0.1
+	assert.Equal(t, "v0.0.1", installConfig.ConfigVersion, "Unversioned install.json should be marked as v0.0.1")
+
+	// Verify other fields are preserved
+	assert.Equal(t, "/old/path", installConfig.PackagePath)
+	assert.Equal(t, false, installConfig.IPAddressRandomized)
+
+	// Verify the file on disk is updated
+	updatedContent, err := ioutil.ReadFile(installFile)
+	assert.NoError(t, err)
+	var loadedInstall InstallConfig
+	err = json.Unmarshal(updatedContent, &loadedInstall)
+	assert.NoError(t, err)
+	assert.Equal(t, "v0.0.1", loadedInstall.ConfigVersion)
+	assert.Equal(t, "/old/path", loadedInstall.PackagePath)
+	assert.Equal(t, false, loadedInstall.IPAddressRandomized)
 }
 
 func TestUpdateCurrentInstallationID(t *testing.T) {
@@ -305,7 +346,8 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	// Create dummy existing files with valid JSON structure for the types
 	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","tollgate_private_key":"existing_key","bragging":{"enabled":false,"fields":[]},"merchant":{"name":"Existing Merchant"}}`), 0644)
 	assert.NoError(t, err)
-	err = ioutil.WriteFile(installFile, []byte(`{"installed_version":"1.0.0","package_path":"existing_path","ip_address_randomized":true}`), 0644)
+	// For install.json, we'll create a v0.0.2 version to test existing
+	err = ioutil.WriteFile(installFile, []byte(`{"config_version":"v0.0.2","installed_version":"1.0.0","package_path":"existing_path","ip_address_randomized":true}`), 0644)
 	assert.NoError(t, err)
 
 	cm, err := NewConfigManager(configFile)
@@ -334,4 +376,5 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	assert.Equal(t, "1.0.0", loadedInstall.InstalledVersion, "install.json InstalledVersion should not be overwritten")
 	assert.Equal(t, "existing_path", loadedInstall.PackagePath, "install.json PackagePath should not be overwritten")
 	assert.Equal(t, true, loadedInstall.IPAddressRandomized, "install.json IPAddressRandomized should be populated")
+	assert.Equal(t, "v0.0.2", loadedInstall.ConfigVersion, "install.json ConfigVersion should be v0.0.2")
 }

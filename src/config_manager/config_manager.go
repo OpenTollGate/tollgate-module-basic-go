@@ -143,6 +143,7 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 // InstallConfig holds the installation configuration parameters
 // The difference between config.json and install.json is that the install config is modified by other programs while config.json is only modified by this program.
 type InstallConfig struct {
+	ConfigVersion          string `json:"config_version"`
 	PackagePath            string `json:"package_path"`
 	IPAddressRandomized    bool   `json:"ip_address_randomized"`
 	InstallTimestamp       int64  `json:"install_time"`
@@ -248,10 +249,11 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	// Otherwise, ensure fields that might be missing from older versions are populated.
 	if installConfig == nil {
 		installConfig = &InstallConfig{
-			PackagePath:            "", // Default to empty string for package path
+			ConfigVersion:          "v0.0.2", // Set default version for new installs
+			PackagePath:            "",       // Default to empty string for package path
 			IPAddressRandomized:    false,
-			InstallTimestamp:       0, // unknown
-			DownloadTimestamp:      0, // unknown
+			InstallTimestamp:       0,        // unknown
+			DownloadTimestamp:      0,        // unknown
 			ReleaseChannel:         "stable",
 			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
 			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
@@ -262,16 +264,14 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		}
 	} else {
 		// Ensure all fields have default values if they are missing (e.g., from an older config file)
-		if installConfig.PackagePath == "" {
-			installConfig.PackagePath = "false"
+		// Ensure all fields have default values if they are missing (e.g., from an older config file)
+		if installConfig.ConfigVersion == "" {
+			installConfig.ConfigVersion = "v0.0.1" // Mark unversioned configs as v0.0.1
 		}
-		// No need to set default for PackagePath if it's empty, as it's a dynamic value.
-		// If it's empty, it means it hasn't been set yet.
-		// if installConfig.PackagePath == "" {
-		// 	installConfig.PackagePath = ""
-		// }
-		// IPAddressRandomized is a boolean, so its zero value (false) is a valid default.
-		// No explicit check needed for its default value.
+		// The original `PackagePath` was "false" for uninitialized. Now it's ""
+		if installConfig.PackagePath == "false" {
+			installConfig.PackagePath = ""
+		}
 		if installConfig.InstallTimestamp == 0 {
 			installConfig.InstallTimestamp = 0 // unknown
 		}
