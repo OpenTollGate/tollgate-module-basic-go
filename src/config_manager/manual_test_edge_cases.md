@@ -35,6 +35,9 @@ The following scenarios should be thoroughly tested to ensure robust configurati
     *   [`install.json`](src/config_manager/config_manager.go) contains invalid/corrupted JSON:
         *   [ ] Verify `tollgate` service starts successfully (should recover by generating defaults).
         *   [ ] Verify a new default `install.json` is generated.
+    *   [`identities.json`](src/config_manager/config_manager.go) contains invalid/corrupted JSON:
+        *   [ ] Verify `tollgate` service starts successfully (should recover by generating defaults).
+        *   [ ] Verify a new default `identities.json` is generated.
 
 #### **II. Migration Script Specific Scenarios**
 
@@ -85,7 +88,7 @@ The following scenarios should be thoroughly tested to ensure robust configurati
         *   [ ] Create a `config.json` with a version other than `v0.0.3`.
         *   [ ] Run the migration script.
         *   [ ] Verify the script exits and `config.json` is unchanged.
-
+ 
 *   **`97-tollgate-install-config-migration-v0.0.1-to-v0.0.2`:** (New)
     *   **Purpose:** Migrates `install.json` from `v0.0.1` (no `config_version` field) to `v0.0.2`.
     *   **Scenario: `install.json` is `v0.0.1` and valid (no `config_version` field):**
@@ -99,104 +102,143 @@ The following scenarios should be thoroughly tested to ensure robust configurati
         *   [ ] Verify the script exits, indicating migration is not needed or cannot be performed safely.
         *   [ ] Verify the `install.json` content remains unchanged.
 
-#### **III. Data Preservation During Default Generation**
 
-*   **Existing `config.json` content merged with defaults:**
-    *   [ ] Create a `config.json` with only a few valid fields (e.g., `username`, `private_key`).
-    *   [ ] Delete `config_version` or make it malformed to trigger default generation.
-    *   [ ] Start the `tollgate` service.
-    *   [ ] Verify the existing fields (`username`, `private_key`) are preserved.
-    *   [ ] Verify missing fields (e.g., `relay_url`, `price_per_minute`) are populated with defaults.
-    *   [ ] Verify `config_version: "v0.0.3"` is added.
-
----
-
-#### **IV. IP Randomization Scenarios**
-
-### Test Case 1: Fresh Install
-
-**Objective:** To verify that a fresh installation correctly randomizes the LAN IP and creates a versioned `install.json`.
-
-**Steps:**
-
-1.  [ ] **Reset the router to a clean state:**
-    *   If a previous version of `tollgate-module-basic-go` is installed, remove it: `opkg remove tollgate-module-basic-go`.
-    *   Remove the `/etc/tollgate` directory: `rm -rf /etc/tollgate`.
-    *   Reset the network configuration to a known default (e.g., `192.168.1.1`):
-        ```sh
-        uci set network.lan.ipaddr='192.168.1.1'
-        uci commit network
-        /etc/init.d/network restart
-        ```
-
-2.  [ ] **Install the new package:**
-    *   Copy the `.ipk` file to the router's `/tmp` directory.
-    *   Install the package: `opkg install /tmp/<package_name>.ipk`.
-
-3.  [ ] **Verify IP Randomization:**
-    *   Check the LAN IP address: `uci get network.lan.ipaddr`.
-    *   **Expected Result:** The IP address should *not* be `192.168.1.1`. It should be a randomized IP address.
-
-4.  [ ] **Verify `install.json`:**
-    *   Check the content of `/etc/tollgate/install.json`: `cat /etc/tollgate/install.json | jq`.
-    *   **Expected Result:**
-        *   The `config_version` field should exist and be set to `"v0.0.2"`.
-        *   The `ip_address_randomized` field should be `true`.
-
-### Test Case 2: Upgrade from Unversioned `install.json`
-
-**Objective:** To verify that an upgrade from a version with an unversioned `install.json` correctly migrates the file and randomizes the IP.
-
-**Steps:**
-
-1.  [ ] **Set up the unversioned state:**
-    *   Reset the router as in Test Case 1.
-    *   Create an unversioned `/etc/tollgate/install.json` file:
-        ```sh
-        mkdir -p /etc/tollgate
-        echo '{"ip_address_randomized":false}' > /etc/tollgate/install.json
-        ```
-
-2.  [ ] **Install the new package:**
-    *   Install the package as in Test Case 1.
-
-3.  [ ] **Verify IP Randomization:**
-    *   Check the LAN IP address: `uci get network.lan.ipaddr`.
-    *   **Expected Result:** The IP address should be randomized.
-
-4.  [ ] **Verify `install.json` Migration:**
-    *   Check the content of `/etc/tollgate/install.json`: `cat /etc/tollgate/install.json | jq`.
-    *   **Expected Result:**
-        *   The `config_version` field should exist and be set to `"v0.0.1"`.
-        *   The `ip_address_randomized` field should be `true`.
-
-### Test Case 3: Upgrade with Randomized IP
-
-**Objective:** To verify that an upgrade on a system where the IP has already been randomized does *not* re-randomize the IP.
-
-**Steps:**
-
-1.  [ ] **Set up the randomized state:**
-    *   Reset the router as in Test Case 1.
-    *   Create a versioned `/etc/tollgate/install.json` with `ip_address_randomized: true`:
-        ```sh
-        mkdir -p /etc/tollgate
-        echo '{"config_version":"v0.0.2", "ip_address_randomized":true}' > /etc/tollgate/install.json
-        ```
-    *   Set a custom, non-default IP address:
-        ```sh
-        uci set network.lan.ipaddr='10.20.30.1'
-        uci commit network
-        /etc/init.d/network restart
-        ```
-
-2.  [ ] **Install the new package:**
-    *   Install the package as in Test Case 1.
-
-3.  [ ] **Verify IP is not re-randomized:**
-    *   Check the LAN IP address: `uci get network.lan.ipaddr`.
-    *   **Expected Result:** The IP address should remain `10.20.30.1`.
-
-4.  [ ] **Verify `install.json`:**
-    *   Check the content of `/etc/tollgate/install.json`: `cat /etc/tollgate/install.json | jq`.
-    *   **Expected Result:** The file should be unchanged, with `ip_address_randomized: true`.
+ #### **III. Data Preservation During Default Generation**
+ 
+ *   **Existing `config.json` content merged with defaults:**
+     *   [ ] Create a `config.json` with only a few valid fields (e.g., `username`, `private_key`).
+     *   [ ] Delete `config_version` or make it malformed to trigger default generation.
+     *   [ ] Start the `tollgate` service.
+     *   [ ] Verify the existing fields (`username`, `private_key`) are preserved.
+     *   [ ] Verify missing fields (e.g., `relay_url`, `price_per_minute`) are populated with defaults.
+     *   [ ] Verify `config_version: "v0.0.3"` is added.
+ 
+ ---
+ 
+ #### **IV. Identity Management Specific Scenarios (`identities.json`)**
+ 
+ *   **Empty `identities.json` (but file exists):**
+     *   [ ] Verify `tollgate` service starts successfully.
+     *   [ ] Verify default "operator" and "developer" identities are generated and saved to `identities.json`.
+     *   [ ] Verify `operator`'s `npub` is correctly derived from `tollgate_private_key` if present in `config.json`.
+ *   **`identities.json` with invalid `npub` or `lightning_address` format:**
+     *   [ ] Verify `tollgate` service starts successfully.
+     *   [ ] Verify that invalid entries do not crash the service.
+ *   **`identities.json` with duplicate identity names:**
+     *   [ ] Verify `tollgate` service starts successfully.
+     *   [ ] Verify `config_manager` handles duplicate names gracefully (e.g., uses the first occurrence, logs a warning).
+ *   **`identities.json` with missing required fields (e.g., `name`, `lightning_address`):**
+     *   [ ] Verify `tollgate` service starts successfully.
+     *   [ ] Verify `config_manager` handles missing fields gracefully (e.g., treats as empty string, logs a warning).
+ 
+ #### **V. Interaction between `config.json` and `identities.json`**
+ 
+ *   **`config.json` references a non-existent identity in `profit_share` or `merchant`:**
+     *   [ ] Verify `tollgate` service starts successfully.
+     *   [ ] Verify `merchant.go`'s `processPayout` logs a warning and skips payouts for the non-existent identity.
+     *   [ ] Consider if `config_manager` should warn about such references on startup.
+ *   **`config.json` references an identity with an empty/invalid `lightning_address` in `identities.json`:**
+     *   [ ] Verify `tollgate` service starts successfully.
+     *   [ ] Verify `merchant.go`'s `PayoutShare` function handles an empty/invalid lightning address gracefully (e.g., logs an error, does not attempt an invalid payment).
+ 
+ #### **VI. Lightning-related specific edge cases (beyond just config files)**
+ 
+ *   **`TollgatePrivateKey` in `config.json` is invalid/empty:**
+     *   [ ] Verify `EnsureDefaultIdentities` handles this gracefully (e.g., `operator`'s `npub` remains empty).
+     *   [ ] Verify `tollgate` service starts successfully.
+ *   **Payout to a lightning address that is offline/unreachable:**
+     *   [ ] Verify `PayoutShare` handles network errors gracefully (e.g., retries, logs error, doesn't block).
+ *   **Payout to a lightning address that returns an error (e.g., insufficient funds on receiver side, invalid invoice):**
+     *   [ ] Verify `PayoutShare` handles application-level errors from the lightning service gracefully.
+ 
+ ---
+ 
+ #### **VII. IP Randomization Scenarios**
+ 
+ ### Test Case 1: Fresh Install
+ 
+ **Objective:** To verify that a fresh installation correctly randomizes the LAN IP and creates a versioned `install.json`.
+ 
+ **Steps:**
+ 
+ 1.  [ ] **Reset the router to a clean state:**
+     *   If a previous version of `tollgate-module-basic-go` is installed, remove it: `opkg remove tollgate-module-basic-go`.
+     *   Remove the `/etc/tollgate` directory: `rm -rf /etc/tollgate`.
+     *   Reset the network configuration to a known default (e.g., `192.168.1.1`):
+         ```sh
+         uci set network.lan.ipaddr='192.168.1.1'
+         uci commit network
+         /etc/init.d/network restart
+         ```
+ 
+ 2.  [ ] **Install the new package:**
+     *   Copy the `.ipk` file to the router's `/tmp` directory.
+     *   Install the package: `opkg install /tmp/<package_name>.ipk`.
+ 
+ 3.  [ ] **Verify IP Randomization:**
+     *   Check the LAN IP address: `uci get network.lan.ipaddr`.
+     *   **Expected Result:** The IP address should *not* be `192.168.1.1`. It should be a randomized IP address.
+ 
+ 4.  [ ] **Verify `install.json`:**
+     *   Check the content of `/etc/tollgate/install.json`: `cat /etc/tollgate/install.json | jq`.
+     *   **Expected Result:**
+         *   The `config_version` field should exist and be set to `"v0.0.2"`.
+         *   The `ip_address_randomized` field should be `true`.
+ 
+ ### Test Case 2: Upgrade from Unversioned `install.json`
+ 
+ **Objective:** To verify that an upgrade from a version with an unversioned `install.json` correctly migrates the file and randomizes the IP.
+ 
+ **Steps:**
+ 
+ 1.  [ ] **Set up the unversioned state:**
+     *   Reset the router as in Test Case 1.
+     *   Create an unversioned `/etc/tollgate/install.json` file:
+         ```sh
+         mkdir -p /etc/tollgate
+         echo '{"ip_address_randomized":false}' > /etc/tollgate/install.json
+         ```
+ 
+ 2.  [ ] **Install the new package:**
+     *   Install the package as in Test Case 1.
+ 
+ 3.  [ ] **Verify IP Randomization:**
+     *   Check the LAN IP address: `uci get network.lan.ipaddr`.
+     *   **Expected Result:** The IP address should be randomized.
+ 
+ 4.  [ ] **Verify `install.json` Migration:**
+     *   Check the content of `/etc/tollgate/install.json`: `cat /etc/tollgate/install.json | jq`.
+     *   **Expected Result:**
+         *   The `config_version` field should exist and be set to `"v0.0.1"`.
+         *   The `ip_address_randomized` field should be `true`.
+ 
+ ### Test Case 3: Upgrade with Randomized IP
+ 
+ **Objective:** To verify that an upgrade on a system where the IP has already been randomized does *not* re-randomize the IP.
+ 
+ **Steps:**
+ 
+ 1.  [ ] **Set up the randomized state:**
+     *   Reset the router as in Test Case 1.
+     *   Create a versioned `/etc/tollgate/install.json` with `ip_address_randomized: true`:
+         ```sh
+         mkdir -p /etc/tollgate
+         echo '{"config_version":"v0.0.2", "ip_address_randomized":true}' > /etc/tollgate/install.json
+         ```
+     *   Set a custom, non-default IP address:
+         ```sh
+         uci set network.lan.ipaddr='10.20.30.1'
+         uci commit network
+         /etc/init.d/network restart
+         ```
+ 
+ 2.  [ ] **Install the new package:**
+     *   Install the package as in Test Case 1.
+ 
+ 3.  [ ] **Verify IP is not re-randomized:**
+     *   Check the LAN IP address: `uci get network.lan.ipaddr`.
+     *   **Expected Result:** The IP address should remain `10.20.30.1`.
+ 
+ 4.  [ ] **Verify `install.json`:**
+     *   Check the content of `/etc/tollgate/install.json`: `cat /etc/tollgate/install.json | jq`.
+     *   **Expected Result:** The file should be unchanged, with `ip_address_randomized: true`.
