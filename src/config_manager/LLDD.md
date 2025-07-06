@@ -143,15 +143,53 @@ type Identity struct {
 - Ensures a default `Config` exists. If `LoadConfig` returns `nil` (due to missing/invalid file), it generates a new private key and populates a default `Config` struct with `v0.0.3` version, default mints, profit share, relays, and merchant info.
 - Calls `setUsername` after saving the initial config to publish profile metadata.
 
+### Handling Missing Fields in Existing Configurations
+
+When an existing `config.json` is loaded (i.e., `config != nil`), the `EnsureDefaultConfig` function will perform checks for specific fields. If a field is found to be at its zero value (indicating it might be missing from an older configuration file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
+
+The following fields will be checked and defaulted if missing:
+
+- **`AcceptedMints`**: If `len(config.AcceptedMints) == 0`, populate with the default `MintConfig` list.
+- **`ProfitShare`**: If `len(config.ProfitShare) == 0`, populate with the default `ProfitShareConfig` list.
+- **`StepSize`**: If `config.StepSize == 0`, set to `600000`.
+- **`Metric`**: If `config.Metric == ""`, set to `"milliseconds"`.
+- **`Bragging`**: If `config.Bragging.Fields == nil` (or `config.Bragging.Enabled` is false and fields are empty), populate with the default `BraggingConfig` (`Enabled: true`, `Fields: ["amount", "mint", "duration"]`).
+- **`Relays`**: If `len(config.Relays) == 0`, populate with the default list of relays (`"wss://relay.damus.io"`, `"wss://nos.lol"`, `"wss://nostr.mom"`).
+- **`TrustedMaintainers`**: If `len(config.TrustedMaintainers) == 0`, populate with the default list of trusted maintainers (`"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"`).
+- **`Merchant`**: If `config.Merchant.Identity == ""`, set `Identity` to `"operator"`.
+
 ### EnsureDefaultInstall Function (Updated)
 - Ensures a default `InstallConfig` exists.
 - If `LoadInstallConfig` returns `nil` (due to missing/invalid file), it creates a new `InstallConfig` with default values, including `ConfigVersion: "v0.0.2"`.
 - If an existing `install.json` is loaded but is missing the `ConfigVersion` field, it will be populated with `"v0.0.1"` to signify its original unversioned state. This enables future migration scripts to identify and upgrade it.
 - Populates missing fields from older versions with default values, ensuring backward compatibility.
 
+### Handling Missing Fields in Existing Installations
+
+When an existing `install.json` is loaded (i.e., `installConfig != nil`), the `EnsureDefaultInstall` function will perform checks for specific fields. If a field is found to be at its zero value (indicating it might be missing from an older installation file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
+
+The following fields will be checked and defaulted if missing:
+
+- **`PackagePath`**: If `installConfig.PackagePath == ""`, set to `""`. (Note: The previous default was "false", which is now handled by setting to empty string).
+- **`IPAddressRandomized`**: If `installConfig.IPAddressRandomized` is false (and it should be true), set to `true`.
+- **`InstallTimestamp`**: If `installConfig.InstallTimestamp == 0`, set to `0` (unknown).
+- **`DownloadTimestamp`**: If `installConfig.DownloadTimestamp == 0`, set to `0` (unknown).
+- **`ReleaseChannel`**: If `installConfig.ReleaseChannel == ""`, set to `"stable"`.
+- **`EnsureDefaultTimestamp`**: If `installConfig.EnsureDefaultTimestamp == 0`, set to the current timestamp.
+- **`InstalledVersion`**: If `installConfig.InstalledVersion == ""`, set to `"0.0.0"`.
+
 ### EnsureDefaultIdentities Function
 - Ensures a default `identities.json` file exists.
 - If the file is missing, it creates one with default "operator" and "developer" identities.
+
+### Handling Missing Fields in Existing Identities Configurations
+
+When an existing `identities.json` is loaded, the `EnsureDefaultIdentities` function will perform checks for specific fields within the `Identity` structs. If a field is found to be at its zero value (indicating it might be missing from an older identities file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
+
+The following fields will be checked and defaulted if missing:
+
+- **`Npub`**: If an `Identity` has `Npub == ""`, and its `Name` is "operator", the `Npub` will be derived from the `tollgate_private_key` in `config.json`.
+- **`LightningAddress`**: If an `Identity` has `LightningAddress == ""`, it will be set to `"tollgate@minibits.cash"`.
 
 ### UpdateCurrentInstallationID Function
 - Loads the current `Config`.
@@ -258,6 +296,7 @@ To address the 'too many concurrent REQs' error, we implement centralized rate l
     - Loading and saving of both main and install configurations, including scenarios with missing, empty, or malformed files.
     - Verification of private key generation and username setting.
     - `UpdateCurrentInstallationID` behavior, especially when versions mismatch.
+    - **Default Field Population:** New unit tests will verify that `EnsureDefaultConfig`, `EnsureDefaultInstall`, and `EnsureDefaultIdentities` correctly populate missing fields with their default values when an existing (but incomplete) configuration file is loaded. This includes testing various combinations of missing fields.
 - Mocking of external dependencies (e.g., `nostr.SimplePool` for relay interactions) in tests.
 - Migration testing implicitly covered by the robustness tests of `LoadConfig` and `EnsureDefaultConfig` when encountering older or invalid formats.
 - Pretty-printed JSON output validation is performed.

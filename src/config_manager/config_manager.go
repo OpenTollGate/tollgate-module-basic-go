@@ -349,8 +349,9 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 		}
 		changed = true
 	} else {
-		// If identities exist, check for and update operator npub if missing
+		// If identities exist, ensure all fields are populated with defaults if missing
 		for i, identity := range identityConfig.Identities {
+			// Update operator npub if missing
 			if identity.Name == "operator" && identity.Npub == "" {
 				config, err := cm.LoadConfig()
 				if err != nil {
@@ -367,6 +368,12 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 						log.Printf("Warning: Failed to derive npub from TollgatePrivateKey: %v", getPubKeyErr)
 					}
 				}
+			}
+
+			// Ensure LightningAddress is not empty
+			if identity.LightningAddress == "" {
+				identityConfig.Identities[i].LightningAddress = "tollgate@minibits.cash"
+				changed = true
 			}
 		}
 
@@ -394,8 +401,9 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		return nil, err
 	}
 
+	changed := false // Initialize changed flag
+
 	// If the install config file does not exist, is empty, or malformed, create a new one with defaults.
-	// Otherwise, ensure fields that might be missing from older versions are populated.
 	if installConfig == nil {
 		installConfig = &InstallConfig{
 			ConfigVersion:          CurrentInstallVersion, // Set default version for new installs
@@ -407,36 +415,42 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
 			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
 		}
-		err = cm.SaveInstallConfig(installConfig)
-		if err != nil {
-			return nil, err
-		}
+		changed = true
 	} else {
 		// Ensure all fields have default values if they are missing (e.g., from an older config file)
 		if installConfig.ConfigVersion == "" {
-			installConfig.ConfigVersion = CurrentInstallVersion // Mark unversioned configs as the current version
+			installConfig.ConfigVersion = CurrentInstallVersion
+			changed = true
 		}
-		// The original `PackagePath` was "false" for uninitialized. Now it's ""
-		if installConfig.PackagePath == "false" {
+		if installConfig.PackagePath == "false" { // Old default was "false" string, now ""
 			installConfig.PackagePath = ""
+			changed = true
 		}
 		if installConfig.InstallTimestamp == 0 {
-			installConfig.InstallTimestamp = 0 // unknown
+			// If InstallTimestamp is 0, it means it's missing or not set.
+			// We don't set it to CURRENT_TIMESTAMP here as it should reflect actual install time.
+			// It will remain 0 unless set by the installation process itself.
+			// However, if the field is genuinely missing from an old config, we might want to default it.
+			// For now, keep it 0 if it's 0.
 		}
 		if installConfig.DownloadTimestamp == 0 {
-			installConfig.DownloadTimestamp = 0 // unknown
+			// Similar to InstallTimestamp, keep it 0 if it's 0.
 		}
 		if installConfig.ReleaseChannel == "" {
 			installConfig.ReleaseChannel = "stable"
+			changed = true
 		}
 		if installConfig.EnsureDefaultTimestamp == 0 {
 			installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
+			changed = true
 		}
 		if installConfig.InstalledVersion == "" {
-			installConfig.InstalledVersion = "0.0.0" // Default to 0.0.0 if not found
+			installConfig.InstalledVersion = "0.0.0"
+			changed = true
 		}
-		// Save the updated config only if changes were made to existing fields
-		// This is a simplified check; a more robust solution would track actual changes.
+	}
+
+	if changed {
 		err = cm.SaveInstallConfig(installConfig)
 		if err != nil {
 			return nil, err
