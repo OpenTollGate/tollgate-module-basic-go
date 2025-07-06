@@ -180,13 +180,17 @@ if [ -z "$SSID_BASE" ]; then
     log_message "No existing suitable TollGate SSID found. Generated new random SSID: $SSID_BASE"
 fi
 
-# Disable all other AP interfaces to avoid duplicates
-log_message "Disabling all other AP interfaces"
+# Disable all existing AP interfaces that are not the ones we are about to configure
+log_message "Disabling all existing AP interfaces that are not the target TollGate APs"
 for iface in $(uci -q show wireless | grep 'wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
     if [ "$(uci -q get wireless."$iface".mode)" = "ap" ]; then
-        if [ "$(uci -q get wireless."$iface".ssid)" != "$SSID_BASE" ]; then
+        # Check if it's one of our *newly created* tollgate_ap_radioX interfaces that we are about to explicitly configure
+        # Or if it's an existing default_radioX interface that we want to disable
+        # The logic is: if this interface is NOT named 'tollgate_ap_radioX' AND it's an AP, disable it.
+        # This will catch default_radioX and any other rogue APs.
+        if [[ ! "$iface" == tollgate_ap_radio* ]]; then
             uci_safe_set wireless "$iface" disabled '1'
-            log_message "Disabled other AP interface: $iface"
+            log_message "Disabled existing non-TollGate AP interface: $iface"
         fi
     fi
 done
