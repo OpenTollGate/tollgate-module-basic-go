@@ -109,9 +109,30 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
 	aimedPaymentAmount := balance - mintConfig.MinBalance
 
+	identities, err := m.configManager.LoadIdentities()
+	if err != nil {
+		log.Printf("Error loading identities for payout: %v", err)
+		return
+	}
+
 	for _, profitShare := range m.config.ProfitShare {
 		aimedAmount := uint64(math.Round(float64(aimedPaymentAmount) * profitShare.Factor))
-		m.PayoutShare(mintConfig, aimedAmount, profitShare.LightningAddress)
+
+		// Find the corresponding identity
+		var targetIdentity *config_manager.Identity
+		for i := range identities {
+			if identities[i].Name == profitShare.Identity {
+				targetIdentity = &identities[i]
+				break
+			}
+		}
+
+		if targetIdentity == nil {
+			log.Printf("Identity '%s' not found for profit share. Skipping payout.", profitShare.Identity)
+			continue
+		}
+
+		m.PayoutShare(mintConfig, aimedAmount, targetIdentity.LightningAddress)
 	}
 
 	log.Printf("Payout completed for mint %s", mintConfig.URL)
