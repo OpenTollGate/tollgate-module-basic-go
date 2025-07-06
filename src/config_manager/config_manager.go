@@ -313,80 +313,61 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 		return nil, err
 	}
 
-	// Flag to track if any changes were made that require saving
 	changed := false
+	if identityConfig == nil {
+		log.Printf("No identities file found. Creating new default identities.")
+		identityConfig = &IdentityConfig{}
+		changed = true
+	}
 
-	if identityConfig == nil || len(identityConfig.Identities) == 0 {
-		// If no identities file exists or it's empty, create default identities
-		log.Printf("No identities found or file is empty. Creating default identities.")
-		config, err := cm.LoadConfig()
+	if identityConfig.Identities == nil {
+		log.Printf("Identities field missing. Populating with default identities.")
+		config, err := cm.LoadConfig() // Load config to get operator key
 		if err != nil {
 			return nil, fmt.Errorf("failed to load config for default identities: %w", err)
 		}
-
 		operatorNpub := ""
 		if config != nil && config.TollgatePrivateKey != "" {
-			pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey)
-			if getPubKeyErr == nil {
+			if pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey); getPubKeyErr == nil {
 				operatorNpub = pubKey
 			}
 		}
-
-		identityConfig = &IdentityConfig{
-			ConfigVersion: CurrentIdentityVersion,
-			Identities: []Identity{
-				{
-					Name:             "operator",
-					Npub:             operatorNpub,
-					LightningAddress: "tollgate@minibits.cash",
-				},
-				{
-					Name:             "developer",
-					Npub:             "",
-					LightningAddress: "tollgate@minibits.cash",
-				},
-			},
+		identityConfig.Identities = []Identity{
+			{Name: "operator", Npub: operatorNpub, LightningAddress: "tollgate@minibits.cash"},
+			{Name: "developer", Npub: "", LightningAddress: "tollgate@minibits.cash"},
 		}
 		changed = true
-	} else {
-		// If identities exist, ensure all fields are populated with defaults if missing
-		for i, identity := range identityConfig.Identities {
-			// Update operator npub if missing
-			if identity.Name == "operator" && identity.Npub == "" {
-				config, err := cm.LoadConfig()
-				if err != nil {
-					log.Printf("Warning: Failed to load config to update operator npub: %v", err)
-					continue // Continue without updating npub if config can't be loaded
-				}
-				if config != nil && config.TollgatePrivateKey != "" {
-					pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey)
-					if getPubKeyErr == nil {
-						identityConfig.Identities[i].Npub = pubKey
-						log.Printf("Updated operator npub to %s", pubKey)
-						changed = true
-					} else {
-						log.Printf("Warning: Failed to derive npub from TollgatePrivateKey: %v", getPubKeyErr)
-					}
-				}
-			}
+	}
 
-			// Ensure LightningAddress is not empty
-			if identity.LightningAddress == "" {
-				identityConfig.Identities[i].LightningAddress = "tollgate@minibits.cash"
-				changed = true
+	// Ensure all individual identities have their fields populated
+	for i, identity := range identityConfig.Identities {
+		if identity.Name == "operator" && identity.Npub == "" {
+			config, err := cm.LoadConfig()
+			if err != nil {
+				log.Printf("Warning: Failed to load config to update operator npub: %v", err)
+			} else if config != nil && config.TollgatePrivateKey != "" {
+				if pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey); getPubKeyErr == nil {
+					identityConfig.Identities[i].Npub = pubKey
+					log.Printf("Updated operator npub to %s", pubKey)
+					changed = true
+				}
 			}
 		}
-
-		// Ensure the identity config version is up-to-date
-		if identityConfig.ConfigVersion != CurrentIdentityVersion {
-			identityConfig.ConfigVersion = CurrentIdentityVersion
+		if identity.LightningAddress == "" {
+			identityConfig.Identities[i].LightningAddress = "tollgate@minibits.cash"
 			changed = true
 		}
 	}
 
+	if identityConfig.ConfigVersion != CurrentIdentityVersion {
+		log.Printf("Updating identities config version from '%s' to '%s'", identityConfig.ConfigVersion, CurrentIdentityVersion)
+		identityConfig.ConfigVersion = CurrentIdentityVersion
+		changed = true
+	}
+
 	if changed {
-		err = cm.SaveIdentities(identityConfig)
-		if err != nil {
+		log.Printf("Saving updated identities configuration to %s", cm.identitiesFilePath())
+		if err = cm.SaveIdentities(identityConfig); err != nil {
 			return nil, err
 		}
 	}
@@ -401,58 +382,54 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		return nil, err
 	}
 
-	changed := false // Initialize changed flag
-
-	// If the install config file does not exist, is empty, or malformed, create a new one with defaults.
+	changed := false
 	if installConfig == nil {
-		installConfig = &InstallConfig{
-			ConfigVersion:          CurrentInstallVersion, // Set default version for new installs
-			PackagePath:            "",                    // Default to empty string for package path
-			IPAddressRandomized:    false,
-			InstallTimestamp:       0, // unknown
-			DownloadTimestamp:      0, // unknown
-			ReleaseChannel:         "stable",
-			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
-			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
-		}
+		log.Printf("No install file found. Creating new default install config.")
+		installConfig = &InstallConfig{}
 		changed = true
-	} else {
-		// Ensure all fields have default values if they are missing (e.g., from an older config file)
-		if installConfig.ConfigVersion == "" {
-			installConfig.ConfigVersion = CurrentInstallVersion
-			changed = true
-		}
-		if installConfig.PackagePath == "false" { // Old default was "false" string, now ""
-			installConfig.PackagePath = ""
-			changed = true
-		}
-		if installConfig.InstallTimestamp == 0 {
-			// If InstallTimestamp is 0, it means it's missing or not set.
-			// We don't set it to CURRENT_TIMESTAMP here as it should reflect actual install time.
-			// It will remain 0 unless set by the installation process itself.
-			// However, if the field is genuinely missing from an old config, we might want to default it.
-			// For now, keep it 0 if it's 0.
-		}
-		if installConfig.DownloadTimestamp == 0 {
-			// Similar to InstallTimestamp, keep it 0 if it's 0.
-		}
-		if installConfig.ReleaseChannel == "" {
-			installConfig.ReleaseChannel = "stable"
-			changed = true
-		}
-		if installConfig.EnsureDefaultTimestamp == 0 {
-			installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
-			changed = true
-		}
-		if installConfig.InstalledVersion == "" {
-			installConfig.InstalledVersion = "0.0.0"
-			changed = true
-		}
 	}
 
+	if installConfig.ConfigVersion != CurrentInstallVersion {
+		log.Printf("Updating install config version from '%s' to '%s'", installConfig.ConfigVersion, CurrentInstallVersion)
+		installConfig.ConfigVersion = CurrentInstallVersion
+		changed = true
+	}
+	if installConfig.PackagePath == "false" { // Handle legacy "false" string
+		log.Printf("Legacy 'false' string found for PackagePath, clearing.")
+		installConfig.PackagePath = ""
+		changed = true
+	}
+	if installConfig.InstallTimestamp == 0 {
+		// If InstallTimestamp is 0, it means it's missing or not set.
+		// We don't set it to CURRENT_TIMESTAMP here as it should reflect actual install time.
+		// It will remain 0 unless set by the installation process itself.
+		// However, if the field is genuinely missing from an old config, we might want to default it.
+		// For now, keep it 0 if it's 0.
+	}
+	if installConfig.DownloadTimestamp == 0 {
+		// Similar to InstallTimestamp, keep it 0 if it's 0.
+	}
+	if installConfig.ReleaseChannel == "" {
+		log.Printf("ReleaseChannel missing, setting to 'stable'.")
+		installConfig.ReleaseChannel = "stable"
+		changed = true
+	}
+	if installConfig.EnsureDefaultTimestamp == 0 {
+		log.Printf("EnsureDefaultTimestamp missing, setting to current time.")
+		installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
+		changed = true
+	}
+	if installConfig.InstalledVersion == "" {
+		log.Printf("InstalledVersion missing, setting to '0.0.0'.")
+		installConfig.InstalledVersion = "0.0.0"
+		changed = true
+	}
+	// Note: IPAddressRandomized, InstallTimestamp, and DownloadTimestamp default to their zero values (false, 0, 0)
+	// which is the desired behavior for "missing". They are set by other processes.
+
 	if changed {
-		err = cm.SaveInstallConfig(installConfig)
-		if err != nil {
+		log.Printf("Saving updated install configuration to %s", cm.installFilePath())
+		if err = cm.SaveInstallConfig(installConfig); err != nil {
 			return nil, err
 		}
 	}
@@ -678,181 +655,102 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	changed := false // Initialize changed flag
+
+	changed := false
 	if config == nil {
+		log.Printf("No config file found. Creating new default config.")
+		config = &Config{}
+		changed = true
+	}
+
+	if config.ConfigVersion != CurrentConfigVersion {
+		log.Printf("Updating config version from '%s' to '%s'", config.ConfigVersion, CurrentConfigVersion)
+		config.ConfigVersion = CurrentConfigVersion
+		changed = true
+	}
+
+	if config.TollgatePrivateKey == "" {
+		log.Printf("TollgatePrivateKey missing. Generating new key.")
 		privateKey, err := cm.generatePrivateKey()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to generate private key: %w", err)
 		}
-
-		config = &Config{ // Assign directly to config
-			ConfigVersion:      CurrentConfigVersion,
-			TollgatePrivateKey: privateKey,
-			AcceptedMints: []MintConfig{
-				{
-					URL:                     "https://mint.minibits.cash/Bitcoin",
-					MinBalance:              8,
-					BalanceTolerancePercent: 10,
-					PayoutIntervalSeconds:   60,
-					MinPayoutAmount:         16,
-					PricePerStep:            1,
-					MinPurchaseSteps:        0,
-				},
-				{
-					URL:                     "https://mint2.nutmix.cash",
-					MinBalance:              8,
-					BalanceTolerancePercent: 10,
-					PayoutIntervalSeconds:   60,
-					MinPayoutAmount:         16,
-					PricePerStep:            1,
-					MinPurchaseSteps:        0,
-				},
-			},
-			ProfitShare: []ProfitShareConfig{
-				{Factor: 0.70, Identity: "operator"},
-				{Factor: 0.30, Identity: "developer"},
-			},
-			Metric:   "milliseconds",
-			StepSize: 600000,
-			Bragging: BraggingConfig{
-				Enabled: true,
-				Fields:  []string{"amount", "mint", "duration"},
-			},
-			Relays: []string{
-				"wss://relay.damus.io",
-				"wss://nos.lol",
-				"wss://nostr.mom",
-				//"wss://relay.tollgate.me", // TODO: make it more resillient to broken relays..
-			},
-			TrustedMaintainers: []string{
-				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
-			},
-			ShowSetup:             true,
-			CurrentInstallationID: "",
-			Merchant: MerchantConfig{
-				Identity: "operator",
-			},
-		}
-		changed = true // Set changed to true for new config
-	} else { // This block handles existing configs
-		// If config exists, ensure all fields have default values if they are missing (e.g., from an older config file)
-		// This is a simplified check; a more robust solution would track actual changes.
-		// If config is loaded but has no private key, generate one
-		if config.ConfigVersion != CurrentConfigVersion {
-			log.Printf("Config file version mismatch. Updating version from %s to %s.", config.ConfigVersion, CurrentConfigVersion)
-			config.ConfigVersion = CurrentConfigVersion
-			changed = true
-		}
-		if config.TollgatePrivateKey == "" {
-			privateKey, err := cm.generatePrivateKey()
-			if err != nil {
-				return nil, fmt.Errorf("failed to generate private key: %w", err)
-			}
-			config.TollgatePrivateKey = privateKey
-			changed = true
-		}
-
-		// Populate AcceptedMints if missing or empty
-		if len(config.AcceptedMints) == 0 {
-			config.AcceptedMints = []MintConfig{
-				{
-					URL:                     "https://mint.minibits.cash/Bitcoin",
-					MinBalance:              8,
-					BalanceTolerancePercent: 10,
-					PayoutIntervalSeconds:   60,
-					MinPayoutAmount:         16,
-					PricePerStep:            1,
-					MinPurchaseSteps:        0,
-				},
-				{
-					URL:                     "https://mint2.nutmix.cash",
-					MinBalance:              8,
-					BalanceTolerancePercent: 10,
-					PayoutIntervalSeconds:   60,
-					MinPayoutAmount:         16,
-					PricePerStep:            1,
-					MinPurchaseSteps:        0,
-				},
-			}
-			changed = true
-		}
-
-		// Populate ProfitShare if missing or empty
-		if len(config.ProfitShare) == 0 {
-			config.ProfitShare = []ProfitShareConfig{
-				{Factor: 0.70, Identity: "operator"},
-				{Factor: 0.30, Identity: "developer"},
-			}
-			changed = true
-		}
-
-		// Populate StepSize if missing or zero
-		if config.StepSize == 0 {
-			config.StepSize = 600000
-			changed = true
-		}
-
-		// Populate Metric if missing or empty
-		if config.Metric == "" {
-			config.Metric = "milliseconds"
-			changed = true
-		}
-
-		// Populate Bragging if missing or default values are not set
-		if !config.Bragging.Enabled || len(config.Bragging.Fields) == 0 {
-			config.Bragging = BraggingConfig{
-				Enabled: true,
-				Fields:  []string{"amount", "mint", "duration"},
-			}
-			changed = true
-		}
-
-		// Populate Relays if missing or empty
-		if len(config.Relays) == 0 {
-			config.Relays = []string{
-				"wss://relay.damus.io",
-				"wss://nos.lol",
-				"wss://nostr.mom",
-			}
-			changed = true
-		}
-
-		// Populate TrustedMaintainers if missing or empty
-		if len(config.TrustedMaintainers) == 0 {
-			config.TrustedMaintainers = []string{
-				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
-			}
-			changed = true
-		}
-
-		// Populate ShowSetup if missing (default to true)
-		// This field is a boolean, so it defaults to false. If it's false and it should be true, then update.
-		// However, the default in the initial config creation is true, so let's stick to that.
-		if !config.ShowSetup { // If it's false, and we want it to be true by default
-			config.ShowSetup = true
-			changed = true
-		}
-
-		// Populate CurrentInstallationID if missing (default to empty string)
-		if config.CurrentInstallationID == "" {
-			config.CurrentInstallationID = "" // Explicitly keeping empty string as default
-			// No 'changed = true' here as it's an empty default and not a functional change
-		}
-
-		// Populate Merchant if missing or default values are not set
-		if config.Merchant.Identity == "" {
-			config.Merchant.Identity = "operator"
-			changed = true
-		}
+		config.TollgatePrivateKey = privateKey
+		changed = true
 	}
-	if changed { // Unified save block
-		err = cm.SaveConfig(config)
-		if err != nil {
+
+	if config.AcceptedMints == nil {
+		log.Printf("AcceptedMints missing. Populating with default mints.")
+		config.AcceptedMints = []MintConfig{
+			{URL: "https://mint.minibits.cash/Bitcoin", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, MinPurchaseSteps: 0},
+			{URL: "https://mint2.nutmix.cash", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, MinPurchaseSteps: 0},
+		}
+		changed = true
+	}
+
+	if config.ProfitShare == nil {
+		log.Printf("ProfitShare missing. Populating with default profit share.")
+		config.ProfitShare = []ProfitShareConfig{
+			{Factor: 0.70, Identity: "operator"},
+			{Factor: 0.30, Identity: "developer"},
+		}
+		changed = true
+	}
+
+	if config.StepSize == 0 {
+		log.Printf("StepSize missing. Setting to default.")
+		config.StepSize = 600000
+		changed = true
+	}
+
+	if config.Metric == "" {
+		log.Printf("Metric missing. Setting to default.")
+		config.Metric = "milliseconds"
+		changed = true
+	}
+
+	if config.Bragging.Fields == nil {
+		log.Printf("Bragging.Fields missing. Populating with default bragging config.")
+		config.Bragging = BraggingConfig{
+			Enabled: true,
+			Fields:  []string{"amount", "mint", "duration"},
+		}
+		changed = true
+	}
+
+	if config.Relays == nil {
+		log.Printf("Relays missing. Populating with default relays.")
+		config.Relays = []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"}
+		changed = true
+	}
+
+	if config.TrustedMaintainers == nil {
+		log.Printf("TrustedMaintainers missing. Populating with default maintainers.")
+		config.TrustedMaintainers = []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"}
+		changed = true
+	}
+
+	// This logic handles both a missing `show_setup` key (where it defaults to false)
+	// and an explicit `show_setup: false`. Per user feedback, we are ensuring it gets set to true.
+	if !config.ShowSetup {
+		log.Printf("ShowSetup is false. Setting to true.")
+		config.ShowSetup = true
+		changed = true
+	}
+
+	if config.Merchant.Identity == "" {
+		log.Printf("Merchant.Identity missing. Setting to 'operator'.")
+		config.Merchant.Identity = "operator"
+		changed = true
+	}
+
+	if changed {
+		log.Printf("Saving updated configuration to %s", cm.FilePath)
+		if err = cm.SaveConfig(config); err != nil {
 			return nil, err
 		}
 		// Set username after saving the config
-		err = cm.setUsername(config.TollgatePrivateKey, "c03rad0r")
-		if err != nil {
+		if err = cm.setUsername(config.TollgatePrivateKey, "c03rad0r"); err != nil {
 			log.Printf("Failed to set username: %v", err)
 		}
 	}
