@@ -78,6 +78,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration $(1)/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration $(1)/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-config-migration-v0.0.3-to-v0.0.4-migration $(1)/etc/uci-defaults/99-tollgate-config-migration-v0.0.3-to-v0.0.4-migration
 	
 	# UCI defaults for random LAN IP
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
@@ -132,6 +133,7 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration \
 	/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration \
+	/etc/uci-defaults/99-tollgate-config-migration-v0.0.3-to-v0.0.4-migration \
 	/etc/uci-defaults/95-random-lan-ip \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/tollgate/tollgate-captive-portal-site/* \
