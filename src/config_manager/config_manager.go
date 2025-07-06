@@ -751,6 +751,99 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			config.TollgatePrivateKey = privateKey
 			changed = true
 		}
+
+		// Populate AcceptedMints if missing or empty
+		if len(config.AcceptedMints) == 0 {
+			config.AcceptedMints = []MintConfig{
+				{
+					URL:                     "https://mint.minibits.cash/Bitcoin",
+					MinBalance:              8,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					MinPayoutAmount:         16,
+					PricePerStep:            1,
+					MinPurchaseSteps:        0,
+				},
+				{
+					URL:                     "https://mint2.nutmix.cash",
+					MinBalance:              8,
+					BalanceTolerancePercent: 10,
+					PayoutIntervalSeconds:   60,
+					MinPayoutAmount:         16,
+					PricePerStep:            1,
+					MinPurchaseSteps:        0,
+				},
+			}
+			changed = true
+		}
+
+		// Populate ProfitShare if missing or empty
+		if len(config.ProfitShare) == 0 {
+			config.ProfitShare = []ProfitShareConfig{
+				{Factor: 0.70, Identity: "operator"},
+				{Factor: 0.30, Identity: "developer"},
+			}
+			changed = true
+		}
+
+		// Populate StepSize if missing or zero
+		if config.StepSize == 0 {
+			config.StepSize = 600000
+			changed = true
+		}
+
+		// Populate Metric if missing or empty
+		if config.Metric == "" {
+			config.Metric = "milliseconds"
+			changed = true
+		}
+
+		// Populate Bragging if missing or default values are not set
+		if !config.Bragging.Enabled || len(config.Bragging.Fields) == 0 {
+			config.Bragging = BraggingConfig{
+				Enabled: true,
+				Fields:  []string{"amount", "mint", "duration"},
+			}
+			changed = true
+		}
+
+		// Populate Relays if missing or empty
+		if len(config.Relays) == 0 {
+			config.Relays = []string{
+				"wss://relay.damus.io",
+				"wss://nos.lol",
+				"wss://nostr.mom",
+			}
+			changed = true
+		}
+
+		// Populate TrustedMaintainers if missing or empty
+		if len(config.TrustedMaintainers) == 0 {
+			config.TrustedMaintainers = []string{
+				"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
+			}
+			changed = true
+		}
+
+		// Populate ShowSetup if missing (default to true)
+		// This field is a boolean, so it defaults to false. If it's false and it should be true, then update.
+		// However, the default in the initial config creation is true, so let's stick to that.
+		if !config.ShowSetup { // If it's false, and we want it to be true by default
+			config.ShowSetup = true
+			changed = true
+		}
+
+		// Populate CurrentInstallationID if missing (default to empty string)
+		if config.CurrentInstallationID == "" {
+			config.CurrentInstallationID = "" // Explicitly keeping empty string as default
+			// No 'changed = true' here as it's an empty default and not a functional change
+		}
+
+		// Populate Merchant if missing or default values are not set
+		if config.Merchant.Identity == "" {
+			config.Merchant.Identity = "operator"
+			changed = true
+		}
 	}
 	if changed { // Unified save block
 		err = cm.SaveConfig(config)

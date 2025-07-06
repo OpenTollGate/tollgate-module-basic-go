@@ -159,6 +159,126 @@ func TestConfigManager(t *testing.T) {
 	assert.Equal(t, newInstallConfig.InstalledVersion, loadedInstallConfig.InstalledVersion)
 }
 
+func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
+	// Create a temporary directory for test config files
+	tempDir, err := ioutil.TempDir("", "test_ensure_default_config_missing_fields")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir) // Clean up the temporary directory
+
+	configFile := filepath.Join(tempDir, "config.json")
+
+	// Create a config.json file with some missing fields
+	initalContent := `
+{
+	"config_version": "v0.0.4",
+	"tollgate_private_key": "test_private_key",
+	"step_size": 100000,
+	"metric": "seconds"
+}
+`
+	err = ioutil.WriteFile(configFile, []byte(initalContent), 0644)
+	assert.NoError(t, err)
+
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default config should populate missing fields
+	config, err := cm.EnsureDefaultConfig()
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+
+	// Verify missing fields are populated with defaults
+	assert.Equal(t, CurrentConfigVersion, config.ConfigVersion)
+	assert.Equal(t, "test_private_key", config.TollgatePrivateKey)
+	assert.NotEmpty(t, config.AcceptedMints)
+	assert.NotEmpty(t, config.ProfitShare)
+	assert.Equal(t, uint64(100000), config.StepSize)
+	assert.Equal(t, "seconds", config.Metric)
+	assert.True(t, config.Bragging.Enabled)
+	assert.NotEmpty(t, config.Bragging.Fields)
+	assert.NotEmpty(t, config.Relays)
+	assert.NotEmpty(t, config.TrustedMaintainers)
+	assert.True(t, config.ShowSetup) // Default is true
+	assert.NotEmpty(t, config.Merchant.Identity)
+
+	// Verify the file on disk is updated
+	updatedContent, err := ioutil.ReadFile(configFile)
+	assert.NoError(t, err)
+	var loadedConfig Config
+	err = json.Unmarshal(updatedContent, &loadedConfig)
+	assert.NoError(t, err)
+
+	assert.Equal(t, config.ConfigVersion, loadedConfig.ConfigVersion)
+	assert.Equal(t, config.TollgatePrivateKey, loadedConfig.TollgatePrivateKey)
+	assert.Equal(t, len(config.AcceptedMints), len(loadedConfig.AcceptedMints))
+	assert.Equal(t, len(config.ProfitShare), len(loadedConfig.ProfitShare))
+	assert.Equal(t, config.StepSize, loadedConfig.StepSize)
+	assert.Equal(t, config.Metric, loadedConfig.Metric)
+	assert.Equal(t, config.Bragging.Enabled, loadedConfig.Bragging.Enabled)
+	assert.Equal(t, len(config.Bragging.Fields), len(loadedConfig.Bragging.Fields))
+	assert.Equal(t, len(config.Relays), len(loadedConfig.Relays))
+	assert.Equal(t, len(config.TrustedMaintainers), len(loadedConfig.TrustedMaintainers))
+	assert.Equal(t, config.ShowSetup, loadedConfig.ShowSetup)
+	assert.Equal(t, config.Merchant.Identity, loadedConfig.Merchant.Identity)
+}
+
+func TestEnsureDefaultInstall_MissingFields(t *testing.T) {
+	// Create a temporary directory for test config files
+	tempDir, err := ioutil.TempDir("", "test_ensure_default_install_missing_fields")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir) // Clean up the temporary directory
+
+	installFile := filepath.Join(tempDir, "install.json")
+	configFile := filepath.Join(tempDir, "config.json") // Need a dummy config.json for NewConfigManager
+
+	// Create an install.json file with some missing fields
+	initialContent := `
+{
+	"config_version": "v0.0.2",
+	"package_path": "/existing/path",
+	"ip_address_randomized": true
+}
+`
+	err = ioutil.WriteFile(installFile, []byte(initialContent), 0644)
+	assert.NoError(t, err)
+
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default install should populate missing fields
+	installConfig, err := cm.EnsureDefaultInstall()
+	assert.NoError(t, err)
+	assert.NotNil(t, installConfig)
+
+	// Verify missing fields are populated with defaults
+	assert.Equal(t, CurrentInstallVersion, installConfig.ConfigVersion)
+	assert.Equal(t, "/existing/path", installConfig.PackagePath)
+	assert.True(t, installConfig.IPAddressRandomized)
+	assert.NotZero(t, installConfig.EnsureDefaultTimestamp) // Should be set to current timestamp
+	assert.Equal(t, "stable", installConfig.ReleaseChannel)
+	assert.Equal(t, "0.0.0", installConfig.InstalledVersion)
+
+	// Verify InstallTimestamp and DownloadTimestamp remain 0
+	assert.Zero(t, installConfig.InstallTimestamp)
+	assert.Zero(t, installConfig.DownloadTimestamp)
+
+	// Verify the file on disk is updated
+	updatedContent, err := ioutil.ReadFile(installFile)
+	assert.NoError(t, err)
+	var loadedInstall InstallConfig
+	err = json.Unmarshal(updatedContent, &loadedInstall)
+	assert.NoError(t, err)
+
+	assert.Equal(t, installConfig.ConfigVersion, loadedInstall.ConfigVersion)
+	assert.Equal(t, installConfig.PackagePath, loadedInstall.PackagePath)
+	assert.Equal(t, installConfig.IPAddressRandomized, loadedInstall.IPAddressRandomized)
+	assert.Equal(t, installConfig.InstallTimestamp, loadedInstall.InstallTimestamp)
+	assert.Equal(t, installConfig.DownloadTimestamp, loadedInstall.DownloadTimestamp)
+	assert.Equal(t, installConfig.ReleaseChannel, loadedInstall.ReleaseChannel)
+	assert.Equal(t, installConfig.EnsureDefaultTimestamp, loadedInstall.EnsureDefaultTimestamp)
+	assert.Equal(t, installConfig.InstalledVersion, loadedInstall.InstalledVersion)
+}
+
 func TestEnsureDefaultInstall_UnversionedConfig(t *testing.T) {
 	// Create a temporary directory for test config files
 	tempDir, err := ioutil.TempDir("", "test_ensure_default_install_unversioned")
@@ -377,4 +497,57 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	assert.Equal(t, "existing_path", loadedInstall.PackagePath, "install.json PackagePath should not be overwritten")
 	assert.Equal(t, true, loadedInstall.IPAddressRandomized, "install.json IPAddressRandomized should be populated")
 	assert.Equal(t, "v0.0.2", loadedInstall.ConfigVersion, "install.json ConfigVersion should be v0.0.2")
+}
+
+func TestEnsureDefaultIdentities_MissingFields(t *testing.T) {
+	// Create a temporary directory for test config files
+	tempDir, err := ioutil.TempDir("", "test_ensure_default_identities_missing_fields")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir) // Clean up the temporary directory
+
+	identitiesFile := filepath.Join(tempDir, "identities.json")
+	configFile := filepath.Join(tempDir, "config.json") // Need a dummy config.json for NewConfigManager
+
+	// Create an identities.json file with some missing fields (e.g., lightning_address)
+	initialContent := `
+{
+	"config_version": "v0.0.1",
+	"identities": [
+		{
+			"name": "Test Identity 1",
+			"npub": "npub1..."
+		}
+	]
+}
+`
+	err = ioutil.WriteFile(identitiesFile, []byte(initialContent), 0644)
+	assert.NoError(t, err)
+
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default identities should populate missing fields
+	identitiesConfig, err := cm.EnsureDefaultIdentities()
+	assert.NoError(t, err)
+	assert.NotNil(t, identitiesConfig)
+
+	// Verify missing fields are populated with defaults
+	assert.Equal(t, CurrentIdentityVersion, identitiesConfig.ConfigVersion)
+	assert.Len(t, identitiesConfig.Identities, 1)
+	assert.Equal(t, "Test Identity 1", identitiesConfig.Identities[0].Name)
+	assert.Equal(t, "npub1...", identitiesConfig.Identities[0].Npub)
+	assert.Equal(t, "tollgate@minibits.cash", identitiesConfig.Identities[0].LightningAddress) // Should be defaulted
+
+	// Verify the file on disk is updated
+	updatedContent, err := ioutil.ReadFile(identitiesFile)
+	assert.NoError(t, err)
+	var loadedIdentities IdentityConfig
+	err = json.Unmarshal(updatedContent, &loadedIdentities)
+	assert.NoError(t, err)
+
+	assert.Equal(t, identitiesConfig.ConfigVersion, loadedIdentities.ConfigVersion)
+	assert.Len(t, loadedIdentities.Identities, 1)
+	assert.Equal(t, identitiesConfig.Identities[0].Name, loadedIdentities.Identities[0].Name)
+	assert.Equal(t, identitiesConfig.Identities[0].Npub, loadedIdentities.Identities[0].Npub)
+	assert.Equal(t, identitiesConfig.Identities[0].LightningAddress, loadedIdentities.Identities[0].LightningAddress)
 }
