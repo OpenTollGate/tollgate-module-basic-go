@@ -158,10 +158,38 @@ log_message "dnsmasq configuration completed"
 
 # 4. Configure TollGate WiFi networks (AP mode)
 log_message "Configuring TollGate WiFi networks (AP mode)"
-# Generate a random 4-character suffix for the SSID
-RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
-SSID_BASE="TollGate-${RANDOM_SUFFIX}"
-log_message "Generated new random SSID: $SSID_BASE"
+# Find a suitable existing TollGate AP to reuse its SSID
+SSID_BASE=""
+for iface in $(uci -q show wireless | grep 'wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
+    ssid=$(uci -q get wireless."$iface".ssid)
+    mode=$(uci -q get wireless."$iface".mode)
+    network=$(uci -q get wireless."$iface".network)
+    encryption=$(uci -q get wireless."$iface".encryption)
+
+    if [[ "$ssid" == TollGate-* ]] && [ "$mode" = "ap" ] && [ "$network" = "lan" ] && [ "$encryption" = "none" ]; then
+        SSID_BASE="$ssid"
+        log_message "Found suitable existing TollGate SSID: $SSID_BASE from interface $iface. Re-using it."
+        break
+    fi
+done
+
+# If no suitable SSID was found, generate a new one
+if [ -z "$SSID_BASE" ]; then
+    RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
+    SSID_BASE="TollGate-${RANDOM_SUFFIX}"
+    log_message "No existing suitable TollGate SSID found. Generated new random SSID: $SSID_BASE"
+fi
+
+# Disable all other AP interfaces to avoid duplicates
+log_message "Disabling all other AP interfaces"
+for iface in $(uci -q show wireless | grep 'wifi-iface' | cut -d'.' -f2 | cut -d'=' -f1); do
+    if [ "$(uci -q get wireless."$iface".mode)" = "ap" ]; then
+        if [ "$(uci -q get wireless."$iface".ssid)" != "$SSID_BASE" ]; then
+            uci_safe_set wireless "$iface" disabled '1'
+            log_message "Disabled other AP interface: $iface"
+        fi
+    fi
+done
 
 # Get all wifi-device sections (e.g., radio0, radio1, mt798111, mt798112)
 # We use 'uci -q show wireless | grep "\.type='"' to get the section name
