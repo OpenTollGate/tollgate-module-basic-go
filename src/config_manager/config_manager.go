@@ -664,13 +664,14 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+	changed := false // Initialize changed flag
 	if config == nil {
 		privateKey, err := cm.generatePrivateKey()
 		if err != nil {
 			return nil, err
 		}
 
-		defaultConfig := &Config{
+		config = &Config{ // Assign directly to config
 			ConfigVersion:      CurrentConfigVersion,
 			TollgatePrivateKey: privateKey,
 			AcceptedMints: []MintConfig{
@@ -718,17 +719,35 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				Identity: "operator",
 			},
 		}
-		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
-		err = cm.SaveConfig(defaultConfig)
+		changed = true // Set changed to true for new config
+	} else { // This block handles existing configs
+		// If config exists, ensure all fields have default values if they are missing (e.g., from an older config file)
+		// This is a simplified check; a more robust solution would track actual changes.
+		// If config is loaded but has no private key, generate one
+		if config.ConfigVersion != CurrentConfigVersion {
+			log.Printf("Config file version mismatch. Updating version from %s to %s.", config.ConfigVersion, CurrentConfigVersion)
+			config.ConfigVersion = CurrentConfigVersion
+			changed = true
+		}
+		if config.TollgatePrivateKey == "" {
+			privateKey, err := cm.generatePrivateKey()
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate private key: %w", err)
+			}
+			config.TollgatePrivateKey = privateKey
+			changed = true
+		}
+	}
+	if changed { // Unified save block
+		err = cm.SaveConfig(config)
 		if err != nil {
 			return nil, err
 		}
 		// Set username after saving the config
-		err = cm.setUsername(privateKey, "c03rad0r")
+		err = cm.setUsername(config.TollgatePrivateKey, "c03rad0r")
 		if err != nil {
 			log.Printf("Failed to set username: %v", err)
 		}
-		return defaultConfig, nil
 	}
 	return config, nil
 }
