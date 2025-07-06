@@ -81,6 +81,12 @@ type MerchantConfig struct {
 	Identity string `json:"identity"`
 }
 
+// IdentityConfig holds the identities configuration parameters, including its version
+type IdentityConfig struct {
+	ConfigVersion string     `json:"config_version"`
+	Identities    []Identity `json:"identities"`
+}
+
 // MintConfig holds configuration for a specific mint including payout settings
 type MintConfig struct {
 	URL                     string `json:"url"`
@@ -252,30 +258,48 @@ func (cm *ConfigManager) identitiesFilePath() string {
 	return filepath.Join(filepath.Dir(cm.FilePath), "identities.json")
 }
 
-// LoadIdentities reads the identities from the managed file
-func (cm *ConfigManager) LoadIdentities() ([]Identity, error) {
+// LoadIdentities reads the identities from the managed file, handling both versioned and unversioned formats.
+func (cm *ConfigManager) LoadIdentities() (*IdentityConfig, error) {
 	data, err := os.ReadFile(cm.identitiesFilePath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // Return nil identities if file does not exist
+			return nil, nil // Return nil config if file does not exist
 		}
 		return nil, fmt.Errorf("error reading identities file: %w", err)
 	}
 	if len(data) == 0 {
-		return nil, nil // Return nil identities if file is empty
+		return nil, nil // Return nil config if file is empty
 	}
-	var identities []Identity
-	err = json.Unmarshal(data, &identities)
-	if err != nil {
-		log.Printf("Error unmarshalling identities file %s: %v. Treating as empty/non-existent.", cm.identitiesFilePath(), err)
-		return nil, nil
+
+	var identityConfig IdentityConfig
+	err = json.Unmarshal(data, &identityConfig)
+	if err == nil && identityConfig.ConfigVersion != "" {
+		// Successfully unmarshalled into IdentityConfig with a version, return it.
+		return &identityConfig, nil
 	}
-	return identities, nil
+
+	// If unmarshalling into IdentityConfig failed or no version was present,
+	// try unmarshalling into the old unversioned []Identity format.
+	var oldIdentities []Identity
+	err = json.Unmarshal(data, &oldIdentities)
+	if err == nil {
+		// Successfully unmarshalled into old format, wrap it in a new IdentityConfig
+		// and mark it with the previous version for potential migration.
+		log.Printf("Unversioned identities file found at %s. Migrating to versioned format.", cm.identitiesFilePath())
+		return &IdentityConfig{
+			ConfigVersion: CurrentIdentityVersion, // Assuming CurrentIdentityVersion is the version this unversioned config should be treated as.
+			Identities:    oldIdentities,
+		}, nil
+	}
+
+	// If both attempts failed, log and treat as empty/non-existent.
+	log.Printf("Error unmarshalling identities file %s into either versioned or unversioned format: %v. Treating as empty/non-existent.", cm.identitiesFilePath(), err)
+	return nil, nil
 }
 
-// SaveIdentities writes the identities to the managed file with pretty formatting
-func (cm *ConfigManager) SaveIdentities(identities []Identity) error {
-	data, err := json.MarshalIndent(identities, "", "  ")
+// SaveIdentities writes the IdentityConfig to the managed file with pretty formatting
+func (cm *ConfigManager) SaveIdentities(identityConfig *IdentityConfig) error {
+	data, err := json.MarshalIndent(identityConfig, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -283,14 +307,18 @@ func (cm *ConfigManager) SaveIdentities(identities []Identity) error {
 }
 
 // EnsureDefaultIdentities ensures a default identities file exists, creating it if necessary
-func (cm *ConfigManager) EnsureDefaultIdentities() ([]Identity, error) {
-	identities, err := cm.LoadIdentities()
+func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
+	identityConfig, err := cm.LoadIdentities()
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
-	if identities == nil || len(identities) == 0 {
-		// Load config to get the private key for the operator's npub
+	// Flag to track if any changes were made that require saving
+	changed := false
+
+	if identityConfig == nil || len(identityConfig.Identities) == 0 {
+		// If no identities file exists or it's empty, create default identities
+		log.Printf("No identities found or file is empty. Creating default identities.")
 		config, err := cm.LoadConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load config for default identities: %w", err)
@@ -298,31 +326,65 @@ func (cm *ConfigManager) EnsureDefaultIdentities() ([]Identity, error) {
 
 		operatorNpub := ""
 		if config != nil && config.TollgatePrivateKey != "" {
-			pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey) // Pass the string directly
+			pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey)
 			if getPubKeyErr == nil {
 				operatorNpub = pubKey
 			}
 		}
 
-		defaultIdentities := []Identity{
-			{
-				Name:             "operator",
-				Npub:             operatorNpub,
-				LightningAddress: "tollgate@minibits.cash", // Default for operator
-			},
-			{
-				Name:             "developer",
-				Npub:             "",                       // To be filled by user
-				LightningAddress: "tollgate@minibits.cash", // Default for developer
+		identityConfig = &IdentityConfig{
+			ConfigVersion: CurrentIdentityVersion,
+			Identities: []Identity{
+				{
+					Name:             "operator",
+					Npub:             operatorNpub,
+					LightningAddress: "tollgate@minibits.cash",
+				},
+				{
+					Name:             "developer",
+					Npub:             "",
+					LightningAddress: "tollgate@minibits.cash",
+				},
 			},
 		}
-		err = cm.SaveIdentities(defaultIdentities)
+		changed = true
+	} else {
+		// If identities exist, check for and update operator npub if missing
+		for i, identity := range identityConfig.Identities {
+			if identity.Name == "operator" && identity.Npub == "" {
+				config, err := cm.LoadConfig()
+				if err != nil {
+					log.Printf("Warning: Failed to load config to update operator npub: %v", err)
+					continue // Continue without updating npub if config can't be loaded
+				}
+				if config != nil && config.TollgatePrivateKey != "" {
+					pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey)
+					if getPubKeyErr == nil {
+						identityConfig.Identities[i].Npub = pubKey
+						log.Printf("Updated operator npub to %s", pubKey)
+						changed = true
+					} else {
+						log.Printf("Warning: Failed to derive npub from TollgatePrivateKey: %v", getPubKeyErr)
+					}
+				}
+			}
+		}
+
+		// Ensure the identity config version is up-to-date
+		if identityConfig.ConfigVersion != CurrentIdentityVersion {
+			identityConfig.ConfigVersion = CurrentIdentityVersion
+			changed = true
+		}
+	}
+
+	if changed {
+		err = cm.SaveIdentities(identityConfig)
 		if err != nil {
 			return nil, err
 		}
-		return defaultIdentities, nil
 	}
-	return identities, nil
+
+	return identityConfig, nil
 }
 
 func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {

@@ -109,9 +109,15 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
 	aimedPaymentAmount := balance - mintConfig.MinBalance
 
-	identities, err := m.configManager.LoadIdentities()
+	identityConfig, err := m.configManager.LoadIdentities()
 	if err != nil {
 		log.Printf("Error loading identities for payout: %v", err)
+		return
+	}
+
+	// If no identities are loaded, or the Identities slice is nil/empty, skip payout
+	if identityConfig == nil || len(identityConfig.Identities) == 0 {
+		log.Printf("No identities available for payout. Skipping.")
 		return
 	}
 
@@ -120,9 +126,9 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 
 		// Find the corresponding identity
 		var targetIdentity *config_manager.Identity
-		for i := range identities {
-			if identities[i].Name == profitShare.Identity {
-				targetIdentity = &identities[i]
+		for i := range identityConfig.Identities {
+			if identityConfig.Identities[i].Name == profitShare.Identity {
+				targetIdentity = &identityConfig.Identities[i]
 				break
 			}
 		}

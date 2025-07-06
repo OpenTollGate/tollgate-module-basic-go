@@ -68,22 +68,25 @@ DEVELOPER_LNURL="tollgate@minibits.cash"
 
 # Create identities.json
 jq -n \
-  --arg mn "$MERCHANT_NAME" \
-  --arg ml "$MERCHANT_LNURL" \
+  --arg current_identity_version "v0.0.1" \
   --arg on "$OPERATOR_NPUBA" \
+  --arg ml "$MERCHANT_LNURL" \
   --arg dl "$DEVELOPER_LNURL" \
-  '[
-    {
-      "name": "operator",
-      "npub": $on,
-      "lightning_address": $ml
-    },
-    {
-      "name": "developer",
-      "npub": "",
-      "lightning_address": $dl
-    }
-  ]' > "$IDENTITIES_FILE"
+  '{
+    "config_version": $current_identity_version,
+    "identities": [
+      {
+        "name": "operator",
+        "npub": $on,
+        "lightning_address": $ml
+      },
+      {
+        "name": "developer",
+        "npub": "",
+        "lightning_address": $dl
+      }
+    ]
+  }' > "$IDENTITIES_FILE"
 log "Created identities file at $IDENTITIES_FILE"
 
 # 7. Update config.json
