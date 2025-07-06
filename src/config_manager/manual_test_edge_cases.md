@@ -13,6 +13,9 @@ The following scenarios should be thoroughly tested to ensure robust configurati
         *   [ ] Verify `tollgate` service starts successfully.
         *   [ ] Verify a default `install.json` is generated with correct default values.
         *   [ ] Verify the generated `install.json` contains `config_version: "v0.0.2"`.
+            *   `identities.json` does not exist:
+                *   [ ] Verify `tollgate` service starts successfully.
+                *   [ ] Verify a default `identities.json` is generated with correct default values.
         *   [ ] Verify `InstalledVersion` in `install.json` reflects the current package version (e.g., from `opkg`).
 
 *   **Empty File:**
@@ -70,6 +73,18 @@ The following scenarios should be thoroughly tested to ensure robust configurati
         *   [ ] Run the migration script.
         *   [ ] Verify the script exits, indicating migration is not needed.
         *   [ ] Verify the `config.json` content remains unchanged.
+
+*   **`tollgate-config-migration-v0.0.3-to-v0.0.4-migration`:** (New)
+    *   **Scenario: `config.json` is `v0.0.3` and valid:**
+        *   [ ] Create a `config.json` with `config_version: "v0.0.3"`.
+        *   [ ] Run the migration script.
+        *   [ ] Verify `config_version` is updated to `"v0.0.4"`.
+        *   [ ] Verify `identities.json` is created.
+        *   [ ] Verify `profit_share` and `merchant` now use identity references.
+    *   **Scenario: `config.json` is not `v0.0.3`:**
+        *   [ ] Create a `config.json` with a version other than `v0.0.3`.
+        *   [ ] Run the migration script.
+        *   [ ] Verify the script exits and `config.json` is unchanged.
 
 *   **`97-tollgate-install-config-migration-v0.0.1-to-v0.0.2`:** (New)
     *   **Purpose:** Migrates `install.json` from `v0.0.1` (no `config_version` field) to `v0.0.2`.

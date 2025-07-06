@@ -182,7 +182,7 @@ func TestEnsureDefaultInstall_UnversionedConfig(t *testing.T) {
 	assert.NotNil(t, installConfig)
 
 	// Verify the config_version is set to v0.0.1
-	assert.Equal(t, "v0.0.1", installConfig.ConfigVersion, "Unversioned install.json should be marked as v0.0.1")
+	assert.Equal(t, CurrentInstallVersion, installConfig.ConfigVersion, "Unversioned install.json should be marked as CurrentInstallVersion")
 
 	// Verify other fields are preserved
 	assert.Equal(t, "/old/path", installConfig.PackagePath)
@@ -194,7 +194,7 @@ func TestEnsureDefaultInstall_UnversionedConfig(t *testing.T) {
 	var loadedInstall InstallConfig
 	err = json.Unmarshal(updatedContent, &loadedInstall)
 	assert.NoError(t, err)
-	assert.Equal(t, "v0.0.1", loadedInstall.ConfigVersion)
+	assert.Equal(t, CurrentInstallVersion, loadedInstall.ConfigVersion)
 	assert.Equal(t, "/old/path", loadedInstall.PackagePath)
 	assert.Equal(t, false, loadedInstall.IPAddressRandomized)
 }
@@ -344,7 +344,7 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	installFile := filepath.Join(tempDir, "install.json")
 
 	// Create dummy existing files with valid JSON structure for the types
-	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","tollgate_private_key":"existing_key","bragging":{"enabled":false,"fields":[]},"merchant":{"name":"Existing Merchant"}}`), 0644)
+	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","tollgate_private_key":"existing_key","bragging":{"enabled":false,"fields":[]},"merchant":{"identity":"operator"}}`), 0644)
 	assert.NoError(t, err)
 	// For install.json, we'll create a v0.0.2 version to test existing
 	err = ioutil.WriteFile(installFile, []byte(`{"config_version":"v0.0.2","installed_version":"1.0.0","package_path":"existing_path","ip_address_randomized":true}`), 0644)
@@ -364,7 +364,7 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	err = json.Unmarshal(configContent, &loadedConfig)
 	assert.NoError(t, err)
 	assert.Equal(t, "existing_key", loadedConfig.TollgatePrivateKey, "config.json private key should not be overwritten")
-	assert.Equal(t, "Existing Merchant", loadedConfig.Merchant.Name, "config.json merchant name should not be overwritten")
+	assert.Equal(t, "operator", loadedConfig.Merchant.Identity, "config.json merchant identity should not be overwritten")
 	// The other fields like Relays, TrustedMaintainers, etc., should be populated by EnsureDefaultConfig
 
 	// Verify install.json content is largely unchanged (only missing fields should be added)

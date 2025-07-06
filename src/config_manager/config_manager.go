@@ -17,10 +17,13 @@ import (
 )
 
 // CurrentConfigVersion is the latest version of the config.json format.
-const CurrentConfigVersion = "v0.0.3"
+const CurrentConfigVersion = "v0.0.4"
 
 // CurrentInstallVersion is the latest version of the install.json format.
 const CurrentInstallVersion = "v0.0.2"
+
+// CurrentIdentityVersion is the latest version of the identities.json format.
+const CurrentIdentityVersion = "v0.0.1"
 
 var relayRequestSemaphore = make(chan struct{}, 5) // Allow up to 5 concurrent requests
 
@@ -68,10 +71,14 @@ type BraggingConfig struct {
 }
 
 // MerchantConfig holds configuration specific to the merchant
-type MerchantConfig struct {
+type Identity struct {
 	Name             string `json:"name"`
+	Npub             string `json:"npub"`
 	LightningAddress string `json:"lightning_address"`
-	Website          string `json:"website"`
+}
+
+type MerchantConfig struct {
+	Identity string `json:"identity"`
 }
 
 // MintConfig holds configuration for a specific mint including payout settings
@@ -87,8 +94,8 @@ type MintConfig struct {
 }
 
 type ProfitShareConfig struct {
-	Factor           float64 `json:"factor"`
-	LightningAddress string  `json:"lightning_address"`
+	Factor   float64 `json:"factor"`
+	Identity string  `json:"identity"`
 }
 
 // Config holds the configuration parameters
@@ -230,6 +237,10 @@ func (cm *ConfigManager) EnsureInitializedConfig() error {
 	if err != nil {
 		return err
 	}
+	_, err = cm.EnsureDefaultIdentities()
+	if err != nil {
+		return err
+	}
 	err = cm.UpdateCurrentInstallationID()
 	if err != nil {
 		return err
@@ -237,11 +248,81 @@ func (cm *ConfigManager) EnsureInitializedConfig() error {
 	return nil
 }
 
-func getIPAddress() {
-	// Gets the IP address of
-	// root@OpenWrt:/tmp# ifconfig br-lan | grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}'
-	// 172.20.203.1
-	// Use commands like the above or the go net package to get the IP address this device's LAN interface.
+func (cm *ConfigManager) identitiesFilePath() string {
+	return filepath.Join(filepath.Dir(cm.FilePath), "identities.json")
+}
+
+// LoadIdentities reads the identities from the managed file
+func (cm *ConfigManager) LoadIdentities() ([]Identity, error) {
+	data, err := os.ReadFile(cm.identitiesFilePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // Return nil identities if file does not exist
+		}
+		return nil, fmt.Errorf("error reading identities file: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil // Return nil identities if file is empty
+	}
+	var identities []Identity
+	err = json.Unmarshal(data, &identities)
+	if err != nil {
+		log.Printf("Error unmarshalling identities file %s: %v. Treating as empty/non-existent.", cm.identitiesFilePath(), err)
+		return nil, nil
+	}
+	return identities, nil
+}
+
+// SaveIdentities writes the identities to the managed file with pretty formatting
+func (cm *ConfigManager) SaveIdentities(identities []Identity) error {
+	data, err := json.MarshalIndent(identities, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(cm.identitiesFilePath(), data, 0644)
+}
+
+// EnsureDefaultIdentities ensures a default identities file exists, creating it if necessary
+func (cm *ConfigManager) EnsureDefaultIdentities() ([]Identity, error) {
+	identities, err := cm.LoadIdentities()
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if identities == nil || len(identities) == 0 {
+		// Load config to get the private key for the operator's npub
+		config, err := cm.LoadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load config for default identities: %w", err)
+		}
+
+		operatorNpub := ""
+		if config != nil && config.TollgatePrivateKey != "" {
+			pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey) // Pass the string directly
+			if getPubKeyErr == nil {
+				operatorNpub = pubKey
+			}
+		}
+
+		defaultIdentities := []Identity{
+			{
+				Name:             "operator",
+				Npub:             operatorNpub,
+				LightningAddress: "tollgate@minibits.cash", // Default for operator
+			},
+			{
+				Name:             "developer",
+				Npub:             "",                       // To be filled by user
+				LightningAddress: "tollgate@minibits.cash", // Default for developer
+			},
+		}
+		err = cm.SaveIdentities(defaultIdentities)
+		if err != nil {
+			return nil, err
+		}
+		return defaultIdentities, nil
+	}
+	return identities, nil
 }
 
 func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
@@ -258,8 +339,8 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 			ConfigVersion:          CurrentInstallVersion, // Set default version for new installs
 			PackagePath:            "",                    // Default to empty string for package path
 			IPAddressRandomized:    false,
-			InstallTimestamp:       0,        // unknown
-			DownloadTimestamp:      0,        // unknown
+			InstallTimestamp:       0, // unknown
+			DownloadTimestamp:      0, // unknown
 			ReleaseChannel:         "stable",
 			EnsureDefaultTimestamp: CURRENT_TIMESTAMP,
 			InstalledVersion:       "0.0.0", // Default to 0.0.0 if not found
@@ -551,8 +632,8 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 				},
 			},
 			ProfitShare: []ProfitShareConfig{
-				{0.70, "tollgate@minibits.cash"}, // User should change this
-				{0.30, "tollgate@minibits.cash"},
+				{Factor: 0.70, Identity: "operator"},
+				{Factor: 0.30, Identity: "developer"},
 			},
 			Metric:   "milliseconds",
 			StepSize: 600000,
@@ -572,11 +653,9 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			ShowSetup:             true,
 			CurrentInstallationID: "",
 			Merchant: MerchantConfig{
-				Name:             "c03rad0r",
-				LightningAddress: "tollgate@minibits.cash",
-				Website:          "https://tollgate.me",
+				Identity: "operator",
 			},
-		} // TODO: update the default EventID when we merge to main.
+		}
 		// TODO: consider using separate files to track state and user configurations in future. One file is intended only for the user to write to and config_manager to read from. The other file is intended only for config_manager.go to write to.
 		err = cm.SaveConfig(defaultConfig)
 		if err != nil {
@@ -746,4 +825,11 @@ func (cm *ConfigManager) GetLocalPoolEvents(filters []nostr.Filter) ([]*nostr.Ev
 			return events, nil
 		}
 	}
+}
+
+func getIPAddress() {
+	// Gets the IP address of
+	// root@OpenWrt:/tmp# ifconfig br-lan | grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}'
+	// 172.20.203.1
+	// Use commands like the above or the go net package to get the IP address this device's LAN interface.
 }

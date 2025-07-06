@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `config_manager` package provides a `ConfigManager` struct that manages configuration stored in multiple files, including a main configuration file and an installation configuration file (`install.json`). It includes migration support, pretty-printed JSON output, and flexible metric-based pricing structure.
+The `config_manager` package provides a `ConfigManager` struct that manages configuration stored in multiple files, including a main configuration file (`config.json`), an installation configuration file (`install.json`), and an identities file (`identities.json`). It includes migration support, pretty-printed JSON output, and flexible metric-based pricing structure.
 
 ## Responsibilities (Updated v0.0.4)
 
@@ -15,13 +15,23 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 - Handle flexible metric-based pricing structure
 - Store and manage `release_channel` information for packages
 - Provide mint fee retrieval functionality
+- Manage identities for profit sharing and merchant information through `identities.json`.
 
 ## Configuration Structure Changes
 
+### Identities Config (`identities.json`):
+- **Added**: A new file to store a list of identities.
+- Each identity has a `name`, `npub`, and `lightning_address`.
+- The `name` field serves as a unique identifier.
+
 ### Main Config (`config.json`):
-- **Removed**: `PricePerMinute` (global pricing)
-- **Added**: `Metric` and `StepSize` for flexible pricing units
-- **Enhanced**: Mint-specific configuration with detailed settings
+- **Version**: v0.0.4
+- **Modified**: `MerchantConfig` now references an identity from `identities.json`.
+- **Modified**: `ProfitShareConfig` now references an identity from `identities.json`.
+- **Removed**: `lightning_address` from `ProfitShareConfig`.
+- **Removed**: `name`, `lightning_address`, `website` from `MerchantConfig`.
+- **Added**: `identity` to `MerchantConfig`.
+- **Added**: `identity` to `ProfitShareConfig`.
 
 ### MintConfig Structure:
 - `PricePerStep`: Individual pricing per mint
@@ -35,13 +45,16 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 ## Interfaces
 
 - `NewConfigManager(filePath string) (*ConfigManager, error)`: Creates a new `ConfigManager` instance with the specified file path
-- `EnsureInitializedConfig() error`: Ensures both default main configuration and install configuration exist, creating them if necessary. This is the primary entry point for ensuring a valid system state.
+- `EnsureInitializedConfig() error`: Ensures default main configuration, install configuration, and identities file exist, creating them if necessary. This is the primary entry point for ensuring a valid system state.
 - `LoadConfig() (*Config, error)`: Reads the main configuration from the managed file. Handles cases where the file is missing, empty, or malformed.
 - `SaveConfig(config *Config) error`: Writes configuration with pretty-printed JSON formatting.
 - `LoadInstallConfig() (*InstallConfig, error)`: Reads the installation configuration from `install.json`. Handles cases where the file is missing, empty, or malformed.
 - `SaveInstallConfig(installConfig *InstallConfig) error`: Writes the installation configuration to `install.json`.
+- `LoadIdentities() ([]Identity, error)`: Reads the identities from `identities.json`.
+- `SaveIdentities(identities []Identity) error`: Writes the identities to `identities.json`.
 - `EnsureDefaultConfig() (*Config, error)`: Ensures a default main configuration exists with v0.0.3 structure, generating a private key if needed.
 - `EnsureDefaultInstall() (*InstallConfig, error)`: Ensures a default install configuration exists, populating missing fields from older versions.
+- `EnsureDefaultIdentities() ([]Identity, error)`: Ensures a default identities file exists, creating it with default "operator" and "developer" identities if necessary.
 - `UpdateCurrentInstallationID() error`: Compares the installed version with the NIP94 event version and resets `CurrentInstallationID` if they don't match.
 - `GetNIP94Event(eventID string) (*nostr.Event, error)`: Fetches a NIP-94 event from configured relays.
 - `ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error)`: Extracts package information from a NIP-94 event.
@@ -60,7 +73,7 @@ The `config_manager` package provides a `ConfigManager` struct that manages conf
 
 ### Configuration Migration (`config.json`):
 - Automatic detection of configuration version
-- Migration scripts for v0.0.2 → v0.0.3 transformation
+- Migration scripts for v0.0.3 → v0.0.4 transformation
 - Backup creation and error recovery
 - Version-specific migration guards
 

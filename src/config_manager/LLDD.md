@@ -4,13 +4,33 @@
 
 The `config_manager` package provides robust configuration management, including graceful handling of missing/corrupted files, version tracking, resilient installed version retrieval, migration support, pretty-printed JSON output, and a flexible metric-based pricing structure.
 
-## Config Struct (v0.0.3)
+## Config Struct (v0.0.4)
 
-The `Config` struct has been updated for flexible metric-based pricing:
+The `Config` struct has been updated to reference the new `identities.json` file.
+
+### `identities.json`
+
+```json
+[
+  {
+    "name": "operator",
+    "npub": "npub1g53qcy6e58ycm3xrtacd993z265jfa2u848rtda7x2v5z4gha0dskp4l6t",
+    "lightning_address": "tollgate@minibits.cash"
+  },
+  {
+    "name": "developer",
+    "npub": "npub1...",
+    "lightning_address": "tollgate@minibits.cash"
+  }
+]
+```
+> **Note:** When `EnsureDefaultIdentities` creates a new `identities.json` file, the `npub` for the `operator` identity is derived from the `tollgate_private_key` in `config.json`. However, if an `identities.json` file already exists, this process will not overwrite any existing `npub` values.
+
+### `config.json` (v0.0.4)
 
 ```json
 {
-  "config_version": "v0.0.3",
+  "config_version": "v0.0.4",
   "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
   "accepted_mints": [
     {
@@ -27,11 +47,11 @@ The `Config` struct has been updated for flexible metric-based pricing:
   "profit_share": [
     {
       "factor": 0.70,
-      "lightning_address": "tollgate@minibits.cash"
+      "identity": "operator"
     },
     {
       "factor": 0.30,
-      "lightning_address": "tollgate@minibits.cash"
+      "identity": "developer"
     }
   ],
   "step_size": 60000,
@@ -39,6 +59,9 @@ The `Config` struct has been updated for flexible metric-based pricing:
   "bragging": {
     "enabled": true,
     "fields": ["amount", "mint", "duration"]
+  },
+   "merchant": {
+    "identity": "operator"
   },
   "relays": [
     "wss://relay.damus.io",
@@ -55,33 +78,33 @@ The `Config` struct has been updated for flexible metric-based pricing:
 
 ## Configuration Structure Changes
 
-### Removed Fields:
-- `price_per_minute`: Global pricing removed
+### Identity Struct
+```go
+type Identity struct {
+	Name             string `json:"name"`
+	Npub             string `json:"npub"`
+	LightningAddress string `json:"lightning_address"`
+}
+```
 
-### Added Fields:
-- `step_size`: Configurable step size (e.g., 60000 for 1 minute in milliseconds)
-- `metric`: Pricing metric ("milliseconds", "bytes", etc.)
+### Removed Fields from `config.json`:
+- `lightning_address` from `ProfitShareConfig`
+- `name`, `lightning_address`, `website` from `MerchantConfig`
 
-### Enhanced MintConfig:
-- `price_per_step`: Individual pricing per mint
-- `price_unit`: Unit of pricing (e.g., "sat")
-- `purchase_min_steps`: Minimum purchase requirement per mint
+### Added Fields to `config.json`:
+- `identity` to `ProfitShareConfig`
+- `identity` to `MerchantConfig`
 
 ## Migration Support
 
 ### Migration Scripts (`files/etc/uci-defaults/`):
-- **`98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration`**:
-    - **Purpose:** Migrates `config.json` from `v0.0.1` (no `config_version` field) to `v0.0.2`.
-    - **Validation:** Includes robust checks for file existence, non-emptiness, and valid JSON. It also verifies the presence of `accepted_mints` (as an array) to confirm it's a `v0.0.1` structure.
-    - **Changes:** Adds the `config_version` field.
-- **`99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration`**:
-    - **Purpose:** Migrates `config.json` from `v0.0.2` to `v0.0.3`.
-    - **Validation:** Similar robust checks for file existence, non-emptiness, and valid JSON. Crucially, it specifically checks that `config_version` is *exactly* `v0.0.2` and that `price_per_minute` exists (and is not null) to ensure correct migration.
-    - **Changes:** Converts `price_per_minute` to mint-specific `price_per_step`, adds `metric` and `step_size` fields, and updates the `config_version` to `v0.0.3`.
-- **`97-tollgate-install-config-migration-v0.0.1-to-v0.0.2`**:
-    - **Purpose:** Migrates `install.json` from `v0.0.1` (no `config_version` field) to `v0.0.2`.
-    - **Validation:** Includes robust checks for file existence, non-emptiness, and valid JSON. It also verifies the absence of `config_version` field to confirm it's a `v0.0.1` structure.
-    - **Changes:** Adds the `config_version` field and sets it to `"v0.0.1"`. (Note: The `config_manager` will then treat this as `v0.0.1` and new installs will be `v0.0.2`).
+- **`tollgate-config-migration-v0.0.3-to-v0.0.4-migration`**:
+    - **Purpose:** Migrates `config.json` from `v0.0.3` to `v0.0.4` and creates `identities.json`.
+    - **Validation:** Checks if `config_version` is `v0.0.3`.
+    - **Changes:**
+        - Creates `identities.json` with "operator" and "developer" identities based on the existing `merchant` and `profit_share` fields. The operator's `npub` is derived from the `tollgate_private_key` if not already set.
+        - Updates `config.json` to reference these identities.
+        - Bumps `config_version` to `v0.0.4`.
 
 ### General Migration Process:
 1.  **Existence and Integrity Checks:** Scripts first verify the presence, non-emptiness, and JSON validity of the configuration file.
@@ -99,7 +122,7 @@ The `Config` struct has been updated for flexible metric-based pricing:
 
 ### EnsureInitializedConfig Function
 - Orchestrates the initialization of both main and install configurations.
-- Calls `EnsureDefaultConfig()` and `EnsureDefaultInstall()`.
+- Calls `EnsureDefaultConfig()`, `EnsureDefaultInstall()`, and `EnsureDefaultIdentities()`.
 - Updates the `CurrentInstallationID` based on the installed version.
 
 ### LoadConfig Function
@@ -125,6 +148,10 @@ The `Config` struct has been updated for flexible metric-based pricing:
 - If `LoadInstallConfig` returns `nil` (due to missing/invalid file), it creates a new `InstallConfig` with default values, including `ConfigVersion: "v0.0.2"`.
 - If an existing `install.json` is loaded but is missing the `ConfigVersion` field, it will be populated with `"v0.0.1"` to signify its original unversioned state. This enables future migration scripts to identify and upgrade it.
 - Populates missing fields from older versions with default values, ensuring backward compatibility.
+
+### EnsureDefaultIdentities Function
+- Ensures a default `identities.json` file exists.
+- If the file is missing, it creates one with default "operator" and "developer" identities.
 
 ### UpdateCurrentInstallationID Function
 - Loads the current `Config`.
