@@ -234,6 +234,8 @@ done
 # Commit wireless changes
 uci commit wireless
 log_message "Committed wireless configuration"
+log_message "Reloading wireless to apply changes"
+wifi reload
 
 # 5. Configure NoDogSplash
 log_message "Configuring NoDogSplash"
