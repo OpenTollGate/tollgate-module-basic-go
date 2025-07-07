@@ -1,14 +1,14 @@
 package config_manager
 
 import (
-	"bytes"
+	"fmt" // Added for fmt.Sprintf
 	"log"
 	"os"
-	"strings"
 	"testing"
 
 	"encoding/json"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	"io/ioutil"
 	"path/filepath"
 
@@ -83,7 +83,6 @@ func TestConfigManager(t *testing.T) {
 
 	// Test SaveConfig
 	newConfig := &Config{
-		TollgatePrivateKey: "test_key",
 		AcceptedMints: []MintConfig{
 			{
 				URL:                     "test_mint",
@@ -116,8 +115,7 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("LoadConfig returned error after SaveConfig: %v", err)
 	}
 	// Verify all fields
-	if loadedConfig.TollgatePrivateKey != "test_key" ||
-		!compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
+	if !compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
 		loadedConfig.Metric != "milliseconds" ||
 		loadedConfig.StepSize != 120000 ||
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
@@ -171,7 +169,6 @@ func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
 	initalContent := `
 {
 	"config_version": "v0.0.4",
-	"tollgate_private_key": "test_private_key",
 	"step_size": 100000,
 	"metric": "seconds"
 }
@@ -189,7 +186,6 @@ func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
 
 	// Verify missing fields are populated with defaults
 	assert.Equal(t, CurrentConfigVersion, config.ConfigVersion)
-	assert.Equal(t, "test_private_key", config.TollgatePrivateKey)
 	assert.NotEmpty(t, config.AcceptedMints)
 	assert.NotEmpty(t, config.ProfitShare)
 	assert.Equal(t, uint64(100000), config.StepSize)
@@ -209,7 +205,6 @@ func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, config.ConfigVersion, loadedConfig.ConfigVersion)
-	assert.Equal(t, config.TollgatePrivateKey, loadedConfig.TollgatePrivateKey)
 	assert.Equal(t, len(config.AcceptedMints), len(loadedConfig.AcceptedMints))
 	assert.Equal(t, len(config.ProfitShare), len(loadedConfig.ProfitShare))
 	assert.Equal(t, config.StepSize, loadedConfig.StepSize)
@@ -353,62 +348,25 @@ func TestUpdateCurrentInstallationID(t *testing.T) {
 	}
 }
 
-func TestGeneratePrivateKey(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	cm, err := NewConfigManager(tmpFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = cm.EnsureDefaultConfig()
-	if err != nil {
-		t.Errorf("EnsureDefaultConfig returned error: %v", err)
-	}
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
-
-	privateKey, err := cm.generatePrivateKey()
-	if err != nil {
-		t.Errorf("generatePrivateKey returned error: %v", err)
-	}
-	if privateKey == "" {
-		t.Errorf("generatePrivateKey returned empty private key")
-	} else {
-		log.Printf("Generated private key: %s", privateKey)
-	}
-	logOutput := buf.String()
-	if strings.Contains(logOutput, "Failed to publish event to relay") {
-		t.Errorf("Event publication failed during private key generation: %s", logOutput)
-	}
-}
-
 func TestSetUsername(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
+	tempDir, err := ioutil.TempDir("", "test_set_username")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
 
-	cm, err := NewConfigManager(tmpFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
+	configFile := filepath.Join(tempDir, "config.json")
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
 
-	privateKey := nostr.GeneratePrivateKey()
-	_, err = cm.EnsureDefaultConfig()
-	if err != nil {
-		t.Errorf("EnsureDefaultConfig returned error: %v", err)
-	}
-	err = cm.setUsername(privateKey, "test_c03rad0r")
-	if err != nil {
-		t.Errorf("setUsername returned error: %v", err)
-	}
+	_, err = cm.EnsureDefaultIdentities() // Ensure operator identity exists
+	assert.NoError(t, err)
+
+	// Get the private key for the "operator" identity
+	operatorPrivateKey, err := cm.GetPrivateKey("operator")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, operatorPrivateKey)
+
+	err = cm.setUsername(operatorPrivateKey, "test_c03rad0r")
+	assert.NoError(t, err)
 	// Additional checks can be added here to verify the username is set correctly on relays
 }
 
@@ -464,7 +422,7 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	installFile := filepath.Join(tempDir, "install.json")
 
 	// Create dummy existing files with valid JSON structure for the types
-	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","tollgate_private_key":"existing_key","bragging":{"enabled":false,"fields":[]},"merchant":{"identity":"operator"}}`), 0644)
+	err = ioutil.WriteFile(configFile, []byte(`{"config_version":"v0.0.0","bragging":{"enabled":false,"fields":[]},"merchant":{"identity":"operator"}}`), 0644)
 	assert.NoError(t, err)
 	// For install.json, we'll create a v0.0.2 version to test existing
 	err = ioutil.WriteFile(installFile, []byte(`{"config_version":"v0.0.2","installed_version":"1.0.0","package_path":"existing_path","ip_address_randomized":true}`), 0644)
@@ -483,7 +441,6 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	var loadedConfig Config
 	err = json.Unmarshal(configContent, &loadedConfig)
 	assert.NoError(t, err)
-	assert.Equal(t, "existing_key", loadedConfig.TollgatePrivateKey, "config.json private key should not be overwritten")
 	assert.Equal(t, "operator", loadedConfig.Merchant.Identity, "config.json merchant identity should not be overwritten")
 	// The other fields like Relays, TrustedMaintainers, etc., should be populated by EnsureDefaultConfig
 
@@ -535,7 +492,6 @@ func TestEnsureDefaultIdentities_MissingFields(t *testing.T) {
 	assert.Equal(t, CurrentIdentityVersion, identitiesConfig.ConfigVersion)
 	assert.Len(t, identitiesConfig.Identities, 1)
 	assert.Equal(t, "Test Identity 1", identitiesConfig.Identities[0].Name)
-	assert.Equal(t, "npub1...", identitiesConfig.Identities[0].Npub)
 	assert.Equal(t, "tollgate@minibits.cash", identitiesConfig.Identities[0].LightningAddress) // Should be defaulted
 
 	// Verify the file on disk is updated
@@ -548,6 +504,217 @@ func TestEnsureDefaultIdentities_MissingFields(t *testing.T) {
 	assert.Equal(t, identitiesConfig.ConfigVersion, loadedIdentities.ConfigVersion)
 	assert.Len(t, loadedIdentities.Identities, 1)
 	assert.Equal(t, identitiesConfig.Identities[0].Name, loadedIdentities.Identities[0].Name)
-	assert.Equal(t, identitiesConfig.Identities[0].Npub, loadedIdentities.Identities[0].Npub)
 	assert.Equal(t, identitiesConfig.Identities[0].LightningAddress, loadedIdentities.Identities[0].LightningAddress)
+
+	// Verify that the "operator" identity's npub is correctly derived and stored
+	operatorIdentity, err := cm.GetIdentity("operator")
+	assert.NoError(t, err)
+	assert.NotNil(t, operatorIdentity)
+
+	derivedNpub, err := cm.GetPublicKey("operator")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, derivedNpub)
+}
+
+func TestGetSetIdentity(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test_get_set_identity")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	configFile := filepath.Join(tempDir, "config.json")
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default identities are created
+	_, err = cm.EnsureDefaultIdentities()
+	assert.NoError(t, err)
+
+	// Test GetIdentity for "operator"
+	operatorIdentity, err := cm.GetIdentity("operator")
+	assert.NoError(t, err)
+	assert.NotNil(t, operatorIdentity)
+	assert.Equal(t, "operator", operatorIdentity.Name)
+	assert.NotEmpty(t, operatorIdentity.Key) // Key should be populated
+
+	// Test GetPublicKey for "operator"
+	operatorPublicKey, err := cm.GetPublicKey("operator")
+	assert.NoError(t, err)
+	hexPubKey, err := nostr.GetPublicKey(operatorIdentity.Key[4:]) // Assuming nsec prefix
+	assert.NoError(t, err)
+	derivedPublicKeyFromKey, err := nip19.EncodePublicKey(hexPubKey)
+	assert.NoError(t, err)
+	assert.Equal(t, derivedPublicKeyFromKey, operatorPublicKey)
+
+	// Test GetPrivateKey for "operator"
+	operatorPrivateKey, err := cm.GetPrivateKey("operator")
+	assert.NoError(t, err)
+	assert.Equal(t, operatorIdentity.Key[4:], operatorPrivateKey) // Assuming nsec prefix
+
+	// Test setting a new identity
+	newIdentityName := "test_identity"
+	newPrivateKey := nostr.GeneratePrivateKey()
+	newPublicKey, err := nostr.GetPublicKey(newPrivateKey)
+	assert.NoError(t, err)
+	newNpub, err := nip19.EncodePublicKey(newPublicKey)
+	assert.NoError(t, err)
+
+	err = cm.SetIdentity(newIdentityName, newPrivateKey, "new@address.com")
+	assert.NoError(t, err)
+
+	// Verify the new identity can be retrieved
+	retrievedIdentity, err := cm.GetIdentity(newIdentityName)
+	assert.NoError(t, err)
+	assert.NotNil(t, retrievedIdentity)
+	assert.Equal(t, newIdentityName, retrievedIdentity.Name)
+	derivedRetrievedNpub, err := cm.GetPublicKey(newIdentityName)
+	assert.NoError(t, err)
+	assert.Equal(t, newNpub, derivedRetrievedNpub)
+	assert.Equal(t, newPrivateKey, retrievedIdentity.Key[4:]) // Assuming nsec prefix
+	assert.Equal(t, "new@address.com", retrievedIdentity.LightningAddress)
+
+	// Verify the new identity is saved to disk
+	identitiesConfig, err := cm.LoadIdentities()
+	assert.NoError(t, err)
+	found := false
+	for _, identity := range identitiesConfig.Identities {
+		if identity.Name == newIdentityName {
+			hexPubKeySaved, err := nostr.GetPublicKey(identity.Key[4:]) // Assuming nsec prefix
+			assert.NoError(t, err)
+			derivedSavedNpub, err := nip19.EncodePublicKey(hexPubKeySaved)
+			assert.NoError(t, err)
+			assert.Equal(t, newNpub, derivedSavedNpub)
+			assert.Equal(t, newPrivateKey, identity.Key[4:]) // Assuming nsec prefix
+			assert.Equal(t, "new@address.com", identity.LightningAddress)
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "New identity not found in identities.json")
+
+	// Test updating an existing identity
+	updatedPrivateKey := nostr.GeneratePrivateKey()
+	updatedPublicKey, err := nostr.GetPublicKey(updatedPrivateKey)
+	assert.NoError(t, err)
+	updatedNpub, err := nip19.EncodePublicKey(updatedPublicKey)
+	assert.NoError(t, err)
+
+	err = cm.SetIdentity(newIdentityName, updatedPrivateKey, "updated@address.com")
+	assert.NoError(t, err)
+
+	// Verify the updated identity
+	retrievedUpdatedIdentity, err := cm.GetIdentity(newIdentityName)
+	assert.NoError(t, err)
+	assert.NotNil(t, retrievedUpdatedIdentity)
+	assert.Equal(t, newIdentityName, retrievedUpdatedIdentity.Name)
+	derivedUpdatedRetrievedNpub, err := cm.GetPublicKey(newIdentityName)
+	assert.NoError(t, err)
+	assert.Equal(t, updatedNpub, derivedUpdatedRetrievedNpub)
+	assert.Equal(t, updatedPrivateKey, retrievedUpdatedIdentity.Key[4:]) // Assuming nsec prefix
+	assert.Equal(t, "updated@address.com", retrievedUpdatedIdentity.LightningAddress)
+}
+
+func TestGetIdentity_NotFound(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test_get_identity_not_found")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	configFile := filepath.Join(tempDir, "config.json")
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default identities are created (which will not include "nonexistent")
+	_, err = cm.EnsureDefaultIdentities()
+	assert.NoError(t, err)
+
+	// Attempt to get a nonexistent identity
+	identity, err := cm.GetIdentity("nonexistent")
+	assert.Error(t, err)
+	assert.Nil(t, identity)
+	assert.Contains(t, err.Error(), "identity 'nonexistent' not found")
+}
+
+func TestGetPublicKey_NotFound(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test_get_public_key_not_found")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	configFile := filepath.Join(tempDir, "config.json")
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	_, err = cm.EnsureDefaultIdentities()
+	assert.NoError(t, err)
+
+	publicKey, err := cm.GetPublicKey("nonexistent")
+	assert.Error(t, err)
+	assert.Empty(t, publicKey)
+	assert.Contains(t, err.Error(), "identity 'nonexistent' not found")
+}
+
+func TestGetPrivateKey_NotFound(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test_get_private_key_not_found")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	configFile := filepath.Join(tempDir, "config.json")
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	_, err = cm.EnsureDefaultIdentities()
+	assert.NoError(t, err)
+
+	privateKey, err := cm.GetPrivateKey("nonexistent")
+	assert.Error(t, err)
+	assert.Empty(t, privateKey)
+	assert.Contains(t, err.Error(), "identity 'nonexistent' not found")
+}
+
+func TestIdentityMigration(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test_identity_migration")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	configFile := filepath.Join(tempDir, "config.json")
+	identitiesFile := filepath.Join(tempDir, "identities.json")
+
+	// Create a dummy config.json with a legacy private key
+	legacyPrivateKey := nostr.GeneratePrivateKey()
+	legacyPublicKey, err := nostr.GetPublicKey(legacyPrivateKey)
+	assert.NoError(t, err)
+	legacyNpub, err := nip19.EncodePublicKey(legacyPublicKey)
+	assert.NoError(t, err)
+
+	legacyConfigContent := fmt.Sprintf(`{"config_version":"v0.0.3","tollgate_private_key":"%s"}`, legacyPrivateKey)
+	err = ioutil.WriteFile(configFile, []byte(legacyConfigContent), 0644)
+	assert.NoError(t, err)
+
+	// Initialize ConfigManager, which should trigger migration
+	cm, err := NewConfigManager(configFile)
+	assert.NoError(t, err)
+
+	// Ensure default identities, which should find and migrate the key
+	_, err = cm.EnsureDefaultIdentities()
+	assert.NoError(t, err)
+
+	// Verify identities.json was created and contains the migrated key
+	_, err = os.Stat(identitiesFile)
+	assert.NoError(t, err, "identities.json should exist after migration")
+
+	identitiesConfig, err := cm.LoadIdentities()
+	assert.NoError(t, err)
+	assert.Len(t, identitiesConfig.Identities, 1)
+	assert.Equal(t, "operator", identitiesConfig.Identities[0].Name)
+	assert.Equal(t, legacyPrivateKey, identitiesConfig.Identities[0].Key[4:]) // Assuming nsec prefix
+
+	derivedNpub, err := cm.GetPublicKey("operator")
+	assert.NoError(t, err)
+	assert.Equal(t, legacyNpub, derivedNpub)
+
+	// Verify config.json no longer contains the private key
+	updatedConfigContent, err := ioutil.ReadFile(configFile)
+	assert.NoError(t, err)
+	var updatedConfig Config
+	err = json.Unmarshal(updatedConfigContent, &updatedConfig)
+	assert.NoError(t, err)
+	// assert.Empty(t, updatedConfig.TollgatePrivateKey, "TollgatePrivateKey should be empty in config.json after migration") // Removed as TollgatePrivateKey is no longer in Config
 }

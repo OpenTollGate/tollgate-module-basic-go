@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // CurrentConfigVersion is the latest version of the config.json format.
@@ -73,7 +74,8 @@ type BraggingConfig struct {
 // MerchantConfig holds configuration specific to the merchant
 type Identity struct {
 	Name             string `json:"name"`
-	Npub             string `json:"npub"`
+	Key              string `json:"key,omitempty"`     // Stores the key (private or public) in any format
+	KeyFormat        string `json:"key_format"`        // Format of the key: "nsec", "npub", "hex_private", "hex_public"
 	LightningAddress string `json:"lightning_address"`
 }
 
@@ -113,7 +115,6 @@ type PackageInfo struct {
 
 type Config struct {
 	ConfigVersion         string              `json:"config_version"`
-	TollgatePrivateKey    string              `json:"tollgate_private_key"`
 	AcceptedMints         []MintConfig        `json:"accepted_mints"`
 	ProfitShare           []ProfitShareConfig `json:"profit_share"`
 	StepSize              uint64              `json:"step_size"`
@@ -306,6 +307,48 @@ func (cm *ConfigManager) SaveIdentities(identityConfig *IdentityConfig) error {
 	return os.WriteFile(cm.identitiesFilePath(), data, 0644)
 }
 
+// SetIdentity adds or updates an identity in the identities.json file.
+func (cm *ConfigManager) SetIdentity(name, privateKey, lightningAddress string) error {
+	identityConfig, err := cm.LoadIdentities()
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to load identities: %w", err)
+	}
+
+	if identityConfig == nil {
+		identityConfig = &IdentityConfig{
+			ConfigVersion: CurrentIdentityVersion,
+			Identities:    []Identity{},
+		}
+	}
+
+	nsec, err := nip19.EncodePrivateKey(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to encode private key to nsec: %w", err)
+	}
+
+	found := false
+	for i, identity := range identityConfig.Identities {
+		if identity.Name == name {
+			identityConfig.Identities[i].Key = nsec
+			identityConfig.Identities[i].KeyFormat = "nsec"
+			identityConfig.Identities[i].LightningAddress = lightningAddress
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		identityConfig.Identities = append(identityConfig.Identities, Identity{
+			Name:             name,
+			Key:              nsec,
+			KeyFormat:        "nsec",
+			LightningAddress: lightningAddress,
+		})
+	}
+
+	return cm.SaveIdentities(identityConfig)
+}
+
 // EnsureDefaultIdentities ensures a default identities file exists, creating it if necessary
 func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 	identityConfig, err := cm.LoadIdentities()
@@ -322,19 +365,14 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 
 	if identityConfig.Identities == nil {
 		log.Printf("Identities field missing. Populating with default identities.")
-		config, err := cm.LoadConfig() // Load config to get operator key
+		privateKey := nostr.GeneratePrivateKey()
+		nsec, err := nip19.EncodePrivateKey(privateKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load config for default identities: %w", err)
-		}
-		operatorNpub := ""
-		if config != nil && config.TollgatePrivateKey != "" {
-			if pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey); getPubKeyErr == nil {
-				operatorNpub = pubKey
-			}
+			return nil, fmt.Errorf("failed to encode private key to nsec: %w", err)
 		}
 		identityConfig.Identities = []Identity{
-			{Name: "operator", Npub: operatorNpub, LightningAddress: "tollgate@minibits.cash"},
-			{Name: "developer", Npub: "", LightningAddress: "tollgate@minibits.cash"},
+			{Name: "operator", Key: nsec, LightningAddress: "tollgate@minibits.cash"},
+			{Name: "developer", Key: "npub1zzt0d0s2f4lsanpd7nkjep5r79p7ljq7aw37eek64hf0ef6v0mxqgwljrv", LightningAddress: "tollgate@minibits.cash"},
 		}
 		changed = true
 	}
@@ -347,34 +385,18 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 
 	if !identitiesFound["operator"] {
 		log.Printf("Default identity 'operator' missing. Adding.")
-		// simplified addition; npub will be populated in the next loop
-		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "operator"})
+		privateKey := nostr.GeneratePrivateKey()
+		nsec, err := nip19.EncodePrivateKey(privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode private key to nsec: %w", err)
+		}
+		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "operator", Key: nsec})
 		changed = true
 	}
 	if !identitiesFound["developer"] {
 		log.Printf("Default identity 'developer' missing. Adding.")
-		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "developer", LightningAddress: "tollgate@minibits.cash"})
+		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "developer", Key: "npub1xtscya34g58tk0z605r8f3s4fum6s0zcs0u0jp2l76l5g70w0h2q3q5t9sx", LightningAddress: "tollgate@minibits.cash"})
 		changed = true
-	}
-
-	// Ensure all individual identities have their fields populated
-	for i, identity := range identityConfig.Identities {
-		if identity.Name == "operator" && identity.Npub == "" {
-			config, err := cm.LoadConfig()
-			if err != nil {
-				log.Printf("Warning: Failed to load config to update operator npub: %v", err)
-			} else if config != nil && config.TollgatePrivateKey != "" {
-				if pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey); getPubKeyErr == nil {
-					identityConfig.Identities[i].Npub = pubKey
-					log.Printf("Updated operator npub to %s", pubKey)
-					changed = true
-				}
-			}
-		}
-		if identity.LightningAddress == "" {
-			identityConfig.Identities[i].LightningAddress = "tollgate@minibits.cash"
-			changed = true
-		}
 	}
 
 	if identityConfig.ConfigVersion != CurrentIdentityVersion {
@@ -394,7 +416,7 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 }
 
 func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
-	CURRENT_TIMESTAMP := time.Now().Unix()
+	currentTimestamp := time.Now().Unix()
 	installConfig, err := cm.LoadInstallConfig()
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -432,7 +454,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	}
 	if installConfig.InstallTimestamp == 0 {
 		// If InstallTimestamp is 0, it means it's missing or not set.
-		// We don't set it to CURRENT_TIMESTAMP here as it should reflect actual install time.
+		// We don't set it to currentTimestamp here as it should reflect actual install time.
 		// It will remain 0 unless set by the installation process itself.
 		// However, if the field is genuinely missing from an old config, we might want to default it.
 		// For now, keep it 0 if it's 0.
@@ -447,7 +469,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 	}
 	if installConfig.EnsureDefaultTimestamp == 0 {
 		log.Printf("EnsureDefaultTimestamp missing, setting to current time.")
-		installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
+		installConfig.EnsureDefaultTimestamp = currentTimestamp
 		changed = true
 	}
 	if installConfig.InstalledVersion == "" {
@@ -455,7 +477,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		installConfig.InstalledVersion = "0.0.0"
 		changed = true
 	}
-		// Note: IPAddressRandomized, InstallTimestamp, and DownloadTimestamp default to their zero values (false, 0, 0)
+	// Note: IPAddressRandomized, InstallTimestamp, and DownloadTimestamp default to their zero values (false, 0, 0)
 	// which is the desired behavior for "missing". They are set by other processes.
 
 	if changed {
@@ -508,7 +530,7 @@ func CalculateMinPayment(mintFee uint64) uint64 {
 }
 
 // getInstalledVersion retrieves the installed version of the package
-// TODO: run this every time rather than storing the ouptut in a config file.
+// TODO: run this every time rather than storing the ouptput in a config file.
 func GetInstalledVersion() (string, error) {
 	_, err := exec.LookPath("opkg")
 	if err != nil {
@@ -700,13 +722,23 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		changed = true
 	}
 
-	if config.TollgatePrivateKey == "" {
-		log.Printf("TollgatePrivateKey missing. Generating new key.")
-		privateKey, err := cm.generatePrivateKey()
+	privateKey, err := cm.GetPrivateKey("operator")
+	if err != nil {
+		log.Printf("Operator private key missing. Generating new key.")
+		privateKey, err = cm.generatePrivateKey()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate private key: %w", err)
 		}
-		config.TollgatePrivateKey = privateKey
+		// Store the new private key in identities.json
+		identity, err := cm.GetIdentity("operator")
+		if err != nil {
+			return nil, err
+		}
+		nsec, err := nip19.EncodePrivateKey(privateKey)
+		if err != nil {
+			return nil, err
+		}
+		identity.Key = nsec
 		changed = true
 	}
 
@@ -790,8 +822,13 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 			return nil, err
 		}
 		// Set username after saving the config
-		if err = cm.setUsername(config.TollgatePrivateKey, "c03rad0r"); err != nil {
-			log.Printf("Failed to set username: %v", err)
+		privateKey, err := cm.GetPrivateKey("operator")
+		if err == nil {
+			if err = cm.setUsername(privateKey, "c03rad0r"); err != nil {
+				log.Printf("Failed to set username: %v", err)
+			}
+		} else {
+			log.Printf("Failed to get operator private key: %v", err)
 		}
 	}
 	return config, nil
@@ -958,4 +995,154 @@ func getIPAddress() {
 	// root@OpenWrt:/tmp# ifconfig br-lan | grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}'
 	// 172.20.203.1
 	// Use commands like the above or the go net package to get the IP address this device's LAN interface.
+}
+
+// GetIdentity retrieves a specific identity by name.
+func (cm *ConfigManager) GetIdentity(name string) (*Identity, error) {
+	identityConfig, err := cm.LoadIdentities()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load identities: %w", err)
+	}
+	if identityConfig == nil {
+		return nil, fmt.Errorf("identities configuration is not loaded")
+	}
+
+	for _, identity := range identityConfig.Identities {
+		if identity.Name == name {
+			return &identity, nil
+		}
+	}
+
+	return nil, fmt.Errorf("identity '%s' not found", name)
+}
+
+// GetPublicKey returns the public key (npub) for a given identity.
+// It derives the public key if a private key is present.
+func (cm *ConfigManager) GetPublicKey(name string) (string, error) {
+	identity, err := cm.GetIdentity(name)
+	if err != nil {
+		return "", err
+	}
+
+	if identity.Key == "" {
+		return "", fmt.Errorf("key for identity '%s' is empty", name)
+	}
+
+	var hexPubKey string
+
+	switch identity.KeyFormat {
+	case "nsec":
+		// Decode nsec to hex private key, then derive public key
+		_, hexPrivKey, err := nip19.Decode(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode nsec for identity '%s': %w", name, err)
+		}
+
+		hexPubKey, err = nostr.GetPublicKey(hexPrivKey.(string))
+		if err != nil {
+			return "", fmt.Errorf("failed to derive public key for identity '%s': %w", name, err)
+		}
+
+	case "npub":
+		// Decode npub to hex public key
+		_, hexKey, err := nip19.Decode(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode npub for identity '%s': %w", name, err)
+		}
+		hexPubKey = hexKey.(string)
+
+	case "hex_private":
+		// Derive public key from hex private key
+		hexPubKey, err = nostr.GetPublicKey(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to derive public key from hex private key for identity '%s': %w", name, err)
+		}
+
+	case "hex_public":
+		// Already a hex public key
+		hexPubKey = identity.Key
+
+	default:
+		// Try to auto-detect format if KeyFormat is missing or unknown
+		if strings.HasPrefix(identity.Key, "nsec") {
+			_, hexPrivKey, err := nip19.Decode(identity.Key)
+			if err != nil {
+				return "", fmt.Errorf("failed to decode nsec for identity '%s': %w", name, err)
+			}
+
+			hexPubKey, err = nostr.GetPublicKey(hexPrivKey.(string))
+			if err != nil {
+				return "", fmt.Errorf("failed to derive public key for identity '%s': %w", name, err)
+			}
+		} else if strings.HasPrefix(identity.Key, "npub") {
+			_, hexKey, err := nip19.Decode(identity.Key)
+			if err != nil {
+				return "", fmt.Errorf("failed to decode npub for identity '%s': %w", name, err)
+			}
+			hexPubKey = hexKey.(string)
+		} else {
+			// Assume it's a hex private key if 64 characters long
+			if len(identity.Key) == 64 {
+				hexPubKey, err = nostr.GetPublicKey(identity.Key)
+				if err != nil {
+					return "", fmt.Errorf("failed to derive public key from hex private key for identity '%s': %w", name, err)
+				}
+			} else {
+				// Assume it's a hex public key
+				hexPubKey = identity.Key
+			}
+		}
+	}
+
+	// Convert hex public key to npub format
+	npub, err := nip19.EncodePublicKey(hexPubKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode public key for identity '%s': %w", name, err)
+	}
+	return npub, nil
+}
+
+// GetPrivateKey returns the private key (hex) for a given identity.
+// It returns an error if the identity only has a public key.
+func (cm *ConfigManager) GetPrivateKey(name string) (string, error) {
+	identity, err := cm.GetIdentity(name)
+	if err != nil {
+		return "", err
+	}
+
+	switch identity.KeyFormat {
+	case "nsec":
+		// Decode nsec to hex private key
+		_, hexKey, err := nip19.Decode(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode nsec for identity '%s': %w", name, err)
+		}
+		return hexKey.(string), nil
+
+	case "hex_private":
+		// Already a hex private key
+		return identity.Key, nil
+
+	case "npub", "hex_public":
+		return "", fmt.Errorf("private key not available for identity '%s'", name)
+
+	default:
+		// Try to auto-detect format if KeyFormat is missing or unknown
+		if strings.HasPrefix(identity.Key, "nsec") {
+			_, hexKey, err := nip19.Decode(identity.Key)
+			if err != nil {
+				return "", fmt.Errorf("failed to decode nsec for identity '%s': %w", name, err)
+			}
+			return hexKey.(string), nil
+		} else if strings.HasPrefix(identity.Key, "npub") {
+			return "", fmt.Errorf("private key not available for identity '%s'", name)
+		} else {
+			// Assume it's a hex private key if 64 characters long
+			if len(identity.Key) == 64 {
+				return identity.Key, nil
+			} else {
+				return "", fmt.Errorf("private key not available for identity '%s'", name)
+			}
+		}
+	}
 }

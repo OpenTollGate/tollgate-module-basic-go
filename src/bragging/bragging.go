@@ -15,7 +15,10 @@ func AnnounceSuccessfulPayment(configManager *config_manager.ConfigManager, amou
 	if err != nil {
 		return err
 	}
-	privateKey := config.TollgatePrivateKey
+	privateKey, err := configManager.GetPrivateKey("operator")
+	if err != nil {
+		return fmt.Errorf("failed to get operator private key: %w", err)
+	}
 
 	event := nostr.Event{
 		Kind:      1,

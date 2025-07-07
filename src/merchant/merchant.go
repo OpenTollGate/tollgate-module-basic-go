@@ -57,7 +57,7 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 
 	// Set advertisement
 	var advertisementStr string
-	advertisementStr, err = CreateAdvertisement(config)
+	advertisementStr, err = CreateAdvertisement(configManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement: %w", err)
 	}
@@ -302,7 +302,12 @@ func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
 
-func CreateAdvertisement(config *config_manager.Config) (string, error) {
+func CreateAdvertisement(configManager *config_manager.ConfigManager) (string, error) {
+	config, err := configManager.LoadConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to load config in CreateAdvertisement: %w", err)
+	}
+
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
 		Tags: nostr.Tags{
@@ -325,10 +330,15 @@ func CreateAdvertisement(config *config_manager.Config) (string, error) {
 		})
 	}
 
-	// Sign
-	err := advertisementEvent.Sign(config.TollgatePrivateKey)
+	operatorPrivateKey, err := configManager.GetPrivateKey("operator")
 	if err != nil {
-		return "", fmt.Errorf("Error signing advertisement event: %v", err)
+		return "", fmt.Errorf("failed to get operator private key: %w", err)
+	}
+
+	// Sign
+	err = advertisementEvent.Sign(operatorPrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("error signing advertisement event: %v", err)
 	}
 
 	// Convert to JSON string for storage
@@ -437,10 +447,10 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
 	log.Printf("Querying for existing session for customer %s", customerPubkey)
 
-	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	// Get the public key of the operator
+	tollgatePubkey, err := m.configManager.GetPublicKey("operator")
 	if err != nil {
-		log.Printf("Error getting public key from private key: %v", err)
+		log.Printf("Error getting operator public key: %v", err)
 		return nil, err
 	}
 
@@ -536,10 +546,10 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64
 		return nil, fmt.Errorf("failed to extract device identifier: %w", err)
 	}
 
-	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	// Get the public key of the operator
+	tollgatePubkey, err := m.configManager.GetPublicKey("operator")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get public key: %w", err)
+		return nil, fmt.Errorf("failed to get operator public key: %w", err)
 	}
 
 	sessionEvent := &nostr.Event{
@@ -555,8 +565,12 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64
 		Content: "",
 	}
 
-	// Sign with tollgate private key
-	err = sessionEvent.Sign(m.config.TollgatePrivateKey)
+	operatorPrivateKey, err := m.configManager.GetPrivateKey("operator")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator private key: %w", err)
+	}
+	// Sign with operator private key
+	err = sessionEvent.Sign(operatorPrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign session event: %w", err)
 	}
@@ -615,10 +629,10 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 		return nil, fmt.Errorf("failed to extract customer or device info from existing session")
 	}
 
-	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	// Get the public key of the operator
+	tollgatePubkey, err := m.configManager.GetPublicKey("operator")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get public key: %w", err)
+		return nil, fmt.Errorf("failed to get operator public key: %w", err)
 	}
 
 	// Create new session event with extended duration
@@ -635,8 +649,12 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 		Content: "",
 	}
 
-	// Sign with tollgate private key
-	err = sessionEvent.Sign(m.config.TollgatePrivateKey)
+	operatorPrivateKey, err := m.configManager.GetPrivateKey("operator")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator private key: %w", err)
+	}
+	// Sign with operator private key
+	err = sessionEvent.Sign(operatorPrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign extended session event: %w", err)
 	}
@@ -696,10 +714,10 @@ func (m *Merchant) publishPublic(event *nostr.Event) error {
 
 // CreateNoticeEvent creates a notice event for error communication
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	// Get the public key of the operator
+	tollgatePubkey, err := m.configManager.GetPublicKey("operator")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get public key: %w", err)
+		return nil, fmt.Errorf("failed to get operator public key: %w", err)
 	}
 
 	noticeEvent := &nostr.Event{
@@ -719,7 +737,11 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	}
 
 	// Sign with tollgate private key
-	err = noticeEvent.Sign(m.config.TollgatePrivateKey)
+	operatorPrivateKey, err := m.configManager.GetPrivateKey("operator")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator private key: %w", err)
+	}
+	err = noticeEvent.Sign(operatorPrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}

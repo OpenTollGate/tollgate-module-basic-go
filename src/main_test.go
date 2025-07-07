@@ -57,7 +57,6 @@ func TestLoadConfig(t *testing.T) {
 
 	configFile := filepath.Join(tmpDir, "config.json")
 	config := config_manager.Config{
-		TollgatePrivateKey: "test_private_key",
 		AcceptedMints: []config_manager.MintConfig{
 			{
 				URL:                     "https://mint.minibits.cash/Bitcoin",

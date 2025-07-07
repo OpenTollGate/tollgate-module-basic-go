@@ -87,13 +87,15 @@ func CreateEvent(configManager *config_manager.ConfigManager, saleData map[strin
 
 	event.Content = content
 
-	privateKey := config.TollgatePrivateKey
+	privateKey, err := configManager.GetPrivateKey("operator")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator private key: %w", err)
+	}
+
 	err = event.Sign(privateKey)
 	if err != nil {
 		log.Printf("Failed to sign event: %v", err)
-
-		return event, nil
-
+		return nil, err
 	}
 	return nil, err
 }

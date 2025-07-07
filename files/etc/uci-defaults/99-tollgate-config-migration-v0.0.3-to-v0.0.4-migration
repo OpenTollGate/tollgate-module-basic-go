@@ -59,30 +59,52 @@ log "Backup of $CONFIG_FILE created at $BACKUP_DIR/config.json.$PREVIOUS_VERSION
 # 6. Extract existing merchant and profit share data for identities.json
 MERCHANT_NAME=$(jq -r '.merchant.name // "c03rad0r"' "$CONFIG_FILE")
 MERCHANT_LNURL=$(jq -r '.merchant.lightning_address // "tollgate@minibits.cash"' "$CONFIG_FILE")
-OPERATOR_NPUBA=$(jq -r '.tollgate_private_key | @sh "echo -n \(. | .)"' "$CONFIG_FILE" | xargs -I {} sh -c 'go run /usr/bin/tollgate-module-basic-go/generate_key.go --privkey "{}" --npub' 2>/dev/null)
-OPERATOR_NPUBA=$(echo "$OPERATOR_NPUBA" | tr -d '\n')
-log "Operator npub derived: $OPERATOR_NPUBA"
 
-# Default developer LNURL
+# Extract the private key from config.json
+OPERATOR_PRIVKEY=$(jq -r '.tollgate_private_key // ""' "$CONFIG_FILE")
+log "Extracted private key from config.json"
+
+# Determine key format
+if [ -n "$OPERATOR_PRIVKEY" ]; then
+    # Keep the private key in its original format (assumed to be hex)
+    OPERATOR_KEY="$OPERATOR_PRIVKEY"
+    OPERATOR_KEY_FORMAT="hex_private"
+    log "Using existing private key in hex format"
+else
+    log "No private key found in config.json"
+    # Generate a random hex private key
+    OPERATOR_KEY=$(openssl rand -hex 32)
+    OPERATOR_KEY_FORMAT="hex_private"
+    log "Generated new private key in hex format"
+fi
+
+# Default developer npub (public key only)
+DEVELOPER_KEY="npub1zzt0d0s2f4lsanpd7nkjep5r79p7ljq7aw37eek64hf0ef6v0mxqgwljrv"
+DEVELOPER_KEY_FORMAT="npub"
 DEVELOPER_LNURL="tollgate@minibits.cash"
 
 # Create identities.json
 jq -n \
   --arg current_identity_version "v0.0.1" \
-  --arg on "$OPERATOR_NPUBA" \
+  --arg ok "$OPERATOR_KEY" \
+  --arg okf "$OPERATOR_KEY_FORMAT" \
   --arg ml "$MERCHANT_LNURL" \
+  --arg dk "$DEVELOPER_KEY" \
+  --arg dkf "$DEVELOPER_KEY_FORMAT" \
   --arg dl "$DEVELOPER_LNURL" \
   '{
     "config_version": $current_identity_version,
     "identities": [
       {
         "name": "operator",
-        "npub": $on,
+        "key": $ok,
+        "key_format": $okf,
         "lightning_address": $ml
       },
       {
         "name": "developer",
-        "npub": "",
+        "key": $dk,
+        "key_format": $dkf,
         "lightning_address": $dl
       }
     ]
