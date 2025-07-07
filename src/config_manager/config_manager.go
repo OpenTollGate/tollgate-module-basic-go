@@ -74,8 +74,8 @@ type BraggingConfig struct {
 // MerchantConfig holds configuration specific to the merchant
 type Identity struct {
 	Name             string `json:"name"`
-	Key              string `json:"key,omitempty"`     // Stores the key (private or public) in any format
-	KeyFormat        string `json:"key_format"`        // Format of the key: "nsec", "npub", "hex_private", "hex_public"
+	Key              string `json:"key,omitempty"` // Stores the key (private or public) in any format
+	KeyFormat        string `json:"key_format"`    // Format of the key: "nsec", "npub", "hex_private", "hex_public"
 	LightningAddress string `json:"lightning_address"`
 }
 
@@ -122,7 +122,6 @@ type Config struct {
 	Bragging              BraggingConfig      `json:"bragging"`
 	Merchant              MerchantConfig      `json:"merchant"`
 	Relays                []string            `json:"relays"`
-	TrustedMaintainers    []string            `json:"trusted_maintainers"`
 	ShowSetup             bool                `json:"show_setup"`
 	CurrentInstallationID string              `json:"current_installation_id"`
 }
@@ -396,6 +395,11 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 	if !identitiesFound["developer"] {
 		log.Printf("Default identity 'developer' missing. Adding.")
 		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "developer", Key: "npub1xtscya34g58tk0z605r8f3s4fum6s0zcs0u0jp2l76l5g70w0h2q3q5t9sx", LightningAddress: "tollgate@minibits.cash"})
+		changed = true
+	}
+	if !identitiesFound["trusted_maintainer_1"] {
+		log.Printf("Default identity 'trusted_maintainer_1' missing. Adding.")
+		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "trusted_maintainer_1", Key: "npub1zzt0d0s2f4lsanpd7nkjep5r79p7ljq7aw37eek64hf0ef6v0mxqgwljrv", LightningAddress: "tollgate@minibits.cash"})
 		changed = true
 	}
 
@@ -793,12 +797,6 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	if config.Relays == nil {
 		log.Printf("Relays missing. Populating with default relays.")
 		config.Relays = []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"}
-		changed = true
-	}
-
-	if config.TrustedMaintainers == nil {
-		log.Printf("TrustedMaintainers missing. Populating with default maintainers.")
-		config.TrustedMaintainers = []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"}
 		changed = true
 	}
 

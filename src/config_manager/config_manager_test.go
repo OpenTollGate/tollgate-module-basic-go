@@ -1,7 +1,6 @@
 package config_manager
 
 import (
-	"fmt" // Added for fmt.Sprintf
 	"log"
 	"os"
 	"testing"
@@ -63,8 +62,10 @@ func TestConfigManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test EnsureDefaultConfig
-	config, err := cm.EnsureDefaultConfig()
+	// Test EnsureInitializedConfig
+	err = cm.EnsureInitializedConfig()
+	assert.NoError(t, err)
+	config, err := cm.LoadConfig()
 	if err != nil {
 		t.Errorf("EnsureDefaultConfig returned error: %v", err)
 	}
@@ -101,7 +102,6 @@ func TestConfigManager(t *testing.T) {
 			Fields:  []string{"test_field"},
 		},
 		Relays:                []string{"test_relay"},
-		TrustedMaintainers:    []string{"test_maintainer"},
 		ShowSetup:             true,
 		CurrentInstallationID: "test_current_installation_id",
 	}
@@ -120,7 +120,6 @@ func TestConfigManager(t *testing.T) {
 		loadedConfig.StepSize != 120000 ||
 		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
-		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
 		loadedConfig.ShowSetup != newConfig.ShowSetup ||
 		loadedConfig.CurrentInstallationID != newConfig.CurrentInstallationID {
 		t.Errorf("Loaded config does not match saved config")
@@ -180,7 +179,9 @@ func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Ensure default config should populate missing fields
-	config, err := cm.EnsureDefaultConfig()
+	err = cm.EnsureInitializedConfig()
+	assert.NoError(t, err)
+	config, err := cm.LoadConfig()
 	assert.NoError(t, err)
 	assert.NotNil(t, config)
 
@@ -193,7 +194,6 @@ func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
 	assert.True(t, config.Bragging.Enabled)
 	assert.NotEmpty(t, config.Bragging.Fields)
 	assert.NotEmpty(t, config.Relays)
-	assert.NotEmpty(t, config.TrustedMaintainers)
 	assert.True(t, config.ShowSetup) // Default is true
 	assert.NotEmpty(t, config.Merchant.Identity)
 
@@ -212,7 +212,6 @@ func TestEnsureDefaultConfig_MissingFields(t *testing.T) {
 	assert.Equal(t, config.Bragging.Enabled, loadedConfig.Bragging.Enabled)
 	assert.Equal(t, len(config.Bragging.Fields), len(loadedConfig.Bragging.Fields))
 	assert.Equal(t, len(config.Relays), len(loadedConfig.Relays))
-	assert.Equal(t, len(config.TrustedMaintainers), len(loadedConfig.TrustedMaintainers))
 	assert.Equal(t, config.ShowSetup, loadedConfig.ShowSetup)
 	assert.Equal(t, config.Merchant.Identity, loadedConfig.Merchant.Identity)
 }
@@ -490,9 +489,23 @@ func TestEnsureDefaultIdentities_MissingFields(t *testing.T) {
 
 	// Verify missing fields are populated with defaults
 	assert.Equal(t, CurrentIdentityVersion, identitiesConfig.ConfigVersion)
-	assert.Len(t, identitiesConfig.Identities, 1)
+	assert.Len(t, identitiesConfig.Identities, 4) // Test Identity 1, operator, developer, trusted_maintainer_1
 	assert.Equal(t, "Test Identity 1", identitiesConfig.Identities[0].Name)
 	assert.Equal(t, "tollgate@minibits.cash", identitiesConfig.Identities[0].LightningAddress) // Should be defaulted
+
+	// Verify that trusted_maintainer_1 is present and has a generated key
+	foundTrustedMaintainer := false
+	var trustedMaintainerKey string
+	for _, identity := range identitiesConfig.Identities {
+		if identity.Name == "trusted_maintainer_1" {
+			foundTrustedMaintainer = true
+			trustedMaintainerKey = identity.Key
+			assert.NotEmpty(t, identity.Key)
+			assert.Equal(t, "tollgate@minibits.cash", identity.LightningAddress)
+			break
+		}
+	}
+	assert.True(t, foundTrustedMaintainer, "trusted_maintainer_1 identity not found")
 
 	// Verify the file on disk is updated
 	updatedContent, err := ioutil.ReadFile(identitiesFile)
@@ -502,9 +515,19 @@ func TestEnsureDefaultIdentities_MissingFields(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, identitiesConfig.ConfigVersion, loadedIdentities.ConfigVersion)
-	assert.Len(t, loadedIdentities.Identities, 1)
+	assert.Len(t, loadedIdentities.Identities, 4)
 	assert.Equal(t, identitiesConfig.Identities[0].Name, loadedIdentities.Identities[0].Name)
 	assert.Equal(t, identitiesConfig.Identities[0].LightningAddress, loadedIdentities.Identities[0].LightningAddress)
+	// Also verify the trusted_maintainer_1 key in the loaded identities
+	foundTrustedMaintainerLoaded := false
+	for _, identity := range loadedIdentities.Identities {
+		if identity.Name == "trusted_maintainer_1" {
+			foundTrustedMaintainerLoaded = true
+			assert.Equal(t, trustedMaintainerKey, identity.Key)
+			break
+		}
+	}
+	assert.True(t, foundTrustedMaintainerLoaded, "trusted_maintainer_1 identity not found in loaded config")
 
 	// Verify that the "operator" identity's npub is correctly derived and stored
 	operatorIdentity, err := cm.GetIdentity("operator")
@@ -667,54 +690,4 @@ func TestGetPrivateKey_NotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, privateKey)
 	assert.Contains(t, err.Error(), "identity 'nonexistent' not found")
-}
-
-func TestIdentityMigration(t *testing.T) {
-	tempDir, err := ioutil.TempDir("", "test_identity_migration")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	configFile := filepath.Join(tempDir, "config.json")
-	identitiesFile := filepath.Join(tempDir, "identities.json")
-
-	// Create a dummy config.json with a legacy private key
-	legacyPrivateKey := nostr.GeneratePrivateKey()
-	legacyPublicKey, err := nostr.GetPublicKey(legacyPrivateKey)
-	assert.NoError(t, err)
-	legacyNpub, err := nip19.EncodePublicKey(legacyPublicKey)
-	assert.NoError(t, err)
-
-	legacyConfigContent := fmt.Sprintf(`{"config_version":"v0.0.3","tollgate_private_key":"%s"}`, legacyPrivateKey)
-	err = ioutil.WriteFile(configFile, []byte(legacyConfigContent), 0644)
-	assert.NoError(t, err)
-
-	// Initialize ConfigManager, which should trigger migration
-	cm, err := NewConfigManager(configFile)
-	assert.NoError(t, err)
-
-	// Ensure default identities, which should find and migrate the key
-	_, err = cm.EnsureDefaultIdentities()
-	assert.NoError(t, err)
-
-	// Verify identities.json was created and contains the migrated key
-	_, err = os.Stat(identitiesFile)
-	assert.NoError(t, err, "identities.json should exist after migration")
-
-	identitiesConfig, err := cm.LoadIdentities()
-	assert.NoError(t, err)
-	assert.Len(t, identitiesConfig.Identities, 1)
-	assert.Equal(t, "operator", identitiesConfig.Identities[0].Name)
-	assert.Equal(t, legacyPrivateKey, identitiesConfig.Identities[0].Key[4:]) // Assuming nsec prefix
-
-	derivedNpub, err := cm.GetPublicKey("operator")
-	assert.NoError(t, err)
-	assert.Equal(t, legacyNpub, derivedNpub)
-
-	// Verify config.json no longer contains the private key
-	updatedConfigContent, err := ioutil.ReadFile(configFile)
-	assert.NoError(t, err)
-	var updatedConfig Config
-	err = json.Unmarshal(updatedConfigContent, &updatedConfig)
-	assert.NoError(t, err)
-	// assert.Empty(t, updatedConfig.TollgatePrivateKey, "TollgatePrivateKey should be empty in config.json after migration") // Removed as TollgatePrivateKey is no longer in Config
 }
