@@ -24,7 +24,7 @@ The `Config` struct has been updated to reference the new `identities.json` file
   }
 ]
 ```
-> **Note:** When `EnsureDefaultIdentities` creates a new `identities.json` file, the `npub` for the `operator` identity is derived from the `tollgate_private_key` in `config.json`. However, if an `identities.json` file already exists, this process will not overwrite any existing `npub` values.
+> **Note:** When `EnsureDefaultIdentities` creates a new `identities.json` file, the `npub` for the `operator` identity is derived from the `tollgate_private_key` in `config.json`. If an `identities.json` file already exists, this process will now **validate and update** the `npub` for the `operator` identity to ensure it matches the derived value from `config.json`'s `tollgate_private_key`. This ensures data consistency.
 
 ### `config.json` (v0.0.4)
 
@@ -145,17 +145,18 @@ type Identity struct {
 
 ### Handling Missing Fields in Existing Configurations
 
-When an existing `config.json` is loaded (i.e., `config != nil`), the `EnsureDefaultConfig` function will perform checks for specific fields. If a field is found to be at its zero value (indicating it might be missing from an older configuration file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
+When an existing `config.json` is loaded, the `EnsureDefaultConfig` function will perform granular checks for specific fields. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced or removed.
 
-The following fields will be checked and defaulted if missing:
+The following fields will be checked and defaulted if missing or incomplete:
 
-- **`AcceptedMints`**: If `len(config.AcceptedMints) == 0`, populate with the default `MintConfig` list.
-- **`ProfitShare`**: If `len(config.ProfitShare) == 0`, populate with the default `ProfitShareConfig` list.
+- **`AcceptedMints`**: If `config.AcceptedMints` is `nil`, populate with the default `MintConfig` list.
+    - **Nested Field Check**: For each existing `MintConfig` in `AcceptedMints`, if `mint.PriceUnit` is empty, it will be defaulted to `"sats"`.
+- **`ProfitShare`**: If `config.ProfitShare` is `nil`, populate with the default `ProfitShareConfig` list.
 - **`StepSize`**: If `config.StepSize == 0`, set to `600000`.
 - **`Metric`**: If `config.Metric == ""`, set to `"milliseconds"`.
-- **`Bragging`**: If `config.Bragging.Fields == nil` (or `config.Bragging.Enabled` is false and fields are empty), populate with the default `BraggingConfig` (`Enabled: true`, `Fields: ["amount", "mint", "duration"]`).
-- **`Relays`**: If `len(config.Relays) == 0`, populate with the default list of relays (`"wss://relay.damus.io"`, `"wss://nos.lol"`, `"wss://nostr.mom"`).
-- **`TrustedMaintainers`**: If `len(config.TrustedMaintainers) == 0`, populate with the default list of trusted maintainers (`"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"`).
+- **`Bragging`**: If `config.Bragging.Fields` is `nil`, populate with the default `BraggingConfig` (`Enabled: true`, `Fields: ["amount", "mint", "duration"]`). Note that `Bragging.Enabled` will only be set to `true` if `Bragging.Fields` was `nil` (i.e., the entire `Bragging` object was missing). If `Bragging.Enabled` is explicitly set to `false` by the user, it will be respected.
+- **`Relays`**: If `config.Relays` is `nil`, populate with the default list of relays (`"wss://relay.damus.io"`, `"wss://nos.lol"`, `"wss://nostr.mom"`).
+- **`TrustedMaintainers`**: If `config.TrustedMaintainers` is `nil`, populate with the default list of trusted maintainers (`"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"`).
 - **`Merchant`**: If `config.Merchant.Identity == ""`, set `Identity` to `"operator"`.
 
 ### EnsureDefaultInstall Function (Updated)
@@ -166,29 +167,33 @@ The following fields will be checked and defaulted if missing:
 
 ### Handling Missing Fields in Existing Installations
 
-When an existing `install.json` is loaded (i.e., `installConfig != nil`), the `EnsureDefaultInstall` function will perform checks for specific fields. If a field is found to be at its zero value (indicating it might be missing from an older installation file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
+When an existing `install.json` is loaded, the `EnsureDefaultInstall` function will perform granular checks for specific fields. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced or removed.
 
 The following fields will be checked and defaulted if missing:
 
-- **`PackagePath`**: If `installConfig.PackagePath == ""`, set to `""`. (Note: The previous default was "false", which is now handled by setting to empty string).
-- **`IPAddressRandomized`**: If `installConfig.IPAddressRandomized` is false (and it should be true), set to `true`.
-- **`InstallTimestamp`**: If `installConfig.InstallTimestamp == 0`, set to `0` (unknown).
-- **`DownloadTimestamp`**: If `installConfig.DownloadTimestamp == 0`, set to `0` (unknown).
+- **`DownloadTimestamp`**: This field will be explicitly checked for existence in the raw JSON data. If the key is missing, `DownloadTimestamp` will be set to `0`. This distinguishes between a truly missing field and an intentionally zero-valued timestamp.
+- **`InstallTimestamp`**: Similar to `DownloadTimestamp`, this field will be explicitly checked for existence in the raw JSON data. If the key is missing, `InstallTimestamp` will be set to `0`.
+- **`PackagePath`**: If `installConfig.PackagePath == ""`, set to `""`. (Handles legacy "false" string).
 - **`ReleaseChannel`**: If `installConfig.ReleaseChannel == ""`, set to `"stable"`.
 - **`EnsureDefaultTimestamp`**: If `installConfig.EnsureDefaultTimestamp == 0`, set to the current timestamp.
 - **`InstalledVersion`**: If `installConfig.InstalledVersion == ""`, set to `"0.0.0"`.
+- **`IPAddressRandomized`**: This boolean field defaults to `false` if missing. No explicit defaulting is performed as `false` is a valid and desired default for a missing key.
 
-### EnsureDefaultIdentities Function
+### EnsureDefaultIdentities Function (Updated)
 - Ensures a default `identities.json` file exists.
 - If the file is missing, it creates one with default "operator" and "developer" identities.
+- **Ensures Required Identities**: Explicitly checks for the presence of "operator" and "developer" identities by name. If either is missing from the `Identities` array, it will be added.
 
-### Handling Missing Fields in Existing Identities Configurations
+### Handling Missing Fields and Ensuring Consistency in Existing Identities Configurations
 
-When an existing `identities.json` is loaded, the `EnsureDefaultIdentities` function will perform checks for specific fields within the `Identity` structs. If a field is found to be at its zero value (indicating it might be missing from an older identities file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
+When an existing `identities.json` is loaded, the `EnsureDefaultIdentities` function will perform granular checks for specific fields within the `Identity` structs and ensure consistency with `config.json`. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced or `config.json` is manually altered.
 
-The following fields will be checked and defaulted if missing:
+The following fields will be checked and defaulted/validated if missing or inconsistent:
 
-- **`Npub`**: If an `Identity` has `Npub == ""`, and its `Name` is "operator", the `Npub` will be derived from the `tollgate_private_key` in `config.json`.
+- **`Npub` for "operator"**:
+    - If `Npub` is empty for the "operator" identity, it will be derived from the `tollgate_private_key` in `config.json`.
+    - **Consistency Check**: Even if `Npub` is not empty, it will be re-derived from `config.json`'s `tollgate_private_key` and compared against the existing `Npub`. If they do not match, the `Npub` in `identities.json` will be updated to ensure consistency.
+- **`Npub` for "developer"**: If `Npub` is empty for the "developer" identity, it will remain empty as there is no derivation source.
 - **`LightningAddress`**: If an `Identity` has `LightningAddress == ""`, it will be set to `"tollgate@minibits.cash"`.
 
 ### UpdateCurrentInstallationID Function
