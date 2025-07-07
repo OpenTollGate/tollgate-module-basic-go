@@ -339,6 +339,24 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 		changed = true
 	}
 
+	// Ensure default identities "operator" and "developer" exist
+	identitiesFound := make(map[string]bool)
+	for _, identity := range identityConfig.Identities {
+		identitiesFound[identity.Name] = true
+	}
+
+	if !identitiesFound["operator"] {
+		log.Printf("Default identity 'operator' missing. Adding.")
+		// simplified addition; npub will be populated in the next loop
+		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "operator"})
+		changed = true
+	}
+	if !identitiesFound["developer"] {
+		log.Printf("Default identity 'developer' missing. Adding.")
+		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "developer", LightningAddress: "tollgate@minibits.cash"})
+		changed = true
+	}
+
 	// Ensure all individual identities have their fields populated
 	for i, identity := range identityConfig.Identities {
 		if identity.Name == "operator" && identity.Npub == "" {
@@ -389,6 +407,19 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		changed = true
 	}
 
+	// Use a map to check for the actual presence of keys, to distinguish missing vs. zero-value
+	rawMap := make(map[string]interface{})
+	rawBytes, err := os.ReadFile(cm.installFilePath())
+	if err == nil { // Only unmarshal if file exists and is readable
+		json.Unmarshal(rawBytes, &rawMap)
+	}
+
+	if _, ok := rawMap["download_time"]; !ok {
+		log.Printf("Field 'download_time' missing. Setting to 0.")
+		installConfig.DownloadTimestamp = 0
+		changed = true
+	}
+
 	if installConfig.ConfigVersion != CurrentInstallVersion {
 		log.Printf("Updating install config version from '%s' to '%s'", installConfig.ConfigVersion, CurrentInstallVersion)
 		installConfig.ConfigVersion = CurrentInstallVersion
@@ -424,7 +455,7 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		installConfig.InstalledVersion = "0.0.0"
 		changed = true
 	}
-	// Note: IPAddressRandomized, InstallTimestamp, and DownloadTimestamp default to their zero values (false, 0, 0)
+		// Note: IPAddressRandomized, InstallTimestamp, and DownloadTimestamp default to their zero values (false, 0, 0)
 	// which is the desired behavior for "missing". They are set by other processes.
 
 	if changed {
@@ -682,10 +713,19 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	if config.AcceptedMints == nil {
 		log.Printf("AcceptedMints missing. Populating with default mints.")
 		config.AcceptedMints = []MintConfig{
-			{URL: "https://mint.minibits.cash/Bitcoin", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, MinPurchaseSteps: 0},
-			{URL: "https://mint2.nutmix.cash", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, MinPurchaseSteps: 0},
+			{URL: "https://mint.minibits.cash/Bitcoin", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, PriceUnit: "sats", MinPurchaseSteps: 0},
+			{URL: "https://mint2.nutmix.cash", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, PriceUnit: "sats", MinPurchaseSteps: 0},
 		}
 		changed = true
+	} else {
+		// Ensure nested fields in existing mints are populated
+		for i, mint := range config.AcceptedMints {
+			if mint.PriceUnit == "" {
+				log.Printf("Mint '%s' missing PriceUnit. Setting to 'sats'.", mint.URL)
+				config.AcceptedMints[i].PriceUnit = "sats"
+				changed = true
+			}
+		}
 	}
 
 	if config.ProfitShare == nil {
