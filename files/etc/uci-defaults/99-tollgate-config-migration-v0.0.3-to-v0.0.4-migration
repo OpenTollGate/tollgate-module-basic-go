@@ -71,11 +71,10 @@ if [ -n "$OPERATOR_PRIVKEY" ]; then
     OPERATOR_KEY_FORMAT="hex_private"
     log "Using existing private key in hex format"
 else
-    log "No private key found in config.json"
-    # Generate a random hex private key
-    OPERATOR_KEY=$(openssl rand -hex 32)
+    log "No private key found in config.json. Leaving key blank for config_manager to populate."
+    OPERATOR_KEY=""
     OPERATOR_KEY_FORMAT="hex_private"
-    log "Generated new private key in hex format"
+fi
 fi
 
 # Default developer npub (public key only)
@@ -111,10 +110,29 @@ jq -n \
   }' > "$IDENTITIES_FILE"
 log "Created identities file at $IDENTITIES_FILE"
 
-# 7. Update config.json
+# 7. Migrate trusted_maintainers to identities.json
+TRUSTED_MAINTAINERS=$(jq -c '.trusted_maintainers // []' "$CONFIG_FILE")
+
+if [ "$(echo "$TRUSTED_MAINTAINERS" | jq 'length')" -gt 0 ]; then
+    log "Migrating trusted_maintainers to identities.json"
+    INDEX=1
+    echo "$TRUSTED_MAINTAINERS" | jq -c '.[]' | while read -r npub; do
+        TRUSTED_NAME="trusted_maintainer_${INDEX}"
+        jq --arg name "$TRUSTED_NAME" \
+           --arg key "$(echo "$npub" | tr -d '\"')" \
+           '.identities += [{"name": $name, "key": $key, "key_format": "npub", "lightning_address": ""}]' \
+           "$IDENTITIES_FILE" > "$TMP_CONFIG" && mv "$TMP_CONFIG" "$IDENTITIES_FILE"
+        INDEX=$((INDEX+1))
+    done
+    log "Trusted maintainers migrated."
+else
+    log "No trusted_maintainers found in config.json to migrate."
+fi
+
+# 8. Update config.json
 TMP_CONFIG=$(mktemp)
 jq --arg current_version "$CURRENT_VERSION" \
-   'del(.merchant.name, .merchant.lightning_address, .merchant.website) |
+   'del(.merchant.name, .merchant.lightning_address, .merchant.website, .trusted_maintainers) |
     .merchant.identity = "operator" |
     .profit_share[] |= del(.lightning_address) |
     .profit_share[0].identity = "operator" |
