@@ -1,303 +1,228 @@
 # Config Manager Low-Level Design Document
 
-## Overview (Updated v0.0.4)
+## 1. Overview
 
-The `config_manager` package provides robust configuration management, including graceful handling of missing/corrupted files, version tracking, resilient installed version retrieval, migration support, pretty-printed JSON output, and a flexible metric-based pricing structure.
+This document details the low-level implementation plan for the `config_manager` package, focusing on the `v0.0.4` identity management refactor. The core change is the centralization of identities into `identities.json`, the removal of the private key from `config.json`, and the introduction of a flexible key management system.
 
-## Config Struct (v0.0.4)
+## 2. Data Structure Implementation
 
-The `Config` struct has been updated to reference the new `identities.json` file.
+### 2.1. `IdentityConfig` and `Identity` Structs
 
-### `identities.json`
+The Go structs in `config_manager.go` will be updated to reflect the new `identities.json` structure.
 
-```json
-[
-  {
-    "name": "operator",
-    "npub": "npub1g53qcy6e58ycm3xrtacd993z265jfa2u848rtda7x2v5z4gha0dskp4l6t",
-    "lightning_address": "tollgate@minibits.cash"
-  },
-  {
-    "name": "developer",
-    "npub": "npub1...",
-    "lightning_address": "tollgate@minibits.cash"
-  }
-]
-```
-> **Note:** When `EnsureDefaultIdentities` creates a new `identities.json` file, the `npub` for the `operator` identity is derived from the `tollgate_private_key` in `config.json`. However, if an `identities.json` file already exists, this process will not overwrite any existing `npub` values.
-
-### `config.json` (v0.0.4)
-
-```json
-{
-  "config_version": "v0.0.4",
-  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
-  "accepted_mints": [
-    {
-      "url": "https://mint.minibits.cash/Bitcoin",
-      "min_balance": 100,
-      "balance_tolerance_percent": 10,
-      "payout_interval_seconds": 60,
-      "min_payout_amount": 200,
-      "price_per_step": 1,
-      "price_unit": "sat",
-      "purchase_min_steps": 0
-    }
-  ],
-  "profit_share": [
-    {
-      "factor": 0.70,
-      "identity": "operator"
-    },
-    {
-      "factor": 0.30,
-      "identity": "developer"
-    }
-  ],
-  "step_size": 60000,
-  "metric": "milliseconds",
-  "bragging": {
-    "enabled": true,
-    "fields": ["amount", "mint", "duration"]
-  },
-   "merchant": {
-    "identity": "operator"
-  },
-  "relays": [
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://nostr.mom"
-  ],
-  "trusted_maintainers": [
-    "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
-  ],
-  "show_setup": true,
-  "current_installation_id": ""
-}
-```
-
-## Configuration Structure Changes
-
-### Identity Struct
 ```go
+// IdentityConfig holds the identities configuration parameters, including its version
+type IdentityConfig struct {
+	ConfigVersion string     `json:"config_version"`
+	Identities    []Identity `json:"identities"`
+}
+
+// Identity represents a single identity with a flexible key field.
 type Identity struct {
 	Name             string `json:"name"`
-	Npub             string `json:"npub"`
+	Key              string `json:"key"`
+	KeyFormat        string `json:"key_format"` // "nsec", "npub", or "hex_private"
 	LightningAddress string `json:"lightning_address"`
 }
 ```
 
-### Removed Fields from `config.json`:
-- `lightning_address` from `ProfitShareConfig`
-- `name`, `lightning_address`, `website` from `MerchantConfig`
+### 2.2. `Config` Struct Changes
 
-### Added Fields to `config.json`:
-- `identity` to `ProfitShareConfig`
-- `identity` to `MerchantConfig`
-
-## Migration Support
-
-### Migration Scripts (`files/etc/uci-defaults/`):
-- **`tollgate-config-migration-v0.0.3-to-v0.0.4-migration`**:
-    - **Purpose:** Migrates `config.json` from `v0.0.3` to `v0.0.4` and creates `identities.json`.
-    - **Validation:** Checks if `config_version` is `v0.0.3`.
-    - **Changes:**
-        - Creates `identities.json` with "operator" and "developer" identities based on the existing `merchant` and `profit_share` fields. The operator's `npub` is derived from the `tollgate_private_key` if not already set.
-        - Updates `config.json` to reference these identities.
-        - Bumps `config_version` to `v0.0.4`.
-
-### General Migration Process:
-1.  **Existence and Integrity Checks:** Scripts first verify the presence, non-emptiness, and JSON validity of the configuration file.
-2.  **Version Check:** Determine the current `config_version`. If it's already the target version or newer, the migration exits.
-3.  **Backup Creation:** A timestamped backup of the original configuration file is created before any modifications.
-4.  **Transformation:** `jq` is used to perform the necessary JSON transformations (e.g., adding/removing fields, modifying values).
-5.  **Error Recovery:** The presence of backups allows for manual recovery in case of unexpected issues during migration.
-6.  **Post-Migration Validation:** Implicitly, the `config_manager`'s `LoadConfig` and `EnsureDefaultConfig` (or `LoadInstallConfig` and `EnsureDefaultInstall`) functions will validate the migrated config's structure upon application startup.
-
-## Core Functions
-
-### NewConfigManager Function
-- Creates a new `ConfigManager` instance with the specified file path.
-- Initializes public and local Nostr relay pools.
-
-### EnsureInitializedConfig Function
-- Orchestrates the initialization of both main and install configurations.
-- Calls `EnsureDefaultConfig()`, `EnsureDefaultInstall()`, and `EnsureDefaultIdentities()`.
-- Updates the `CurrentInstallationID` based on the installed version.
-
-### LoadConfig Function
-- Reads the main configuration from the managed file (`config.json`).
-- **Robustness:** If the file does not exist, is empty, or contains malformed JSON, it returns `nil` and a `nil` error (if `os.IsNotExist` or unmarshalling error), allowing `EnsureDefaultConfig` to create a new default.
-
-### SaveConfig Function (Enhanced)
-- Writes the `Config` struct to the managed file using `json.MarshalIndent()` with 2-space indentation for human readability.
-
-### LoadInstallConfig Function
-- Reads the installation configuration from `install.json`.
-- **Robustness:** Similar to `LoadConfig`, handles missing, empty, or malformed `install.json` by returning `nil` config, triggering `EnsureDefaultInstall`.
-
-### SaveInstallConfig Function
-- Writes the `InstallConfig` struct to `install.json`.
-
-### EnsureDefaultConfig Function (Updated)
-- Ensures a default `Config` exists. If `LoadConfig` returns `nil` (due to missing/invalid file), it generates a new private key and populates a default `Config` struct with `v0.0.3` version, default mints, profit share, relays, and merchant info.
-- Calls `setUsername` after saving the initial config to publish profile metadata.
-
-### Handling Missing Fields in Existing Configurations
-
-When an existing `config.json` is loaded (i.e., `config != nil`), the `EnsureDefaultConfig` function will perform checks for specific fields. If a field is found to be at its zero value (indicating it might be missing from an older configuration file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
-
-The following fields will be checked and defaulted if missing:
-
-- **`AcceptedMints`**: If `len(config.AcceptedMints) == 0`, populate with the default `MintConfig` list.
-- **`ProfitShare`**: If `len(config.ProfitShare) == 0`, populate with the default `ProfitShareConfig` list.
-- **`StepSize`**: If `config.StepSize == 0`, set to `600000`.
-- **`Metric`**: If `config.Metric == ""`, set to `"milliseconds"`.
-- **`Bragging`**: If `config.Bragging.Fields == nil` (or `config.Bragging.Enabled` is false and fields are empty), populate with the default `BraggingConfig` (`Enabled: true`, `Fields: ["amount", "mint", "duration"]`).
-- **`Relays`**: If `len(config.Relays) == 0`, populate with the default list of relays (`"wss://relay.damus.io"`, `"wss://nos.lol"`, `"wss://nostr.mom"`).
-- **`TrustedMaintainers`**: If `len(config.TrustedMaintainers) == 0`, populate with the default list of trusted maintainers (`"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"`).
-- **`Merchant`**: If `config.Merchant.Identity == ""`, set `Identity` to `"operator"`.
-
-### EnsureDefaultInstall Function (Updated)
-- Ensures a default `InstallConfig` exists.
-- If `LoadInstallConfig` returns `nil` (due to missing/invalid file), it creates a new `InstallConfig` with default values, including `ConfigVersion: "v0.0.2"`.
-- If an existing `install.json` is loaded but is missing the `ConfigVersion` field, it will be populated with `"v0.0.1"` to signify its original unversioned state. This enables future migration scripts to identify and upgrade it.
-- Populates missing fields from older versions with default values, ensuring backward compatibility.
-
-### Handling Missing Fields in Existing Installations
-
-When an existing `install.json` is loaded (i.e., `installConfig != nil`), the `EnsureDefaultInstall` function will perform checks for specific fields. If a field is found to be at its zero value (indicating it might be missing from an older installation file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
-
-The following fields will be checked and defaulted if missing:
-
-- **`PackagePath`**: If `installConfig.PackagePath == ""`, set to `""`. (Note: The previous default was "false", which is now handled by setting to empty string).
-- **`IPAddressRandomized`**: If `installConfig.IPAddressRandomized` is false (and it should be true), set to `true`.
-- **`InstallTimestamp`**: If `installConfig.InstallTimestamp == 0`, set to `0` (unknown).
-- **`DownloadTimestamp`**: If `installConfig.DownloadTimestamp == 0`, set to `0` (unknown).
-- **`ReleaseChannel`**: If `installConfig.ReleaseChannel == ""`, set to `"stable"`.
-- **`EnsureDefaultTimestamp`**: If `installConfig.EnsureDefaultTimestamp == 0`, set to the current timestamp.
-- **`InstalledVersion`**: If `installConfig.InstalledVersion == ""`, set to `"0.0.0"`.
-
-### EnsureDefaultIdentities Function
-- Ensures a default `identities.json` file exists.
-- If the file is missing, it creates one with default "operator" and "developer" identities.
-
-### Handling Missing Fields in Existing Identities Configurations
-
-When an existing `identities.json` is loaded, the `EnsureDefaultIdentities` function will perform checks for specific fields within the `Identity` structs. If a field is found to be at its zero value (indicating it might be missing from an older identities file), it will be populated with its default value. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced.
-
-The following fields will be checked and defaulted if missing:
-
-- **`Npub`**: If an `Identity` has `Npub == ""`, and its `Name` is "operator", the `Npub` will be derived from the `tollgate_private_key` in `config.json`.
-- **`LightningAddress`**: If an `Identity` has `LightningAddress == ""`, it will be set to `"tollgate@minibits.cash"`.
-
-### UpdateCurrentInstallationID Function
-- Loads the current `Config`.
-- If `CurrentInstallationID` is set, it fetches the corresponding NIP94 event and extracts `PackageInfo`.
-- **Consistency Check:** If the `InstalledVersion` (obtained via `GetInstalledVersion()`) does not match the version from the NIP94 event, it clears `CurrentInstallationID` in the config and saves it. This prompts the system to re-evaluate its installation state, potentially leading to a new installation ID being set.
-
-### GetInstalledVersion Function
-- Retrieves the installed `tollgate` package version using `opkg list-installed`.
-- **Resilience:** Implements a retry mechanism with exponential backoff (up to 5 attempts) to handle `opkg.lock` issues (`Resource temporarily unavailable`).
-- Returns a default version (`0.0.1+1cac608`) if `opkg` is not found, useful for development environments.
-
-### GetNIP94Event Function
-- Fetches a NIP-94 event given an `eventID` from configured public relays.
-- Utilizes a rate-limited relay request mechanism (`rateLimitedRelayRequest`) to prevent overwhelming relays.
-
-### ExtractPackageInfo Function
-- Extracts `Version`, `Timestamp`, and `ReleaseChannel` from a given Nostr event's tags.
-
-### GetTimestamp Function
-- Determines the installation timestamp, preferring the NIP94 event timestamp if `CurrentInstallationID` is set, otherwise deriving it from `InstallConfig` (prioritizing `DownloadTimestamp`, then `InstallTimestamp`, then `EnsureDefaultTimestamp`).
-
-### GetReleaseChannel Function
-- Determines the release channel, preferring the NIP94 event's release channel if `CurrentInstallationID` is set, otherwise using the `InstallConfig`'s `ReleaseChannel`.
-
-### GeneratePrivateKey Function
-- Generates a new Nostr private key.
-
-### SetUsername Function
-- Publishes a NIP-01 kind 0 (profile metadata) event to configured relays, setting the profile `name` to the provided username.
-- Uses `rateLimitedRelayRequest` for publishing.
-
-### GetPublicPool and GetLocalPool Functions
-- Provide access to the initialized Nostr simple pools for public and local relays, respectively.
-
-### PublishToLocalPool and QueryLocalPool Functions
-- Facilitate interaction with the local Nostr relay (e.g., `ws://localhost:4242`) for publishing and querying events, primarily for internal application communication.
-
-### GetLocalPoolEvents Function
-- Retrieves all events from the local pool matching specified filters, handling EOSE (End of Stored Events) and implementing a fallback timeout.
-
-## PackageInfo Struct
-
-The `PackageInfo` struct holds information extracted from NIP-94 events:
+The `Config` struct will be updated to remove the `TollgatePrivateKey`.
 
 ```go
-type PackageInfo struct {
-	Version        string
-	Timestamp      int64
-	ReleaseChannel string
+// Config holds the configuration parameters
+type Config struct {
+	ConfigVersion         string              `json:"config_version"`
+	// TollgatePrivateKey is now REMOVED.
+	AcceptedMints         []MintConfig        `json:"accepted_mints"`
+	ProfitShare           []ProfitShareConfig `json:"profit_share"`
+	StepSize              uint64              `json:"step_size"`
+	Metric                string              `json:"metric"`
+	Bragging              BraggingConfig      `json:"bragging"`
+	Merchant              MerchantConfig      `json:"merchant"`
+	Relays                []string            `json:"relays"`
+	TrustedMaintainers    []string            `json:"trusted_maintainers"`
+	ShowSetup             bool                `json:"show_setup"`
+	CurrentInstallationID string              `json:"current_installation_id"`
 }
 ```
 
-## InstallConfig Struct (v0.0.2)
+## 3. Core Function Implementation
 
-The `InstallConfig` struct holds the installation configuration parameters, including details about the installed package, timestamps, and config version:
+### 3.1. `GetIdentity(name string)`
 
-```go
-type InstallConfig struct {
-	ConfigVersion          string `json:"config_version"`
-	PackagePath            string `json:"package_path"`
-	IPAddressRandomized    bool   `json:"ip_address_randomized"`
-	InstallTimestamp       int64  `json:"install_time"`
-	DownloadTimestamp      int64  `json:"download_time"`
-	ReleaseChannel         string `json:"release_channel"`
-	EnsureDefaultTimestamp int64  `json:"ensure_default_timestamp"`
-	InstalledVersion       string `json:"installed_version"`
-}
-```
+This function will be added to `ConfigManager`.
 
-**Fields:**
-- `ConfigVersion`: The version of the `install.json` schema. New installations will default to `"v0.0.2"`. Unversioned existing files will be treated as `"v0.0.1"`.
-- `PackagePath`: Path to the installed package.
-- `IPAddressRandomized`: Indicates if the IP address has been randomized (boolean).
-- `InstallTimestamp`: Timestamp of the installation.
-- `DownloadTimestamp`: Timestamp of the package download.
-- `ReleaseChannel`: The release channel (e.g., "stable", "dev").
-- `EnsureDefaultTimestamp`: Timestamp when default install config was ensured.
-- `InstalledVersion`: The version of the installed package.
+- **Logic:**
+    1. Load the `identities.json` file using `LoadIdentities()`.
+    2. Iterate through the `Identities` slice.
+    3. If an identity with the matching `name` is found, return a pointer to that `Identity` struct.
+    4. If not found, return `nil` and an error (e.g., `fmt.Errorf("identity not found: %s", name)`).
 
-## Helper Functions
+### 3.2. `GetPrivateKey(identityName string)`
 
-### ExtractPackageInfo Function
-- Extracts `PackageInfo` from a given NIP-94 event
-- Handles version, timestamp, and release channel extraction
+This function will be added to `ConfigManager`.
 
-### GetNIP94Event Function
-- Fetches a NIP-94 event from a relay using the provided event ID
-- Iterates through configured relays to find the event
-- Implements rate limiting for relay requests
+- **Logic:**
+    1. Call `GetIdentity(identityName)` to retrieve the identity object.
+    2. Check the `KeyFormat` field.
+    3. If `KeyFormat` is `"hex_private"`:
+        - Use `nostr.EncodePrivateKey()` to convert the hex string from the `Key` field into an `nsec` string.
+        - Return the resulting `nsec` string.
+    4. If `KeyFormat` is `"nsec"`:
+        - Return the `Key` field directly.
+    5. If `KeyFormat` is `"npub"` or any other value, return an error indicating a private key is not available.
 
-## Centralized Rate Limiting for relayPool
+### 3.3. `GetPublicKey(identityName string)`
 
-To address the 'too many concurrent REQs' error, we implement centralized rate limiting for `relayPool` within `config_manager`. This involves:
+This function will be added to `ConfigManager`.
 
-- Initializing `relayPool` in `config_manager`
-- Providing controlled access through member functions
-- Ensuring all services using `relayPool` are rate-limited
-- Preventing excessive concurrent requests to relays
+- **Logic:**
+    1. Call `GetIdentity(identityName)` to retrieve the identity object.
+    2. Check the `KeyFormat` field.
+    3. If `KeyFormat` is `"hex_private"` or `"nsec"`:
+        - First, get the private key as hex (if `nsec`, use `nostr.DecodePrivateKey` to get the hex).
+        - Use `nostr.GetPublicKey()` to derive the public key.
+        - Return the public key (hex format).
+    4. If `KeyFormat` is `"npub"`:
+        - Use `nostr.DecodePublicKey()` to convert the `npub` string to a hex public key.
+        - Return the hex public key.
+    5. If the key format is invalid, return an error.
 
-## Testing
+### 3.4. `EnsureDefaultIdentities()`
 
-- Extensive unit tests (`config_manager_test.go`) cover `ConfigManager` functionality, including:
-    - `EnsureDefaultConfig` and `EnsureDefaultInstall` creation and population.
-    - Loading and saving of both main and install configurations, including scenarios with missing, empty, or malformed files.
-    - Verification of private key generation and username setting.
-    - `UpdateCurrentInstallationID` behavior, especially when versions mismatch.
-    - **Default Field Population:** New unit tests will verify that `EnsureDefaultConfig`, `EnsureDefaultInstall`, and `EnsureDefaultIdentities` correctly populate missing fields with their default values when an existing (but incomplete) configuration file is loaded. This includes testing various combinations of missing fields.
-- Mocking of external dependencies (e.g., `nostr.SimplePool` for relay interactions) in tests.
-- Migration testing implicitly covered by the robustness tests of `LoadConfig` and `EnsureDefaultConfig` when encountering older or invalid formats.
-- Pretty-printed JSON output validation is performed.
-- Backward compatibility verification is ensured through the default value population in `EnsureDefaultInstall` for older `install.json` formats.
+This function will be updated significantly.
+
+- **Logic:**
+    1. Attempt to load `identities.json` using `LoadIdentities()`.
+    2. If the file doesn't exist (`identityConfig == nil`):
+        - Create a new `IdentityConfig` with `ConfigVersion: "v0.0.1"`.
+        - Generate a new private key using `nostr.GeneratePrivateKey()`.
+        - Encode it to `nsec` using `nostr.EncodePrivateKey()`.
+        - Create a default "operator" `Identity` with `Name: "operator"`, `Key: <nsec_key>`, `KeyFormat: "nsec"`, and a default LN address.
+        - Create a default "developer" `Identity`.
+        - Save the new `IdentityConfig`.
+    3. If the file exists, check for the "operator" and "developer" identities and add them if they are missing.
+    4. Ensure `ConfigVersion` is set to `v0.0.1`.
+
+### 3.5. `EnsureDefaultConfig()`
+
+This function will be updated to remove any logic related to `TollgatePrivateKey`.
+
+- **Change:** The section that generates and sets `config.TollgatePrivateKey` will be removed.
+
+## 4. Module Updates
+
+All modules that previously accessed `config.TollgatePrivateKey` must be updated to use the new `ConfigManager` methods.
+
+- **Example (`merchant.go`):**
+    - **Old Code:** `err := advertisementEvent.Sign(config.TollgatePrivateKey)`
+    - **New Code:**
+        ```go
+        operatorKey, err := m.configManager.GetPrivateKey("operator")
+        if err != nil {
+            return "", fmt.Errorf("failed to get operator private key: %w", err)
+        }
+        // The key is now in nsec format, need to decode to hex for signing
+        hexKey, err := nostr.DecodePrivateKey(operatorKey)
+        if err != nil {
+            return "", fmt.Errorf("failed to decode operator private key: %w", err)
+        }
+        err = advertisementEvent.Sign(hexKey)
+        ```
+
+## 5. Migration Script (`99-tollgate-config-migration-v0.0.3-to-v0.0.4-migration`)
+
+A new migration script will be created.
+
+- **File Path:** `files/etc/uci-defaults/99-tollgate-config-migration-v0.0.3-to-v0.0.4-migration`
+- **Logic (`sh` and `jq`):**
+    ```sh
+    #!/bin/sh
+    # Migration from v0.0.3 to v0.0.4
+
+    CONFIG_FILE="/etc/tollgate/config.json"
+    IDENTITIES_FILE="/etc/tollgate/identities.json"
+    # ... (backup and validation logic) ...
+
+    # Extract private key
+    OPERATOR_PRIVKEY_HEX=$(jq -r '.tollgate_private_key // ""' "$CONFIG_FILE")
+
+    # Create identities.json
+    jq -n \
+      --arg version "v0.0.1" \
+      --arg op_key "$OPERATOR_PRIVKEY_HEX" \
+      '{
+        "config_version": $version,
+        "identities": [
+          {
+            "name": "operator",
+            "key": $op_key,
+            "key_format": "hex_private",
+            "lightning_address": "tollgate@minibits.cash"
+          },
+          {
+            "name": "developer",
+            "key": "npub1...",
+            "key_format": "npub",
+            "lightning_address": "tollgate@minibits.cash"
+          }
+        ]
+      }' > "$IDENTITIES_FILE"
+
+    # Update config.json: remove private key and update version
+    jq 'del(.tollgate_private_key) | .config_version = "v0.0.4"' "$CONFIG_FILE" > tmp_config && mv tmp_config "$CONFIG_FILE"
+
+    log "Migration to v0.0.4 complete."
+    exit 0
+    ```
+
+## 6. Testing Plan
+
+### 6.1. Unit Tests (`config_manager_test.go`)
+
+- **`TestGetIdentity`:**
+    - Test retrieving an existing identity.
+    - Test retrieving a non-existent identity (expect error).
+- **`TestGetPrivateKey`:**
+    - Test with `key_format: "nsec"`.
+    - Test with `key_format: "hex_private"`.
+    - Test with `key_format: "npub"` (expect error).
+- **`TestGetPublicKey`:**
+    - Test deriving from `nsec`.
+    - Test deriving from `hex_private`.
+    - Test retrieving from `npub`.
+- **`TestEnsureDefaultIdentities`:**
+    - Test creation of a new `identities.json` file.
+    - Verify the generated operator key is a valid `nsec`.
+- **`TestFullMigrationFlow`:**
+    - A new integration-style test that:
+        1. Creates a `v0.0.3` `config.json` with a `tollgate_private_key`.
+        2. Runs the core logic of the migration.
+        3. Asserts that `identities.json` is created correctly.
+        4. Asserts that `config.json` is updated to `v0.0.4` and the private key is removed.
+        5. Loads the new configs with `ConfigManager` and verifies that `GetPrivateKey("operator")` returns the correct key.
+
+### 6.2. Manual Tests
+
+- Add a new section to `manual_test_edge_cases.md` for the identity refactor.
+- **Test Case:** Manual migration.
+    - Start with a `v0.0.3` config.
+    - Run the migration script.
+    - Verify the contents of `config.json` and `identities.json`.
+    - Start the application and ensure it runs correctly.
+- **Test Case:** Fresh install.
+    - Delete all config files.
+    - Start the application.
+    - Verify the contents of the newly generated `config.json` and `identities.json`.
+
+## 7. Pending Tasks
+
+- [ ] Implement the updated `Identity` and `IdentityConfig` structs.
+- [ ] Implement `GetIdentity`, `GetPrivateKey`, and `GetPublicKey`.
+- [ ] Update `EnsureDefaultIdentities` and `EnsureDefaultConfig`.
+- [ ] Update `merchant`, `bragging`, and other modules to use the new key retrieval methods.
+- [ ] Create the `99-tollgate-config-migration-v0.0.3-to-v0.0.4-migration` script.
+- [ ] Implement all new unit tests.
+- [ ] Update the manual testing document.

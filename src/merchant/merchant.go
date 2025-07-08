@@ -302,7 +302,12 @@ func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
 
-func CreateAdvertisement(config *config_manager.Config) (string, error) {
+func CreateAdvertisement(cm *config_manager.ConfigManager) (string, error) {
+	config, err := cm.LoadConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to load config in CreateAdvertisement: %w", err)
+	}
+
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
 		Tags: nostr.Tags{
@@ -325,8 +330,17 @@ func CreateAdvertisement(config *config_manager.Config) (string, error) {
 		})
 	}
 
+	operatorPrivateKeyNsec, err := cm.GetPrivateKey("operator")
+	if err != nil {
+		return "", fmt.Errorf("failed to get operator private key: %w", err)
+	}
+	operatorPrivateKeyHex, err := nostr.DecodePrivateKey(operatorPrivateKeyNsec)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode operator private key: %w", err)
+	}
+
 	// Sign
-	err := advertisementEvent.Sign(config.TollgatePrivateKey)
+	err = advertisementEvent.Sign(operatorPrivateKeyHex)
 	if err != nil {
 		return "", fmt.Errorf("Error signing advertisement event: %v", err)
 	}
@@ -696,30 +710,34 @@ func (m *Merchant) publishPublic(event *nostr.Event) error {
 
 // CreateNoticeEvent creates a notice event for error communication
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	// Get the public key of the operator
+	tollgatePubkey, err := m.configManager.GetPublicKey("operator")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get public key: %w", err)
+		return nil, fmt.Errorf("failed to get operator public key: %w", err)
 	}
 
 	noticeEvent := &nostr.Event{
-		Kind:      21023,
+		Kind:      21023, // Notice event kind
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
+			{"p", customerPubkey},
 			{"level", level},
 			{"code", code},
 		},
 		Content: message,
 	}
 
-	// Add customer pubkey if provided
-	if customerPubkey != "" {
-		noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
+	operatorPrivateKey, err := m.configManager.GetPrivateKey("operator")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator private key: %w", err)
 	}
-
-	// Sign with tollgate private key
-	err = noticeEvent.Sign(m.config.TollgatePrivateKey)
+	operatorPrivateKeyHex, err := nostr.DecodePrivateKey(operatorPrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode operator private key: %w", err)
+	}
+	// Sign with operator private key
+	err = noticeEvent.Sign(operatorPrivateKeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}

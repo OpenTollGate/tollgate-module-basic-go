@@ -1,108 +1,141 @@
 # config_manager HLDD
 
-## Overview
+## 1. Overview
 
-The `config_manager` package provides a `ConfigManager` struct that manages configuration stored in multiple files, including a main configuration file (`config.json`), an installation configuration file (`install.json`), and an identities file (`identities.json`). It includes migration support, pretty-printed JSON output, and flexible metric-based pricing structure.
+The `config_manager` package is responsible for the lifecycle and management of all configuration files for the Tollgate module. This includes the main `config.json`, the installation-specific `install.json`, and the newly centralized `identities.json`. The manager ensures that configurations are loaded correctly, defaults are applied, and data integrity is maintained across versions through a robust migration system.
 
-## Responsibilities (Updated v0.0.4)
+A key design principle is the separation of identity-related data (including sensitive keys) from operational configuration, improving security and modularity.
 
-- Initialize with a specific file path for the main configuration
-- Load and save configuration with pretty-printed JSON formatting, handling missing/corrupted files gracefully
-- Manage migration between configuration versions (v0.0.1 → v0.0.2 → v0.0.3) for `config.json` and `install.json` with robust validation
-- Ensure default configuration and installation configuration exist and are properly initialized
-- Track and manage the current installed version and installation ID, ensuring consistency with NIP94 events
-- Provide resilient retrieval of installed package version, including retry mechanisms for OpenWRT `opkg`
-- Handle flexible metric-based pricing structure
-- Store and manage `release_channel` information for packages
-- Provide mint fee retrieval functionality
-- Manage identities for profit sharing and merchant information through `identities.json`.
+## 2. Key Design Changes: Identity Management Refactor (v0.0.4)
 
-## Configuration Structure Changes
+The core of this refactor is to centralize all identity-related information into a single `identities.json` file. This includes user-facing names, Nostr keys (both public and private), and Lightning Addresses.
 
-### Identities Config (`identities.json`):
-- **Added**: A new file to store a list of identities.
-- Each identity has a `name`, `npub`, and `lightning_address`.
-- The `name` field serves as a unique identifier.
+### 2.1. Centralized Identity Store (`identities.json`)
 
-### Main Config (`config.json`):
-- **Version**: v0.0.4
-- **Modified**: `MerchantConfig` now references an identity from `identities.json`.
-- **Modified**: `ProfitShareConfig` now references an identity from `identities.json`.
-- **Removed**: `lightning_address` from `ProfitShareConfig`.
-- **Removed**: `name`, `lightning_address`, `website` from `MerchantConfig`.
-- **Added**: `identity` to `MerchantConfig`.
-- **Added**: `identity` to `ProfitShareConfig`.
+- **Single Source of Truth:** `identities.json` will be the definitive source for all identity information.
+- **Private Key Storage:** The operator's private key, previously `tollgate_private_key` in `config.json`, will be stored *exclusively* within the "operator" identity object in `identities.json`.
+- **Flexible Key Formats:** The system will support multiple key formats (`nsec`, `npub`, and `hex_private`) to accommodate different use cases and migration constraints.
 
-### MintConfig Structure:
-- `PricePerStep`: Individual pricing per mint
-- `PriceUnit`: Unit of pricing (e.g., "sat")
-- `MinPurchaseSteps`: Minimum purchase requirement per mint
-- Existing fields: URL, MinBalance, BalanceTolerancePercent, etc.
+### 2.2. Configuration File Decoupling (`config.json`)
 
-### Install Config (`install.json`):
-- **Added**: `ConfigVersion` for version tracking of the `install.json` schema.
+- **Removal of `tollgate_private_key`:** The `tollgate_private_key` field will be completely removed from `config.json`.
+- **Identity References:** Components that previously used direct Nostr keys or Lightning Addresses (e.g., `ProfitShare`, `Merchant`) will now use a string `identity` field to reference an entry in `identities.json`.
 
-## Interfaces
+## 3. System Architecture & Data Flow
 
-- `NewConfigManager(filePath string) (*ConfigManager, error)`: Creates a new `ConfigManager` instance with the specified file path
-- `EnsureInitializedConfig() error`: Ensures default main configuration, install configuration, and identities file exist, creating them if necessary. This is the primary entry point for ensuring a valid system state.
-- `LoadConfig() (*Config, error)`: Reads the main configuration from the managed file. Handles cases where the file is missing, empty, or malformed.
-- `SaveConfig(config *Config) error`: Writes configuration with pretty-printed JSON formatting.
-- `LoadInstallConfig() (*InstallConfig, error)`: Reads the installation configuration from `install.json`. Handles cases where the file is missing, empty, or malformed.
-- `SaveInstallConfig(installConfig *InstallConfig) error`: Writes the installation configuration to `install.json`.
-- `LoadIdentities() ([]Identity, error)`: Reads the identities from `identities.json`.
-- `SaveIdentities(identities []Identity) error`: Writes the identities to `identities.json`.
-- `EnsureDefaultConfig() (*Config, error)`: Ensures a default main configuration exists with v0.0.3 structure, generating a private key if needed.
-- `EnsureDefaultInstall() (*InstallConfig, error)`: Ensures a default install configuration exists, populating missing fields from older versions.
-- `EnsureDefaultIdentities() ([]Identity, error)`: Ensures a default identities file exists, creating it with default "operator" and "developer" identities if necessary.
-- `UpdateCurrentInstallationID() error`: Compares the installed version with the NIP94 event version and resets `CurrentInstallationID` if they don't match.
-- `GetNIP94Event(eventID string) (*nostr.Event, error)`: Fetches a NIP-94 event from configured relays.
-- `ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error)`: Extracts package information from a NIP-94 event.
-- `GetInstalledVersion() (string, error)`: Retrieves the installed package version, with retry logic for `opkg`.
-- `GetArchitecture() (string, error)`: Retrieves the device architecture from OpenWRT.
-- `GetTimestamp() (int64, error)`: Retrieves the installation timestamp from NIP94 event or install config.
-- `GetReleaseChannel() (string, error)`: Determines the release channel from NIP94 event or install config.
-- `GetPublicPool() *nostr.SimplePool`: Returns the public Nostr relay pool.
-- `GetLocalPool() *nostr.SimplePool`: Returns the local Nostr relay pool.
-- `PublishToLocalPool(event nostr.Event) error`: Publishes an event to the local relay.
-- `QueryLocalPool(filters []nostr.Filter) (chan *nostr.Event, error)`: Queries events from the local relay.
-- `GetLocalPoolEvents(filters []nostr.Filter) ([]*nostr.Event, error)`: Retrieves all events from the local pool matching filters.
-- `GetMintFee(mintURL string) (uint64, error)`: Retrieves mint fees (delegates to tollwallet).
+### 3.1. Data Structures
 
-## Migration Support
+**`identities.json` Data Structure:**
 
-### Configuration Migration (`config.json`):
-- Automatic detection of configuration version
-- Migration scripts for v0.0.3 → v0.0.4 transformation
-- Backup creation and error recovery
-- Version-specific migration guards
+```json
+[
+  {
+    "name": "operator",
+    "key": "nsec1...",
+    "key_format": "nsec",
+    "lightning_address": "tollgate@minibits.cash"
+  },
+  {
+    "name": "developer",
+    "key": "npub1...",
+    "key_format": "npub",
+    "lightning_address": "tollgate@minibits.cash"
+  }
+]
+```
 
-### Install Configuration Migration (`install.json`):
-- Migration script for unversioned (`v0.0.1`) to `v0.0.2` transformation.
-- Automatic detection of `install.json` version.
-- Backup creation and error recovery.
-- Version-specific migration guards.
+**`config.json` Data Structure (Relevant Sections):**
 
-### Default Configuration (v0.0.3):
-- `Metric`: "milliseconds"
-- `StepSize`: 60000 (1 minute in milliseconds)
-- Mint-specific `PricePerStep` instead of global `PricePerMinute`
+```json
+{
+  "config_version": "v0.0.4",
+  "profit_share": [
+    { "factor": 0.7, "identity": "operator" },
+    { "factor": 0.3, "identity": "developer" }
+  ],
+  "merchant": {
+    "identity": "operator"
+  }
+}
+```
 
-## Pretty-Printed JSON
+### 3.2. Data Flow Diagram
 
-All configuration files are saved with `json.MarshalIndent()` using 2-space indentation for human readability and easier manual editing.
+```mermaid
+graph TD
+    subgraph Application Startup
+        A[main.go] --> B{config_manager.EnsureInitializedConfig};
+    end
 
-## Centralized Rate Limiting for relayPool
+    subgraph Configuration Initialization
+        B --> C{LoadIdentities};
+        B --> D{LoadConfig};
+        B --> E{LoadInstallConfig};
+    end
 
-To address the 'too many concurrent REQs' error, centralized rate limiting for `relayPool` is implemented within `config_manager`. This involves:
+    subgraph Identity & Key Management
+        F[Other Modules e.g., merchant] -- requests key for 'operator' --> G[config_manager];
+        G -- GetIdentity("operator") --> C;
+        C -- returns operator Identity object --> G;
+        G -- GetPrivateKey() on Identity --> H{Key Conversion Logic};
+        H -- returns nsec --> G;
+        G -- returns nsec to --> F;
+    end
 
-- Initializing `relayPool` in `config_manager` with a semaphore to limit concurrent requests.
-- Providing a controlled access mechanism through `rateLimitedRelayRequest` and other member functions.
-- Ensuring all services using `relayPool` are rate-limited, preventing excessive concurrent requests to relays.
+    subgraph Migration Flow
+        I[Migration Script] -- reads --> J[Old config.json (v0.0.3)];
+        J -- contains tollgate_private_key (hex) --> I;
+        I -- creates --> K[New identities.json];
+        I -- writes hex key & key_format="hex_private" --> K;
+        I -- removes tollgate_private_key --> L[New config.json (v0.0.4)];
+    end
+```
 
-## Robustness Improvements
+## 4. API & Interfaces
 
-- **Config File Handling:** The `LoadConfig` and `LoadInstallConfig` functions now gracefully handle scenarios where configuration files are missing, empty, or contain malformed JSON. Instead of returning an error, they return `nil` config, which triggers the `EnsureDefaultConfig` or `EnsureDefaultInstall` functions to create a default valid configuration. This prevents application startup failures due to invalid config states.
-- **Config Field Defaulting:** The `EnsureDefaultConfig` function will be enhanced to actively check for and populate missing configuration fields in existing `config.json` files with their default values. This ensures backward compatibility and prevents unexpected behavior when new fields are introduced in later software versions.
-- **Installed Version Tracking:** The `InstallConfig` struct includes an `InstalledVersion` field. The `UpdateCurrentInstallationID` function ensures that if the locally installed version (obtained via `GetInstalledVersion()`) does not match the version advertised in the `CurrentInstallationID`'s NIP94 event, the `CurrentInstallationID` is reset. This prompts a re-evaluation or re-initialization of the installation state, preventing inconsistencies.
-- **Resilient Version Retrieval:** The `GetInstalledVersion()` function now incorporates a retry mechanism with exponential backoff when `opkg` encounters temporary lock issues. This improves the reliability of version detection, especially in resource-constrained or busy OpenWRT environments.
+The `ConfigManager` will expose a clear API for managing configurations and identities.
+
+### 4.1. Core Interfaces
+
+- `NewConfigManager(filePath string) (*ConfigManager, error)`: Initializes the manager.
+- `EnsureInitializedConfig() error`: The main entry point to ensure all configuration files are present and valid.
+- `LoadConfig() (*Config, error)`: Loads `config.json`.
+- `SaveConfig(*Config) error`: Saves `config.json`.
+- `LoadIdentities() (*IdentityConfig, error)`: Loads `identities.json`.
+- `SaveIdentities(*IdentityConfig) error`: Saves `identities.json`.
+
+### 4.2. Identity-Specific Interfaces
+
+- `GetIdentity(name string) (*Identity, error)`: Retrieves a specific identity object by its name.
+- `GetPrivateKey(identityName string) (string, error)`: A convenience method that retrieves the private key for a given identity *as an nsec string*. It will handle the conversion from hex if necessary. Returns an error if the identity does not have a private key.
+- `GetPublicKey(identityName string) (string, error)`: A convenience method that retrieves the public key for a given identity. It will derive the public key from a private key if present, otherwise it returns the stored public key.
+
+## 5. Migration Strategy
+
+A new migration script will handle the transition from `v0.0.3` to `v0.0.4`.
+
+- **Trigger:** The script runs if `config.json` is at `v0.0.3`.
+- **Backup:** Creates a timestamped backup of `config.json`.
+- **Actions:**
+    1. Reads the `tollgate_private_key` (hex format) from `config.json`.
+    2. Creates a new `identities.json` file if one does not exist.
+    3. Populates `identities.json` with "operator" and "developer" identities.
+        - For "operator", it writes the hex key to the `key` field and sets `key_format` to `"hex_private"`.
+    4. Modifies `config.json`:
+        - **Removes** the `tollgate_private_key` field entirely.
+        - Updates `config_version` to `v0.0.4`.
+- **Error Handling:** The script will be designed to be idempotent and includes logging. Backups allow for manual recovery.
+
+## 6. Security Considerations
+
+- **Private Key Isolation:** Storing the private key in `identities.json` separates sensitive credentials from general application settings.
+- **File Permissions:** The `config_manager` will ensure that `identities.json` is saved with restrictive file permissions (e.g., `0600`) to protect the private key.
+
+## 7. Pending Tasks
+
+- [ ] Implement the updated `Identity` struct in Go.
+- [ ] Implement the `GetIdentity`, `GetPrivateKey`, and `GetPublicKey` methods.
+- [ ] Update all modules that require keys (`merchant`, `bragging`, etc.) to use the new `ConfigManager` methods.
+- [ ] Create the new `v0.0.3-to-v0.0.4` migration script.
+- [ ] Write comprehensive unit tests for the new identity logic and migration.
+- [ ] Create manual test cases for the identity refactor.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // CurrentConfigVersion is the latest version of the config.json format.
@@ -73,7 +74,8 @@ type BraggingConfig struct {
 // MerchantConfig holds configuration specific to the merchant
 type Identity struct {
 	Name             string `json:"name"`
-	Npub             string `json:"npub"`
+	Key              string `json:"key"`
+	KeyFormat        string `json:"key_format"` // "nsec", "npub", or "hex_private"
 	LightningAddress string `json:"lightning_address"`
 }
 
@@ -113,7 +115,7 @@ type PackageInfo struct {
 
 type Config struct {
 	ConfigVersion         string              `json:"config_version"`
-	TollgatePrivateKey    string              `json:"tollgate_private_key"`
+	// TollgatePrivateKey has been moved to identities.json
 	AcceptedMints         []MintConfig        `json:"accepted_mints"`
 	ProfitShare           []ProfitShareConfig `json:"profit_share"`
 	StepSize              uint64              `json:"step_size"`
@@ -258,6 +260,90 @@ func (cm *ConfigManager) identitiesFilePath() string {
 	return filepath.Join(filepath.Dir(cm.FilePath), "identities.json")
 }
 
+// GetIdentity retrieves a specific identity object by its name.
+func (cm *ConfigManager) GetIdentity(name string) (*Identity, error) {
+	identityConfig, err := cm.LoadIdentities()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load identities: %w", err)
+	}
+	if identityConfig == nil {
+		return nil, fmt.Errorf("identities config is nil")
+	}
+
+	for _, identity := range identityConfig.Identities {
+		if identity.Name == name {
+			return &identity, nil
+		}
+	}
+	return nil, fmt.Errorf("identity not found: %s", name)
+}
+
+// GetPrivateKey retrieves the private key for a given identity as an nsec string.
+// It handles conversion from hex if necessary.
+func (cm *ConfigManager) GetPrivateKey(identityName string) (string, error) {
+	identity, err := cm.GetIdentity(identityName)
+	if err != nil {
+		return "", err
+	}
+
+	switch identity.KeyFormat {
+	case "nsec":
+		return identity.Key, nil
+	case "hex_private":
+		nsec, err := nip19.EncodePrivateKey(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to encode hex private key to nsec: %w", err)
+		}
+		return nsec, nil
+	default:
+		return "", fmt.Errorf("private key not available or in unsupported format for identity %s: %s", identityName, identity.KeyFormat)
+	}
+}
+
+// GetPublicKey retrieves the public key for a given identity.
+// It derives the public key from a private key if present, otherwise it returns the stored public key.
+func (cm *ConfigManager) GetPublicKey(identityName string) (string, error) {
+	identity, err := cm.GetIdentity(identityName)
+	if err != nil {
+		return "", err
+	}
+
+	switch identity.KeyFormat {
+	case "nsec":
+		_, data, err := nip19.Decode(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode nsec: %w", err)
+		}
+		hexKey, ok := data.(string)
+		if !ok {
+			return "", fmt.Errorf("decoded nsec is not a string")
+		}
+		pubKey, err := nostr.GetPublicKey(hexKey)
+		if err != nil {
+			return "", fmt.Errorf("failed to derive public key from hex private key: %w", err)
+		}
+		return pubKey, nil
+	case "hex_private":
+		pubKey, err := nostr.GetPublicKey(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to derive public key from hex private key: %w", err)
+		}
+		return pubKey, nil
+	case "npub":
+		_, data, err := nip19.Decode(identity.Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode npub: %w", err)
+		}
+		hexPubKey, ok := data.(string)
+		if !ok {
+			return "", fmt.Errorf("decoded npub is not a string")
+		}
+		return hexPubKey, nil
+	default:
+		return "", fmt.Errorf("public key not available or in unsupported format for identity %s: %s", identityName, identity.KeyFormat)
+	}
+}
+
 // LoadIdentities reads the identities from the managed file, handling both versioned and unversioned formats.
 func (cm *ConfigManager) LoadIdentities() (*IdentityConfig, error) {
 	data, err := os.ReadFile(cm.identitiesFilePath())
@@ -316,63 +402,72 @@ func (cm *ConfigManager) EnsureDefaultIdentities() (*IdentityConfig, error) {
 	changed := false
 	if identityConfig == nil {
 		log.Printf("No identities file found. Creating new default identities.")
-		identityConfig = &IdentityConfig{}
-		changed = true
-	}
-
-	if identityConfig.Identities == nil {
-		log.Printf("Identities field missing. Populating with default identities.")
-		config, err := cm.LoadConfig() // Load config to get operator key
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config for default identities: %w", err)
-		}
-		operatorNpub := ""
-		if config != nil && config.TollgatePrivateKey != "" {
-			if pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey); getPubKeyErr == nil {
-				operatorNpub = pubKey
-			}
-		}
-		identityConfig.Identities = []Identity{
-			{Name: "operator", Npub: operatorNpub, LightningAddress: "tollgate@minibits.cash"},
-			{Name: "developer", Npub: "", LightningAddress: "tollgate@minibits.cash"},
+		identityConfig = &IdentityConfig{
+			ConfigVersion: CurrentIdentityVersion,
+			Identities:    []Identity{},
 		}
 		changed = true
 	}
 
 	// Ensure default identities "operator" and "developer" exist
-	identitiesFound := make(map[string]bool)
-	for _, identity := range identityConfig.Identities {
-		identitiesFound[identity.Name] = true
+	identitiesMap := make(map[string]*Identity)
+	for i := range identityConfig.Identities {
+		identitiesMap[identityConfig.Identities[i].Name] = &identityConfig.Identities[i]
 	}
 
-	if !identitiesFound["operator"] {
+	// Operator Identity
+	operatorIdentity, foundOperator := identitiesMap["operator"]
+	if !foundOperator {
 		log.Printf("Default identity 'operator' missing. Adding.")
-		// simplified addition; npub will be populated in the next loop
-		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "operator"})
-		changed = true
-	}
-	if !identitiesFound["developer"] {
-		log.Printf("Default identity 'developer' missing. Adding.")
-		identityConfig.Identities = append(identityConfig.Identities, Identity{Name: "developer", LightningAddress: "tollgate@minibits.cash"})
+		operatorIdentity = &Identity{Name: "operator", LightningAddress: "tollgate@minibits.cash"}
+		identityConfig.Identities = append(identityConfig.Identities, *operatorIdentity)
+		identitiesMap["operator"] = operatorIdentity // Update map with pointer to newly appended element
 		changed = true
 	}
 
-	// Ensure all individual identities have their fields populated
-	for i, identity := range identityConfig.Identities {
-		if identity.Name == "operator" && identity.Npub == "" {
-			config, err := cm.LoadConfig()
-			if err != nil {
-				log.Printf("Warning: Failed to load config to update operator npub: %v", err)
-			} else if config != nil && config.TollgatePrivateKey != "" {
-				if pubKey, getPubKeyErr := nostr.GetPublicKey(config.TollgatePrivateKey); getPubKeyErr == nil {
-					identityConfig.Identities[i].Npub = pubKey
-					log.Printf("Updated operator npub to %s", pubKey)
-					changed = true
+	// Developer Identity
+	developerIdentity, foundDeveloper := identitiesMap["developer"]
+	if !foundDeveloper {
+		log.Printf("Default identity 'developer' missing. Adding.")
+		developerIdentity = &Identity{Name: "developer", LightningAddress: "tollgate@minibits.cash"}
+		identityConfig.Identities = append(identityConfig.Identities, *developerIdentity)
+		identitiesMap["developer"] = developerIdentity // Update map with pointer to newly appended element
+		changed = true
+	}
+
+	// Populate missing fields for existing identities
+	for i := range identityConfig.Identities {
+		identity := &identityConfig.Identities[i]
+		if identity.Name == "operator" {
+			// If operator's key is empty, generate a new one
+			if identity.Key == "" {
+				log.Printf("Operator key missing. Generating new key.")
+				privateKey := nostr.GeneratePrivateKey()
+				nsec, err := nip19.EncodePrivateKey(privateKey)
+				if err != nil {
+					return nil, fmt.Errorf("failed to encode private key to nsec: %w", err)
 				}
+				identity.Key = nsec
+				identity.KeyFormat = "nsec"
+				changed = true
+			}
+			// Ensure KeyFormat is set if Key is present
+			if identity.Key != "" && identity.KeyFormat == "" {
+				// Attempt to determine format. Assume nsec if it decodes.
+				_, _, err := nip19.Decode(identity.Key) // Use nip19.Decode for nsec
+				if err == nil {
+					identity.KeyFormat = "nsec"
+				} else {
+					// Fallback: if it's not nsec, assume hex_private for now for migration purposes
+					identity.KeyFormat = "hex_private"
+				}
+				changed = true
 			}
 		}
+
 		if identity.LightningAddress == "" {
-			identityConfig.Identities[i].LightningAddress = "tollgate@minibits.cash"
+			log.Printf("Identity '%s' missing LightningAddress. Setting to default.", identity.Name)
+			identity.LightningAddress = "tollgate@minibits.cash"
 			changed = true
 		}
 	}
@@ -414,49 +509,52 @@ func (cm *ConfigManager) EnsureDefaultInstall() (*InstallConfig, error) {
 		json.Unmarshal(rawBytes, &rawMap)
 	}
 
-	if _, ok := rawMap["download_time"]; !ok {
-		log.Printf("Field 'download_time' missing. Setting to 0.")
-		installConfig.DownloadTimestamp = 0
-		changed = true
-	}
-
-	if installConfig.ConfigVersion != CurrentInstallVersion {
-		log.Printf("Updating install config version from '%s' to '%s'", installConfig.ConfigVersion, CurrentInstallVersion)
+	if installConfig.ConfigVersion == "" || installConfig.ConfigVersion != CurrentInstallVersion {
+		if installConfig.ConfigVersion != "" {
+			log.Printf("Updating install config version from '%s' to '%s'", installConfig.ConfigVersion, CurrentInstallVersion)
+		} else {
+			log.Printf("Setting install config version to '%s'", CurrentInstallVersion)
+		}
 		installConfig.ConfigVersion = CurrentInstallVersion
 		changed = true
 	}
-	if installConfig.PackagePath == "false" { // Handle legacy "false" string
-		log.Printf("Legacy 'false' string found for PackagePath, clearing.")
-		installConfig.PackagePath = ""
+
+	if installConfig.PackagePath == "" {
+		log.Printf("PackagePath missing. Setting to default.")
+		installConfig.PackagePath = "/usr/bin/tollgate" // Default path
 		changed = true
 	}
+
 	if installConfig.InstallTimestamp == 0 {
-		// If InstallTimestamp is 0, it means it's missing or not set.
-		// We don't set it to CURRENT_TIMESTAMP here as it should reflect actual install time.
-		// It will remain 0 unless set by the installation process itself.
-		// However, if the field is genuinely missing from an old config, we might want to default it.
-		// For now, keep it 0 if it's 0.
+		log.Printf("InstallTimestamp missing. Can only be set during first install.")
 	}
+
 	if installConfig.DownloadTimestamp == 0 {
-		// Similar to InstallTimestamp, keep it 0 if it's 0.
+		log.Printf("DownloadTimestamp missing. Can only be set when downloading.")
+
 	}
-	if installConfig.ReleaseChannel == "" {
-		log.Printf("ReleaseChannel missing, setting to 'stable'.")
-		installConfig.ReleaseChannel = "stable"
-		changed = true
-	}
+
 	if installConfig.EnsureDefaultTimestamp == 0 {
-		log.Printf("EnsureDefaultTimestamp missing, setting to current time.")
+		log.Printf("EnsureDefaultTimestamp missing. Setting to current time.")
 		installConfig.EnsureDefaultTimestamp = CURRENT_TIMESTAMP
 		changed = true
 	}
+
 	if installConfig.InstalledVersion == "" {
-		log.Printf("InstalledVersion missing, setting to '0.0.0'.")
-		installConfig.InstalledVersion = "0.0.0"
+		log.Printf("InstalledVersion missing. Setting to current time.")
+		installedVersion, err := GetInstalledVersion()
+		if err != nil {
+			return nil, fmt.Errorf("error getting installed version: %w", err)
+		}
+		installConfig.InstalledVersion = installedVersion
 		changed = true
 	}
-		// Note: IPAddressRandomized, InstallTimestamp, and DownloadTimestamp default to their zero values (false, 0, 0)
-	// which is the desired behavior for "missing". They are set by other processes.
+
+	if _, ok := rawMap["ip_address_randomized"]; !ok {
+		log.Printf("IPAddressRandomized missing. Setting to default (false).")
+		installConfig.IPAddressRandomized = false
+		changed = true
+	}
 
 	if changed {
 		log.Printf("Saving updated install configuration to %s", cm.installFilePath())
@@ -481,7 +579,6 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 		return nil, nil // Return nil config if file is empty
 	}
 	var config Config
-
 	err = json.Unmarshal(data, &config)
 	if err != nil {
 		// Treat unmarshalling errors (e.g., malformed JSON) as if the file was empty/non-existent
@@ -501,14 +598,14 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 	return os.WriteFile(cm.FilePath, data, 0644)
 }
 
-// calculateMinPayment calculates the minimum payment based on the mint fee
+// CalculateMinPayment calculates the minimum payment amount for a given mint fee.
 func CalculateMinPayment(mintFee uint64) uint64 {
 	// Stub implementation: return the mint fee as the minimum payment
+	// The actual fee depends on the keyset and stuff..
 	return 2*mintFee + 1
 }
 
-// getInstalledVersion retrieves the installed version of the package
-// TODO: run this every time rather than storing the ouptut in a config file.
+// GetInstalledVersion retrieves the installed version of the tollgate application.
 func GetInstalledVersion() (string, error) {
 	_, err := exec.LookPath("opkg")
 	if err != nil {
@@ -680,7 +777,7 @@ func (cm *ConfigManager) setUsername(privateKey string, username string) error {
 	return nil
 }
 
-// EnsureDefaultConfig ensures a default configuration exists, creating it if necessary
+// EnsureDefaultConfig ensures a default config file exists, creating it if necessary
 func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	config, err := cm.LoadConfig()
 	if err != nil && !os.IsNotExist(err) {
@@ -690,42 +787,35 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 	changed := false
 	if config == nil {
 		log.Printf("No config file found. Creating new default config.")
-		config = &Config{}
+		config = &Config{
+			ConfigVersion: CurrentConfigVersion,
+			AcceptedMints: []MintConfig{
+				{URL: "https://mint.minibits.cash/mint", MinBalance: 1000, BalanceTolerancePercent: 5, PayoutIntervalSeconds: 3600, MinPayoutAmount: 1000, PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1000},
+			},
+			ProfitShare:        []ProfitShareConfig{},
+			StepSize:           1000,
+			Metric:             "bytes",
+			Bragging:           BraggingConfig{Enabled: false},
+			Merchant:           MerchantConfig{Identity: "operator"},
+			Relays:             []string{"wss://relay.minibits.cash/", "wss://relay.getalby.com/v1"},
+			ShowSetup:          true,
+		}
 		changed = true
 	}
 
-	if config.ConfigVersion != CurrentConfigVersion {
-		log.Printf("Updating config version from '%s' to '%s'", config.ConfigVersion, CurrentConfigVersion)
+	// Ensure default values for fields that might be missing in older configs
+	if config.ConfigVersion == "" {
+		log.Printf("ConfigVersion missing. Setting to default.")
 		config.ConfigVersion = CurrentConfigVersion
 		changed = true
 	}
 
-	if config.TollgatePrivateKey == "" {
-		log.Printf("TollgatePrivateKey missing. Generating new key.")
-		privateKey, err := cm.generatePrivateKey()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate private key: %w", err)
-		}
-		config.TollgatePrivateKey = privateKey
-		changed = true
-	}
-
-	if config.AcceptedMints == nil {
-		log.Printf("AcceptedMints missing. Populating with default mints.")
+	if config.AcceptedMints == nil || len(config.AcceptedMints) == 0 {
+		log.Printf("AcceptedMints missing. Setting to default.")
 		config.AcceptedMints = []MintConfig{
-			{URL: "https://mint.minibits.cash/Bitcoin", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, PriceUnit: "sats", MinPurchaseSteps: 0},
-			{URL: "https://mint2.nutmix.cash", MinBalance: 8, BalanceTolerancePercent: 10, PayoutIntervalSeconds: 60, MinPayoutAmount: 16, PricePerStep: 1, PriceUnit: "sats", MinPurchaseSteps: 0},
+			{URL: "https://mint.minibits.cash/Bitcoin", MinBalance: 1000, BalanceTolerancePercent: 5, PayoutIntervalSeconds: 3600, MinPayoutAmount: 1000, PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1000},
 		}
 		changed = true
-	} else {
-		// Ensure nested fields in existing mints are populated
-		for i, mint := range config.AcceptedMints {
-			if mint.PriceUnit == "" {
-				log.Printf("Mint '%s' missing PriceUnit. Setting to 'sats'.", mint.URL)
-				config.AcceptedMints[i].PriceUnit = "sats"
-				changed = true
-			}
-		}
 	}
 
 	if config.ProfitShare == nil {
@@ -749,38 +839,59 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		changed = true
 	}
 
-	if config.Bragging.Fields == nil {
-		log.Printf("Bragging.Fields missing. Populating with default bragging config.")
+	if (Config{}) == config.Bragging {
+		log.Printf("Bragging config missing. Setting to default (disabled).")
 		config.Bragging = BraggingConfig{
-			Enabled: true,
+			Enabled: false,
 			Fields:  []string{"amount", "mint", "duration"},
-		}
+		}		
 		changed = true
 	}
 
-	if config.Relays == nil {
-		log.Printf("Relays missing. Populating with default relays.")
-		config.Relays = []string{"wss://relay.damus.io", "wss://nos.lol", "wss://nostr.mom"}
+	if (Config{}) == config.Merchant {
+		log.Printf("Merchant config missing. Setting to default (operator).")
+		config.Merchant = MerchantConfig{Identity: "operator"}
 		changed = true
 	}
 
-	if config.TrustedMaintainers == nil {
-		log.Printf("TrustedMaintainers missing. Populating with default maintainers.")
-		config.TrustedMaintainers = []string{"5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"}
+	if config.Relays == nil || len(config.Relays) == 0 {
+		log.Printf("Relays missing. Setting to default.")
+		config.Relays = []string{"wss://relay.minibits.cash/", "wss://relay.getalby.com/v1"}
 		changed = true
 	}
 
-	// This logic handles both a missing `show_setup` key (where it defaults to false)
-	// and an explicit `show_setup: false`. Per user feedback, we are ensuring it gets set to true.
-	if !config.ShowSetup {
-		log.Printf("ShowSetup is false. Setting to true.")
+	// Check if ShowSetup exists in the original JSON to avoid overwriting if explicitly set to false
+	rawMap := make(map[string]interface{})
+	rawBytes, err := os.ReadFile(cm.FilePath)
+	if err == nil { // Only unmarshal if file exists and is readable
+		json.Unmarshal(rawBytes, &rawMap)
+	}
+	if _, ok := rawMap["show_setup"]; !ok {
+		log.Printf("ShowSetup missing. Setting to default (true).")
 		config.ShowSetup = true
 		changed = true
 	}
 
-	if config.Merchant.Identity == "" {
-		log.Printf("Merchant.Identity missing. Setting to 'operator'.")
-		config.Merchant.Identity = "operator"
+	if config.CurrentInstallationID == "" {
+		log.Printf("CurrentInstallationID missing. Generating new ID.")
+		config.CurrentInstallationID = generateInstallationID() // Ensure this function is defined elsewhere
+		changed = true
+	}
+
+	// Update config version if it's older
+	currentVer, err := version.NewVersion(CurrentConfigVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing current config version: %w", err)
+	}
+	configVer, err := version.NewVersion(config.ConfigVersion)
+	if err != nil {
+		log.Printf("Warning: error parsing existing config version '%s': %v. Assuming older version.", config.ConfigVersion, err)
+		configVer = version.Must(version.NewVersion("v0.0.0")) // Treat as very old
+	}
+
+	if configVer.LessThan(currentVer) {
+		log.Printf("Updating config version from '%s' to '%s'", config.ConfigVersion, CurrentConfigVersion)
+		config.ConfigVersion = CurrentConfigVersion
 		changed = true
 	}
 
@@ -789,10 +900,8 @@ func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
 		if err = cm.SaveConfig(config); err != nil {
 			return nil, err
 		}
-		// Set username after saving the config
-		if err = cm.setUsername(config.TollgatePrivateKey, "c03rad0r"); err != nil {
-			log.Printf("Failed to set username: %v", err)
-		}
+		// The private key is now managed by EnsureDefaultIdentities,
+		// and setUsername will be called from there if needed.
 	}
 	return config, nil
 }
@@ -806,7 +915,7 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 	if config.CurrentInstallationID == "" {
 		installConfig, err := cm.LoadInstallConfig()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("error loading install config: %w", err)
 		}
 		if installConfig != nil {
 			// log.Printf("Returning release channel from install config: %s", installConfig.ReleaseChannel)

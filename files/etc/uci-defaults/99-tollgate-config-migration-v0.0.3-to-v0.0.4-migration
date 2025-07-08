@@ -1,12 +1,12 @@
 #!/bin/sh
-# This script migrates the config.json from v0.0.3 to v0.0.4.
-# It creates an identities.json file and updates config.json to use identity references.
+# Migration from v0.0.3 to v0.0.4
 
 CONFIG_FILE="/etc/tollgate/config.json"
 IDENTITIES_FILE="/etc/tollgate/identities.json"
 BACKUP_DIR="/etc/tollgate/backups"
-CURRENT_VERSION="v0.0.4"
-PREVIOUS_VERSION="v0.0.3"
+CURRENT_CONFIG_VERSION="v0.0.4"
+PREVIOUS_CONFIG_VERSION="v0.0.3"
+CURRENT_IDENTITY_VERSION="v0.0.1"
 
 log() {
     echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >> /var/log/tollgate_config_migration.log
@@ -31,81 +31,84 @@ if [ ! -s "$CONFIG_FILE" ]; then
 fi
 
 # 3. Validate JSON and get current version
-CURRENT_CONFIG_VERSION=$(jq -r '.config_version // "v0.0.1"' "$CONFIG_FILE" 2>/dev/null)
+CONFIG_VERSION=$(jq -r '.config_version // "v0.0.0"' "$CONFIG_FILE" 2>/dev/null)
 if [ $? -ne 0 ]; then
     log "Config file $CONFIG_FILE is not valid JSON. Skipping migration."
     exit 0
 fi
 
 # 4. Check if migration is needed
-if [ "$CURRENT_CONFIG_VERSION" = "$CURRENT_VERSION" ]; then
-    log "Config file is already at version $CURRENT_VERSION. No migration needed."
+if [ "$CONFIG_VERSION" = "$CURRENT_CONFIG_VERSION" ]; then
+    log "Config file is already at version $CURRENT_CONFIG_VERSION. No migration needed."
     exit 0
 fi
 
-if [ "$CURRENT_CONFIG_VERSION" != "$PREVIOUS_VERSION" ]; then
-    log "Config file version is $CURRENT_CONFIG_VERSION, not $PREVIOUS_VERSION. Skipping this migration."
+if [ "$CONFIG_VERSION" != "$PREVIOUS_CONFIG_VERSION" ]; then
+    log "Config file version is $CONFIG_VERSION, not $PREVIOUS_CONFIG_VERSION. Skipping this migration."
     exit 0
 fi
 
-log "Starting migration from $PREVIOUS_VERSION to $CURRENT_VERSION for $CONFIG_FILE"
+log "Starting migration from $PREVIOUS_CONFIG_VERSION to $CURRENT_CONFIG_VERSION for $CONFIG_FILE"
 
 # 5. Create backup
 mkdir -p "$BACKUP_DIR"
 TIMESTAMP=$(date +"%Y%m%d%H%M%S")
-cp "$CONFIG_FILE" "$BACKUP_DIR/config.json.$PREVIOUS_VERSION.$TIMESTAMP.bak"
-log "Backup of $CONFIG_FILE created at $BACKUP_DIR/config.json.$PREVIOUS_VERSION.$TIMESTAMP.bak"
+cp "$CONFIG_FILE" "$BACKUP_DIR/config.json.$PREVIOUS_CONFIG_VERSION.$TIMESTAMP.bak"
+log "Backup of $CONFIG_FILE created at $BACKUP_DIR/config.json.$PREVIOUS_CONFIG_VERSION.$TIMESTAMP.bak"
 
-# 6. Extract existing merchant and profit share data for identities.json
-MERCHANT_NAME=$(jq -r '.merchant.name // "c03rad0r"' "$CONFIG_FILE")
-MERCHANT_LNURL=$(jq -r '.merchant.lightning_address // "tollgate@minibits.cash"' "$CONFIG_FILE")
-OPERATOR_NPUBA=$(jq -r '.tollgate_private_key | @sh "echo -n \(. | .)"' "$CONFIG_FILE" | xargs -I {} sh -c 'go run /usr/bin/tollgate-module-basic-go/generate_key.go --privkey "{}" --npub' 2>/dev/null)
-OPERATOR_NPUBA=$(echo "$OPERATOR_NPUBA" | tr -d '\n')
-log "Operator npub derived: $OPERATOR_NPUBA"
+# 6. Extract existing private key from config.json
+OPERATOR_PRIVKEY_HEX=$(jq -r '.tollgate_private_key // ""' "$CONFIG_FILE")
+log "Extracted operator private key (hex): $OPERATOR_PRIVKEY_HEX"
 
-# Default developer LNURL
-DEVELOPER_LNURL="tollgate@minibits.cash"
+# 7. Create or update identities.json
+# Load existing identities.json if it exists, otherwise start with an empty array
+if [ -f "$IDENTITIES_FILE" ]; then
+    CURRENT_IDENTITIES=$(cat "$IDENTITIES_FILE" 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$CURRENT_IDENTITIES" ]; then
+        log "Warning: Existing identities.json is invalid or empty. Creating new."
+        CURRENT_IDENTITIES='{"config_version": "", "identities": []}'
+    fi
+else
+    log "identities.json not found. Creating new."
+    CURRENT_IDENTITIES='{"config_version": "", "identities": []}'
+fi
 
-# Create identities.json
-jq -n \
-  --arg current_identity_version "v0.0.1" \
-  --arg on "$OPERATOR_NPUBA" \
-  --arg ml "$MERCHANT_LNURL" \
-  --arg dl "$DEVELOPER_LNURL" \
-  '{
-    "config_version": $current_identity_version,
-    "identities": [
-      {
-        "name": "operator",
-        "npub": $on,
-        "lightning_address": $ml
-      },
-      {
-        "name": "developer",
-        "npub": "",
-        "lightning_address": $dl
-      }
-    ]
-  }' > "$IDENTITIES_FILE"
-log "Created identities file at $IDENTITIES_FILE"
+# Ensure operator and developer identities exist
+UPDATED_IDENTITIES=$(echo "$CURRENT_IDENTITIES" | jq \
+  --arg op_key "$OPERATOR_PRIVKEY_HEX" \
+  --arg current_identity_version "$CURRENT_IDENTITY_VERSION" \
+  '
+  .config_version = ($current_identity_version) |
+  (.identities |= (
+    (if (.[] | select(.name == "operator")) then . else . + [{"name": "operator", "key": "", "key_format": "", "lightning_address": "tollgate@minibits.cash"}] end) |
+    (if (.[] | select(.name == "developer")) then . else . + [{"name": "developer", "key": "", "key_format": "npub", "lightning_address": "tollgate@minibits.cash"}] end) |
+    map(
+      if .name == "operator" then
+        .key = ($op_key | if . == "" then . else . end) |
+        .key_format = (if $op_key == "" then .key_format else "hex_private" end) |
+        .lightning_address = (if .lightning_address == "" then "tollgate@minibits.cash" else .lightning_address end)
+      elif .name == "developer" then
+        .lightning_address = (if .lightning_address == "" then "tollgate@minibits.cash" else .lightning_address end)
+      else . end
+    )
+  ))
+  ')
 
-# 7. Update config.json
+echo "$UPDATED_IDENTITIES" > "$IDENTITIES_FILE"
+log "Updated identities file at $IDENTITIES_FILE"
+
+# 8. Update config.json
 TMP_CONFIG=$(mktemp)
-jq --arg current_version "$CURRENT_VERSION" \
-   'del(.merchant.name, .merchant.lightning_address, .merchant.website) |
-    .merchant.identity = "operator" |
-    .profit_share[] |= del(.lightning_address) |
-    .profit_share[0].identity = "operator" |
-    .profit_share[1].identity = "developer" |
-    .config_version = $current_version' "$CONFIG_FILE" > "$TMP_CONFIG" && mv "$TMP_CONFIG" "$CONFIG_FILE"
+jq --arg current_config_version "$CURRENT_CONFIG_VERSION" \
+   'del(.tollgate_private_key) | .config_version = $current_config_version' "$CONFIG_FILE" > "$TMP_CONFIG" && mv "$TMP_CONFIG" "$CONFIG_FILE"
 
 if [ $? -ne 0 ]; then
     log "Failed to update $CONFIG_FILE. Restoring from backup."
-    cp "$BACKUP_DIR/config.json.$PREVIOUS_VERSION.$TIMESTAMP.bak" "$CONFIG_FILE"
+    cp "$BACKUP_DIR/config.json.$PREVIOUS_CONFIG_VERSION.$TIMESTAMP.bak" "$CONFIG_FILE"
     exit 1
 fi
 
-log "Successfully migrated $CONFIG_FILE to $CURRENT_VERSION"
+log "Successfully migrated $CONFIG_FILE to $CURRENT_CONFIG_VERSION"
 log "Migration script finished."
 
 exit 0

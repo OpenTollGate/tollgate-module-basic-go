@@ -499,6 +499,47 @@ func TestEnsureInitializedConfig_FilesAlreadyExist(t *testing.T) {
 	assert.Equal(t, "v0.0.2", loadedInstall.ConfigVersion, "install.json ConfigVersion should be v0.0.2")
 }
 
+func TestGetIdentity(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test_get_identity")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	identitiesFile := filepath.Join(tempDir, "identities.json")
+	configFile := filepath.Join(tempDir, "config.json") // Dummy config file for NewConfigManager
+
+	// Create a dummy identities.json for testing
+	dummyIdentities := IdentityConfig{
+		ConfigVersion: "v0.0.1",
+		Identities: []Identity{
+			{Name: "operator", Key: "nsec1...", KeyFormat: "nsec", LightningAddress: "op@example.com"},
+			{Name: "developer", Key: "npub1...", KeyFormat: "npub", LightningAddress: "dev@example.com"},
+		},
+	}
+	content, err := json.MarshalIndent(dummyIdentities, "", "  ")
+	assert.NoError(t, err)
+	err = ioutil.WriteFile(identitiesFile, content, 0644)
+	assert.NoError(t, err)
+
+	cm, err := NewConfigManager(configFile)
+	cm.identitiesFilePath = identitiesFile // Override the identities file path for testing
+	assert.NoError(t, err)
+
+	// Test case 1: Get existing identity
+	operatorIdentity, err := cm.GetIdentity("operator")
+	assert.NoError(t, err)
+	assert.NotNil(t, operatorIdentity)
+	assert.Equal(t, "operator", operatorIdentity.Name)
+	assert.Equal(t, "nsec1...", operatorIdentity.Key)
+	assert.Equal(t, "nsec", operatorIdentity.KeyFormat)
+	assert.Equal(t, "op@example.com", operatorIdentity.LightningAddress)
+
+	// Test case 2: Get non-existent identity
+	nonExistentIdentity, err := cm.GetIdentity("nonexistent")
+	assert.Error(t, err)
+	assert.Nil(t, nonExistentIdentity)
+	assert.Contains(t, err.Error(), "identity not found: nonexistent")
+}
+
 func TestEnsureDefaultIdentities_MissingFields(t *testing.T) {
 	// Create a temporary directory for test config files
 	tempDir, err := ioutil.TempDir("", "test_ensure_default_identities_missing_fields")
