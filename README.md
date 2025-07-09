@@ -101,6 +101,16 @@ Configure TollGate by editing the `/etc/tollgate/config.json` file:
 - `price_per_minute`: Base rate for internet access
 - `bragging`: Enable/disable payment announcements
 
+## Testing
+
+To run the tests for the project, navigate to the `src` directory and execute the following command:
+
+```bash
+TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.r6VVmTRFcp go fmt . && TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.EolGeeKwH3 go test .
+```
+
+This command will format the Go code and then run all tests within the `src` module.
+
 ## Documentation
 
 For more detailed information about TollGate modules and usage:
