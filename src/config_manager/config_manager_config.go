@@ -7,13 +7,13 @@ import (
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
-	ConfigVersion string       `json:"config_version"`
-	AcceptedMints []MintConfig `json:"accepted_mints"`
+	ConfigVersion string              `json:"config_version"`
+	AcceptedMints []MintConfig        `json:"accepted_mints"`
 	ProfitShare   []ProfitShareConfig `json:"profit_share"`
-	StepSize      uint64       `json:"step_size"`
-	Metric        string       `json:"metric"`
-	Relays        []string     `json:"relays"`
-	ShowSetup     bool         `json:"show_setup"`
+	StepSize      uint64              `json:"step_size"`
+	Metric        string              `json:"metric"`
+	Relays        []string            `json:"relays"`
+	ShowSetup     bool                `json:"show_setup"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -99,8 +99,8 @@ func NewDefaultConfig() *Config {
 				Identity: "developer",
 			},
 		},
-		StepSize:  600000,
-		Metric:    "milliseconds",
+		StepSize: 600000,
+		Metric:   "milliseconds",
 		Relays: []string{
 			"wss://relay.damus.io",
 			"wss://nos.lol",

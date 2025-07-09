@@ -301,7 +301,6 @@ func (cm *ConfigManager) GetReleaseChannel() (string, error) {
 	return installConfig.ReleaseChannel, nil
 }
 
-
 func (cm *ConfigManager) GetPublicPool() *nostr.SimplePool {
 	return cm.PublicPool
 }

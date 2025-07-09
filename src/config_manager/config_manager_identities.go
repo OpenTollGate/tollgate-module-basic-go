@@ -8,9 +8,9 @@ import (
 
 // IdentitiesConfig holds all user and system identities.
 type IdentitiesConfig struct {
-	ConfigVersion    string            `json:"config_version"`
-	OwnedIdentities  []OwnedIdentity   `json:"owned_identities"`
-	PublicIdentities []PublicIdentity  `json:"public_identities"`
+	ConfigVersion    string           `json:"config_version"`
+	OwnedIdentities  []OwnedIdentity  `json:"owned_identities"`
+	PublicIdentities []PublicIdentity `json:"public_identities"`
 }
 
 // OwnedIdentity represents an identity with a private key.
@@ -105,6 +105,7 @@ func EnsureDefaultIdentities(filePath string) (*IdentitiesConfig, error) {
 	}
 	return identitiesConfig, nil
 }
+
 // GetPublicIdentity retrieves a PublicIdentity by name.
 func (ic *IdentitiesConfig) GetPublicIdentity(name string) (*PublicIdentity, error) {
 	for _, id := range ic.PublicIdentities {
