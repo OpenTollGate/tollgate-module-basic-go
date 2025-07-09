@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,8 +82,16 @@ func TestLoadConfig(t *testing.T) {
 	// Create dummy install.json
 	installFile := filepath.Join(tmpDir, "install.json")
 	installConfig := config_manager.InstallConfig{
-		IPAddressRandomized: true,
-		DownloadTimestamp:   123456789,
+		ConfigVersion:       "v0.0.2",
+		PackagePath:         "false",
+		IPAddressRandomized: false,
+		InstallTimestamp:    0,
+		DownloadTimestamp:   0,
+		ReleaseChannel:      "stable",
+		// EnsureDefaultTimestamp is set by time.Now().Unix() in NewDefaultInstallConfig()
+		// We don't need to explicitly set it here for the test to pass,
+		// as long as we're testing the loading of the *other* fields.
+		InstalledVersion: "0.0.0",
 	}
 	installData, err := json.Marshal(installConfig)
 	if err != nil {
@@ -98,13 +108,22 @@ func TestLoadConfig(t *testing.T) {
 		OwnedIdentities: []config_manager.OwnedIdentity{
 			{
 				Name:       "merchant",
-				PrivateKey: "test-merchant-private-key",
+				PrivateKey: "e71fa3f07bea377a40ae2270aad2ab26c57b9929c46d16e76635e47cdbcba5da", // Default from NewDefaultIdentitiesConfig
 			},
 		},
 		PublicIdentities: []config_manager.PublicIdentity{
 			{
+				Name:             "developer",
+				LightningAddress: "tollgate@minibits.cash",
+			},
+			{
 				Name:   "trusted_maintainer_1",
-				PubKey: "test-trusted-maintainer-pubkey",
+				PubKey: "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
+			},
+			{
+				Name:             "owner",
+				PubKey:           "[on_setup]", // Default from NewDefaultIdentitiesConfig
+				LightningAddress: "tollgate@minibits.cash",
 			},
 		},
 	}
@@ -155,7 +174,9 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, installConfig.IPAddressRandomized, loadedInstallConfig.IPAddressRandomized)
 	assert.Equal(t, installConfig.DownloadTimestamp, loadedInstallConfig.DownloadTimestamp)
 	assert.Equal(t, identitiesConfig.OwnedIdentities[0].Name, loadedIdentitiesConfig.OwnedIdentities[0].Name)
-	assert.Equal(t, identitiesConfig.PublicIdentities[0].Name, loadedIdentitiesConfig.PublicIdentities[0].Name)
+	assert.Equal(t, identitiesConfig.PublicIdentities[1].Name, loadedIdentitiesConfig.PublicIdentities[1].Name) // Change index to 1 for "trusted_maintainer_1"
+	assert.Equal(t, identitiesConfig.PublicIdentities[1].PubKey, loadedIdentitiesConfig.PublicIdentities[1].PubKey)
+	assert.Equal(t, identitiesConfig.PublicIdentities[0].LightningAddress, loadedIdentitiesConfig.PublicIdentities[0].LightningAddress) // Check developer's lightning address
 }
 
 func TestHandleRoot(t *testing.T) {
@@ -184,8 +205,20 @@ func TestHandleRootPost(t *testing.T) {
 		PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
 	}
 
+	// Private key for testing (hex encoded)
+	// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
+	testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
+	testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+	if err != nil {
+		log.Fatalf("Failed to decode test private key: %v", err)
+	}
+
+	// Derive public key from private key
+	testPublicKey := nostr.GetPublicKey(testPrivateKeyHex)
+	event.PubKey = testPublicKey
+
 	// Sign the event for testing
-	err := event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+	err = event.Sign(testPrivateKeyHex)
 	if err != nil {
 		t.Fatal("Failed to sign event:", err)
 	}
@@ -222,8 +255,20 @@ func TestHandleRootPostInvalidKind(t *testing.T) {
 		PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
 	}
 
+	// Private key for testing (hex encoded)
+	// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
+	testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
+	testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+	if err != nil {
+		log.Fatalf("Failed to decode test private key: %v", err)
+	}
+
+	// Derive public key from private key
+	testPublicKey := nostr.GetPublicKey(testPrivateKeyHex)
+	event.PubKey = testPublicKey
+
 	// Sign the event
-	err := event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+	err = event.Sign(testPrivateKeyHex)
 	if err != nil {
 		t.Fatal("Failed to sign event:", err)
 	}

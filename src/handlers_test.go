@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -60,8 +62,16 @@ func TestEventValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Private key for testing (hex encoded)
+			// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
+			testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
+			testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+			if err != nil {
+				log.Fatalf("Failed to decode test private key: %v", err)
+			}
+
 			// Sign the event for testing
-			err := tt.event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+			err = tt.event.Sign(testPrivateKeyHex)
 			if err != nil {
 				t.Fatal("Failed to sign event:", err)
 			}
@@ -196,8 +206,16 @@ func TestMACAddressValidation(t *testing.T) {
 				PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
 			}
 
+			// Private key for testing (hex encoded)
+			// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
+			testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
+			testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+			if err != nil {
+				log.Fatalf("Failed to decode test private key: %v", err)
+			}
+
 			// Sign the event for testing
-			err := event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+			err = event.Sign(testPrivateKeyHex)
 			if err != nil {
 				t.Fatal("Failed to sign event:", err)
 			}
