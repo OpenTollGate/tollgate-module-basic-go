@@ -151,7 +151,7 @@ func getMacAddress(ipAddress string) (string, error) {
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
-func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("cors middleware %s request from %s", r.Method, r.RemoteAddr)
 
@@ -291,7 +291,7 @@ func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Mercha
 }
 
 // handleRoot routes requests based on method
-func handleRoot(w http.ResponseWriter, r *http.Request) {
+func HandleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		HandleRootPost(w, r)
 	} else {
@@ -310,12 +310,12 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)
-		corsMiddleware(handleRoot)(w, r)
+		CorsMiddleware(HandleRoot)(w, r)
 	})
 
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit /whoami endpoint from %s", r.RemoteAddr)
-		corsMiddleware(handler)(w, r)
+		CorsMiddleware(handler)(w, r)
 	})
 
 	log.Println("Starting HTTP server on all interfaces...")
