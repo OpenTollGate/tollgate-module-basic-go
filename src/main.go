@@ -191,7 +191,7 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRootPost handles POST requests to the root endpoint
-func handleRootPost(w http.ResponseWriter, r *http.Request) {
+func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
 	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
 	// Only process POST requests
@@ -294,7 +294,7 @@ func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Mercha
 // handleRoot routes requests based on method
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		handleRootPost(w, r)
+		HandleRootPost(w, r)
 	} else {
 		handleDetails(w, r)
 	}
