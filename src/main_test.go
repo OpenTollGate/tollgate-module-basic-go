@@ -22,7 +22,6 @@ func TestLoadConfig(t *testing.T) {
 
 	configFile := filepath.Join(tmpDir, "config.json")
 	config := config_manager.Config{
-		TollgatePrivateKey: "test_private_key",
 		AcceptedMints: []config_manager.MintConfig{
 			{
 				URL:                     "https://mint.minibits.cash/Bitcoin",
@@ -58,17 +57,21 @@ func TestLoadConfig(t *testing.T) {
 	}
 
 	oldConfigFile := configFile
-	configFile = configFile
 	defer func() { configFile = oldConfigFile }()
 
-	configManager, err := config_manager.NewConfigManager(configFile)
+	testConfigPath := configFile // Use configFile as testConfigPath
+	installPath := filepath.Join(tmpDir, "install.json")
+	identitiesPath := filepath.Join(tmpDir, "identities.json")
+
+	configManager, err := config_manager.NewConfigManager(testConfigPath, installPath, identitiesPath)
 	if err != nil {
-		t.Errorf("Failed to create config manager: %v", err)
+		t.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	_, err2 := configManager.LoadConfig()
-	if err2 != nil {
-		t.Errorf("loadConfig failed: %v", err2)
+	// Get the main config
+	mainConfig := configManager.GetConfig()
+	if mainConfig == nil {
+		t.Fatalf("Main config is nil after initialization")
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
@@ -21,7 +20,11 @@ import (
 
 // Global configuration variable
 // Define configFile at a higher scope
-var configManager *config_manager.ConfigManager
+var (
+	configManager *config_manager.ConfigManager
+	mainConfig    *config_manager.Config
+	installConfig *config_manager.InstallConfig
+)
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
 
@@ -39,33 +42,27 @@ func init() {
 	configPath := getConfigPath()
 	log.Printf("Using config path: %s", configPath)
 
-	configManager, err = config_manager.NewConfigManager(configPath)
+	installPath := "/etc/tollgate/install.json"
+	identitiesPath := "/etc/tollgate/identities.json"
+	configManager, err = config_manager.NewConfigManager(configPath, installPath, identitiesPath)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	installConfig, err := configManager.LoadInstallConfig()
-	if err != nil {
-		log.Printf("Error loading install config: %v", err)
-		os.Exit(1)
-	}
-	mainConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		os.Exit(1)
-	}
+	installConfig = configManager.GetInstallConfig()
+	// if installConfig == nil {
+	// 	log.Printf("Error: Install config is nil after initialization.")
+	// 	os.Exit(1)
+	// }
 
-	currentInstallationID := mainConfig.CurrentInstallationID
-	log.Printf("CurrentInstallationID: %s", currentInstallationID)
-	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
+	mainConfig = configManager.GetConfig()
+	// if mainConfig == nil {
+	// 	log.Printf("Error: Main config is nil after initialization.")
+	// 	os.Exit(1)
+	// }
+
+	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	if currentInstallationID != "" {
-		_, err = configManager.GetNIP94Event(currentInstallationID)
-		if err != nil {
-			log.Printf("Error getting NIP94 event: %v", err)
-			os.Exit(1)
-		}
-	}
 
 	var err2 error
 	merchantInstance, err2 = merchant.New(configManager)
@@ -284,32 +281,6 @@ func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Mercha
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(noticeEvent)
-}
-
-func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-	mainConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		return err
-	}
-
-	if !mainConfig.Bragging.Enabled {
-		log.Println("Bragging is disabled in configuration")
-		return nil
-	}
-
-	err = bragging.AnnounceSuccessfulPayment(configManager, amount, durationSeconds)
-	if err != nil {
-		log.Printf("Failed to create bragging service: %v", err)
-		return err
-	}
-
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Successfully announced payment for MAC %s", macAddress)
-	return nil
 }
 
 // handleRoot routes requests based on method

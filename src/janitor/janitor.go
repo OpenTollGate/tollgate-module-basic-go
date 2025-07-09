@@ -76,9 +76,9 @@ func (j *Janitor) listenForNIP94Events() {
 	ctx := context.Background()
 	eventChan := make(chan *nostr.Event, 1000)
 
-	mainConfig, err := j.configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Failed to load config: %v", err)
+	mainConfig := j.configManager.GetConfig()
+	if mainConfig == nil {
+		log.Printf("Failed to get main config, it is nil")
 		return
 	}
 
@@ -147,11 +147,21 @@ func (j *Janitor) listenForNIP94Events() {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
-				if !contains(mainConfig.TrustedMaintainers, event.PubKey) {
+				identitiesConfig := j.configManager.GetIdentities()
+				if identitiesConfig == nil {
+					log.Printf("Failed to get identities config, it is nil")
+					continue
+				}
+				trustedMaintainer, err := identitiesConfig.GetPublicIdentity("trusted_maintainer_1")
+				if err != nil {
+					log.Printf("Error getting trusted maintainer identity: %v", err)
+					continue
+				}
+				if trustedMaintainer == nil || trustedMaintainer.PubKey != event.PubKey {
 					continue
 				}
 
-				ok, err := event.CheckSignature()
+				ok, err = event.CheckSignature()
 				if err != nil || !ok {
 					continue
 				}
@@ -294,31 +304,32 @@ func (j *Janitor) listenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				config, err := j.configManager.LoadConfig()
-				if err != nil {
-					log.Printf("Error loading config: %v", err)
+				config := j.configManager.GetConfig()
+				if config == nil {
+					log.Printf("Error getting config: it is nil")
 					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
-				config.CurrentInstallationID = event.ID
-				err = j.configManager.SaveConfig(config)
-				if err != nil {
-					log.Printf("Error updating config with NIP94 event ID: %v", err)
-					debounceTimer.Stop()
-					isTimerActive = false
-					return
-				}
+				// CurrentInstallationID is no longer stored in config.json
+				// config.CurrentInstallationID = event.ID
+				// err = config.SaveConfig() // SaveConfig is now a method of Config
+				// if err != nil {
+				// 	log.Printf("Error updating config with NIP94 event ID: %v", err)
+				// 	debounceTimer.Stop()
+				// 	isTimerActive = false
+				// 	return
+				// }
 
-				installConfig, err := j.configManager.LoadInstallConfig()
-				if err != nil {
-					log.Printf("Error loading install config: %v", err)
+				installConfig := j.configManager.GetInstallConfig()
+				if installConfig == nil {
+					log.Printf("Error getting install config: it is nil")
 					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				installConfig.PackagePath = pkgPath
-				err = j.configManager.SaveInstallConfig(installConfig)
+				err = installConfig.Save()
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
 					debounceTimer.Stop()
@@ -384,14 +395,14 @@ func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, e
 
 	fmt.Println("Package downloaded successfully to /tmp/")
 
-	installConfig, err := j.configManager.LoadInstallConfig()
-	if err != nil {
-		log.Printf("Error loading install config: %v", err)
-		return tmpFile.Name(), pkg, err
+	installConfig := j.configManager.GetInstallConfig()
+	if installConfig == nil {
+		log.Printf("Error getting install config: it is nil")
+		return tmpFile.Name(), pkg, fmt.Errorf("install config is nil")
 	}
 	currentTime := time.Now().Unix()
 	installConfig.DownloadTimestamp = currentTime
-	err = j.configManager.SaveInstallConfig(installConfig)
+	err = installConfig.Save()
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err

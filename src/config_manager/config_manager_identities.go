@@ -2,6 +2,7 @@ package config_manager
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -103,4 +104,23 @@ func EnsureDefaultIdentities(filePath string) (*IdentitiesConfig, error) {
 		return nil, err
 	}
 	return identitiesConfig, nil
+}
+// GetPublicIdentity retrieves a PublicIdentity by name.
+func (ic *IdentitiesConfig) GetPublicIdentity(name string) (*PublicIdentity, error) {
+	for _, id := range ic.PublicIdentities {
+		if id.Name == name {
+			return &id, nil
+		}
+	}
+	return nil, fmt.Errorf("public identity not found: %s", name)
+}
+
+// GetOwnedIdentity retrieves an OwnedIdentity by name.
+func (ic *IdentitiesConfig) GetOwnedIdentity(name string) (*OwnedIdentity, error) {
+	for _, id := range ic.OwnedIdentities {
+		if id.Name == name {
+			return &id, nil
+		}
+	}
+	return nil, fmt.Errorf("owned identity not found: %s", name)
 }
