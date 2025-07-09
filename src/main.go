@@ -50,7 +50,6 @@ func init() {
 	var err error
 
 	configPath, installPath, identitiesPath := getTollgatePaths()
-	log.Printf("Using config paths: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
 
 	configManager, err = config_manager.NewConfigManager(configPath, installPath, identitiesPath)
 	if err != nil {
