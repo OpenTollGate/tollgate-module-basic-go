@@ -64,8 +64,8 @@ func TestEventValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Private key for testing (hex encoded)
-			// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
-			testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
+			// nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda
+			testPrivateKeyBech32 := "nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda"
 			_, data, err := bech32.Decode(testPrivateKeyBech32)
 			if err != nil {
 				log.Fatalf("Failed to decode test private key (bech32): %v", err)
@@ -213,8 +213,8 @@ func TestMACAddressValidation(t *testing.T) {
 			}
 
 			// Private key for testing (hex encoded)
-			// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
-			testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
+			// nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda
+			testPrivateKeyBech32 := "nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda"
 			_, data, err := bech32.Decode(testPrivateKeyBech32)
 			if err != nil {
 				log.Fatalf("Failed to decode test private key (bech32): %v", err)
