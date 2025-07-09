@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"encoding/hex"
-	main_app "github.com/OpenTollGate/tollgate-module-basic-go" // Import the main package
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/nbd-wtf/go-nostr"
@@ -187,7 +186,7 @@ func TestHandleRoot(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(main_app.CorsMiddleware(main_app.HandleRoot))
+	handler := http.HandlerFunc(CorsMiddleware(HandleRoot))
 	handler.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusOK {
@@ -244,7 +243,7 @@ func TestHandleRootPost(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(main_app.HandleRootPost)
+	handler := http.HandlerFunc(HandleRootPost)
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to missing merchant instance (but signature should be valid)
@@ -302,7 +301,7 @@ func TestHandleRootPostInvalidKind(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(main_app.HandleRootPost)
+	handler := http.HandlerFunc(HandleRootPost)
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid kind
@@ -346,7 +345,7 @@ func TestHandleRootPostInvalidSignature(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(main_app.HandleRootPost)
+	handler := http.HandlerFunc(HandleRootPost)
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid signature
