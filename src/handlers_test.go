@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -65,10 +66,15 @@ func TestEventValidation(t *testing.T) {
 			// Private key for testing (hex encoded)
 			// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
 			testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
-			testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+			_, data, err := bech32.Decode(testPrivateKeyBech32)
 			if err != nil {
-				log.Fatalf("Failed to decode test private key: %v", err)
+				log.Fatalf("Failed to decode test private key (bech32): %v", err)
 			}
+			converted, err := bech32.ConvertBits(data, 5, 8, false)
+			if err != nil {
+				log.Fatalf("Failed to convert bits for test private key: %v", err)
+			}
+			testPrivateKeyHex := hex.EncodeToString(converted)
 
 			// Sign the event for testing
 			err = tt.event.Sign(testPrivateKeyHex)
@@ -209,10 +215,15 @@ func TestMACAddressValidation(t *testing.T) {
 			// Private key for testing (hex encoded)
 			// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
 			testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
-			testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+			_, data, err := bech32.Decode(testPrivateKeyBech32)
 			if err != nil {
-				log.Fatalf("Failed to decode test private key: %v", err)
+				log.Fatalf("Failed to decode test private key (bech32): %v", err)
 			}
+			converted, err := bech32.ConvertBits(data, 5, 8, false)
+			if err != nil {
+				log.Fatalf("Failed to convert bits for test private key: %v", err)
+			}
+			testPrivateKeyHex := hex.EncodeToString(converted)
 
 			// Sign the event for testing
 			err = event.Sign(testPrivateKeyHex)

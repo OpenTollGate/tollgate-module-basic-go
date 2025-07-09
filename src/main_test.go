@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/btcsuite/btcd/btcutil/bech32" // Import bech32
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -208,13 +209,21 @@ func TestHandleRootPost(t *testing.T) {
 	// Private key for testing (hex encoded)
 	// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
 	testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
-	testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+	_, data, err := bech32.Decode(testPrivateKeyBech32)
 	if err != nil {
-		log.Fatalf("Failed to decode test private key: %v", err)
+		log.Fatalf("Failed to decode test private key (bech32): %v", err)
 	}
+	converted, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		log.Fatalf("Failed to convert bits for test private key: %v", err)
+	}
+	testPrivateKeyHex := hex.EncodeToString(converted)
 
 	// Derive public key from private key
-	testPublicKey := nostr.GetPublicKey(testPrivateKeyHex)
+	testPublicKey, err := nostr.GetPublicKey(testPrivateKeyHex) // Handle error return
+	if err != nil {
+		log.Fatalf("Failed to get public key: %v", err)
+	}
 	event.PubKey = testPublicKey
 
 	// Sign the event for testing
@@ -258,13 +267,21 @@ func TestHandleRootPostInvalidKind(t *testing.T) {
 	// Private key for testing (hex encoded)
 	// nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz
 	testPrivateKeyBech32 := "nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz"
-	testPrivateKeyHex, err := nostr.DecodeSecretKey(testPrivateKeyBech32)
+	_, data, err := bech32.Decode(testPrivateKeyBech32)
 	if err != nil {
-		log.Fatalf("Failed to decode test private key: %v", err)
+		log.Fatalf("Failed to decode test private key (bech32): %v", err)
 	}
+	converted, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		log.Fatalf("Failed to convert bits for test private key: %v", err)
+	}
+	testPrivateKeyHex := hex.EncodeToString(converted)
 
 	// Derive public key from private key
-	testPublicKey := nostr.GetPublicKey(testPrivateKeyHex)
+	testPublicKey, err := nostr.GetPublicKey(testPrivateKeyHex) // Handle error return
+	if err != nil {
+		log.Fatalf("Failed to get public key: %v", err)
+	}
 	event.PubKey = testPublicKey
 
 	// Sign the event
