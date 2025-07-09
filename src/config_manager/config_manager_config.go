@@ -92,11 +92,11 @@ func NewDefaultConfig() *Config {
 		},
 		ProfitShare: []ProfitShareConfig{
 			{
-				Factor:   0.7,
+				Factor:   0.79,
 				Identity: "owner",
 			},
 			{
-				Factor:   0.3,
+				Factor:   0.21,
 				Identity: "developer",
 			},
 		},
