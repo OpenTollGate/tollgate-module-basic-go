@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec" // Re-add for GetInstalledVersion
-	"regexp"  // Re-add for GetArchitecture
+	"os/exec"       // Re-add for GetInstalledVersion
+	"path/filepath" // Add for backupAndLog
+	"regexp"        // Re-add for GetArchitecture
 	"strings"
 	"time"
 
@@ -93,6 +94,17 @@ type ConfigManager struct {
 
 // NewConfigManager creates a new ConfigManager instance and loads/ensures default configurations.
 func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigManager, error) {
+	// Check for a test configuration directory environment variable
+	testConfigDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
+	if testConfigDir != "" {
+		configPath = filepath.Join(testConfigDir, filepath.Base(configPath))
+		installPath = filepath.Join(testConfigDir, filepath.Base(installPath))
+		identitiesPath = filepath.Join(testConfigDir, filepath.Base(identitiesPath))
+		log.Printf("Using config paths for testing: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
+	} else {
+		log.Printf("Using config paths: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
+	}
+
 	publicPool := nostr.NewSimplePool(context.Background())
 	localPool := nostr.NewSimplePool(context.Background())
 
@@ -279,18 +291,26 @@ func (cm *ConfigManager) setUsername(privateKey string, username string) error {
 	return nil
 }
 
-// EnsureDefaultConfig ensures a default configuration exists, creating it if necessary
-func (cm *ConfigManager) EnsureDefaultConfig() (*Config, error) {
-	// This function is now a no-op as the actual default config ensuring logic
-	// has been moved to EnsureDefaultConfig in config_manager_config.go
-	// and is called during NewConfigManager initialization.
-	// It's kept here for backward compatibility with external calls, but it
-	// will simply return the already loaded config.
-	config := cm.GetConfig()
-	if config == nil {
-		return nil, fmt.Errorf("main config is nil, likely not initialized")
+// backupAndLog backs up a specified file and logs the action.
+func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
+	// 1. Ensure backup directory exists
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory '%s': %w", backupDir, err)
 	}
-	return config, nil
+
+	// 2. Generate backup filename
+	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
+	backupFilename := fmt.Sprintf("%s_%s_%s.json", fileType, timestamp, codeVersion)
+	backupPath := filepath.Join(backupDir, backupFilename)
+
+	// 3. Move the file
+	if err := os.Rename(filePath, backupPath); err != nil {
+		return fmt.Errorf("failed to move config '%s' to backup '%s': %w", filePath, backupPath, err)
+	}
+
+	// 4. Log the action
+	log.Printf("WARNING: Invalid '%s' config file found. Backed up to %s", fileType, backupPath)
+	return nil
 }
 
 func (cm *ConfigManager) GetReleaseChannel() (string, error) {

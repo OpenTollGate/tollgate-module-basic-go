@@ -2,6 +2,7 @@ package config_manager
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 )
 
@@ -112,25 +113,28 @@ func NewDefaultConfig() *Config {
 
 // EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
 func EnsureDefaultConfig(filePath string) (*Config, error) {
-	config := NewDefaultConfig()
-
+	defaultConfig := NewDefaultConfig()
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// File does not exist, save the default config
-			err = SaveConfig(filePath, config)
-			if err != nil {
-				return nil, err
-			}
-			return config, nil
+			return defaultConfig, SaveConfig(filePath, defaultConfig)
 		}
-		return nil, err // Other error
+		return nil, err // Other read error
 	}
 
-	// File exists, decode its content over the defaults
-	err = json.Unmarshal(data, config)
-	if err != nil {
-		return nil, err // Error decoding
+	// File exists, attempt to unmarshal
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil || config.ConfigVersion != defaultConfig.ConfigVersion {
+		// Unmarshal failed or version mismatch, trigger backup and recreate
+		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
+			// Depending on desired behavior, we might return an error or proceed with default
+			return nil, backupErr
+		}
+		// Save new default config
+		return defaultConfig, SaveConfig(filePath, defaultConfig)
 	}
-	return config, nil
+
+	return &config, nil
 }

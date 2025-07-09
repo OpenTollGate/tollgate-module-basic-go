@@ -3,6 +3,7 @@ package config_manager
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -85,25 +86,25 @@ func SaveIdentities(filePath string, identitiesConfig *IdentitiesConfig) error {
 
 // EnsureDefaultIdentities ensures a default identities.json exists, loading from file if present.
 func EnsureDefaultIdentities(filePath string) (*IdentitiesConfig, error) {
-	identitiesConfig := NewDefaultIdentitiesConfig()
+	defaultIdentitiesConfig := NewDefaultIdentitiesConfig()
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			err = SaveIdentities(filePath, identitiesConfig)
-			if err != nil {
-				return nil, err
-			}
-			return identitiesConfig, nil
+			return defaultIdentitiesConfig, SaveIdentities(filePath, defaultIdentitiesConfig)
 		}
 		return nil, err
 	}
 
-	err = json.Unmarshal(data, identitiesConfig)
-	if err != nil {
-		return nil, err
+	var identitiesConfig IdentitiesConfig
+	if err := json.Unmarshal(data, &identitiesConfig); err != nil || identitiesConfig.ConfigVersion != defaultIdentitiesConfig.ConfigVersion {
+		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "identities", defaultIdentitiesConfig.ConfigVersion); backupErr != nil {
+			log.Printf("CRITICAL: Failed to backup and remove invalid identities config: %v", backupErr)
+			return nil, backupErr
+		}
+		return defaultIdentitiesConfig, SaveIdentities(filePath, defaultIdentitiesConfig)
 	}
-	return identitiesConfig, nil
+	return &identitiesConfig, nil
 }
 
 // GetPublicIdentity retrieves a PublicIdentity by name.

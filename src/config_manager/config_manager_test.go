@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"log"
 	"os"
+	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -42,21 +42,14 @@ func compareMintConfigs(a, b []MintConfig) bool {
 }
 
 func TestConfigManager(t *testing.T) {
-	configFilePath := "test_config.json"
-	installFilePath := "test_install.json"
-	identitiesFilePath := "test_identities.json"
-
-	os.Remove(configFilePath)
-	os.Remove(installFilePath)
-	os.Remove(identitiesFilePath)
-
-	defer os.Remove(configFilePath)
-	defer os.Remove(installFilePath)
-	defer os.Remove(identitiesFilePath)
+	tempDir := t.TempDir()
+	configFilePath := filepath.Join(tempDir, "test_config.json")
+	installFilePath := filepath.Join(tempDir, "test_install.json")
+	identitiesFilePath := filepath.Join(tempDir, "test_identities.json")
 
 	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Failed to create ConfigManager: %v", err)
 	}
 
 	// Test EnsureDefaultConfig - this is implicitly handled by NewConfigManager
@@ -139,21 +132,11 @@ func TestConfigManager(t *testing.T) {
 }
 
 func TestGeneratePrivateKey(t *testing.T) {
-	configFilePath := "test_config.json"
-	installFilePath := "test_install.json"
-	identitiesFilePath := "test_identities.json"
-
-	os.Remove(configFilePath)
-	os.Remove(installFilePath)
-	os.Remove(identitiesFilePath)
-
-	defer os.Remove(configFilePath)
-	defer os.Remove(installFilePath)
-	defer os.Remove(identitiesFilePath)
-
+	// No file paths are directly used or created by generatePrivateKey,
+	// so no temporary directory setup is needed here.
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(os.Stderr) // Defer resetting output to ensure it happens even if test fails
 
 	privateKey, err := generatePrivateKey()
 	if err != nil {
@@ -161,31 +144,21 @@ func TestGeneratePrivateKey(t *testing.T) {
 	}
 	if privateKey == "" {
 		t.Errorf("generatePrivateKey returned empty private key")
-	} else {
-		log.Printf("Generated private key: %s", privateKey)
 	}
-	logOutput := buf.String()
-	if strings.Contains(logOutput, "Failed to publish event to relay") {
-		t.Errorf("Event publication failed during private key generation: %s", logOutput)
-	}
+	// Note: The original test checked for "Failed to publish event to relay"
+	// but setUsername is now a no-op that logs "setUsername is deprecated".
+	// This test should probably be updated or removed depending on future plans for generatePrivateKey.
 }
 
 func TestSetUsername(t *testing.T) {
-	configFilePath := "test_config.json"
-	installFilePath := "test_install.json"
-	identitiesFilePath := "test_identities.json"
-
-	os.Remove(configFilePath)
-	os.Remove(installFilePath)
-	os.Remove(identitiesFilePath)
-
-	defer os.Remove(configFilePath)
-	defer os.Remove(installFilePath)
-	defer os.Remove(identitiesFilePath)
+	tempDir := t.TempDir()
+	configFilePath := filepath.Join(tempDir, "test_config.json")
+	installFilePath := filepath.Join(tempDir, "test_install.json")
+	identitiesFilePath := filepath.Join(tempDir, "test_identities.json")
 
 	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Failed to create ConfigManager: %v", err)
 	}
 
 	privateKey := nostr.GeneratePrivateKey()
