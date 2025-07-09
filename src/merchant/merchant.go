@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	}
 
 	log.Printf("Setting up wallet...")
-	tollwallet, walletErr := tollwallet.New("/etc/tollgate", mintURLs, false)
+	tollwallet, walletErr := tollwallet.New(filepath.Join(filepath.Dir(configManager.ConfigFilePath), "wallet.db"), mintURLs, false)
 
 	if walletErr != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)

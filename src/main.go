@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,22 +29,29 @@ var (
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
 
-// getConfigPath returns the configuration file path, checking environment variable first, then default
-func getConfigPath() string {
-	if configPath := os.Getenv("TOLLGATE_CONFIG_PATH"); configPath != "" {
-		return configPath
+// getTollgatePaths returns the configuration file paths based on the environment.
+// If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
+// Otherwise, it defaults to /etc/tollgate.
+func getTollgatePaths() (configPath, installPath, identitiesPath string) {
+	if testDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); testDir != "" {
+		configPath = filepath.Join(testDir, "config.json")
+		installPath = filepath.Join(testDir, "install.json")
+		identitiesPath = filepath.Join(testDir, "identities.json")
+		return
 	}
-	return "/etc/tollgate/config.json"
+	// Default paths for production
+	configPath = "/etc/tollgate/config.json"
+	installPath = "/etc/tollgate/install.json"
+	identitiesPath = "/etc/tollgate/identities.json"
+	return
 }
 
 func init() {
 	var err error
 
-	configPath := getConfigPath()
-	log.Printf("Using config path: %s", configPath)
+	configPath, installPath, identitiesPath := getTollgatePaths()
+	log.Printf("Using config paths: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
 
-	installPath := "/etc/tollgate/install.json"
-	identitiesPath := "/etc/tollgate/identities.json"
 	configManager, err = config_manager.NewConfigManager(configPath, installPath, identitiesPath)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)

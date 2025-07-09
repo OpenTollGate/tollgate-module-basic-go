@@ -9,16 +9,37 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 )
 
-func TestLoadConfig(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "testconfig")
+var testConfigDir string
+
+func TestMain(m *testing.M) {
+	// Create a temporary directory for test configuration files
+	tmpDir, err := os.MkdirTemp("", "tollgate_test_config")
 	if err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	testConfigDir = tmpDir
+	// Set the environment variable that main.go's init() will read
+	os.Setenv("TOLLGATE_TEST_CONFIG_DIR", testConfigDir)
+
+	// Run all tests
+	code := m.Run()
+
+	// Clean up the temporary directory
+	os.RemoveAll(tmpDir)
+	os.Unsetenv("TOLLGATE_TEST_CONFIG_DIR")
+
+	os.Exit(code)
+}
+
+func TestLoadConfig(t *testing.T) {
+	// Use the temporary directory created by TestMain
+	tmpDir := testConfigDir
 
 	configFile := filepath.Join(tmpDir, "config.json")
 	config := config_manager.Config{
@@ -56,23 +77,85 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	oldConfigFile := configFile
-	defer func() { configFile = oldConfigFile }()
-
-	testConfigPath := configFile // Use configFile as testConfigPath
-	installPath := filepath.Join(tmpDir, "install.json")
-	identitiesPath := filepath.Join(tmpDir, "identities.json")
-
-	configManager, err := config_manager.NewConfigManager(testConfigPath, installPath, identitiesPath)
+	// Create dummy install.json
+	installFile := filepath.Join(tmpDir, "install.json")
+	installConfig := config_manager.InstallConfig{
+		IPAddressRandomized: true,
+		DownloadTimestamp:   123456789,
+	}
+	installData, err := json.Marshal(installConfig)
 	if err != nil {
-		t.Fatalf("Failed to create config manager: %v", err)
+		t.Fatal(err)
+	}
+	err = os.WriteFile(installFile, installData, 0644)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// Get the main config
-	mainConfig := configManager.GetConfig()
-	if mainConfig == nil {
-		t.Fatalf("Main config is nil after initialization")
+	// Create dummy identities.json
+	identitiesFile := filepath.Join(tmpDir, "identities.json")
+	identitiesConfig := config_manager.IdentitiesConfig{
+		OwnedIdentities: []config_manager.OwnedIdentity{
+			{
+				Name:       "merchant",
+				PrivateKey: "test-merchant-private-key",
+			},
+		},
+		PublicIdentities: []config_manager.PublicIdentity{
+			{
+				Name:   "trusted_maintainer_1",
+				PubKey: "test-trusted-maintainer-pubkey",
+			},
+		},
 	}
+	identitiesData, err := json.Marshal(identitiesConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(identitiesFile, identitiesData, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The rest of the test logic remains the same, as the init() function in main.go
+	// will now correctly pick up the temporary paths via TOLLGATE_TEST_CONFIG_DIR.
+	// No need to explicitly call NewConfigManager with these paths here,
+	// as the global configManager will be initialized by main's init()
+	// using the temporary paths.
+
+	// Since we are now testing the full init() process, we need to ensure
+	// that the global configManager is correctly initialized.
+	// The TestLoadConfig is likely testing the behavior of the main application's
+	// config loading, so we rely on main.init() to set up the global configManager.
+
+	// We can add assertions here to check the state of the globally initialized
+	// configManager after main.init() has run.
+	if configManager == nil {
+		t.Fatalf("Global configManager is nil after main.init()")
+	}
+
+	loadedMainConfig := configManager.GetConfig()
+	if loadedMainConfig == nil {
+		t.Fatalf("Global mainConfig is nil after main.init()")
+	}
+
+	loadedInstallConfig := configManager.GetInstallConfig()
+	if loadedInstallConfig == nil {
+		t.Fatalf("Global installConfig is nil after main.init()")
+	}
+
+	loadedIdentitiesConfig := configManager.GetIdentities()
+	if loadedIdentitiesConfig == nil {
+		t.Fatalf("Global identitiesConfig is nil after main.init()")
+	}
+
+	// Additional assertions can be added here to verify the content of the loaded configs.
+	assert.Equal(t, config.AcceptedMints[0].URL, loadedMainConfig.AcceptedMints[0].URL)
+	assert.Equal(t, config.Metric, loadedMainConfig.Metric)
+	assert.Equal(t, installConfig.IPAddressRandomized, loadedInstallConfig.IPAddressRandomized)
+	assert.Equal(t, installConfig.DownloadTimestamp, loadedInstallConfig.DownloadTimestamp)
+	assert.Equal(t, identitiesConfig.OwnedIdentities[0].Name, loadedIdentitiesConfig.OwnedIdentities[0].Name)
+	assert.Equal(t, identitiesConfig.PublicIdentities[0].Name, loadedIdentitiesConfig.PublicIdentities[0].Name)
 }
 
 func TestHandleRoot(t *testing.T) {

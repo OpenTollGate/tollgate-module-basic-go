@@ -329,7 +329,7 @@ func (j *Janitor) listenForNIP94Events() {
 					return
 				}
 				installConfig.PackagePath = pkgPath
-				err = installConfig.Save()
+				err = installConfig.Save(j.configManager.InstallFilePath)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
 					debounceTimer.Stop()
@@ -402,7 +402,7 @@ func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, e
 	}
 	currentTime := time.Now().Unix()
 	installConfig.DownloadTimestamp = currentTime
-	err = installConfig.Save()
+	err = installConfig.Save(j.configManager.InstallFilePath)
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err

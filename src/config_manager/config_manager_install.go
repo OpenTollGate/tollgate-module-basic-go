@@ -83,7 +83,7 @@ func EnsureDefaultInstall(filePath string) (*InstallConfig, error) {
 	}
 	return installConfig, nil
 }
-// Save saves the InstallConfig to its default file path.
-func (ic *InstallConfig) Save() error {
-	return SaveInstallConfig("/etc/tollgate/install.json", ic)
+// Save saves the InstallConfig to a specified file path.
+func (ic *InstallConfig) Save(filePath string) error {
+	return SaveInstallConfig(filePath, ic)
 }
