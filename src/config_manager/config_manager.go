@@ -97,6 +97,9 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 	// Check for a test configuration directory environment variable
 	testConfigDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
 	if testConfigDir != "" {
+		if err := os.MkdirAll(testConfigDir, 0700); err != nil {
+			return nil, fmt.Errorf("failed to create test config directory %s: %w", testConfigDir, err)
+		}
 		configPath = filepath.Join(testConfigDir, filepath.Base(configPath))
 		installPath = filepath.Join(testConfigDir, filepath.Base(installPath))
 		identitiesPath = filepath.Join(testConfigDir, filepath.Base(identitiesPath))

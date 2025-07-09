@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -41,7 +42,11 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	}
 
 	log.Printf("Setting up wallet...")
-	tollwallet, walletErr := tollwallet.New(filepath.Join(filepath.Dir(configManager.ConfigFilePath), "wallet.db"), mintURLs, false)
+	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
+	}
+	tollwallet, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
@@ -541,7 +546,6 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64
 	if err != nil {
 		return nil, fmt.Errorf("merchant identity not found: %w", err)
 	}
-
 
 	// Get the public key from the private key
 	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
