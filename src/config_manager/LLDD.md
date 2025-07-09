@@ -132,16 +132,72 @@ All files, structs, and functions related to the `bragging` module will be delet
 - Remove `BraggingConfig` from the old `Config` struct.
 - Delete the `src/bragging` directory.
 
-## 5. Migration Logic
+## 5. Configuration Resilience Logic
 
-A new migration function will be added to `config_manager.go`:
+The resilience logic will be implemented within the `EnsureDefault...` functions for each configuration file (`config_manager_config.go`, `config_manager_install.go`, `config_manager_identities.go`). This approach avoids a central migration function and handles invalid configurations at the source.
 
-- **`migrateV3ToV4(oldConfig *OldConfig) error`:**
-  1.  Instantiate a new `IdentitiesConfig`.
-  2.  Populate `OwnedIdentities` using `oldConfig.TollgatePrivateKey`.
-  3.  Populate `PublicIdentities` using `oldConfig.TrustedMaintainers` and `oldConfig.ProfitShare`.
-  4.  Create the new simplified `Config` struct.
-  5.  Save the new `config.json` and `identities.json`.
-  6.  Create a backup of the old `config.json`.
+### 5.1. Generic Backup Function
 
-This migration will be called from `NewConfigManager` if the loaded `config.json` has an old version.
+A new helper function will be added to `config_manager.go` to handle the file backup process.
+
+```go
+// backupAndLog backs up a specified file and logs the action.
+func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
+    // 1. Ensure backup directory exists
+    if err := os.MkdirAll(backupDir, 0755); err != nil {
+        return fmt.Errorf("failed to create backup directory: %w", err)
+    }
+
+    // 2. Generate backup filename
+    timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
+    backupFilename := fmt.Sprintf("%s_%s_%s.json", fileType, timestamp, codeVersion)
+    backupPath := filepath.Join(backupDir, backupFilename)
+
+    // 3. Move the file
+    if err := os.Rename(filePath, backupPath); err != nil {
+        return fmt.Errorf("failed to move config to backup: %w", err)
+    }
+
+    // 4. Log the action
+    log.Printf("WARNING: Invalid '%s' config file found. Backed up to %s", fileType, backupPath)
+    return nil
+}
+```
+
+### 5.2. Modified `EnsureDefault...` Functions
+
+Each `EnsureDefault...` function will be modified to include the resilience logic. Below is the example for `EnsureDefaultConfig`. The same pattern will be applied to `EnsureDefaultInstall` and `EnsureDefaultIdentities`.
+
+**`config_manager_config.go`**
+
+```go
+// EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
+func EnsureDefaultConfig(filePath string) (*Config, error) {
+    defaultConfig := NewDefaultConfig()
+    data, err := os.ReadFile(filePath)
+    if err != nil {
+        if os.IsNotExist(err) {
+            // File does not exist, save the default config
+            return defaultConfig, SaveConfig(filePath, defaultConfig)
+        }
+        return nil, err // Other read error
+    }
+
+    // File exists, attempt to unmarshal
+    var config Config
+    if err := json.Unmarshal(data, &config); err != nil || config.ConfigVersion != defaultConfig.ConfigVersion {
+        // Unmarshal failed or version mismatch, trigger backup and recreate
+        if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+            log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
+            // Depending on desired behavior, we might return an error or proceed with default
+            return nil, backupErr
+        }
+        // Save new default config
+        return defaultConfig, SaveConfig(filePath, defaultConfig)
+    }
+
+    return &config, nil
+}
+```
+
+This implementation ensures that any time a configuration file is found to be invalid or outdated, it is safely backed up, and the system self-heals by creating a new default file, preventing crashes and improving overall robustness.

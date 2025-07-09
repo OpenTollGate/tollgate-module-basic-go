@@ -19,7 +19,9 @@
 - **Objective:** Verify the creation of a default `config.json`.
 - **Cases:**
   - No file exists; a default should be created.
-  - File exists; it should not be overwritten.
+  - File exists with valid JSON and correct version; it should be loaded, not overwritten.
+  - File exists with malformed JSON; it should be backed up and a new default created.
+  - File exists with a version mismatch; it should be backed up and a new default created.
 
 ## 2. `config_manager_install.go`
 
@@ -39,7 +41,9 @@
 - **Objective:** Verify the creation of a default `install.json`.
 - **Cases:**
   - No file exists; a default should be created.
-  - File exists; it should not be overwritten.
+  - File exists with valid JSON and correct version; it should be loaded, not overwritten.
+  - File exists with malformed JSON; it should be backed up and a new default created.
+  - File exists with a version mismatch; it should be backed up and a new default created.
 
 ## 3. `config_manager_identities.go`
 
@@ -59,16 +63,18 @@
 - **Objective:** Verify the creation of a default `identities.json`.
 - **Cases:**
   - No file exists; a default should be created.
-  - File exists; it should not be overwritten.
+  - File exists with valid JSON and correct version; it should be loaded, not overwritten.
+  - File exists with malformed JSON; it should be backed up and a new default created.
+  - File exists with a version mismatch; it should be backed up and a new default created.
 
 ## 4. `config_manager.go`
 
 ### 4.1. `TestNewConfigManager`
 - **Objective:** Test the main constructor.
 - **Cases:**
-  - Test with a legacy `config.json` to trigger migration.
-  - Test with the new three-file configuration.
-  - Test with no configuration files present.
+  - Test with all three config files being valid.
+  - Test with one of the config files being invalid (e.g., malformed `config.json`).
+  - Test with all configuration files being absent.
 
 ### 4.2. `TestGetIdentity`
 - **Objective:** Test the retrieval of public identities.
@@ -82,11 +88,11 @@
   - Identity exists.
   - Identity does not exist.
 
-## 5. Migration
+## 5. Resilience Logic
 
-### 5.1. `TestMigrateV3ToV4`
-- **Objective:** Verify the migration logic.
+### 5.1. `TestBackupAndLog`
+- **Objective:** Verify the `backupAndLog` helper function.
 - **Cases:**
-  - A full v3 config is correctly migrated.
-  - A minimal v3 config is correctly migrated.
-  - Profit share and trusted maintainers are correctly moved to public identities.
+  - **Happy Path:** Successful backup and log.
+  - **Permissions Error:** Test failure when creating the backup directory.
+  - **Rename Error:** Test failure when moving the file.

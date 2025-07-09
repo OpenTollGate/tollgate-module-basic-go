@@ -122,12 +122,48 @@ The `bragging` module and its associated code will be completely removed from th
 - Removing the `BraggingConfig` struct from `config_manager`.
 - Removing any calls to the bragging module from other parts of the application.
 
-## 6. Migration Plan
+## 6. Configuration Resilience
 
-A migration script will be created to transition from the old configuration format to the new one. The migration will be triggered automatically if an old `config.json` is detected.
+To ensure system stability during updates, a robust configuration handling mechanism will be implemented. If any configuration file (`config.json`, `install.json`, or `identities.json`) is found to be malformed or has a version mismatch, it will be automatically backed up and replaced with a default configuration. This prevents the service from crashing due to incompatible configuration formats.
 
-The process will be:
-1.  Read the existing `config.json`.
-2.  Create a new `identities.json` file and populate it with data from the old `config.json` (`tollgate_private_key`, `trusted_maintainers`).
-3.  Create a new, simplified `config.json` file, removing the fields that were moved to `identities.json`.
-4.  Backup the old `config.json` to `config.json.bak`.
+### 6.1. Backup and Recovery Process
+
+The process will be triggered within the `EnsureDefault...` function for each configuration file.
+
+```mermaid
+graph TD
+    subgraph Configuration Loading
+        A(Start) --> B{Read config file};
+        B --> C{File exists?};
+        C -- No --> D[Create default config];
+        C -- Yes --> E{Unmarshal JSON};
+        E -- Fail --> F{Backup and Recreate};
+        E -- Success --> G{Version match?};
+        G -- No --> F;
+        G -- Yes --> H(Load successful);
+        F --> D;
+        D --> H;
+    end
+
+    subgraph "Backup and Recreate"
+        F --> I{Create /etc/tollgate/config_backups};
+        I --> J{Generate backup filename};
+        J --> K[Move old config to backup path];
+        K --> L[Log warning message];
+    end
+```
+
+### 6.2. Key Logic
+1.  **Detection**: The process is triggered if:
+    - The JSON file is malformed and cannot be unmarshalled.
+    - The `config_version` field in the file does not match the `config_version` defined in the code for that configuration type.
+2.  **Backup**:
+    - A backup directory will be created at `/etc/tollgate/config_backups` if it doesn't exist.
+    - The problematic configuration file will be moved (renamed) to this directory.
+    - The backup filename will follow the format: `[type]_[timestamp]_[code_version].json`, for example: `config_2025-09-07T16:45:00Z_v0.0.4.json`.
+3.  **Re-creation**:
+    - A new configuration file with the default values will be created in the original location (`/etc/tollgate/`).
+4.  **Logging**:
+    - A warning will be logged indicating that the configuration file was invalid, has been backed up, and a new default file has been created. This will provide visibility for debugging.
+
+This process will apply to `config.json`, `install.json`, and `identities.json` to ensure a consistent and resilient configuration environment.
