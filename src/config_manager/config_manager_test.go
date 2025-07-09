@@ -12,12 +12,6 @@ import (
 )
 
 // Helper functions for comparison
-func compareBraggingConfig(a, b *BraggingConfig) bool {
-	if a.Enabled != b.Enabled {
-		return false
-	}
-	return compareStringSlices(a.Fields, b.Fields)
-}
 
 func compareStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
@@ -48,28 +42,31 @@ func compareMintConfigs(a, b []MintConfig) bool {
 }
 
 func TestConfigManager(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "config.json")
+	configFilePath := "test_config.json"
+	installFilePath := "test_install.json"
+	identitiesFilePath := "test_identities.json"
+
+	os.Remove(configFilePath)
+	os.Remove(installFilePath)
+	os.Remove(identitiesFilePath)
+
+	defer os.Remove(configFilePath)
+	defer os.Remove(installFilePath)
+	defer os.Remove(identitiesFilePath)
+
+	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
 
-	cm, err := NewConfigManager(tmpFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Test EnsureDefaultConfig
-	config, err := cm.EnsureDefaultConfig()
-	if err != nil {
-		t.Errorf("EnsureDefaultConfig returned error: %v", err)
-	}
+	// Test EnsureDefaultConfig - this is implicitly handled by NewConfigManager
+	config := cm.GetConfig()
 	if config == nil {
-		t.Errorf("EnsureDefaultConfig returned nil config")
+		t.Errorf("GetConfig returned nil config")
 	}
 
 	// Test LoadConfig
-	loadedConfig, err := cm.LoadConfig()
+	loadedConfig, err := LoadConfig(configFilePath)
 	if err != nil {
 		t.Errorf("LoadConfig returned error: %v", err)
 	}
@@ -79,7 +76,6 @@ func TestConfigManager(t *testing.T) {
 
 	// Test SaveConfig
 	newConfig := &Config{
-		TollgatePrivateKey: "test_key",
 		AcceptedMints: []MintConfig{
 			{
 				URL:                     "test_mint",
@@ -91,43 +87,33 @@ func TestConfigManager(t *testing.T) {
 				PricePerStep:            1,
 			},
 		},
-		Metric:   "milliseconds",
-		StepSize: 120000,
-		Bragging: BraggingConfig{
-			Enabled: true,
-			Fields:  []string{"test_field"},
-		},
-		Relays:                []string{"test_relay"},
-		TrustedMaintainers:    []string{"test_maintainer"},
-		ShowSetup:             true,
-		CurrentInstallationID: "test_current_installation_id",
+		Metric:    "milliseconds",
+		StepSize:  120000,
+		Relays:    []string{"test_relay"},
+		ShowSetup: true,
 	}
-	err = cm.SaveConfig(newConfig)
+	err = SaveConfig(configFilePath, newConfig)
 	if err != nil {
 		t.Errorf("SaveConfig returned error: %v", err)
 	}
 
-	loadedConfig, err = cm.LoadConfig()
+	loadedConfig, err = LoadConfig(configFilePath)
 	if err != nil {
 		t.Errorf("LoadConfig returned error after SaveConfig: %v", err)
 	}
 	// Verify all fields
-	if loadedConfig.TollgatePrivateKey != "test_key" ||
-		!compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
+	if !compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
 		loadedConfig.Metric != "milliseconds" ||
 		loadedConfig.StepSize != 120000 ||
-		!compareBraggingConfig(&loadedConfig.Bragging, &newConfig.Bragging) ||
 		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
-		!compareStringSlices(loadedConfig.TrustedMaintainers, newConfig.TrustedMaintainers) ||
-		loadedConfig.ShowSetup != newConfig.ShowSetup ||
-		loadedConfig.CurrentInstallationID != newConfig.CurrentInstallationID {
+		loadedConfig.ShowSetup != newConfig.ShowSetup {
 		t.Errorf("Loaded config does not match saved config")
 	}
 
 	// Test LoadInstallConfig and SaveInstallConfig
 	// Remove install.json file if it exists
-	os.Remove(cm.installFilePath())
-	installConfig, err := cm.LoadInstallConfig()
+	os.Remove(cm.InstallFilePath)
+	installConfig, err := LoadInstallConfig(cm.InstallFilePath)
 	if err != nil {
 		t.Errorf("LoadInstallConfig returned error: %v", err)
 	}
@@ -138,12 +124,12 @@ func TestConfigManager(t *testing.T) {
 	newInstallConfig := &InstallConfig{
 		PackagePath: "/path/to/package",
 	}
-	err = cm.SaveInstallConfig(newInstallConfig)
+	err = SaveInstallConfig(cm.InstallFilePath, newInstallConfig)
 	if err != nil {
 		t.Errorf("SaveInstallConfig returned error: %v", err)
 	}
 
-	loadedInstallConfig, err := cm.LoadInstallConfig()
+	loadedInstallConfig, err := LoadInstallConfig(cm.InstallFilePath)
 	if err != nil {
 		t.Errorf("LoadInstallConfig returned error after SaveInstallConfig: %v", err)
 	}
@@ -152,55 +138,24 @@ func TestConfigManager(t *testing.T) {
 	}
 }
 
-func TestUpdateCurrentInstallationID(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	cm, err := NewConfigManager(tmpFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Test UpdateCurrentInstallationID
-	log.Println("Testing UpdateCurrentInstallationID")
-	err = cm.UpdateCurrentInstallationID()
-	if err != nil {
-		t.Errorf("Error updating CurrentInstallationID: %v", err)
-	} else {
-		log.Println("Successfully updated CurrentInstallationID")
-	}
-	config, err := cm.LoadConfig()
-	if err != nil {
-		t.Errorf("Error loading config after update: %v", err)
-	} else {
-		log.Printf("CurrentInstallationID after update: %s", config.CurrentInstallationID)
-	}
-}
-
 func TestGeneratePrivateKey(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
+	configFilePath := "test_config.json"
+	installFilePath := "test_install.json"
+	identitiesFilePath := "test_identities.json"
 
-	cm, err := NewConfigManager(tmpFile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
+	os.Remove(configFilePath)
+	os.Remove(installFilePath)
+	os.Remove(identitiesFilePath)
 
-	_, err = cm.EnsureDefaultConfig()
-	if err != nil {
-		t.Errorf("EnsureDefaultConfig returned error: %v", err)
-	}
+	defer os.Remove(configFilePath)
+	defer os.Remove(installFilePath)
+	defer os.Remove(identitiesFilePath)
+
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
 	defer log.SetOutput(os.Stderr)
 
-	privateKey, err := cm.generatePrivateKey()
+	privateKey, err := generatePrivateKey()
 	if err != nil {
 		t.Errorf("generatePrivateKey returned error: %v", err)
 	}
@@ -216,22 +171,24 @@ func TestGeneratePrivateKey(t *testing.T) {
 }
 
 func TestSetUsername(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
+	configFilePath := "test_config.json"
+	installFilePath := "test_install.json"
+	identitiesFilePath := "test_identities.json"
 
-	cm, err := NewConfigManager(tmpFile.Name())
+	os.Remove(configFilePath)
+	os.Remove(installFilePath)
+	os.Remove(identitiesFilePath)
+
+	defer os.Remove(configFilePath)
+	defer os.Remove(installFilePath)
+	defer os.Remove(identitiesFilePath)
+
+	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	privateKey := nostr.GeneratePrivateKey()
-	_, err = cm.EnsureDefaultConfig()
-	if err != nil {
-		t.Errorf("EnsureDefaultConfig returned error: %v", err)
-	}
 	err = cm.setUsername(privateKey, "test_c03rad0r")
 	if err != nil {
 		t.Errorf("setUsername returned error: %v", err)
