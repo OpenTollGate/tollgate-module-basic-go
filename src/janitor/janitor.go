@@ -166,7 +166,7 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 
-				packageURL, versionStr, arch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
+				packageURL, versionStr, arch, filename, releaseChannel, err := parseNIP94Event(*event)
 				// log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
 				// 	packageURL, versionStr, arch, filename, timestamp, releaseChannel, err)
 				if err != nil {
@@ -198,15 +198,6 @@ func (j *Janitor) listenForNIP94Events() {
 					}
 				}
 
-				timestampConfig, err := j.configManager.GetTimestamp()
-				if err != nil {
-					log.Printf("Error getting timestamp: %v", err)
-					continue
-				}
-				if timestamp > timestampConfig {
-					//log.Printf("Found righttime: %s", key)
-					rightTimeKeys = append(rightTimeKeys, key)
-				}
 
 				vStr, err := j.configManager.GetVersion()
 				if err != nil {
@@ -280,7 +271,7 @@ func (j *Janitor) listenForNIP94Events() {
 				}
 
 				event := latestPackageEvent.event
-				_, versionStr, _, _, _, _, err := parseNIP94Event(*event)
+				_, versionStr, _, _, _, err := parseNIP94Event(*event)
 				if err != nil {
 					log.Printf("Error parsing NIP-94 event %s: %v", event.ID, err)
 					debounceTimer.Stop()
@@ -321,15 +312,15 @@ func (j *Janitor) listenForNIP94Events() {
 				// 	return
 				// }
 
-				installConfig := j.configManager.GetInstallConfig()
-				if installConfig == nil {
+				janitorConfig := j.configManager.GetJanitorConfig()
+				if janitorConfig == nil {
 					log.Printf("Error getting install config: it is nil")
 					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
-				installConfig.PackagePath = pkgPath
-				err = installConfig.Save(j.configManager.InstallFilePath)
+				janitorConfig.PackagePath = pkgPath
+				err = janitorConfig.Save(j.configManager.JanitorFilePath)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
 					debounceTimer.Stop()
@@ -395,14 +386,15 @@ func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, e
 
 	fmt.Println("Package downloaded successfully to /tmp/")
 
-	installConfig := j.configManager.GetInstallConfig()
-	if installConfig == nil {
-		log.Printf("Error getting install config: it is nil")
-		return tmpFile.Name(), pkg, fmt.Errorf("install config is nil")
+	janitorConfig := j.configManager.GetJanitorConfig()
+	if janitorConfig == nil {
+		log.Printf("Error getting janitor config: it is nil")
+		return tmpFile.Name(), pkg, fmt.Errorf("janitor config is nil")
 	}
-	currentTime := time.Now().Unix()
-	installConfig.DownloadTimestamp = currentTime
-	err = installConfig.Save(j.configManager.InstallFilePath)
+	// DownloadTimestamp is no longer stored in janitor.json
+	// currentTime := time.Now().Unix()
+	// janitorConfig.DownloadTimestamp = currentTime
+	err = janitorConfig.Save(j.configManager.JanitorFilePath)
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err
@@ -484,7 +476,7 @@ func contains(s []string, str string) bool {
 }
 
 // parseNIP94Event extracts package information from a NIP-94 event
-func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, string, error) {
+func parseNIP94Event(event nostr.Event) (string, string, string, string, string, error) {
 	requiredTags := []string{"url", "version", "architecture", "filename", "release_channel"}
 	tagMap := make(map[string]string)
 
@@ -496,7 +488,7 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 
 	for _, tag := range requiredTags {
 		if _, ok := tagMap[tag]; !ok {
-			return "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
+			return "", "", "", "", "", fmt.Errorf("invalid NIP-94 event: missing required tag '%s'", tag)
 		}
 	}
 
@@ -504,14 +496,13 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 	version := tagMap["version"]
 	arch := tagMap["architecture"]
 	filename := tagMap["filename"]
-	timestamp := int64(event.CreatedAt)
 
-	if url == "" || version == "" || timestamp == 0 {
-		return "", "", "", "", 0, "", fmt.Errorf("invalid NIP-94 event: missing required tags")
+	if url == "" || version == "" {
+		return "", "", "", "", "", fmt.Errorf("invalid NIP-94 event: missing required tags")
 	}
 
 	releaseChannel := tagMap["release_channel"]
-	return url, version, arch, filename, timestamp, releaseChannel, nil
+	return url, version, arch, filename, releaseChannel, nil
 }
 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {

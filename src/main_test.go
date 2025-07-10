@@ -85,13 +85,7 @@ func TestLoadConfig(t *testing.T) {
 		ConfigVersion:       "v0.0.2",
 		PackagePath:         "false",
 		IPAddressRandomized: false,
-		InstallTimestamp:    0,
-		DownloadTimestamp:   0,
 		ReleaseChannel:      "stable",
-		// EnsureDefaultTimestamp is set by time.Now().Unix() in NewDefaultInstallConfig()
-		// We don't need to explicitly set it here for the test to pass,
-		// as long as we're testing the loading of the *other* fields.
-		InstalledVersion: "0.0.0",
 	}
 	janitorData, err := json.Marshal(janitorConfig)
 	if err != nil {
@@ -172,7 +166,6 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, config.AcceptedMints[0].URL, loadedMainConfig.AcceptedMints[0].URL)
 	assert.Equal(t, config.Metric, loadedMainConfig.Metric)
 	assert.Equal(t, janitorConfig.IPAddressRandomized, loadedJanitorConfig.IPAddressRandomized)
-	assert.Equal(t, janitorConfig.DownloadTimestamp, loadedJanitorConfig.DownloadTimestamp)
 	assert.Equal(t, identitiesConfig.OwnedIdentities[0].Name, loadedIdentitiesConfig.OwnedIdentities[0].Name)
 	assert.Equal(t, identitiesConfig.PublicIdentities[1].Name, loadedIdentitiesConfig.PublicIdentities[1].Name) // Change index to 1 for "trusted_maintainer_1"
 	assert.Equal(t, identitiesConfig.PublicIdentities[1].PubKey, loadedIdentitiesConfig.PublicIdentities[1].PubKey)

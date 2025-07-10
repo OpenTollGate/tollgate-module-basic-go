@@ -24,7 +24,7 @@ import (
 var (
 	configManager *config_manager.ConfigManager
 	mainConfig    *config_manager.Config
-	janitorConfig *config_manager.InstallConfig // Renamed for clarity
+	janitorConfig *config_manager.JanitorConfig // Renamed for clarity
 )
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
@@ -56,7 +56,7 @@ func init() {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	janitorConfig = configManager.GetInstallConfig()
+	janitorConfig = configManager.GetJanitorConfig()
 	// if janitorConfig == nil {
 	// 	log.Printf("Error: Install config is nil after initialization.")
 	// 	os.Exit(1)
