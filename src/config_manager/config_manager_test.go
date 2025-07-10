@@ -44,10 +44,10 @@ func compareMintConfigs(a, b []MintConfig) bool {
 func TestConfigManager(t *testing.T) {
 	tempDir := t.TempDir()
 	configFilePath := filepath.Join(tempDir, "test_config.json")
-	installFilePath := filepath.Join(tempDir, "test_install.json")
+	janitorFilePath := filepath.Join(tempDir, "test_janitor.json")
 	identitiesFilePath := filepath.Join(tempDir, "test_identities.json")
 
-	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
+	cm, err := NewConfigManager(configFilePath, janitorFilePath, identitiesFilePath)
 	if err != nil {
 		t.Fatalf("Failed to create ConfigManager: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestConfigManager(t *testing.T) {
 	}
 
 	// Test LoadInstallConfig and SaveInstallConfig
-	// Remove install.json file if it exists
+	// Remove janitor.json file if it exists
 	os.Remove(cm.InstallFilePath)
 	installConfig, err := LoadInstallConfig(cm.InstallFilePath)
 	if err != nil {
@@ -153,10 +153,10 @@ func TestGeneratePrivateKey(t *testing.T) {
 func TestSetUsername(t *testing.T) {
 	tempDir := t.TempDir()
 	configFilePath := filepath.Join(tempDir, "test_config.json")
-	installFilePath := filepath.Join(tempDir, "test_install.json")
+	janitorFilePath := filepath.Join(tempDir, "test_janitor.json")
 	identitiesFilePath := filepath.Join(tempDir, "test_identities.json")
 
-	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
+	cm, err := NewConfigManager(configFilePath, janitorFilePath, identitiesFilePath)
 	if err != nil {
 		t.Fatalf("Failed to create ConfigManager: %v", err)
 	}

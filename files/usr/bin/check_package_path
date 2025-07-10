@@ -1,12 +1,12 @@
 #!/bin/sh
 
-config_path="/etc/tollgate/install.json"
+config_path="/etc/tollgate/janitor.json"
 update_path=$(jq -r '.package_path // ""' "$config_path")
 
 if [ -n "$update_path" ] && [ -f "$update_path" ]; then
     opkg install "$update_path"
     if [ $? -eq 0 ]; then
-        jq '.update_path = null' "$config_path" > /tmp/config.json
+        jq '.package_path = null' "$config_path" > /tmp/config.json
         mv /tmp/config.json "$config_path"
     fi
 fi

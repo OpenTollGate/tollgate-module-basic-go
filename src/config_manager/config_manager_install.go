@@ -8,33 +8,27 @@ import (
 )
 
 // InstallConfig holds installation-specific parameters.
-type InstallConfig struct {
-	ConfigVersion          string `json:"config_version"`
-	PackagePath            string `json:"package_path"`
-	IPAddressRandomized    bool   `json:"ip_address_randomized"`
-	InstallTimestamp       int64  `json:"install_time"`
-	DownloadTimestamp      int64  `json:"download_time"`
-	ReleaseChannel         string `json:"release_channel"`
-	EnsureDefaultTimestamp int64  `json:"ensure_default_timestamp"`
-	InstalledVersion       string `json:"installed_version"`
+type JanitorConfig struct {
+	ConfigVersion       string `json:"config_version"`
+	PackagePath         string `json:"package_path"`
+	Enabled             bool   `json:"enabled"`
+	IPAddressRandomized bool   `json:"ip_address_randomized"`
+	ReleaseChannel      string `json:"release_channel"`
 }
 
-// NewDefaultInstallConfig creates an InstallConfig with default values.
-func NewDefaultInstallConfig() *InstallConfig {
-	return &InstallConfig{
-		ConfigVersion:          "v0.0.2",
-		PackagePath:            "false",
-		IPAddressRandomized:    false,
-		InstallTimestamp:       0,
-		DownloadTimestamp:      0,
-		ReleaseChannel:         "stable",
-		EnsureDefaultTimestamp: time.Now().Unix(),
-		InstalledVersion:       "0.0.0",
+// NewDefaultJanitorConfig creates a JanitorConfig with default values.
+func NewDefaultJanitorConfig() *JanitorConfig {
+	return &JanitorConfig{
+		ConfigVersion:       "v0.0.2",
+		PackagePath:         "",
+		Enabled:             false,
+		IPAddressRandomized: false,
+		ReleaseChannel:      "stable",
 	}
 }
 
-// LoadInstallConfig loads and parses install.json.
-func LoadInstallConfig(filePath string) (*InstallConfig, error) {
+// LoadJanitorConfig loads and parses janitor.json.
+func LoadJanitorConfig(filePath string) (*JanitorConfig, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -45,47 +39,47 @@ func LoadInstallConfig(filePath string) (*InstallConfig, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	var installConfig InstallConfig
-	err = json.Unmarshal(data, &installConfig)
+	var janitorConfig JanitorConfig
+	err = json.Unmarshal(data, &janitorConfig)
 	if err != nil {
 		return nil, err
 	}
-	return &installConfig, nil
+	return &janitorConfig, nil
 }
 
-// SaveInstallConfig saves install.json.
-func SaveInstallConfig(filePath string, installConfig *InstallConfig) error {
-	data, err := json.MarshalIndent(installConfig, "", "  ")
+// SaveJanitorConfig saves janitor.json.
+func SaveJanitorConfig(filePath string, janitorConfig *JanitorConfig) error {
+	data, err := json.MarshalIndent(janitorConfig, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filePath, data, 0644)
 }
 
-// EnsureDefaultInstall ensures a default install.json exists, loading from file if present.
-func EnsureDefaultInstall(filePath string) (*InstallConfig, error) {
-	defaultInstallConfig := NewDefaultInstallConfig()
+// EnsureDefaultJanitor ensures a default janitor.json exists, loading from file if present.
+func EnsureDefaultJanitor(filePath string) (*JanitorConfig, error) {
+	defaultJanitorConfig := NewDefaultJanitorConfig()
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultInstallConfig, SaveInstallConfig(filePath, defaultInstallConfig)
+			return defaultJanitorConfig, SaveJanitorConfig(filePath, defaultJanitorConfig)
 		}
 		return nil, err
 	}
 
-	var installConfig InstallConfig
-	if err := json.Unmarshal(data, &installConfig); err != nil || installConfig.ConfigVersion != defaultInstallConfig.ConfigVersion {
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "install", defaultInstallConfig.ConfigVersion); backupErr != nil {
-			log.Printf("CRITICAL: Failed to backup and remove invalid install config: %v", backupErr)
+	var janitorConfig JanitorConfig
+	if err := json.Unmarshal(data, &janitorConfig); err != nil || janitorConfig.ConfigVersion != defaultJanitorConfig.ConfigVersion {
+		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "janitor", defaultJanitorConfig.ConfigVersion); backupErr != nil {
+			log.Printf("CRITICAL: Failed to backup and remove invalid janitor config: %v", backupErr)
 			return nil, backupErr
 		}
-		return defaultInstallConfig, SaveInstallConfig(filePath, defaultInstallConfig)
+		return defaultJanitorConfig, SaveJanitorConfig(filePath, defaultJanitorConfig)
 	}
-	return &installConfig, nil
+	return &janitorConfig, nil
 }
 
-// Save saves the InstallConfig to a specified file path.
-func (ic *InstallConfig) Save(filePath string) error {
-	return SaveInstallConfig(filePath, ic)
+// Save saves the JanitorConfig to a specified file path.
+func (jc *JanitorConfig) Save(filePath string) error {
+	return SaveJanitorConfig(filePath, jc)
 }

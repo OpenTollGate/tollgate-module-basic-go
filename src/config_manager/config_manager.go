@@ -251,7 +251,7 @@ func (cm *ConfigManager) GetTimestamp() (int64, error) {
 	case installConfig.EnsureDefaultTimestamp != 0:
 		timestamp = installConfig.EnsureDefaultTimestamp
 	default:
-		return 0, fmt.Errorf("neither download, install, nor ensure default timestamp found in install.json")
+		return 0, fmt.Errorf("neither download, install, nor ensure default timestamp found in janitor.json")
 	}
 	return timestamp, nil
 }

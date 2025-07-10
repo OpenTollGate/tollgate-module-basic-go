@@ -80,8 +80,8 @@ func TestLoadConfig(t *testing.T) {
 	}
 
 	// Create dummy install.json
-	installFile := filepath.Join(tmpDir, "install.json")
-	installConfig := config_manager.InstallConfig{
+	janitorFile := filepath.Join(tmpDir, "janitor.json")
+	janitorConfig := config_manager.InstallConfig{
 		ConfigVersion:       "v0.0.2",
 		PackagePath:         "false",
 		IPAddressRandomized: false,

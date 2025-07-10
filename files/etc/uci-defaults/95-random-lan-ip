@@ -132,7 +132,7 @@ uci_safe_set network lan broadcast "$BROADCAST"
  [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
 
 # Update install.json with the new random IP
-jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
+jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$JANITOR_JSON" > "$JANITOR_JSON.tmp" && mv "$JANITOR_JSON.tmp" "$JANITOR_JSON"
 
 
 exit 0

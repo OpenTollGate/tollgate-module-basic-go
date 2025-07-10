@@ -17,15 +17,15 @@
   - A new default `config.json` is created.
   - The service starts successfully.
 
-### 1.2. Test Case: `install.json` Version Mismatch
-- **Objective:** Verify the system recovers from an outdated `install.json`.
+### 1.2. Test Case: `janitor.json` Version Mismatch
+- **Objective:** Verify the system recovers from an outdated `janitor.json`.
 - **Steps:**
-  - [ ] 1. Edit `/etc/tollgate/install.json` and set `"config_version": "v0.0.1"`.
+  - [ ] 1. Edit `/etc/tollgate/janitor.json` and set `"config_version": "v0.0.1"`.
   - [ ] 2. `service tollgate-basic restart`
 - **Expected Result:**
-  - A warning is logged for `install.json`.
-  - A backup of `install.json` is created.
-  - A new default `install.json` is created with the correct version.
+  - A warning is logged for `janitor.json`.
+  - A backup of `janitor.json` is created.
+  - A new default `janitor.json` is created with the correct version.
 
 ### 1.3. Test Case: Missing `identities.json`
 - **Objective:** Verify the system creates a default `identities.json` if it's missing.
@@ -51,7 +51,7 @@
 
 ### 2.1. Test Case: Fresh Installation
 - **Objective:** Verify that default configuration files are created correctly.
-- **Preconditions:** No `config.json`, `install.json`, or `identities.json` files exist.
+- **Preconditions:** No `config.json`, `janitor.json`, or `identities.json` files exist.
 - **Steps:**
   - [ ] 1. `service tollgate-basic start`
 - **Expected Result:**

@@ -24,7 +24,7 @@ import (
 var (
 	configManager *config_manager.ConfigManager
 	mainConfig    *config_manager.Config
-	installConfig *config_manager.InstallConfig
+	janitorConfig *config_manager.InstallConfig // Renamed for clarity
 )
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
@@ -32,16 +32,16 @@ var merchantInstance *merchant.Merchant
 // getTollgatePaths returns the configuration file paths based on the environment.
 // If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
 // Otherwise, it defaults to /etc/tollgate.
-func getTollgatePaths() (configPath, installPath, identitiesPath string) {
+func getTollgatePaths() (configPath, janitorPath, identitiesPath string) {
 	if testDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); testDir != "" {
 		configPath = filepath.Join(testDir, "config.json")
-		installPath = filepath.Join(testDir, "install.json")
+		janitorPath = filepath.Join(testDir, "janitor.json")
 		identitiesPath = filepath.Join(testDir, "identities.json")
 		return
 	}
 	// Default paths for production
 	configPath = "/etc/tollgate/config.json"
-	installPath = "/etc/tollgate/install.json"
+	janitorPath = "/etc/tollgate/janitor.json"
 	identitiesPath = "/etc/tollgate/identities.json"
 	return
 }
@@ -49,15 +49,15 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 func init() {
 	var err error
 
-	configPath, installPath, identitiesPath := getTollgatePaths()
+	configPath, janitorPath, identitiesPath := getTollgatePaths()
 
-	configManager, err = config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	configManager, err = config_manager.NewConfigManager(configPath, janitorPath, identitiesPath)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	installConfig = configManager.GetInstallConfig()
-	// if installConfig == nil {
+	janitorConfig = configManager.GetInstallConfig()
+	// if janitorConfig == nil {
 	// 	log.Printf("Error: Install config is nil after initialization.")
 	// 	os.Exit(1)
 	// }
@@ -68,7 +68,7 @@ func init() {
 	// 	os.Exit(1)
 	// }
 
-	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
+	IPAddressRandomized := fmt.Sprintf("%t", janitorConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
 
 	var err2 error

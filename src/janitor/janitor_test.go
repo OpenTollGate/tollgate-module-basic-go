@@ -230,7 +230,7 @@ func TestUpdateInstallConfig(t *testing.T) {
 	}
 	defer os.Remove(configFile.Name())
 
-	tmpFile, err := os.CreateTemp("", "install.json")
+	tmpFile, err := os.CreateTemp("", "janitor.json")
 	if err != nil {
 		t.Fatal(err)
 	}

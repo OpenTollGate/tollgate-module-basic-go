@@ -25,20 +25,20 @@
 
 ## 2. `config_manager_install.go`
 
-### 2.1. `TestLoadInstallConfig`
-- **Objective:** Verify loading of `install.json`.
+### 2.1. `TestLoadJanitorConfig`
+- **Objective:** Verify loading of `janitor.json`.
 - **Cases:**
   - File not found.
   - File contains invalid JSON.
   - File is valid.
 
-### 2.2. `TestSaveInstallConfig`
-- **Objective:** Verify saving of `install.json`.
+### 2.2. `TestSaveJanitorConfig`
+- **Objective:** Verify saving of `janitor.json`.
 - **Cases:**
   - Save a valid config and verify the file content.
 
-### 2.3. `TestEnsureDefaultInstall`
-- **Objective:** Verify the creation of a default `install.json`.
+### 2.3. `TestEnsureDefaultJanitor`
+- **Objective:** Verify the creation of a default `janitor.json`.
 - **Cases:**
   - No file exists; a default should be created.
   - File exists with valid JSON and correct version; it should be loaded, not overwritten.

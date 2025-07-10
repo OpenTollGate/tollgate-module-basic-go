@@ -29,7 +29,7 @@ This file will contain the core operational parameters for the Tollgate service.
 }
 ```
 
-### 2.2. `install.json` (Unchanged)
+### 2.2. `janitor.json` (Previously `install.json`)
 
 This file will continue to store installation-specific information. Its structure remains the same.
 
@@ -90,7 +90,7 @@ graph TD
 
     subgraph "Responsibilities"
         B -- manages --> F[config.json];
-        C -- manages --> G[install.json];
+        C -- manages --> G[janitor.json];
         D -- manages --> H[identities.json];
         E -- coordinates & provides unified API --> B;
         E --> C;
@@ -100,7 +100,7 @@ graph TD
 
 - **`config_manager.go`:** Will contain the main `ConfigManager` struct and act as the primary entry point for the package, coordinating the other files.
 - **`config_manager_config.go`:** Will handle all logic related to `config.json` (loading, saving, defaults).
-- **`config_manager_install.go`:** Will handle all logic related to `install.json`.
+- **`config_manager_install.go`:** Will handle all logic related to `janitor.json`.
 - **`config_manager_identities.go`:** Will handle all logic related to the new `identities.json`.
 
 ## 4. API Changes
@@ -124,7 +124,7 @@ The `bragging` module and its associated code will be completely removed from th
 
 ## 6. Configuration Resilience
 
-To ensure system stability during updates, a robust configuration handling mechanism will be implemented. If any configuration file (`config.json`, `install.json`, or `identities.json`) is found to be malformed or has a version mismatch, it will be automatically backed up and replaced with a default configuration. This prevents the service from crashing due to incompatible configuration formats.
+To ensure system stability during updates, a robust configuration handling mechanism will be implemented. If any configuration file (`config.json`, `janitor.json`, or `identities.json`) is found to be malformed or has a version mismatch, it will be automatically backed up and replaced with a default configuration. This prevents the service from crashing due to incompatible configuration formats.
 
 ### 6.1. Backup and Recovery Process
 
@@ -166,4 +166,4 @@ graph TD
 4.  **Logging**:
     - A warning will be logged indicating that the configuration file was invalid, has been backed up, and a new default file has been created. This will provide visibility for debugging.
 
-This process will apply to `config.json`, `install.json`, and `identities.json` to ensure a consistent and resilient configuration environment.
+This process will apply to `config.json`, `janitor.json`, and `identities.json` to ensure a consistent and resilient configuration environment.
