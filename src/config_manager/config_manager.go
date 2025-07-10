@@ -83,17 +83,17 @@ func ExtractPackageInfo(event *nostr.Event) (*PackageInfo, error) {
 // ConfigManager manages the configuration files.
 type ConfigManager struct {
 	ConfigFilePath     string
-	InstallFilePath    string
+	JanitorFilePath    string
 	IdentitiesFilePath string
 	config             *Config
-	installConfig      *InstallConfig
+	janitorConfig      *JanitorConfig
 	identitiesConfig   *IdentitiesConfig
 	PublicPool         *nostr.SimplePool
 	LocalPool          *nostr.SimplePool
 }
 
 // NewConfigManager creates a new ConfigManager instance and loads/ensures default configurations.
-func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigManager, error) {
+func NewConfigManager(configPath, janitorPath, identitiesPath string) (*ConfigManager, error) {
 	// Check for a test configuration directory environment variable
 	testConfigDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
 	if testConfigDir != "" {
@@ -101,11 +101,11 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 			return nil, fmt.Errorf("failed to create test config directory %s: %w", testConfigDir, err)
 		}
 		configPath = filepath.Join(testConfigDir, filepath.Base(configPath))
-		installPath = filepath.Join(testConfigDir, filepath.Base(installPath))
+		janitorPath = filepath.Join(testConfigDir, filepath.Base(janitorPath))
 		identitiesPath = filepath.Join(testConfigDir, filepath.Base(identitiesPath))
-		log.Printf("Using config paths for testing: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
+		log.Printf("Using config paths for testing: config=%s, janitor=%s, identities=%s", configPath, janitorPath, identitiesPath)
 	} else {
-		log.Printf("Using config paths: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
+		log.Printf("Using config paths: config=%s, janitor=%s, identities=%s", configPath, janitorPath, identitiesPath)
 	}
 
 	publicPool := nostr.NewSimplePool(context.Background())
@@ -113,7 +113,7 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 
 	cm := &ConfigManager{
 		ConfigFilePath:     configPath,
-		InstallFilePath:    installPath,
+		JanitorFilePath:    janitorPath,
 		IdentitiesFilePath: identitiesPath,
 		PublicPool:         publicPool,
 		LocalPool:          localPool,
@@ -125,7 +125,7 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 		return nil, fmt.Errorf("failed to ensure default config: %w", err)
 	}
 
-	cm.installConfig, err = EnsureDefaultInstall(cm.InstallFilePath)
+	cm.janitorConfig, err = EnsureDefaultJanitor(cm.JanitorFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure default install config: %w", err)
 	}
@@ -143,9 +143,9 @@ func (cm *ConfigManager) GetConfig() *Config {
 	return cm.config
 }
 
-// GetInstallConfig returns the loaded install configuration.
-func (cm *ConfigManager) GetInstallConfig() *InstallConfig {
-	return cm.installConfig
+// GetJanitorConfig returns the loaded install configuration.
+func (cm *ConfigManager) GetJanitorConfig() *JanitorConfig {
+	return cm.janitorConfig
 }
 
 // GetIdentities returns the loaded identities configuration.
@@ -189,7 +189,7 @@ func GetInstalledVersion() (string, error) {
 	}
 
 	maxAttempts := 5
-	delay := 100 * time.Millisecond
+	delay := 100 * time.Millisecond // This line will be removed in the next step
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		cmd := exec.Command("sh", "-c", "opkg list-installed | grep tollgate")
@@ -234,27 +234,6 @@ func (cm *ConfigManager) GetArchitecture() (string, error) {
 	return match[1], nil
 }
 
-func (cm *ConfigManager) GetTimestamp() (int64, error) {
-	installConfig := cm.GetInstallConfig()
-	if installConfig == nil {
-		return 0, fmt.Errorf("install config not found")
-	}
-
-	var timestamp int64
-	switch {
-	case installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0:
-		timestamp = min(installConfig.DownloadTimestamp, installConfig.InstallTimestamp)
-	case installConfig.DownloadTimestamp != 0:
-		timestamp = installConfig.DownloadTimestamp
-	case installConfig.InstallTimestamp != 0:
-		timestamp = installConfig.InstallTimestamp
-	case installConfig.EnsureDefaultTimestamp != 0:
-		timestamp = installConfig.EnsureDefaultTimestamp
-	default:
-		return 0, fmt.Errorf("neither download, install, nor ensure default timestamp found in install.json")
-	}
-	return timestamp, nil
-}
 
 func (cm *ConfigManager) GetVersion() (string, error) {
 	releaseChannel, err := cm.GetReleaseChannel()
@@ -317,7 +296,7 @@ func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
 }
 
 func (cm *ConfigManager) GetReleaseChannel() (string, error) {
-	installConfig := cm.GetInstallConfig()
+	installConfig := cm.GetJanitorConfig()
 	if installConfig == nil {
 		return "", fmt.Errorf("install config not found")
 	}

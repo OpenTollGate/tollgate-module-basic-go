@@ -1,26 +1,26 @@
 #!/bin/sh
 
-# Check if /etc/tollgate/install.json exists
-if [ -f /etc/tollgate/install.json ]; then
-    # Update install_time in /etc/tollgate/install.json
+# Check if /etc/tollgate/janitor.json exists
+if [ -f /etc/tollgate/janitor.json ]; then
+    # Update install_time in /etc/tollgate/janitor.json
     CURRENT_TIMESTAMP=$(date +%s)
-    if ! jq ".install_time = $CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
+    if ! jq ".install_time = $CURRENT_TIMESTAMP" /etc/tollgate/janitor.json > /tmp/janitor.json.tmp; then
         echo "Error: Failed to update install_time using jq" >&2
         echo "$(date) - Error: Failed to update install_time using jq" >> /tmp/tollgate-setup.log
         exit 1
     fi
-    if ! mv /tmp/install.json.tmp /etc/tollgate/install.json; then
-        echo "Error: Failed to move temporary file to /etc/tollgate/install.json" >&2
-        echo "$(date) - Error: Failed to move temporary file to /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
+    if ! mv /tmp/janitor.json.tmp /etc/tollgate/janitor.json; then
+        echo "Error: Failed to move temporary file to /etc/tollgate/janitor.json" >&2
+        echo "$(date) - Error: Failed to move temporary file to /etc/tollgate/janitor.json" >> /tmp/tollgate-setup.log
         exit 1
     fi
 else
-    # Create /etc/tollgate/install.json if it doesn't exist
+    # Create /etc/tollgate/janitor.json if it doesn't exist
     mkdir -p /etc/tollgate
     CURRENT_TIMESTAMP=$(date +%s)
-    if ! echo "{\"install_time\": $CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
-        echo "Error: Failed to create /etc/tollgate/install.json" >&2
-        echo "$(date) - Error: Failed to create /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
+    if ! echo "{\"install_time\": $CURRENT_TIMESTAMP}" > /etc/tollgate/janitor.json; then
+        echo "Error: Failed to create /etc/tollgate/janitor.json" >&2
+        echo "$(date) - Error: Failed to create /etc/tollgate/janitor.json" >> /tmp/tollgate-setup.log
         exit 1
     fi
     echo "$(date) - install_time set to $CURRENT_TIMESTAMP" >> /tmp/tollgate-setup.log

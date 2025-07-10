@@ -116,9 +116,9 @@ The `config_manager` package will be split into the following files:
 
 ### 3.3. `config_manager_install.go`
 
-- **`LoadInstallConfig(filePath string) (*InstallConfig, error)`:** Loads and parses `install.json`.
-- **`SaveInstallConfig(filePath string, config *InstallConfig) error`:** Saves `install.json`.
-- **`EnsureDefaultInstall(filePath string) (*InstallConfig, error)`:** Creates a default `install.json`.
+- **`LoadJanitorConfig(filePath string) (*JanitorConfig, error)`:** Loads and parses `janitor.json`.
+- **`SaveJanitorConfig(filePath string, config *JanitorConfig) error`:** Saves `janitor.json`.
+- **`EnsureDefaultJanitor(filePath string) (*JanitorConfig, error)`:** Creates a default `janitor.json`.
 
 ### 3.4. `config_manager_identities.go`
 
