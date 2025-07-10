@@ -76,9 +76,9 @@ func (j *Janitor) listenForNIP94Events() {
 	ctx := context.Background()
 	eventChan := make(chan *nostr.Event, 1000)
 
-	mainConfig, err := j.configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Failed to load config: %v", err)
+	mainConfig := j.configManager.GetConfig()
+	if mainConfig == nil {
+		log.Printf("Failed to get main config, it is nil")
 		return
 	}
 
@@ -147,23 +147,27 @@ func (j *Janitor) listenForNIP94Events() {
 					log.Println("eventChan closed, stopping event processing")
 					return
 				}
-				if !contains(mainConfig.TrustedMaintainers, event.PubKey) {
+				identitiesConfig := j.configManager.GetIdentities()
+				if identitiesConfig == nil {
+					log.Printf("Failed to get identities config, it is nil")
+					continue
+				}
+				trustedMaintainer, err := identitiesConfig.GetPublicIdentity("trusted_maintainer_1")
+				if err != nil {
+					log.Printf("Error getting trusted maintainer identity: %v", err)
+					continue
+				}
+				if trustedMaintainer == nil || trustedMaintainer.PubKey != event.PubKey {
 					continue
 				}
 
-				ok, err := event.CheckSignature()
+				ok, err = event.CheckSignature()
 				if err != nil || !ok {
 					continue
 				}
 
 				packageURL, versionStr, arch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
-				// log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
-				// 	packageURL, versionStr, arch, filename, timestamp, releaseChannel, err)
 				if err != nil {
-					// if strings.Contains(err.Error(), "missing required tag 'release_channel'") {
-					// } else {
-					// 	log.Printf("Error parsing NIP-94 event: %v", err)
-					// }
 					continue
 				}
 
@@ -172,15 +176,12 @@ func (j *Janitor) listenForNIP94Events() {
 					log.Printf("Error getting release channel: %v", err)
 					continue
 				}
-				// log.Printf("Release channel from event: %s, from config: %s", releaseChannel, releaseChannelFromConfigManager)
 				if releaseChannel != releaseChannelFromConfigManager {
-					// log.Printf("Skipping event due to release channel mismatch")
 					continue
 				}
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
 				ok = eventMap[key] != nil
 				if ok {
-					//collisionCount++
 				} else {
 					eventMap[key] = &packageEvent{
 						event:      event,
@@ -194,7 +195,6 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if timestamp > timestampConfig {
-					//log.Printf("Found righttime: %s", key)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
@@ -210,7 +210,6 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if isNewerVersion(versionStr, vStr, releaseChannel) {
-					//log.Printf("Found rightversion: %s", key)
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
@@ -220,8 +219,6 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if arch == archFromFilesystem {
-					//fmt.Printf("Received event: %+v\n", event)
-					//log.Printf("Found rightarch: %s", key)
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
@@ -294,31 +291,23 @@ func (j *Janitor) listenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				config, err := j.configManager.LoadConfig()
-				if err != nil {
-					log.Printf("Error loading config: %v", err)
-					debounceTimer.Stop()
-					isTimerActive = false
-					return
-				}
-				config.CurrentInstallationID = event.ID
-				err = j.configManager.SaveConfig(config)
-				if err != nil {
-					log.Printf("Error updating config with NIP94 event ID: %v", err)
+				config := j.configManager.GetConfig()
+				if config == nil {
+					log.Printf("Error getting config: it is nil")
 					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 
-				installConfig, err := j.configManager.LoadInstallConfig()
-				if err != nil {
-					log.Printf("Error loading install config: %v", err)
+				installConfig := j.configManager.GetInstallConfig()
+				if installConfig == nil {
+					log.Printf("Error getting install config: it is nil")
 					debounceTimer.Stop()
 					isTimerActive = false
 					return
 				}
 				installConfig.PackagePath = pkgPath
-				err = j.configManager.SaveInstallConfig(installConfig)
+				err = installConfig.Save(j.configManager.InstallFilePath)
 				if err != nil {
 					log.Printf("Error updating install config with package path: %v", err)
 					debounceTimer.Stop()
@@ -384,14 +373,14 @@ func DownloadPackage(j *Janitor, url string, checksum string) (string, []byte, e
 
 	fmt.Println("Package downloaded successfully to /tmp/")
 
-	installConfig, err := j.configManager.LoadInstallConfig()
-	if err != nil {
-		log.Printf("Error loading install config: %v", err)
-		return tmpFile.Name(), pkg, err
+	installConfig := j.configManager.GetInstallConfig()
+	if installConfig == nil {
+		log.Printf("Error getting install config: it is nil")
+		return tmpFile.Name(), pkg, fmt.Errorf("install config is nil")
 	}
 	currentTime := time.Now().Unix()
 	installConfig.DownloadTimestamp = currentTime
-	err = j.configManager.SaveInstallConfig(installConfig)
+	err = installConfig.Save(j.configManager.InstallFilePath)
 	if err != nil {
 		log.Printf("Error saving install config with DownloadTimestamp: %v", err)
 		return tmpFile.Name(), pkg, err
@@ -505,12 +494,9 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
-	//log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
 	if releaseChannel == "dev" {
-		//log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
 		newVersionParts := strings.Split(newVersion, ".")
 		if len(newVersionParts) != 3 {
-			//log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
 			return false
 		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
@@ -526,7 +512,6 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		}
 
 		if newVersionParts[0] != currentVersionParts[0] {
-			//log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
 			return false
 		}
 
@@ -542,7 +527,6 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 			return false
 		}
 
-		// log.Printf("Comparing commits: newCommits=%d, currentCommits=%d, newVersion=%s", newCommits, currentCommits, newVersion)
 		return newCommits > currentCommits
 	} else {
 		newVersionObj, err := version.NewVersion(newVersion)

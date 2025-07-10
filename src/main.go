@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/bragging"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
@@ -21,51 +21,47 @@ import (
 
 // Global configuration variable
 // Define configFile at a higher scope
-var configManager *config_manager.ConfigManager
+var (
+	configManager *config_manager.ConfigManager
+	mainConfig    *config_manager.Config
+	installConfig *config_manager.InstallConfig
+)
 var tollgateDetailsString string
 var merchantInstance *merchant.Merchant
 
-// getConfigPath returns the configuration file path, checking environment variable first, then default
-func getConfigPath() string {
-	if configPath := os.Getenv("TOLLGATE_CONFIG_PATH"); configPath != "" {
-		return configPath
+// getTollgatePaths returns the configuration file paths based on the environment.
+// If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
+// Otherwise, it defaults to /etc/tollgate.
+func getTollgatePaths() (configPath, installPath, identitiesPath string) {
+	if testDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); testDir != "" {
+		configPath = filepath.Join(testDir, "config.json")
+		installPath = filepath.Join(testDir, "install.json")
+		identitiesPath = filepath.Join(testDir, "identities.json")
+		return
 	}
-	return "/etc/tollgate/config.json"
+	// Default paths for production
+	configPath = "/etc/tollgate/config.json"
+	installPath = "/etc/tollgate/install.json"
+	identitiesPath = "/etc/tollgate/identities.json"
+	return
 }
 
 func init() {
 	var err error
 
-	configPath := getConfigPath()
-	log.Printf("Using config path: %s", configPath)
+	configPath, installPath, identitiesPath := getTollgatePaths()
 
-	configManager, err = config_manager.NewConfigManager(configPath)
+	configManager, err = config_manager.NewConfigManager(configPath, installPath, identitiesPath)
 	if err != nil {
 		log.Fatalf("Failed to create config manager: %v", err)
 	}
 
-	installConfig, err := configManager.LoadInstallConfig()
-	if err != nil {
-		log.Printf("Error loading install config: %v", err)
-		os.Exit(1)
-	}
-	mainConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		os.Exit(1)
-	}
+	installConfig = configManager.GetInstallConfig()
 
-	currentInstallationID := mainConfig.CurrentInstallationID
-	log.Printf("CurrentInstallationID: %s", currentInstallationID)
-	IPAddressRandomized := fmt.Sprintf("%s", installConfig.IPAddressRandomized)
+	mainConfig = configManager.GetConfig()
+
+	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
-	if currentInstallationID != "" {
-		_, err = configManager.GetNIP94Event(currentInstallationID)
-		if err != nil {
-			log.Printf("Error getting NIP94 event: %v", err)
-			os.Exit(1)
-		}
-	}
 
 	var err2 error
 	merchantInstance, err2 = merchant.New(configManager)
@@ -147,7 +143,7 @@ func getMacAddress(ipAddress string) (string, error) {
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
-func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("cors middleware %s request from %s", r.Method, r.RemoteAddr)
 
@@ -186,7 +182,7 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRootPost handles POST requests to the root endpoint
-func handleRootPost(w http.ResponseWriter, r *http.Request) {
+func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
 	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
 	// Only process POST requests
@@ -286,36 +282,10 @@ func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Mercha
 	json.NewEncoder(w).Encode(noticeEvent)
 }
 
-func announceSuccessfulPayment(macAddress string, amount int64, durationSeconds int64) error {
-	mainConfig, err := configManager.LoadConfig()
-	if err != nil {
-		log.Printf("Error loading config: %v", err)
-		return err
-	}
-
-	if !mainConfig.Bragging.Enabled {
-		log.Println("Bragging is disabled in configuration")
-		return nil
-	}
-
-	err = bragging.AnnounceSuccessfulPayment(configManager, amount, durationSeconds)
-	if err != nil {
-		log.Printf("Failed to create bragging service: %v", err)
-		return err
-	}
-
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Successfully announced payment for MAC %s", macAddress)
-	return nil
-}
-
 // handleRoot routes requests based on method
-func handleRoot(w http.ResponseWriter, r *http.Request) {
+func HandleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		handleRootPost(w, r)
+		HandleRootPost(w, r)
 	} else {
 		handleDetails(w, r)
 	}
@@ -332,12 +302,12 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)
-		corsMiddleware(handleRoot)(w, r)
+		CorsMiddleware(HandleRoot)(w, r)
 	})
 
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("DEBUG: Hit /whoami endpoint from %s", r.RemoteAddr)
-		corsMiddleware(handler)(w, r)
+		CorsMiddleware(handler)(w, r)
 	})
 
 	log.Println("Starting HTTP server on all interfaces...")

@@ -14,7 +14,7 @@ The advertisement event structure has been updated to support flexible metrics:
 
 ### Tag Structure:
 - `["metric", config.Metric]`: e.g., "milliseconds" or "bytes"
-- `["step_size", fmt.Sprintf("%d", config.StepSize)]`: e.g., "60000"
+- `["step_size", fmt.Sprintf("%d", config.StepSize)]`: e.g., "20000"
 - `["tips", "1", "2", "3"]`: Static tips
 - For each mint: `["price_per_step", "cashu", price, unit, mint_url, min_steps]`
 
