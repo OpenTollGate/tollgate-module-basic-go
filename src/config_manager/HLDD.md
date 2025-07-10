@@ -29,7 +29,7 @@ This file will contain the core operational parameters for the Tollgate service.
 }
 ```
 
-### 2.2. `janitor.json` (Previously `install.json`)
+### 2.2. `janitor.json`
 
 This file will continue to store installation-specific information. Its structure remains the same.
 
@@ -37,12 +37,9 @@ This file will continue to store installation-specific information. Its structur
 {
   "config_version": "v0.0.2",
   "package_path": "",
+  "enabled": false,
   "ip_address_randomized": true,
-  "install_time": 1751970133,
-  "download_time": 0,
-  "release_channel": "stable",
-  "ensure_default_timestamp": 1751970139,
-  "installed_version": "0.0.0"
+  "release_channel": "stable"
 }
 ```
 

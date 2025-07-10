@@ -79,9 +79,9 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create dummy install.json
+	// Create dummy janitor.json
 	janitorFile := filepath.Join(tmpDir, "janitor.json")
-	janitorConfig := config_manager.InstallConfig{
+	janitorConfig := config_manager.JanitorConfig{
 		ConfigVersion:       "v0.0.2",
 		PackagePath:         "false",
 		IPAddressRandomized: false,
@@ -93,11 +93,11 @@ func TestLoadConfig(t *testing.T) {
 		// as long as we're testing the loading of the *other* fields.
 		InstalledVersion: "0.0.0",
 	}
-	installData, err := json.Marshal(installConfig)
+	janitorData, err := json.Marshal(janitorConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.WriteFile(installFile, installData, 0644)
+	err = os.WriteFile(janitorFile, janitorData, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,9 +158,9 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatalf("Global mainConfig is nil after main.init()")
 	}
 
-	loadedInstallConfig := configManager.GetInstallConfig()
-	if loadedInstallConfig == nil {
-		t.Fatalf("Global installConfig is nil after main.init()")
+	loadedJanitorConfig := configManager.GetJanitorConfig()
+	if loadedJanitorConfig == nil {
+		t.Fatalf("Global janitorConfig is nil after main.init()")
 	}
 
 	loadedIdentitiesConfig := configManager.GetIdentities()
@@ -171,8 +171,8 @@ func TestLoadConfig(t *testing.T) {
 	// Additional assertions can be added here to verify the content of the loaded configs.
 	assert.Equal(t, config.AcceptedMints[0].URL, loadedMainConfig.AcceptedMints[0].URL)
 	assert.Equal(t, config.Metric, loadedMainConfig.Metric)
-	assert.Equal(t, installConfig.IPAddressRandomized, loadedInstallConfig.IPAddressRandomized)
-	assert.Equal(t, installConfig.DownloadTimestamp, loadedInstallConfig.DownloadTimestamp)
+	assert.Equal(t, janitorConfig.IPAddressRandomized, loadedJanitorConfig.IPAddressRandomized)
+	assert.Equal(t, janitorConfig.DownloadTimestamp, loadedJanitorConfig.DownloadTimestamp)
 	assert.Equal(t, identitiesConfig.OwnedIdentities[0].Name, loadedIdentitiesConfig.OwnedIdentities[0].Name)
 	assert.Equal(t, identitiesConfig.PublicIdentities[1].Name, loadedIdentitiesConfig.PublicIdentities[1].Name) // Change index to 1 for "trusted_maintainer_1"
 	assert.Equal(t, identitiesConfig.PublicIdentities[1].PubKey, loadedIdentitiesConfig.PublicIdentities[1].PubKey)
