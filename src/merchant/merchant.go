@@ -15,7 +15,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/elnosh/gonuts/cashu"
+	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -48,7 +48,7 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	tollwallet, walletErr := tollwallet.New("/etc/tollgate", mintURLs, false)
 
 	if walletErr != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
+		return nil, fmt.Errorf("failed to create tollwallet: %w", walletErr)
 	}
 
 	var balance uint64 = tollwallet.GetBalance()
@@ -696,4 +696,202 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	}
 
 	return noticeEvent, nil
+}
+
+// TriggerUpstreamPurchase initiates purchase through session manager with merchant-provided token
+func (m *Merchant) TriggerUpstreamPurchase() error {
+	log.Printf("Merchant: Triggering upstream purchase...")
+
+	// Check if upstream is required
+	if !m.CheckUpstreamRequired() {
+		log.Printf("Merchant: Upstream purchase not required")
+		return nil
+	}
+
+	// Get current upstream URL from crowsnest
+	if m.crowsnest == nil {
+		return fmt.Errorf("crowsnest instance not available")
+	}
+
+	upstreamURL := m.crowsnest.GetCurrentUpstreamURL()
+	if upstreamURL == "" {
+		return fmt.Errorf("no upstream URL available")
+	}
+
+	// Get upstream pricing
+	pricing, err := m.crowsnest.GetUpstreamPricing(upstreamURL)
+	if err != nil {
+		return fmt.Errorf("failed to get upstream pricing: %w", err)
+	}
+
+	// Calculate optimal purchase amount
+	purchaseAmount, err := m.CalculateUpstreamPurchase(pricing)
+	if err != nil {
+		return fmt.Errorf("failed to calculate upstream purchase: %w", err)
+	}
+
+	// Select best mint and create payment token
+	mintURL, err := m.selectBestMint(pricing)
+	if err != nil {
+		return fmt.Errorf("failed to select mint: %w", err)
+	}
+
+	// Calculate cost
+	stepsNeeded := purchaseAmount / pricing.StepSize
+	if purchaseAmount%pricing.StepSize != 0 {
+		stepsNeeded++ // Round up
+	}
+
+	totalCost := stepsNeeded * pricing.PricePerStep[mintURL]
+
+	// Create payment token
+	paymentToken, err := m.CreateUpstreamPaymentToken(totalCost, mintURL)
+	if err != nil {
+		return fmt.Errorf("failed to create upstream payment token: %w", err)
+	}
+
+	// Execute purchase through upstream session manager
+	if m.upstreamSessionManager == nil {
+		return fmt.Errorf("upstream session manager not available")
+	}
+
+	sessionEvent, err := m.upstreamSessionManager.PurchaseUpstreamTime(purchaseAmount, paymentToken)
+	if err != nil {
+		return fmt.Errorf("failed to purchase upstream time: %w", err)
+	}
+
+	log.Printf("✅ Merchant: Successfully purchased upstream session: %s", sessionEvent.ID)
+	log.Printf("Session details - Allotment: %d %s, Cost: %d sats",
+		purchaseAmount, pricing.Metric, totalCost)
+
+	return nil
+}
+
+// CheckUpstreamRequired determines if upstream purchase is needed
+func (m *Merchant) CheckUpstreamRequired() bool {
+	// Check if upstream purchasing is enabled
+	if !m.config.UpstreamConfig.Enabled {
+		return false
+	}
+
+	// Check if we have an upstream session manager
+	if m.upstreamSessionManager == nil {
+		log.Printf("No upstream session manager available")
+		return false
+	}
+
+	// Check if upstream is already active
+	if m.upstreamSessionManager.IsUpstreamActive() {
+		log.Printf("Upstream session is already active")
+		return false
+	}
+
+	// Check if we have an upstream URL
+	if m.crowsnest == nil || m.crowsnest.GetCurrentUpstreamURL() == "" {
+		log.Printf("No upstream URL available")
+		return false
+	}
+
+	log.Printf("Upstream purchase is required")
+	return true
+}
+
+// CalculateUpstreamPurchase determines optimal purchase amount
+func (m *Merchant) CalculateUpstreamPurchase(upstreamPricing *crowsnest.UpstreamPricing) (uint64, error) {
+	var preferredAmount uint64
+
+	// Get preferred amount based on metric
+	if upstreamPricing.Metric == "milliseconds" {
+		preferredAmount = uint64(m.config.UpstreamConfig.PreferredPurchaseAmountMs)
+	} else if upstreamPricing.Metric == "bytes" {
+		preferredAmount = uint64(m.config.UpstreamConfig.PreferredPurchaseAmountBytes)
+	} else {
+		return 0, fmt.Errorf("unsupported metric: %s", upstreamPricing.Metric)
+	}
+
+	// Ensure we meet minimum purchase requirements
+	stepsNeeded := preferredAmount / upstreamPricing.StepSize
+	if preferredAmount%upstreamPricing.StepSize != 0 {
+		stepsNeeded++ // Round up
+	}
+
+	// Check minimum purchase steps for each mint
+	for mintURL, minSteps := range upstreamPricing.MinPurchaseSteps {
+		if stepsNeeded < minSteps {
+			log.Printf("Adjusting purchase amount to meet minimum for mint %s: %d steps", mintURL, minSteps)
+			stepsNeeded = minSteps
+		}
+	}
+
+	finalAmount := stepsNeeded * upstreamPricing.StepSize
+	log.Printf("Calculated upstream purchase: %d %s (%d steps)",
+		finalAmount, upstreamPricing.Metric, stepsNeeded)
+
+	return finalAmount, nil
+}
+
+// CreateUpstreamPaymentToken creates payment token from merchant's wallet for upstream purchase
+func (m *Merchant) CreateUpstreamPaymentToken(amount uint64, mintURL string) (string, error) {
+	log.Printf("Creating payment token for %d sats from mint %s", amount, mintURL)
+
+	// Check if we have sufficient balance
+	balance := m.tollwallet.GetBalanceByMint(mintURL)
+	if balance < amount {
+		return "", fmt.Errorf("insufficient balance: have %d sats, need %d sats", balance, amount)
+	}
+
+	// Send tokens to ourselves to create a payment token
+	// This creates a cashu token that can be used for upstream payment
+	// Use SendWithOptions to allow overpayment in case of network issues
+	options := tollwallet.SendOptions{
+		IncludeFees:           false,
+		AllowOverpayment:      true,
+		MaxOverpaymentPercent: 300, // Allow up to 300% overpayment
+	}
+
+	paymentToken, err := m.tollwallet.SendWithOptions(amount, mintURL, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to create payment token: %w", err)
+	}
+
+	// Convert token to string representation
+	tokenString, err := paymentToken.Serialize()
+	if err != nil {
+		return "", fmt.Errorf("failed to convert token to string: %w", err)
+	}
+
+	log.Printf("✅ Created payment token for upstream purchase")
+	return tokenString, nil
+}
+
+// selectBestMint selects the best mint for upstream purchase
+func (m *Merchant) selectBestMint(pricing *crowsnest.UpstreamPricing) (string, error) {
+	if len(pricing.AcceptedMints) == 0 {
+		return "", fmt.Errorf("no accepted mints available")
+	}
+
+	// For now, select the first mint that we have configured
+	// In the future, this could be enhanced to select based on balance, fees, etc.
+	for _, upstreamMint := range pricing.AcceptedMints {
+		for _, localMint := range m.config.AcceptedMints {
+			if localMint.URL == upstreamMint {
+				// Check if we have sufficient balance
+				balance := m.tollwallet.GetBalanceByMint(upstreamMint)
+				if balance > 0 {
+					log.Printf("Selected mint %s for upstream purchase (balance: %d sats)",
+						upstreamMint, balance)
+					return upstreamMint, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no suitable mint found with sufficient balance")
+}
+
+// SetUpstreamInstances sets the crowsnest and upstream session manager instances
+func (m *Merchant) SetUpstreamInstances(crowsnest *crowsnest.Crowsnest, upstreamSessionManager *upstream_session_manager.UpstreamSessionManager) {
+	m.crowsnest = crowsnest
+	m.upstreamSessionManager = upstreamSessionManager
+	log.Printf("Merchant: Set upstream instances")
 }

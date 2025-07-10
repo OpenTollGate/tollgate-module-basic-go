@@ -87,7 +87,7 @@ func init() {
 	initUpstreamModules()
 
 	// Initialize janitor module
-	initJanitor()
+	// initJanitor()
 
 	// Initialize private relay
 	initPrivateRelay()
@@ -123,7 +123,7 @@ func initUpstreamModules() {
 	crowsnestInstance.StartMonitoring()
 
 	// Initialize upstream session manager
-	upstreamSessionManager = upstream_session_manager.New("", "tollgate-device")
+	upstreamSessionManager = upstream_session_manager.New("", "tollgate-device", configManager)
 	log.Printf("Upstream session manager initialized")
 
 	// Start session monitoring routine
@@ -170,8 +170,13 @@ func startUpstreamSessionMonitoring() {
 
 			// Check if we need to trigger a purchase (5 seconds before expiry by default)
 			if timeRemaining <= config.UpstreamConfig.PurchaseTriggerBufferMs {
-				log.Printf("Upstream session expiring in %d ms - would trigger renewal purchase", timeRemaining)
-				// TODO: Trigger actual purchase through merchant when merchant integration is complete
+				log.Printf("Upstream session expiring in %d ms - triggering renewal purchase", timeRemaining)
+				go func() {
+					err := merchantInstance.TriggerUpstreamPurchase()
+					if err != nil {
+						log.Printf("Failed to trigger upstream purchase: %v", err)
+					}
+				}()
 			}
 		} else if metric == "bytes" {
 			// Data-based monitoring
@@ -187,8 +192,13 @@ func startUpstreamSessionMonitoring() {
 
 			// Check if we need to trigger a purchase
 			if bytesRemaining <= config.UpstreamConfig.PurchaseTriggerBufferBytes {
-				log.Printf("Upstream session has %d bytes remaining - would trigger renewal purchase", bytesRemaining)
-				// TODO: Trigger actual purchase through merchant when merchant integration is complete
+				log.Printf("Upstream session has %d bytes remaining - triggering renewal purchase", bytesRemaining)
+				go func() {
+					err := merchantInstance.TriggerUpstreamPurchase()
+					if err != nil {
+						log.Printf("Failed to trigger upstream purchase: %v", err)
+					}
+				}()
 			}
 		}
 	}
@@ -203,14 +213,15 @@ func startUpstreamDiscovery() {
 	// Try discovery immediately
 	go func() {
 		log.Printf("Attempting initial upstream discovery...")
-		upstreamURL, err := crowsnestInstance.DiscoverUpstreamRouter()
+		discoveryResult, err := crowsnestInstance.DiscoverUpstreamRouterWithInterface()
 		if err != nil {
 			log.Printf("Initial upstream discovery failed: %v", err)
 		} else {
-			log.Printf("✅ Discovered upstream router at: %s", upstreamURL)
+			log.Printf("✅ Discovered upstream router at: %s via interface %s (%s)",
+				discoveryResult.URL, discoveryResult.InterfaceName, discoveryResult.InterfaceMAC)
 
 			// Get pricing information
-			pricing, err := crowsnestInstance.GetUpstreamPricing(upstreamURL)
+			pricing, err := crowsnestInstance.GetUpstreamPricing(discoveryResult.URL)
 			if err != nil {
 				log.Printf("Failed to get upstream pricing: %v", err)
 			} else {
@@ -219,8 +230,28 @@ func startUpstreamDiscovery() {
 
 				// Update session manager with discovered upstream
 				if upstreamSessionManager != nil {
-					upstreamSessionManager.SetUpstreamURL(upstreamURL)
-					log.Printf("✅ Updated session manager with discovered upstream")
+					upstreamSessionManager.SetUpstreamURL(discoveryResult.URL)
+					upstreamSessionManager.SetMacAddressSelf(discoveryResult.InterfaceMAC)
+					log.Printf("✅ Updated session manager with discovered upstream and device MAC: %s",
+						discoveryResult.InterfaceMAC)
+
+					// Connect merchant to upstream instances
+					if merchantInstance != nil {
+						merchantInstance.SetUpstreamInstances(crowsnestInstance, upstreamSessionManager)
+						log.Printf("✅ Connected merchant to upstream instances")
+
+						// Trigger initial purchase if always maintain mode is enabled
+						config, err := configManager.LoadConfig()
+						if err == nil && config.UpstreamConfig.Enabled && config.UpstreamConfig.AlwaysMaintainUpstreamConnection {
+							log.Printf("Always maintain mode enabled - triggering initial upstream purchase")
+							go func() {
+								err := merchantInstance.TriggerUpstreamPurchase()
+								if err != nil {
+									log.Printf("Failed to trigger initial upstream purchase: %v", err)
+								}
+							}()
+						}
+					}
 				}
 			}
 		}

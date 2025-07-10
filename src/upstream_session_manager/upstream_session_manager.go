@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -29,7 +30,8 @@ type UpstreamSession struct {
 type UpstreamSessionManager struct {
 	currentSession   *UpstreamSession
 	upstreamURL      string
-	deviceID         string
+	macAddressSelf   string
+	configManager    *config_manager.ConfigManager
 	sessionMutex     sync.RWMutex
 	httpClient       *http.Client
 	dataUsageTracker *DataUsageTracker // For byte-based monitoring
@@ -44,10 +46,11 @@ type DataUsageTracker struct {
 }
 
 // New creates a new UpstreamSessionManager instance
-func New(upstreamURL, deviceID string) *UpstreamSessionManager {
+func New(upstreamURL, macAddressSelf string, configManager *config_manager.ConfigManager) *UpstreamSessionManager {
 	return &UpstreamSessionManager{
-		upstreamURL: upstreamURL,
-		deviceID:    deviceID,
+		upstreamURL:    upstreamURL,
+		macAddressSelf: macAddressSelf,
+		configManager:  configManager,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -70,15 +73,24 @@ func (usm *UpstreamSessionManager) PurchaseUpstreamTime(amount uint64, paymentTo
 		Kind:      21000,
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Tags: nostr.Tags{
-			{"device-identifier", "mac", usm.deviceID},
+			{"device-identifier", "mac", usm.macAddressSelf},
 			{"payment", paymentToken},
 		},
 		Content: "",
 	}
 
-	// Note: Event will be signed by the caller (merchant) before passing to this function
-	// For now, we'll create a placeholder signature
-	// TODO: Get properly signed event from merchant
+	// Sign the payment event with tollgate private key
+	config, err := usm.configManager.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config for signing: %w", err)
+	}
+
+	err = paymentEvent.Sign(config.TollgatePrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign payment event: %w", err)
+	}
+
+	log.Printf("UpstreamSessionManager: Signed payment event with ID %s", paymentEvent.ID)
 
 	// Send payment to upstream router (TIP-03)
 	sessionEvent, err := usm.sendPaymentToUpstream(paymentEvent)
@@ -219,6 +231,12 @@ func (usm *UpstreamSessionManager) MonitorDataUsage() error {
 func (usm *UpstreamSessionManager) SetUpstreamURL(url string) {
 	usm.upstreamURL = url
 	log.Printf("UpstreamSessionManager: Upstream URL updated to %s", url)
+}
+
+// SetMacAddressSelf updates the MAC address of this device
+func (usm *UpstreamSessionManager) SetMacAddressSelf(macAddress string) {
+	usm.macAddressSelf = macAddress
+	log.Printf("UpstreamSessionManager: MAC address updated to %s", macAddress)
 }
 
 // sendPaymentToUpstream sends a payment event to the upstream router via HTTP

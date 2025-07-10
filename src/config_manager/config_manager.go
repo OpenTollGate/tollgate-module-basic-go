@@ -296,6 +296,8 @@ func (cm *ConfigManager) SaveConfig(config *Config) error {
 	if err != nil {
 		return err
 	}
+	// Add trailing newline to ensure proper JSON file format
+	data = append(data, '\n')
 	return os.WriteFile(cm.FilePath, data, 0644)
 }
 

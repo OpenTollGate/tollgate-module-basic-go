@@ -5,9 +5,31 @@ import (
 	"log"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
-	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/wallet"
+	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/Origami74/gonuts-tollgate/wallet"
 )
+
+// SendOptions configures how tokens should be sent (matches gonuts-tollgate API)
+type SendOptions struct {
+	IncludeFees           bool
+	AllowOverpayment      bool
+	MaxOverpaymentPercent uint64 // Maximum overpayment percentage (e.g., 300 for 300%)
+}
+
+// DefaultSendOptions returns sensible defaults for sending
+func DefaultSendOptions() SendOptions {
+	return SendOptions{
+		IncludeFees:           false,
+		AllowOverpayment:      false,
+		MaxOverpaymentPercent: 300, // 300% overpayment max
+	}
+}
+
+// SendResult contains the result of a send operation
+type SendResult struct {
+	RequestedAmount uint64
+	Overpayment     uint64
+}
 
 // TollWallet represents a Cashu wallet that can receive, swap, and send tokens
 type TollWallet struct {
@@ -27,6 +49,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}
 
 	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]} // CurrentMintURL removed to load in offline mode
+
 	cashuWallet, err := wallet.LoadWallet(config)
 
 	if err != nil {
@@ -67,6 +90,30 @@ func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cash
 
 	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true) // TODO: Support multi unit
 
+	return token, nil
+}
+
+func (w *TollWallet) SendWithOptions(amount uint64, mintUrl string, options SendOptions) (cashu.Token, error) {
+	// Convert our SendOptions to gonuts-tollgate's wallet.SendOptions
+	walletOptions := wallet.SendOptions{
+		IncludeFees:           options.IncludeFees,
+		AllowOverpayment:      options.AllowOverpayment,
+		MaxOverpaymentPercent: uint(options.MaxOverpaymentPercent),
+	}
+
+	// Use the underlying wallet's SendWithOptions method
+	result, err := w.wallet.SendWithOptions(amount, mintUrl, walletOptions)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to send %d to %s with options: %w", amount, mintUrl, err)
+	}
+
+	if result.Overpayment > 0 {
+		overpaymentPercent := (result.Overpayment * 100) / result.RequestedAmount
+		log.Printf("Send successful with overpayment: %d sats (%.1f%%)", result.Overpayment, float64(overpaymentPercent))
+	}
+
+	// Convert the proofs result to a token
+	token, err := cashu.NewTokenV4(result.Proofs, mintUrl, cashu.Sat, true) // TODO: Support multi unit
 	return token, nil
 }
 

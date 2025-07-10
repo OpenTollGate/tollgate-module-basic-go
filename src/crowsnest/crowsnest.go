@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -21,6 +22,13 @@ type UpstreamPricing struct {
 	PriceUnit        map[string]string `json:"price_unit"`         // mint_url -> unit
 	MinPurchaseSteps map[string]uint64 `json:"min_purchase_steps"` // mint_url -> min_steps
 	AcceptedMints    []string          `json:"accepted_mints"`
+}
+
+// UpstreamDiscoveryResult holds the result of upstream discovery including the interface details
+type UpstreamDiscoveryResult struct {
+	URL           string
+	InterfaceMAC  string
+	InterfaceName string
 }
 
 // Crowsnest handles upstream router detection and pricing information gathering
@@ -65,6 +73,87 @@ func (c *Crowsnest) DiscoverUpstreamRouter() (string, error) {
 	return "", fmt.Errorf("no upstream tollgate found at gateway %s", gatewayIP)
 }
 
+// DiscoverUpstreamRouterWithInterface discovers upstream router and returns interface details
+func (c *Crowsnest) DiscoverUpstreamRouterWithInterface() (*UpstreamDiscoveryResult, error) {
+	log.Printf("Crowsnest: Starting upstream router discovery with interface detection...")
+
+	// Get the default gateway IP address
+	gatewayIP, err := c.getDefaultGateway()
+	if err != nil {
+		log.Printf("Crowsnest: Failed to get default gateway: %v", err)
+		return nil, fmt.Errorf("failed to get default gateway: %w", err)
+	}
+
+	log.Printf("Crowsnest: Found default gateway: %s", gatewayIP)
+
+	// Check if the gateway is a tollgate router
+	url := fmt.Sprintf("http://%s:2121", gatewayIP)
+	log.Printf("Crowsnest: Checking if %s is a tollgate router", url)
+
+	if c.isUpstreamTollgate(url) {
+		// Get interface details for this connection
+		interfaceMAC, interfaceName, err := c.getInterfaceForUpstream(gatewayIP)
+		if err != nil {
+			log.Printf("Crowsnest: Warning - could not determine interface details: %v", err)
+			// Continue without interface details rather than failing completely
+			interfaceMAC = "unknown"
+			interfaceName = "unknown"
+		}
+
+		c.SetUpstreamURL(url)
+		log.Printf("Crowsnest: Discovered upstream tollgate at %s via interface %s (%s)",
+			url, interfaceName, interfaceMAC)
+
+		return &UpstreamDiscoveryResult{
+			URL:           url,
+			InterfaceMAC:  interfaceMAC,
+			InterfaceName: interfaceName,
+		}, nil
+	}
+
+	log.Printf("Crowsnest: Gateway %s is not a tollgate router", gatewayIP)
+	return nil, fmt.Errorf("no upstream tollgate found at gateway %s", gatewayIP)
+}
+
+// getInterfaceForUpstream determines which interface is used to reach the upstream
+func (c *Crowsnest) getInterfaceForUpstream(upstreamIP string) (string, string, error) {
+	// Create a UDP connection to the upstream to determine routing
+	conn, err := net.Dial("udp", upstreamIP+":2121")
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create connection to upstream: %w", err)
+	}
+	defer conn.Close()
+
+	// Get the local address used for this connection
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	log.Printf("Crowsnest: Local address for upstream connection: %s", localAddr.IP)
+
+	// Find the interface with this IP address
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get network interfaces: %w", err)
+	}
+
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ipnet.IP.Equal(localAddr.IP) {
+					log.Printf("Crowsnest: Found interface %s (%s) for upstream connection",
+						iface.Name, iface.HardwareAddr.String())
+					return iface.HardwareAddr.String(), iface.Name, nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("could not find interface for upstream connection")
+}
+
 // getDefaultGateway retrieves the default gateway IP address using system commands
 func (c *Crowsnest) getDefaultGateway() (string, error) {
 	// Try different methods to get the default gateway
@@ -93,6 +182,42 @@ func (c *Crowsnest) getDefaultGateway() (string, error) {
 	return "", fmt.Errorf("unable to determine default gateway")
 }
 
+// isValidGatewayIP checks if an IP address is valid for use as a gateway
+func (c *Crowsnest) isValidGatewayIP(ip string) bool {
+	// Parse the IP address
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return false
+	}
+
+	// Reject loopback addresses (127.0.0.1, ::1)
+	if parsedIP.IsLoopback() {
+		return false
+	}
+
+	// Reject unspecified addresses (0.0.0.0, ::)
+	if parsedIP.IsUnspecified() {
+		return false
+	}
+
+	// Reject multicast addresses
+	if parsedIP.IsMulticast() {
+		return false
+	}
+
+	// Reject link-local addresses (169.254.0.0/16, fe80::/10)
+	if parsedIP.IsLinkLocalUnicast() {
+		return false
+	}
+
+	// Additional check: reject if it looks like an invalid gateway
+	if ip == "0.0.0.0" || ip == "::" {
+		return false
+	}
+
+	return true
+}
+
 // executeCommand runs a system command and returns the output
 func (c *Crowsnest) executeCommand(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
@@ -112,7 +237,10 @@ func (c *Crowsnest) parseIPRoute(output string) string {
 			parts := strings.Fields(line)
 			for i, part := range parts {
 				if part == "via" && i+1 < len(parts) {
-					return parts[i+1]
+					ip := parts[i+1]
+					if c.isValidGatewayIP(ip) {
+						return ip
+					}
 				}
 			}
 		}
@@ -128,7 +256,10 @@ func (c *Crowsnest) parseRouteTable(output string) string {
 		if strings.Contains(line, "0.0.0.0") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
-				return parts[1] // Gateway is typically the second column
+				ip := parts[1] // Gateway is typically the second column
+				if c.isValidGatewayIP(ip) {
+					return ip
+				}
 			}
 		}
 	}
@@ -143,7 +274,10 @@ func (c *Crowsnest) parseNetstat(output string) string {
 		if strings.Contains(line, "0.0.0.0") || strings.Contains(line, "default") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
-				return parts[1]
+				ip := parts[1]
+				if c.isValidGatewayIP(ip) {
+					return ip
+				}
 			}
 		}
 	}

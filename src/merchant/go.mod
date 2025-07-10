@@ -9,7 +9,6 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
-	github.com/elnosh/gonuts v0.4.0
 	github.com/nbd-wtf/go-nostr v0.51.11
 )
 

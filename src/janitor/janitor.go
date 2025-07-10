@@ -91,7 +91,7 @@ func (j *Janitor) listenForNIP94Events() {
 				subscriptionSemaphore <- struct{}{}        // Acquire semaphore
 				defer func() { <-subscriptionSemaphore }() // Release semaphore
 
-				retryDelay := 5 * time.Second
+				retryDelay := 15 * time.Second
 				for {
 					fmt.Printf("Connecting to relay: %s\n", relayURL)
 					relay, err := j.configManager.GetPublicPool().EnsureRelay(relayURL)
