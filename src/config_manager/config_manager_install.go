@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"time"
 )
 
 // InstallConfig holds installation-specific parameters.

@@ -10,6 +10,7 @@ import (
 	"path/filepath" // Add for backupAndLog
 	"regexp"        // Re-add for GetArchitecture
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/nbd-wtf/go-nostr"
@@ -233,27 +234,6 @@ func (cm *ConfigManager) GetArchitecture() (string, error) {
 	return match[1], nil
 }
 
-func (cm *ConfigManager) GetTimestamp() (int64, error) {
-	installConfig := cm.GetJanitorConfig()
-	if installConfig == nil {
-		return 0, fmt.Errorf("install config not found")
-	}
-
-	var timestamp int64
-	switch {
-	case installConfig.DownloadTimestamp != 0 && installConfig.InstallTimestamp != 0:
-		timestamp = min(installConfig.DownloadTimestamp, installConfig.InstallTimestamp)
-	case installConfig.DownloadTimestamp != 0:
-		timestamp = installConfig.DownloadTimestamp
-	case installConfig.InstallTimestamp != 0:
-		timestamp = installConfig.InstallTimestamp
-	case installConfig.EnsureDefaultTimestamp != 0:
-		timestamp = installConfig.EnsureDefaultTimestamp
-	default:
-		return 0, fmt.Errorf("neither download, install, nor ensure default timestamp found in janitor.json")
-	}
-	return timestamp, nil
-}
 
 func (cm *ConfigManager) GetVersion() (string, error) {
 	releaseChannel, err := cm.GetReleaseChannel()
