@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/nbd-wtf/go-nostr"
@@ -83,21 +82,8 @@ func init() {
 
 	merchantInstance.StartPayoutRoutine()
 
-	// Initialize janitor module
-	initJanitor()
-
 	// Initialize private relay
 	initPrivateRelay()
-}
-
-func initJanitor() {
-	janitorInstance, err := janitor.NewJanitor(configManager)
-	if err != nil {
-		log.Fatalf("Failed to create janitor instance: %v", err)
-	}
-
-	go janitorInstance.ListenForNIP94Events()
-	log.Println("Janitor module initialized and listening for NIP-94 events")
 }
 
 func initPrivateRelay() {
