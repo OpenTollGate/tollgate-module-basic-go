@@ -1,0 +1,22 @@
+#!/bin/sh
+# /usr/bin/generate-tollgate-ssid
+# Generates a deterministic TollGate SSID based on the LAN MAC address.
+
+# First, try to get the MAC from the br-lan interface address file
+MAC_ADDR=$(cat /sys/class/net/br-lan/address 2>/dev/null)
+
+# If that fails, try the eth0 interface, which is usually the base for br-lan
+if [ -z "$MAC_ADDR" ]; then
+    MAC_ADDR=$(cat /sys/class/net/eth0/address 2>/dev/null)
+fi
+
+# If we still can't get a MAC, we have a problem.
+if [ -z "$MAC_ADDR" ]; then
+    echo "TollGate-ERROR"
+    exit 1
+fi
+
+# Generate a short, deterministic suffix from the last 2 bytes (4 hex chars) of the MAC address.
+SUFFIX=$(echo "$MAC_ADDR" | awk -F: '{print $5$6}' | tr '[:lower:]' '[:upper:]')
+
+echo "TollGate-${SUFFIX}"

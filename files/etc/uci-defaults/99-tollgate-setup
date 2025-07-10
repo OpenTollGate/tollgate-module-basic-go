@@ -158,45 +158,44 @@ log_message "dnsmasq configuration completed"
 
 # 4. Configure TollGate WiFi networks (AP mode)
 log_message "Configuring TollGate WiFi networks (AP mode)"
-# Generate a random 4-character suffix for the SSID
-RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
-SSID_BASE="TollGate-${RANDOM_SUFFIX}"
-log_message "Generated new random SSID: $SSID_BASE"
 
-# Get all wifi-device sections (e.g., radio0, radio1, mt798111, mt798112)
-# We use 'uci -q show wireless | grep "\.type='"' to get the section name
-# e.g., wireless.mt798111=wifi-device
-for device_section in $(uci -q show wireless | grep "\.type='" | cut -d'.' -f2 | cut -d'=' -f1); do
-	log_message "Processing wifi-device: $device_section"
+# Ensure the new helper script is available and executable
+[ -f /usr/bin/generate-tollgate-ssid ] && chmod 755 /usr/bin/generate-tollgate-ssid
 
-	# Check if the device is already disabled
-	DEVICE_DISABLED=$(uci -q get wireless."$device_section".disabled)
-	if [ "$DEVICE_DISABLED" = "1" ]; then
-		log_message "Enabling wifi-device: $device_section"
-		uci_safe_set wireless "$device_section" disabled '0'
-	fi
+# Generate the single, deterministic SSID for all APs
+TOLLGATE_SSID=$(/usr/bin/generate-tollgate-ssid)
+if [ "$TOLLGATE_SSID" = "TollGate-ERROR" ] || [ -z "$TOLLGATE_SSID" ]; then
+    log_message "CRITICAL: Could not generate TollGate SSID. Using random fallback."
+    RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
+    TOLLGATE_SSID="TollGate-${RANDOM_SUFFIX}"
+fi
+log_message "Using SSID for all APs: $TOLLGATE_SSID"
 
-	# Create a new wifi-iface for the TollGate AP on this device
-	# Use a unique name for the new interface to avoid conflicts
-	NEW_IFACE_NAME="tollgate_ap_${device_section}"
+# Get all wifi-device sections (e.g., radio0, radio1)
+for device_section in $(uci -q show wireless | grep "\.type='wifi-device'" | cut -d'.' -f2 | sort); do
+    log_message "Processing wifi-device: $device_section"
 
-	# Check if this specific TollGate AP interface already exists
-	if ! uci -q get wireless."$NEW_IFACE_NAME" >/dev/null 2>&1; then
-		uci add wireless wifi-iface >/dev/null 2>&1
-		uci rename wireless.@wifi-iface[-1]="$NEW_IFACE_NAME" >/dev/null 2>&1
-		log_message "Created new wifi-iface section: $NEW_IFACE_NAME"
-	else
-		log_message "TollGate AP interface $NEW_IFACE_NAME already exists."
-	fi
+    # Enable the radio if it's disabled
+    if [ "$(uci -q get wireless."$device_section".disabled)" = "1" ]; then
+        log_message "Enabling wifi-device: $device_section"
+        uci_safe_set wireless "$device_section" disabled '0'
+    fi
 
-	# Configure the new TollGate AP interface
-	uci_safe_set wireless "$NEW_IFACE_NAME" device "$device_section"
-	uci_safe_set wireless "$NEW_IFACE_NAME" mode 'ap'
-	uci_safe_set wireless "$NEW_IFACE_NAME" network 'lan'
-	uci_safe_set wireless "$NEW_IFACE_NAME" ssid "${SSID_BASE}"
-	uci_safe_set wireless "$NEW_IFACE_NAME" encryption 'none'
-	uci_safe_set wireless "$NEW_IFACE_NAME" disabled '0'
-	log_message "Configured $NEW_IFACE_NAME on device $device_section with SSID: ${SSID_BASE}"
+    # Find the first existing AP interface for this radio to modify.
+    ap_iface=$(uci -q show wireless | grep "\.device='$device_section'" | grep "\.mode='ap'" | cut -d'.' -f2 | head -n 1)
+
+    if [ -n "$ap_iface" ]; then
+        log_message "Found existing AP interface '$ap_iface' for device '$device_section'. Reconfiguring for TollGate."
+
+        # Configure the existing AP interface for TollGate
+        uci_safe_set wireless "$ap_iface" network 'lan'
+        uci_safe_set wireless "$ap_iface" ssid "$TOLLGATE_SSID"
+        uci_safe_set wireless "$ap_iface" encryption 'none'
+        uci_safe_set wireless "$ap_iface" disabled '0'
+        log_message "Configured $ap_iface with SSID: $TOLLGATE_SSID"
+    else
+        log_message "Warning: No existing AP interface found for device '$device_section'. A TollGate AP will not be available on this radio."
+    fi
 done
 
 # Commit wireless changes
