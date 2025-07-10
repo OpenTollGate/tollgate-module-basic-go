@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
@@ -80,6 +81,9 @@ func init() {
 
 	// Initialize private relay
 	initPrivateRelay()
+
+	// Initialize crowsnest module
+	initCrowsnest()
 }
 
 func initJanitor() {
@@ -95,6 +99,26 @@ func initJanitor() {
 func initPrivateRelay() {
 	go startPrivateRelayWithAutoRestart()
 	log.Println("Private relay initialization started")
+}
+
+func initCrowsnest() {
+	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
+	if err != nil {
+		log.Fatalf("Failed to create crowsnest instance: %v", err)
+	}
+
+	// Note: Chandler module not implemented yet
+	// When chandler is available, set it with:
+	// crowsnestInstance.SetChandler(chandlerInstance)
+
+	go func() {
+		err := crowsnestInstance.Start()
+		if err != nil {
+			log.Printf("Error starting crowsnest: %v", err)
+		}
+	}()
+
+	log.Println("Crowsnest module initialized and monitoring network changes")
 }
 
 func startPrivateRelayWithAutoRestart() {
