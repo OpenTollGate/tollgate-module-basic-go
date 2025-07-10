@@ -167,13 +167,7 @@ func (j *Janitor) listenForNIP94Events() {
 				}
 
 				packageURL, versionStr, arch, filename, timestamp, releaseChannel, err := parseNIP94Event(*event)
-				// log.Printf("Parsed NIP-94 event: URL=%s, Version=%s, Arch=%s, Filename=%s, Timestamp=%d, ReleaseChannel=%s, Err=%v",
-				// 	packageURL, versionStr, arch, filename, timestamp, releaseChannel, err)
 				if err != nil {
-					// if strings.Contains(err.Error(), "missing required tag 'release_channel'") {
-					// } else {
-					// 	log.Printf("Error parsing NIP-94 event: %v", err)
-					// }
 					continue
 				}
 
@@ -182,15 +176,12 @@ func (j *Janitor) listenForNIP94Events() {
 					log.Printf("Error getting release channel: %v", err)
 					continue
 				}
-				// log.Printf("Release channel from event: %s, from config: %s", releaseChannel, releaseChannelFromConfigManager)
 				if releaseChannel != releaseChannelFromConfigManager {
-					// log.Printf("Skipping event due to release channel mismatch")
 					continue
 				}
 				key := fmt.Sprintf("%s-%s", filename, versionStr)
 				ok = eventMap[key] != nil
 				if ok {
-					//collisionCount++
 				} else {
 					eventMap[key] = &packageEvent{
 						event:      event,
@@ -204,7 +195,6 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if timestamp > timestampConfig {
-					//log.Printf("Found righttime: %s", key)
 					rightTimeKeys = append(rightTimeKeys, key)
 				}
 
@@ -220,7 +210,6 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if isNewerVersion(versionStr, vStr, releaseChannel) {
-					//log.Printf("Found rightversion: %s", key)
 					rightVersionKeys = append(rightVersionKeys, key)
 				}
 
@@ -230,8 +219,6 @@ func (j *Janitor) listenForNIP94Events() {
 					continue
 				}
 				if arch == archFromFilesystem {
-					//fmt.Printf("Received event: %+v\n", event)
-					//log.Printf("Found rightarch: %s", key)
 					rightArchKeys = append(rightArchKeys, key)
 				}
 
@@ -311,15 +298,6 @@ func (j *Janitor) listenForNIP94Events() {
 					isTimerActive = false
 					return
 				}
-				// CurrentInstallationID is no longer stored in config.json
-				// config.CurrentInstallationID = event.ID
-				// err = config.SaveConfig() // SaveConfig is now a method of Config
-				// if err != nil {
-				// 	log.Printf("Error updating config with NIP94 event ID: %v", err)
-				// 	debounceTimer.Stop()
-				// 	isTimerActive = false
-				// 	return
-				// }
 
 				installConfig := j.configManager.GetInstallConfig()
 				if installConfig == nil {
@@ -516,12 +494,9 @@ func parseNIP94Event(event nostr.Event) (string, string, string, string, int64, 
 
 func isNewerVersion(newVersion string, currentVersion string, releaseChannel string) bool {
 
-	//log.Printf("isNewerVersion: releaseChannel=%s, newVersion=%s, currentVersion=%s", releaseChannel, newVersion, currentVersion)
 	if releaseChannel == "dev" {
-		//log.Println("isNewerVersion: Processing dev release channel, newVersion=%s", newVersion)
 		newVersionParts := strings.Split(newVersion, ".")
 		if len(newVersionParts) != 3 {
-			//log.Printf("isNewerVersion: Invalid new version format: %s", newVersion)
 			return false
 		}
 		newCommits, err := strconv.Atoi(newVersionParts[1])
@@ -537,7 +512,6 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 		}
 
 		if newVersionParts[0] != currentVersionParts[0] {
-			//log.Printf("Major version mismatch: new=%s, current=%s, newVersion=%s", newVersionParts[0], currentVersionParts[0], newVersion)
 			return false
 		}
 
@@ -553,7 +527,6 @@ func isNewerVersion(newVersion string, currentVersion string, releaseChannel str
 			return false
 		}
 
-		// log.Printf("Comparing commits: newCommits=%d, currentCommits=%d, newVersion=%s", newCommits, currentCommits, newVersion)
 		return newCommits > currentCommits
 	} else {
 		newVersionObj, err := version.NewVersion(newVersion)

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/nbd-wtf/go-nostr"
 )
 
 // IdentitiesConfig holds all user and system identities.
@@ -29,12 +31,14 @@ type PublicIdentity struct {
 
 // NewDefaultIdentitiesConfig creates an IdentitiesConfig with default values.
 func NewDefaultIdentitiesConfig() *IdentitiesConfig {
+	merchantPrivateKey := nostr.GeneratePrivateKey()
+
 	return &IdentitiesConfig{
 		ConfigVersion: "v0.0.1",
 		OwnedIdentities: []OwnedIdentity{
 			{
 				Name:       "merchant",
-				PrivateKey: "e71fa3f07bea377a40ae2270aad2ab26c57b9929c46d16e76635e47cdbcba5da", // Placeholder, should be generated
+				PrivateKey: merchantPrivateKey,
 			},
 		},
 		PublicIdentities: []PublicIdentity{

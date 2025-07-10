@@ -78,11 +78,11 @@ Configure TollGate by editing the `/etc/tollgate/config.json` file:
   ],
   "profit_share": [
     {
-      "factor": 0.7,
+      "factor": 0.79,
       "lightning_address": "your-address@lightning.provider"
     },
     {
-      "factor": 0.3,
+      "factor": 0.21,
       "lightning_address": "tollgate@minibits.cash"
     }
   ],

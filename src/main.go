@@ -57,16 +57,8 @@ func init() {
 	}
 
 	installConfig = configManager.GetInstallConfig()
-	// if installConfig == nil {
-	// 	log.Printf("Error: Install config is nil after initialization.")
-	// 	os.Exit(1)
-	// }
 
 	mainConfig = configManager.GetConfig()
-	// if mainConfig == nil {
-	// 	log.Printf("Error: Main config is nil after initialization.")
-	// 	os.Exit(1)
-	// }
 
 	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
