@@ -12,7 +12,27 @@ The Janitor module is a critical component of the TollGate system, responsible f
 
 ## Configuration
 
-The Janitor module uses the ConfigManager to access both the main configuration and the installation configuration stored in `install.json`.
+The Janitor module uses the ConfigManager to access the main configuration and its own configuration stored in `/etc/tollgate/janitor.json`.
+
+The `janitor.json` file has the following structure:
+
+```json
+{
+  "config_version": "v0.0.2",
+  "package_path": "",
+  "enabled": false,
+  "ip_address_randomized": true,
+  "release_channel": "stable"
+}
+```
+
+### Fields
+
+- **config_version**: The version of the configuration file format.
+- **package_path**: The path to the downloaded package to be installed by the cron job.
+- **enabled**: A boolean flag to enable or disable the janitor's automatic update functionality.
+- **ip_address_randomized**: A boolean flag to indicate if the LAN IP address has been randomized.
+- **release_channel**: The release channel to track for updates (e.g., "stable", "dev").
 
 ## NIP-94 Event Format
 
@@ -41,12 +61,13 @@ For the dev channel, the version string is of the format `[branch_name].[commit_
 
 ## Workflow
 
-1. Listen for NIP-94 events on specified relays.
-2. Verify event signature and trustworthiness.
-3. Compare version numbers considering the release channel to determine if the new package is newer. For the dev channel, version comparison is not applicable and will result in an error. We must compare the timestamps to determine if events are newer in the dev channel.
-4. Download new package if event is valid and newer.
-5. Verify the SHA256 sum of the downloaded package matches the expected hash from the NIP-94 event.
-6. Install new package using opkg.
+1. Check if the `enabled` flag in `janitor.json` is `true`.
+2. If enabled, listen for NIP-94 events on specified relays with a 6-month time window.
+3. Verify the event signature against trusted maintainers.
+4. Compare the version from the event with the currently installed version using `opkg`.
+5. If a newer version is found, download the package.
+6. Verify the SHA256 checksum of the downloaded package.
+7. Update `package_path` in `janitor.json` to trigger the installation by the cron job.
 
 ## Security Considerations
 

@@ -13,26 +13,15 @@ The Janitor module is designed to listen for NIP-94 events announcing new OpenWR
 
 ## Configuration
 
-The configuration data for the Janitor module will be stored in a JSON file named `config.json`. The following is an example of its structure:
+The Janitor module's configuration is stored in `/etc/tollgate/janitor.json`.
 
 ```json
 {
-  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
-  "accepted_mint": "https://mint.minibits.cash/Bitcoin",
-  "mint_fee": 0,
-  "bragging": {
-      "enabled": true,
-      "fields": ["amount", "mint", "duration"]
-  },
-  "relays": [
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://nostr.mom",
-    "wss://relay.tollgate.me"
-  ],
-  "trusted_maintainers": [
-    "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
-  ]
+  "config_version": "v0.0.2",
+  "package_path": "",
+  "enabled": false,
+  "ip_address_randomized": true,
+  "release_channel": "stable"
 }
 ```
 
@@ -81,30 +70,15 @@ The code will be structured as follows:
 
 ### InstallPackage
 
-* Install a package using opkg, considering the release channel.
+* Install a package using `opkg`.
 
 ## Version Comparison Logic
 
-The `isNewerVersion` function compares the new version with the current version. For the stable release channel, it uses the `version` package to compare version numbers. If the release channel is dev, it returns an error as version comparison is not applicable for dev builds.
-
-## Error Handling
-
-The Janitor module will handle errors and exceptions during the package installation process by:
-
-* Logging the error using a simple logging mechanism.
-* Retrying the installation process if it fails.
-
-## Logging
-
-The Janitor module will use a simple logging mechanism to log events and errors.
-
-## Testing
-
-Unit tests will be written to ensure that the Janitor module functions correctly and handles errors properly.
+The `isNewerVersion` function compares the version string from the NIP-94 event with the output of `opkg list-installed tollgate-basic`. It handles both semantic versioning for stable releases and the `[branch].[height].[hash]` format for dev releases.
 
 ## Post-Installation
 
-After installing a new package, the Janitor module updates the `install.json` file with the new package path and NIP94 event ID using the ConfigManager.
+After downloading a new package, the Janitor module updates the `package_path` in `janitor.json`. The actual installation is handled by a cron job that executes the `check_package_path` script.
 
 ## Instructions for Engineers Implementing the Feature
 
