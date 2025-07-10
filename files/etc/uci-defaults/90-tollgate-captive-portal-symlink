@@ -5,20 +5,20 @@ echo "Setting up TollGate NoDogSplash symlink..."
 
 # Check if /etc/nodogsplash/htdocs is already a symlink
 if [ -L "/etc/nodogsplash/htdocs" ]; then
-    echo "Symlink already exists at /etc/nodogsplash/htdocs"
+	echo "Symlink already exists at /etc/nodogsplash/htdocs"
 else
-    # If it's a directory, back it up and remove it
-    if [ -d "/etc/nodogsplash/htdocs" ]; then
-        echo "Backing up existing /etc/nodogsplash/htdocs to /etc/nodogsplash/htdocs.backup"
-        mv /etc/nodogsplash/htdocs /etc/nodogsplash/htdocs.backup
-    fi
-    
-    # Remove any existing file/directory at the target location
-    rm -rf /etc/nodogsplash/htdocs
-    
-    # Create the symlink
-    echo "Creating symlink from /etc/nodogsplash/htdocs to /etc/tollgate/tollgate-captive-portal-site"
-    ln -sf /etc/tollgate/tollgate-captive-portal-site /etc/nodogsplash/htdocs
+	# If it's a directory, back it up and remove it
+	if [ -d "/etc/nodogsplash/htdocs" ]; then
+		echo "Backing up existing /etc/nodogsplash/htdocs to /etc/nodogsplash/htdocs.backup"
+		mv /etc/nodogsplash/htdocs /etc/nodogsplash/htdocs.backup
+	fi
+
+	# Remove any existing file/directory at the target location
+	rm -rf /etc/nodogsplash/htdocs
+
+	# Create the symlink
+	echo "Creating symlink from /etc/nodogsplash/htdocs to /etc/tollgate/tollgate-captive-portal-site"
+	ln -sf /etc/tollgate/tollgate-captive-portal-site /etc/nodogsplash/htdocs
 fi
 
 # Restart nodogsplash to apply changes

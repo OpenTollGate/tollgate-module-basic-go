@@ -7,8 +7,8 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 
 # Function to create timestamped backup
 create_backup() {
-    TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-    cp "$1" "$1.backup.$TIMESTAMP"
+	TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+	cp "$1" "$1.backup.$TIMESTAMP"
 }
 
 # This migration is ONLY for upgrading from v0.0.1 to v0.0.2
@@ -16,38 +16,38 @@ create_backup() {
 
 # Check if configuration file exists
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Configuration file doesn't exist. This is likely a fresh install - exiting."
-    exit 0
+	echo "Configuration file doesn't exist. This is likely a fresh install - exiting."
+	exit 0
 fi
 
 # CRITICAL: This script should ONLY run on v0.0.1 configs (which have NO config_version field)
 # If ANY config_version exists, this means it's NOT v0.0.1 and should not be migrated
 
 # Check if config already has ANY config_version (any version means it's not v0.0.1)
-if jq -e '.config_version' "$CONFIG_FILE" > /dev/null 2>&1; then
-    CURRENT_VERSION=$(jq -r '.config_version' "$CONFIG_FILE" 2>/dev/null || echo "unknown")
-    echo "Configuration already has config_version: $CURRENT_VERSION. This is not v0.0.1 - exiting."
-    exit 0
+if jq -e '.config_version' "$CONFIG_FILE" >/dev/null 2>&1; then
+	CURRENT_VERSION=$(jq -r '.config_version' "$CONFIG_FILE" 2>/dev/null || echo "unknown")
+	echo "Configuration already has config_version: $CURRENT_VERSION. This is not v0.0.1 - exiting."
+	exit 0
 fi
 
 # Additional safety check: Wait a moment for any concurrent config creation and check again
 sleep 2
-if jq -e '.config_version' "$CONFIG_FILE" > /dev/null 2>&1; then
-    CURRENT_VERSION=$(jq -r '.config_version' "$CONFIG_FILE" 2>/dev/null || echo "unknown")
-    echo "Configuration version appeared after wait: $CURRENT_VERSION. This is not v0.0.1 - exiting."
-    exit 0
+if jq -e '.config_version' "$CONFIG_FILE" >/dev/null 2>&1; then
+	CURRENT_VERSION=$(jq -r '.config_version' "$CONFIG_FILE" 2>/dev/null || echo "unknown")
+	echo "Configuration version appeared after wait: $CURRENT_VERSION. This is not v0.0.1 - exiting."
+	exit 0
 fi
 
 # Validate this looks like a genuine v0.0.1 config structure
-if ! jq -e '.accepted_mints' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration doesn't have expected v0.0.1 structure (missing accepted_mints). Cannot migrate safely."
-    exit 0
+if ! jq -e '.accepted_mints' "$CONFIG_FILE" >/dev/null 2>&1; then
+	echo "Configuration doesn't have expected v0.0.1 structure (missing accepted_mints). Cannot migrate safely."
+	exit 0
 fi
 
 # Validate JSON is not corrupted
-if ! jq empty "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo "Configuration file is corrupted JSON. Cannot migrate safely."
-    exit 0
+if ! jq empty "$CONFIG_FILE" >/dev/null 2>&1; then
+	echo "Configuration file is corrupted JSON. Cannot migrate safely."
+	exit 0
 fi
 
 # Create backups
@@ -60,33 +60,33 @@ jq '.config_version = "v0.0.2"
     | .profit_share |= [
         {factor: 0.7, lightning_address: "tollgate@minibits.cash"},
         {factor: 0.3, lightning_address: "tollgate@minibits.cash"}
-    ]' "$CONFIG_FILE.backup.$TIMESTAMP" > "$CONFIG_FILE.tmp"
+    ]' "$CONFIG_FILE.backup.$TIMESTAMP" >"$CONFIG_FILE.tmp"
 
 # Verify the migrated config is valid JSON and has expected structure
-if ! jq empty "$CONFIG_FILE.tmp" > /dev/null 2>&1; then
-    echo "Error: Migration resulted in invalid JSON"
-    rm -f "$CONFIG_FILE.tmp"
-    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
-    exit 1
+if ! jq empty "$CONFIG_FILE.tmp" >/dev/null 2>&1; then
+	echo "Error: Migration resulted in invalid JSON"
+	rm -f "$CONFIG_FILE.tmp"
+	mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+	exit 1
 fi
 
 # Verify the migrated config has the expected version
 MIGRATED_VERSION=$(jq -r '.config_version' "$CONFIG_FILE.tmp" 2>/dev/null)
 if [ "$MIGRATED_VERSION" != "v0.0.2" ]; then
-    echo "Error: Migration did not set correct version (got: $MIGRATED_VERSION)"
-    rm -f "$CONFIG_FILE.tmp"
-    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
-    exit 1
+	echo "Error: Migration did not set correct version (got: $MIGRATED_VERSION)"
+	rm -f "$CONFIG_FILE.tmp"
+	mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+	exit 1
 fi
 
 # Atomically replace the original file
 mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 if [ $? -eq 0 ]; then
-    echo "Configuration migration from v0.0.1 to v0.0.2 completed successfully"
+	echo "Configuration migration from v0.0.1 to v0.0.2 completed successfully"
 else
-    echo "Error: Failed to replace configuration file"
-    mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
-    exit 1
+	echo "Error: Failed to replace configuration file"
+	mv "$CONFIG_FILE.backup.$TIMESTAMP" "$CONFIG_FILE"
+	exit 1
 fi
 
 exit 0

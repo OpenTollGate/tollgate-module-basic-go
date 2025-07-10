@@ -7,6 +7,6 @@
 [ -f /etc/first_login_done ] && exit 0
 
 # Create debug log
-echo "First login setup script started" > /tmp/first_login_debug.log
+echo "First login setup script started" >/tmp/first_login_debug.log
 touch /etc/first_login_done
-echo "First login setup completed" >> /tmp/first_login_debug.log
+echo "First login setup completed" >>/tmp/first_login_debug.log
