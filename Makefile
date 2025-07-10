@@ -65,6 +65,7 @@ endef
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(PKG_NAME) $(1)/usr/bin/tollgate-basic
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/generate-tollgate-ssid $(1)/usr/bin/
 	
 	# Init script
 	$(INSTALL_DIR) $(1)/etc/init.d
@@ -124,6 +125,7 @@ endef
 # Update FILES declaration to include NoDogSplash files
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-basic \
+	/usr/bin/generate-tollgate-ssid \
 	/etc/init.d/tollgate-basic \
 	/etc/config/firewall-tollgate \
 	/etc/modt/* \
