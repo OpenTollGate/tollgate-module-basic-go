@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // tollGateProber implements the TollGateProber interface
 type tollGateProber struct {
-	config *CrowsnestConfig
+	config *config_manager.CrowsnestConfig
 	client *http.Client
 
 	// Track active probes for cancellation
@@ -21,7 +23,7 @@ type tollGateProber struct {
 }
 
 // NewTollGateProber creates a new TollGate prober
-func NewTollGateProber(config *CrowsnestConfig) TollGateProber {
+func NewTollGateProber(config *config_manager.CrowsnestConfig) TollGateProber {
 	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: config.ProbeTimeout,

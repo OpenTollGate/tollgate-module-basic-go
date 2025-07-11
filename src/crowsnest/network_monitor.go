@@ -11,12 +11,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/vishvananda/netlink"
 )
 
 // networkMonitor implements the NetworkMonitor interface using event-driven netlink subscriptions
 type networkMonitor struct {
-	config        *CrowsnestConfig
+	config        *config_manager.CrowsnestConfig
 	events        chan NetworkEvent
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
@@ -27,7 +28,7 @@ type networkMonitor struct {
 }
 
 // NewNetworkMonitor creates a new event-driven network monitor
-func NewNetworkMonitor(config *CrowsnestConfig) NetworkMonitor {
+func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
 	return &networkMonitor{
 		config:        config,
 		events:        make(chan NetworkEvent, 100),

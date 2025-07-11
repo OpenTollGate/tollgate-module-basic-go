@@ -3,17 +3,19 @@ package crowsnest
 import (
 	"sync"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // simpleDiscoveryTracker implements basic deduplication with timestamps and results
 type simpleDiscoveryTracker struct {
-	config       *CrowsnestConfig
+	config       *config_manager.CrowsnestConfig
 	lastAttempts map[string]DiscoveryAttempt
 	mu           sync.RWMutex
 }
 
 // NewDiscoveryTracker creates a new simple discovery tracker
-func NewDiscoveryTracker(config *CrowsnestConfig) DiscoveryTracker {
+func NewDiscoveryTracker(config *config_manager.CrowsnestConfig) DiscoveryTracker {
 	return &simpleDiscoveryTracker{
 		config:       config,
 		lastAttempts: make(map[string]DiscoveryAttempt),

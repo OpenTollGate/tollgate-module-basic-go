@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // stubNetworkMonitor is a stub implementation for non-Linux systems
@@ -18,7 +20,7 @@ type stubNetworkMonitor struct {
 }
 
 // NewNetworkMonitor creates a stub network monitor for non-Linux systems
-func NewNetworkMonitor(config *CrowsnestConfig) NetworkMonitor {
+func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
 	log.Printf("Warning: Using stub network monitor - netlink functionality only available on Linux")
 	return &stubNetworkMonitor{
 		config:   config,

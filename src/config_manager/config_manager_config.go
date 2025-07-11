@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"time"
 )
 
 // Config represents the main configuration for the Tollgate service.
@@ -15,6 +16,7 @@ type Config struct {
 	Metric        string              `json:"metric"`
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
+	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -33,6 +35,32 @@ type MintConfig struct {
 type ProfitShareConfig struct {
 	Factor   float64 `json:"factor"`
 	Identity string  `json:"identity"`
+}
+
+// CrowsnestConfig holds configuration for the crowsnest module
+type CrowsnestConfig struct {
+	// Probing settings
+	ProbeTimeout    time.Duration `json:"probe_timeout"`
+	ProbeRetryCount int           `json:"probe_retry_count"`
+	ProbeRetryDelay time.Duration `json:"probe_retry_delay"`
+
+	// Validation settings
+	RequireValidSignature bool `json:"require_valid_signature"`
+
+	// Logging settings
+	LogLevel string `json:"log_level"`
+
+	// Interface filtering
+	IgnoreInterfaces []string `json:"ignore_interfaces"`
+	OnlyInterfaces   []string `json:"only_interfaces"`
+
+	// Discovery deduplication
+	DiscoveryTimeout time.Duration `json:"discovery_timeout"`
+}
+
+// IsDebugLevel returns true if debug logging is enabled
+func (c *CrowsnestConfig) IsDebugLevel() bool {
+	return c.LogLevel == "DEBUG"
 }
 
 // LoadConfig loads and parses config.json.
@@ -67,7 +95,7 @@ func SaveConfig(filePath string, config *Config) error {
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
 	return &Config{
-		ConfigVersion: "v0.0.4",
+		ConfigVersion: "v0.0.5",
 		AcceptedMints: []MintConfig{
 			{
 				URL:                     "https://mint.minibits.cash/Bitcoin",
@@ -108,6 +136,16 @@ func NewDefaultConfig() *Config {
 			"wss://nostr.mom",
 		},
 		ShowSetup: true,
+		Crowsnest: CrowsnestConfig{
+			ProbeTimeout:          10 * time.Second,
+			ProbeRetryCount:       3,
+			ProbeRetryDelay:       2 * time.Second,
+			RequireValidSignature: true,
+			LogLevel:              "INFO",
+			IgnoreInterfaces:      []string{"lo", "docker0"},
+			OnlyInterfaces:        []string{},
+			DiscoveryTimeout:      300 * time.Second,
+		},
 	}
 }
 

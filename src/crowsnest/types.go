@@ -62,50 +62,6 @@ func (e *CrowsnestError) Error() string {
 	return e.Message
 }
 
-// CrowsnestConfig holds configuration for the crowsnest module
-type CrowsnestConfig struct {
-	// Network monitoring settings
-	MonitoringInterval time.Duration `json:"monitoring_interval"`
-
-	// Probing settings
-	ProbeTimeout    time.Duration `json:"probe_timeout"`
-	ProbeRetryCount int           `json:"probe_retry_count"`
-	ProbeRetryDelay time.Duration `json:"probe_retry_delay"`
-
-	// Validation settings
-	RequireValidSignature bool `json:"require_valid_signature"`
-
-	// Logging settings
-	LogLevel string `json:"log_level"`
-
-	// Interface filtering
-	IgnoreInterfaces []string `json:"ignore_interfaces"`
-	OnlyInterfaces   []string `json:"only_interfaces"`
-
-	// Discovery deduplication
-	DiscoveryTimeout time.Duration `json:"discovery_timeout"`
-}
-
-// DefaultConfig returns the default configuration
-func DefaultConfig() *CrowsnestConfig {
-	return &CrowsnestConfig{
-		MonitoringInterval:    5 * time.Second,
-		ProbeTimeout:          10 * time.Second,
-		ProbeRetryCount:       3,
-		ProbeRetryDelay:       2 * time.Second,
-		RequireValidSignature: true,
-		LogLevel:              "INFO",
-		IgnoreInterfaces:      []string{"lo", "docker0"},
-		OnlyInterfaces:        []string{},
-		DiscoveryTimeout:      300 * time.Second,
-	}
-}
-
-// IsDebugLevel returns true if debug logging is enabled
-func (c *CrowsnestConfig) IsDebugLevel() bool {
-	return c.LogLevel == "DEBUG"
-}
-
 // DiscoveryAttempt tracks discovery attempts to prevent duplicates
 type DiscoveryAttempt struct {
 	InterfaceName string

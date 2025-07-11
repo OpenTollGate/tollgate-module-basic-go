@@ -14,7 +14,7 @@ import (
 
 // crowsnest implements the Crowsnest interface
 type crowsnest struct {
-	config           *CrowsnestConfig
+	config           *config_manager.CrowsnestConfig
 	configManager    *config_manager.ConfigManager
 	networkMonitor   NetworkMonitor
 	tollGateProber   TollGateProber
@@ -34,11 +34,13 @@ func NewCrowsnest(configManager *config_manager.ConfigManager) (Crowsnest, error
 		return nil, fmt.Errorf("config manager is required")
 	}
 
-	// Load configuration or use defaults
-	config := DefaultConfig()
+	// Load configuration from config manager
+	mainConfig := configManager.GetConfig()
+	if mainConfig == nil {
+		return nil, fmt.Errorf("failed to get main configuration")
+	}
 
-	// TODO: Load from config manager if needed
-	// For now, we use the default configuration
+	config := &mainConfig.Crowsnest
 
 	// Create components
 	networkMonitor := NewNetworkMonitor(config)
