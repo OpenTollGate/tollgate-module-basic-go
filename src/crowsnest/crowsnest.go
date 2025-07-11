@@ -213,10 +213,25 @@ func (cs *crowsnest) handleAddressAdded(event NetworkEvent) {
 
 // handleAddressDeleted handles address deleted events
 func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
-	// When an address is deleted, we don't need to do anything special
-	// The interface down event will handle cleanup if needed
-	if cs.config.IsDebugLevel() {
-		log.Printf("Address deleted from interface %s", event.InterfaceName)
+	log.Printf("Address deleted from interface %s - checking for TollGate disconnection", event.InterfaceName)
+
+	// When an address is deleted, this might indicate a disconnection
+	// Check if we had a successful TollGate connection on this interface
+	// and treat address deletion as a potential disconnection
+
+	// Cancel any active probes for this interface
+	cs.tollGateProber.CancelProbesForInterface(event.InterfaceName)
+
+	// Clear discovery attempts for this interface to allow re-discovery
+	cs.discoveryTracker.ClearInterface(event.InterfaceName)
+
+	// Notify chandler of potential disconnect
+	if cs.chandler != nil {
+		err := cs.chandler.HandleDisconnect(event.InterfaceName)
+		if err != nil {
+			log.Printf("Error notifying chandler of disconnect for interface %s: %v",
+				event.InterfaceName, err)
+		}
 	}
 }
 
@@ -234,8 +249,10 @@ func (cs *crowsnest) handleRouteAdded(event NetworkEvent) {
 func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
 	// Check if we should attempt discovery (prevents concurrent attempts)
 	if !cs.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
-		log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted or already successful",
-			interfaceName, gatewayIP)
+		if cs.config.IsDebugLevel() {
+			log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted or already successful",
+				interfaceName, gatewayIP)
+		}
 		return
 	}
 
