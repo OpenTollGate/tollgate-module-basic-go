@@ -15,20 +15,23 @@ import (
 
 // networkMonitor implements the NetworkMonitor interface using event-driven netlink subscriptions
 type networkMonitor struct {
-	config   *CrowsnestConfig
-	events   chan NetworkEvent
-	stopChan chan struct{}
-	wg       sync.WaitGroup
-	running  bool
-	mu       sync.RWMutex
+	config        *CrowsnestConfig
+	events        chan NetworkEvent
+	stopChan      chan struct{}
+	wg            sync.WaitGroup
+	running       bool
+	mu            sync.RWMutex
+	lastEventTime map[string]time.Time // Track last event time per interface
+	eventMutex    sync.RWMutex         // Protect lastEventTime map
 }
 
 // NewNetworkMonitor creates a new event-driven network monitor
 func NewNetworkMonitor(config *CrowsnestConfig) NetworkMonitor {
 	return &networkMonitor{
-		config:   config,
-		events:   make(chan NetworkEvent, 100),
-		stopChan: make(chan struct{}),
+		config:        config,
+		events:        make(chan NetworkEvent, 100),
+		stopChan:      make(chan struct{}),
+		lastEventTime: make(map[string]time.Time),
 	}
 }
 
@@ -286,26 +289,112 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	link, err := netlink.LinkByName(interfaceName)
 	if err != nil {
+		log.Printf("Error getting link for interface %s: %v", interfaceName, err)
 		return ""
 	}
 
+	// Method 1: Check for default route on this specific interface
 	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
 	if err != nil {
+		log.Printf("Error getting routes for interface %s: %v", interfaceName, err)
+	} else {
+		// Look for default route (destination is nil)
+		for _, route := range routes {
+			if route.Dst == nil && route.Gw != nil {
+				log.Printf("Found default route gateway %s for interface %s", route.Gw.String(), interfaceName)
+				return route.Gw.String()
+			}
+		}
+	}
+
+	// Method 2: Check global routing table for default routes that use this interface
+	allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_ALL)
+	if err != nil {
+		log.Printf("Error getting global routes: %v", err)
+	} else {
+		for _, route := range allRoutes {
+			if route.Dst == nil && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
+				log.Printf("Found global default route gateway %s for interface %s", route.Gw.String(), interfaceName)
+				return route.Gw.String()
+			}
+		}
+	}
+
+	// Method 3: Infer gateway from IP address (common pattern: x.x.x.1)
+	// Get IP addresses for this interface
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		log.Printf("Error getting addresses for interface %s: %v", interfaceName, err)
 		return ""
 	}
 
-	// Look for default route (destination is nil)
-	for _, route := range routes {
-		if route.Dst == nil && route.Gw != nil {
-			return route.Gw.String()
+	for _, addr := range addrs {
+		ip := addr.IP
+		if ip.To4() != nil && !ip.IsLoopback() {
+			// Try common gateway patterns
+			gatewayIP := nm.inferGatewayFromIP(ip, addr.Mask)
+			if gatewayIP != "" {
+				log.Printf("Inferred gateway %s for interface %s from IP %s", gatewayIP, interfaceName, ip.String())
+				return gatewayIP
+			}
+		}
+	}
+
+	log.Printf("No gateway found for interface %s", interfaceName)
+	return ""
+}
+
+// inferGatewayFromIP tries to infer the gateway IP from the interface IP and netmask
+func (nm *networkMonitor) inferGatewayFromIP(ip net.IP, mask net.IPMask) string {
+	if ip.To4() == nil {
+		return "" // Only handle IPv4
+	}
+
+	// Calculate network address
+	network := ip.Mask(mask)
+
+	// Common gateway patterns to try:
+	// 1. Network address + 1 (e.g., 192.168.1.1 for 192.168.1.0/24)
+	// 2. Network address + 254 (e.g., 192.168.1.254 for 192.168.1.0/24)
+
+	gatewayOptions := []net.IP{
+		net.IP{network[0], network[1], network[2], network[3] + 1},
+		net.IP{network[0], network[1], network[2], network[3] + 254},
+	}
+
+	for _, gateway := range gatewayOptions {
+		// Make sure gateway is in the same network
+		if gateway.Mask(mask).Equal(network) && !gateway.Equal(ip) {
+			// We could ping test here, but for now just return the first reasonable option
+			return gateway.String()
 		}
 	}
 
 	return ""
 }
 
-// sendEvent safely sends an event to the events channel
+// sendEvent safely sends an event to the events channel with deduplication
 func (nm *networkMonitor) sendEvent(event NetworkEvent) {
+	// Create a unique key for this event type and interface
+	eventKey := fmt.Sprintf("%s:%d", event.InterfaceName, event.Type)
+
+	// Check if we should throttle this event
+	nm.eventMutex.Lock()
+	lastTime, exists := nm.lastEventTime[eventKey]
+	now := time.Now()
+
+	// Only send if enough time has passed since last event of this type
+	minInterval := 2 * time.Second // Configurable throttling interval
+	if exists && now.Sub(lastTime) < minInterval {
+		nm.eventMutex.Unlock()
+		// Skip this event - too soon since last one
+		return
+	}
+
+	// Update last event time
+	nm.lastEventTime[eventKey] = now
+	nm.eventMutex.Unlock()
+
 	select {
 	case nm.events <- event:
 		// Event sent successfully
