@@ -1,6 +1,7 @@
 package crowsnest
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -139,8 +140,10 @@ func (cs *crowsnest) eventLoop() {
 
 // handleNetworkEvent processes a network event
 func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
-	log.Printf("Processing network event: %s on interface %s",
-		cs.eventTypeToString(event.Type), event.InterfaceName)
+	if cs.config.IsDebugLevel() {
+		log.Printf("Processing network event: %s on interface %s",
+			cs.eventTypeToString(event.Type), event.InterfaceName)
+	}
 
 	switch event.Type {
 	case EventInterfaceUp:
@@ -149,6 +152,8 @@ func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
 		cs.handleInterfaceDown(event)
 	case EventAddressAdded:
 		cs.handleAddressAdded(event)
+	case EventAddressDeleted:
+		cs.handleAddressDeleted(event)
 	case EventRouteAdded:
 		cs.handleRouteAdded(event)
 	default:
@@ -159,27 +164,29 @@ func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
 // handleInterfaceUp handles interface up events
 func (cs *crowsnest) handleInterfaceUp(event NetworkEvent) {
 	if event.GatewayIP == "" {
-		log.Printf("Interface %s is up but no gateway found", event.InterfaceName)
-		return
-	}
-
-	// Check if we should attempt discovery
-	if !cs.discoveryTracker.ShouldAttemptDiscovery(event.InterfaceName, event.GatewayIP) {
-		log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted",
-			event.InterfaceName, event.GatewayIP)
+		if cs.config.IsDebugLevel() {
+			log.Printf("Interface %s is up but no gateway found", event.InterfaceName)
+		}
 		return
 	}
 
 	log.Printf("Interface %s is up with gateway %s - attempting TollGate discovery",
 		event.InterfaceName, event.GatewayIP)
 
-	// Attempt TollGate discovery
-	cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+	// Attempt TollGate discovery asynchronously
+	go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 }
 
 // handleInterfaceDown handles interface down events
 func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
-	log.Printf("Interface %s is down - notifying chandler", event.InterfaceName)
+	log.Printf("Interface %s is down - cleaning up and notifying chandler", event.InterfaceName)
+
+	// Cancel any active probes for this interface
+	cs.tollGateProber.CancelProbesForInterface(event.InterfaceName)
+
+	// Clear discovery attempts for this interface (including successful ones)
+	// This allows re-discovery when the interface comes back up
+	cs.discoveryTracker.ClearInterface(event.InterfaceName)
 
 	// Notify chandler of disconnect
 	if cs.chandler != nil {
@@ -200,7 +207,16 @@ func (cs *crowsnest) handleAddressAdded(event NetworkEvent) {
 	if event.GatewayIP != "" {
 		log.Printf("Address added to interface %s with gateway %s - checking for TollGate",
 			event.InterfaceName, event.GatewayIP)
-		cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+		go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+	}
+}
+
+// handleAddressDeleted handles address deleted events
+func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
+	// When an address is deleted, we don't need to do anything special
+	// The interface down event will handle cleanup if needed
+	if cs.config.IsDebugLevel() {
+		log.Printf("Address deleted from interface %s", event.InterfaceName)
 	}
 }
 
@@ -210,22 +226,33 @@ func (cs *crowsnest) handleRouteAdded(event NetworkEvent) {
 	if event.GatewayIP != "" {
 		log.Printf("Route added for interface %s with gateway %s - checking for TollGate",
 			event.InterfaceName, event.GatewayIP)
-		cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+		go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 	}
 }
 
 // attemptTollGateDiscovery attempts to discover a TollGate on the given gateway
 func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
-	// Record the discovery attempt
+	// Check if we should attempt discovery (prevents concurrent attempts)
+	if !cs.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
+		log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted or already successful",
+			interfaceName, gatewayIP)
+		return
+	}
+
+	// Record the discovery attempt as pending immediately to prevent concurrent attempts
 	cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultPending)
 
-	// Probe the gateway
+	// Create a context for this discovery attempt
+	ctx, cancel := context.WithTimeout(context.Background(), cs.config.DiscoveryTimeout)
+	defer cancel()
+
+	// Probe the gateway with context
 	log.Printf("Probing gateway %s on interface %s for TollGate advertisement", gatewayIP, interfaceName)
 
-	data, err := cs.tollGateProber.ProbeGateway(gatewayIP)
+	data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, interfaceName, gatewayIP)
 	if err != nil {
 		log.Printf("Failed to probe gateway %s: %v", gatewayIP, err)
-		cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultNotTollGate)
+		cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultError)
 		return
 	}
 

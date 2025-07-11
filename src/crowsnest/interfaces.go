@@ -1,6 +1,8 @@
 package crowsnest
 
 import (
+	"context"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 )
 
@@ -21,11 +23,14 @@ type NetworkMonitor interface {
 // TollGateProber defines the interface for probing TollGate advertisements
 type TollGateProber interface {
 	ProbeGateway(gatewayIP string) ([]byte, error)
+	ProbeGatewayWithContext(ctx context.Context, interfaceName, gatewayIP string) ([]byte, error)
+	CancelProbesForInterface(interfaceName string)
 }
 
 // DiscoveryTracker defines the interface for tracking discovery attempts
 type DiscoveryTracker interface {
 	ShouldAttemptDiscovery(interfaceName, gatewayIP string) bool
 	RecordDiscovery(interfaceName, gatewayIP string, result DiscoveryResult)
+	ClearInterface(interfaceName string)
 	Cleanup()
 }

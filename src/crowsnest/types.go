@@ -101,6 +101,11 @@ func DefaultConfig() *CrowsnestConfig {
 	}
 }
 
+// IsDebugLevel returns true if debug logging is enabled
+func (c *CrowsnestConfig) IsDebugLevel() bool {
+	return c.LogLevel == "DEBUG"
+}
+
 // DiscoveryAttempt tracks discovery attempts to prevent duplicates
 type DiscoveryAttempt struct {
 	InterfaceName string

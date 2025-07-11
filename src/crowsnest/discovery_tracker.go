@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// simpleDiscoveryTracker implements basic deduplication with timestamps
+// simpleDiscoveryTracker implements basic deduplication with timestamps and results
 type simpleDiscoveryTracker struct {
 	config       *CrowsnestConfig
-	lastAttempts map[string]time.Time
+	lastAttempts map[string]DiscoveryAttempt
 	mu           sync.RWMutex
 }
 
@@ -16,11 +16,11 @@ type simpleDiscoveryTracker struct {
 func NewDiscoveryTracker(config *CrowsnestConfig) DiscoveryTracker {
 	return &simpleDiscoveryTracker{
 		config:       config,
-		lastAttempts: make(map[string]time.Time),
+		lastAttempts: make(map[string]DiscoveryAttempt),
 	}
 }
 
-// ShouldAttemptDiscovery checks if enough time has passed since last attempt
+// ShouldAttemptDiscovery checks if discovery should be attempted based on previous results
 func (dt *simpleDiscoveryTracker) ShouldAttemptDiscovery(interfaceName, gatewayIP string) bool {
 	dt.mu.RLock()
 	defer dt.mu.RUnlock()
@@ -32,17 +32,47 @@ func (dt *simpleDiscoveryTracker) ShouldAttemptDiscovery(interfaceName, gatewayI
 		return true // Never attempted before
 	}
 
-	// Allow retry after discovery timeout (default 5 minutes)
-	return time.Since(lastAttempt) > dt.config.DiscoveryTimeout
+	// If it was successfully discovered as a TollGate, NEVER retry
+	// This is the final state - it's been handed off to the chandler
+	if lastAttempt.Result == DiscoveryResultSuccess {
+		return false
+	}
+
+	// If discovery is currently pending, don't start another attempt
+	if lastAttempt.Result == DiscoveryResultPending {
+		// Allow retry only if pending attempt is taking too long (timeout)
+		return time.Since(lastAttempt.AttemptTime) > dt.config.ProbeTimeout*2
+	}
+
+	// For other results (errors, validation failures), allow retry after discovery timeout
+	return time.Since(lastAttempt.AttemptTime) > dt.config.DiscoveryTimeout
 }
 
-// RecordDiscovery records when a discovery attempt was made
+// RecordDiscovery records when a discovery attempt was made with its result
 func (dt *simpleDiscoveryTracker) RecordDiscovery(interfaceName, gatewayIP string, result DiscoveryResult) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
 	key := interfaceName + ":" + gatewayIP
-	dt.lastAttempts[key] = time.Now()
+	dt.lastAttempts[key] = DiscoveryAttempt{
+		InterfaceName: interfaceName,
+		GatewayIP:     gatewayIP,
+		AttemptTime:   time.Now(),
+		Result:        result,
+	}
+}
+
+// ClearInterface removes all discovery attempts for a specific interface
+func (dt *simpleDiscoveryTracker) ClearInterface(interfaceName string) {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	// Remove all attempts for this interface
+	for key, attempt := range dt.lastAttempts {
+		if attempt.InterfaceName == interfaceName {
+			delete(dt.lastAttempts, key)
+		}
+	}
 }
 
 // Cleanup clears all recorded attempts
@@ -50,5 +80,5 @@ func (dt *simpleDiscoveryTracker) Cleanup() {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
-	dt.lastAttempts = make(map[string]time.Time)
+	dt.lastAttempts = make(map[string]DiscoveryAttempt)
 }

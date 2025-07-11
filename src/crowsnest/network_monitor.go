@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -198,11 +199,13 @@ func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
 
 	nm.sendEvent(event)
 
-	// Log the change
-	if isUp {
-		log.Printf("Interface %s is UP (MAC: %s, Gateway: %s)", interfaceName, attrs.HardwareAddr.String(), gatewayIP)
-	} else {
-		log.Printf("Interface %s is DOWN", interfaceName)
+	// Log the change (only for debug level to reduce spam)
+	if nm.config.IsDebugLevel() {
+		if isUp {
+			log.Printf("Interface %s is UP (MAC: %s, Gateway: %s)", interfaceName, attrs.HardwareAddr.String(), gatewayIP)
+		} else {
+			log.Printf("Interface %s is DOWN", interfaceName)
+		}
 	}
 }
 
@@ -258,9 +261,11 @@ func (nm *networkMonitor) handleAddressUpdate(update netlink.AddrUpdate) {
 
 	nm.sendEvent(event)
 
-	log.Printf("Address %s on interface %s (action: %s)",
-		update.LinkAddress.IP.String(), interfaceName,
-		map[bool]string{true: "added", false: "deleted"}[update.NewAddr])
+	if nm.config.IsDebugLevel() {
+		log.Printf("Address %s on interface %s (action: %s)",
+			update.LinkAddress.IP.String(), interfaceName,
+			map[bool]string{true: "added", false: "deleted"}[update.NewAddr])
+	}
 }
 
 // shouldMonitorInterface checks if an interface should be monitored
@@ -270,6 +275,14 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 		if name == ignored {
 			return false
 		}
+	}
+
+	// Skip bridge interfaces as they are typically local LAN bridges, not upstream connections
+	if strings.HasPrefix(name, "br-") {
+		if nm.config.IsDebugLevel() {
+			log.Printf("Skipping bridge interface %s - likely local LAN bridge", name)
+		}
+		return false
 	}
 
 	// Check only list
@@ -289,19 +302,25 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	link, err := netlink.LinkByName(interfaceName)
 	if err != nil {
-		log.Printf("Error getting link for interface %s: %v", interfaceName, err)
+		if nm.config.IsDebugLevel() {
+			log.Printf("Error getting link for interface %s: %v", interfaceName, err)
+		}
 		return ""
 	}
 
 	// Method 1: Check for default route on this specific interface
 	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
 	if err != nil {
-		log.Printf("Error getting routes for interface %s: %v", interfaceName, err)
+		if nm.config.IsDebugLevel() {
+			log.Printf("Error getting routes for interface %s: %v", interfaceName, err)
+		}
 	} else {
 		// Look for default route (destination is nil)
 		for _, route := range routes {
 			if route.Dst == nil && route.Gw != nil {
-				log.Printf("Found default route gateway %s for interface %s", route.Gw.String(), interfaceName)
+				if nm.config.IsDebugLevel() {
+					log.Printf("Found default route gateway %s for interface %s", route.Gw.String(), interfaceName)
+				}
 				return route.Gw.String()
 			}
 		}
@@ -310,11 +329,15 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	// Method 2: Check global routing table for default routes that use this interface
 	allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_ALL)
 	if err != nil {
-		log.Printf("Error getting global routes: %v", err)
+		if nm.config.IsDebugLevel() {
+			log.Printf("Error getting global routes: %v", err)
+		}
 	} else {
 		for _, route := range allRoutes {
 			if route.Dst == nil && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
-				log.Printf("Found global default route gateway %s for interface %s", route.Gw.String(), interfaceName)
+				if nm.config.IsDebugLevel() {
+					log.Printf("Found global default route gateway %s for interface %s", route.Gw.String(), interfaceName)
+				}
 				return route.Gw.String()
 			}
 		}
@@ -324,7 +347,9 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	// Get IP addresses for this interface
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 	if err != nil {
-		log.Printf("Error getting addresses for interface %s: %v", interfaceName, err)
+		if nm.config.IsDebugLevel() {
+			log.Printf("Error getting addresses for interface %s: %v", interfaceName, err)
+		}
 		return ""
 	}
 
@@ -334,13 +359,17 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 			// Try common gateway patterns
 			gatewayIP := nm.inferGatewayFromIP(ip, addr.Mask)
 			if gatewayIP != "" {
-				log.Printf("Inferred gateway %s for interface %s from IP %s", gatewayIP, interfaceName, ip.String())
+				if nm.config.IsDebugLevel() {
+					log.Printf("Inferred gateway %s for interface %s from IP %s", gatewayIP, interfaceName, ip.String())
+				}
 				return gatewayIP
 			}
 		}
 	}
 
-	log.Printf("No gateway found for interface %s", interfaceName)
+	if nm.config.IsDebugLevel() {
+		log.Printf("No gateway found for interface %s", interfaceName)
+	}
 	return ""
 }
 
