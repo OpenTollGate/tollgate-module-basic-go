@@ -81,3 +81,13 @@ func (nm *stubNetworkMonitor) Stop() error {
 func (nm *stubNetworkMonitor) Events() <-chan NetworkEvent {
 	return nm.events
 }
+
+// GetCurrentInterfaces returns empty interface list for stub
+func (nm *stubNetworkMonitor) GetCurrentInterfaces() ([]*InterfaceInfo, error) {
+	return []*InterfaceInfo{}, nil
+}
+
+// GetGatewayForInterface returns empty gateway for stub
+func (nm *stubNetworkMonitor) GetGatewayForInterface(interfaceName string) string {
+	return ""
+}

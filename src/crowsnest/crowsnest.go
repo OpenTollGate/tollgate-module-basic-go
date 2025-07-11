@@ -78,6 +78,9 @@ func (cs *crowsnest) Start() error {
 	cs.wg.Add(1)
 	go cs.eventLoop()
 
+	// Perform initial interface scan to auto-connect after startup/reboot
+	go cs.performInitialInterfaceScan()
+
 	log.Printf("Crowsnest started successfully")
 	return nil
 }
@@ -249,10 +252,8 @@ func (cs *crowsnest) handleRouteAdded(event NetworkEvent) {
 func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
 	// Check if we should attempt discovery (prevents concurrent attempts)
 	if !cs.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
-		if cs.config.IsDebugLevel() {
-			log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted or already successful",
-				interfaceName, gatewayIP)
-		}
+		log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted or already successful",
+			interfaceName, gatewayIP)
 		return
 	}
 
@@ -329,4 +330,43 @@ func (cs *crowsnest) eventTypeToString(eventType EventType) string {
 	default:
 		return fmt.Sprintf("Unknown(%d)", eventType)
 	}
+}
+
+// performInitialInterfaceScan scans existing network interfaces on startup
+func (cs *crowsnest) performInitialInterfaceScan() {
+	// Small delay to allow the system to fully initialize
+	time.Sleep(2 * time.Second)
+
+	log.Printf("Performing initial interface scan for TollGate auto-discovery")
+
+	// Get current network interfaces
+	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()
+	if err != nil {
+		log.Printf("Error getting current interfaces during startup scan: %v", err)
+		return
+	}
+
+	// Check each interface that is up and has IP addresses
+	for _, iface := range interfaces {
+		if !iface.IsUp || len(iface.IPAddresses) == 0 {
+			continue
+		}
+
+		// Get gateway for this interface
+		gatewayIP := cs.networkMonitor.GetGatewayForInterface(iface.Name)
+		if gatewayIP == "" {
+			if cs.config.IsDebugLevel() {
+				log.Printf("Startup scan: Interface %s is up but no gateway found", iface.Name)
+			}
+			continue
+		}
+
+		log.Printf("Startup scan: Found interface %s with gateway %s - attempting TollGate discovery",
+			iface.Name, gatewayIP)
+
+		// Attempt TollGate discovery asynchronously
+		go cs.attemptTollGateDiscovery(iface.Name, iface.MacAddress, gatewayIP)
+	}
+
+	log.Printf("Initial interface scan completed")
 }

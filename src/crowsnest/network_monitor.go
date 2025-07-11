@@ -402,6 +402,55 @@ func (nm *networkMonitor) inferGatewayFromIP(ip net.IP, mask net.IPMask) string 
 	return ""
 }
 
+// GetCurrentInterfaces returns current network interface information
+func (nm *networkMonitor) GetCurrentInterfaces() ([]*InterfaceInfo, error) {
+	var interfaces []*InterfaceInfo
+
+	// Get all network links
+	links, err := netlink.LinkList()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list network links: %w", err)
+	}
+
+	for _, link := range links {
+		attrs := link.Attrs()
+		if attrs == nil {
+			continue
+		}
+
+		// Check if we should monitor this interface
+		if !nm.shouldMonitorInterface(attrs.Name) {
+			continue
+		}
+
+		// Create interface info
+		interfaceInfo := &InterfaceInfo{
+			Name:           attrs.Name,
+			MacAddress:     attrs.HardwareAddr.String(),
+			IsUp:           attrs.Flags&net.FlagUp != 0,
+			IsLoopback:     attrs.Flags&net.FlagLoopback != 0,
+			IsPointToPoint: attrs.Flags&net.FlagPointToPoint != 0,
+		}
+
+		// Get IP addresses for the interface
+		addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
+		if err == nil {
+			for _, addr := range addrs {
+				interfaceInfo.IPAddresses = append(interfaceInfo.IPAddresses, addr.IP.String())
+			}
+		}
+
+		interfaces = append(interfaces, interfaceInfo)
+	}
+
+	return interfaces, nil
+}
+
+// GetGatewayForInterface gets the gateway IP for an interface (public interface method)
+func (nm *networkMonitor) GetGatewayForInterface(interfaceName string) string {
+	return nm.getGatewayForInterface(interfaceName)
+}
+
 // sendEvent safely sends an event to the events channel with deduplication
 func (nm *networkMonitor) sendEvent(event NetworkEvent) {
 	// Create a unique key for this event type and interface
