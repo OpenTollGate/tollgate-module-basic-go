@@ -19,7 +19,6 @@ type EventType int
 const (
 	EventInterfaceUp EventType = iota
 	EventInterfaceDown
-	EventRouteAdded
 	EventRouteDeleted
 	EventAddressAdded
 	EventAddressDeleted
@@ -33,33 +32,6 @@ type InterfaceInfo struct {
 	IsUp           bool
 	IsLoopback     bool
 	IsPointToPoint bool
-}
-
-// CrowsnestError represents an error with additional context
-type CrowsnestError struct {
-	Type    ErrorType
-	Code    string
-	Message string
-	Cause   error
-	Context map[string]interface{}
-}
-
-// ErrorType represents different categories of errors
-type ErrorType int
-
-const (
-	ErrorTypeNetwork ErrorType = iota
-	ErrorTypeCommunication
-	ErrorTypeValidation
-	ErrorTypeIntegration
-)
-
-// Error implements the error interface
-func (e *CrowsnestError) Error() string {
-	if e.Cause != nil {
-		return e.Message + ": " + e.Cause.Error()
-	}
-	return e.Message
 }
 
 // DiscoveryAttempt tracks discovery attempts to prevent duplicates

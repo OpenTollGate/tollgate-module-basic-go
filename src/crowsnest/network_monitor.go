@@ -310,46 +310,74 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	}
 
 	// Method 1: Check for default route on this specific interface
-	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
-	if err != nil {
-		if nm.config.IsDebugLevel() {
-			log.Printf("Error getting routes for interface %s: %v", interfaceName, err)
-		}
-	} else {
-		// Look for default route (destination is nil)
-		for _, route := range routes {
-			if route.Dst == nil && route.Gw != nil {
-				if nm.config.IsDebugLevel() {
-					log.Printf("Found default route gateway %s for interface %s", route.Gw.String(), interfaceName)
-				}
-				return route.Gw.String()
-			}
-		}
+	if gw := nm.getGatewayFromRoutes(link); gw != "" {
+		return gw
 	}
 
 	// Method 2: Check global routing table for default routes that use this interface
+	if gw := nm.getGatewayFromGlobalRoutes(link); gw != "" {
+		return gw
+	}
+
+	// Method 3: Infer gateway from IP address
+	if gw := nm.getGatewayByInference(link); gw != "" {
+		return gw
+	}
+
+	if nm.config.IsDebugLevel() {
+		log.Printf("No gateway found for interface %s", interfaceName)
+	}
+	return ""
+}
+
+// getGatewayFromRoutes checks for a default route on a specific interface.
+func (nm *networkMonitor) getGatewayFromRoutes(link netlink.Link) string {
+	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
+	if err != nil {
+		if nm.config.IsDebugLevel() {
+			log.Printf("Error getting routes for interface %s: %v", link.Attrs().Name, err)
+		}
+		return ""
+	}
+
+	for _, route := range routes {
+		if route.Dst == nil && route.Gw != nil {
+			if nm.config.IsDebugLevel() {
+				log.Printf("Found default route gateway %s for interface %s", route.Gw.String(), link.Attrs().Name)
+			}
+			return route.Gw.String()
+		}
+	}
+	return ""
+}
+
+// getGatewayFromGlobalRoutes checks the global routing table for default routes that use this interface.
+func (nm *networkMonitor) getGatewayFromGlobalRoutes(link netlink.Link) string {
 	allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_ALL)
 	if err != nil {
 		if nm.config.IsDebugLevel() {
 			log.Printf("Error getting global routes: %v", err)
 		}
-	} else {
-		for _, route := range allRoutes {
-			if route.Dst == nil && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
-				if nm.config.IsDebugLevel() {
-					log.Printf("Found global default route gateway %s for interface %s", route.Gw.String(), interfaceName)
-				}
-				return route.Gw.String()
-			}
-		}
+		return ""
 	}
 
-	// Method 3: Infer gateway from IP address (common pattern: x.x.x.1)
-	// Get IP addresses for this interface
+	for _, route := range allRoutes {
+		if route.Dst == nil && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
+			if nm.config.IsDebugLevel() {
+				log.Printf("Found global default route gateway %s for interface %s", route.Gw.String(), link.Attrs().Name)
+			}
+			return route.Gw.String()
+		}
+	}
+	return ""
+}
+
+// getGatewayByInference infers the gateway from the IP address of the interface.
+func (nm *networkMonitor) getGatewayByInference(link netlink.Link) string {
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 	if err != nil {
 		if nm.config.IsDebugLevel() {
-			log.Printf("Error getting addresses for interface %s: %v", interfaceName, err)
+			log.Printf("Error getting addresses for interface %s: %v", link.Attrs().Name, err)
 		}
 		return ""
 	}
@@ -357,19 +385,14 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	for _, addr := range addrs {
 		ip := addr.IP
 		if ip.To4() != nil && !ip.IsLoopback() {
-			// Try common gateway patterns
 			gatewayIP := nm.inferGatewayFromIP(ip, addr.Mask)
 			if gatewayIP != "" {
 				if nm.config.IsDebugLevel() {
-					log.Printf("Inferred gateway %s for interface %s from IP %s", gatewayIP, interfaceName, ip.String())
+					log.Printf("Inferred gateway %s for interface %s from IP %s", gatewayIP, link.Attrs().Name, ip.String())
 				}
 				return gatewayIP
 			}
 		}
-	}
-
-	if nm.config.IsDebugLevel() {
-		log.Printf("No gateway found for interface %s", interfaceName)
 	}
 	return ""
 }

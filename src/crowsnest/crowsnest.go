@@ -159,8 +159,6 @@ func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
 		cs.handleAddressAdded(event)
 	case EventAddressDeleted:
 		cs.handleAddressDeleted(event)
-	case EventRouteAdded:
-		cs.handleRouteAdded(event)
 	default:
 		log.Printf("Unhandled network event type: %d", event.Type)
 	}
@@ -240,16 +238,6 @@ func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
 	}
 }
 
-// handleRouteAdded handles route added events
-func (cs *crowsnest) handleRouteAdded(event NetworkEvent) {
-	// Similar to address added
-	if event.GatewayIP != "" {
-		log.Printf("Route added for interface %s with gateway %s - checking for TollGate",
-			event.InterfaceName, event.GatewayIP)
-		go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
-	}
-}
-
 // attemptTollGateDiscovery attempts to discover a TollGate on the given gateway
 func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
 	// Check if we should attempt discovery (prevents concurrent attempts)
@@ -321,8 +309,6 @@ func (cs *crowsnest) eventTypeToString(eventType EventType) string {
 		return "InterfaceUp"
 	case EventInterfaceDown:
 		return "InterfaceDown"
-	case EventRouteAdded:
-		return "RouteAdded"
 	case EventRouteDeleted:
 		return "RouteDeleted"
 	case EventAddressAdded:

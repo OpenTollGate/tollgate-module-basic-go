@@ -71,7 +71,6 @@ type EventType int
 const (
     EventInterfaceUp EventType = iota
     EventInterfaceDown
-    EventRouteAdded
     EventRouteDeleted
     EventAddressAdded
     EventAddressDeleted

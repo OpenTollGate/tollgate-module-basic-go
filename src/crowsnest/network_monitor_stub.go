@@ -13,7 +13,7 @@ import (
 
 // stubNetworkMonitor is a stub implementation for non-Linux systems
 type stubNetworkMonitor struct {
-	config   *CrowsnestConfig
+	config   *config_manager.CrowsnestConfig
 	events   chan NetworkEvent
 	stopChan chan struct{}
 	running  bool
