@@ -70,6 +70,40 @@ func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cash
 	return token, nil
 }
 
+// SendWithOverpayment sends tokens with overpayment capability using gonuts SendWithOptions
+func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, MaxOverpaymentAbsolute uint64) (string, error) {
+	// Set up send options with overpayment capability
+	options := wallet.SendOptions{
+		IncludeFees:            true,
+		AllowOverpayment:       true,
+		MaxOverpaymentPercent:  uint(maxOverpaymentPercent),
+		MaxOverpaymentAbsolute: MaxOverpaymentAbsolute,
+	}
+
+	// Use the gonuts SendWithOptions method
+	result, err := w.wallet.SendWithOptions(amount, mintUrl, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to send with overpayment to %s: %w", mintUrl, err)
+	}
+
+	// Create token from the proofs
+	token, err := cashu.NewTokenV4(result.Proofs, mintUrl, cashu.Sat, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to create token: %w", err)
+	}
+
+	// Encode token to string
+	tokenString, err := token.Serialize()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize token: %w", err)
+	}
+
+	log.Printf("Send successful with %d%% overpayment tolerance: requested=%d, overpayment=%d",
+		maxOverpaymentPercent, result.RequestedAmount, result.Overpayment)
+
+	return tokenString, nil
+}
+
 func (w *TollWallet) ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }

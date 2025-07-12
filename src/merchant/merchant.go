@@ -19,6 +19,19 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// MerchantInterface defines the interface for merchant payment operations
+type MerchantInterface interface {
+	CreatePaymentToken(mintURL string, amount uint64) (string, error)
+	CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+	GetAcceptedMints() []config_manager.MintConfig
+	GetBalance() uint64
+	GetBalanceByMint(mintURL string) uint64
+	PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, error)
+	GetAdvertisement() string
+	StartPayoutRoutine()
+	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
+}
+
 // Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
 	config        *config_manager.Config
@@ -27,7 +40,7 @@ type Merchant struct {
 	advertisement string
 }
 
-func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
+func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
 	log.Printf("=== Merchant Initializing ===")
 
 	config := configManager.GetConfig()
@@ -756,4 +769,48 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	}
 
 	return noticeEvent, nil
+}
+
+// MerchantInterface method implementations
+
+// CreatePaymentToken creates a payment token for the specified mint and amount
+func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
+	// Use the tollwallet to create a payment token with basic send
+	token, err := m.tollwallet.Send(amount, mintURL, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to create payment token: %w", err)
+	}
+
+	// Serialize token to string
+	tokenString, err := token.Serialize()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize token: %w", err)
+	}
+
+	return tokenString, nil
+}
+
+// CreatePaymentTokenWithOverpayment creates a payment token with overpayment capability
+func (m *Merchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
+	// Use the tollwallet's new SendWithOverpayment method
+	tokenString, err := m.tollwallet.SendWithOverpayment(amount, mintURL, maxOverpaymentPercent, maxOverpaymentAbsolute)
+	if err != nil {
+		return "", fmt.Errorf("failed to create payment token with overpayment: %w", err)
+	}
+	return tokenString, nil
+}
+
+// GetAcceptedMints returns the list of accepted mints from the configuration
+func (m *Merchant) GetAcceptedMints() []config_manager.MintConfig {
+	return m.config.AcceptedMints
+}
+
+// GetBalance returns the total balance across all mints
+func (m *Merchant) GetBalance() uint64 {
+	return m.tollwallet.GetBalance()
+}
+
+// GetBalanceByMint returns the balance for a specific mint
+func (m *Merchant) GetBalanceByMint(mintURL string) uint64 {
+	return m.tollwallet.GetBalanceByMint(mintURL)
 }
