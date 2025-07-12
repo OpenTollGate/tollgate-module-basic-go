@@ -5,8 +5,8 @@ import (
 	"log"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
-	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/wallet"
+	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/Origami74/gonuts-tollgate/wallet"
 )
 
 // TollWallet represents a Cashu wallet that can receive, swap, and send tokens
