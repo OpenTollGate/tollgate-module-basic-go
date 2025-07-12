@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/sirupsen/logrus"
 )
 
 // tollGateProber implements the TollGateProber interface
@@ -62,7 +62,7 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 	}()
 
 	url := fmt.Sprintf("http://%s:2121/", gatewayIP)
-	log.Printf("Probing gateway %s for TollGate advertisement (with context)", gatewayIP)
+	logger.WithField("gateway", gatewayIP).Info("Probing gateway for TollGate advertisement (with context)")
 
 	var lastErr error
 
@@ -76,7 +76,10 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 		}
 
 		if attempt > 0 {
-			log.Printf("Retry attempt %d for gateway %s", attempt, gatewayIP)
+			logger.WithFields(logrus.Fields{
+				"gateway": gatewayIP,
+				"attempt": attempt,
+			}).Debug("Retry attempt for gateway")
 
 			// Wait with context awareness
 			select {
@@ -88,12 +91,16 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 
 		data, err := tp.performRequestWithContext(ctx, url)
 		if err == nil {
-			log.Printf("Successfully received response from gateway %s", gatewayIP)
+			logger.WithField("gateway", gatewayIP).Info("Successfully received response from gateway")
 			return data, nil
 		}
 
 		lastErr = err
-		log.Printf("Probe attempt %d failed for gateway %s: %v", attempt+1, gatewayIP, err)
+		logger.WithFields(logrus.Fields{
+			"gateway": gatewayIP,
+			"attempt": attempt + 1,
+			"error":   err,
+		}).Warn("Probe attempt failed for gateway")
 	}
 
 	return nil, fmt.Errorf("failed to probe gateway %s after %d attempts: %w",
@@ -106,7 +113,7 @@ func (tp *tollGateProber) CancelProbesForInterface(interfaceName string) {
 	defer tp.probesMutex.Unlock()
 
 	if cancelFunc, exists := tp.activeProbes[interfaceName]; exists {
-		log.Printf("Cancelling active probe for interface %s", interfaceName)
+		logger.WithField("interface", interfaceName).Info("Cancelling active probe for interface")
 		cancelFunc()
 		delete(tp.activeProbes, interfaceName)
 	}
@@ -139,7 +146,10 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 	// Check content type (optional, but good practice)
 	contentType := resp.Header.Get("Content-Type")
 	if contentType != "" && contentType != "application/json" {
-		log.Printf("Warning: Gateway %s returned unexpected content type: %s", url, contentType)
+		logger.WithFields(logrus.Fields{
+			"url":          url,
+			"content_type": contentType,
+		}).Warn("Gateway returned unexpected content type")
 	}
 
 	// Read response body

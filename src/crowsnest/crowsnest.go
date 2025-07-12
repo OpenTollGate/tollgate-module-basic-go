@@ -3,13 +3,13 @@ package crowsnest
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
+	"github.com/sirupsen/logrus"
 )
 
 // crowsnest implements the Crowsnest interface
@@ -68,7 +68,7 @@ func (cs *crowsnest) Start() error {
 		return fmt.Errorf("crowsnest is already running")
 	}
 
-	log.Printf("Starting Crowsnest network monitoring and TollGate discovery")
+	logger.Info("Starting Crowsnest network monitoring and TollGate discovery")
 
 	// Start network monitor
 	err := cs.networkMonitor.Start()
@@ -83,7 +83,7 @@ func (cs *crowsnest) Start() error {
 	// Perform initial interface scan to auto-connect after startup/reboot
 	go cs.performInitialInterfaceScan()
 
-	log.Printf("Crowsnest started successfully")
+	logger.Info("Crowsnest started successfully")
 	return nil
 }
 
@@ -96,12 +96,12 @@ func (cs *crowsnest) Stop() error {
 		return nil
 	}
 
-	log.Printf("Stopping Crowsnest")
+	logger.Info("Stopping Crowsnest")
 
 	// Stop network monitor
 	err := cs.networkMonitor.Stop()
 	if err != nil {
-		log.Printf("Error stopping network monitor: %v", err)
+		logger.WithError(err).Error("Error stopping network monitor")
 	}
 
 	// Stop event loop
@@ -112,7 +112,7 @@ func (cs *crowsnest) Stop() error {
 	// Cleanup discovery tracker
 	cs.discoveryTracker.Cleanup()
 
-	log.Printf("Crowsnest stopped successfully")
+	logger.Info("Crowsnest stopped successfully")
 	return nil
 }
 
@@ -122,19 +122,19 @@ func (cs *crowsnest) SetChandler(chandler chandler.ChandlerInterface) {
 	defer cs.mu.Unlock()
 
 	cs.chandler = chandler
-	log.Printf("Chandler set for Crowsnest")
+	logger.Info("Chandler set for Crowsnest")
 }
 
 // eventLoop is the main event processing loop
 func (cs *crowsnest) eventLoop() {
 	defer cs.wg.Done()
 
-	log.Printf("Crowsnest event loop started")
+	logger.Info("Crowsnest event loop started")
 
 	for {
 		select {
 		case <-cs.stopChan:
-			log.Printf("Crowsnest event loop stopping")
+			logger.Info("Crowsnest event loop stopping")
 			return
 
 		case event := <-cs.networkMonitor.Events():
@@ -145,10 +145,10 @@ func (cs *crowsnest) eventLoop() {
 
 // handleNetworkEvent processes a network event
 func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
-	if cs.config.IsDebugLevel() {
-		log.Printf("Processing network event: %s on interface %s",
-			cs.eventTypeToString(event.Type), event.InterfaceName)
-	}
+	logger.WithFields(logrus.Fields{
+		"event_type": cs.eventTypeToString(event.Type),
+		"interface":  event.InterfaceName,
+	}).Debug("Processing network event")
 
 	switch event.Type {
 	case EventInterfaceUp:
@@ -160,21 +160,21 @@ func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
 	case EventAddressDeleted:
 		cs.handleAddressDeleted(event)
 	default:
-		log.Printf("Unhandled network event type: %d", event.Type)
+		logger.WithField("event_type", event.Type).Warn("Unhandled network event type")
 	}
 }
 
 // handleInterfaceUp handles interface up events
 func (cs *crowsnest) handleInterfaceUp(event NetworkEvent) {
 	if event.GatewayIP == "" {
-		if cs.config.IsDebugLevel() {
-			log.Printf("Interface %s is up but no gateway found", event.InterfaceName)
-		}
+		logger.WithField("interface", event.InterfaceName).Debug("Interface is up but no gateway found")
 		return
 	}
 
-	log.Printf("Interface %s is up with gateway %s - attempting TollGate discovery",
-		event.InterfaceName, event.GatewayIP)
+	logger.WithFields(logrus.Fields{
+		"interface": event.InterfaceName,
+		"gateway":   event.GatewayIP,
+	}).Debug("Interface is up with gateway - attempting TollGate discovery")
 
 	// Attempt TollGate discovery asynchronously
 	go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
@@ -182,7 +182,7 @@ func (cs *crowsnest) handleInterfaceUp(event NetworkEvent) {
 
 // handleInterfaceDown handles interface down events
 func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
-	log.Printf("Interface %s is down - cleaning up and notifying chandler", event.InterfaceName)
+	logger.WithField("interface", event.InterfaceName).Info("Interface is down - cleaning up and notifying chandler")
 
 	// Cancel any active probes for this interface
 	cs.tollGateProber.CancelProbesForInterface(event.InterfaceName)
@@ -195,12 +195,13 @@ func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
 	if cs.chandler != nil {
 		err := cs.chandler.HandleDisconnect(event.InterfaceName)
 		if err != nil {
-			log.Printf("Error notifying chandler of disconnect for interface %s: %v",
-				event.InterfaceName, err)
+			logger.WithFields(logrus.Fields{
+				"interface": event.InterfaceName,
+				"error":     err,
+			}).Error("Error notifying chandler of disconnect")
 		}
 	} else {
-		log.Printf("No chandler set - cannot notify of disconnect for interface %s",
-			event.InterfaceName)
+		logger.WithField("interface", event.InterfaceName).Debug("No chandler set - cannot notify of disconnect")
 	}
 }
 
@@ -208,15 +209,17 @@ func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
 func (cs *crowsnest) handleAddressAdded(event NetworkEvent) {
 	// For address changes, we might want to re-check the gateway
 	if event.GatewayIP != "" {
-		log.Printf("Address added to interface %s with gateway %s - checking for TollGate",
-			event.InterfaceName, event.GatewayIP)
+		logger.WithFields(logrus.Fields{
+			"interface": event.InterfaceName,
+			"gateway":   event.GatewayIP,
+		}).Info("Address added to interface with gateway - checking for TollGate")
 		go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 	}
 }
 
 // handleAddressDeleted handles address deleted events
 func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
-	log.Printf("Address deleted from interface %s - checking for TollGate disconnection", event.InterfaceName)
+	logger.WithField("interface", event.InterfaceName).Debug("Address deleted from interface - checking for TollGate disconnection")
 
 	// When an address is deleted, this might indicate a disconnection
 	// Check if we had a successful TollGate connection on this interface
@@ -232,8 +235,10 @@ func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
 	if cs.chandler != nil {
 		err := cs.chandler.HandleDisconnect(event.InterfaceName)
 		if err != nil {
-			log.Printf("Error notifying chandler of disconnect for interface %s: %v",
-				event.InterfaceName, err)
+			logger.WithFields(logrus.Fields{
+				"interface": event.InterfaceName,
+				"error":     err,
+			}).Error("Error notifying chandler of disconnect")
 		}
 	}
 }
@@ -242,8 +247,10 @@ func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
 func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
 	// Check if we should attempt discovery (prevents concurrent attempts)
 	if !cs.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
-		log.Printf("Skipping discovery for interface %s (gateway %s) - recently attempted or already successful",
-			interfaceName, gatewayIP)
+		logger.WithFields(logrus.Fields{
+			"interface": interfaceName,
+			"gateway":   gatewayIP,
+		}).Debug("Skipping discovery - recently attempted or already successful")
 		return
 	}
 
@@ -255,11 +262,17 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 	defer cancel()
 
 	// Probe the gateway with context
-	log.Printf("Probing gateway %s on interface %s for TollGate advertisement", gatewayIP, interfaceName)
+	logger.WithFields(logrus.Fields{
+		"gateway":   gatewayIP,
+		"interface": interfaceName,
+	}).Debug("Probing gateway for TollGate advertisement")
 
 	data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, interfaceName, gatewayIP)
 	if err != nil {
-		log.Printf("Failed to probe gateway %s: %v", gatewayIP, err)
+		logger.WithFields(logrus.Fields{
+			"gateway": gatewayIP,
+			"error":   err,
+		}).Error("Failed to probe gateway")
 		cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultError)
 		return
 	}
@@ -267,13 +280,18 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 	// Validate the advertisement using tollgate_protocol
 	event, err := tollgate_protocol.ValidateAdvertisementFromBytes(data)
 	if err != nil {
-		log.Printf("Invalid TollGate advertisement from gateway %s: %v", gatewayIP, err)
+		logger.WithFields(logrus.Fields{
+			"gateway": gatewayIP,
+			"error":   err,
+		}).Warn("Invalid TollGate advertisement from gateway")
 		cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultValidationFailed)
 		return
 	}
 
-	log.Printf("Valid TollGate advertisement discovered on gateway %s (pubkey: %s)",
-		gatewayIP, event.PubKey)
+	logger.WithFields(logrus.Fields{
+		"gateway":    gatewayIP,
+		"public_key": event.PubKey,
+	}).Info("Valid TollGate advertisement discovered")
 
 	// Create UpstreamTollgate object
 	upstream := &chandler.UpstreamTollgate{
@@ -291,14 +309,18 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 	if cs.chandler != nil {
 		err = cs.chandler.HandleUpstreamTollgate(upstream)
 		if err != nil {
-			log.Printf("Error handing off upstream TollGate to chandler: %v", err)
+			logger.WithError(err).Error("Error handing off upstream TollGate to chandler")
 		} else {
-			log.Printf("Successfully handed off upstream TollGate to chandler (interface: %s, gateway: %s)",
-				interfaceName, gatewayIP)
+			logger.WithFields(logrus.Fields{
+				"interface": interfaceName,
+				"gateway":   gatewayIP,
+			}).Debug("Successfully handed off upstream TollGate to chandler")
 		}
 	} else {
-		log.Printf("No chandler set - cannot hand off upstream TollGate (interface: %s, gateway: %s)",
-			interfaceName, gatewayIP)
+		logger.WithFields(logrus.Fields{
+			"interface": interfaceName,
+			"gateway":   gatewayIP,
+		}).Debug("No chandler set - cannot hand off upstream TollGate")
 	}
 }
 
@@ -325,12 +347,12 @@ func (cs *crowsnest) performInitialInterfaceScan() {
 	// Small delay to allow the system to fully initialize
 	time.Sleep(2 * time.Second)
 
-	log.Printf("Performing initial interface scan for TollGate auto-discovery")
+	logger.Info("Performing initial interface scan for TollGate auto-discovery")
 
 	// Get current network interfaces
 	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()
 	if err != nil {
-		log.Printf("Error getting current interfaces during startup scan: %v", err)
+		logger.WithError(err).Error("Error getting current interfaces during startup scan")
 		return
 	}
 
@@ -343,18 +365,18 @@ func (cs *crowsnest) performInitialInterfaceScan() {
 		// Get gateway for this interface
 		gatewayIP := cs.networkMonitor.GetGatewayForInterface(iface.Name)
 		if gatewayIP == "" {
-			if cs.config.IsDebugLevel() {
-				log.Printf("Startup scan: Interface %s is up but no gateway found", iface.Name)
-			}
+			logger.WithField("interface", iface.Name).Debug("Startup scan: Interface is up but no gateway found")
 			continue
 		}
 
-		log.Printf("Startup scan: Found interface %s with gateway %s - attempting TollGate discovery",
-			iface.Name, gatewayIP)
+		logger.WithFields(logrus.Fields{
+			"interface": iface.Name,
+			"gateway":   gatewayIP,
+		}).Info("Startup scan: Found interface with gateway - attempting TollGate discovery")
 
 		// Attempt TollGate discovery asynchronously
 		go cs.attemptTollGateDiscovery(iface.Name, iface.MacAddress, gatewayIP)
 	}
 
-	log.Printf("Initial interface scan completed")
+	logger.Info("Initial interface scan completed")
 }

@@ -10,6 +10,7 @@ import (
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
 	ConfigVersion string              `json:"config_version"`
+	LogLevel      string              `json:"log_level"`
 	AcceptedMints []MintConfig        `json:"accepted_mints"`
 	ProfitShare   []ProfitShareConfig `json:"profit_share"`
 	StepSize      uint64              `json:"step_size"`
@@ -47,20 +48,12 @@ type CrowsnestConfig struct {
 	// Validation settings
 	RequireValidSignature bool `json:"require_valid_signature"`
 
-	// Logging settings
-	LogLevel string `json:"log_level"`
-
 	// Interface filtering
 	IgnoreInterfaces []string `json:"ignore_interfaces"`
 	OnlyInterfaces   []string `json:"only_interfaces"`
 
 	// Discovery deduplication
 	DiscoveryTimeout time.Duration `json:"discovery_timeout"`
-}
-
-// IsDebugLevel returns true if debug logging is enabled
-func (c *CrowsnestConfig) IsDebugLevel() bool {
-	return c.LogLevel == "DEBUG"
 }
 
 // LoadConfig loads and parses config.json.
@@ -96,6 +89,7 @@ func SaveConfig(filePath string, config *Config) error {
 func NewDefaultConfig() *Config {
 	return &Config{
 		ConfigVersion: "v0.0.5",
+		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
 				URL:                     "https://mint.minibits.cash/Bitcoin",
@@ -141,7 +135,6 @@ func NewDefaultConfig() *Config {
 			ProbeRetryCount:       3,
 			ProbeRetryDelay:       2 * time.Second,
 			RequireValidSignature: true,
-			LogLevel:              "INFO",
 			IgnoreInterfaces:      []string{"lo", "docker0", "br-lan", "phy1-ap0", "phy0-ap0", "wlan0-ap", "wlan1-ap", "hostap0"},
 			OnlyInterfaces:        []string{},
 			DiscoveryTimeout:      300 * time.Second,

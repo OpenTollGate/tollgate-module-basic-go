@@ -5,7 +5,6 @@ package crowsnest
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -21,7 +20,7 @@ type stubNetworkMonitor struct {
 
 // NewNetworkMonitor creates a stub network monitor for non-Linux systems
 func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
-	log.Printf("Warning: Using stub network monitor - netlink functionality only available on Linux")
+	logger.Warn("Using stub network monitor - netlink functionality only available on Linux")
 	return &stubNetworkMonitor{
 		config:   config,
 		events:   make(chan NetworkEvent, 100),
@@ -35,7 +34,7 @@ func (nm *stubNetworkMonitor) Start() error {
 		return fmt.Errorf("stub network monitor is already running")
 	}
 
-	log.Printf("Starting stub network monitor (no actual monitoring on non-Linux systems)")
+	logger.Info("Starting stub network monitor (no actual monitoring on non-Linux systems)")
 	nm.running = true
 
 	// Send a fake interface up event for testing purposes
@@ -56,7 +55,7 @@ func (nm *stubNetworkMonitor) Start() error {
 
 		select {
 		case nm.events <- testEvent:
-			log.Printf("Sent test network event for testing")
+			logger.Debug("Sent test network event for testing")
 		case <-nm.stopChan:
 			return
 		}
@@ -71,7 +70,7 @@ func (nm *stubNetworkMonitor) Stop() error {
 		return nil
 	}
 
-	log.Printf("Stopping stub network monitor")
+	logger.Info("Stopping stub network monitor")
 	close(nm.stopChan)
 	nm.running = false
 	close(nm.events)

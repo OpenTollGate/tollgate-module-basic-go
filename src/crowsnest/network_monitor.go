@@ -5,13 +5,13 @@ package crowsnest
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
@@ -46,7 +46,7 @@ func (nm *networkMonitor) Start() error {
 		return fmt.Errorf("network monitor is already running")
 	}
 
-	log.Printf("Starting event-driven network monitor")
+	logger.Info("Starting event-driven network monitor")
 
 	nm.running = true
 	nm.wg.Add(2) // One for link updates, one for address updates
@@ -69,7 +69,7 @@ func (nm *networkMonitor) Stop() error {
 		return nil
 	}
 
-	log.Printf("Stopping network monitor")
+	logger.Info("Stopping network monitor")
 
 	close(nm.stopChan)
 	nm.running = false
@@ -94,11 +94,11 @@ func (nm *networkMonitor) monitorLinkChanges() {
 
 	// Subscribe to link updates
 	if err := netlink.LinkSubscribe(updates, done); err != nil {
-		log.Printf("Failed to subscribe to link updates: %v", err)
+		logger.WithError(err).Error("Failed to subscribe to link updates")
 		return
 	}
 
-	log.Println("Monitoring network interface link changes...")
+	logger.Info("Monitoring network interface link changes...")
 
 	for {
 		select {
@@ -121,11 +121,11 @@ func (nm *networkMonitor) monitorAddressChanges() {
 
 	// Subscribe to address updates
 	if err := netlink.AddrSubscribe(updates, done); err != nil {
-		log.Printf("Failed to subscribe to address updates: %v", err)
+		logger.WithError(err).Error("Failed to subscribe to address updates")
 		return
 	}
 
-	log.Println("Monitoring network interface address changes...")
+	logger.Info("Monitoring network interface address changes...")
 
 	for {
 		select {
@@ -200,13 +200,15 @@ func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
 
 	nm.sendEvent(event)
 
-	// Log the change (only for debug level to reduce spam)
-	if nm.config.IsDebugLevel() {
-		if isUp {
-			log.Printf("Interface %s is UP (MAC: %s, Gateway: %s)", interfaceName, attrs.HardwareAddr.String(), gatewayIP)
-		} else {
-			log.Printf("Interface %s is DOWN", interfaceName)
-		}
+	// Log the change
+	if isUp {
+		logger.WithFields(logrus.Fields{
+			"interface": interfaceName,
+			"mac":       attrs.HardwareAddr.String(),
+			"gateway":   gatewayIP,
+		}).Debug("Interface is UP")
+	} else {
+		logger.WithField("interface", interfaceName).Debug("Interface is DOWN")
 	}
 }
 
@@ -215,7 +217,10 @@ func (nm *networkMonitor) handleAddressUpdate(update netlink.AddrUpdate) {
 	// Get the link for this address update
 	link, err := netlink.LinkByIndex(update.LinkIndex)
 	if err != nil {
-		log.Printf("Error getting link by index %d: %v", update.LinkIndex, err)
+		logger.WithFields(logrus.Fields{
+			"link_index": update.LinkIndex,
+			"error":      err,
+		}).Error("Error getting link by index")
 		return
 	}
 
@@ -262,11 +267,11 @@ func (nm *networkMonitor) handleAddressUpdate(update netlink.AddrUpdate) {
 
 	nm.sendEvent(event)
 
-	if nm.config.IsDebugLevel() {
-		log.Printf("Address %s on interface %s (action: %s)",
-			update.LinkAddress.IP.String(), interfaceName,
-			map[bool]string{true: "added", false: "deleted"}[update.NewAddr])
-	}
+	logger.WithFields(logrus.Fields{
+		"address":   update.LinkAddress.IP.String(),
+		"interface": interfaceName,
+		"action":    map[bool]string{true: "added", false: "deleted"}[update.NewAddr],
+	}).Debug("Address change on interface")
 }
 
 // shouldMonitorInterface checks if an interface should be monitored
@@ -280,9 +285,7 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 
 	// Skip bridge interfaces as they are typically local LAN bridges, not upstream connections
 	if strings.HasPrefix(name, "br-") {
-		if nm.config.IsDebugLevel() {
-			log.Printf("Skipping bridge interface %s - likely local LAN bridge", name)
-		}
+		logger.WithField("interface", name).Debug("Skipping bridge interface - likely local LAN bridge")
 		return false
 	}
 
@@ -303,9 +306,10 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	link, err := netlink.LinkByName(interfaceName)
 	if err != nil {
-		if nm.config.IsDebugLevel() {
-			log.Printf("Error getting link for interface %s: %v", interfaceName, err)
-		}
+		logger.WithFields(logrus.Fields{
+			"interface": interfaceName,
+			"error":     err,
+		}).Debug("Error getting link for interface")
 		return ""
 	}
 
@@ -324,9 +328,7 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 		return gw
 	}
 
-	if nm.config.IsDebugLevel() {
-		log.Printf("No gateway found for interface %s", interfaceName)
-	}
+	logger.WithField("interface", interfaceName).Debug("No gateway found for interface")
 	return ""
 }
 
@@ -334,17 +336,19 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 func (nm *networkMonitor) getGatewayFromRoutes(link netlink.Link) string {
 	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
 	if err != nil {
-		if nm.config.IsDebugLevel() {
-			log.Printf("Error getting routes for interface %s: %v", link.Attrs().Name, err)
-		}
+		logger.WithFields(logrus.Fields{
+			"interface": link.Attrs().Name,
+			"error":     err,
+		}).Debug("Error getting routes for interface")
 		return ""
 	}
 
 	for _, route := range routes {
 		if route.Dst == nil && route.Gw != nil {
-			if nm.config.IsDebugLevel() {
-				log.Printf("Found default route gateway %s for interface %s", route.Gw.String(), link.Attrs().Name)
-			}
+			logger.WithFields(logrus.Fields{
+				"gateway":   route.Gw.String(),
+				"interface": link.Attrs().Name,
+			}).Debug("Found default route gateway for interface")
 			return route.Gw.String()
 		}
 	}
@@ -355,17 +359,16 @@ func (nm *networkMonitor) getGatewayFromRoutes(link netlink.Link) string {
 func (nm *networkMonitor) getGatewayFromGlobalRoutes(link netlink.Link) string {
 	allRoutes, err := netlink.RouteList(nil, netlink.FAMILY_ALL)
 	if err != nil {
-		if nm.config.IsDebugLevel() {
-			log.Printf("Error getting global routes: %v", err)
-		}
+		logger.WithError(err).Debug("Error getting global routes")
 		return ""
 	}
 
 	for _, route := range allRoutes {
 		if route.Dst == nil && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
-			if nm.config.IsDebugLevel() {
-				log.Printf("Found global default route gateway %s for interface %s", route.Gw.String(), link.Attrs().Name)
-			}
+			logger.WithFields(logrus.Fields{
+				"gateway":   route.Gw.String(),
+				"interface": link.Attrs().Name,
+			}).Debug("Found global default route gateway for interface")
 			return route.Gw.String()
 		}
 	}
@@ -376,9 +379,10 @@ func (nm *networkMonitor) getGatewayFromGlobalRoutes(link netlink.Link) string {
 func (nm *networkMonitor) getGatewayByInference(link netlink.Link) string {
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 	if err != nil {
-		if nm.config.IsDebugLevel() {
-			log.Printf("Error getting addresses for interface %s: %v", link.Attrs().Name, err)
-		}
+		logger.WithFields(logrus.Fields{
+			"interface": link.Attrs().Name,
+			"error":     err,
+		}).Debug("Error getting addresses for interface")
 		return ""
 	}
 
@@ -387,9 +391,11 @@ func (nm *networkMonitor) getGatewayByInference(link netlink.Link) string {
 		if ip.To4() != nil && !ip.IsLoopback() {
 			gatewayIP := nm.inferGatewayFromIP(ip, addr.Mask)
 			if gatewayIP != "" {
-				if nm.config.IsDebugLevel() {
-					log.Printf("Inferred gateway %s for interface %s from IP %s", gatewayIP, link.Attrs().Name, ip.String())
-				}
+				logger.WithFields(logrus.Fields{
+					"gateway":   gatewayIP,
+					"interface": link.Attrs().Name,
+					"ip":        ip.String(),
+				}).Debug("Inferred gateway for interface from IP")
 				return gatewayIP
 			}
 		}
@@ -501,6 +507,6 @@ func (nm *networkMonitor) sendEvent(event NetworkEvent) {
 	case nm.events <- event:
 		// Event sent successfully
 	default:
-		log.Printf("Network event channel full, dropping event for interface %s", event.InterfaceName)
+		logger.WithField("interface", event.InterfaceName).Warn("Network event channel full, dropping event for interface")
 	}
 }

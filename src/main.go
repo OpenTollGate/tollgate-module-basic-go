@@ -62,6 +62,9 @@ func init() {
 
 	mainConfig = configManager.GetConfig()
 
+	// Initialize global logger with the configured log level
+	InitializeGlobalLogger(mainConfig.LogLevel)
+
 	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
 
