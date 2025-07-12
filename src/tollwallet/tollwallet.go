@@ -59,14 +59,37 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 }
 
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {
-	proofs, err := w.wallet.Send(amount, mintUrl, includeFees)
+	log.Printf("TollWallet.Send: attempting to send %d sats from mint %s (includeFees=%t)", amount, mintUrl, includeFees)
 
+	proofs, err := w.wallet.Send(amount, mintUrl, includeFees)
 	if err != nil {
+		log.Printf("TollWallet.Send: wallet.Send failed: %v", err)
 		return nil, fmt.Errorf("Failed to send %d to %s: %w", amount, mintUrl, err)
 	}
 
-	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true) // TODO: Support multi unit
+	log.Printf("TollWallet.Send: received %d proofs from wallet.Send", len(proofs))
 
+	// Validate proofs array is not empty
+	if len(proofs) == 0 {
+		log.Printf("TollWallet.Send: ERROR - received empty proofs array from wallet.Send")
+		return nil, fmt.Errorf("wallet.Send returned empty proofs array for %d sats from %s", amount, mintUrl)
+	}
+
+	// Log proof details for debugging
+	totalProofAmount := uint64(0)
+	for i, proof := range proofs {
+		totalProofAmount += proof.Amount
+		log.Printf("TollWallet.Send: proof[%d]: amount=%d, secret=%s...", i, proof.Amount, proof.Secret[:min(10, len(proof.Secret))])
+	}
+	log.Printf("TollWallet.Send: total proof amount=%d (requested=%d)", totalProofAmount, amount)
+
+	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true) // TODO: Support multi unit
+	if err != nil {
+		log.Printf("TollWallet.Send: NewTokenV4 failed: %v", err)
+		return nil, fmt.Errorf("Failed to create token: %w", err)
+	}
+
+	log.Printf("TollWallet.Send: successfully created token")
 	return token, nil
 }
 

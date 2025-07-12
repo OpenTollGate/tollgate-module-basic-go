@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -104,9 +105,28 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		return err
 	}
 
-	// Calculate steps we can afford and want to purchase
+	// Calculate steps based on preferred session increments for granular payments
+	var preferredAllotment uint64
+	switch adInfo.Metric {
+	case "milliseconds":
+		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds
+	case "bytes":
+		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
+	default:
+		return fmt.Errorf("unsupported metric: %s", adInfo.Metric)
+	}
+
+	// Convert preferred allotment to steps
+	preferredSteps := preferredAllotment / adInfo.StepSize
+	if preferredSteps == 0 {
+		preferredSteps = 1 // Minimum 1 step
+	}
+
+	// Calculate affordability constraints
 	maxAffordableSteps := availableBalance / selectedPricing.PricePerStep
-	desiredSteps := uint64(1000) / selectedPricing.PricePerStep // Target ~1000 sats initial purchase
+
+	// Choose the smallest of: preferred, affordable, or minimum required
+	desiredSteps := preferredSteps
 	if desiredSteps < selectedPricing.MinSteps {
 		desiredSteps = selectedPricing.MinSteps
 	}
@@ -115,6 +135,16 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 	}
 
 	steps := desiredSteps
+
+	logger.WithFields(logrus.Fields{
+		"metric":               adInfo.Metric,
+		"preferred_allotment":  preferredAllotment,
+		"preferred_steps":      preferredSteps,
+		"min_required_steps":   selectedPricing.MinSteps,
+		"max_affordable_steps": maxAffordableSteps,
+		"final_steps":          steps,
+		"step_size":            adInfo.StepSize,
+	}).Info("💳 Calculated payment steps for granular session")
 
 	// Create payment proposal
 	proposal := &PaymentProposal{
@@ -171,6 +201,18 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 	}
 
 	// Create and send payment
+	// Log payment proposal details for debugging
+	logger.WithFields(logrus.Fields{
+		"upstream_pubkey":     proposal.UpstreamPubkey,
+		"steps":               proposal.Steps,
+		"price_per_step":      proposal.PricingOption.PricePerStep,
+		"mint_url":            proposal.PricingOption.MintURL,
+		"min_steps":           proposal.PricingOption.MinSteps,
+		"reason":              proposal.Reason,
+		"estimated_allotment": proposal.EstimatedAllotment,
+		"total_amount":        proposal.Steps * proposal.PricingOption.PricePerStep,
+	}).Info("💰 Creating payment proposal for upstream TollGate")
+
 	sessionEvent, err := c.createAndSendPayment(session, proposal, upstream)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
@@ -460,13 +502,16 @@ func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *Paym
 
 	// Get customer private key from session
 	customerPrivateKey := session.CustomerPrivateKey
+	customerPublicKey, _ := nostr.GetPublicKey(customerPrivateKey)
 
 	// Get MAC address from upstream tollgate object
 	macAddress := upstream.MacAddress
 
 	// Create payment event
 	paymentEvent := nostr.Event{
-		Kind: 21000,
+		Kind:      21000,
+		PubKey:    customerPublicKey,
+		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
 			{"p", proposal.UpstreamPubkey},
 			{"device-identifier", "mac", macAddress},
@@ -507,20 +552,61 @@ func (c *Chandler) sendPaymentToUpstream(paymentEvent *nostr.Event, gatewayIP st
 
 	// Send HTTP POST to upstream TollGate (TIP-03)
 	url := fmt.Sprintf("http://%s:2121/", gatewayIP)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(paymentBytes))
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create request with proper headers
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(paymentBytes))
+	req.Close = true
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "TollGate-Chandler/1.0")
+
+	logger.WithFields(logrus.Fields{
+		"url":          url,
+		"payload_size": len(paymentBytes),
+		"request_body": string(paymentBytes),
+	}).Info("Sending payment to upstream TollGate")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Read response body for logging
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"url":         url,
+			"status_code": resp.StatusCode,
+			"error":       err,
+		}).Error("Failed to read response body")
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	logger.WithFields(logrus.Fields{
+		"url":           url,
+		"status_code":   resp.StatusCode,
+		"response_size": len(responseBody),
+		"response_body": string(responseBody),
+	}).Info("Received response from upstream TollGate")
+
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream TollGate rejected payment with status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("upstream TollGate rejected payment with status: %d, body: %s", resp.StatusCode, string(responseBody))
 	}
 
 	// Parse session event from response
 	var sessionEvent nostr.Event
-	err = json.NewDecoder(resp.Body).Decode(&sessionEvent)
+	err = json.Unmarshal(responseBody, &sessionEvent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode session event: %w", err)
 	}
@@ -536,29 +622,62 @@ func (c *Chandler) sendPaymentToUpstream(paymentEvent *nostr.Event, gatewayIP st
 // createUsageTracker creates and starts the appropriate usage tracker for a session
 func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 	var tracker UsageTrackerInterface
+	var trackerType string
 
 	switch session.AdvertisementInfo.Metric {
 	case "milliseconds":
 		tracker = NewTimeUsageTracker()
+		trackerType = "time-based"
 	case "bytes":
 		tracker = NewDataUsageTracker(session.InterfaceName)
+		trackerType = "data-based"
 	default:
 		return fmt.Errorf("unsupported metric: %s", session.AdvertisementInfo.Metric)
 	}
 
+	logger.WithFields(logrus.Fields{
+		"upstream_pubkey":    session.UpstreamPubkey,
+		"tracker_type":       trackerType,
+		"metric":             session.AdvertisementInfo.Metric,
+		"interface":          session.InterfaceName,
+		"total_allotment":    session.TotalAllotment,
+		"renewal_thresholds": session.RenewalThresholds,
+	}).Info("🔍 Creating usage tracker for session monitoring")
+
 	// Set renewal thresholds
 	err := tracker.SetRenewalThresholds(session.RenewalThresholds)
 	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": session.UpstreamPubkey,
+			"error":           err,
+		}).Error("Failed to set renewal thresholds")
 		return fmt.Errorf("failed to set renewal thresholds: %w", err)
 	}
 
 	// Start tracking
+	logger.WithFields(logrus.Fields{
+		"upstream_pubkey": session.UpstreamPubkey,
+		"tracker_type":    trackerType,
+	}).Info("▶️  Starting usage tracker monitoring")
+
 	err = tracker.Start(session, c)
 	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": session.UpstreamPubkey,
+			"tracker_type":    trackerType,
+			"error":           err,
+		}).Error("Failed to start usage tracker")
 		return fmt.Errorf("failed to start usage tracker: %w", err)
 	}
 
 	session.UsageTracker = tracker
+
+	logger.WithFields(logrus.Fields{
+		"upstream_pubkey": session.UpstreamPubkey,
+		"tracker_type":    trackerType,
+		"metric":          session.AdvertisementInfo.Metric,
+	}).Info("✅ Usage tracker successfully started and monitoring session")
+
 	return nil
 }
 

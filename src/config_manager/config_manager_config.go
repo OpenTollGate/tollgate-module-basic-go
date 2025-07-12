@@ -185,7 +185,7 @@ func NewDefaultConfig() *Config {
 			},
 			Sessions: SessionConfig{
 				DefaultRenewalThresholds:               []float64{0.8},
-				PreferredSessionIncrementsMilliseconds: 60000,   // 1 minute
+				PreferredSessionIncrementsMilliseconds: 20000,   // 1 minute
 				PreferredSessionIncrementsBytes:        1048576, // 1 MB
 			},
 			UsageTracking: UsageTrackingConfig{

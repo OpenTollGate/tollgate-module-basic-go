@@ -775,10 +775,27 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 
 // CreatePaymentToken creates a payment token for the specified mint and amount
 func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
+	// Check balance before attempting to send
+	balance := m.tollwallet.GetBalanceByMint(mintURL)
+	totalBalance := m.tollwallet.GetBalance()
+
+	log.Printf("Creating payment token: amount=%d, mintURL=%s, balance_by_mint=%d, total_balance=%d",
+		amount, mintURL, balance, totalBalance)
+
+	if balance < amount {
+		return "", fmt.Errorf("insufficient balance: need %d sats, have %d sats for mint %s (total balance: %d)",
+			amount, balance, mintURL, totalBalance)
+	}
+
 	// Use the tollwallet to create a payment token with basic send
 	token, err := m.tollwallet.Send(amount, mintURL, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create payment token: %w", err)
+	}
+
+	// Validate token has proofs
+	if token == nil {
+		return "", fmt.Errorf("token creation returned nil token")
 	}
 
 	// Serialize token to string
@@ -786,6 +803,14 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize token: %w", err)
 	}
+
+	// Validate serialized token is not empty
+	if tokenString == "" {
+		return "", fmt.Errorf("token serialization returned empty string")
+	}
+
+	log.Printf("Successfully created payment token: length=%d, token_preview=%s...",
+		len(tokenString), tokenString[:min(50, len(tokenString))])
 
 	return tokenString, nil
 }
