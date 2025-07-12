@@ -19,6 +19,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/sirupsen/logrus"
 )
 
 // Global configuration variable
@@ -46,6 +47,25 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 	installPath = "/etc/tollgate/install.json"
 	identitiesPath = "/etc/tollgate/identities.json"
 	return
+}
+
+func InitializeGlobalLogger(logLevel string) {
+	level, err := logrus.ParseLevel(strings.ToLower(logLevel))
+	if err != nil {
+		// Default to info level if parsing fails
+		level = logrus.InfoLevel
+		logrus.WithError(err).Warn("Failed to parse log level, defaulting to info")
+	}
+
+	logrus.SetLevel(level)
+
+	// Set a consistent formatter for the entire application
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+		ForceColors:   true,
+	})
+
+	logrus.WithField("log_level", level.String()).Info("Global logger initialized")
 }
 
 func init() {
