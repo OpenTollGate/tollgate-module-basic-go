@@ -3,16 +3,16 @@ module github.com/OpenTollGate/tollgate-module-basic-go
 go 1.24.2
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging v0.0.0-20250522085419-17692bf154f8
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0-20250526110008-c13aa6acd08e
 	github.com/OpenTollGate/tollgate-module-basic-go/src/relay v0.0.0-00010101000000-000000000000
+	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/nbd-wtf/go-nostr v0.51.12
+	github.com/stretchr/testify v1.10.0
 )
 
 replace (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/bragging => ./bragging
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
@@ -35,7 +35,6 @@ require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
-	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
@@ -99,7 +98,6 @@ require (
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
