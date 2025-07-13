@@ -1,158 +1,203 @@
-# Config Manager Low-Level Design Document
+# LLDD: Configuration Management Refactor
 
-## Overview (Updated v0.0.4)
+## 1. Introduction
 
-The `config_manager` package provides configuration management with migration support, pretty-printed JSON output, and flexible metric-based pricing structure.
+This document provides a low-level design for the refactoring of the `config_manager` module. It details the data structures, file organization, and function signatures required to implement the new architecture outlined in the HLDD.
 
-## Config Struct (v0.0.3)
+## 2. Data Structures
 
-The `Config` struct has been updated for flexible metric-based pricing:
+The following Go structs will be defined to represent the new configuration files.
 
-```json
-{
-  "config_version": "v0.0.3",
-  "tollgate_private_key": "8a45d0add1c7ddf668f9818df550edfa907ae8ea59d6581a4ca07473d468d663",
-  "accepted_mints": [
-    {
-      "url": "https://mint.minibits.cash/Bitcoin",
-      "min_balance": 100,
-      "balance_tolerance_percent": 10,
-      "payout_interval_seconds": 60,
-      "min_payout_amount": 200,
-      "price_per_step": 1,
-      "price_unit": "sat",
-      "purchase_min_steps": 0
-    }
-  ],
-  "profit_share": [
-    {
-      "factor": 0.70,
-      "lightning_address": "tollgate@minibits.cash"
-    },
-    {
-      "factor": 0.30,
-      "lightning_address": "tollgate@minibits.cash"
-    }
-  ],
-  "step_size": 60000,
-  "metric": "milliseconds",
-  "bragging": {
-    "enabled": true,
-    "fields": ["amount", "mint", "duration"]
-  },
-  "relays": [
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://nostr.mom"
-  ],
-  "trusted_maintainers": [
-    "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
-  ],
-  "show_setup": true,
-  "current_installation_id": ""
-}
-```
-
-## Configuration Structure Changes
-
-### Removed Fields:
-- `price_per_minute`: Global pricing removed
-
-### Added Fields:
-- `step_size`: Configurable step size (e.g., 60000 for 1 minute in milliseconds)
-- `metric`: Pricing metric ("milliseconds", "bytes", etc.)
-
-### Enhanced MintConfig:
-- `price_per_step`: Individual pricing per mint
-- `price_unit`: Unit of pricing (e.g., "sat")
-- `purchase_min_steps`: Minimum purchase requirement per mint
-
-## Migration Support
-
-### Migration Functions:
-- Automatic version detection in `EnsureDefaultConfig()`
-- Migration scripts handle v0.0.2 → v0.0.3 transformation
-- Backup creation with timestamped files
-- Error recovery with backup restoration
-
-### Migration Process:
-1. Check configuration version
-2. Create timestamped backup
-3. Transform configuration structure
-4. Convert `price_per_minute` to mint-specific `price_per_step`
-5. Add `metric` and `step_size` fields
-6. Verify migration success
-
-## Core Functions
-
-### NewConfigManager Function
-- Creates a new `ConfigManager` instance with the specified file path
-- Calls `EnsureDefaultConfig` to ensure valid configuration exists
-- Initializes relay pools for centralized rate limiting
-
-### LoadConfig Function
-- Reads the main configuration from the managed file
-- Handles version detection and migration triggers
-
-### SaveConfig Function (Enhanced)
-- Writes configuration using `json.MarshalIndent()` with 2-space indentation
-- Creates human-readable, easily editable configuration files
-
-### EnsureDefaultConfig Function (Updated)
-- Ensures default v0.0.3 configuration exists
-- Creates configuration with:
-  - `metric`: "milliseconds"
-  - `step_size`: 60000
-  - Mint-specific `price_per_step`: 1
-  - Default accepted mints with complete configuration
-
-## PackageInfo Struct
-
-The `PackageInfo` struct holds information extracted from NIP-94 events:
+### 2.1. `config.go`
 
 ```go
-type PackageInfo struct {
-	Version        string
-	Timestamp      int64
-	ReleaseChannel string
+package config_manager
+
+// Config represents the main configuration for the Tollgate service.
+type Config struct {
+	ConfigVersion string       `json:"config_version"`
+	AcceptedMints []MintConfig `json:"accepted_mints"`
+	ProfitShare   []ProfitShareConfig `json:"profit_share"`
+	StepSize      uint64       `json:"step_size"`
+	Metric        string       `json:"metric"`
+	Relays        []string     `json:"relays"`
+	ShowSetup     bool         `json:"show_setup"`
+}
+
+// MintConfig holds configuration for a specific mint.
+type MintConfig struct {
+	URL                     string `json:"url"`
+	MinBalance              uint64 `json:"min_balance"`
+	BalanceTolerancePercent uint64 `json:"balance_tolerance_percent"`
+	PayoutIntervalSeconds   uint64 `json:"payout_interval_seconds"`
+	MinPayoutAmount         uint64 `json:"min_payout_amount"`
+	PricePerStep            uint64 `json:"price_per_step"`
+	PriceUnit               string `json:"price_unit"`
+	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
+}
+
+// ProfitShareConfig defines how profits are shared.
+type ProfitShareConfig struct {
+	Factor   float64 `json:"factor"`
+	Identity string  `json:"identity"`
 }
 ```
 
-## InstallConfig Struct
+### 2.2. `install.go`
 
-The `InstallConfig` struct holds the installation configuration parameters:
+```go
+package config_manager
 
-```json
-{
-  "package_path": "/path/to/package",
-  "current_installation_id": "e74289953053874ae0beb31bea8767be6212d7a1d2119003d0853e115da23597",
-  "download_timestamp": 1674567890
+// InstallConfig holds installation-specific parameters.
+type InstallConfig struct {
+	ConfigVersion          string `json:"config_version"`
+	PackagePath            string `json:"package_path"`
+	IPAddressRandomized    bool   `json:"ip_address_randomized"`
+	InstallTimestamp       int64  `json:"install_time"`
+	DownloadTimestamp      int64  `json:"download_time"`
+	ReleaseChannel         string `json:"release_channel"`
+	EnsureDefaultTimestamp int64  `json:"ensure_default_timestamp"`
+	InstalledVersion       string `json:"installed_version"`
 }
 ```
 
-## Helper Functions
+### 2.3. `identities.go`
 
-### ExtractPackageInfo Function
-- Extracts `PackageInfo` from a given NIP-94 event
-- Handles version, timestamp, and release channel extraction
+```go
+package config_manager
 
-### GetNIP94Event Function
-- Fetches a NIP-94 event from a relay using the provided event ID
-- Iterates through configured relays to find the event
-- Implements rate limiting for relay requests
+// IdentitiesConfig holds all user and system identities.
+type IdentitiesConfig struct {
+	ConfigVersion    string            `json:"config_version"`
+	OwnedIdentities  []OwnedIdentity   `json:"owned_identities"`
+	PublicIdentities []PublicIdentity  `json:"public_identities"`
+}
 
-## Centralized Rate Limiting for relayPool
+// OwnedIdentity represents an identity with a private key.
+type OwnedIdentity struct {
+	Name       string `json:"name"`
+	PrivateKey string `json:"privatekey"`
+}
 
-To address the 'too many concurrent REQs' error, we implement centralized rate limiting for `relayPool` within `config_manager`. This involves:
+// PublicIdentity represents a public-facing identity.
+type PublicIdentity struct {
+	Name             string `json:"name"`
+	PubKey           string `json:"pubkey,omitempty"`
+	LightningAddress string `json:"lightning_address,omitempty"`
+}
+```
 
-- Initializing `relayPool` in `config_manager`
-- Providing controlled access through member functions
-- Ensuring all services using `relayPool` are rate-limited
-- Preventing excessive concurrent requests to relays
+## 3. File and Function Organization
 
-## Testing
+The `config_manager` package will be split into the following files:
 
-- Updated test files for new configuration structure
-- Migration testing with v0.0.2 configuration samples
-- Pretty-printed JSON output validation
-- Backward compatibility verification
+### 3.1. `config_manager.go`
+
+- **`ConfigManager` struct:**
+  ```go
+  type ConfigManager struct {
+      ConfigFilePath     string
+      InstallFilePath    string
+      IdentitiesFilePath string
+      config             *Config
+      installConfig      *InstallConfig
+      identitiesConfig   *IdentitiesConfig
+      // ... nostr pools
+  }
+  ```
+- **`NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigManager, error)`:** Initializes the manager and loads all configurations.
+- **Getters:** `GetConfig()`, `GetInstallConfig()`, `GetIdentities()`, `GetIdentity()`, `GetOwnedIdentity()`.
+
+### 3.2. `config_manager_config.go`
+
+- **`LoadConfig(filePath string) (*Config, error)`:** Loads and parses `config.json`.
+- **`SaveConfig(filePath string, config *Config) error`:** Saves `config.json`.
+- **`EnsureDefaultConfig(filePath string) (*Config, error)`:** Creates a default `config.json` if one doesn't exist.
+
+### 3.3. `config_manager_install.go`
+
+- **`LoadInstallConfig(filePath string) (*InstallConfig, error)`:** Loads and parses `install.json`.
+- **`SaveInstallConfig(filePath string, config *InstallConfig) error`:** Saves `install.json`.
+- **`EnsureDefaultInstall(filePath string) (*InstallConfig, error)`:** Creates a default `install.json`.
+
+### 3.4. `config_manager_identities.go`
+
+- **`LoadIdentities(filePath string) (*IdentitiesConfig, error)`:** Loads and parses `identities.json`.
+- **`SaveIdentities(filePath string, config *IdentitiesConfig) error`:** Saves `identities.json`.
+- **`EnsureDefaultIdentities(filePath string) (*IdentitiesConfig, error)`:** Creates a default `identities.json`.
+
+## 4. Bragging Module Removal
+
+All files, structs, and functions related to the `bragging` module will be deleted.
+- Remove `BraggingConfig` from the old `Config` struct.
+- Delete the `src/bragging` directory.
+
+## 5. Configuration Resilience Logic
+
+The resilience logic will be implemented within the `EnsureDefault...` functions for each configuration file (`config_manager_config.go`, `config_manager_install.go`, `config_manager_identities.go`). This approach avoids a central migration function and handles invalid configurations at the source.
+
+### 5.1. Generic Backup Function
+
+A new helper function will be added to `config_manager.go` to handle the file backup process.
+
+```go
+// backupAndLog backs up a specified file and logs the action.
+func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
+    // 1. Ensure backup directory exists
+    if err := os.MkdirAll(backupDir, 0755); err != nil {
+        return fmt.Errorf("failed to create backup directory: %w", err)
+    }
+
+    // 2. Generate backup filename
+    timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
+    backupFilename := fmt.Sprintf("%s_%s_%s.json", fileType, timestamp, codeVersion)
+    backupPath := filepath.Join(backupDir, backupFilename)
+
+    // 3. Move the file
+    if err := os.Rename(filePath, backupPath); err != nil {
+        return fmt.Errorf("failed to move config to backup: %w", err)
+    }
+
+    // 4. Log the action
+    log.Printf("WARNING: Invalid '%s' config file found. Backed up to %s", fileType, backupPath)
+    return nil
+}
+```
+
+### 5.2. Modified `EnsureDefault...` Functions
+
+Each `EnsureDefault...` function will be modified to include the resilience logic. Below is the example for `EnsureDefaultConfig`. The same pattern will be applied to `EnsureDefaultInstall` and `EnsureDefaultIdentities`.
+
+**`config_manager_config.go`**
+
+```go
+// EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
+func EnsureDefaultConfig(filePath string) (*Config, error) {
+    defaultConfig := NewDefaultConfig()
+    data, err := os.ReadFile(filePath)
+    if err != nil {
+        if os.IsNotExist(err) {
+            // File does not exist, save the default config
+            return defaultConfig, SaveConfig(filePath, defaultConfig)
+        }
+        return nil, err // Other read error
+    }
+
+    // File exists, attempt to unmarshal
+    var config Config
+    if err := json.Unmarshal(data, &config); err != nil || config.ConfigVersion != defaultConfig.ConfigVersion {
+        // Unmarshal failed or version mismatch, trigger backup and recreate
+        if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+            log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
+            // Depending on desired behavior, we might return an error or proceed with default
+            return nil, backupErr
+        }
+        // Save new default config
+        return defaultConfig, SaveConfig(filePath, defaultConfig)
+    }
+
+    return &config, nil
+}
+```
+
+This implementation ensures that any time a configuration file is found to be invalid or outdated, it is safely backed up, and the system self-heals by creating a new default file, preventing crashes and improving overall robustness.

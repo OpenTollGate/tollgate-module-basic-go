@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -28,9 +30,9 @@ type Merchant struct {
 func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	log.Printf("=== Merchant Initializing ===")
 
-	config, err := configManager.LoadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+	config := configManager.GetConfig()
+	if config == nil {
+		return nil, fmt.Errorf("main config is nil")
 	}
 
 	// Extract mint URLs from MintConfig
@@ -40,7 +42,11 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	}
 
 	log.Printf("Setting up wallet...")
-	tollwallet, walletErr := tollwallet.New("/etc/tollgate", mintURLs, false)
+	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
+	}
+	tollwallet, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
@@ -48,8 +54,7 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	balance := tollwallet.GetBalance()
 
 	// Set advertisement
-	var advertisementStr string
-	advertisementStr, err = CreateAdvertisement(config)
+	advertisementStr, err := CreateAdvertisement(configManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement: %w", err)
 	}
@@ -101,9 +106,20 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
 	aimedPaymentAmount := balance - mintConfig.MinBalance
 
+	identities := m.configManager.GetIdentities()
+	if identities == nil {
+		return
+	}
+
 	for _, profitShare := range m.config.ProfitShare {
 		aimedAmount := uint64(math.Round(float64(aimedPaymentAmount) * profitShare.Factor))
-		m.PayoutShare(mintConfig, aimedAmount, profitShare.LightningAddress)
+		// Lookup lightning address from identities based on the profitShare.Identity name
+		profitShareIdentity, err := identities.GetPublicIdentity(profitShare.Identity)
+		if err != nil {
+			log.Printf("Warning: Could not find public identity for profit share: %v", err)
+			continue // Skip this profit share if identity not found
+		}
+		m.PayoutShare(mintConfig, aimedAmount, profitShareIdentity.LightningAddress)
 	}
 
 	log.Printf("Payout completed for mint %s", mintConfig.URL)
@@ -267,7 +283,12 @@ func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
 
-func CreateAdvertisement(config *config_manager.Config) (string, error) {
+func CreateAdvertisement(configManager *config_manager.ConfigManager) (string, error) {
+	config := configManager.GetConfig()
+	if config == nil {
+		return "", fmt.Errorf("main config is nil")
+	}
+
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
 		Tags: nostr.Tags{
@@ -290,8 +311,16 @@ func CreateAdvertisement(config *config_manager.Config) (string, error) {
 		})
 	}
 
+	identities := configManager.GetIdentities()
+	if identities == nil {
+		return "", fmt.Errorf("identities config is nil")
+	}
+	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
+	if err != nil {
+		return "", fmt.Errorf("merchant identity not found: %w", err)
+	}
 	// Sign
-	err := advertisementEvent.Sign(config.TollgatePrivateKey)
+	err = advertisementEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("Error signing advertisement event: %v", err)
 	}
@@ -402,8 +431,16 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
 	log.Printf("Querying for existing session for customer %s", customerPubkey)
 
+	identities := m.configManager.GetIdentities()
+	if identities == nil {
+		return nil, fmt.Errorf("identities config is nil")
+	}
+	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
+	if err != nil {
+		return nil, fmt.Errorf("merchant identity not found: %w", err)
+	}
 	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
 	if err != nil {
 		log.Printf("Error getting public key from private key: %v", err)
 		return nil, err
@@ -498,11 +535,20 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64
 	customerPubkey := paymentEvent.PubKey
 	deviceIdentifier, err := m.extractDeviceIdentifier(paymentEvent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract device identifier: %w", err)
+		return nil, err
+	}
+
+	identities := m.configManager.GetIdentities()
+	if identities == nil {
+		return nil, fmt.Errorf("identities config is nil")
+	}
+	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
+	if err != nil {
+		return nil, fmt.Errorf("merchant identity not found: %w", err)
 	}
 
 	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public key: %w", err)
 	}
@@ -521,7 +567,7 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64
 	}
 
 	// Sign with tollgate private key
-	err = sessionEvent.Sign(m.config.TollgatePrivateKey)
+	err = sessionEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign session event: %w", err)
 	}
@@ -580,8 +626,16 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 		return nil, fmt.Errorf("failed to extract customer or device info from existing session")
 	}
 
+	identities := m.configManager.GetIdentities()
+	if identities == nil {
+		return nil, fmt.Errorf("identities config is nil")
+	}
+	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
+	if err != nil {
+		return nil, fmt.Errorf("merchant identity not found: %w", err)
+	}
 	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public key: %w", err)
 	}
@@ -601,7 +655,7 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 	}
 
 	// Sign with tollgate private key
-	err = sessionEvent.Sign(m.config.TollgatePrivateKey)
+	err = sessionEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign extended session event: %w", err)
 	}
@@ -641,7 +695,11 @@ func (m *Merchant) publishLocal(event *nostr.Event) error {
 func (m *Merchant) publishPublic(event *nostr.Event) error {
 	log.Printf("Publishing event kind=%d id=%s to public pools", event.Kind, event.ID)
 
-	for _, relayURL := range m.config.Relays {
+	config := m.configManager.GetConfig()
+	if config == nil {
+		return fmt.Errorf("main config is nil")
+	}
+	for _, relayURL := range config.Relays {
 		relay, err := m.configManager.GetPublicPool().EnsureRelay(relayURL)
 		if err != nil {
 			log.Printf("Failed to connect to public relay %s: %v", relayURL, err)
@@ -661,14 +719,22 @@ func (m *Merchant) publishPublic(event *nostr.Event) error {
 
 // CreateNoticeEvent creates a notice event for error communication
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
+	identities := m.configManager.GetIdentities()
+	if identities == nil {
+		return nil, fmt.Errorf("identities config is nil")
+	}
+	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
+	if err != nil {
+		return nil, fmt.Errorf("merchant identity not found: %w", err)
+	}
 	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(m.config.TollgatePrivateKey)
+	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public key: %w", err)
 	}
 
 	noticeEvent := &nostr.Event{
-		Kind:      21023,
+		Kind:      21023, // NIP-94 notice event
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
@@ -684,7 +750,7 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	}
 
 	// Sign with tollgate private key
-	err = noticeEvent.Sign(m.config.TollgatePrivateKey)
+	err = noticeEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}

@@ -1,12 +1,16 @@
-package main
+package main_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
+	"github.com/OpenTollGate/tollgate-module-basic-go" // Import the main package
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -60,8 +64,21 @@ func TestEventValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Private key for testing (hex encoded)
+			// nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda
+			testPrivateKeyBech32 := "nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda"
+			_, data, err := bech32.Decode(testPrivateKeyBech32)
+			if err != nil {
+				log.Fatalf("Failed to decode test private key (bech32): %v", err)
+			}
+			converted, err := bech32.ConvertBits(data, 5, 8, false)
+			if err != nil {
+				log.Fatalf("Failed to convert bits for test private key: %v", err)
+			}
+			testPrivateKeyHex := hex.EncodeToString(converted)
+
 			// Sign the event for testing
-			err := tt.event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+			err = tt.event.Sign(testPrivateKeyHex)
 			if err != nil {
 				t.Fatal("Failed to sign event:", err)
 			}
@@ -78,7 +95,7 @@ func TestEventValidation(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(handleRootPost)
+			handler := http.HandlerFunc(main.HandleRootPost)
 			handler.ServeHTTP(rr, req)
 
 			if status := rr.Code; status != tt.expectedStatus {
@@ -113,7 +130,7 @@ func TestEventSignatureValidation(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(handleRootPost)
+	handler := http.HandlerFunc(main.HandleRootPost)
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid signature
@@ -196,8 +213,21 @@ func TestMACAddressValidation(t *testing.T) {
 				PubKey: "02a7451395735369f2ecdfc829c0f774e88ef1303dfe5b2f04dbaab30a535dfdd6",
 			}
 
+			// Private key for testing (hex encoded)
+			// nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda
+			testPrivateKeyBech32 := "nsec1mudxgnmyh83yhpsm4e4kqfl0y0lr4kvydvskl30fcr2wk2z35ywq9hzhda"
+			_, data, err := bech32.Decode(testPrivateKeyBech32)
+			if err != nil {
+				log.Fatalf("Failed to decode test private key (bech32): %v", err)
+			}
+			converted, err := bech32.ConvertBits(data, 5, 8, false)
+			if err != nil {
+				log.Fatalf("Failed to convert bits for test private key: %v", err)
+			}
+			testPrivateKeyHex := hex.EncodeToString(converted)
+
 			// Sign the event for testing
-			err := event.Sign("nsec1j8ee8lzkjre3tm6sn9gc4w0v24vy0k5fkw3c2xpn9vpy8vygm9yq2a0zqz")
+			err = event.Sign(testPrivateKeyHex)
 			if err != nil {
 				t.Fatal("Failed to sign event:", err)
 			}
@@ -214,7 +244,7 @@ func TestMACAddressValidation(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(handleRootPost)
+			handler := http.HandlerFunc(main.HandleRootPost)
 			handler.ServeHTTP(rr, req)
 
 			// All should return BadRequest since we don't have merchant setup,

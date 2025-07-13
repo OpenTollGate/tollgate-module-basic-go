@@ -67,7 +67,7 @@ func TestNew(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	walletPath := filepath.Join(tempDir, "wallet.db")
+	walletPath := tempDir
 
 	// Test case with valid parameters
 	t.Run("Valid parameters", func(t *testing.T) {
