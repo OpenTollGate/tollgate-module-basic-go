@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -164,6 +165,19 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		"step_size":            adInfo.StepSize,
 	}).Info("💳 Calculated payment steps for granular session")
 
+	// Final check: ensure we don't send a payment with 0 steps
+	if steps == 0 {
+		err := fmt.Errorf("cannot make payment with 0 steps: insufficient funds or invalid pricing")
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey":      upstream.Advertisement.PubKey,
+			"available_balance":    availableBalance,
+			"price_per_step":       selectedPricing.PricePerStep,
+			"max_affordable_steps": maxAffordableSteps,
+			"min_steps":            selectedPricing.MinSteps,
+		}).Error("Payment rejected: 0 steps calculated")
+		return err
+	}
+
 	// Create payment proposal
 	proposal := &PaymentProposal{
 		UpstreamPubkey:     upstream.Advertisement.PubKey,
@@ -238,8 +252,19 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		return err
 	}
 
-	// Update session with the received session event
+	// Extract actual allotment from session event response
+	actualAllotment, err := c.extractAllotment(sessionEvent)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstream.Advertisement.PubKey,
+			"error":           err,
+		}).Error("Failed to extract allotment from session event")
+		return err
+	}
+
+	// Update session with the received session event and actual allotment
 	session.SessionEvent = sessionEvent
+	session.TotalAllotment = actualAllotment
 
 	// Create and start usage tracker
 	err = c.createUsageTracker(session)
@@ -379,7 +404,7 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 	}
 
 	// Send renewal payment
-	_, err = c.createAndSendPayment(session, proposal)
+	sessionEvent, err := c.createAndSendPayment(session, proposal)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"upstream_pubkey": upstreamPubkey,
@@ -388,16 +413,29 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 		return err
 	}
 
+	// Extract new allotment from session event response
+	newAllotment, err := c.extractAllotment(sessionEvent)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstreamPubkey,
+			"error":           err,
+		}).Error("Failed to extract allotment from session event")
+		return err
+	}
+
+	// Calculate additional allotment (new allotment minus current usage)
+	additionalAllotment := newAllotment - currentUsage
+
 	// Update session
 	session.mu.Lock()
-	session.TotalAllotment += proposal.EstimatedAllotment
+	session.TotalAllotment = newAllotment
 	session.LastRenewalAt = time.Now()
 	session.LastPaymentAt = time.Now()
 	session.TotalSpent += proposal.Steps * proposal.PricingOption.PricePerStep
 	session.PaymentCount++
 
 	if session.UsageTracker != nil {
-		err := session.UsageTracker.UpdateAllotment(proposal.EstimatedAllotment)
+		err := session.UsageTracker.UpdateAllotment(additionalAllotment)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"upstream_pubkey": upstreamPubkey,
@@ -409,7 +447,9 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 
 	logger.WithFields(logrus.Fields{
 		"upstream_pubkey":      upstreamPubkey,
-		"additional_allotment": proposal.EstimatedAllotment,
+		"new_allotment":        newAllotment,
+		"current_usage":        currentUsage,
+		"additional_allotment": additionalAllotment,
 		"total_allotment":      session.TotalAllotment,
 		"total_spent":          session.TotalSpent,
 	}).Info("Session renewed successfully")
@@ -590,7 +630,6 @@ func (c *Chandler) sendPaymentToUpstream(paymentEvent *nostr.Event, gatewayIP st
 	logger.WithFields(logrus.Fields{
 		"url":          url,
 		"payload_size": len(paymentBytes),
-		"request_body": string(paymentBytes),
 	}).Info("Sending payment to upstream TollGate")
 
 	resp, err := client.Do(req)
@@ -697,6 +736,20 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 	}).Info("✅ Usage tracker successfully started and monitoring session")
 
 	return nil
+}
+
+// extractAllotment extracts the allotment value from a session event
+func (c *Chandler) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
+	for _, tag := range sessionEvent.Tags {
+		if len(tag) >= 2 && tag[0] == "allotment" {
+			allotment, err := strconv.ParseUint(tag[1], 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("failed to parse allotment: %w", err)
+			}
+			return allotment, nil
+		}
+	}
+	return 0, fmt.Errorf("no allotment tag found in session event")
 }
 
 // checkAdvertisementChanges compares the current advertisement with the latest from upstream
