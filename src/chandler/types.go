@@ -24,10 +24,8 @@ type UpstreamTollgate struct {
 
 // ChandlerSession represents an active session with an upstream TollGate
 type ChandlerSession struct {
-	// Upstream TollGate identification
-	UpstreamPubkey string // TollGate pubkey (primary key)
-	InterfaceName  string // Network interface name
-	GatewayIP      string // Gateway IP address
+	// Original upstream tollgate object (contains all network info)
+	UpstreamTollgate *UpstreamTollgate // Original upstream tollgate discovery object
 
 	// Customer identity for this session
 	CustomerPrivateKey string // Unique private key for this upstream connection
@@ -135,6 +133,7 @@ type DataUsageTracker struct {
 	startBytes    uint64
 	currentBytes  uint64
 	thresholds    []float64
+	triggered     map[float64]bool
 	ticker        *time.Ticker
 	done          chan bool
 	mu            sync.RWMutex

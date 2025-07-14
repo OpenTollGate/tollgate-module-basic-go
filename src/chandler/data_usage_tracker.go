@@ -35,15 +35,16 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 
 	d.startBytes = initialBytes
 	d.currentBytes = initialBytes
+	d.triggered = make(map[float64]bool) // Initialize triggered map
 
 	// Start monitoring with 5-second precision for data usage
 	// Data usage needs polling since we can't predict when network traffic occurs
-	d.ticker = time.NewTicker(5 * time.Second)
+	d.ticker = time.NewTicker(500 * time.Millisecond)
 
 	go d.monitor()
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamPubkey,
+		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 		"interface":       d.interfaceName,
 		"start_bytes":     d.startBytes,
 		"total_allotment": session.TotalAllotment,
@@ -68,7 +69,7 @@ func (d *DataUsageTracker) Stop() error {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": d.session.UpstreamPubkey,
+		"upstream_pubkey": d.session.UpstreamTollgate.Advertisement.PubKey,
 		"total_usage":     d.GetCurrentUsage(),
 	}).Info("Data usage tracker stopped")
 
@@ -143,7 +144,7 @@ func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 	d.mu.RLock()
 	currentUsage := d.GetCurrentUsage()
 	totalAllotment := d.session.TotalAllotment
-	upstreamPubkey := d.session.UpstreamPubkey
+	upstreamPubkey := d.session.UpstreamTollgate.Advertisement.PubKey
 	thresholds := d.thresholds
 	d.mu.RUnlock()
 

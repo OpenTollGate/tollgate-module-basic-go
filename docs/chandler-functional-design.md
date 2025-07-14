@@ -520,7 +520,7 @@ func (c *Chandler) checkAdvertisementChanges(session *ChandlerSession, newAd *no
     // Compare pricing options
     if !c.comparePricingOptions(oldPricing, newPricing) {
         logger.WithFields(logrus.Fields{
-            "upstream_pubkey": session.UpstreamPubkey,
+            "upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
             "old_pricing":     oldPricing,
             "new_pricing":     newPricing,
         }).Warn("WARNING: Upstream advertisement pricing changed")

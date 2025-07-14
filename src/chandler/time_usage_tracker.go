@@ -29,7 +29,7 @@ func (t *TimeUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	t.setupThresholdTimers()
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamPubkey,
+		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 		"total_allotment": session.TotalAllotment,
 		"thresholds":      t.thresholds,
 	}).Info("Time usage tracker started with threshold timers")
@@ -54,7 +54,7 @@ func (t *TimeUsageTracker) Stop() error {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": t.session.UpstreamPubkey,
+		"upstream_pubkey": t.session.UpstreamTollgate.Advertisement.PubKey,
 		"total_usage":     t.GetCurrentUsage(),
 	}).Info("Time usage tracker stopped")
 
@@ -127,7 +127,7 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 		t.timers = append(t.timers, timer)
 
 		logrus.WithFields(logrus.Fields{
-			"upstream_pubkey": t.session.UpstreamPubkey,
+			"upstream_pubkey": t.session.UpstreamTollgate.Advertisement.PubKey,
 			"threshold":       threshold,
 			"duration_ms":     thresholdMs,
 		}).Debug("Set up threshold timer")
@@ -138,7 +138,7 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 func (t *TimeUsageTracker) handleThresholdReached(threshold float64) {
 	t.mu.RLock()
 	currentUsage := t.GetCurrentUsage()
-	upstreamPubkey := t.session.UpstreamPubkey
+	upstreamPubkey := t.session.UpstreamTollgate.Advertisement.PubKey
 	totalAllotment := t.session.TotalAllotment
 	t.mu.RUnlock()
 

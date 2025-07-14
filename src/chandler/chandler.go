@@ -127,11 +127,29 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 
 	// Choose the smallest of: preferred, affordable, or minimum required
 	desiredSteps := preferredSteps
+
+	logger.WithFields(logrus.Fields{
+		"preferred_allotment":  preferredAllotment,
+		"step_size":            adInfo.StepSize,
+		"preferred_steps":      preferredSteps,
+		"available_balance":    availableBalance,
+		"price_per_step":       selectedPricing.PricePerStep,
+		"max_affordable_steps": maxAffordableSteps,
+		"min_steps":            selectedPricing.MinSteps,
+		"desired_steps_before": desiredSteps,
+	}).Info("🔍 Step calculation details")
+
 	if desiredSteps < selectedPricing.MinSteps {
 		desiredSteps = selectedPricing.MinSteps
+		logger.WithFields(logrus.Fields{
+			"adjusted_to_min": desiredSteps,
+		}).Info("🔍 Adjusted to minimum steps")
 	}
 	if desiredSteps > maxAffordableSteps {
 		desiredSteps = maxAffordableSteps
+		logger.WithFields(logrus.Fields{
+			"adjusted_to_affordable": desiredSteps,
+		}).Info("🔍 Adjusted to affordable steps")
 	}
 
 	steps := desiredSteps
@@ -184,9 +202,7 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 
 	// Create session first
 	session := &ChandlerSession{
-		UpstreamPubkey:     upstream.Advertisement.PubKey,
-		InterfaceName:      upstream.InterfaceName,
-		GatewayIP:          upstream.GatewayIP,
+		UpstreamTollgate:   upstream,
 		CustomerPrivateKey: customerPrivateKey,
 		Advertisement:      upstream.Advertisement,
 		AdvertisementInfo:  adInfo,
@@ -213,7 +229,7 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		"total_amount":        proposal.Steps * proposal.PricingOption.PricePerStep,
 	}).Info("💰 Creating payment proposal for upstream TollGate")
 
-	sessionEvent, err := c.createAndSendPayment(session, proposal, upstream)
+	sessionEvent, err := c.createAndSendPayment(session, proposal)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"upstream_pubkey": upstream.Advertisement.PubKey,
@@ -270,7 +286,7 @@ func (c *Chandler) HandleDisconnect(interfaceName string) error {
 
 	// Find sessions on this interface
 	for pubkey, session := range c.sessions {
-		if session.InterfaceName == interfaceName {
+		if session.UpstreamTollgate.InterfaceName == interfaceName {
 			// Stop usage tracker
 			if session.UsageTracker != nil {
 				session.UsageTracker.Stop()
@@ -283,7 +299,7 @@ func (c *Chandler) HandleDisconnect(interfaceName string) error {
 			logger.WithFields(logrus.Fields{
 				"upstream_pubkey": pubkey,
 				"interface":       interfaceName,
-				"gateway":         session.GatewayIP,
+				"gateway":         session.UpstreamTollgate.GatewayIP,
 			}).Info("❌ DISCONNECTED: Session terminated due to interface disconnect")
 		}
 	}
@@ -362,16 +378,8 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 		return err
 	}
 
-	// Create upstream tollgate object for renewal
-	upstream := &UpstreamTollgate{
-		InterfaceName: session.InterfaceName,
-		GatewayIP:     session.GatewayIP,
-		Advertisement: session.Advertisement,
-		DiscoveredAt:  session.CreatedAt,
-	}
-
 	// Send renewal payment
-	_, err = c.createAndSendPayment(session, proposal, upstream)
+	_, err = c.createAndSendPayment(session, proposal)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"upstream_pubkey": upstreamPubkey,
@@ -387,6 +395,7 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 	session.LastPaymentAt = time.Now()
 	session.TotalSpent += proposal.Steps * proposal.PricingOption.PricePerStep
 	session.PaymentCount++
+
 	session.mu.Unlock()
 
 	logger.WithFields(logrus.Fields{
@@ -492,10 +501,10 @@ func (c *Chandler) TerminateSession(pubkey string) error {
 }
 
 // createAndSendPayment creates a payment event and sends it to the upstream TollGate
-func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *PaymentProposal, upstream *UpstreamTollgate) (*nostr.Event, error) {
+func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *PaymentProposal) (*nostr.Event, error) {
 	// Create payment token through merchant
 	paymentAmount := proposal.Steps * proposal.PricingOption.PricePerStep
-	paymentToken, err := c.merchant.CreatePaymentToken(proposal.PricingOption.MintURL, paymentAmount)
+	paymentToken, err := c.merchant.CreatePaymentTokenWithOverpayment(proposal.PricingOption.MintURL, paymentAmount, 10000, 100)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create payment token: %w", err)
 	}
@@ -504,8 +513,8 @@ func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *Paym
 	customerPrivateKey := session.CustomerPrivateKey
 	customerPublicKey, _ := nostr.GetPublicKey(customerPrivateKey)
 
-	// Get MAC address from upstream tollgate object
-	macAddress := upstream.MacAddress
+	// Get MAC address from session's upstream tollgate object
+	macAddress := session.UpstreamTollgate.MacAddress
 
 	// Create payment event
 	paymentEvent := nostr.Event{
@@ -527,7 +536,7 @@ func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *Paym
 	}
 
 	// Send payment to upstream TollGate
-	sessionEvent, err := c.sendPaymentToUpstream(&paymentEvent, upstream.GatewayIP)
+	sessionEvent, err := c.sendPaymentToUpstream(&paymentEvent, session.UpstreamTollgate.GatewayIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send payment to upstream: %w", err)
 	}
@@ -629,17 +638,17 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 		tracker = NewTimeUsageTracker()
 		trackerType = "time-based"
 	case "bytes":
-		tracker = NewDataUsageTracker(session.InterfaceName)
+		tracker = NewDataUsageTracker(session.UpstreamTollgate.InterfaceName)
 		trackerType = "data-based"
 	default:
 		return fmt.Errorf("unsupported metric: %s", session.AdvertisementInfo.Metric)
 	}
 
 	logger.WithFields(logrus.Fields{
-		"upstream_pubkey":    session.UpstreamPubkey,
+		"upstream_pubkey":    session.UpstreamTollgate.Advertisement.PubKey,
 		"tracker_type":       trackerType,
 		"metric":             session.AdvertisementInfo.Metric,
-		"interface":          session.InterfaceName,
+		"interface":          session.UpstreamTollgate.InterfaceName,
 		"total_allotment":    session.TotalAllotment,
 		"renewal_thresholds": session.RenewalThresholds,
 	}).Info("🔍 Creating usage tracker for session monitoring")
@@ -648,7 +657,7 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 	err := tracker.SetRenewalThresholds(session.RenewalThresholds)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": session.UpstreamPubkey,
+			"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 			"error":           err,
 		}).Error("Failed to set renewal thresholds")
 		return fmt.Errorf("failed to set renewal thresholds: %w", err)
@@ -656,14 +665,14 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 
 	// Start tracking
 	logger.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamPubkey,
+		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 		"tracker_type":    trackerType,
 	}).Info("▶️  Starting usage tracker monitoring")
 
 	err = tracker.Start(session, c)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": session.UpstreamPubkey,
+			"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 			"tracker_type":    trackerType,
 			"error":           err,
 		}).Error("Failed to start usage tracker")
@@ -673,7 +682,7 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 	session.UsageTracker = tracker
 
 	logger.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamPubkey,
+		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 		"tracker_type":    trackerType,
 		"metric":          session.AdvertisementInfo.Metric,
 	}).Info("✅ Usage tracker successfully started and monitoring session")
@@ -686,7 +695,7 @@ func (c *Chandler) checkAdvertisementChanges(session *ChandlerSession) {
 	// TODO: Implement advertisement fetching and comparison
 	// For now, we'll just log that we should check for changes
 	logger.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamPubkey,
+		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 	}).Debug("Should check for advertisement changes")
 }
 
