@@ -24,6 +24,7 @@ func (t *TimeUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	t.chandler = chandler
 	t.startTime = time.Now()
 	t.pausedTime = 0
+	t.currentIncrement = session.TotalAllotment
 
 	// Set up timers for each threshold
 	t.setupThresholdTimers()
@@ -96,6 +97,16 @@ func (t *TimeUsageTracker) SetRenewalThresholds(thresholds []float64) error {
 	return nil
 }
 
+// UpdateAllotment is called when a renewal payment is made
+func (t *TimeUsageTracker) UpdateAllotment(newIncrement uint64) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.currentIncrement = newIncrement
+	t.setupThresholdTimers()
+	return nil
+}
+
 // setupThresholdTimers creates timers for each threshold
 func (t *TimeUsageTracker) setupThresholdTimers() {
 	// Stop existing timers
@@ -114,9 +125,21 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 	sort.Float64s(sortedThresholds)
 
 	for _, threshold := range sortedThresholds {
-		// Calculate when this threshold will be reached
-		thresholdMs := uint64(float64(t.session.TotalAllotment) * threshold)
-		duration := time.Duration(thresholdMs) * time.Millisecond
+		var duration time.Duration
+
+		// If it's the first purchase, the renewal is based on the total allotment.
+		// For subsequent renewals, it's based on the increment from the current usage.
+		if t.currentIncrement == t.session.TotalAllotment {
+			duration = time.Duration(uint64(float64(t.session.TotalAllotment)*threshold)) * time.Millisecond
+		} else {
+			thresholdFromNow := uint64(float64(t.currentIncrement) * threshold)
+			duration = time.Duration(thresholdFromNow) * time.Millisecond
+		}
+
+		// we already passed this
+		if duration <= 0 {
+			continue
+		}
 
 		timer := time.AfterFunc(duration, func(th float64) func() {
 			return func() {
@@ -129,7 +152,7 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 		logrus.WithFields(logrus.Fields{
 			"upstream_pubkey": t.session.UpstreamTollgate.Advertisement.PubKey,
 			"threshold":       threshold,
-			"duration_ms":     thresholdMs,
+			"duration_ms":     duration.Milliseconds(),
 		}).Debug("Set up threshold timer")
 	}
 }

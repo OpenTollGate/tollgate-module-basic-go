@@ -396,6 +396,15 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 	session.TotalSpent += proposal.Steps * proposal.PricingOption.PricePerStep
 	session.PaymentCount++
 
+	if session.UsageTracker != nil {
+		err := session.UsageTracker.UpdateAllotment(proposal.EstimatedAllotment)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"upstream_pubkey": upstreamPubkey,
+				"error":           err,
+			}).Error("Failed to update usage tracker allotment")
+		}
+	}
 	session.mu.Unlock()
 
 	logger.WithFields(logrus.Fields{

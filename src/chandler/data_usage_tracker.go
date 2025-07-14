@@ -35,6 +35,7 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 
 	d.startBytes = initialBytes
 	d.currentBytes = initialBytes
+	d.currentIncrement = session.TotalAllotment
 	d.triggered = make(map[float64]bool) // Initialize triggered map
 
 	// Start monitoring with 5-second precision for data usage
@@ -108,17 +109,25 @@ func (d *DataUsageTracker) SetRenewalThresholds(thresholds []float64) error {
 	return nil
 }
 
+// UpdateAllotment is called when a renewal payment is made
+func (d *DataUsageTracker) UpdateAllotment(newIncrement uint64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.currentIncrement = newIncrement
+	d.triggered = make(map[float64]bool)
+	return nil
+}
+
 // monitor runs the monitoring loop for data usage
 func (d *DataUsageTracker) monitor() {
-	triggeredThresholds := make(map[float64]bool)
-
 	for {
 		select {
 		case <-d.done:
 			return
 		case <-d.ticker.C:
 			d.updateCurrentBytes()
-			d.checkThresholds(triggeredThresholds)
+			d.checkThresholds(d.triggered)
 		}
 	}
 }
@@ -148,15 +157,20 @@ func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 	thresholds := d.thresholds
 	d.mu.RUnlock()
 
-	if totalAllotment == 0 {
+	if d.currentIncrement == 0 {
 		return
 	}
 
-	usagePercent := float64(currentUsage) / float64(totalAllotment)
+	usageInCurrentIncrement := currentUsage - (totalAllotment - d.currentIncrement)
+	if usageInCurrentIncrement < 0 {
+		usageInCurrentIncrement = 0
+	}
+
+	usagePercent := float64(usageInCurrentIncrement) / float64(d.currentIncrement)
 
 	for _, threshold := range thresholds {
-		if usagePercent >= threshold && !triggered[threshold] {
-			triggered[threshold] = true
+		if usagePercent >= threshold && !d.triggered[threshold] {
+			d.triggered[threshold] = true
 
 			logrus.WithFields(logrus.Fields{
 				"upstream_pubkey": upstreamPubkey,
