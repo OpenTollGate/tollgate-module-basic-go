@@ -15,10 +15,6 @@
 
 /*! scure-base - MIT License (c) 2022 Paul Miller (paulmillr.com) */
 
-/*! scure-bip32 - MIT License (c) 2022 Patricio Palladino, Paul Miller (paulmillr.com) */
-
-/*! scure-bip39 - MIT License (c) 2022 Patricio Palladino, Paul Miller (paulmillr.com) */
-
 /**
  * @license React
  * react-dom.production.min.js
