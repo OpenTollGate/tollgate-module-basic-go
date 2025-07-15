@@ -2,11 +2,15 @@ package valve
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
+
+// Module-level logger with pre-configured module field
+var logger = logrus.WithField("module", "valve")
 
 // openGates keeps track of MAC addresses that have been authorized
 var (
@@ -19,11 +23,17 @@ func authorizeMAC(macAddress string) error {
 	cmd := exec.Command("ndsctl", "auth", macAddress)
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error authorizing MAC address %s: %v", macAddress, err)
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Error("Error authorizing MAC address")
 		return err
 	}
 
-	log.Printf("Authorization successful for MAC %s: %s", macAddress, string(output))
+	logger.WithFields(logrus.Fields{
+		"mac_address": macAddress,
+		"output":      string(output),
+	}).Info("Authorization successful for MAC")
 	return nil
 }
 
@@ -32,11 +42,17 @@ func deauthorizeMAC(macAddress string) error {
 	cmd := exec.Command("ndsctl", "deauth", macAddress)
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error deauthorizing MAC address %s: %v", macAddress, err)
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Error("Error deauthorizing MAC address")
 		return err
 	}
 
-	log.Printf("Deauthorization successful for MAC %s: %s", macAddress, string(output))
+	logger.WithFields(logrus.Fields{
+		"mac_address": macAddress,
+		"output":      string(output),
+	}).Debug("Deauthorization successful for MAC")
 	return nil
 }
 
@@ -53,8 +69,11 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 		return fmt.Errorf("timestamp %d is in the past (current time: %d)", untilTimestamp, now)
 	}
 
-	log.Printf("Opening gate for %s until timestamp %d (duration: %d seconds)",
-		macAddress, untilTimestamp, durationSeconds)
+	logger.WithFields(logrus.Fields{
+		"mac_address":      macAddress,
+		"until_timestamp":  untilTimestamp,
+		"duration_seconds": durationSeconds,
+	}).Info("Opening gate until timestamp")
 
 	gatesMutex.Lock()
 	defer gatesMutex.Unlock()
@@ -68,13 +87,17 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 		if err != nil {
 			return fmt.Errorf("error authorizing MAC: %w", err)
 		}
-		log.Printf("New authorization for MAC %s", macAddress)
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+		}).Debug("New authorization for MAC")
 	} else {
 		// MAC already in openGates, stop the existing timer
 		if existingTimer != nil {
 			existingTimer.Stop()
 		}
-		log.Printf("Extending access for already authorized MAC %s", macAddress)
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+		}).Debug("Extending access for already authorized MAC")
 	}
 
 	// Create a new timer that will call deauthorizeMAC when it expires
@@ -82,9 +105,14 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 	timer := time.AfterFunc(duration, func() {
 		err := deauthorizeMAC(macAddress)
 		if err != nil {
-			log.Printf("Error deauthorizing MAC %s after timeout: %v", macAddress, err)
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"error":       err,
+			}).Error("Error deauthorizing MAC after timeout")
 		} else {
-			log.Printf("Successfully deauthorized MAC %s after timeout", macAddress)
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+			}).Debug("Successfully deauthorized MAC after timeout")
 		}
 
 		// Remove the MAC from openGates once timer expires
