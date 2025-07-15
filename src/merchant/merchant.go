@@ -620,7 +620,7 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 	}
 
 	// Calculate new total allotment
-	newTotalAllotment := leftoverAllotment + additionalAllotment
+	newTotalAllotment := existingAllotment + additionalAllotment
 
 	// Extract customer and device info from existing session
 	customerPubkey := ""

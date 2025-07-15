@@ -423,9 +423,6 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 		return err
 	}
 
-	// Calculate additional allotment (new allotment minus current usage)
-	additionalAllotment := newAllotment - currentUsage
-
 	// Update session
 	session.mu.Lock()
 	session.TotalAllotment = newAllotment
@@ -435,23 +432,21 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 	session.PaymentCount++
 
 	if session.UsageTracker != nil {
-		err := session.UsageTracker.UpdateAllotment(additionalAllotment)
+		err := session.UsageTracker.SessionChanged(session)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"upstream_pubkey": upstreamPubkey,
 				"error":           err,
-			}).Error("Failed to update usage tracker allotment")
+			}).Error("Failed to update usage tracker with session changes")
 		}
 	}
 	session.mu.Unlock()
 
 	logger.WithFields(logrus.Fields{
-		"upstream_pubkey":      upstreamPubkey,
-		"new_allotment":        newAllotment,
-		"current_usage":        currentUsage,
-		"additional_allotment": additionalAllotment,
-		"total_allotment":      session.TotalAllotment,
-		"total_spent":          session.TotalSpent,
+		"upstream_pubkey": upstreamPubkey,
+		"new_allotment":   newAllotment,
+		"current_usage":   currentUsage,
+		"total_spent":     session.TotalSpent,
 	}).Info("Session renewed successfully")
 
 	return nil

@@ -20,18 +20,19 @@ func (t *TimeUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.session = session
+	t.upstreamPubkey = session.UpstreamTollgate.Advertisement.PubKey
 	t.chandler = chandler
 	t.startTime = time.Now()
 	t.pausedTime = 0
+	t.totalAllotment = session.TotalAllotment
 	t.currentIncrement = session.TotalAllotment
 
 	// Set up timers for each threshold
-	t.setupThresholdTimers()
+	t.setupThresholdTimers(0) // Start with 0 usage at initialization
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
-		"total_allotment": session.TotalAllotment,
+		"upstream_pubkey": t.upstreamPubkey,
+		"total_allotment": t.totalAllotment,
 		"thresholds":      t.thresholds,
 	}).Info("Time usage tracker started with threshold timers")
 
@@ -55,7 +56,7 @@ func (t *TimeUsageTracker) Stop() error {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": t.session.UpstreamTollgate.Advertisement.PubKey,
+		"upstream_pubkey": t.upstreamPubkey,
 		"total_usage":     t.GetCurrentUsage(),
 	}).Info("Time usage tracker stopped")
 
@@ -90,32 +91,58 @@ func (t *TimeUsageTracker) SetRenewalThresholds(thresholds []float64) error {
 	copy(t.thresholds, thresholds)
 
 	// If we're already started, reset timers
-	if t.session != nil {
-		t.setupThresholdTimers()
+	if t.upstreamPubkey != "" {
+		currentUsage := t.GetCurrentUsage()
+		t.setupThresholdTimers(currentUsage)
 	}
 
 	return nil
 }
 
-// UpdateAllotment is called when a renewal payment is made
-func (t *TimeUsageTracker) UpdateAllotment(newIncrement uint64) error {
+// SessionChanged is called when the session is updated
+func (t *TimeUsageTracker) SessionChanged(session *ChandlerSession) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.currentIncrement = newIncrement
-	t.setupThresholdTimers()
+	// Calculate the increment from the previous total allotment to the new total allotment
+	previousTotalAllotment := t.totalAllotment
+	t.totalAllotment = session.TotalAllotment
+	t.currentIncrement = t.totalAllotment - previousTotalAllotment
+
+	logrus.WithFields(logrus.Fields{
+		"upstream_pubkey":          t.upstreamPubkey,
+		"previous_total_allotment": previousTotalAllotment,
+		"new_total_allotment":      t.totalAllotment,
+		"current_increment":        t.currentIncrement,
+	}).Info("Session changed, updating usage tracker")
+
+	// Get current usage before calling setupThresholdTimers to avoid deadlock
+	currentUsage := t.GetCurrentUsage()
+	t.setupThresholdTimers(currentUsage)
 	return nil
 }
 
 // setupThresholdTimers creates timers for each threshold
-func (t *TimeUsageTracker) setupThresholdTimers() {
+func (t *TimeUsageTracker) setupThresholdTimers(currentUsage uint64) {
+	logrus.WithFields(logrus.Fields{
+		"upstream_pubkey":   t.upstreamPubkey,
+		"total_allotment":   t.totalAllotment,
+		"current_increment": t.currentIncrement,
+		"thresholds":        t.thresholds,
+		"existing_timers":   len(t.timers),
+	}).Info("Setting up threshold timers")
+
 	// Stop existing timers
 	for _, timer := range t.timers {
 		timer.Stop()
 	}
 	t.timers = nil
 
-	if t.session == nil || t.session.TotalAllotment == 0 {
+	if t.upstreamPubkey == "" || t.totalAllotment == 0 {
+		logrus.WithFields(logrus.Fields{
+			"upstream_pubkey": t.upstreamPubkey,
+			"total_allotment": t.totalAllotment,
+		}).Warn("Cannot setup threshold timers: upstreamPubkey is empty or total allotment is 0")
 		return
 	}
 
@@ -125,19 +152,52 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 	sort.Float64s(sortedThresholds)
 
 	for _, threshold := range sortedThresholds {
-		var duration time.Duration
+		var thresholdPoint uint64
 
-		// If it's the first purchase, the renewal is based on the total allotment.
-		// For subsequent renewals, it's based on the increment from the current usage.
-		if t.currentIncrement == t.session.TotalAllotment {
-			duration = time.Duration(uint64(float64(t.session.TotalAllotment)*threshold)) * time.Millisecond
+		// Calculate the threshold point based on the current increment
+		if t.currentIncrement == t.totalAllotment {
+			// First purchase: threshold is based on total allotment
+			thresholdPoint = uint64(float64(t.totalAllotment) * threshold)
+			logrus.WithFields(logrus.Fields{
+				"thresholdPoint": thresholdPoint,
+			}).Debug("❗️ first")
 		} else {
-			thresholdFromNow := uint64(float64(t.currentIncrement) * threshold)
-			duration = time.Duration(thresholdFromNow) * time.Millisecond
+			// Renewal: threshold is at the end of previous allotment + 80% of current increment
+			previousAllotment := t.totalAllotment - t.currentIncrement
+			thresholdPoint = previousAllotment + uint64(float64(t.currentIncrement)*threshold)
+
+			logrus.WithFields(logrus.Fields{
+				"previousAllotment": previousAllotment,
+				"thresholdPoint":    thresholdPoint,
+			}).Debug("❗️ 2nd")
 		}
 
-		// we already passed this
-		if duration <= 0 {
+		logrus.WithFields(logrus.Fields{
+			"upstream_pubkey":   t.upstreamPubkey,
+			"threshold":         threshold,
+			"threshold_point":   thresholdPoint,
+			"current_usage":     currentUsage,
+			"current_increment": t.currentIncrement,
+			"total_allotment":   t.totalAllotment,
+		}).Info("❗️ Timer calculation details")
+
+		// Calculate remaining time until threshold
+		var duration time.Duration
+		if thresholdPoint > currentUsage {
+			duration = time.Duration(thresholdPoint-currentUsage) * time.Millisecond
+			logrus.WithFields(logrus.Fields{
+				"upstream_pubkey": t.upstreamPubkey,
+				"threshold":       threshold,
+				"duration_ms":     duration.Milliseconds(),
+			}).Info("❗️ Setting timer for duration")
+		} else {
+			// We've already passed this threshold, skip it
+			logrus.WithFields(logrus.Fields{
+				"upstream_pubkey": t.upstreamPubkey,
+				"threshold":       threshold,
+				"threshold_point": thresholdPoint,
+				"current_usage":   currentUsage,
+			}).Info("❗️ Skipping threshold timer: already passed")
 			continue
 		}
 
@@ -150,9 +210,13 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 		t.timers = append(t.timers, timer)
 
 		logrus.WithFields(logrus.Fields{
-			"upstream_pubkey": t.session.UpstreamTollgate.Advertisement.PubKey,
-			"threshold":       threshold,
-			"duration_ms":     duration.Milliseconds(),
+			"upstream_pubkey":   t.upstreamPubkey,
+			"threshold":         threshold,
+			"threshold_point":   thresholdPoint,
+			"current_usage":     currentUsage,
+			"current_increment": t.currentIncrement,
+			"total_allotment":   t.totalAllotment,
+			"duration_ms":       duration.Milliseconds(),
 		}).Debug("Set up threshold timer")
 	}
 }
@@ -161,8 +225,8 @@ func (t *TimeUsageTracker) setupThresholdTimers() {
 func (t *TimeUsageTracker) handleThresholdReached(threshold float64) {
 	t.mu.RLock()
 	currentUsage := t.GetCurrentUsage()
-	upstreamPubkey := t.session.UpstreamTollgate.Advertisement.PubKey
-	totalAllotment := t.session.TotalAllotment
+	upstreamPubkey := t.upstreamPubkey
+	totalAllotment := t.totalAllotment
 	t.mu.RUnlock()
 
 	logrus.WithFields(logrus.Fields{

@@ -111,25 +111,28 @@ type UsageTrackerInterface interface {
 
 	// Set renewal thresholds
 	SetRenewalThresholds(thresholds []float64) error
-	UpdateAllotment(newIncrement uint64) error
+
+	// sessionChanged is called when the session is updated
+	SessionChanged(session *ChandlerSession) error
 }
 
 // TimeUsageTracker tracks time-based usage
 type TimeUsageTracker struct {
-	session          *ChandlerSession
+	upstreamPubkey   string
 	chandler         ChandlerInterface
 	startTime        time.Time
 	pausedTime       time.Duration
 	thresholds       []float64
 	timers           []*time.Timer
 	done             chan bool
+	totalAllotment   uint64
 	currentIncrement uint64
 	mu               sync.RWMutex
 }
 
 // DataUsageTracker tracks data-based usage
 type DataUsageTracker struct {
-	session          *ChandlerSession
+	upstreamPubkey   string
 	chandler         ChandlerInterface
 	interfaceName    string
 	startBytes       uint64
@@ -138,6 +141,7 @@ type DataUsageTracker struct {
 	triggered        map[float64]bool
 	ticker           *time.Ticker
 	done             chan bool
+	totalAllotment   uint64
 	currentIncrement uint64
 	mu               sync.RWMutex
 }

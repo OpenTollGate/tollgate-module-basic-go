@@ -24,7 +24,7 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.session = session
+	d.upstreamPubkey = session.UpstreamTollgate.Advertisement.PubKey
 	d.chandler = chandler
 
 	// Get initial byte count for the interface
@@ -35,6 +35,7 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 
 	d.startBytes = initialBytes
 	d.currentBytes = initialBytes
+	d.totalAllotment = session.TotalAllotment
 	d.currentIncrement = session.TotalAllotment
 	d.triggered = make(map[float64]bool) // Initialize triggered map
 
@@ -45,10 +46,10 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	go d.monitor()
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
+		"upstream_pubkey": d.upstreamPubkey,
 		"interface":       d.interfaceName,
 		"start_bytes":     d.startBytes,
-		"total_allotment": session.TotalAllotment,
+		"total_allotment": d.totalAllotment,
 		"thresholds":      d.thresholds,
 	}).Info("Data usage tracker started")
 
@@ -70,7 +71,7 @@ func (d *DataUsageTracker) Stop() error {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"upstream_pubkey": d.session.UpstreamTollgate.Advertisement.PubKey,
+		"upstream_pubkey": d.upstreamPubkey,
 		"total_usage":     d.GetCurrentUsage(),
 	}).Info("Data usage tracker stopped")
 
@@ -109,13 +110,26 @@ func (d *DataUsageTracker) SetRenewalThresholds(thresholds []float64) error {
 	return nil
 }
 
-// UpdateAllotment is called when a renewal payment is made
-func (d *DataUsageTracker) UpdateAllotment(newIncrement uint64) error {
+// SessionChanged is called when the session is updated
+func (d *DataUsageTracker) SessionChanged(session *ChandlerSession) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.currentIncrement = newIncrement
+	// Calculate the increment from the previous total allotment to the new total allotment
+	previousTotalAllotment := d.totalAllotment
+	d.totalAllotment = session.TotalAllotment
+	d.currentIncrement = d.totalAllotment - previousTotalAllotment
+
+	// Reset triggered thresholds for the new increment
 	d.triggered = make(map[float64]bool)
+
+	logrus.WithFields(logrus.Fields{
+		"upstream_pubkey":          d.upstreamPubkey,
+		"previous_total_allotment": previousTotalAllotment,
+		"new_total_allotment":      d.totalAllotment,
+		"current_increment":        d.currentIncrement,
+	}).Info("Session changed, updating data usage tracker")
+
 	return nil
 }
 
@@ -152,8 +166,8 @@ func (d *DataUsageTracker) updateCurrentBytes() {
 func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 	d.mu.RLock()
 	currentUsage := d.GetCurrentUsage()
-	totalAllotment := d.session.TotalAllotment
-	upstreamPubkey := d.session.UpstreamTollgate.Advertisement.PubKey
+	totalAllotment := d.totalAllotment
+	upstreamPubkey := d.upstreamPubkey
 	thresholds := d.thresholds
 	d.mu.RUnlock()
 
