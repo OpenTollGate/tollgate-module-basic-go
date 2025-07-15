@@ -15,17 +15,27 @@ echo "Starting build and deployment of Tollgate Captive Portal..."
 echo "Navigating to ${CAPTIVE_PORTAL_REPO_PATH}..."
 cd "${CAPTIVE_PORTAL_REPO_PATH}"
 
-# Step 2: Install Dependencies
-echo "Installing npm dependencies..."
-npm install --legacy-peer-deps
+# Step 2: Install Dependencies (only if node_modules does not exist)
+if [ ! -d "node_modules" ]; then
+    echo "Installing npm dependencies..."
+    npm install --legacy-peer-deps
+else
+    echo "node_modules already exists. Skipping npm install."
+fi
 
 # Step 3: Install compatible ajv version to fix build issues
+# This step should always run to ensure the correct ajv version is used,
+# as it might be overridden by other packages during initial install.
 echo "Installing compatible ajv version..."
 npm install ajv@6.12.6 --force
 
-# Step 4: Build the Project
-echo "Building the project..."
-npm run build
+# Step 4: Build the Project (only if build directory does not exist or is empty)
+if [ ! -f "build/splash.html" ]; then
+    echo "Building the project..."
+    npm run build
+else
+    echo "Build directory and splash.html already exist. Skipping npm run build."
+fi
 
 # Navigate back to the original directory (project root) to use relative paths for rm and cp
 echo "Navigating back to original directory: ${MAIN_PROJECT_ROOT}..."
