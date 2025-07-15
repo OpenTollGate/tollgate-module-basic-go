@@ -29,6 +29,8 @@ fi
 echo "Installing compatible ajv version..."
 npm install ajv@6.12.6 --force
 
+rm -rf "${CAPTIVE_PORTAL_REPO_PATH}/build/"*
+
 # Step 4: Build the Project (only if build directory does not exist or is empty)
 if [ ! -f "build/splash.html" ]; then
     echo "Building the project..."
