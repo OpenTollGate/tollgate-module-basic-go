@@ -873,8 +873,9 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 		}
 		m.customerSessions[macAddress] = session
 	} else {
-		// Add to existing session
+		// Add to existing session and reset start time to now
 		session.Allotment += amount
+		session.StartTime = time.Now().Unix()
 	}
 
 	return session, nil

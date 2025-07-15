@@ -101,6 +101,8 @@ func (t *TimeUsageTracker) SetRenewalThresholds(thresholds []float64) error {
 
 // SessionChanged is called when the session is updated
 func (t *TimeUsageTracker) SessionChanged(session *ChandlerSession) error {
+	// Get current usage before calling continuing to avoid deadlock
+	currentUsage := t.GetCurrentUsage()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -116,8 +118,6 @@ func (t *TimeUsageTracker) SessionChanged(session *ChandlerSession) error {
 		"current_increment":        t.currentIncrement,
 	}).Info("Session changed, updating usage tracker")
 
-	// Get current usage before calling setupThresholdTimers to avoid deadlock
-	currentUsage := t.GetCurrentUsage()
 	t.setupThresholdTimers(currentUsage)
 	return nil
 }
@@ -158,18 +158,10 @@ func (t *TimeUsageTracker) setupThresholdTimers(currentUsage uint64) {
 		if t.currentIncrement == t.totalAllotment {
 			// First purchase: threshold is based on total allotment
 			thresholdPoint = uint64(float64(t.totalAllotment) * threshold)
-			logrus.WithFields(logrus.Fields{
-				"thresholdPoint": thresholdPoint,
-			}).Debug("❗️ first")
 		} else {
 			// Renewal: threshold is at the end of previous allotment + 80% of current increment
 			previousAllotment := t.totalAllotment - t.currentIncrement
 			thresholdPoint = previousAllotment + uint64(float64(t.currentIncrement)*threshold)
-
-			logrus.WithFields(logrus.Fields{
-				"previousAllotment": previousAllotment,
-				"thresholdPoint":    thresholdPoint,
-			}).Debug("❗️ 2nd")
 		}
 
 		logrus.WithFields(logrus.Fields{
@@ -179,7 +171,7 @@ func (t *TimeUsageTracker) setupThresholdTimers(currentUsage uint64) {
 			"current_usage":     currentUsage,
 			"current_increment": t.currentIncrement,
 			"total_allotment":   t.totalAllotment,
-		}).Info("❗️ Timer calculation details")
+		}).Info("Timer calculation details")
 
 		// Calculate remaining time until threshold
 		var duration time.Duration
@@ -189,7 +181,7 @@ func (t *TimeUsageTracker) setupThresholdTimers(currentUsage uint64) {
 				"upstream_pubkey": t.upstreamPubkey,
 				"threshold":       threshold,
 				"duration_ms":     duration.Milliseconds(),
-			}).Info("❗️ Setting timer for duration")
+			}).Debug("❗️ Setting timer for duration")
 		} else {
 			// We've already passed this threshold, skip it
 			logrus.WithFields(logrus.Fields{
