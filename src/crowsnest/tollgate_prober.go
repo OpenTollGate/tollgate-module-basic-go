@@ -92,6 +92,19 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 		data, err := tp.performRequestWithContext(ctx, url)
 		if err == nil {
 			logger.WithField("gateway", gatewayIP).Info("Successfully received response from gateway")
+
+			// TEMPORARY WORKAROUND: Trigger captive portal session after successful probe
+			// This ensures ndsctl creates a client session for our device
+			go func() {
+				err := tp.TriggerCaptivePortalSession(ctx, gatewayIP)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"gateway": gatewayIP,
+						"error":   err,
+					}).Debug("Captive portal trigger failed (non-critical)")
+				}
+			}()
+
 			return data, nil
 		}
 
@@ -169,4 +182,76 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 	}
 
 	return body, nil
+}
+
+// TriggerCaptivePortalSession makes an HTTP GET request to port 80 to trigger ndsctl session creation
+//
+// TEMPORARY WORKAROUND: This is a temporary measure to ensure the upstream TollGate's ndsctl
+// creates a client session for our device. This is NOT a long-term solution as it goes against
+// the TollGate protocol specification.
+//
+// Background: After successful payment (port 2121), the upstream TollGate should automatically
+// create the session. However, some implementations require a captive portal request (port 80)
+// to trigger the ndsctl session creation.
+//
+// TODO: Remove this workaround once upstream TollGate implementations properly handle
+// automatic session creation after payment validation.
+func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatewayIP string) error {
+	if gatewayIP == "" {
+		return fmt.Errorf("gateway IP is empty")
+	}
+
+	// Make HTTP GET request to port 80 (standard captive portal)
+	url := fmt.Sprintf("http://%s:80/", gatewayIP)
+
+	logger.WithFields(logrus.Fields{
+		"gateway_ip":    gatewayIP,
+		"url":           url,
+		"purpose":       "trigger_ndsctl_session",
+		"protocol_note": "TEMPORARY WORKAROUND - not part of TollGate protocol",
+	}).Info("🚨 TEMPORARY: Triggering captive portal session for ndsctl")
+
+	// Create request with context and short timeout
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create captive portal request: %w", err)
+	}
+
+	// Set headers that mimic a typical browser request
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; TollGate-Client/1.0)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Set("Connection", "close")
+
+	// Use a separate client with shorter timeout for captive portal
+	captiveClient := &http.Client{
+		Timeout: 10 * time.Second, // Short timeout for captive portal
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Allow redirects for captive portal (common behavior)
+			return nil
+		},
+	}
+
+	// Perform the request
+	resp, err := captiveClient.Do(req)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway_ip": gatewayIP,
+			"error":      err,
+		}).Warn("Captive portal request failed (this is expected and non-critical)")
+		// Don't return error - this is a best-effort attempt
+		return nil
+	}
+	defer resp.Body.Close()
+
+	// Read and discard response body (we don't need the content)
+	_, _ = io.ReadAll(resp.Body)
+
+	logger.WithFields(logrus.Fields{
+		"gateway_ip":   gatewayIP,
+		"status_code":  resp.StatusCode,
+		"content_type": resp.Header.Get("Content-Type"),
+	}).Info("✅ Captive portal request completed - ndsctl session should be triggered")
+
+	return nil
 }

@@ -26,6 +26,7 @@ type NetworkMonitor interface {
 type TollGateProber interface {
 	ProbeGatewayWithContext(ctx context.Context, interfaceName, gatewayIP string) ([]byte, error)
 	CancelProbesForInterface(interfaceName string)
+	TriggerCaptivePortalSession(ctx context.Context, gatewayIP string) error
 }
 
 // DiscoveryTracker defines the interface for tracking discovery attempts

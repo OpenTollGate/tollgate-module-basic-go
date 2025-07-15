@@ -212,7 +212,7 @@ func (cs *crowsnest) handleAddressAdded(event NetworkEvent) {
 		logger.WithFields(logrus.Fields{
 			"interface": event.InterfaceName,
 			"gateway":   event.GatewayIP,
-		}).Info("Address added to interface with gateway - checking for TollGate")
+		}).Debug("Address added to interface with gateway - checking for TollGate")
 		go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 	}
 }
