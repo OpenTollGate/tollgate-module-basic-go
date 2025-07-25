@@ -2,10 +2,9 @@ package tollwallet
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/elnosh/gonuts/cashu"
+	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -67,7 +66,7 @@ func TestNew(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	walletPath := filepath.Join(tempDir, "wallet.db")
+	walletPath := tempDir
 
 	// Test case with valid parameters
 	t.Run("Valid parameters", func(t *testing.T) {

@@ -78,11 +78,11 @@ Configure TollGate by editing the `/etc/tollgate/config.json` file:
   ],
   "profit_share": [
     {
-      "factor": 0.7,
+      "factor": 0.79,
       "lightning_address": "your-address@lightning.provider"
     },
     {
-      "factor": 0.3,
+      "factor": 0.21,
       "lightning_address": "tollgate@minibits.cash"
     }
   ],
@@ -100,6 +100,16 @@ Configure TollGate by editing the `/etc/tollgate/config.json` file:
 - `profit_share`: Configure Lightning addresses for payouts and their percentages
 - `price_per_minute`: Base rate for internet access
 - `bragging`: Enable/disable payment announcements
+
+## Testing
+
+To run the tests for the project, navigate to the `src` directory and execute the following command:
+
+```bash
+TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.r6VVmTRFcp go fmt . && TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.EolGeeKwH3 go test .
+```
+
+This command will format the Go code and then run all tests within the `src` module.
 
 ## Documentation
 
