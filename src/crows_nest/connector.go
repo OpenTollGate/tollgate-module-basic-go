@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"log"
 	"os/exec"
+	"strings"
 )
 
 // Connector manages OpenWRT network configurations via UCI commands.
@@ -57,11 +58,34 @@ func (c *Connector) Connect(gateway Gateway) error {
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	if err := c.restartNetwork(); err != nil {
-		return err
+	return nil
+}
+
+func (c *Connector) GetConnectedSSID() (string, error) {
+	cmd := exec.Command("iw", "dev", "wlan0", "link")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		c.log.Printf("[crows_nest] WARN: Could not get connected SSID: %v, stderr: %s", err, stderr.String())
+		return "", err // Not an error if not connected, but return empty string
 	}
 
-	return nil
+	output := stdout.String()
+	// Example output:
+	// Connected to 00:11:22:33:44:55 (on phy0)
+	// 	SSID: MyHomeNetwork
+	// 	freq: 2412
+	// 	...
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "SSID:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "SSID:")), nil
+		}
+	}
+
+	return "", nil // No SSID found, likely not connected
 }
 
 // ExecuteUCI executes a UCI command.

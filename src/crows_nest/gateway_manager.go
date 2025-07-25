@@ -125,15 +125,37 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 
 	if len(sortedGateways) > 0 {
 		highestPriorityGateway := sortedGateways[0]
-		gm.log.Printf("[crows_nest] Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
-			highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
-		// For now, we'll pass an empty string for password as the Connect method expects it
-		// In a real scenario, password management would be handled securely
-		err := gm.connector.Connect(highestPriorityGateway)
+
+		currentSSID, err := gm.connector.GetConnectedSSID()
 		if err != nil {
-			gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+			gm.log.Printf("[crows_nest] WARN: Could not determine current connected SSID: %v", err)
+			// Proceed with connection attempt if current SSID cannot be determined
+		}
+
+		isConnectedToTopThree := false
+		for i, gateway := range sortedGateways {
+			if i >= 3 {
+				break
+			}
+			if gateway.SSID == currentSSID {
+				isConnectedToTopThree = true
+				break
+			}
+		}
+
+		if !isConnectedToTopThree {
+			gm.log.Printf("[crows_nest] Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
+				highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
+			// For now, we'll pass an empty string for password as the Connect method expects it
+			// In a real scenario, password management would be handled securely
+			err := gm.connector.Connect(highestPriorityGateway)
+			if err != nil {
+				gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+			} else {
+				gm.log.Printf("[crows_nest] Successfully initiated connection to gateway %s", highestPriorityGateway.SSID)
+			}
 		} else {
-			gm.log.Printf("[crows_nest] Successfully initiated connection to gateway %s", highestPriorityGateway.SSID)
+			gm.log.Printf("[crows_nest] Already connected to one of the top three gateways (SSID: %s). No action required.", currentSSID)
 		}
 	} else {
 		gm.log.Println("[crows_nest] No available gateways to connect to.")
