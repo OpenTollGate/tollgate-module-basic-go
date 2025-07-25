@@ -192,7 +192,7 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error 
 		return errors.New("gateway not found")
 	}
 
-	return gm.connector.Connect(gateway)
+	return gm.connector.Connect(gateway, password)
 }
 
 // SetLocalAPVendorElements sets specific Bitcoin/Nostr related vendor elements on the local AP.

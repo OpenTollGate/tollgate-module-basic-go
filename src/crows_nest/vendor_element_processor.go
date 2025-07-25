@@ -75,17 +75,7 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 
 	if strings.HasPrefix(ni.SSID, "TollGate-") {
 		// Assign a higher score for TollGate networks for prioritization
-		score += 100 // Arbitrary boost for now
-	}
-
-	// Penalize networks with no encryption or "Open" encryption
-	if ni.Encryption == "" || ni.Encryption == "Open" {
-		score -= 50 // Arbitrary penalty
-	}
-
-	if strings.HasPrefix(ssid, "TollGate-") {
-		// Assign a higher score for TollGate networks for prioritization
-		score += 100 // Arbitrary boost for now, but will be offset by penalty if open
+		score += 100 // Arbitrary boost, as per user's requirement for captive portal
 	}
 
 	/*
