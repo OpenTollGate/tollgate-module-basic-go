@@ -62,7 +62,7 @@ func (c *Connector) Connect(gateway Gateway) error {
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {
-	cmd := exec.Command("iw", "dev", "wlan0", "link")
+	cmd := exec.Command("iw", "dev", "phy0-sta0", "link")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
