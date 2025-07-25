@@ -13,3 +13,6 @@ squash_tool.sh
 vendor/
 **/tollwallet_db/*
 .roomodes
+prompts.md
+src/crows_nest/root/*.sh
+src/basic
