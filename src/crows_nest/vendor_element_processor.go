@@ -32,7 +32,7 @@ func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]int
 		}
 	*/
 
-	score := v.calculateScore(ni.Signal, ni.SSID, vendorElements) // Pass SSID to calculateScore
+	score := v.calculateScore(ni, vendorElements)
 	return vendorElements, score, nil
 }
 
@@ -70,12 +70,22 @@ func (v *VendorElementProcessor) parseVendorElements(rawIEs []byte) (map[string]
 */
 
 // calculateScore calculates the score for a network. For now, it prioritizes "TollGate-" SSIDs.
-func (v *VendorElementProcessor) calculateScore(signal int, ssid string, vendorElements map[string]interface{}) int {
-	score := signal
+func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
+	score := ni.Signal
+
+	if strings.HasPrefix(ni.SSID, "TollGate-") {
+		// Assign a higher score for TollGate networks for prioritization
+		score += 100 // Arbitrary boost for now
+	}
+
+	// Penalize networks with no encryption or "Open" encryption
+	if ni.Encryption == "" || ni.Encryption == "Open" {
+		score -= 50 // Arbitrary penalty
+	}
 
 	if strings.HasPrefix(ssid, "TollGate-") {
 		// Assign a higher score for TollGate networks for prioritization
-		score += 100 // Arbitrary boost for now
+		score += 100 // Arbitrary boost for now, but will be offset by penalty if open
 	}
 
 	/*

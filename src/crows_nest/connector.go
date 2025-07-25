@@ -14,7 +14,9 @@ type Connector struct {
 }
 
 // Connect configures the network to connect to the specified gateway.
-func (c *Connector) Connect(gateway Gateway) error {
+func (c *Connector) Connect(gateway Gateway, password string) error {
+	c.log.Printf("[crows_nest] Attempting to connect to gateway %s (%s) with encryption %s", gateway.SSID, gateway.BSSID, gateway.Encryption)
+
 	// Configure network.wwan (STA interface) with DHCP
 	if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
 		return err
@@ -23,7 +25,7 @@ func (c *Connector) Connect(gateway Gateway) error {
 		return err
 	}
 
-	// Disable existing wlan0 AP, configure wireless.wifinetX for STA mode
+	// Configure wireless.wifinet0 for STA mode
 	if _, err := c.ExecuteUCI("set", "wireless.wifinet0=wifi-iface"); err != nil {
 		return err
 	}
@@ -42,23 +44,59 @@ func (c *Connector) Connect(gateway Gateway) error {
 	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.bssid='"+gateway.BSSID+"'"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.encryption='psk2'"); err != nil {
-		return err
-	}
-	// Assuming password is stored securely elsewhere and passed here
-	password := "your_password_here"
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.key='"+password+"'"); err != nil {
-		return err
+
+	// Set encryption based on gateway information
+	if gateway.Encryption != "" && gateway.Encryption != "Open" {
+		if _, err := c.ExecuteUCI("set", "wireless.wifinet0.encryption='"+getUCIEncryptionType(gateway.Encryption)+"'"); err != nil {
+			return err
+		}
+		if password != "" {
+			if _, err := c.ExecuteUCI("set", "wireless.wifinet0.key='"+password+"'"); err != nil {
+				return err
+			}
+		} else {
+			c.log.Printf("[crows_nest] WARN: No password provided for encrypted network %s", gateway.SSID)
+		}
+	} else {
+		// For open networks, ensure no encryption or key is set
+		if _, err := c.ExecuteUCI("delete", "wireless.wifinet0.encryption"); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("delete", "wireless.wifinet0.key"); err != nil {
+			return err
+		}
 	}
 
-	// Commit changes and restart network
+	// Commit changes
 	if _, err := c.ExecuteUCI("commit", "network"); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
+
+	// Restart network to apply changes
+	if err := c.restartNetwork(); err != nil {
+		return err
+	}
+
+	c.log.Printf("[crows_nest] Successfully configured connection for gateway %s", gateway.SSID)
 	return nil
+}
+
+func getUCIEncryptionType(encryption string) string {
+	switch encryption {
+	case "WPA/WPA2":
+		return "psk2"
+	case "WPA2":
+		return "psk2"
+	case "WPA":
+		return "psk"
+	case "WEP":
+		return "wep"
+	default:
+		return "none" // Fallback for unknown or open types
+	}
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {

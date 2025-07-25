@@ -146,13 +146,12 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		if !isConnectedToTopThree {
 			gm.log.Printf("[crows_nest] Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
 				highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
-			// For now, we'll pass an empty string for password as the Connect method expects it
-			// In a real scenario, password management would be handled securely
-			err := gm.connector.Connect(highestPriorityGateway)
+			// In a real scenario, password management would be handled securely.
+			// For now, we pass an empty string as password for open networks.
+			password := "" // Placeholder for now, will be fetched securely for encrypted networks
+			err := gm.connector.Connect(highestPriorityGateway, password)
 			if err != nil {
 				gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
-			} else {
-				gm.log.Printf("[crows_nest] Successfully initiated connection to gateway %s", highestPriorityGateway.SSID)
 			}
 		} else {
 			gm.log.Printf("[crows_nest] Already connected to one of the top three gateways (SSID: %s). No action required.", currentSSID)
