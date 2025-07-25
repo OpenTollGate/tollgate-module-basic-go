@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net" // Added for net.Interfaces()
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,8 +16,8 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
@@ -408,6 +409,30 @@ func main() {
 	}()
 
 	fmt.Println("Shutting down Tollgate - Whoami")
+}
+
+// isOnline checks if the device has at least one active, non-loopback network interface with an IP address.
+func isOnline() bool {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		log.Printf("Error getting network interfaces: %v", err)
+		return false
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+			// Interface is up and not a loopback interface
+			addrs, err := iface.Addrs()
+			if err != nil {
+				log.Printf("Error getting addresses for interface %s: %v", iface.Name, err)
+				continue
+			}
+			if len(addrs) > 0 {
+				return true // Found at least one active, non-loopback interface with an IP address
+			}
+		}
+	}
+	return false
 }
 
 func getIP(r *http.Request) string {
