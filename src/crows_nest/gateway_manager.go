@@ -115,9 +115,28 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		return sortedGateways[i].Score > sortedGateways[j].Score
 	})
 
-	for _, gateway := range sortedGateways {
-		gm.log.Printf("[crows_nest] Gateway: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
-			gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.Score, gateway.VendorElements)
+	for i, gateway := range sortedGateways {
+		if i >= 3 { // Limit to top 3 for logging
+			break
+		}
+		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
+			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.Score, gateway.VendorElements)
+	}
+
+	if len(sortedGateways) > 0 {
+		highestPriorityGateway := sortedGateways[0]
+		gm.log.Printf("[crows_nest] Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
+			highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
+		// For now, we'll pass an empty string for password as the Connect method expects it
+		// In a real scenario, password management would be handled securely
+		err := gm.connector.Connect(highestPriorityGateway)
+		if err != nil {
+			gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+		} else {
+			gm.log.Printf("[crows_nest] Successfully initiated connection to gateway %s", highestPriorityGateway.SSID)
+		}
+	} else {
+		gm.log.Println("[crows_nest] No available gateways to connect to.")
 	}
 }
 
