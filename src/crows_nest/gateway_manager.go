@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 )
@@ -102,7 +103,19 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		gm.availableGateways[network.BSSID] = gateway
 	}
 	gm.log.Printf("[crows_nest] Identified %d available gateways", len(gm.availableGateways))
+
+	// Convert map to slice for sorting
+	var sortedGateways []Gateway
 	for _, gateway := range gm.availableGateways {
+		sortedGateways = append(sortedGateways, gateway)
+	}
+
+	// Sort gateways by score in descending order
+	sort.Slice(sortedGateways, func(i, j int) bool {
+		return sortedGateways[i].Score > sortedGateways[j].Score
+	})
+
+	for _, gateway := range sortedGateways {
 		gm.log.Printf("[crows_nest] Gateway: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
 			gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.Score, gateway.VendorElements)
 	}
