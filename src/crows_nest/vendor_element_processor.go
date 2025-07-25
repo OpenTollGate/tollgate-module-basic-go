@@ -37,9 +37,18 @@ func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]int
 func (v *VendorElementProcessor) parseVendorElements(rawIEs []byte) (map[string]interface{}, error) {
 	vendorElements := make(map[string]interface{})
 
+	// Ensure rawIEs has at least 3 bytes for OUI
+	if len(rawIEs) < 3 {
+		return nil, fmt.Errorf("rawIEs too short to parse OUI: %d bytes", len(rawIEs))
+	}
+
 	oui := hex.EncodeToString(rawIEs[:3])
 	if strings.Contains(bitcoinOUI, oui) || strings.Contains(nostrOUI, oui) {
 		data := rawIEs[3:]
+		// Ensure data has at least 8 bytes for kbAllocation and contribution
+		if len(data) < 8 {
+			return nil, fmt.Errorf("vendor element data too short: %d bytes, expected at least 8", len(data))
+		}
 		kbAllocation, err := strconv.ParseFloat(string(data[:4]), 64)
 		if err != nil {
 			return nil, err
