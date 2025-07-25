@@ -103,6 +103,7 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 				currentNetwork.SSID = strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
+				signalStr = strings.TrimSuffix(signalStr, " dBm") // Remove " dBm" suffix
 				signal, err := strconv.ParseFloat(signalStr, 64)
 				if err != nil {
 					return nil, err
