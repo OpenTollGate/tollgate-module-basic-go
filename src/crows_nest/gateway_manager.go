@@ -102,6 +102,10 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		gm.availableGateways[network.BSSID] = gateway
 	}
 	gm.log.Printf("[crows_nest] Identified %d available gateways", len(gm.availableGateways))
+	for _, gateway := range gm.availableGateways {
+		gm.log.Printf("[crows_nest] Gateway: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
+			gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.Score, gateway.VendorElements)
+	}
 }
 
 func convertToStringMap(m map[string]interface{}) map[string]string {
