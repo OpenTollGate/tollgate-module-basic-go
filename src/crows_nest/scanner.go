@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -47,7 +48,7 @@ func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
 
 	s.log.Printf("[crows_nest] Successfully scanned networks")
 
-	networks, err := parseScanOutput(stdout.Bytes())
+	networks, err := parseScanOutput(stdout.Bytes(), s.log)
 	if err != nil {
 		s.log.Printf("[crows_nest] ERROR: Failed to parse scan output: %v", err)
 		return nil, err
@@ -84,33 +85,42 @@ func getInterfaceName() (string, error) {
 	return "", errors.New("no managed Wi-Fi interface found")
 }
 
-func parseScanOutput(output []byte) ([]NetworkInfo, error) {
+func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	var networks []NetworkInfo
 	var currentNetwork *NetworkInfo
 
+	bssidRegex := regexp.MustCompile(`BSS ([0-9a-fA-F:]{17})\(on`)
+
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "BSS") && strings.Contains(line, "(") && strings.Contains(line, ")") {
+		if strings.HasPrefix(line, "BSS ") {
 			if currentNetwork != nil {
 				networks = append(networks, *currentNetwork)
 			}
-			bssid := strings.TrimSpace(strings.Split(line, "(")[1])
-			bssid = strings.TrimSuffix(bssid, ")")
-			currentNetwork = &NetworkInfo{BSSID: bssid}
+			matches := bssidRegex.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				currentNetwork = &NetworkInfo{BSSID: matches[1]}
+			} else {
+				logger.Printf("[crows_nest] WARN: Could not extract BSSID from line: %s", line)
+				continue
+			}
 		} else if currentNetwork != nil {
 			if strings.HasPrefix(line, "\tSSID:") {
 				currentNetwork.SSID = strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
-				signalStr = strings.TrimSuffix(signalStr, " dBm") // Remove " dBm" suffix
+				signalStr = strings.TrimSuffix(signalStr, " dBm")
 				signal, err := strconv.ParseFloat(signalStr, 64)
 				if err != nil {
+					logger.Printf("[crows_nest] WARN: Failed to parse signal strength '%s': %v", signalStr, err)
 					return nil, err
 				}
 				currentNetwork.Signal = int(signal)
 			} else if strings.Contains(line, "RSN:") || strings.Contains(line, "WPA:") {
 				currentNetwork.Encryption = "WPA/WPA2"
+			} else if strings.Contains(line, "Authentication suites: Open") {
+				currentNetwork.Encryption = "Open"
 			}
 		}
 	}
