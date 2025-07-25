@@ -4,6 +4,7 @@ package crows_nest
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"log"
 	"os/exec"
 	"strconv"
@@ -57,8 +58,30 @@ func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
 }
 
 func getInterfaceName() (string, error) {
-	// Implement dynamic interface name retrieval
-	return "wlan0", nil // Hardcoded for now
+	cmd := exec.Command("iw", "dev")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
+	var currentInterface string
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "Interface") {
+			parts := strings.Fields(line)
+			if len(parts) > 1 {
+				currentInterface = parts[1]
+			}
+		} else if strings.HasPrefix(line, "type") && strings.Contains(line, "managed") {
+			if currentInterface != "" {
+				return currentInterface, nil
+			}
+		}
+	}
+	return "", errors.New("no managed Wi-Fi interface found")
 }
 
 func parseScanOutput(output []byte) ([]NetworkInfo, error) {
