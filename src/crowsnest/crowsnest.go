@@ -125,6 +125,14 @@ func (cs *crowsnest) SetChandler(chandler chandler.ChandlerInterface) {
 	logger.Info("Chandler set for Crowsnest")
 }
 
+// GetProber returns the TollGate prober instance
+func (cs *crowsnest) GetProber() TollGateProber {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+
+	return cs.tollGateProber
+}
+
 // eventLoop is the main event processing loop
 func (cs *crowsnest) eventLoop() {
 	defer cs.wg.Done()
