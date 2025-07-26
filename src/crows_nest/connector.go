@@ -2,10 +2,14 @@
 package crows_nest
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
+	"fmt"
 	"log"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Connector manages OpenWRT network configurations via UCI commands.
@@ -21,7 +25,7 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "network.wwan.proto='dhcp'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "network.wwan.proto=dhcp"); err != nil {
 		return err
 	}
 
@@ -29,29 +33,29 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	if _, err := c.ExecuteUCI("set", "wireless.wifinet0=wifi-iface"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.device='radio0'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.device=radio0"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.mode='sta'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.mode=sta"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.network='wwan'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.network=wwan"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.ssid='"+gateway.SSID+"'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.ssid="+gateway.SSID); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.bssid='"+gateway.BSSID+"'"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.bssid="+gateway.BSSID); err != nil {
 		return err
 	}
 
 	// Set encryption based on gateway information
 	if gateway.Encryption != "" && gateway.Encryption != "Open" {
-		if _, err := c.ExecuteUCI("set", "wireless.wifinet0.encryption='"+getUCIEncryptionType(gateway.Encryption)+"'"); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless.wifinet0.encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
 			return err
 		}
 		if password != "" {
-			if _, err := c.ExecuteUCI("set", "wireless.wifinet0.key='"+password+"'"); err != nil {
+			if _, err := c.ExecuteUCI("set", "wireless.wifinet0.key="+password); err != nil {
 				return err
 			}
 		} else {
@@ -81,7 +85,9 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	}
 
 	c.log.Printf("[crows_nest] Successfully configured connection for gateway %s", gateway.SSID)
-	return nil
+
+	// Verify the connection
+	return c.verifyConnection(gateway.SSID)
 }
 
 func getUCIEncryptionType(encryption string) string {
@@ -100,22 +106,23 @@ func getUCIEncryptionType(encryption string) string {
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {
-	cmd := exec.Command("iw", "dev", "phy0-sta0", "link")
+	interfaceName, err := getInterfaceName()
+	if err != nil {
+		c.log.Printf("[crows_nest] INFO: Could not get managed Wi-Fi interface, probably not associated: %v", err)
+		return "", nil
+	}
+
+	cmd := exec.Command("iw", "dev", interfaceName, "link")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		c.log.Printf("[crows_nest] WARN: Could not get connected SSID: %v, stderr: %s", err, stderr.String())
-		return "", err // Not an error if not connected, but return empty string
+		c.log.Printf("[crows_nest] WARN: Could not get connected SSID from interface %s: %v, stderr: %s", interfaceName, err, stderr.String())
+		return "", nil // Not an error if not connected, but return empty string
 	}
 
 	output := stdout.String()
-	// Example output:
-	// Connected to 00:11:22:33:44:55 (on phy0)
-	// 	SSID: MyHomeNetwork
-	// 	freq: 2412
-	// 	...
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "SSID:") {
@@ -134,6 +141,11 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		// For 'delete', "Entry not found" is not a critical error.
+		if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
+			c.log.Printf("[crows_nest] INFO: UCI entry to delete was not found (which is okay): uci %s", strings.Join(args, " "))
+			return "", nil
+		}
 		c.log.Printf("[crows_nest] ERROR: Failed to execute UCI command: %v, stderr: %s", err, stderr.String())
 		return "", err
 	}
@@ -152,4 +164,28 @@ func (c *Connector) restartNetwork() error {
 	}
 
 	return nil
+}
+
+// verifyConnection checks if the device is connected to the specified SSID.
+func (c *Connector) verifyConnection(expectedSSID string) error {
+	c.log.Printf("[crows_nest] Verifying connection to %s...", expectedSSID)
+	const retries = 10
+	const delay = 3 * time.Second
+
+	for i := 0; i < retries; i++ {
+		time.Sleep(delay)
+		currentSSID, err := c.GetConnectedSSID()
+		if err != nil {
+			c.log.Printf("[crows_nest] WARN: Verification check failed: could not get current SSID: %v", err)
+			continue
+		}
+
+		if currentSSID == expectedSSID {
+			c.log.Printf("[crows_nest] Successfully connected to %s", expectedSSID)
+			return nil
+		}
+		c.log.Printf("[crows_nest] INFO: Still not connected to %s, currently on %s. Retrying...", expectedSSID, currentSSID)
+	}
+
+	return fmt.Errorf("failed to verify connection to %s after %d retries", expectedSSID, retries)
 }

@@ -95,7 +95,7 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "BSS ") {
-			if currentNetwork != nil {
+			if currentNetwork != nil && currentNetwork.SSID != "" { // Only add if SSID was found
 				networks = append(networks, *currentNetwork)
 			}
 			matches := bssidRegex.FindStringSubmatch(line)
@@ -103,20 +103,24 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 				currentNetwork = &NetworkInfo{BSSID: matches[1]}
 			} else {
 				logger.Printf("[crows_nest] WARN: Could not extract BSSID from line: %s", line)
+				currentNetwork = nil // Invalidate current network
 				continue
 			}
 		} else if currentNetwork != nil {
 			if strings.HasPrefix(line, "\tSSID:") {
-				currentNetwork.SSID = strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
+				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
+				if ssid != "" {
+					currentNetwork.SSID = ssid
+				}
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
 				signalStr = strings.TrimSuffix(signalStr, " dBm")
 				signal, err := strconv.ParseFloat(signalStr, 64)
 				if err != nil {
 					logger.Printf("[crows_nest] WARN: Failed to parse signal strength '%s': %v", signalStr, err)
-					return nil, err
+				} else {
+					currentNetwork.Signal = int(signal)
 				}
-				currentNetwork.Signal = int(signal)
 			} else if strings.Contains(line, "RSN:") || strings.Contains(line, "WPA:") {
 				currentNetwork.Encryption = "WPA/WPA2"
 			} else if strings.Contains(line, "Authentication suites: Open") {
@@ -125,7 +129,7 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 		}
 	}
 
-	if currentNetwork != nil {
+	if currentNetwork != nil && currentNetwork.SSID != "" {
 		networks = append(networks, *currentNetwork)
 	}
 
