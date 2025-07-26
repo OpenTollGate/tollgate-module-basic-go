@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context" // Added for context.Background()
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net" // Added for net.Interfaces()
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
@@ -29,6 +32,8 @@ var (
 	mainConfig    *config_manager.Config
 	installConfig *config_manager.InstallConfig
 )
+var gatewayManager *crows_nest.GatewayManager
+
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
 
@@ -79,6 +84,11 @@ func init() {
 	}
 
 	installConfig = configManager.GetInstallConfig()
+
+	gatewayManager, err = crows_nest.Init(context.Background(), log.Default())
+	if err != nil {
+		log.Fatalf("Failed to initialize gateway manager: %v", err)
+	}
 
 	mainConfig = configManager.GetConfig()
 
@@ -369,7 +379,60 @@ func main() {
 
 	log.Fatal(server.ListenAndServe())
 
+	go func() {
+		for {
+			if !isOnline() {
+				log.Println("Device is offline. Initiating gateway scan...")
+				// No need to assign the result of RunPeriodicScan, as it runs in a goroutine internally.
+				// We need to fetch the available gateways using GetAvailableGateways() instead.
+				availableGateways, err := gatewayManager.GetAvailableGateways()
+				if err != nil {
+					log.Printf("Error getting available gateways: %v", err)
+					continue
+				}
+				if len(availableGateways) > 0 {
+					log.Println("Available gateways found. Attempting to connect...")
+					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "") // Correct usage of ConnectToGateway
+					if err != nil {
+						log.Printf("Error connecting to gateway: %v", err)
+					} else {
+						log.Println("Successfully connected to a TollGate gateway.")
+					}
+				} else {
+					log.Println("No suitable TollGate gateways found to connect to.")
+				}
+			} else {
+				log.Println("Device is online. No action needed.")
+			}
+			time.Sleep(5 * time.Minute)
+		}
+	}()
+
 	fmt.Println("Shutting down Tollgate - Whoami")
+}
+
+// isOnline checks if the device has at least one active, non-loopback network interface with an IP address.
+func isOnline() bool {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		log.Printf("Error getting network interfaces: %v", err)
+		return false
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+			// Interface is up and not a loopback interface
+			addrs, err := iface.Addrs()
+			if err != nil {
+				log.Printf("Error getting addresses for interface %s: %v", iface.Name, err)
+				continue
+			}
+			if len(addrs) > 0 {
+				return true // Found at least one active, non-loopback interface with an IP address
+			}
+		}
+	}
+	return false
 }
 
 func getIP(r *http.Request) string {
