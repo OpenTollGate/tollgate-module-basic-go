@@ -130,7 +130,11 @@ func (c *Connector) GetConnectedSSID() (string, error) {
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "SSID:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "SSID:")), nil
+			// Correctly parse the line, which is formatted as "\tSSID: MySSID"
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1]), nil
+			}
 		}
 	}
 

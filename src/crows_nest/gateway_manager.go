@@ -132,11 +132,19 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 			// Proceed with connection attempt if current SSID cannot be determined
 		}
 
-		// If not connected to the highest priority gateway, attempt to connect.
-		if highestPriorityGateway.SSID != currentSSID {
-			gm.log.Printf("[crows_nest] Currently connected to '%s', but highest priority gateway is '%s'. Attempting to switch.",
-				currentSSID, highestPriorityGateway.SSID)
-			gm.log.Printf("[crows_nest] Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
+		isConnectedToTopThree := false
+		for i, gateway := range sortedGateways {
+			if i >= 3 {
+				break
+			}
+			if gateway.SSID == currentSSID {
+				isConnectedToTopThree = true
+				break
+			}
+		}
+
+		if !isConnectedToTopThree {
+			gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
 				highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
 			// In a real scenario, password management would be handled securely.
 			// For now, we pass an empty string as password for open networks.
@@ -146,7 +154,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 				gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
 			}
 		} else {
-			gm.log.Printf("[crows_nest] Already connected to the highest priority gateway (SSID: %s). No action required.", currentSSID)
+			gm.log.Printf("[crows_nest] Already connected to one of the top three gateways (SSID: %s). No action required.", currentSSID)
 		}
 	} else {
 		gm.log.Println("[crows_nest] No available gateways to connect to.")
