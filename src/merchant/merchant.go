@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -19,15 +21,42 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// CustomerSession represents an active session
+type CustomerSession struct {
+	MacAddress string
+	StartTime  int64  // Unix timestamp
+	Metric     string // "milliseconds" or "bytes"
+	Allotment  uint64 // Total allotment for this session
+}
+
+// MerchantInterface defines the interface for merchant payment operations
+type MerchantInterface interface {
+	CreatePaymentToken(mintURL string, amount uint64) (string, error)
+	CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+	GetAcceptedMints() []config_manager.MintConfig
+	GetBalance() uint64
+	GetBalanceByMint(mintURL string) uint64
+	PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, error)
+	GetAdvertisement() string
+	StartPayoutRoutine()
+	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
+	// New session management methods
+	GetSession(macAddress string) (*CustomerSession, error)
+	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
+}
+
 // Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
 	config        *config_manager.Config
 	configManager *config_manager.ConfigManager
 	tollwallet    tollwallet.TollWallet
 	advertisement string
+	// In-memory session store
+	customerSessions map[string]*CustomerSession
+	sessionMu        sync.RWMutex
 }
 
-func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
+func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
 	log.Printf("=== Merchant Initializing ===")
 
 	config := configManager.GetConfig()
@@ -65,10 +94,11 @@ func New(configManager *config_manager.ConfigManager) (*Merchant, error) {
 	log.Printf("=== Merchant ready ===")
 
 	return &Merchant{
-		config:        config,
-		configManager: configManager,
-		tollwallet:    *tollwallet,
-		advertisement: advertisementStr,
+		config:           config,
+		configManager:    configManager,
+		tollwallet:       *tollwallet,
+		advertisement:    advertisementStr,
+		customerSessions: make(map[string]*CustomerSession),
 	}, nil
 }
 
@@ -225,42 +255,32 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		return noticeEvent, nil
 	}
 
-	// Check for existing session
-	customerPubkey := paymentEvent.PubKey
-	existingSession, err := m.getLatestSession(customerPubkey)
+	// Use MAC-address based session management
+	macAddress := deviceIdentifier
+
+	// Add allotment to session (creates new session if doesn't exist)
+	metric := "milliseconds" // Use milliseconds as default metric
+	session, err := m.AddAllotment(macAddress, metric, allotment)
 	if err != nil {
-		log.Printf("Warning: failed to query existing session: %v", err)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
+			fmt.Sprintf("Failed to manage session: %v", err), paymentEvent.PubKey)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
-	var sessionEvent *nostr.Event
-	if existingSession != nil {
-		// Extend existing session
-		sessionEvent, err = m.extendSessionEvent(existingSession, allotment)
-		if err != nil {
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-extension-failed",
-				fmt.Sprintf("Failed to extend session: %v", err), paymentEvent.PubKey)
-			if noticeErr != nil {
-				return nil, fmt.Errorf("failed to extend session and failed to create notice: %w", noticeErr)
-			}
-			return noticeEvent, nil
-		}
-		log.Printf("Extended session for customer %s", customerPubkey)
+	// Calculate end timestamp based on session allotment
+	var endTimestamp int64
+	if session.Metric == "milliseconds" {
+		endTimestamp = session.StartTime + int64(session.Allotment/1000)
 	} else {
-		// Create new session
-		sessionEvent, err = m.createSessionEvent(paymentEvent, allotment)
-		if err != nil {
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-creation-failed",
-				fmt.Sprintf("Failed to create session: %v", err), paymentEvent.PubKey)
-			if noticeErr != nil {
-				return nil, fmt.Errorf("failed to create session and failed to create notice: %w", noticeErr)
-			}
-			return noticeEvent, nil
-		}
-		log.Printf("Created new session for customer %s", customerPubkey)
+		// For other metrics, set to 24h from now
+		endTimestamp = time.Now().Unix() + (24 * 60 * 60) // 24 hours from now
 	}
 
-	// Update valve with session information
-	err = valve.OpenGateForSession(*sessionEvent, m.config)
+	// Open gate until the calculated end time
+	err = valve.OpenGateUntil(macAddress, endTimestamp)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-opening-failed",
 			fmt.Sprintf("Failed to open gate for session: %v", err), paymentEvent.PubKey)
@@ -270,10 +290,10 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		return noticeEvent, nil
 	}
 
-	// Publish session event to local pool only (for privacy)
-	err = m.publishLocal(sessionEvent)
+	// Create a success notice event
+	sessionEvent, err := m.createSessionEvent(session, paymentEvent.PubKey)
 	if err != nil {
-		log.Printf("Warning: failed to publish session event to local pool: %v", err)
+		return nil, fmt.Errorf("failed to create session event: %w", err)
 	}
 
 	return sessionEvent, nil
@@ -530,13 +550,9 @@ func (m *Merchant) isSessionActive(sessionEvent *nostr.Event) bool {
 	return isActive
 }
 
-// createSessionEvent creates a new session event
-func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64) (*nostr.Event, error) {
-	customerPubkey := paymentEvent.PubKey
-	deviceIdentifier, err := m.extractDeviceIdentifier(paymentEvent)
-	if err != nil {
-		return nil, err
-	}
+// createSessionEvent creates a session event from the MAC-address based session
+func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey string) (*nostr.Event, error) {
+	deviceIdentifier := session.MacAddress
 
 	identities := m.configManager.GetIdentities()
 	if identities == nil {
@@ -560,8 +576,9 @@ func (m *Merchant) createSessionEvent(paymentEvent nostr.Event, allotment uint64
 		Tags: nostr.Tags{
 			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
-			{"allotment", fmt.Sprintf("%d", allotment)},
-			{"metric", m.config.Metric},
+			{"allotment", fmt.Sprintf("%d", session.Allotment)},
+			{"metric", session.Metric},
+			{"start-time", fmt.Sprintf("%d", session.StartTime)},
 		},
 		Content: "",
 	}
@@ -607,7 +624,7 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 	}
 
 	// Calculate new total allotment
-	newTotalAllotment := leftoverAllotment + additionalAllotment
+	newTotalAllotment := existingAllotment + additionalAllotment
 
 	// Extract customer and device info from existing session
 	customerPubkey := ""
@@ -756,4 +773,110 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	}
 
 	return noticeEvent, nil
+}
+
+// MerchantInterface method implementations
+
+// CreatePaymentToken creates a payment token for the specified mint and amount
+func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
+	// Check balance before attempting to send
+	balance := m.tollwallet.GetBalanceByMint(mintURL)
+	totalBalance := m.tollwallet.GetBalance()
+
+	log.Printf("Creating payment token: amount=%d, mintURL=%s, balance_by_mint=%d, total_balance=%d",
+		amount, mintURL, balance, totalBalance)
+
+	if balance < amount {
+		return "", fmt.Errorf("insufficient balance: need %d sats, have %d sats for mint %s (total balance: %d)",
+			amount, balance, mintURL, totalBalance)
+	}
+
+	// Use the tollwallet to create a payment token with basic send
+	token, err := m.tollwallet.Send(amount, mintURL, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to create payment token: %w", err)
+	}
+
+	// Validate token has proofs
+	if token == nil {
+		return "", fmt.Errorf("token creation returned nil token")
+	}
+
+	// Serialize token to string
+	tokenString, err := token.Serialize()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize token: %w", err)
+	}
+
+	// Validate serialized token is not empty
+	if tokenString == "" {
+		return "", fmt.Errorf("token serialization returned empty string")
+	}
+
+	log.Printf("Successfully created payment token: length=%d, token_preview=%s...",
+		len(tokenString), tokenString[:min(50, len(tokenString))])
+
+	return tokenString, nil
+}
+
+// CreatePaymentTokenWithOverpayment creates a payment token with overpayment capability
+func (m *Merchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
+	// Use the tollwallet's new SendWithOverpayment method
+	tokenString, err := m.tollwallet.SendWithOverpayment(amount, mintURL, maxOverpaymentPercent, maxOverpaymentAbsolute)
+	if err != nil {
+		return "", fmt.Errorf("failed to create payment token with overpayment: %w", err)
+	}
+	return tokenString, nil
+}
+
+// GetAcceptedMints returns the list of accepted mints from the configuration
+func (m *Merchant) GetAcceptedMints() []config_manager.MintConfig {
+	return m.config.AcceptedMints
+}
+
+// GetBalance returns the total balance across all mints
+func (m *Merchant) GetBalance() uint64 {
+	return m.tollwallet.GetBalance()
+}
+
+// GetBalanceByMint returns the balance for a specific mint
+func (m *Merchant) GetBalanceByMint(mintURL string) uint64 {
+	return m.tollwallet.GetBalanceByMint(mintURL)
+}
+
+// GetSession retrieves a customer session by MAC address
+func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
+	m.sessionMu.RLock()
+	defer m.sessionMu.RUnlock()
+
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return nil, fmt.Errorf("session not found for MAC address: %s", macAddress)
+	}
+
+	return session, nil
+}
+
+// AddAllotment adds allotment to a customer session, creating it if it doesn't exist
+func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
+	m.sessionMu.Lock()
+	defer m.sessionMu.Unlock()
+
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		// Create new session
+		session = &CustomerSession{
+			MacAddress: macAddress,
+			StartTime:  time.Now().Unix(),
+			Metric:     metric,
+			Allotment:  amount,
+		}
+		m.customerSessions[macAddress] = session
+	} else {
+		// Add to existing session and reset start time to now
+		session.Allotment += amount
+		session.StartTime = time.Now().Unix()
+	}
+
+	return session, nil
 }
