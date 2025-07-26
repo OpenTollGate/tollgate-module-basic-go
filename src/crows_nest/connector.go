@@ -225,3 +225,27 @@ func (c *Connector) cleanupSTAInterfaces() error {
 
 	return nil
 }
+
+// EnableLocalAP enables the local Wi-Fi access point.
+func (c *Connector) EnableLocalAP() error {
+	c.log.Println("[crows_nest] Enabling local AP")
+	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=0"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return err
+	}
+	return c.restartNetwork()
+}
+
+// DisableLocalAP disables the local Wi-Fi access point.
+func (c *Connector) DisableLocalAP() error {
+	c.log.Println("[crows_nest] Disabling local AP")
+	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=1"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return err
+	}
+	return c.restartNetwork()
+}

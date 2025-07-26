@@ -16,6 +16,7 @@ type GatewayManager struct {
 	scanner           *Scanner
 	connector         *Connector
 	vendorProcessor   *VendorElementProcessor
+	networkMonitor    *NetworkMonitor
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
 	scanInterval      time.Duration
@@ -38,11 +39,13 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 	scanner := &Scanner{log: logger}
 	connector := &Connector{log: logger}
 	vendorProcessor := &VendorElementProcessor{log: logger, connector: connector}
+	networkMonitor := NewNetworkMonitor(logger, connector)
 
 	gm := &GatewayManager{
 		scanner:           scanner,
 		connector:         connector,
 		vendorProcessor:   vendorProcessor,
+		networkMonitor:    networkMonitor,
 		availableGateways: make(map[string]Gateway),
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
@@ -50,6 +53,7 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 	}
 
 	go gm.RunPeriodicScan(ctx)
+	gm.networkMonitor.Start()
 
 	return gm, nil
 }
