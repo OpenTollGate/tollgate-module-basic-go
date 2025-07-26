@@ -1,1 +1,1 @@
-* * * * * /usr/bin/check_package_path
+*/1 * * * * /usr/local/bin/check_connectivity.sh

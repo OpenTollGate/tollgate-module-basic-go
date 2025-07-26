@@ -136,6 +136,7 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
+	/usr/local/bin/check_connectivity.sh \
 	/lib/upgrade/keep.d/tollgate
 
 
