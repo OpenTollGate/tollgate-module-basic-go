@@ -2,9 +2,7 @@
 package crows_nest
 
 import (
-	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"log"
 	"os/exec"
