@@ -2,6 +2,7 @@
 package crows_nest
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"log"
@@ -18,6 +19,11 @@ type Connector struct {
 // Connect configures the network to connect to the specified gateway.
 func (c *Connector) Connect(gateway Gateway, password string) error {
 	c.log.Printf("[crows_nest] Attempting to connect to gateway %s (%s) with encryption %s", gateway.SSID, gateway.BSSID, gateway.Encryption)
+
+	// Clean up existing STA interfaces to avoid conflicts
+	if err := c.cleanupSTAInterfaces(); err != nil {
+		return fmt.Errorf("failed to cleanup existing STA interfaces: %w", err)
+	}
 
 	// Configure network.wwan (STA interface) with DHCP
 	if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
@@ -186,4 +192,32 @@ func (c *Connector) verifyConnection(expectedSSID string) error {
 	}
 
 	return fmt.Errorf("failed to verify connection to %s after %d retries", expectedSSID, retries)
+}
+
+func (c *Connector) cleanupSTAInterfaces() error {
+	c.log.Println("[crows_nest] Cleaning up existing STA wifi-iface sections...")
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	sectionsToDelete := []string{}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			sectionsToDelete = append(sectionsToDelete, section)
+		}
+	}
+
+	for _, section := range sectionsToDelete {
+		c.log.Printf("[crows_nest] Deleting old STA interface section: %s", section)
+		if _, err := c.ExecuteUCI("delete", section); err != nil {
+			// We log the error but continue, as a failed delete is not critical
+			c.log.Printf("[crows_nest] WARN: Failed to delete section %s: %v", section, err)
+		}
+	}
+
+	return nil
 }
