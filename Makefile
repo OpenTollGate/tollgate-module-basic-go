@@ -97,6 +97,7 @@ define Package/$(PKG_NAME)/install
 	
 	# Create required directories
 	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/known_networks.json $(1)/etc/tollgate/
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 	
 	# TollGate captive portal site files (will be symlinked by nodogsplash)
@@ -135,7 +136,8 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
-	/lib/upgrade/keep.d/tollgate
+	/lib/upgrade/keep.d/tollgate \
+	/etc/tollgate/known_networks.json
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

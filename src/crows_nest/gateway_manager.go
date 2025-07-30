@@ -3,13 +3,27 @@ package crows_nest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"sort"
 	"sync"
 	"time"
 )
+
+// KnownNetwork holds credentials for a known Wi-Fi network.
+type KnownNetwork struct {
+	SSID       string `json:"ssid"`
+	Password   string `json:"password"`
+	Encryption string `json:"encryption"`
+}
+
+// KnownNetworks is a list of known networks.
+type KnownNetworks struct {
+	Networks []KnownNetwork `json:"known_networks"`
+}
 
 // GatewayManager orchestrates the gateway management operations.
 type GatewayManager struct {
@@ -19,6 +33,7 @@ type GatewayManager struct {
 	networkMonitor    *NetworkMonitor
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
+	knownNetworks     map[string]KnownNetwork // Key: SSID
 	scanInterval      time.Duration
 	stopChan          chan struct{}
 	log               *log.Logger
@@ -47,9 +62,15 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 		vendorProcessor:   vendorProcessor,
 		networkMonitor:    networkMonitor,
 		availableGateways: make(map[string]Gateway),
+		knownNetworks:     make(map[string]KnownNetwork),
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
 		log:               logger,
+	}
+
+	if err := gm.loadKnownNetworks(); err != nil {
+		// Log the error but don't fail initialization, as the file may not exist.
+		logger.Printf("[crows_nest] WARN: Could not load known networks: %v", err)
 	}
 
 	go gm.RunPeriodicScan(ctx)
@@ -148,14 +169,23 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		}
 
 		if !isConnectedToTopThree {
-			gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
-				highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
-			// In a real scenario, password management would be handled securely.
-			// For now, we pass an empty string as password for open networks.
-			password := "" // Placeholder for now, will be fetched securely for encrypted networks
-			err := gm.connector.Connect(highestPriorityGateway, password)
-			if err != nil {
-				gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+			password := ""
+			knownNetwork, isKnown := gm.knownNetworks[highestPriorityGateway.SSID]
+			if isKnown {
+				password = knownNetwork.Password
+				gm.log.Printf("[crows_nest] Found known network '%s'. Using stored password.", highestPriorityGateway.SSID)
+			}
+
+			// Attempt to connect if the network is open, or if it's a known network with a password.
+			if highestPriorityGateway.Encryption == "Open" || highestPriorityGateway.Encryption == "" || isKnown {
+				gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
+					highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
+				err := gm.connector.Connect(highestPriorityGateway, password)
+				if err != nil {
+					gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+				}
+			} else {
+				gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Highest priority gateway '%s' is encrypted and not in known networks. Manual connection is required.", highestPriorityGateway.SSID)
 			}
 		} else {
 			gm.log.Printf("[crows_nest] Already connected to one of the top three gateways (SSID: %s). No action required.", currentSSID)
@@ -207,4 +237,26 @@ func (gm *GatewayManager) SetLocalAPVendorElements(elements map[string]string) e
 // GetLocalAPVendorElements retrieves the currently configured vendor elements on the local AP.
 func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) {
 	return gm.vendorProcessor.GetLocalAPVendorElements()
+}
+
+func (gm *GatewayManager) loadKnownNetworks() error {
+	gm.log.Println("[crows_nest] Loading known networks from /etc/tollgate/known_networks.json")
+	file, err := ioutil.ReadFile("/etc/tollgate/known_networks.json")
+	if err != nil {
+		return fmt.Errorf("could not read known_networks.json: %w", err)
+	}
+
+	var knownNetworks KnownNetworks
+	if err := json.Unmarshal(file, &knownNetworks); err != nil {
+		return fmt.Errorf("could not unmarshal known_networks.json: %w", err)
+	}
+
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	for _, network := range knownNetworks.Networks {
+		gm.knownNetworks[network.SSID] = network
+		gm.log.Printf("[crows_nest] Loaded known network: %s", network.SSID)
+	}
+
+	return nil
 }
