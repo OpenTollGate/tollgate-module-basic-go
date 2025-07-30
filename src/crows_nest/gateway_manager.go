@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,6 +37,7 @@ type GatewayManager struct {
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
 	knownNetworks     map[string]KnownNetwork // Key: SSID
+	currentHopCount   int
 	scanInterval      time.Duration
 	stopChan          chan struct{}
 	log               *log.Logger
@@ -45,6 +49,7 @@ type Gateway struct {
 	SSID           string            `json:"ssid"`
 	Signal         int               `json:"signal"`
 	Encryption     string            `json:"encryption"`
+	HopCount       int               `json:"hop_count"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
 }
@@ -63,6 +68,7 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 		networkMonitor:    networkMonitor,
 		availableGateways: make(map[string]Gateway),
 		knownNetworks:     make(map[string]KnownNetwork),
+		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
 		log:               logger,
@@ -75,6 +81,9 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 
 	go gm.RunPeriodicScan(ctx)
 	gm.networkMonitor.Start()
+
+	// Set initial hop count state
+	gm.updateHopCountAndAPSSID()
 
 	return gm, nil
 }
@@ -121,6 +130,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 			SSID:           network.SSID,
 			Signal:         network.Signal,
 			Encryption:     network.Encryption,
+			HopCount:       network.HopCount,
 			Score:          score,
 			VendorElements: convertToStringMap(vendorElements),
 		}
@@ -129,9 +139,20 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 	}
 	gm.log.Printf("[crows_nest] Identified %d available gateways", len(gm.availableGateways))
 
+	// Filter gateways by hop count
+	var filteredGateways []Gateway
+	for _, gateway := range gm.availableGateways {
+		if gateway.HopCount < gm.currentHopCount {
+			filteredGateways = append(filteredGateways, gateway)
+		} else {
+			gm.log.Printf("[crows_nest] INFO: Filtering out gateway %s with hop count %d (our hop count is %d)", gateway.SSID, gateway.HopCount, gm.currentHopCount)
+		}
+	}
+	gm.log.Printf("[crows_nest] Found %d gateways with suitable hop count", len(filteredGateways))
+
 	// Convert map to slice for sorting
 	var sortedGateways []Gateway
-	for _, gateway := range gm.availableGateways {
+	for _, gateway := range filteredGateways {
 		sortedGateways = append(sortedGateways, gateway)
 	}
 
@@ -145,7 +166,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 			break
 		}
 		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
-			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.Score, gateway.VendorElements)
+			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.HopCount, gateway.Score, gateway.VendorElements)
 	}
 
 	if len(sortedGateways) > 0 {
@@ -183,6 +204,9 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 				err := gm.connector.Connect(highestPriorityGateway, password)
 				if err != nil {
 					gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+				} else {
+					// Update hop count and SSID after successful connection
+					gm.updateHopCountAndAPSSID()
 				}
 			} else {
 				gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Highest priority gateway '%s' is encrypted and not in known networks. Manual connection is required.", highestPriorityGateway.SSID)
@@ -226,7 +250,13 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error 
 		return errors.New("gateway not found")
 	}
 
-	return gm.connector.Connect(gateway, password)
+	err := gm.connector.Connect(gateway, password)
+	if err == nil {
+		gm.mu.Lock()
+		defer gm.mu.Unlock()
+		gm.updateHopCountAndAPSSID()
+	}
+	return err
 }
 
 // SetLocalAPVendorElements sets specific Bitcoin/Nostr related vendor elements on the local AP.
@@ -259,4 +289,50 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 	}
 
 	return nil
+}
+
+func (gm *GatewayManager) updateHopCountAndAPSSID() {
+	connectedSSID, err := gm.connector.GetConnectedSSID()
+	if err != nil {
+		gm.log.Printf("[crows_nest] WARN: could not get connected SSID to update hop count: %v", err)
+		gm.currentHopCount = math.MaxInt32
+		return
+	}
+
+	if connectedSSID == "" {
+		gm.log.Println("[crows_nest] Not connected to any network, setting hop count to max.")
+		gm.currentHopCount = math.MaxInt32
+		return
+	}
+
+	// Check if it's a known, non-TollGate network (which are our root connections)
+	if _, isKnown := gm.knownNetworks[connectedSSID]; isKnown && !strings.HasPrefix(connectedSSID, "TollGate-") {
+		gm.log.Printf("[crows_nest] Connected to a root network '%s'. Setting hop count to 0.", connectedSSID)
+		gm.currentHopCount = 0
+	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
+		// It's a TollGate network, parse the hop count from its SSID
+		parts := strings.Split(connectedSSID, "-")
+		if len(parts) < 4 {
+			gm.log.Printf("[crows_nest] ERROR: TollGate SSID '%s' has unexpected format. Cannot determine hop count.", connectedSSID)
+			gm.currentHopCount = math.MaxInt32 // Set to max as a safe default
+		} else {
+			hopCountStr := parts[len(parts)-1]
+			hopCount, err := strconv.Atoi(hopCountStr)
+			if err != nil {
+				gm.log.Printf("[crows_nest] ERROR: Could not parse hop count from SSID '%s': %v", connectedSSID, err)
+				gm.currentHopCount = math.MaxInt32 // Set to max as a safe default
+			} else {
+				gm.currentHopCount = hopCount + 1
+				gm.log.Printf("[crows_nest] Connected to TollGate '%s' with hop count %d. Our new hop count is %d.", connectedSSID, hopCount, gm.currentHopCount)
+			}
+		}
+	} else {
+		gm.log.Printf("[crows_nest] Connected to unknown network '%s'. Assuming max hop count.", connectedSSID)
+		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
+	}
+
+	// Update the local AP's SSID to advertise the new hop count
+	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
+		gm.log.Printf("[crows_nest] ERROR: Failed to update local AP SSID with new hop count: %v", err)
+	}
 }

@@ -84,3 +84,50 @@ func TestVendorElementProcessor_parseVendorElements_ShortIEs(t *testing.T) {
 		})
 	}
 }
+
+func TestParseHopCountFromSSID(t *testing.T) {
+	tests := []struct {
+		name string
+		ssid string
+		want int
+	}{
+		{
+			name: "Valid TollGate SSID with hop count",
+			ssid: "TollGate-ABCD-2.4GHz-1",
+			want: 1,
+		},
+		{
+			name: "Valid TollGate SSID with zero hop count",
+			ssid: "TollGate-EFGH-5GHz-0",
+			want: 0,
+		},
+		{
+			name: "Non-TollGate SSID",
+			ssid: "MyHomeNetwork",
+			want: 0,
+		},
+		{
+			name: "TollGate SSID with invalid hop count",
+			ssid: "TollGate-IJKL-2.4GHz-abc",
+			want: 0,
+		},
+		{
+			name: "TollGate SSID with missing parts",
+			ssid: "TollGate-MNOP",
+			want: 0,
+		},
+		{
+			name: "Empty SSID",
+			ssid: "",
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseHopCountFromSSID(tt.ssid); got != tt.want {
+				t.Errorf("parseHopCountFromSSID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

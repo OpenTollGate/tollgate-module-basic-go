@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -253,5 +255,44 @@ func (c *Connector) DisableLocalAP() error {
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
+	return c.restartNetwork()
+}
+
+// UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
+func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
+	// Assuming 'default_radio0' is the AP interface. This might need to be more dynamic.
+	baseSSID, err := c.ExecuteUCI("get", "wireless.default_radio0.ssid")
+	if err != nil {
+		c.log.Printf("[crows_nest] WARN: Could not get current AP SSID to update hop count: %v", err)
+		return nil // Not a fatal error, but we can't update the SSID.
+	}
+	baseSSID = strings.TrimSpace(baseSSID)
+
+	// Strip any existing hop count from the base SSID
+	parts := strings.Split(baseSSID, "-")
+	if len(parts) > 1 {
+		if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+			baseSSID = strings.Join(parts[:len(parts)-1], "-")
+		}
+	}
+
+	var newSSID string
+	if hopCount == math.MaxInt32 {
+		// If we are disconnected, we don't append a hop count.
+		newSSID = baseSSID
+		c.log.Printf("[crows_nest] Disconnected, setting AP SSID to base: %s", newSSID)
+	} else {
+		newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
+		c.log.Printf("[crows_nest] Updating local AP SSID to: %s", newSSID)
+	}
+
+	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.ssid="+newSSID); err != nil {
+		return fmt.Errorf("failed to set new AP SSID: %w", err)
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
+	}
+
+	c.log.Println("[crows_nest] Restarting network to apply new AP SSID")
 	return c.restartNetwork()
 }
