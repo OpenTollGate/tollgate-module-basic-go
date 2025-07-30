@@ -228,9 +228,12 @@ func (c *Connector) cleanupSTAInterfaces() error {
 
 // EnableLocalAP enables the local Wi-Fi access point.
 func (c *Connector) EnableLocalAP() error {
-	c.log.Println("[crows_nest] Enabling local AP")
+	c.log.Println("[crows_nest] Enabling local APs")
 	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=0"); err != nil {
-		return err
+		c.log.Printf("[crows_nest] WARN: Failed to enable default_radio0: %v", err)
+	}
+	if _, err := c.ExecuteUCI("set", "wireless.default_radio1.disabled=0"); err != nil {
+		c.log.Printf("[crows_nest] WARN: Failed to enable default_radio1: %v", err)
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
@@ -240,9 +243,12 @@ func (c *Connector) EnableLocalAP() error {
 
 // DisableLocalAP disables the local Wi-Fi access point.
 func (c *Connector) DisableLocalAP() error {
-	c.log.Println("[crows_nest] Disabling local AP")
+	c.log.Println("[crows_nest] Disabling local APs")
 	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=1"); err != nil {
-		return err
+		c.log.Printf("[crows_nest] WARN: Failed to disable default_radio0: %v", err)
+	}
+	if _, err := c.ExecuteUCI("set", "wireless.default_radio1.disabled=1"); err != nil {
+		c.log.Printf("[crows_nest] WARN: Failed to disable default_radio1: %v", err)
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
