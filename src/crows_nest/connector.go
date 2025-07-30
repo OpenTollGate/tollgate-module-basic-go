@@ -85,8 +85,8 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Restart network to apply changes
-	if err := c.restartNetwork(); err != nil {
+	// Reload wifi to apply changes
+	if err := c.reloadWifi(); err != nil {
 		return err
 	}
 
@@ -163,13 +163,13 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
-func (c *Connector) restartNetwork() error {
-	cmd := exec.Command("/etc/init.d/network", "restart")
+func (c *Connector) reloadWifi() error {
+	cmd := exec.Command("wifi", "reload")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		c.log.Printf("[crows_nest] ERROR: Failed to restart network: %v, stderr: %s", err, stderr.String())
+		c.log.Printf("[crows_nest] ERROR: Failed to reload wifi: %v, stderr: %s", err, stderr.String())
 		return err
 	}
 
@@ -240,7 +240,7 @@ func (c *Connector) EnableLocalAP() error {
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	return c.restartNetwork()
+	return c.reloadWifi()
 }
 
 // DisableLocalAP disables the local Wi-Fi access point.
@@ -255,7 +255,7 @@ func (c *Connector) DisableLocalAP() error {
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	return c.restartNetwork()
+	return c.reloadWifi()
 }
 
 // UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
@@ -293,6 +293,6 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 		return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
 	}
 
-	c.log.Println("[crows_nest] Restarting network to apply new AP SSID")
-	return c.restartNetwork()
+	c.log.Println("[crows_nest] Reloading wifi to apply new AP SSID")
+	return c.reloadWifi()
 }
