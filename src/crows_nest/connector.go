@@ -260,39 +260,125 @@ func (c *Connector) DisableLocalAP() error {
 
 // UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
 func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
-	// Assuming 'default_radio0' is the AP interface. This might need to be more dynamic.
-	baseSSID, err := c.ExecuteUCI("get", "wireless.default_radio0.ssid")
-	if err != nil {
-		c.log.Printf("[crows_nest] WARN: Could not get current AP SSID to update hop count: %v", err)
-		return nil // Not a fatal error, but we can't update the SSID.
+	if err := c.ensureAPInterfacesExist(); err != nil {
+		c.log.Printf("[crows_nest] ERROR: Failed to ensure AP interfaces exist: %v", err)
+		return err // This is a significant issue, so we return the error.
 	}
-	baseSSID = strings.TrimSpace(baseSSID)
 
-	// Strip any existing hop count from the base SSID
-	parts := strings.Split(baseSSID, "-")
-	if len(parts) > 1 {
-		if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
-			baseSSID = strings.Join(parts[:len(parts)-1], "-")
+	// Now that we've ensured the interfaces exist, we can proceed.
+	// We update both 2.4GHz and 5GHz APs if they exist.
+	radios := []string{"default_radio0", "default_radio1"}
+	var commitNeeded bool
+	for _, radio := range radios {
+		// Check if the interface section exists before trying to update it.
+		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
+			c.log.Printf("[crows_nest] INFO: AP interface %s not found, skipping SSID update for it.", radio)
+			continue
 		}
+
+		baseSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+		if err != nil {
+			c.log.Printf("[crows_nest] WARN: Could not get current SSID for %s: %v", radio, err)
+			continue // Try the next radio
+		}
+		baseSSID = strings.TrimSpace(baseSSID)
+
+		// Strip any existing hop count from the base SSID
+		parts := strings.Split(baseSSID, "-")
+		if len(parts) > 2 { // TollGate-XXXX-2.4GHz -> TollGate-XXXX
+			if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+				// It ends with a number, so it's a hop count. Strip it.
+				baseSSID = strings.Join(parts[:len(parts)-1], "-")
+			}
+		}
+
+		var newSSID string
+		if hopCount == math.MaxInt32 {
+			newSSID = baseSSID
+			c.log.Printf("[crows_nest] Disconnected, setting AP SSID for %s to base: %s", radio, newSSID)
+		} else {
+			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
+			c.log.Printf("[crows_nest] Updating local AP SSID for %s to: %s", radio, newSSID)
+		}
+
+		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
+			c.log.Printf("[crows_nest] ERROR: Failed to set new SSID for %s: %v", radio, err)
+			continue
+		}
+		commitNeeded = true
 	}
 
-	var newSSID string
-	if hopCount == math.MaxInt32 {
-		// If we are disconnected, we don't append a hop count.
-		newSSID = baseSSID
-		c.log.Printf("[crows_nest] Disconnected, setting AP SSID to base: %s", newSSID)
-	} else {
-		newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
-		c.log.Printf("[crows_nest] Updating local AP SSID to: %s", newSSID)
+	if commitNeeded {
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
+		}
+		c.log.Println("[crows_nest] Reloading wifi to apply new AP SSID")
+		return c.reloadWifi()
 	}
 
-	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.ssid="+newSSID); err != nil {
-		return fmt.Errorf("failed to set new AP SSID: %w", err)
-	}
-	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-		return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
+	return nil
+}
+
+// ensureAPInterfacesExist checks for and creates the default TollGate AP interfaces if they don't exist.
+func (c *Connector) ensureAPInterfacesExist() error {
+	c.log.Println("[crows_nest] Ensuring default AP interfaces exist...")
+	var created bool
+	radios := map[string]string{
+		"default_radio0": "radio0", // 2.4GHz AP iface
+		"default_radio1": "radio1", // 5GHz AP iface
 	}
 
-	c.log.Println("[crows_nest] Reloading wifi to apply new AP SSID")
-	return c.reloadWifi()
+	for ifaceSection, device := range radios {
+		// Check if the physical radio device exists
+		if _, err := c.ExecuteUCI("get", "wireless."+device); err != nil {
+			c.log.Printf("[crows_nest] INFO: Physical radio device %s not found, cannot create AP interface %s.", device, ifaceSection)
+			continue
+		}
+
+		// Check if the AP interface section already exists
+		if _, err := c.ExecuteUCI("get", "wireless."+ifaceSection); err == nil {
+			c.log.Printf("[crows_nest] INFO: AP interface %s already exists.", ifaceSection)
+			continue
+		}
+
+		// Interface doesn't exist, so create it based on defaults.
+		c.log.Printf("[crows_nest] INFO: AP interface %s not found. Creating it now...", ifaceSection)
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+"=wifi-iface"); err != nil {
+			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceSection, err)
+		}
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".device="+device); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".network=lan"); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".mode=ap"); err != nil {
+			return err
+		}
+		// Generate a default SSID, similar to the setup script
+		randomSuffix := "DFLT" // Using a default placeholder
+		band := "2.4GHz"
+		if device == "radio1" {
+			band = "5GHz"
+		}
+		defaultSSID := fmt.Sprintf("TollGate-%s-%s", randomSuffix, band)
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+defaultSSID); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".encryption=none"); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".disabled=0"); err != nil {
+			return err
+		}
+		created = true
+	}
+
+	if created {
+		c.log.Println("[crows_nest] Default AP interfaces were created/updated, committing changes.")
+		_, err := c.ExecuteUCI("commit", "wireless")
+		return err
+	}
+
+	return nil
 }
