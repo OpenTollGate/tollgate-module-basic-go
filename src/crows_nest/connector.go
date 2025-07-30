@@ -323,6 +323,35 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 func (c *Connector) ensureAPInterfacesExist() error {
 	c.log.Println("[crows_nest] Ensuring default AP interfaces exist...")
 	var created bool
+	var baseSSIDName string
+
+	// First, try to find an existing AP to get the base SSID name
+	for _, radio := range []string{"default_radio0", "default_radio1"} {
+		ssid, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+		if err == nil {
+			ssid = strings.TrimSpace(ssid)
+			if strings.HasPrefix(ssid, "TollGate-") {
+				parts := strings.Split(ssid, "-")
+				// TollGate-XXXX-2.4GHz or TollGate-XXXX-5GHz
+				if len(parts) >= 3 {
+					baseSSIDName = strings.Join(parts[0:2], "-") // "TollGate-XXXX"
+					c.log.Printf("[crows_nest] Found existing AP with base name: %s", baseSSIDName)
+					break
+				}
+			}
+		}
+	}
+
+	// If no base name was found, generate a new one
+	if baseSSIDName == "" {
+		randomSuffix, err := c.generateRandomSuffix(4)
+		if err != nil {
+			return fmt.Errorf("failed to generate random suffix for SSID: %w", err)
+		}
+		baseSSIDName = "TollGate-" + randomSuffix
+		c.log.Printf("[crows_nest] No existing AP found. Generated new base name: %s", baseSSIDName)
+	}
+
 	radios := map[string]string{
 		"default_radio0": "radio0", // 2.4GHz AP iface
 		"default_radio1": "radio1", // 5GHz AP iface
@@ -342,7 +371,7 @@ func (c *Connector) ensureAPInterfacesExist() error {
 		}
 
 		// Interface doesn't exist, so create it based on defaults.
-		c.log.Printf("[crows_nest] INFO: AP interface %s not found. Creating it now...", ifaceSection)
+		c.log.Printf("[crows_nest] INFO: AP interface %s not found. Creating it now with consistent naming...", ifaceSection)
 		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+"=wifi-iface"); err != nil {
 			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceSection, err)
 		}
@@ -355,13 +384,12 @@ func (c *Connector) ensureAPInterfacesExist() error {
 		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".mode=ap"); err != nil {
 			return err
 		}
-		// Generate a default SSID, similar to the setup script
-		randomSuffix := "DFLT" // Using a default placeholder
+
 		band := "2.4GHz"
 		if device == "radio1" {
 			band = "5GHz"
 		}
-		defaultSSID := fmt.Sprintf("TollGate-%s-%s", randomSuffix, band)
+		defaultSSID := fmt.Sprintf("%s-%s", baseSSIDName, band)
 		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+defaultSSID); err != nil {
 			return err
 		}
@@ -381,4 +409,31 @@ func (c *Connector) ensureAPInterfacesExist() error {
 	}
 
 	return nil
+}
+
+func (c *Connector) generateRandomSuffix(length int) (string, error) {
+	cmd := exec.Command("head", "/dev/urandom")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	cmd = exec.Command("tr", "-dc", "A-Z0-9")
+	cmd.Stdin = &stdout
+	var stdout2 bytes.Buffer
+	cmd.Stdout = &stdout2
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	cmd = exec.Command("head", "-c", strconv.Itoa(length))
+	cmd.Stdin = &stdout2
+	var finalStdout bytes.Buffer
+	cmd.Stdout = &finalStdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(finalStdout.String()), nil
 }
