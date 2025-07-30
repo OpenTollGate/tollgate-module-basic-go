@@ -11,7 +11,7 @@ To verify that the TollGate main application (`src/main.go`) can autonomously de
 
 1.  **Preparation of Router A (TollGate Gateway):**
     *   Flash Router A with an OpenWRT image that includes the `tollgate-module-basic-go` package (from the current branch).
-    *   Configure Router A to broadcast a Wi-Fi network with an SSID like "TollGate-MainGateway". (Optional: If vendor elements are to be tested, ensure `src/crows_nest/root/set_vendor_elements.go` is active and correctly configured on Router A to broadcast them.)
+    *   Configure Router A to broadcast a Wi-Fi network with a "TollGate-" prefix, for example, `TollGate-ABCD-2.4GHz`. The `99-tollgate-setup` script will handle the dynamic generation of this SSID.
     *   Ensure Router A has internet connectivity through its WAN interface.
     *   Verify that `src/main.go` running on Router A is publishing the necessary TollGate vendor elements (if applicable).
 
@@ -25,7 +25,7 @@ To verify that the TollGate main application (`src/main.go`) can autonomously de
 ### Test Case 1: Initial Offline State and Connection
 
 *   **Preconditions:**
-    *   Router A is broadcasting "TollGate-MainGateway" with internet access.
+    *   Router A is broadcasting its "TollGate-" prefixed SSID with internet access.
     *   Router B is running the `tollgate-module-basic-go` application.
     *   Router B has no internet connectivity (e.g., WAN cable disconnected).
 *   **Steps:**
@@ -34,26 +34,26 @@ To verify that the TollGate main application (`src/main.go`) can autonomously de
 *   **Expected Results:**
     *   Router B's application logs should show:
         *   "Device is offline. Initiating gateway scan..."
-        *   Messages indicating it's scanning for and detecting "TollGate-MainGateway".
-        *   "Attempting to connect to TollGate gateway: TollGate-MainGateway"
-        *   "SUCCESS: Connected to TollGate gateway: TollGate-MainGateway" (or similar success message).
-    *   Router B should establish a Wi-Fi connection to Router A's "TollGate-MainGateway" SSID.
+        *   Messages indicating it's scanning for and detecting the "TollGate-" prefixed SSID.
+        *   "Attempting to connect to TollGate gateway: TollGate-ABCD-2.4GHz"
+        *   "SUCCESS: Connected to TollGate gateway: TollGate-ABCD-2.4GHz" (or similar success message).
+    *   Router B should establish a Wi-Fi connection to Router A's "TollGate-" prefixed SSID.
     *   Router B should gain internet connectivity (verify by pinging 8.8.8.8 from Router B's CLI).
 
 ### Test Case 2: Internet Disruption and Reconnection
 
 *   **Preconditions:**
-    *   Router B is successfully connected to Router A's "TollGate-MainGateway" and has internet access.
+    *   Router B is successfully connected to Router A's "TollGate-" prefixed SSID and has internet access.
     *   The `tollgate-module-basic-go` application is running on Router B.
 *   **Steps:**
-    1.  On Router A, temporarily disable the "TollGate-MainGateway" SSID (or simulate an internet outage on Router A's WAN).
+    1.  On Router A, temporarily disable the "TollGate-" prefixed SSID (or simulate an internet outage on Router A's WAN).
     2.  Monitor the application logs on Router B (`logread -f`).
-    3.  Re-enable the "TollGate-MainGateway" SSID on Router A (or restore Router A's internet).
+    3.  Re-enable the "TollGate-" prefixed SSID on Router A (or restore Router A's internet).
 *   **Expected Results:**
     *   Router B's application logs should show:
         *   "Device is offline. Initiating gateway scan..." (after initial `8.8.8.8` ping failures).
         *   Messages indicating loss of connection and re-scanning.
-        *   Upon Router A's network becoming available again, Router B should successfully reconnect: "SUCCESS: Connected to TollGate gateway: TollGate-MainGateway".
+        *   Upon Router A's network becoming available again, Router B should successfully reconnect: "SUCCESS: Connected to TollGate gateway: TollGate-ABCD-2.4GHz".
     *   Router B should regain internet connectivity.
 
 ### Test Case 3: No TollGate SSID Available

@@ -73,6 +73,7 @@ func (v *VendorElementProcessor) parseVendorElements(rawIEs []byte) (map[string]
 func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
 	score := ni.Signal
 
+	// Check for the TollGate prefix, e.g., "TollGate-ABCD-2.4GHz"
 	if strings.HasPrefix(ni.SSID, "TollGate-") {
 		// Assign a higher score for TollGate networks for prioritization
 		score += 100 // Arbitrary boost, as per user's requirement for captive portal
