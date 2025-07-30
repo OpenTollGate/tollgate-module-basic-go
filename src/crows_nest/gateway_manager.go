@@ -106,6 +106,10 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 
 func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 	gm.log.Println("[crows_nest] Starting network scan for gateway selection")
+
+	// Update current hop count based on current connection status before scanning
+	gm.updateHopCountAndAPSSID()
+
 	networks, err := gm.scanner.ScanNetworks()
 	if err != nil {
 		gm.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v", err)
@@ -165,7 +169,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		if i >= 3 { // Limit to top 3 for logging
 			break
 		}
-		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
+		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, HopCount=%d, Score=%d, VendorElements=%v",
 			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.HopCount, gateway.Score, gateway.VendorElements)
 	}
 
