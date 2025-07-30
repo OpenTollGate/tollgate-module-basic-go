@@ -109,7 +109,6 @@ define Package/$(PKG_NAME)/install
 
 	# Install cron table
 	$(INSTALL_DIR) $(1)/etc/crontabs
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/crontabs/root $(1)/etc/crontabs/
 	
 	# Install backup configuration for sysupgrade
 	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
