@@ -13,29 +13,36 @@ The `GatewayManager` will be a central struct orchestrating the module's operati
 *   **Structure:**
     ```go
     type GatewayManager struct {
-        scanner       *Scanner
-        connector     *Connector
+        scanner         *Scanner
+        connector       *Connector
         vendorProcessor *VendorElementProcessor
-        mu            sync.RWMutex // Protects availableGateways
+        mu              sync.RWMutex // Protects availableGateways and currentHopCount
         availableGateways map[string]Gateway // Key: BSSID
-        scanInterval  time.Duration
-        stopChan      chan struct{} // For graceful shutdown of scan goroutine
-        log           *log.Logger // Module-specific logger
+        currentHopCount int
+        scanInterval    time.Duration
+        stopChan        chan struct{} // For graceful shutdown of scan goroutine
+        log             *log.Logger   // Module-specific logger
     }
     ```
 *   **Lifecycle:**
     *   `Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error)`:
         *   Initializes `Scanner`, `Connector`, `VendorElementProcessor`.
+        *   Sets `currentHopCount` to `math.MaxInt32` as the initial state (no connection).
         *   Sets up the `log` instance.
         *   Starts a background goroutine for periodic scanning using `time.NewTicker(gm.scanInterval)`. The `ctx` will be used to signal shutdown.
     *   `RunPeriodicScan(ctx context.Context)` (internal goroutine function):
         *   Loops, calling `scanner.ScanNetworks()` at `scanInterval`.
         *   Processes results, updates `availableGateways`, and triggers `vendorProcessor` for scoring.
+        *   Filters the `availableGateways` list, removing any gateways with a hop count greater than or equal to the device's `currentHopCount`.
         *   Handles context cancellation for graceful shutdown.
-*   **State Management:** `availableGateways` map will store `Gateway` objects, synchronized with an `sync.RWMutex` for concurrent access.
+*   **State Management:** `availableGateways` map will store `Gateway` objects. `currentHopCount` will store the device's hop count. Both are synchronized with an `sync.RWMutex` for concurrent access.
 *   **Public Methods (as defined in HLDD):**
     *   `GetAvailableGateways() ([]Gateway, error)`: Reads from `availableGateways` under a read lock.
-    *   `ConnectToGateway(bssid string, password string) error`: Calls `connector.Connect(...)`, locks based on connection state.
+    *   `ConnectToGateway(bssid string, password string) error`: Calls `connector.Connect(...)`. On success, it calls `UpdateHopCountAndAPSSID()`.
+    *   `UpdateHopCountAndAPSSID()` (internal method):
+        *   Determines the new hop count. If connected to a non-TollGate (e.g., password-protected) network, hop count is 0. If connected to a TollGate, it's the gateway's hop count + 1.
+        *   Updates `gm.currentHopCount`.
+        *   Calls `connector.UpdateLocalAPSSID()` to advertise the new hop count.
     *   `SetLocalAPVendorElements(elements map[string]string) error`: Calls `vendorProcessor.SetLocalAPElements()`.
     *   `GetLocalAPVendorElements() (map[string]string, error)`: Calls `vendorProcessor.GetLocalAPElements()`.
 
@@ -56,6 +63,7 @@ Handles Wi-Fi network scanning.
         *   Parses `stdout` line by line using `bufio.Scanner`. Each BSS block will be processed to extract:
             *   BSSID (MAC address)
             *   SSID (`SSID:` field)
+            *   Hop Count: If the SSID matches the format `TollGate-[ID]-[Frequency]-[HopCount]`, parse the hop count. Otherwise, default to 0 for non-TollGate SSIDs.
             *   Signal (`signal:` field, convert to `int` dBm)
             *   Encryption (`RSN:`, `WPA:`, `WPS:`, or infer "Open")
             *   **Vendor Elements:** Attempt to extract raw Information Elements if `iw scan` provides them in a parseable format (e.g., `iw -h -s scan` might be helpful). If not readily available, the `Scanner` will return `NetworkInfo` without parsed vendor elements, and `VendorElementProcessor` will need to use a fallback mechanism (see 2.4).
@@ -63,11 +71,12 @@ Handles Wi-Fi network scanning.
     *   `NetworkInfo` struct:
         ```go
         type NetworkInfo struct {
-            BSSID string
-            SSID string
-            Signal int // dBm
+            BSSID      string
+            SSID       string
+            Signal     int // dBm
             Encryption string
-            RawIEs []byte // Raw Information Elements, if extractable from iw output
+            HopCount   int
+            RawIEs     []byte // Raw Information Elements, if extractable from iw output
         }
         ```
 *   **Error Handling:** Check `cmd.Run()` errors, handle `io.EOF`, `io.ErrUnexpectedEOF` during parsing.
@@ -84,7 +93,7 @@ Manages OpenWRT network configurations via `uci` commands.
     ```
 *   **Methods:**
     *   `Connect(gateway Gateway) error`:
-        *   Receives a `Gateway` struct (containing BSSID, SSID, encryption, etc.).
+        *   Receives a `Gateway` struct (containing BSSID, SSID, encryption, HopCount etc.).
         *   Executes a series of `uci` commands via `os/exec.Command` to:
             *   Configure `network.wwan` (STA interface) with DHCP.
             *   Disable existing `wlan0` AP, configure `wireless.wifinetX` for STA mode on `radio0` (or appropriate radio).
@@ -94,6 +103,11 @@ Manages OpenWRT network configurations via `uci` commands.
         *   Performs internet connectivity check: `ping -c 1 8.8.8.8` in a loop with timeout.
         *   If TollGate network, updates `/etc/hosts` for `status.client` (read current `/etc/hosts`, `sed` functionality in Go, write back).
         *   Re-enables local AP after successful connection/internet check.
+    *   `UpdateLocalAPSSID(hopCount int) error`:
+        *   Retrieves the base SSID (e.g., `TollGate-ABCD-2.4GHz`) from UCI config.
+        *   Constructs the new SSID: `[BaseSSID]-[hopCount]`.
+        *   Executes `uci set wireless.default_radio0.ssid='<NEW_SSID>'`.
+        *   Commits and restarts wireless.
     *   `ExecuteUCI(args ...string) (string, error)` (Helper): Generic function to run `uci` commands.
     *   `Ping(ip string) error`: Simple ping utility.
     *   `UpdateHostsEntry(hostname, ip string) error`: Adds or updates an entry in `/etc/hosts`.
@@ -131,11 +145,12 @@ Handles Bitcoin/Nostr related vendor elements.
 *   `Gateway` struct:
     ```go
     type Gateway struct {
-        BSSID string `json:"bssid"` // MAC address of the AP
-        SSID string `json:"ssid"`
-        Signal int `json:"signal"` // Signal strength in dBm
-        Encryption string `json:"encryption"` // e.g., "none", "psk2", "sae"
-        Score int `json:"score"` // Calculated score for prioritization
+        BSSID          string `json:"bssid"` // MAC address of the AP
+        SSID           string `json:"ssid"`
+        Signal         int    `json:"signal"`    // Signal strength in dBm
+        Encryption     string `json:"encryption"`// e.g., "none", "psk2", "sae"
+        HopCount       int    `json:"hop_count"` // Hop count parsed from SSID
+        Score          int    `json:"score"`     // Calculated score for prioritization
         VendorElements map[string]string `json:"vendor_elements"` // Map of parsed vendor-specific data
     }
     ```

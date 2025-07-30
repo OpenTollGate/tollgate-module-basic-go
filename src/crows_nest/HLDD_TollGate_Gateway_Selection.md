@@ -2,16 +2,18 @@
 
 ## 1. Introduction
 
-This document outlines the high-level design for identifying and connecting to wireless gateways with "TollGate" SSIDs within an OpenWRT environment. The primary goal is to provide a mechanism for OpenWRT-based devices to autonomously discover, prioritize, and connect to these specialized gateways, integrating aspects of Bitcoin and Nostr protocols via vendor elements.
+This document outlines the high-level design for identifying and connecting to wireless gateways with "TollGate" SSIDs within an OpenWRT environment. The primary goal is to provide a mechanism for OpenWRT-based devices to autonomously discover, prioritize, and connect to these specialized gateways, integrating aspects of Bitcoin and Nostr protocols via vendor elements. To prevent routing loops, a hop count mechanism is implemented, where the hop count is advertised in the SSID.
 
 ## 2. System Overview
 
 The system comprises a series of interconnected shell scripts executed on an OpenWRT device. These scripts work in concert to:
 1. Scan for available Wi-Fi networks.
 2. Identify and extract specific data from "TollGate" networks via vendor elements.
-3. Score networks based on signal strength and custom vendor-provided metrics.
-4. Allow selection (manual or potentially automatic) of a preferred gateway.
-5. Configure the OpenWRT device to connect to the chosen gateway.
+3. Parse a hop count from "TollGate" SSIDs, which follow the format `TollGate-[ID]-[Frequency]-[HopCount]`.
+4. Score networks based on signal strength and custom vendor-provided metrics.
+5. Filter available gateways, allowing connections only to networks with a hop count strictly lower than the device's own.
+6. Allow selection (manual or potentially automatic) of a preferred gateway.
+7. Configure the OpenWRT device to connect to the chosen gateway and update its own hop count and advertised SSID.
 
 ## 3. Component Interaction and Data Flow
 
@@ -36,23 +38,26 @@ graph TD
     F --> G[Check Internet Connectivity];
     G -- If TollGate_ --> H[Update /etc/hosts with Gateway IP];
     G --> I[Enable Local AP (if internet OK)];
-    I --> J[Connection Established];
+    I --> J(select_gateway.sh: Update own Hop Count & AP SSID);
+    J --> K[Connection Established];
 
     subgraph Network Scan & Scoring
-        C --- K(Call sort_wifi_networks.sh --select-ssid);
-        K --> L(Call scan_wifi_networks.sh);
-        L --> M[iw scan];
-        M --> N{Parse & Score Networks};
-        N -- TollGate_ SSID --> O[Call get_vendor_elements.sh];
-        O --> P[Call decibel.sh];
-        N --> Q[Output JSON to sort_wifi_networks.sh];
+        C --- L(Call sort_wifi_networks.sh --select-ssid);
+        L --> M(Call scan_wifi_networks.sh);
+        M --> N[iw scan];
+        N --> O{Parse SSID, Hop Count, & Score Networks};
+        O -- TollGate_ SSID --> P[Call get_vendor_elements.sh];
+        P --> Q[Call decibel.sh];
+        O --> R[Output JSON to sort_wifi_networks.sh];
     end
 
     subgraph Network Filtering & Sorting
-        Q --> R[sort_wifi_networks.sh processes JSON];
-        R --> S{Filter & Sort by Score};
-        S --> T[Present Networks to User];
-        T -- Selected Network JSON --> U[Save to /tmp/selected_ssid.md];
+        R --> S(sort_wifi_networks.sh processes JSON);
+        S --> T{Get Own Hop Count};
+        T --> U{Filter by Hop Count < Own Hop Count};
+        U --> V{Sort by Score};
+        V --> W[Present Networks to User];
+        W -- Selected Network JSON --> X[Save to /tmp/selected_ssid.md];
     end
 ```
 
@@ -60,7 +65,7 @@ graph TD
 
 *   **[`scan_wifi_networks.sh`](files/root/scan_wifi_networks.sh):**
     *   **Input:** None (retrieves Wi-Fi interface internally).
-    *   **Output:** JSON array of Wi-Fi networks, each with `mac`, `ssid`, `encryption`, `signal`, and `score`. For "TollGate" SSIDs, includes `kb_allocation_dB` and `contribution_dB`.
+    *   **Output:** JSON array of Wi-Fi networks, each with `mac`, `ssid`, `encryption`, `signal`, `hop_count`, and `score`. For "TollGate" SSIDs, includes `kb_allocation_dB` and `contribution_dB`.
     *   **External Calls:** `iw`, `awk`, `jq`, [`get_vendor_elements.sh`](files/root/get_vendor_elements.sh), [`decibel.sh`](files/root/decibel.sh).
 
 *   **[`get_vendor_elements.sh`](files/root/get_vendor_elements.sh):**
@@ -73,7 +78,7 @@ graph TD
     *   **Output:** Decibel value (integer/float).
 
 *   **[`sort_wifi_networks.sh`](files/root/sort_wifi_networks.sh):**
-    *   **Input:** JSON array of networks (from `scan_wifi_networks.sh`), optionally command-line arguments (--full-json, --tollgate-json, --ssid-list, --select-ssid).
+    *   **Input:** JSON array of networks (from `scan_wifi_networks.sh`), optionally command-line arguments (--full-json, --tollgate-json, --ssid-list, --select-ssid). It will also need to determine its own hop count, likely by inspecting its own current connection status via `uci` or `iw`.
     *   **Output:**
         *   `--full-json`, `--tollgate-json`, `--ssid-list`: JSON or plain text list of networks.
         *   `--select-ssid`: Interactive prompt for user selection.
@@ -84,7 +89,7 @@ graph TD
     *   **Input:** None (orchestrates selection via `sort_wifi_networks.sh`).
     *   **Output:** Configuration changes applied to OpenWRT via UCI. Status messages printed to console.
     *   **External Calls:** `./sort_wifi_networks.sh`, `cat`, `jq`, `uci`, `/etc/init.d/network`, `ping`, `ip route`, `sed`, `wifi`.
-    *   **Side Effects:** Modifies UCI configuration (`firewall`, `network`, `wireless`), updates `/etc/hosts` for "TollGate" networks, potentially enables local AP.
+    *   **Side Effects:** Modifies UCI configuration (`firewall`, `network`, `wireless`), updates `/etc/hosts` for "TollGate" networks, potentially enables local AP, and updates the local AP's SSID to advertise the new hop count.
 
 ## 4. Future Extensibility Considerations
 
