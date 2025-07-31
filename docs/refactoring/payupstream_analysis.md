@@ -51,7 +51,11 @@ The `pay-upstream` feature introduces a formal protocol for client-provider comm
 -   **`valve`**: Modified to open the gate for a specific MAC address until a specified end time.
 -   **`main.go`**: Updated to initialize and start the new `crowsnest` and `chandler` modules.
 
-## Architectural Flow Diagram
+## Architectural Flow Diagrams
+
+### 1. Crowsnest: Discovery Flow
+
+This diagram illustrates the process of discovering an upstream TollGate provider.
 
 ```mermaid
 graph TD
@@ -62,19 +66,32 @@ graph TD
     E -- kind:10021 (Advertisement) --> D;
     D --> F{Valid Ad?};
     F -- Yes --> G(crowsnest: Handoff to Chandler);
-    G --> H(chandler: Evaluate Policies & Budget);
-    H --> I{Payment Viable?};
-    I -- Yes --> J(chandler: Calculate Payment);
-    J --> K(chandler: Request Payment from Merchant);
-    K --> L[merchant: Create Cashu Token];
-    L --> K;
-    K --> J;
-    J --> M(chandler: Send Payment);
-    M -- POST /:2121 (kind: 21000) --> E;
-    E -- kind:1022 (Session) --> M;
-    M --> N(chandler: Start Usage Tracker);
-    N --> O{Renewal Needed?};
-    O -- Yes --> J;
+```
+
+### 2. Chandler: Payment and Session Flow
+
+This diagram shows the process after a valid TollGate has been discovered and handed off to the `chandler`.
+
+```mermaid
+graph TD
+    subgraph Chandler Module
+        G[Handoff from Crowsnest] --> H(Evaluate Policies & Budget);
+        H --> I{Payment Viable?};
+        I -- Yes --> J(Calculate Payment);
+        J --> K(Request Payment from Merchant);
+        K --> L[merchant: Create Cashu Token];
+        L --> K;
+        K --> J;
+        J --> M(Send Payment);
+        M --> N(Start Usage Tracker);
+        N --> O{Renewal Needed?};
+        O -- Yes --> J;
+    end
+
+    subgraph Upstream TollGate Interaction
+        M -- POST /:2121 (kind: 21000) --> E[Upstream TollGate];
+        E -- kind:1022 (Session) --> M;
+    end
 ```
 
 ## Conclusion
