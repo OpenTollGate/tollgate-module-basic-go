@@ -51,6 +51,68 @@ This new directory contains the heart of the changes:
 *   **`vendor_element_processor.go`**: Implements the logic to find and parse custom TollGate data from vendor elements in beacon frames.
 *   **`HLDD_*.md` / `LLDD_*.md`**: Detailed design documents for the new module, promoting better understanding and maintainability.
 
+### `GatewayManager` Workflow
+
+The `GatewayManager` is the brain of the `crows_nest` module. It runs a periodic scan to find and evaluate the best gateway, and then attempts to connect if a better option is available.
+
+```mermaid
+graph TD
+    A[Start Periodic Scan] --> B["Scan Networks"];
+    B -- Scanned Networks --> C["Process Networks"];
+    C --> D["Extract Vendor Elements & Score"];
+    D --> E["Filter by Hop Count"];
+    E --> F["Sort by Score"];
+    F --> G{"Top Gateway Found?"};
+    G -- Yes --> H{"Already Connected to Top Gateway?"};
+    H -- No --> I{"Is Network Open or Known?"};
+    I -- Yes --> J[Attempt Connection];
+    J --> K["Update Hop Count & AP SSID"];
+    G -- No --> L[No Action];
+    H -- Yes --> L;
+    I -- No --> L;
+```
+
+### `Scanner` Workflow
+
+The `Scanner` is responsible for the low-level task of scanning for Wi-Fi networks and parsing the output.
+
+```mermaid
+graph TD
+    A[ScanNetworks()] --> B["Get WiFi Interface Name"];
+    B --> C["Execute `iw dev <iface> scan`"];
+    C -- Raw Scan Output --> D["Parse Scan Output"];
+    D --> E["Extract BSSID, SSID, Signal, Encryption"];
+    E --> F["Parse Hop Count from SSID"];
+    F -- "[]NetworkInfo" --> G[Return Parsed Networks];
+```
+
+### `Connector` Workflow
+
+The `Connector` handles all interactions with the OpenWRT system for network configuration.
+
+```mermaid
+graph TD
+    A[Connect()] --> B["Cleanup Existing STA Interfaces"];
+    B --> C["Set network.wwan and wireless.wifinet0 UCI settings"];
+    C --> D["Set SSID, BSSID, and Encryption"];
+    D --> E["Commit UCI Changes"];
+    E --> F["Reload WiFi"];
+    F --> G["Verify Connection"];
+```
+
+### `VendorElementProcessor` Workflow
+
+The `VendorElementProcessor` is responsible for extracting and scoring TollGate-specific information from vendor elements.
+
+```mermaid
+graph TD
+    A[ExtractAndScore()] --> B["Parse Vendor Elements (Stubbed)"];
+    B --> C["Calculate Score"];
+    C -- Signal Strength --> C;
+    C -- "TollGate-" SSID Prefix --> C;
+    C -- Score --> D[Return Score];
+```
+
 ## Summary and Recommendations
 
 The `feature/autoconnect` branch is a critical step forward in the project's architecture. By refactoring the network management logic out of `main.go` and into the well-structured `crows_nest` module, the branch achieves:
