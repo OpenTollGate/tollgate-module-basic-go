@@ -1,0 +1,950 @@
+diff --git a/files/etc/tollgate/known_networks.json b/files/etc/tollgate/known_networks.json
+index 30c6a98..3dd9a98 100644
+--- a/files/etc/tollgate/known_networks.json
++++ b/files/etc/tollgate/known_networks.json
+@@ -1,8 +1,8 @@
+ {
+   "known_networks": [
+     {
+-      "ssid": "YOUR_SSID_HERE",
+-      "password": "YOUR_PASSWORD_HERE",
++      "ssid": "homespot-DB84-2.4GHz",
++      "password": "d76c34HEb7cu",
+       "encryption": "psk2"
+     }
+   ]
+diff --git a/src/crows_nest/HLDD_TollGate_Gateway_Selection.md b/src/crows_nest/HLDD_TollGate_Gateway_Selection.md
+index 81302ff..4c7e8b1 100644
+--- a/src/crows_nest/HLDD_TollGate_Gateway_Selection.md
++++ b/src/crows_nest/HLDD_TollGate_Gateway_Selection.md
+@@ -2,16 +2,18 @@
+ 
+ ## 1. Introduction
+ 
+-This document outlines the high-level design for identifying and connecting to wireless gateways with "TollGate" SSIDs within an OpenWRT environment. The primary goal is to provide a mechanism for OpenWRT-based devices to autonomously discover, prioritize, and connect to these specialized gateways, integrating aspects of Bitcoin and Nostr protocols via vendor elements.
++This document outlines the high-level design for identifying and connecting to wireless gateways with "TollGate" SSIDs within an OpenWRT environment. The primary goal is to provide a mechanism for OpenWRT-based devices to autonomously discover, prioritize, and connect to these specialized gateways, integrating aspects of Bitcoin and Nostr protocols via vendor elements. To prevent routing loops, a hop count mechanism is implemented, where the hop count is advertised in the SSID.
+ 
+ ## 2. System Overview
+ 
+ The system comprises a series of interconnected shell scripts executed on an OpenWRT device. These scripts work in concert to:
+ 1. Scan for available Wi-Fi networks.
+ 2. Identify and extract specific data from "TollGate" networks via vendor elements.
+-3. Score networks based on signal strength and custom vendor-provided metrics.
+-4. Allow selection (manual or potentially automatic) of a preferred gateway.
+-5. Configure the OpenWRT device to connect to the chosen gateway.
++3. Parse a hop count from "TollGate" SSIDs, which follow the format `TollGate-[ID]-[Frequency]-[HopCount]`.
++4. Score networks based on signal strength and custom vendor-provided metrics.
++5. Filter available gateways, allowing connections only to networks with a hop count strictly lower than the device's own.
++6. Allow selection (manual or potentially automatic) of a preferred gateway.
++7. Configure the OpenWRT device to connect to the chosen gateway and update its own hop count and advertised SSID.
+ 
+ ## 3. Component Interaction and Data Flow
+ 
+@@ -36,23 +38,26 @@ graph TD
+     F --> G[Check Internet Connectivity];
+     G -- If TollGate_ --> H[Update /etc/hosts with Gateway IP];
+     G --> I[Enable Local AP (if internet OK)];
+-    I --> J[Connection Established];
++    I --> J(select_gateway.sh: Update own Hop Count & AP SSID);
++    J --> K[Connection Established];
+ 
+     subgraph Network Scan & Scoring
+-        C --- K(Call sort_wifi_networks.sh --select-ssid);
+-        K --> L(Call scan_wifi_networks.sh);
+-        L --> M[iw scan];
+-        M --> N{Parse & Score Networks};
+-        N -- TollGate_ SSID --> O[Call get_vendor_elements.sh];
+-        O --> P[Call decibel.sh];
+-        N --> Q[Output JSON to sort_wifi_networks.sh];
++        C --- L(Call sort_wifi_networks.sh --select-ssid);
++        L --> M(Call scan_wifi_networks.sh);
++        M --> N[iw scan];
++        N --> O{Parse SSID, Hop Count, & Score Networks};
++        O -- TollGate_ SSID --> P[Call get_vendor_elements.sh];
++        P --> Q[Call decibel.sh];
++        O --> R[Output JSON to sort_wifi_networks.sh];
+     end
+ 
+     subgraph Network Filtering & Sorting
+-        Q --> R[sort_wifi_networks.sh processes JSON];
+-        R --> S{Filter & Sort by Score};
+-        S --> T[Present Networks to User];
+-        T -- Selected Network JSON --> U[Save to /tmp/selected_ssid.md];
++        R --> S(sort_wifi_networks.sh processes JSON);
++        S --> T{Get Own Hop Count};
++        T --> U{Filter by Hop Count < Own Hop Count};
++        U --> V{Sort by Score};
++        V --> W[Present Networks to User];
++        W -- Selected Network JSON --> X[Save to /tmp/selected_ssid.md];
+     end
+ ```
+ 
+@@ -60,7 +65,7 @@ graph TD
+ 
+ *   **[`scan_wifi_networks.sh`](files/root/scan_wifi_networks.sh):**
+     *   **Input:** None (retrieves Wi-Fi interface internally).
+-    *   **Output:** JSON array of Wi-Fi networks, each with `mac`, `ssid`, `encryption`, `signal`, and `score`. For "TollGate" SSIDs, includes `kb_allocation_dB` and `contribution_dB`.
++    *   **Output:** JSON array of Wi-Fi networks, each with `mac`, `ssid`, `encryption`, `signal`, `hop_count`, and `score`. For "TollGate" SSIDs, includes `kb_allocation_dB` and `contribution_dB`.
+     *   **External Calls:** `iw`, `awk`, `jq`, [`get_vendor_elements.sh`](files/root/get_vendor_elements.sh), [`decibel.sh`](files/root/decibel.sh).
+ 
+ *   **[`get_vendor_elements.sh`](files/root/get_vendor_elements.sh):**
+@@ -73,7 +78,7 @@ graph TD
+     *   **Output:** Decibel value (integer/float).
+ 
+ *   **[`sort_wifi_networks.sh`](files/root/sort_wifi_networks.sh):**
+-    *   **Input:** JSON array of networks (from `scan_wifi_networks.sh`), optionally command-line arguments (--full-json, --tollgate-json, --ssid-list, --select-ssid).
++    *   **Input:** JSON array of networks (from `scan_wifi_networks.sh`), optionally command-line arguments (--full-json, --tollgate-json, --ssid-list, --select-ssid). It will also need to determine its own hop count, likely by inspecting its own current connection status via `uci` or `iw`.
+     *   **Output:**
+         *   `--full-json`, `--tollgate-json`, `--ssid-list`: JSON or plain text list of networks.
+         *   `--select-ssid`: Interactive prompt for user selection.
+@@ -84,7 +89,7 @@ graph TD
+     *   **Input:** None (orchestrates selection via `sort_wifi_networks.sh`).
+     *   **Output:** Configuration changes applied to OpenWRT via UCI. Status messages printed to console.
+     *   **External Calls:** `./sort_wifi_networks.sh`, `cat`, `jq`, `uci`, `/etc/init.d/network`, `ping`, `ip route`, `sed`, `wifi`.
+-    *   **Side Effects:** Modifies UCI configuration (`firewall`, `network`, `wireless`), updates `/etc/hosts` for "TollGate" networks, potentially enables local AP.
++    *   **Side Effects:** Modifies UCI configuration (`firewall`, `network`, `wireless`), updates `/etc/hosts` for "TollGate" networks, potentially enables local AP, and updates the local AP's SSID to advertise the new hop count.
+ 
+ ## 4. Future Extensibility Considerations
+ 
+diff --git a/src/crows_nest/HLDD_gateway_manager.md b/src/crows_nest/HLDD_gateway_manager.md
+index 22d5602..ea06dca 100644
+--- a/src/crows_nest/HLDD_gateway_manager.md
++++ b/src/crows_nest/HLDD_gateway_manager.md
+@@ -2,24 +2,24 @@
+ 
+ ## 1. Introduction
+ 
+-This document outlines the high-level design for the new `crows_nest` Go module. This module will replace the existing shell scripts (`scan_wifi_networks.sh`, `sort_wifi_networks.sh`, `select_gateway.sh`) responsible for scanning available Wi-Fi gateways, determining the most suitable connection, and managing the connection process within an OpenWRT environment. The module will operate continuously in the background as part of the `tollgate-module-basic-go` application, exposing functions for external business logic to query available networks and initiate connections.
++This document outlines the high-level design for the new `crows_nest` Go module. This module will replace the existing shell scripts (`scan_wifi_networks.sh`, `sort_wifi_networks.sh`, `select_gateway.sh`) responsible for scanning available Wi-Fi gateways, determining the most suitable connection, and managing the connection process within an OpenWRT environment. To prevent routing loops where two gateways connect to each other, the module implements a hop count mechanism. The module will operate continuously in the background as part of the `tollgate-module-basic-go` application, exposing functions for external business logic to query available networks and initiate connections.
+ 
+ ## 2. System Overview
+ 
+-The `crows_nest` Go module is a core component integrated directly into the `main` application of `tollgate-module-basic-go`. It will run as a long-lived background process, periodically performing Wi-Fi scans and updating its internal state with a list of available gateways. It will not handle user interaction directly, but rather provide a programmatic interface (APIs) for other parts of the system to interact with it. Network configuration will be managed by executing standard `uci` commands. Bitcoin and Nostr specific vendor elements will be processed for gateway scoring and can be set for the local access point.
++The `crows_nest` Go module is a core component integrated directly into the `main` application of `tollgate-module-basic-go`. It will run as a long-lived background process, periodically performing Wi-Fi scans and updating its internal state with a list of available gateways. It will not handle user interaction directly, but rather provide a programmatic interface (APIs) for other parts of the system to interact with it. The gateway selection logic includes filtering by hop count to prevent circular connections. Network configuration will be managed by executing standard `uci` commands. Bitcoin and Nostr specific vendor elements will be processed for gateway scoring and can be set for the local access point. The SSID of the local access point will be dynamically updated to advertise its current hop count.
+ 
+ ## 3. Component Interaction and Data Flow
+ 
+ The `gateway_manager` module will primarily consist of a `GatewayManager` orchestrator and several sub-components.
+ 
+-*   **`GatewayManager`:** This struct will serve as the main entry point and orchestrator for the module. It will manage the periodic scanning routine, maintain the list of available gateways, and coordinate connection requests.
+-*   **`Scanner`:** Responsible for executing `iw scan` commands and parsing their raw output into structured Go data types (e.g., a list of `NetworkInfo` objects). It will handle filtering and basic error detection related to `iw` commands.
+-*   **`Connector`:** Handles all interactions with the OpenWRT Unified Configuration Interface (UCI). It will execute `uci` commands via `os/exec` to configure wireless interfaces, network bridges, and firewall rules for connecting to a selected gateway. It will also manage network restarts and internet connectivity checks.
++*   **`GatewayManager`:** This struct will serve as the main entry point and orchestrator for the module. It will manage the periodic scanning routine, maintain the list of available gateways, and coordinate connection requests. It is also responsible for determining the device's own hop count based on its upstream connection and filtering potential gateways accordingly.
++*   **`Scanner`:** Responsible for executing `iw scan` commands and parsing their raw output into structured Go data types (e.g., a list of `NetworkInfo` objects). It will parse the hop count from "TollGate" SSIDs, which follow the format `TollGate-[ID]-[Frequency]-[HopCount]`.
++*   **`Connector`:** Handles all interactions with the OpenWRT Unified Configuration Interface (UCI). It will execute `uci` commands via `os/exec` to configure wireless interfaces, network bridges, and firewall rules for connecting to a selected gateway. It will also manage network restarts, internet connectivity checks, and dynamically setting the local AP's SSID to include the current hop count.
+ *   **`VendorElementProcessor`:** This component will be responsible for:
+     *   Extracting and parsing Bitcoin/Nostr specific vendor elements from scanned Wi-Fi network information. This involves understanding 802.11u standards and specific OUI/IE (Organizationally Unique Identifier / Information Element) for Bitcoin/Nostr.
+     *   Converting data from vendor elements into a score (e.g., decibel conversion).
+     *   Providing functionality to set specific vendor elements on the local OpenWRT device's access point, likely via direct `uci` configurations.
+-*   **Data Models:** Go structs will be defined to represent entities such as `Gateway` (containing network details, signal strength, score, and vendor-specific data), `NetworkInfo`, and configuration parameters.
++*   **Data Models:** Go structs will be defined to represent entities such as `Gateway` (containing network details, signal strength, hop count, score, and vendor-specific data), `NetworkInfo`, and configuration parameters.
+ 
+ ### 3.1. Data Flow Diagram
+ 
+@@ -29,24 +29,28 @@ graph TD
+     B --> C{GatewayManager Goroutine: Periodic Scan};
+ 
+     C --> D(Scanner: Execute iw scan);
+-    D --> E{Scanner: Parse iw scan output};
++    D --> E{Scanner: Parse iw scan output, including Hop Count from SSID};
+     E --> F{VendorElementProcessor: Extract & Score Vendor Elements};
+-    F --> G(GatewayManager: Update Available Gateways List);
+-
+-    H[External Business Logic] --> I(GatewayManager: GetAvailableGateways());
+-    I --> J{Formatted List of Gateways};
+-
+-    H --> K(GatewayManager: ConnectToGateway(mac, password));
+-    K --> L(Connector: Execute UCI commands);
+-    L --> M(Connector: Network Restart & Connectivity Check);
+-    M --> N(Connection Status Update);
+-
+-    O[External Business Logic] --> P(GatewayManager: SetLocalAPVendorElements(elements));
+-    P --> Q(VendorElementProcessor: Configure Local AP Vendor Elements);
+-
+-    R[External Business Logic] --> S(GatewayManager: GetLocalAPVendorElements());
+-    S --> T(VendorElementProcessor: Read Local AP Vendor Elements);
+-    T --> U{Local AP Vendor Elements};
++    F --> G(GatewayManager: Determine Current Hop Count);
++    G --> H{GatewayManager: Filter Gateways by Hop Count & Update List};
++
++    I[External Business Logic] --> J(GatewayManager: GetAvailableGateways());
++    J --> K{Formatted List of Gateways};
++
++    I --> L(GatewayManager: ConnectToGateway(mac, password));
++    L --> M{Connector: Execute UCI commands};
++    M --> N(Connector: Network Restart & Connectivity Check);
++    N -- On Success --> O(GatewayManager: Recalculate Hop Count);
++    O --> P(Connector: Update Local AP SSID with new Hop Count);
++    N -- On Failure --> Q(Connection Status Update);
++    P --> Q;
++
++    R[External Business Logic] --> S(GatewayManager: SetLocalAPVendorElements(elements));
++    S --> T(VendorElementProcessor: Configure Local AP Vendor Elements);
++
++    U[External Business Logic] --> V(GatewayManager: GetLocalAPVendorElements());
++    V --> W(VendorElementProcessor: Read Local AP Vendor Elements);
++    W --> X{Local AP Vendor Elements};
+ ```
+ 
+ ## 4. API Definitions / Interface Contracts (Go Module)
+@@ -54,8 +58,8 @@ graph TD
+ The `crows_nest` module will expose the following public API for interaction:
+ 
+ *   `func Init(ctx context.Context) (*GatewayManager, error)`: Initializes the `GatewayManager` and starts its internal background scanning routine. The context allows for graceful shutdown.
+-*   `func (gm *GatewayManager) GetAvailableGateways() ([]Gateway, error)`: Returns a snapshot of the currently available and scored Wi-Fi gateways. The `Gateway` struct will contain details like SSID, BSSID, signal strength, encryption type, and calculated score (including vendor element contributions).
+-*   `func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error`: Instructs the `GatewayManager` to connect to the specified gateway. The connection process will be handled asynchronously internally, with status updates potentially exposed via dedicated channels or status getters.
++*   `func (gm *GatewayManager) GetAvailableGateways() ([]Gateway, error)`: Returns a snapshot of the currently available and scored Wi-Fi gateways. The `Gateway` struct will contain details like SSID, BSSID, signal strength, encryption type, hop count, and calculated score (including vendor element contributions).
++*   `func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error`: Instructs the `GatewayManager` to connect to the specified gateway. The connection process will be handled asynchronously internally. On success, the manager will update its own hop count and local AP SSID.
+ *   `func (gm *GatewayManager) SetLocalAPVendorElements(elements map[string]string) error`: Sets specific Bitcoin/Nostr related vendor elements in the beacon frames of the local OpenWRT device's Access Point. The exact mechanism for setting these elements (e.g., direct UCI config, custom binaries) will be detailed in the LLDD.
+ *   `func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error)`: Retrieves the currently configured vendor elements for the local OpenWRT device's Access Point.
+ 
+diff --git a/src/crows_nest/LLDD_TollGate_Gateway_Selection.md b/src/crows_nest/LLDD_TollGate_Gateway_Selection.md
+index 1ed7510..2e11064 100644
+--- a/src/crows_nest/LLDD_TollGate_Gateway_Selection.md
++++ b/src/crows_nest/LLDD_TollGate_Gateway_Selection.md
+@@ -8,15 +8,19 @@ This document provides a detailed low-level design for the implementation of the
+ 
+ ### 2.1. [`scan_wifi_networks.sh`](files/root/scan_wifi_networks.sh)
+ 
+-**Purpose:** Scans for Wi-Fi networks and enriches "TollGate" SSIDs with calculated scores based on vendor elements.
++**Purpose:** Scans for Wi-Fi networks, parses hop counts from SSIDs, and enriches "TollGate" SSIDs with calculated scores based on vendor elements.
+ 
+ **Key Functions:**
+ *   `get_wifi_interface()`: Identifies the active managed Wi-Fi interface (e.g., `wlan0`).
+ *   `scan_wifi_networks_to_json()`:
+     *   Executes `iw dev "$interface" scan` to get raw scan data.
+     *   Uses `awk` to parse the raw output into a JSON array of network objects.
++    *   **Hop Count Parsing:**
++        *   The `awk` script will use `split(ssid, parts, "-")` to break down the SSID.
++        *   If the SSID starts with `TollGate-` and has the correct number of parts, the last part is extracted as the `hop_count`.
++        *   If the SSID is not a TollGate SSID or the format is incorrect, `hop_count` defaults to `0`.
+     *   **TollGate Specific Logic:**
+-        *   When `ssid` regex matches `/^TollGate_/`, it executes an external command:
++        *   When `ssid` regex matches `/^TollGate-.*-[0-9]+$/`, it executes an external command:
+             ```bash
+             /root/get_vendor_elements.sh "$ssid" 12 | jq -r ".kb_allocation_decimal, .contribution_decimal"
+             ```
+@@ -38,13 +42,15 @@ This document provides a detailed low-level design for the implementation of the
+     "ssid": "MyHomeNetwork",
+     "encryption": "wpa2",
+     "signal": -70,
++    "hop_count": 0,
+     "score": -70
+   },
+   {
+     "mac": "AA:BB:CC:DD:EE:FF",
+-    "ssid": "TollGate_example",
++    "ssid": "TollGate-ABCD-2.4GHz-1",
+     "encryption": "none",
+     "signal": -50,
++    "hop_count": 1,
+     "kb_allocation_dB": "10",
+     "contribution_dB": "5",
+     "score": -35
+@@ -80,12 +86,19 @@ This document provides a detailed low-level design for the implementation of the
+ **Purpose:** Processes, filters, sorts, and enables user selection of Wi-Fi networks.
+ 
+ **Key Functions:**
++*   `get_own_hop_count()`:
++    *   Determines the device's current hop count.
++    *   If not connected to any network, returns a very large number (e.g., 9999).
++    *   If connected to a non-TollGate network (e.g., password protected), returns `0`.
++    *   If connected to a TollGate network, it parses the hop count from the connected SSID (via `iw dev wlan0 link`) and returns that value.
+ *   `sort_and_display_full_json()`:
++    *   Calls `get_own_hop_count()` to get the current hop count.
+     *   Calls `./scan_wifi_networks.sh` to get the raw JSON output.
+     *   Pipes the output through `jq` for various transformations:
+         *   `remove_empty_ssids()`: `map(select(.ssid != ""))`
+-        *   `sort_networks_by_signal_desc()`: `map(.signal |= tonumber) | sort_by(-.signal)` (This sort is applied before `remove_duplicate_ssids`, ensuring the strongest signal for a given SSID is kept).
+-        *   `remove_duplicate_ssids()`: Uses `jq`'s `reduce` to create an object where keys are SSIDs, effectively keeping only the first (strongest) entry, then converts back to an array.
++        *   **Hop Count Filtering**: `map(select(.hop_count < $own_hop_count))` - This is a critical step to prevent loops.
++        *   `sort_networks_by_score_desc()`: `map(.score |= tonumber) | sort_by(-.score)`.
++        *   `remove_duplicate_ssids()`: Uses `jq`'s `reduce` to create an object where keys are SSIDs, effectively keeping only the first (highest score) entry, then converts back to an array.
+ *   `filter_tollgate_ssids()`: Uses `jq -r 'map(select(.ssid | startswith("TollGate_")))'` to extract only TollGate networks.
+ *   `select_ssid()`:
+     *   Calls `sort_and_display_full_json` to get the processed list.
+@@ -132,9 +145,16 @@ This document provides a detailed low-level design for the implementation of the
+     *   If internet is confirmed:
+         *   Runs `/root/./get_moscow_time.sh` (likely for time synchronization needed for Bitcoin/Nostr protocols).
+         *   Enables the local Access Point (`uci set wireless.default_radio0.disabled='0'`) and reloads Wi-Fi.
+-    *   **TollGate Specific `/etc/hosts` Update:** If `NEW_SSID` is a "TollGate" network and a gateway IP is detected:
++    *   **TollGate Specific `/etc/hosts` and SSID Update:** If `NEW_SSID` is a "TollGate" network and a gateway IP is detected:
+         *   `sed -i '/status.client/d' /etc/hosts`: Removes any prior `status.client` entry.
+-        *   `echo "$GATEWAY_IP status.client" >> /etc/hosts`: Maps the connected gateway's IP to `status.client`. This facilitates local resolution of a captive portal's status page or API endpoint, crucial for the captive portal flow.
++        *   `echo "$GATEWAY_IP status.client" >> /etc/hosts`: Maps the connected gateway's IP to `status.client`.
++        *   **Update Own AP SSID:**
++            *   Parses the `hop_count` from the connected `NEW_SSID`.
++            *   Calculates `new_hop_count = hop_count + 1`.
++            *   Retrieves the base SSID of the local AP from `uci get wireless.default_radio0.ssid`.
++            *   Constructs the new local AP SSID: `[BaseSSID]-[new_hop_count]`.
++            *   Updates the local AP SSID: `uci set wireless.default_radio0.ssid='<NEW_LOCAL_AP_SSID>'`.
++            *   Commits and reloads wifi: `uci commit wireless && wifi`.
+ 
+ **Error Handling:**
+ *   Checks for success of `sort_wifi_networks.sh --select-ssid`.
+@@ -153,15 +173,15 @@ This document provides a detailed low-level design for the implementation of the
+ 1.  User executes `select_gateway.sh`.
+ 2.  `select_gateway.sh` calls `sort_wifi_networks.sh --select-ssid`.
+ 3.  `sort_wifi_networks.sh` calls `scan_wifi_networks.sh`.
+-4.  `scan_wifi_networks.sh` performs `iw scan`, identifies "TollGate_XYZ", calls `get_vendor_elements.sh` and `decibel.sh` to calculate `score`.
+-5.  `scan_wifi_networks.sh` returns JSON list to `sort_wifi_networks.sh`.
+-6.  `sort_wifi_networks.sh` sorts & filters, presents list including "TollGate_XYZ" (potentially highly ranked due to score).
+-7.  User selects "TollGate_XYZ". `sort_wifi_networks.sh` saves its JSON to `/tmp/selected_ssid.md`.
+-8.  `select_gateway.sh` reads `/tmp/selected_ssid.md`, extracts `NEW_SSID="TollGate_XYZ"`, `ENCRYPTION_TYPE="none"`.
+-9.  `select_gateway.sh` configures UCI: `wireless.wifinet1.ssid="TollGate_XYZ"`, `wireless.wifinet1.encryption='none'`. No password prompted.
++4.  `scan_wifi_networks.sh` performs `iw scan`, identifies "TollGate-ABCD-2.4GHz-1", parses `hop_count=1`, calls `get_vendor_elements.sh` and `decibel.sh` to calculate `score`.
++5.  `scan_wifi_networks.sh` returns a JSON list to `sort_wifi_networks.sh`.
++6.  `sort_wifi_networks.sh` determines its own hop count (e.g., 9999 if not connected). It filters the list to only include gateways with `hop_count < 9999`. It then sorts by score and presents the list.
++7.  User selects "TollGate-ABCD-2.4GHz-1". `sort_wifi_networks.sh` saves its JSON to `/tmp/selected_ssid.md`.
++8.  `select_gateway.sh` reads `/tmp/selected_ssid.md`, extracts `NEW_SSID="TollGate-ABCD-2.4GHz-1"`, `ENCRYPTION_TYPE="none"`, `HOP_COUNT=1`.
++9.  `select_gateway.sh` configures UCI: `wireless.wifinet1.ssid="TollGate-ABCD-2.4GHz-1"`, `wireless.wifinet1.encryption='none'`. No password prompted.
+ 10. `uci commit` and `/etc/init.d/network restart`.
+ 11. `select_gateway.sh` waits for IP, finds gateway IP, checks internet.
+-12. If internet OK, calls `get_moscow_time.sh`, enables local AP, and adds `GATEWAY_IP status.client` to `/etc/hosts`.
++12. If internet OK, calls `get_moscow_time.sh`, enables local AP, adds `GATEWAY_IP status.client` to `/etc/hosts`, and updates its own AP SSID to advertise a hop count of `2`.
+ 
+ ### 3.2. Connecting to a Regular Encrypted Network
+ 
+diff --git a/src/crows_nest/LLDD_gateway_manager.md b/src/crows_nest/LLDD_gateway_manager.md
+index 0164d88..358a015 100644
+--- a/src/crows_nest/LLDD_gateway_manager.md
++++ b/src/crows_nest/LLDD_gateway_manager.md
+@@ -13,29 +13,36 @@ The `GatewayManager` will be a central struct orchestrating the module's operati
+ *   **Structure:**
+     ```go
+     type GatewayManager struct {
+-        scanner       *Scanner
+-        connector     *Connector
++        scanner         *Scanner
++        connector       *Connector
+         vendorProcessor *VendorElementProcessor
+-        mu            sync.RWMutex // Protects availableGateways
++        mu              sync.RWMutex // Protects availableGateways and currentHopCount
+         availableGateways map[string]Gateway // Key: BSSID
+-        scanInterval  time.Duration
+-        stopChan      chan struct{} // For graceful shutdown of scan goroutine
+-        log           *log.Logger // Module-specific logger
++        currentHopCount int
++        scanInterval    time.Duration
++        stopChan        chan struct{} // For graceful shutdown of scan goroutine
++        log             *log.Logger   // Module-specific logger
+     }
+     ```
+ *   **Lifecycle:**
+     *   `Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error)`:
+         *   Initializes `Scanner`, `Connector`, `VendorElementProcessor`.
++        *   Sets `currentHopCount` to `math.MaxInt32` as the initial state (no connection).
+         *   Sets up the `log` instance.
+         *   Starts a background goroutine for periodic scanning using `time.NewTicker(gm.scanInterval)`. The `ctx` will be used to signal shutdown.
+     *   `RunPeriodicScan(ctx context.Context)` (internal goroutine function):
+         *   Loops, calling `scanner.ScanNetworks()` at `scanInterval`.
+         *   Processes results, updates `availableGateways`, and triggers `vendorProcessor` for scoring.
++        *   Filters the `availableGateways` list, removing any gateways with a hop count greater than or equal to the device's `currentHopCount`.
+         *   Handles context cancellation for graceful shutdown.
+-*   **State Management:** `availableGateways` map will store `Gateway` objects, synchronized with an `sync.RWMutex` for concurrent access.
++*   **State Management:** `availableGateways` map will store `Gateway` objects. `currentHopCount` will store the device's hop count. Both are synchronized with an `sync.RWMutex` for concurrent access.
+ *   **Public Methods (as defined in HLDD):**
+     *   `GetAvailableGateways() ([]Gateway, error)`: Reads from `availableGateways` under a read lock.
+-    *   `ConnectToGateway(bssid string, password string) error`: Calls `connector.Connect(...)`, locks based on connection state.
++    *   `ConnectToGateway(bssid string, password string) error`: Calls `connector.Connect(...)`. On success, it calls `UpdateHopCountAndAPSSID()`.
++    *   `UpdateHopCountAndAPSSID()` (internal method):
++        *   Determines the new hop count. If connected to a non-TollGate (e.g., password-protected) network, hop count is 0. If connected to a TollGate, it's the gateway's hop count + 1.
++        *   Updates `gm.currentHopCount`.
++        *   Calls `connector.UpdateLocalAPSSID()` to advertise the new hop count.
+     *   `SetLocalAPVendorElements(elements map[string]string) error`: Calls `vendorProcessor.SetLocalAPElements()`.
+     *   `GetLocalAPVendorElements() (map[string]string, error)`: Calls `vendorProcessor.GetLocalAPElements()`.
+ 
+@@ -56,6 +63,7 @@ Handles Wi-Fi network scanning.
+         *   Parses `stdout` line by line using `bufio.Scanner`. Each BSS block will be processed to extract:
+             *   BSSID (MAC address)
+             *   SSID (`SSID:` field)
++            *   Hop Count: If the SSID matches the format `TollGate-[ID]-[Frequency]-[HopCount]`, parse the hop count. Otherwise, default to 0 for non-TollGate SSIDs.
+             *   Signal (`signal:` field, convert to `int` dBm)
+             *   Encryption (`RSN:`, `WPA:`, `WPS:`, or infer "Open")
+             *   **Vendor Elements:** Attempt to extract raw Information Elements if `iw scan` provides them in a parseable format (e.g., `iw -h -s scan` might be helpful). If not readily available, the `Scanner` will return `NetworkInfo` without parsed vendor elements, and `VendorElementProcessor` will need to use a fallback mechanism (see 2.4).
+@@ -63,11 +71,12 @@ Handles Wi-Fi network scanning.
+     *   `NetworkInfo` struct:
+         ```go
+         type NetworkInfo struct {
+-            BSSID string
+-            SSID string
+-            Signal int // dBm
++            BSSID      string
++            SSID       string
++            Signal     int // dBm
+             Encryption string
+-            RawIEs []byte // Raw Information Elements, if extractable from iw output
++            HopCount   int
++            RawIEs     []byte // Raw Information Elements, if extractable from iw output
+         }
+         ```
+ *   **Error Handling:** Check `cmd.Run()` errors, handle `io.EOF`, `io.ErrUnexpectedEOF` during parsing.
+@@ -84,7 +93,7 @@ Manages OpenWRT network configurations via `uci` commands.
+     ```
+ *   **Methods:**
+     *   `Connect(gateway Gateway) error`:
+-        *   Receives a `Gateway` struct (containing BSSID, SSID, encryption, etc.).
++        *   Receives a `Gateway` struct (containing BSSID, SSID, encryption, HopCount etc.).
+         *   Executes a series of `uci` commands via `os/exec.Command` to:
+             *   Configure `network.wwan` (STA interface) with DHCP.
+             *   Disable existing `wlan0` AP, configure `wireless.wifinetX` for STA mode on `radio0` (or appropriate radio).
+@@ -94,6 +103,11 @@ Manages OpenWRT network configurations via `uci` commands.
+         *   Performs internet connectivity check: `ping -c 1 8.8.8.8` in a loop with timeout.
+         *   If TollGate network, updates `/etc/hosts` for `status.client` (read current `/etc/hosts`, `sed` functionality in Go, write back).
+         *   Re-enables local AP after successful connection/internet check.
++    *   `UpdateLocalAPSSID(hopCount int) error`:
++        *   Retrieves the base SSID (e.g., `TollGate-ABCD-2.4GHz`) from UCI config.
++        *   Constructs the new SSID: `[BaseSSID]-[hopCount]`.
++        *   Executes `uci set wireless.default_radio0.ssid='<NEW_SSID>'`.
++        *   Commits and restarts wireless.
+     *   `ExecuteUCI(args ...string) (string, error)` (Helper): Generic function to run `uci` commands.
+     *   `Ping(ip string) error`: Simple ping utility.
+     *   `UpdateHostsEntry(hostname, ip string) error`: Adds or updates an entry in `/etc/hosts`.
+@@ -131,11 +145,12 @@ Handles Bitcoin/Nostr related vendor elements.
+ *   `Gateway` struct:
+     ```go
+     type Gateway struct {
+-        BSSID string `json:"bssid"` // MAC address of the AP
+-        SSID string `json:"ssid"`
+-        Signal int `json:"signal"` // Signal strength in dBm
+-        Encryption string `json:"encryption"` // e.g., "none", "psk2", "sae"
+-        Score int `json:"score"` // Calculated score for prioritization
++        BSSID          string `json:"bssid"` // MAC address of the AP
++        SSID           string `json:"ssid"`
++        Signal         int    `json:"signal"`    // Signal strength in dBm
++        Encryption     string `json:"encryption"`// e.g., "none", "psk2", "sae"
++        HopCount       int    `json:"hop_count"` // Hop count parsed from SSID
++        Score          int    `json:"score"`     // Calculated score for prioritization
+         VendorElements map[string]string `json:"vendor_elements"` // Map of parsed vendor-specific data
+     }
+     ```
+diff --git a/src/crows_nest/connector.go b/src/crows_nest/connector.go
+index d8f2ee2..6b8c88f 100644
+--- a/src/crows_nest/connector.go
++++ b/src/crows_nest/connector.go
+@@ -6,7 +6,9 @@ import (
+ 	"bytes"
+ 	"fmt"
+ 	"log"
++	"math"
+ 	"os/exec"
++	"strconv"
+ 	"strings"
+ 	"time"
+ )
+@@ -83,8 +85,8 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
+ 		return err
+ 	}
+ 
+-	// Restart network to apply changes
+-	if err := c.restartNetwork(); err != nil {
++	// Reload wifi to apply changes
++	if err := c.reloadWifi(); err != nil {
+ 		return err
+ 	}
+ 
+@@ -161,13 +163,13 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
+ 	return stdout.String(), nil
+ }
+ 
+-func (c *Connector) restartNetwork() error {
+-	cmd := exec.Command("/etc/init.d/network", "restart")
++func (c *Connector) reloadWifi() error {
++	cmd := exec.Command("wifi", "reload")
+ 	var stderr bytes.Buffer
+ 	cmd.Stderr = &stderr
+ 
+ 	if err := cmd.Run(); err != nil {
+-		c.log.Printf("[crows_nest] ERROR: Failed to restart network: %v, stderr: %s", err, stderr.String())
++		c.log.Printf("[crows_nest] ERROR: Failed to reload wifi: %v, stderr: %s", err, stderr.String())
+ 		return err
+ 	}
+ 
+@@ -238,7 +240,7 @@ func (c *Connector) EnableLocalAP() error {
+ 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+ 		return err
+ 	}
+-	return c.restartNetwork()
++	return c.reloadWifi()
+ }
+ 
+ // DisableLocalAP disables the local Wi-Fi access point.
+@@ -253,5 +255,185 @@ func (c *Connector) DisableLocalAP() error {
+ 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+ 		return err
+ 	}
+-	return c.restartNetwork()
++	return c.reloadWifi()
++}
++
++// UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
++func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
++	if err := c.ensureAPInterfacesExist(); err != nil {
++		c.log.Printf("[crows_nest] ERROR: Failed to ensure AP interfaces exist: %v", err)
++		return err // This is a significant issue, so we return the error.
++	}
++
++	// Now that we've ensured the interfaces exist, we can proceed.
++	// We update both 2.4GHz and 5GHz APs if they exist.
++	radios := []string{"default_radio0", "default_radio1"}
++	var commitNeeded bool
++	for _, radio := range radios {
++		// Check if the interface section exists before trying to update it.
++		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
++			c.log.Printf("[crows_nest] INFO: AP interface %s not found, skipping SSID update for it.", radio)
++			continue
++		}
++
++		baseSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
++		if err != nil {
++			c.log.Printf("[crows_nest] WARN: Could not get current SSID for %s: %v", radio, err)
++			continue // Try the next radio
++		}
++		baseSSID = strings.TrimSpace(baseSSID)
++
++		// Strip any existing hop count from the base SSID
++		parts := strings.Split(baseSSID, "-")
++		if len(parts) > 2 { // TollGate-XXXX-2.4GHz -> TollGate-XXXX
++			if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
++				// It ends with a number, so it's a hop count. Strip it.
++				baseSSID = strings.Join(parts[:len(parts)-1], "-")
++			}
++		}
++
++		var newSSID string
++		if hopCount == math.MaxInt32 {
++			newSSID = baseSSID
++			c.log.Printf("[crows_nest] Disconnected, setting AP SSID for %s to base: %s", radio, newSSID)
++		} else {
++			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
++			c.log.Printf("[crows_nest] Updating local AP SSID for %s to: %s", radio, newSSID)
++		}
++
++		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
++			c.log.Printf("[crows_nest] ERROR: Failed to set new SSID for %s: %v", radio, err)
++			continue
++		}
++		commitNeeded = true
++	}
++
++	if commitNeeded {
++		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
++			return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
++		}
++		c.log.Println("[crows_nest] Reloading wifi to apply new AP SSID")
++		return c.reloadWifi()
++	}
++
++	return nil
++}
++
++// ensureAPInterfacesExist checks for and creates the default TollGate AP interfaces if they don't exist.
++func (c *Connector) ensureAPInterfacesExist() error {
++	c.log.Println("[crows_nest] Ensuring default AP interfaces exist...")
++	var created bool
++	var baseSSIDName string
++
++	// First, try to find an existing AP to get the base SSID name
++	for _, radio := range []string{"default_radio0", "default_radio1"} {
++		ssid, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
++		if err == nil {
++			ssid = strings.TrimSpace(ssid)
++			if strings.HasPrefix(ssid, "TollGate-") {
++				parts := strings.Split(ssid, "-")
++				// TollGate-XXXX-2.4GHz or TollGate-XXXX-5GHz
++				if len(parts) >= 3 {
++					baseSSIDName = strings.Join(parts[0:2], "-") // "TollGate-XXXX"
++					c.log.Printf("[crows_nest] Found existing AP with base name: %s", baseSSIDName)
++					break
++				}
++			}
++		}
++	}
++
++	// If no base name was found, generate a new one
++	if baseSSIDName == "" {
++		randomSuffix, err := c.generateRandomSuffix(4)
++		if err != nil {
++			return fmt.Errorf("failed to generate random suffix for SSID: %w", err)
++		}
++		baseSSIDName = "TollGate-" + randomSuffix
++		c.log.Printf("[crows_nest] No existing AP found. Generated new base name: %s", baseSSIDName)
++	}
++
++	radios := map[string]string{
++		"default_radio0": "radio0", // 2.4GHz AP iface
++		"default_radio1": "radio1", // 5GHz AP iface
++	}
++
++	for ifaceSection, device := range radios {
++		// Check if the physical radio device exists
++		if _, err := c.ExecuteUCI("get", "wireless."+device); err != nil {
++			c.log.Printf("[crows_nest] INFO: Physical radio device %s not found, cannot create AP interface %s.", device, ifaceSection)
++			continue
++		}
++
++		// Check if the AP interface section already exists
++		if _, err := c.ExecuteUCI("get", "wireless."+ifaceSection); err == nil {
++			c.log.Printf("[crows_nest] INFO: AP interface %s already exists.", ifaceSection)
++			continue
++		}
++
++		// Interface doesn't exist, so create it based on defaults.
++		c.log.Printf("[crows_nest] INFO: AP interface %s not found. Creating it now with consistent naming...", ifaceSection)
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+"=wifi-iface"); err != nil {
++			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceSection, err)
++		}
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".device="+device); err != nil {
++			return err
++		}
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".network=lan"); err != nil {
++			return err
++		}
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".mode=ap"); err != nil {
++			return err
++		}
++
++		band := "2.4GHz"
++		if device == "radio1" {
++			band = "5GHz"
++		}
++		defaultSSID := fmt.Sprintf("%s-%s", baseSSIDName, band)
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+defaultSSID); err != nil {
++			return err
++		}
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".encryption=none"); err != nil {
++			return err
++		}
++		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".disabled=0"); err != nil {
++			return err
++		}
++		created = true
++	}
++
++	if created {
++		c.log.Println("[crows_nest] Default AP interfaces were created/updated, committing changes.")
++		_, err := c.ExecuteUCI("commit", "wireless")
++		return err
++	}
++
++	return nil
++}
++
++func (c *Connector) generateRandomSuffix(length int) (string, error) {
++	cmd := exec.Command("head", "/dev/urandom")
++	var stdout bytes.Buffer
++	cmd.Stdout = &stdout
++	if err := cmd.Run(); err != nil {
++		return "", err
++	}
++
++	cmd = exec.Command("tr", "-dc", "A-Z0-9")
++	cmd.Stdin = &stdout
++	var stdout2 bytes.Buffer
++	cmd.Stdout = &stdout2
++	if err := cmd.Run(); err != nil {
++		return "", err
++	}
++
++	cmd = exec.Command("head", "-c", strconv.Itoa(length))
++	cmd.Stdin = &stdout2
++	var finalStdout bytes.Buffer
++	cmd.Stdout = &finalStdout
++	if err := cmd.Run(); err != nil {
++		return "", err
++	}
++
++	return strings.TrimSpace(finalStdout.String()), nil
+ }
+diff --git a/src/crows_nest/gateway_manager.go b/src/crows_nest/gateway_manager.go
+index 429aa78..13d600f 100644
+--- a/src/crows_nest/gateway_manager.go
++++ b/src/crows_nest/gateway_manager.go
+@@ -8,7 +8,10 @@ import (
+ 	"fmt"
+ 	"io/ioutil"
+ 	"log"
++	"math"
+ 	"sort"
++	"strconv"
++	"strings"
+ 	"sync"
+ 	"time"
+ )
+@@ -34,6 +37,7 @@ type GatewayManager struct {
+ 	mu                sync.RWMutex
+ 	availableGateways map[string]Gateway
+ 	knownNetworks     map[string]KnownNetwork // Key: SSID
++	currentHopCount   int
+ 	scanInterval      time.Duration
+ 	stopChan          chan struct{}
+ 	log               *log.Logger
+@@ -45,6 +49,7 @@ type Gateway struct {
+ 	SSID           string            `json:"ssid"`
+ 	Signal         int               `json:"signal"`
+ 	Encryption     string            `json:"encryption"`
++	HopCount       int               `json:"hop_count"`
+ 	Score          int               `json:"score"`
+ 	VendorElements map[string]string `json:"vendor_elements"`
+ }
+@@ -63,6 +68,7 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
+ 		networkMonitor:    networkMonitor,
+ 		availableGateways: make(map[string]Gateway),
+ 		knownNetworks:     make(map[string]KnownNetwork),
++		currentHopCount:   math.MaxInt32,
+ 		scanInterval:      30 * time.Second,
+ 		stopChan:          make(chan struct{}),
+ 		log:               logger,
+@@ -76,6 +82,9 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
+ 	go gm.RunPeriodicScan(ctx)
+ 	gm.networkMonitor.Start()
+ 
++	// Set initial hop count state
++	gm.updateHopCountAndAPSSID()
++
+ 	return gm, nil
+ }
+ 
+@@ -97,6 +106,10 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
+ 
+ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+ 	gm.log.Println("[crows_nest] Starting network scan for gateway selection")
++
++	// Update current hop count based on current connection status before scanning
++	gm.updateHopCountAndAPSSID()
++
+ 	networks, err := gm.scanner.ScanNetworks()
+ 	if err != nil {
+ 		gm.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v", err)
+@@ -121,6 +134,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+ 			SSID:           network.SSID,
+ 			Signal:         network.Signal,
+ 			Encryption:     network.Encryption,
++			HopCount:       network.HopCount,
+ 			Score:          score,
+ 			VendorElements: convertToStringMap(vendorElements),
+ 		}
+@@ -129,9 +143,20 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+ 	}
+ 	gm.log.Printf("[crows_nest] Identified %d available gateways", len(gm.availableGateways))
+ 
++	// Filter gateways by hop count
++	var filteredGateways []Gateway
++	for _, gateway := range gm.availableGateways {
++		if gateway.HopCount < gm.currentHopCount {
++			filteredGateways = append(filteredGateways, gateway)
++		} else {
++			gm.log.Printf("[crows_nest] INFO: Filtering out gateway %s with hop count %d (our hop count is %d)", gateway.SSID, gateway.HopCount, gm.currentHopCount)
++		}
++	}
++	gm.log.Printf("[crows_nest] Found %d gateways with suitable hop count", len(filteredGateways))
++
+ 	// Convert map to slice for sorting
+ 	var sortedGateways []Gateway
+-	for _, gateway := range gm.availableGateways {
++	for _, gateway := range filteredGateways {
+ 		sortedGateways = append(sortedGateways, gateway)
+ 	}
+ 
+@@ -144,8 +169,8 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+ 		if i >= 3 { // Limit to top 3 for logging
+ 			break
+ 		}
+-		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, Score=%d, VendorElements=%v",
+-			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.Score, gateway.VendorElements)
++		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, HopCount=%d, Score=%d, VendorElements=%v",
++			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.HopCount, gateway.Score, gateway.VendorElements)
+ 	}
+ 
+ 	if len(sortedGateways) > 0 {
+@@ -183,6 +208,9 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+ 				err := gm.connector.Connect(highestPriorityGateway, password)
+ 				if err != nil {
+ 					gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
++				} else {
++					// Update hop count and SSID after successful connection
++					gm.updateHopCountAndAPSSID()
+ 				}
+ 			} else {
+ 				gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Highest priority gateway '%s' is encrypted and not in known networks. Manual connection is required.", highestPriorityGateway.SSID)
+@@ -226,7 +254,13 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error
+ 		return errors.New("gateway not found")
+ 	}
+ 
+-	return gm.connector.Connect(gateway, password)
++	err := gm.connector.Connect(gateway, password)
++	if err == nil {
++		gm.mu.Lock()
++		defer gm.mu.Unlock()
++		gm.updateHopCountAndAPSSID()
++	}
++	return err
+ }
+ 
+ // SetLocalAPVendorElements sets specific Bitcoin/Nostr related vendor elements on the local AP.
+@@ -260,3 +294,49 @@ func (gm *GatewayManager) loadKnownNetworks() error {
+ 
+ 	return nil
+ }
++
++func (gm *GatewayManager) updateHopCountAndAPSSID() {
++	connectedSSID, err := gm.connector.GetConnectedSSID()
++	if err != nil {
++		gm.log.Printf("[crows_nest] WARN: could not get connected SSID to update hop count: %v", err)
++		gm.currentHopCount = math.MaxInt32
++		return
++	}
++
++	if connectedSSID == "" {
++		gm.log.Println("[crows_nest] Not connected to any network, setting hop count to max.")
++		gm.currentHopCount = math.MaxInt32
++		return
++	}
++
++	// Check if it's a known, non-TollGate network (which are our root connections)
++	if _, isKnown := gm.knownNetworks[connectedSSID]; isKnown && !strings.HasPrefix(connectedSSID, "TollGate-") {
++		gm.log.Printf("[crows_nest] Connected to a root network '%s'. Setting hop count to 0.", connectedSSID)
++		gm.currentHopCount = 0
++	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
++		// It's a TollGate network, parse the hop count from its SSID
++		parts := strings.Split(connectedSSID, "-")
++		if len(parts) < 4 {
++			gm.log.Printf("[crows_nest] ERROR: TollGate SSID '%s' has unexpected format. Cannot determine hop count.", connectedSSID)
++			gm.currentHopCount = math.MaxInt32 // Set to max as a safe default
++		} else {
++			hopCountStr := parts[len(parts)-1]
++			hopCount, err := strconv.Atoi(hopCountStr)
++			if err != nil {
++				gm.log.Printf("[crows_nest] ERROR: Could not parse hop count from SSID '%s': %v", connectedSSID, err)
++				gm.currentHopCount = math.MaxInt32 // Set to max as a safe default
++			} else {
++				gm.currentHopCount = hopCount + 1
++				gm.log.Printf("[crows_nest] Connected to TollGate '%s' with hop count %d. Our new hop count is %d.", connectedSSID, hopCount, gm.currentHopCount)
++			}
++		}
++	} else {
++		gm.log.Printf("[crows_nest] Connected to unknown network '%s'. Assuming max hop count.", connectedSSID)
++		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
++	}
++
++	// Update the local AP's SSID to advertise the new hop count
++	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
++		gm.log.Printf("[crows_nest] ERROR: Failed to update local AP SSID with new hop count: %v", err)
++	}
++}
+diff --git a/src/crows_nest/gateway_manager_test.go b/src/crows_nest/gateway_manager_test.go
+index bb582a0..328da61 100644
+--- a/src/crows_nest/gateway_manager_test.go
++++ b/src/crows_nest/gateway_manager_test.go
+@@ -84,3 +84,50 @@ func TestVendorElementProcessor_parseVendorElements_ShortIEs(t *testing.T) {
+ 		})
+ 	}
+ }
++
++func TestParseHopCountFromSSID(t *testing.T) {
++	tests := []struct {
++		name string
++		ssid string
++		want int
++	}{
++		{
++			name: "Valid TollGate SSID with hop count",
++			ssid: "TollGate-ABCD-2.4GHz-1",
++			want: 1,
++		},
++		{
++			name: "Valid TollGate SSID with zero hop count",
++			ssid: "TollGate-EFGH-5GHz-0",
++			want: 0,
++		},
++		{
++			name: "Non-TollGate SSID",
++			ssid: "MyHomeNetwork",
++			want: 0,
++		},
++		{
++			name: "TollGate SSID with invalid hop count",
++			ssid: "TollGate-IJKL-2.4GHz-abc",
++			want: 0,
++		},
++		{
++			name: "TollGate SSID with missing parts",
++			ssid: "TollGate-MNOP",
++			want: 0,
++		},
++		{
++			name: "Empty SSID",
++			ssid: "",
++			want: 0,
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			if got := parseHopCountFromSSID(tt.ssid); got != tt.want {
++				t.Errorf("parseHopCountFromSSID() = %v, want %v", got, tt.want)
++			}
++		})
++	}
++}
+diff --git a/src/crows_nest/scanner.go b/src/crows_nest/scanner.go
+index 265411e..d222184 100644
+--- a/src/crows_nest/scanner.go
++++ b/src/crows_nest/scanner.go
+@@ -23,6 +23,7 @@ type NetworkInfo struct {
+ 	SSID       string
+ 	Signal     int
+ 	Encryption string
++	HopCount   int
+ 	RawIEs     []byte
+ }
+ 
+@@ -111,6 +112,8 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
+ 				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
+ 				if ssid != "" {
+ 					currentNetwork.SSID = ssid
++					// Parse hop count from SSID
++					currentNetwork.HopCount = parseHopCountFromSSID(ssid)
+ 				}
+ 			} else if strings.HasPrefix(line, "\tsignal:") {
+ 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
+@@ -135,3 +138,22 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
+ 
+ 	return networks, scanner.Err()
+ }
++
++func parseHopCountFromSSID(ssid string) int {
++	if !strings.HasPrefix(ssid, "TollGate-") {
++		return 0 // Not a TollGate network, hop count is 0
++	}
++
++	parts := strings.Split(ssid, "-")
++	if len(parts) < 4 {
++		return 0 // Invalid format
++	}
++
++	hopCountStr := parts[len(parts)-1]
++	hopCount, err := strconv.Atoi(hopCountStr)
++	if err != nil {
++		return 0 // Could not parse hop count
++	}
++
++	return hopCount
++}
+diff --git a/src/crows_nest/vendor_element_processor.go b/src/crows_nest/vendor_element_processor.go
+index 0a05b50..a1558fc 100644
+--- a/src/crows_nest/vendor_element_processor.go
++++ b/src/crows_nest/vendor_element_processor.go
+@@ -70,10 +70,11 @@ func (v *VendorElementProcessor) parseVendorElements(rawIEs []byte) (map[string]
+ */
+ 
+ // calculateScore calculates the score for a network. For now, it prioritizes "TollGate-" SSIDs.
++// The hop count from ni.HopCount is intentionally not used for scoring, as it is used for filtering connections separately in the GatewayManager.
+ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
+ 	score := ni.Signal
+ 
+-	// Check for the TollGate prefix, e.g., "TollGate-ABCD-2.4GHz"
++	// Check for the TollGate prefix, e.g., "TollGate-ABCD-2.4GHz-1"
+ 	if strings.HasPrefix(ni.SSID, "TollGate-") {
+ 		// Assign a higher score for TollGate networks for prioritization
+ 		score += 100 // Arbitrary boost, as per user's requirement for captive portal
