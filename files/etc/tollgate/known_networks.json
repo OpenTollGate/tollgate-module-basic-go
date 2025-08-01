@@ -1,8 +1,8 @@
 {
   "known_networks": [
     {
-      "ssid": "homespot-DB84-2.4GHz",
-      "password": "d76c34HEb7cu",
+      "ssid": "YOUR_SSID_HERE",
+      "password": "YOUR_PASSWORD_HERE",
       "encryption": "psk2"
     }
   ]
