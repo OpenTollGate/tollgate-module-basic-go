@@ -329,8 +329,9 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 
 		// Strip any existing hop count from the base SSID
 		parts := strings.Split(baseSSID, "-")
-		if len(parts) > 2 { // TollGate-XXXX-2.4GHz -> TollGate-XXXX
-			if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+		if len(parts) > 1 {
+			lastPart := parts[len(parts)-1]
+			if _, err := strconv.Atoi(lastPart); err == nil {
 				// It ends with a number, so it's a hop count. Strip it.
 				baseSSID = strings.Join(parts[:len(parts)-1], "-")
 			}
@@ -385,8 +386,8 @@ func (c *Connector) ensureAPInterfacesExist() error {
 			ssid = strings.TrimSpace(ssid)
 			if strings.HasPrefix(ssid, "TollGate-") {
 				parts := strings.Split(ssid, "-")
-				// TollGate-XXXX-2.4GHz or TollGate-XXXX-5GHz
-				if len(parts) >= 3 {
+				// Extracts "TollGate-XXXX" from "TollGate-XXXX-2.4GHz" or "TollGate-XXXX-5GHz-1"
+				if len(parts) >= 2 {
 					baseSSIDName = strings.Join(parts[0:2], "-") // "TollGate-XXXX"
 					logger.WithField("base_name", baseSSIDName).Info("Found existing AP with base name")
 					break

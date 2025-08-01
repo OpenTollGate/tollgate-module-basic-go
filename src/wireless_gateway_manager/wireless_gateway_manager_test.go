@@ -102,6 +102,11 @@ func TestParseHopCountFromSSID(t *testing.T) {
 			want: 0,
 		},
 		{
+			name: "TollGate SSID without hop count",
+			ssid: "TollGate-ABCD-2.4GHz",
+			want: 0,
+		},
+		{
 			name: "Non-TollGate SSID",
 			ssid: "MyHomeNetwork",
 			want: 0,
