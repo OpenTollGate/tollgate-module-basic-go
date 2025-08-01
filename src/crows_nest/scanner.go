@@ -23,6 +23,7 @@ type NetworkInfo struct {
 	SSID       string
 	Signal     int
 	Encryption string
+	HopCount   int
 	RawIEs     []byte
 }
 
@@ -111,6 +112,8 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 				if ssid != "" {
 					currentNetwork.SSID = ssid
+					// Parse hop count from SSID
+					currentNetwork.HopCount = parseHopCountFromSSID(ssid)
 				}
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
@@ -134,4 +137,23 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 	}
 
 	return networks, scanner.Err()
+}
+
+func parseHopCountFromSSID(ssid string) int {
+	if !strings.HasPrefix(ssid, "TollGate-") {
+		return 0 // Not a TollGate network, hop count is 0
+	}
+
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 4 {
+		return 0 // Invalid format
+	}
+
+	hopCountStr := parts[len(parts)-1]
+	hopCount, err := strconv.Atoi(hopCountStr)
+	if err != nil {
+		return 0 // Could not parse hop count
+	}
+
+	return hopCount
 }

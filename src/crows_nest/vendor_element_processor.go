@@ -70,10 +70,11 @@ func (v *VendorElementProcessor) parseVendorElements(rawIEs []byte) (map[string]
 */
 
 // calculateScore calculates the score for a network. For now, it prioritizes "TollGate-" SSIDs.
+// The hop count from ni.HopCount is intentionally not used for scoring, as it is used for filtering connections separately in the GatewayManager.
 func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
 	score := ni.Signal
 
-	// Check for the TollGate prefix, e.g., "TollGate-ABCD-2.4GHz"
+	// Check for the TollGate prefix, e.g., "TollGate-ABCD-2.4GHz-1"
 	if strings.HasPrefix(ni.SSID, "TollGate-") {
 		// Assign a higher score for TollGate networks for prioritization
 		score += 100 // Arbitrary boost, as per user's requirement for captive portal

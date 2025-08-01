@@ -8,15 +8,19 @@ This document provides a detailed low-level design for the implementation of the
 
 ### 2.1. [`scan_wifi_networks.sh`](files/root/scan_wifi_networks.sh)
 
-**Purpose:** Scans for Wi-Fi networks and enriches "TollGate" SSIDs with calculated scores based on vendor elements.
+**Purpose:** Scans for Wi-Fi networks, parses hop counts from SSIDs, and enriches "TollGate" SSIDs with calculated scores based on vendor elements.
 
 **Key Functions:**
 *   `get_wifi_interface()`: Identifies the active managed Wi-Fi interface (e.g., `wlan0`).
 *   `scan_wifi_networks_to_json()`:
     *   Executes `iw dev "$interface" scan` to get raw scan data.
     *   Uses `awk` to parse the raw output into a JSON array of network objects.
+    *   **Hop Count Parsing:**
+        *   The `awk` script will use `split(ssid, parts, "-")` to break down the SSID.
+        *   If the SSID starts with `TollGate-` and has the correct number of parts, the last part is extracted as the `hop_count`.
+        *   If the SSID is not a TollGate SSID or the format is incorrect, `hop_count` defaults to `0`.
     *   **TollGate Specific Logic:**
-        *   When `ssid` regex matches `/^TollGate_/`, it executes an external command:
+        *   When `ssid` regex matches `/^TollGate-.*-[0-9]+$/`, it executes an external command:
             ```bash
             /root/get_vendor_elements.sh "$ssid" 12 | jq -r ".kb_allocation_decimal, .contribution_decimal"
             ```
@@ -38,13 +42,15 @@ This document provides a detailed low-level design for the implementation of the
     "ssid": "MyHomeNetwork",
     "encryption": "wpa2",
     "signal": -70,
+    "hop_count": 0,
     "score": -70
   },
   {
     "mac": "AA:BB:CC:DD:EE:FF",
-    "ssid": "TollGate_example",
+    "ssid": "TollGate-ABCD-2.4GHz-1",
     "encryption": "none",
     "signal": -50,
+    "hop_count": 1,
     "kb_allocation_dB": "10",
     "contribution_dB": "5",
     "score": -35
@@ -80,12 +86,19 @@ This document provides a detailed low-level design for the implementation of the
 **Purpose:** Processes, filters, sorts, and enables user selection of Wi-Fi networks.
 
 **Key Functions:**
+*   `get_own_hop_count()`:
+    *   Determines the device's current hop count.
+    *   If not connected to any network, returns a very large number (e.g., 9999).
+    *   If connected to a non-TollGate network (e.g., password protected), returns `0`.
+    *   If connected to a TollGate network, it parses the hop count from the connected SSID (via `iw dev wlan0 link`) and returns that value.
 *   `sort_and_display_full_json()`:
+    *   Calls `get_own_hop_count()` to get the current hop count.
     *   Calls `./scan_wifi_networks.sh` to get the raw JSON output.
     *   Pipes the output through `jq` for various transformations:
         *   `remove_empty_ssids()`: `map(select(.ssid != ""))`
-        *   `sort_networks_by_signal_desc()`: `map(.signal |= tonumber) | sort_by(-.signal)` (This sort is applied before `remove_duplicate_ssids`, ensuring the strongest signal for a given SSID is kept).
-        *   `remove_duplicate_ssids()`: Uses `jq`'s `reduce` to create an object where keys are SSIDs, effectively keeping only the first (strongest) entry, then converts back to an array.
+        *   **Hop Count Filtering**: `map(select(.hop_count < $own_hop_count))` - This is a critical step to prevent loops.
+        *   `sort_networks_by_score_desc()`: `map(.score |= tonumber) | sort_by(-.score)`.
+        *   `remove_duplicate_ssids()`: Uses `jq`'s `reduce` to create an object where keys are SSIDs, effectively keeping only the first (highest score) entry, then converts back to an array.
 *   `filter_tollgate_ssids()`: Uses `jq -r 'map(select(.ssid | startswith("TollGate_")))'` to extract only TollGate networks.
 *   `select_ssid()`:
     *   Calls `sort_and_display_full_json` to get the processed list.
@@ -132,9 +145,16 @@ This document provides a detailed low-level design for the implementation of the
     *   If internet is confirmed:
         *   Runs `/root/./get_moscow_time.sh` (likely for time synchronization needed for Bitcoin/Nostr protocols).
         *   Enables the local Access Point (`uci set wireless.default_radio0.disabled='0'`) and reloads Wi-Fi.
-    *   **TollGate Specific `/etc/hosts` Update:** If `NEW_SSID` is a "TollGate" network and a gateway IP is detected:
+    *   **TollGate Specific `/etc/hosts` and SSID Update:** If `NEW_SSID` is a "TollGate" network and a gateway IP is detected:
         *   `sed -i '/status.client/d' /etc/hosts`: Removes any prior `status.client` entry.
-        *   `echo "$GATEWAY_IP status.client" >> /etc/hosts`: Maps the connected gateway's IP to `status.client`. This facilitates local resolution of a captive portal's status page or API endpoint, crucial for the captive portal flow.
+        *   `echo "$GATEWAY_IP status.client" >> /etc/hosts`: Maps the connected gateway's IP to `status.client`.
+        *   **Update Own AP SSID:**
+            *   Parses the `hop_count` from the connected `NEW_SSID`.
+            *   Calculates `new_hop_count = hop_count + 1`.
+            *   Retrieves the base SSID of the local AP from `uci get wireless.default_radio0.ssid`.
+            *   Constructs the new local AP SSID: `[BaseSSID]-[new_hop_count]`.
+            *   Updates the local AP SSID: `uci set wireless.default_radio0.ssid='<NEW_LOCAL_AP_SSID>'`.
+            *   Commits and reloads wifi: `uci commit wireless && wifi`.
 
 **Error Handling:**
 *   Checks for success of `sort_wifi_networks.sh --select-ssid`.
@@ -153,15 +173,15 @@ This document provides a detailed low-level design for the implementation of the
 1.  User executes `select_gateway.sh`.
 2.  `select_gateway.sh` calls `sort_wifi_networks.sh --select-ssid`.
 3.  `sort_wifi_networks.sh` calls `scan_wifi_networks.sh`.
-4.  `scan_wifi_networks.sh` performs `iw scan`, identifies "TollGate_XYZ", calls `get_vendor_elements.sh` and `decibel.sh` to calculate `score`.
-5.  `scan_wifi_networks.sh` returns JSON list to `sort_wifi_networks.sh`.
-6.  `sort_wifi_networks.sh` sorts & filters, presents list including "TollGate_XYZ" (potentially highly ranked due to score).
-7.  User selects "TollGate_XYZ". `sort_wifi_networks.sh` saves its JSON to `/tmp/selected_ssid.md`.
-8.  `select_gateway.sh` reads `/tmp/selected_ssid.md`, extracts `NEW_SSID="TollGate_XYZ"`, `ENCRYPTION_TYPE="none"`.
-9.  `select_gateway.sh` configures UCI: `wireless.wifinet1.ssid="TollGate_XYZ"`, `wireless.wifinet1.encryption='none'`. No password prompted.
+4.  `scan_wifi_networks.sh` performs `iw scan`, identifies "TollGate-ABCD-2.4GHz-1", parses `hop_count=1`, calls `get_vendor_elements.sh` and `decibel.sh` to calculate `score`.
+5.  `scan_wifi_networks.sh` returns a JSON list to `sort_wifi_networks.sh`.
+6.  `sort_wifi_networks.sh` determines its own hop count (e.g., 9999 if not connected). It filters the list to only include gateways with `hop_count < 9999`. It then sorts by score and presents the list.
+7.  User selects "TollGate-ABCD-2.4GHz-1". `sort_wifi_networks.sh` saves its JSON to `/tmp/selected_ssid.md`.
+8.  `select_gateway.sh` reads `/tmp/selected_ssid.md`, extracts `NEW_SSID="TollGate-ABCD-2.4GHz-1"`, `ENCRYPTION_TYPE="none"`, `HOP_COUNT=1`.
+9.  `select_gateway.sh` configures UCI: `wireless.wifinet1.ssid="TollGate-ABCD-2.4GHz-1"`, `wireless.wifinet1.encryption='none'`. No password prompted.
 10. `uci commit` and `/etc/init.d/network restart`.
 11. `select_gateway.sh` waits for IP, finds gateway IP, checks internet.
-12. If internet OK, calls `get_moscow_time.sh`, enables local AP, and adds `GATEWAY_IP status.client` to `/etc/hosts`.
+12. If internet OK, calls `get_moscow_time.sh`, enables local AP, adds `GATEWAY_IP status.client` to `/etc/hosts`, and updates its own AP SSID to advertise a hop count of `2`.
 
 ### 3.2. Connecting to a Regular Encrypted Network
 
