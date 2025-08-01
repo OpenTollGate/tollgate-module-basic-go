@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net" // Added for net.Interfaces()
 	"net/http"
 	"os"
@@ -24,6 +23,9 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 )
+
+// Module-level logger with pre-configured module field
+var mainLogger = logrus.WithField("module", "main")
 
 // Global configuration variable
 // Define configFile at a higher scope
@@ -80,14 +82,14 @@ func init() {
 
 	configManager, err = config_manager.NewConfigManager(configPath, installPath, identitiesPath)
 	if err != nil {
-		log.Fatalf("Failed to create config manager: %v", err)
+		logrus.WithError(err).Fatal("Failed to create config manager")
 	}
 
 	installConfig = configManager.GetInstallConfig()
 
-	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), log.Default())
+	gatewayManager, err = wireless_gateway_manager.Init(context.Background())
 	if err != nil {
-		log.Fatalf("Failed to initialize gateway manager: %v", err)
+		logrus.WithError(err).Fatal("Failed to initialize gateway manager")
 	}
 
 	mainConfig = configManager.GetConfig()
@@ -95,17 +97,12 @@ func init() {
 	// Initialize global logger with the configured log level
 	InitializeGlobalLogger(mainConfig.LogLevel)
 
-	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
-	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
+	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
 	var err2 error
 	merchantInstance, err2 = merchant.New(configManager)
 	if err2 != nil {
-		log.Fatalf("Failed to create merchant: %v", err2)
-	}
-
-	if err != nil {
-		log.Fatalf("Failed to create merchant: %v", err)
+		mainLogger.WithError(err2).Fatal("Failed to create merchant")
 	}
 
 	merchantInstance.StartPayoutRoutine()
@@ -123,22 +120,22 @@ func init() {
 func initJanitor() {
 	janitorInstance, err := janitor.NewJanitor(configManager)
 	if err != nil {
-		log.Fatalf("Failed to create janitor instance: %v", err)
+		mainLogger.WithError(err).Fatal("Failed to create janitor instance")
 	}
 
 	go janitorInstance.ListenForNIP94Events()
-	log.Println("Janitor module initialized and listening for NIP-94 events")
+	mainLogger.Info("Janitor module initialized and listening for NIP-94 events")
 }
 
 func initPrivateRelay() {
 	go startPrivateRelayWithAutoRestart()
-	log.Println("Private relay initialization started")
+	mainLogger.Info("Private relay initialization started")
 }
 
 func initCrowsnest() {
 	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
 	if err != nil {
-		log.Fatalf("Failed to create crowsnest instance: %v", err)
+		mainLogger.WithError(err).Fatal("Failed to create crowsnest instance")
 	}
 
 	// Create and set chandler instance
@@ -148,16 +145,16 @@ func initCrowsnest() {
 	go func() {
 		err := crowsnestInstance.Start()
 		if err != nil {
-			log.Printf("Error starting crowsnest: %v", err)
+			mainLogger.WithError(err).Error("Error starting crowsnest")
 		}
 	}()
 
-	log.Println("Crowsnest module initialized with chandler and monitoring network changes")
+	mainLogger.Info("Crowsnest module initialized with chandler and monitoring network changes")
 }
 
 func startPrivateRelayWithAutoRestart() {
 	for {
-		log.Println("Starting TollGate private relay on ws://localhost:4242")
+		mainLogger.Info("Starting TollGate private relay on ws://localhost:4242")
 
 		// Create a new private relay instance
 		privateRelay := relay.NewPrivateRelay()
@@ -171,17 +168,17 @@ func startPrivateRelayWithAutoRestart() {
 		privateRelay.GetRelay().Info.Software = "https://github.com/OpenTollGate/tollgate-module-basic-go"
 		privateRelay.GetRelay().Info.Version = "v0.0.1"
 
-		log.Printf("Accepting event kinds: 21000 (Payment), 10021 (Discovery), 1022 (Session), 21023 (Notice)")
+		mainLogger.Info("Accepting event kinds: 21000 (Payment), 10021 (Discovery), 1022 (Session), 21023 (Notice)")
 
 		// Start the relay (this blocks until error)
 		err := privateRelay.Start(":4242")
 
 		if err != nil {
-			log.Printf("Private relay crashed: %v", err)
-			log.Println("Restarting private relay in 5 seconds...")
+			mainLogger.WithError(err).Error("Private relay crashed")
+			mainLogger.Info("Restarting private relay in 5 seconds...")
 			time.Sleep(5 * time.Second)
 		} else {
-			log.Println("Private relay stopped normally")
+			mainLogger.Info("Private relay stopped normally")
 			break
 		}
 	}
@@ -203,7 +200,10 @@ func getMacAddress(ipAddress string) (string, error) {
 // CORS middleware to handle Cross-Origin Resource Sharing
 func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("cors middleware %s request from %s", r.Method, r.RemoteAddr)
+		mainLogger.WithFields(logrus.Fields{
+			"method":      r.Method,
+			"remote_addr": r.RemoteAddr,
+		}).Debug("CORS middleware processing request")
 
 		// Set CORS headers
 		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin, or specify domains like "https://yourdomain.com"
@@ -226,7 +226,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	var mac, err = getMacAddress(ip)
 
 	if err != nil {
-		log.Println("Error getting MAC address:", err)
+		mainLogger.WithError(err).Error("Error getting MAC address")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -242,7 +242,10 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 // handleRootPost handles POST requests to the root endpoint
 func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
-	log.Printf("Received handleRootPost %s request from %s", r.Method, r.RemoteAddr)
+	mainLogger.WithFields(logrus.Fields{
+		"method":      r.Method,
+		"remote_addr": r.RemoteAddr,
+	}).Info("Received handleRootPost request")
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -252,7 +255,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Read the request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Println("Error reading request body:", err)
+		mainLogger.WithError(err).Error("Error reading request body")
 		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Error reading request body: %v", err), "")
 		return
@@ -261,13 +264,13 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Print the request body to console
 	bodyStr := string(body)
-	log.Printf("Received POST request with body: %s", bodyStr)
+	mainLogger.WithField("body", bodyStr).Debug("Received POST request")
 
 	// Parse the request body as a nostr event
 	var event nostr.Event
 	err = json.Unmarshal(body, &event)
 	if err != nil {
-		log.Println("Error parsing nostr event:", err)
+		mainLogger.WithError(err).Error("Error parsing nostr event")
 		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Error parsing nostr event: %v", err), "")
 		return
@@ -276,20 +279,22 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Verify the event signature
 	ok, err := event.CheckSignature()
 	if err != nil || !ok {
-		log.Println("Invalid signature for nostr event:", err)
+		mainLogger.WithError(err).Error("Invalid signature for nostr event")
 		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Invalid signature for nostr event"), event.PubKey)
 		return
 	}
 
-	log.Println("Parsed nostr event:", event.ID)
-	log.Println("  - Created at:", event.CreatedAt)
-	log.Println("  - Kind:", event.Kind)
-	log.Println("  - Pubkey:", event.PubKey)
+	mainLogger.WithFields(logrus.Fields{
+		"event_id":   event.ID,
+		"created_at": event.CreatedAt,
+		"kind":       event.Kind,
+		"pubkey":     event.PubKey,
+	}).Info("Parsed nostr event")
 
 	// Validate that this is a payment event (kind 21000)
 	if event.Kind != 21000 {
-		log.Printf("Invalid event kind: %d, expected 21000", event.Kind)
+		mainLogger.WithField("kind", event.Kind).Error("Invalid event kind, expected 21000")
 		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
 			fmt.Sprintf("Invalid event kind: %d, expected 21000", event.Kind), event.PubKey)
 		return
@@ -302,7 +307,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
-		log.Printf("Payment processing failed: %v", err)
+		mainLogger.WithError(err).Error("Payment processing failed")
 		sendNoticeResponse(w, merchantInstance, http.StatusInternalServerError, "error", "internal-error",
 			fmt.Sprintf("Internal error during payment processing: %v", err), event.PubKey)
 		return
@@ -320,7 +325,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		log.Printf("Error encoding session response: %v", err)
+		mainLogger.WithError(err).Error("Error encoding session response")
 	}
 
 }
@@ -329,7 +334,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 func sendNoticeResponse(w http.ResponseWriter, merchantInstance merchant.MerchantInterface, statusCode int, level, code, message, customerPubkey string) {
 	noticeEvent, err := merchantInstance.CreateNoticeEvent(level, code, message, customerPubkey)
 	if err != nil {
-		log.Printf("Error creating notice event: %v", err)
+		mainLogger.WithError(err).Error("Error creating notice event")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
 		return
@@ -354,21 +359,19 @@ func main() {
 	fmt.Println("Starting Tollgate Core")
 	fmt.Println("Listening on all interfaces on port", port)
 
-	// Add verbose logging for debugging
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Println("Registering handlers...")
+	mainLogger.Info("Registering handlers...")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("DEBUG: Hit / endpoint from %s", r.RemoteAddr)
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
 		CorsMiddleware(HandleRoot)(w, r)
 	})
 
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("DEBUG: Hit /whoami endpoint from %s", r.RemoteAddr)
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /whoami endpoint")
 		CorsMiddleware(handler)(w, r)
 	})
 
-	log.Println("Starting HTTP server on all interfaces...")
+	mainLogger.Info("Starting HTTP server on all interfaces...")
 	server := &http.Server{
 		Addr: port,
 		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
@@ -377,32 +380,32 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Fatal(server.ListenAndServe())
+	mainLogger.Fatal(server.ListenAndServe())
 
 	go func() {
 		for {
 			if !isOnline() {
-				log.Println("Device is offline. Initiating gateway scan...")
+				mainLogger.Info("Device is offline. Initiating gateway scan...")
 				// No need to assign the result of RunPeriodicScan, as it runs in a goroutine internally.
 				// We need to fetch the available gateways using GetAvailableGateways() instead.
 				availableGateways, err := gatewayManager.GetAvailableGateways()
 				if err != nil {
-					log.Printf("Error getting available gateways: %v", err)
+					mainLogger.WithError(err).Error("Error getting available gateways")
 					continue
 				}
 				if len(availableGateways) > 0 {
-					log.Println("Available gateways found. Attempting to connect...")
+					mainLogger.Info("Available gateways found. Attempting to connect...")
 					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "") // Correct usage of ConnectToGateway
 					if err != nil {
-						log.Printf("Error connecting to gateway: %v", err)
+						mainLogger.WithError(err).Error("Error connecting to gateway")
 					} else {
-						log.Println("Successfully connected to a TollGate gateway.")
+						mainLogger.Info("Successfully connected to a TollGate gateway.")
 					}
 				} else {
-					log.Println("No suitable TollGate gateways found to connect to.")
+					mainLogger.Info("No suitable TollGate gateways found to connect to.")
 				}
 			} else {
-				log.Println("Device is online. No action needed.")
+				mainLogger.Debug("Device is online. No action needed.")
 			}
 			time.Sleep(5 * time.Minute)
 		}
@@ -415,7 +418,7 @@ func main() {
 func isOnline() bool {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		log.Printf("Error getting network interfaces: %v", err)
+		mainLogger.WithError(err).Error("Error getting network interfaces")
 		return false
 	}
 
@@ -424,7 +427,10 @@ func isOnline() bool {
 			// Interface is up and not a loopback interface
 			addrs, err := iface.Addrs()
 			if err != nil {
-				log.Printf("Error getting addresses for interface %s: %v", iface.Name, err)
+				mainLogger.WithFields(logrus.Fields{
+					"interface": iface.Name,
+					"error":     err,
+				}).Error("Error getting addresses for interface")
 				continue
 			}
 			if len(addrs) > 0 {

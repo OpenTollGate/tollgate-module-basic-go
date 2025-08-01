@@ -3,6 +3,8 @@ package wireless_gateway_manager
 
 import (
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -109,13 +111,15 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]string) error {
 	// Re-add necessary imports if this functionality is to be fully restored and used.
 	// For now, returning nil to satisfy the interface and allow compilation.
-	v.log.Printf("[wireless_gateway_manager] SetLocalAPVendorElements called with: %v (functionality currently stubbed)", elements)
+	logger.WithFields(logrus.Fields{
+		"elements": elements,
+	}).Debug("SetLocalAPVendorElements called (functionality currently stubbed)")
 	return nil
 }
 
 func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, error) {
 	// Re-add necessary imports and logic if this functionality is to be fully restored and used.
 	// For now, returning an empty map and nil error to satisfy the interface and allow compilation.
-	v.log.Println("[wireless_gateway_manager] GetLocalAPVendorElements called (functionality currently stubbed)")
+	logger.Debug("GetLocalAPVendorElements called (functionality currently stubbed)")
 	return make(map[string]string), nil
 }

@@ -2,7 +2,6 @@
 package wireless_gateway_manager
 
 import (
-	"log"
 	"sync"
 	"time"
 )
@@ -16,12 +15,10 @@ const (
 
 // Connector manages OpenWRT network configurations via UCI commands.
 type Connector struct {
-	log *log.Logger
 }
 
 // NetworkMonitor monitors network connectivity and manages AP state.
 type NetworkMonitor struct {
-	log           *log.Logger
 	connector     *Connector
 	pingFailures  int
 	pingSuccesses int
@@ -32,7 +29,6 @@ type NetworkMonitor struct {
 
 // Scanner handles Wi-Fi network scanning.
 type Scanner struct {
-	log *log.Logger
 }
 
 // NetworkInfo represents information about a Wi-Fi network.
@@ -47,7 +43,6 @@ type NetworkInfo struct {
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
 type VendorElementProcessor struct {
-	log       *log.Logger
 	connector *Connector
 }
 
@@ -86,5 +81,4 @@ type GatewayManager struct {
 	currentHopCount   int
 	scanInterval      time.Duration
 	stopChan          chan struct{}
-	log               *log.Logger
 }

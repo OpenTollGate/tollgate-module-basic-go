@@ -5,20 +5,21 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"log"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ScanWirelessNetworks scans for available Wi-Fi networks.
 func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
-	s.log.Println("[wireless_gateway_manager] Starting Wi-Fi network scan")
+	logger.Info("Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
 	interfaceName, err := getInterfaceName()
 	if err != nil {
-		s.log.Printf("[wireless_gateway_manager] ERROR: Failed to get interface name: %v", err)
+		logger.WithError(err).Error("Failed to get interface name")
 		return nil, err
 	}
 
@@ -28,18 +29,21 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		s.log.Printf("[wireless_gateway_manager] ERROR: Failed to scan networks: %v, stderr: %s", err, stderr.String())
+		logger.WithFields(logrus.Fields{
+			"error":  err,
+			"stderr": stderr.String(),
+		}).Error("Failed to scan networks")
 		return nil, err
 	}
 
-	s.log.Printf("[wireless_gateway_manager] Successfully scanned networks")
+	logger.Info("Successfully scanned networks")
 
-	networks, err := parseScanOutput(stdout.Bytes(), s.log)
+	networks, err := parseScanOutput(stdout.Bytes())
 	if err != nil {
-		s.log.Printf("[wireless_gateway_manager] ERROR: Failed to parse scan output: %v", err)
+		logger.WithError(err).Error("Failed to parse scan output")
 		return nil, err
 	}
-	s.log.Printf("[wireless_gateway_manager] Parsed scan output into %d NetworkInfo structures", len(networks))
+	logger.WithField("network_count", len(networks)).Info("Parsed scan output into NetworkInfo structures")
 
 	return networks, nil
 }
@@ -71,7 +75,7 @@ func getInterfaceName() (string, error) {
 	return "", errors.New("no managed Wi-Fi interface found")
 }
 
-func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
+func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	var networks []NetworkInfo
 	var currentNetwork *NetworkInfo
@@ -88,7 +92,7 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 			if len(matches) > 1 {
 				currentNetwork = &NetworkInfo{BSSID: matches[1]}
 			} else {
-				logger.Printf("[wireless_gateway_manager] WARN: Could not extract BSSID from line: %s", line)
+				logger.WithField("line", line).Warn("Could not extract BSSID from line")
 				currentNetwork = nil // Invalidate current network
 				continue
 			}
@@ -105,7 +109,10 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 				signalStr = strings.TrimSuffix(signalStr, " dBm")
 				signal, err := strconv.ParseFloat(signalStr, 64)
 				if err != nil {
-					logger.Printf("[wireless_gateway_manager] WARN: Failed to parse signal strength '%s': %v", signalStr, err)
+					logger.WithFields(logrus.Fields{
+						"signal_str": signalStr,
+						"error":      err,
+					}).Warn("Failed to parse signal strength")
 				} else {
 					currentNetwork.Signal = int(signal)
 				}

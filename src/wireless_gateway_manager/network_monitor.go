@@ -1,14 +1,12 @@
 package wireless_gateway_manager
 
 import (
-	"log"
 	"os/exec"
 	"time"
 )
 
-func NewNetworkMonitor(logger *log.Logger, connector *Connector) *NetworkMonitor {
+func NewNetworkMonitor(connector *Connector) *NetworkMonitor {
 	return &NetworkMonitor{
-		log:       logger,
 		connector: connector,
 		ticker:    time.NewTicker(30 * time.Second),
 		stopChan:  make(chan struct{}),
@@ -16,7 +14,7 @@ func NewNetworkMonitor(logger *log.Logger, connector *Connector) *NetworkMonitor
 }
 
 func (nm *NetworkMonitor) Start() {
-	nm.log.Println("[wireless_gateway_manager] Starting network monitor")
+	logger.Info("Starting network monitor")
 	go func() {
 		for {
 			select {
@@ -31,7 +29,7 @@ func (nm *NetworkMonitor) Start() {
 }
 
 func (nm *NetworkMonitor) Stop() {
-	nm.log.Println("[wireless_gateway_manager] Stopping network monitor")
+	logger.Info("Stopping network monitor")
 	close(nm.stopChan)
 }
 
@@ -40,11 +38,11 @@ func (nm *NetworkMonitor) checkConnectivity() {
 	if err != nil {
 		nm.pingFailures++
 		nm.pingSuccesses = 0
-		nm.log.Printf("[wireless_gateway_manager] Ping failed. Consecutive failures: %d", nm.pingFailures)
+		logger.WithField("consecutive_failures", nm.pingFailures).Warn("Ping failed")
 		if nm.pingFailures >= consecutiveFailures && !nm.isAPDisabled {
-			nm.log.Println("[wireless_gateway_manager] Disabling local AP due to lost connectivity")
+			logger.Warn("Disabling local AP due to lost connectivity")
 			if err := nm.connector.DisableLocalAP(); err != nil {
-				nm.log.Printf("[wireless_gateway_manager] ERROR: Failed to disable local AP: %v", err)
+				logger.WithError(err).Error("Failed to disable local AP")
 			} else {
 				nm.isAPDisabled = true
 			}
@@ -52,11 +50,11 @@ func (nm *NetworkMonitor) checkConnectivity() {
 	} else {
 		nm.pingSuccesses++
 		nm.pingFailures = 0
-		nm.log.Printf("[wireless_gateway_manager] Ping successful. Consecutive successes: %d", nm.pingSuccesses)
+		logger.WithField("consecutive_successes", nm.pingSuccesses).Debug("Ping successful")
 		if nm.pingSuccesses >= consecutiveSuccesses && nm.isAPDisabled {
-			nm.log.Println("[wireless_gateway_manager] Re-enabling local AP due to restored connectivity")
+			logger.Info("Re-enabling local AP due to restored connectivity")
 			if err := nm.connector.EnableLocalAP(); err != nil {
-				nm.log.Printf("[wireless_gateway_manager] ERROR: Failed to enable local AP: %v", err)
+				logger.WithError(err).Error("Failed to enable local AP")
 			} else {
 				nm.isAPDisabled = false
 			}
