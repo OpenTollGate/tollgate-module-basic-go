@@ -18,8 +18,8 @@ import (
 
 // Init initializes the GatewayManager and starts its background scanning routine.
 func Init(ctx context.Context) (*GatewayManager, error) {
-	scanner := &Scanner{connector: connector}
 	connector := &Connector{}
+	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
 	networkMonitor := NewNetworkMonitor(connector)
 
