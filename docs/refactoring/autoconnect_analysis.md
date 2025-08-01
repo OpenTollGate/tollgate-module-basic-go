@@ -4,7 +4,7 @@ This document analyzes the changes introduced in the `feature/autoconnect` branc
 
 > **Note:** The diagrams in this document were generated from the MermaidJS source code using the following command:
 > ```bash
-> docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)":/data minlag/mermaid-cli -i /data/docs/refactoring/autoconnect_analysis.md -o /data/docs/refactoring/images/autoconnect_analysis/diagram.svg
+> docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)":/data minlag/mermaid-cli -i /data/docs/refactoring/autoconnect_analysis.md -o /data/docs/refactoring/images/autoconnect_analysis/diagram.pdf
 > ```
 
 ## Key Changes
