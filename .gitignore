@@ -14,7 +14,7 @@ vendor/
 **/tollwallet_db/*
 .roomodes
 prompts.md
-src/crows_nest/root/*.sh
+src/wireless_gateway_manager/root/*.sh
 src/basic
 ../_BACKUP_141278.gitignore
 ../_BASE_141278.gitignore

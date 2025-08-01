@@ -30,7 +30,7 @@ These two functions are intrinsically linked at the driver and hardware level. W
 
 The 5GHz radio (`radio1`) is operating only in AP mode, broadcasting the `TollGate-...-5GHz` SSID. It has no dependency on the client connection.
 
-Its shutdown is triggered by the `NetworkMonitor` component in the `crows_nest` module, which operates at the application layer. This monitor periodically pings an external server (e.g., `8.8.8.8`) to check for internet connectivity. When the upstream gateway goes down, these pings begin to fail.
+Its shutdown is triggered by the `NetworkMonitor` component in the `wireless_gateway_manager` module, which operates at the application layer. This monitor periodically pings an external server (e.g., `8.8.8.8`) to check for internet connectivity. When the upstream gateway goes down, these pings begin to fail.
 
 The monitor is configured to wait for **5 consecutive failures** before declaring the connection lost. With a ping interval, this process takes time. Once the threshold is met, the `NetworkMonitor` calls the `DisableLocalAP()` function, which then shuts down both the 2.4GHz and 5GHz APs via UCI commands. By this time, the 2.4GHz AP has already been disabled by the driver.
 
