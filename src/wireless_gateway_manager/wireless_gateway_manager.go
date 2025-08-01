@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -295,25 +294,18 @@ func (gm *GatewayManager) updateHopCountAndAPSSID() {
 		gm.currentHopCount = 0
 	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
 		// It's a TollGate network, parse the hop count from its SSID
-		parts := strings.Split(connectedSSID, "-")
-		hopCount := 0 // Default to 0 if not specified
-		if len(parts) > 2 { // Must have at least TollGate-XXXX-band
-			lastPart := parts[len(parts)-1]
-			parsedHopCount, err := strconv.Atoi(lastPart)
-			if err == nil {
-				// Last part is a number, so it's a hop count
-				hopCount = parsedHopCount
-			}
-			// If the last part is not a number, we assume it's part of the base SSID (like 2.4GHz)
-			// and the hop count is 0, which is the default.
+		hopCount := parseHopCountFromSSID(connectedSSID)
+		if hopCount == math.MaxInt32 {
+			logger.WithField("ssid", connectedSSID).Warn("Connected to TollGate network with invalid hop count, assuming max hop count")
+			gm.currentHopCount = math.MaxInt32
+		} else {
+			gm.currentHopCount = hopCount + 1
+			logger.WithFields(logrus.Fields{
+				"ssid":         connectedSSID,
+				"gateway_hops": hopCount,
+				"our_hops":     gm.currentHopCount,
+			}).Info("Connected to TollGate network, updated hop count")
 		}
-
-		gm.currentHopCount = hopCount + 1
-		logger.WithFields(logrus.Fields{
-			"ssid":         connectedSSID,
-			"gateway_hops": hopCount,
-			"our_hops":     gm.currentHopCount,
-		}).Info("Connected to TollGate network, updated hop count")
 	} else {
 		logger.WithField("ssid", connectedSSID).Warn("Connected to unknown network, assuming max hop count")
 		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes

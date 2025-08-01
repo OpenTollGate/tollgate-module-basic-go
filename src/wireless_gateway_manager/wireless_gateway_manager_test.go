@@ -85,6 +85,8 @@ func TestVendorElementProcessor_parseVendorElements_ShortIEs(t *testing.T) {
 }
 */
 
+import "math"
+
 func TestParseHopCountFromSSID(t *testing.T) {
 	tests := []struct {
 		name string
@@ -104,7 +106,7 @@ func TestParseHopCountFromSSID(t *testing.T) {
 		{
 			name: "TollGate SSID without hop count",
 			ssid: "TollGate-ABCD-2.4GHz",
-			want: 0,
+			want: math.MaxInt32,
 		},
 		{
 			name: "Non-TollGate SSID",
@@ -114,12 +116,12 @@ func TestParseHopCountFromSSID(t *testing.T) {
 		{
 			name: "TollGate SSID with invalid hop count",
 			ssid: "TollGate-IJKL-2.4GHz-abc",
-			want: 0,
+			want: math.MaxInt32,
 		},
 		{
 			name: "TollGate SSID with missing parts",
 			ssid: "TollGate-MNOP",
-			want: 0,
+			want: math.MaxInt32,
 		},
 		{
 			name: "Empty SSID",
