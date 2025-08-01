@@ -120,11 +120,11 @@ ssh $SSH_OPTS $ROUTER_USERNAME@$ROUTER_IP "service $EXECUTABLE_NAME stop"
 echo "Stopped service $EXECUTABLE_NAME on router"
 
 echo "Copying service binary to router..."
-scp $SSH_OPTS "$EXECUTABLE_NAME" "$ROUTER_USERNAME@$ROUTER_IP:$EXECUTABLE_PATH"
+scp -O $SSH_OPTS "$EXECUTABLE_NAME" "$ROUTER_USERNAME@$ROUTER_IP:$EXECUTABLE_PATH"
 echo "Service binary copied to router"
 
 echo "Copying CLI binary to router..."
-scp $SSH_OPTS "cmd/tollgate-cli/$CLI_NAME" "$ROUTER_USERNAME@$ROUTER_IP:$CLI_PATH"
+scp -O $SSH_OPTS "cmd/tollgate-cli/$CLI_NAME" "$ROUTER_USERNAME@$ROUTER_IP:$CLI_PATH"
 echo "CLI binary copied to router at $CLI_PATH"
 
 echo "Setting executable permissions..."
@@ -133,21 +133,5 @@ ssh $SSH_OPTS $ROUTER_USERNAME@$ROUTER_IP "chmod +x $CLI_PATH"
 echo "Starting service $EXECUTABLE_NAME on router..."
 ssh $SSH_OPTS $ROUTER_USERNAME@$ROUTER_IP "service $EXECUTABLE_NAME start"
 echo "Started service $EXECUTABLE_NAME on router"
-
-echo "Verifying CLI deployment..."
-ssh $SSH_OPTS $ROUTER_USERNAME@$ROUTER_IP "ls -la $CLI_PATH"
-
-echo "Testing CLI with updated service..."
-ssh $SSH_OPTS $ROUTER_USERNAME@$ROUTER_IP "$CLI_NAME status" || echo "Status test failed"
-ssh $SSH_OPTS $ROUTER_USERNAME@$ROUTER_IP "$CLI_NAME wallet balance" || echo "Wallet balance test failed"
-
-echo ""
-echo "Deployment complete!"
-echo "Both TollGate service and CLI have been updated."
-echo "CLI is available system-wide. Test with:"
-echo "  tollgate status"
-echo "  tollgate wallet balance"
-echo "  tollgate wallet drain cashu"
-echo "  tollgate --help"
 
 echo "Done"

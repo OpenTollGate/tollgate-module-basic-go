@@ -78,6 +78,28 @@ var infoCmd = &cobra.Command{
 	},
 }
 
+var fundCmd = &cobra.Command{
+	Use:   "fund",
+	Short: "Fund wallet with a Cashu token",
+	Long:  "Add funds to the wallet by pasting a Cashu token when prompted.",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Interactive mode only - prompt for token
+		fmt.Print("Paste your Cashu token: ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if !scanner.Scan() {
+			return fmt.Errorf("failed to read token input")
+		}
+		cashuToken := strings.TrimSpace(scanner.Text())
+
+		if cashuToken == "" {
+			return fmt.Errorf("no token provided")
+		}
+
+		return sendCommandAndDisplay("wallet", []string{"fund", cashuToken}, nil)
+	},
+}
+
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show service status",
@@ -99,7 +121,7 @@ var versionCmd = &cobra.Command{
 func init() {
 	// Build command tree
 	drainCmd.AddCommand(drainCashuCmd)
-	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd)
+	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	rootCmd.AddCommand(walletCmd, statusCmd, versionCmd)
 }
 

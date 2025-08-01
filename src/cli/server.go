@@ -107,13 +107,26 @@ func (s *CLIServer) acceptConnections() {
 func (s *CLIServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	scanner := bufio.NewScanner(conn)
-	if !scanner.Scan() {
+	// Use a buffered reader with larger buffer to handle long cashu tokens
+	reader := bufio.NewReaderSize(conn, 8192) // 8KB buffer
+
+	// Read until newline (our protocol sends data + \n)
+	data, err := reader.ReadBytes('\n')
+	if err != nil {
+		cliLogger.WithError(err).Error("Failed to read from connection")
 		return
 	}
 
+	// Remove the trailing newline
+	if len(data) > 0 && data[len(data)-1] == '\n' {
+		data = data[:len(data)-1]
+	}
+
+	cliLogger.WithField("data_length", len(data)).Debug("Received CLI message")
+
 	var msg CLIMessage
-	if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
+	if err := json.Unmarshal(data, &msg); err != nil {
+		cliLogger.WithError(err).Error("Failed to unmarshal CLI message")
 		s.sendError(conn, fmt.Sprintf("Invalid JSON: %v", err))
 		return
 	}
@@ -163,10 +176,12 @@ func (s *CLIServer) handleWalletCommand(args []string, flags map[string]string) 
 		return s.handleWalletBalance()
 	case "info":
 		return s.handleWalletInfo()
+	case "fund":
+		return s.handleWalletFund(args[1:], flags)
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown wallet action: %s", action),
+			Error:     fmt.Sprintf("Unknown wallet action: %s (supported: drain, balance, info, fund)", action),
 			Timestamp: time.Now(),
 		}
 	}
@@ -345,6 +360,58 @@ func (s *CLIServer) handleWalletInfo() CLIResponse {
 			"total_balance": totalBalance,
 			"mint_count":    len(acceptedMints),
 			"mint_balances": mintBalances,
+		},
+		Timestamp: time.Now(),
+	}
+}
+
+// handleWalletFund processes the wallet fund command
+func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string) CLIResponse {
+	if len(fundArgs) == 0 {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Fund command requires a cashu token argument",
+			Timestamp: time.Now(),
+		}
+	}
+
+	cashuToken := fundArgs[0]
+	if cashuToken == "" {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Cashu token cannot be empty",
+			Timestamp: time.Now(),
+		}
+	}
+
+	if s.merchant == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Merchant not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	// Fund the wallet using the merchant interface
+	cliLogger.WithField("token_length", len(cashuToken)).Debug("Attempting to fund wallet")
+
+	amountReceived, err := s.merchant.Fund(cashuToken)
+	if err != nil {
+		cliLogger.WithError(err).Error("Failed to fund wallet via merchant")
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to fund wallet: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+
+	cliLogger.WithField("amount", amountReceived).Info("Successfully funded wallet")
+
+	return CLIResponse{
+		Success: true,
+		Message: fmt.Sprintf("Successfully funded wallet with %d sats", amountReceived),
+		Data: map[string]interface{}{
+			"amount_received": amountReceived,
 		},
 		Timestamp: time.Now(),
 	}
