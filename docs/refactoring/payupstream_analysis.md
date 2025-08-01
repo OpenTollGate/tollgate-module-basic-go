@@ -59,13 +59,13 @@ This diagram illustrates the process of discovering an upstream TollGate provide
 
 ```mermaid
 graph TD
-    A[Network Change Detected] --> B(crowsnest: Network Monitor);
-    B --> C{Gateway Found?};
-    C -- Yes --> D(crowsnest: TollGate Prober);
-    D -- GET /:2121 --> E[Upstream TollGate];
-    E -- kind:10021 (Advertisement) --> D;
-    D --> F{Valid Ad?};
-    F -- Yes --> G(crowsnest: Handoff to Chandler);
+    A["Network Change Detected"] --> B("crowsnest: Network Monitor");
+    B --> C{"Gateway Found?"};
+    C -- "Yes" --> D("crowsnest: TollGate Prober");
+    D -- "GET /:2121" --> E["Upstream TollGate"];
+    E -- "kind:10021 (Advertisement)" --> D;
+    D --> F{"Valid Ad?"};
+    F -- "Yes" --> G("crowsnest: Handoff to Chandler");
 ```
 
 ### 2. Chandler: Payment and Session Flow
@@ -74,23 +74,23 @@ This diagram shows the process after a valid TollGate has been discovered and ha
 
 ```mermaid
 graph TD
-    subgraph Chandler Module
-        G[Handoff from Crowsnest] --> H(Evaluate Policies & Budget);
-        H --> I{Payment Viable?};
-        I -- Yes --> J(Calculate Payment);
-        J --> K(Request Payment from Merchant);
-        K --> L[merchant: Create Cashu Token];
+    subgraph "Chandler Module"
+        G["Handoff from Crowsnest"] --> H("Evaluate Policies & Budget");
+        H --> I{"Payment Viable?"};
+        I -- "Yes" --> J("Calculate Payment");
+        J --> K("Request Payment from Merchant");
+        K --> L["merchant: Create Cashu Token"];
         L --> K;
         K --> J;
-        J --> M(Send Payment);
-        M --> N(Start Usage Tracker);
-        N --> O{Renewal Needed?};
-        O -- Yes --> J;
+        J --> M("Send Payment");
+        M --> N("Start Usage Tracker");
+        N --> O{"Renewal Needed?"};
+        O -- "Yes" --> J;
     end
 
-    subgraph Upstream TollGate Interaction
-        M -- POST /:2121 (kind: 21000) --> E[Upstream TollGate];
-        E -- kind:1022 (Session) --> M;
+    subgraph "Upstream TollGate Interaction"
+        M -- "POST /:2121 (kind: 21000)" --> E["Upstream TollGate"];
+        E -- "kind:1022 (Session)" --> M;
     end
 ```
 

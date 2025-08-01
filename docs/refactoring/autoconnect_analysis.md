@@ -24,19 +24,18 @@ This branch represents a classic and beneficial refactoring from a monolithic to
 ```mermaid
 graph TD
     subgraph "Before (`feature/pay-upstream`)"
-        A[main.go with network logic];
+        A["main.go with network logic"];
     end
 
     subgraph "After (`feature/autoconnect`)"
-        B[main.go] --> C(crows_nest.GatewayManager);
-        C --> D(crows_nest.Scanner);
-        C --> E(crows_nest.Connector);
-        C --> F(crows_nest.VendorElementProcessor);
+        B["main.go"] --> C("crows_nest.GatewayManager");
+        C --> D("crows_nest.Scanner");
+        C --> E("crows_nest.Connector");
+        C --> F("crows_nest.VendorElementProcessor");
     end
 
     A --> B;
 ```
-<img src="images/autoconnect_analysis/diagram-1.svg" alt="Code Restructuring Diagram" />
 
 ### `src/main.go`
 
@@ -58,21 +57,20 @@ The `GatewayManager` is the brain of the `crows_nest` module. It runs a periodic
 
 ```mermaid
 graph TD
-    A[Start Periodic Scan] --> B["Scan Networks"];
-    B -- Scanned Networks --> C["Process Networks"];
+    A["Start Periodic Scan"] --> B["Scan Networks"];
+    B -- "Scanned Networks" --> C["Process Networks"];
     C --> D["Extract Vendor Elements & Score"];
     D --> E["Filter by Hop Count"];
     E --> F["Sort by Score"];
     F --> G{"Top Gateway Found?"};
-    G -- Yes --> H{"Already Connected to Top Gateway?"};
-    H -- No --> I{"Is Network Open or Known?"};
-    I -- Yes --> J[Attempt Connection];
+    G -- "Yes" --> H{"Already Connected to Top Gateway?"};
+    H -- "No" --> I{"Is Network Open or Known?"};
+    I -- "Yes" --> J["Attempt Connection"];
     J --> K["Update Hop Count & AP SSID"];
-    G -- No --> L[No Action];
-    H -- Yes --> L;
-    I -- No --> L;
+    G -- "No" --> L["No Action"];
+    H -- "Yes" --> L;
+    I -- "No" --> L;
 ```
-<img src="images/autoconnect_analysis/diagram-2.svg" alt="GatewayManager Workflow Diagram" />
 
 ### `Scanner` Workflow
 
@@ -80,14 +78,13 @@ The `Scanner` is responsible for the low-level task of scanning for Wi-Fi networ
 
 ```mermaid
 graph TD
-    A[ScanNetworks()] --> B["Get WiFi Interface Name"];
+    A["ScanNetworks()"] --> B["Get WiFi Interface Name"];
     B --> C["Execute `iw dev <iface> scan`"];
-    C -- Raw Scan Output --> D["Parse Scan Output"];
+    C -- "Raw Scan Output" --> D["Parse Scan Output"];
     D --> E["Extract BSSID, SSID, Signal, Encryption"];
     E --> F["Parse Hop Count from SSID"];
-    F -- "[]NetworkInfo" --> G[Return Parsed Networks];
+    F -- "[]NetworkInfo" --> G["Return Parsed Networks"];
 ```
-<img src="images/autoconnect_analysis/diagram-3.svg" alt="Scanner Workflow Diagram" />
 
 ### `Connector` Workflow
 
@@ -95,14 +92,13 @@ The `Connector` handles all interactions with the OpenWRT system for network con
 
 ```mermaid
 graph TD
-    A[Connect()] --> B["Cleanup Existing STA Interfaces"];
+    A["Connect()"] --> B["Cleanup Existing STA Interfaces"];
     B --> C["Set network.wwan and wireless.wifinet0 UCI settings"];
     C --> D["Set SSID, BSSID, and Encryption"];
     D --> E["Commit UCI Changes"];
     E --> F["Reload WiFi"];
     F --> G["Verify Connection"];
 ```
-<img src="images/autoconnect_analysis/diagram-4.svg" alt="Connector Workflow Diagram" />
 
 ### `VendorElementProcessor` Workflow
 
@@ -110,13 +106,12 @@ The `VendorElementProcessor` is responsible for extracting and scoring TollGate-
 
 ```mermaid
 graph TD
-    A[ExtractAndScore()] --> B["Parse Vendor Elements (Stubbed)"];
+    A["ExtractAndScore()"] --> B["Parse Vendor Elements (Stubbed)"];
     B --> C["Calculate Score"];
-    C -- Signal Strength --> C;
-    C -- "TollGate-" SSID Prefix --> C;
-    C -- Score --> D[Return Score];
+    C -- "Signal Strength" --> C;
+    C -- "TollGate- SSID Prefix" --> C;
+    C -- "Score" --> D["Return Score"];
 ```
-<img src="images/autoconnect_analysis/diagram-5.svg" alt="VendorElementProcessor Workflow Diagram" />
 
 ## Summary and Recommendations
 
