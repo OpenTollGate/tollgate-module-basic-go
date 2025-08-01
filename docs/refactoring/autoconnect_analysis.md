@@ -36,6 +36,7 @@ graph TD
 
     A --> B;
 ```
+<img src="images/autoconnect_analysis/diagram-1.svg" alt="Code Restructuring Diagram" />
 
 ### `src/main.go`
 
@@ -71,6 +72,7 @@ graph TD
     H -- Yes --> L;
     I -- No --> L;
 ```
+<img src="images/autoconnect_analysis/diagram-2.svg" alt="GatewayManager Workflow Diagram" />
 
 ### `Scanner` Workflow
 
@@ -85,6 +87,7 @@ graph TD
     E --> F["Parse Hop Count from SSID"];
     F -- "[]NetworkInfo" --> G[Return Parsed Networks];
 ```
+<img src="images/autoconnect_analysis/diagram-3.svg" alt="Scanner Workflow Diagram" />
 
 ### `Connector` Workflow
 
@@ -99,6 +102,7 @@ graph TD
     E --> F["Reload WiFi"];
     F --> G["Verify Connection"];
 ```
+<img src="images/autoconnect_analysis/diagram-4.svg" alt="Connector Workflow Diagram" />
 
 ### `VendorElementProcessor` Workflow
 
@@ -112,6 +116,7 @@ graph TD
     C -- "TollGate-" SSID Prefix --> C;
     C -- Score --> D[Return Score];
 ```
+<img src="images/autoconnect_analysis/diagram-5.svg" alt="VendorElementProcessor Workflow Diagram" />
 
 ## Summary and Recommendations
 
