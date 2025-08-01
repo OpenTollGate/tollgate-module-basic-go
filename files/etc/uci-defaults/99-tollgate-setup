@@ -158,26 +158,21 @@ log_message "dnsmasq configuration completed"
 
 # 4. Configure WiFi networks
 log_message "Configuring WiFi networks"
-# Generate a random 4-character suffix for the SSID
+# Generate a random 4-character suffix for the SSID and gateway name
 RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
-# Check if SSID is already configured with TollGate prefix
-current_ssid=$(uci -q get wireless.default_radio0.ssid)
-if [[ "$current_ssid" == "TollGate-"* ]]; then
-    SSID_BASE="$current_ssid"
-    log_message "Using existing SSID: $SSID_BASE"
-else
-    SSID_BASE="TollGate-${RANDOM_SUFFIX}"
-    log_message "Generated new random SSID: $SSID_BASE"
-fi
+GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
+SSID_2G="${GATEWAY_NAME}-2.4GHz"
+SSID_5G="${GATEWAY_NAME}-5GHz"
+log_message "Generated new SSIDs: ${SSID_2G} and ${SSID_5G}"
 
 # Check if default radio0 exists before configuring
 if uci -q get wireless.default_radio0 >/dev/null; then
     # Configure 2.4GHz WiFi with random suffix
     uci_safe_set wireless default_radio0 name 'tollgate_2g_open'
-    uci_safe_set wireless default_radio0 ssid "${SSID_BASE}"
+    uci_safe_set wireless default_radio0 ssid "${SSID_2G}"
     uci_safe_set wireless default_radio0 encryption 'none'
     uci_safe_set wireless default_radio0 disabled '0'  # Ensure the interface is enabled
-    log_message "Configured 2.4GHz WiFi with SSID: ${SSID_BASE}"
+    log_message "Configured 2.4GHz WiFi with SSID: ${SSID_2G}"
 else
     log_message "No 2.4GHz radio (default_radio0) found"
 fi
@@ -186,10 +181,10 @@ fi
 if uci -q get wireless.default_radio1 >/dev/null; then
     # Configure 5GHz WiFi with the same random suffix
     uci_safe_set wireless default_radio1 name 'tollgate_5g_open'
-    uci_safe_set wireless default_radio1 ssid "${SSID_BASE}"
+    uci_safe_set wireless default_radio1 ssid "${SSID_5G}"
     uci_safe_set wireless default_radio1 encryption 'none'
     uci_safe_set wireless default_radio1 disabled '0'  # Ensure the interface is enabled
-    log_message "Configured 5GHz WiFi with SSID: ${SSID_BASE}"
+    log_message "Configured 5GHz WiFi with SSID: ${SSID_5G}"
 else
     log_message "No 5GHz radio (default_radio1) found"
 fi
@@ -220,7 +215,7 @@ fi
 
 # Set basic NoDogSplash configuration with matching gateway name
 uci_safe_set nodogsplash @nodogsplash[0] enabled '1'
-uci_safe_set nodogsplash @nodogsplash[0] gatewayname "${SSID_BASE} Portal"
+uci_safe_set nodogsplash @nodogsplash[0] gatewayname "${GATEWAY_NAME} Portal"
 uci_safe_set nodogsplash @nodogsplash[0] gatewayinterface 'br-lan'
 
 # Ensure TollGate protocol port is allowed
