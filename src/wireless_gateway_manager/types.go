@@ -29,6 +29,7 @@ type NetworkMonitor struct {
 
 // Scanner handles Wi-Fi network scanning.
 type Scanner struct {
+	connector *Connector
 }
 
 // NetworkInfo represents information about a Wi-Fi network.

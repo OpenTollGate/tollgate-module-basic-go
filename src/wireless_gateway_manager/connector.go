@@ -22,9 +22,9 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		"encryption": gateway.Encryption,
 	}).Info("Attempting to connect to gateway")
 
-	// Clean up existing STA interfaces to avoid conflicts
-	if err := c.cleanupSTAInterfaces(); err != nil {
-		return fmt.Errorf("failed to cleanup existing STA interfaces: %w", err)
+	// Ensure a STA interface exists, creating one if necessary
+	if err := c.ensureSTAInterfaceExists(); err != nil {
+		return fmt.Errorf("failed to ensure STA interface exists: %w", err)
 	}
 
 	// Configure network.wwan (STA interface) with DHCP
@@ -35,33 +35,21 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure wireless.wifinet0 for STA mode
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0=wifi-iface"); err != nil {
+	// Configure wireless.tollgate_sta for STA mode
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.ssid="+gateway.SSID); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.device=radio0"); err != nil {
-		return err
-	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.mode=sta"); err != nil {
-		return err
-	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.network=wwan"); err != nil {
-		return err
-	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.ssid="+gateway.SSID); err != nil {
-		return err
-	}
-	if _, err := c.ExecuteUCI("set", "wireless.wifinet0.bssid="+gateway.BSSID); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.bssid="+gateway.BSSID); err != nil {
 		return err
 	}
 
 	// Set encryption based on gateway information
 	if gateway.Encryption != "" && gateway.Encryption != "Open" {
-		if _, err := c.ExecuteUCI("set", "wireless.wifinet0.encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
 			return err
 		}
 		if password != "" {
-			if _, err := c.ExecuteUCI("set", "wireless.wifinet0.key="+password); err != nil {
+			if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.key="+password); err != nil {
 				return err
 			}
 		} else {
@@ -69,10 +57,10 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		}
 	} else {
 		// For open networks, ensure no encryption or key is set
-		if _, err := c.ExecuteUCI("delete", "wireless.wifinet0.encryption"); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption=none"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("delete", "wireless.wifinet0.key"); err != nil {
+		if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
 			return err
 		}
 	}
@@ -242,6 +230,43 @@ func (c *Connector) cleanupSTAInterfaces() error {
 	}
 
 	return nil
+}
+
+// ensureSTAInterfaceExists checks for a STA interface and creates a default one if it doesn't exist.
+func (c *Connector) ensureSTAInterfaceExists() error {
+	logger.Info("Ensuring STA wifi-iface section exists")
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return err
+	}
+
+	if strings.Contains(output, ".mode='sta'") {
+		logger.Info("STA interface already exists")
+		return nil
+	}
+
+	logger.Info("No STA interface found, creating default")
+	// Assuming 'radio0' is the primary radio for STA mode.
+	// This could be made more dynamic if needed.
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta=wifi-iface"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device=radio0"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.mode=sta"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.network=wwan"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=0"); err != nil {
+		return err
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return err
+	}
+	return c.reloadWifi()
 }
 
 // EnableLocalAP enables the local Wi-Fi access point.

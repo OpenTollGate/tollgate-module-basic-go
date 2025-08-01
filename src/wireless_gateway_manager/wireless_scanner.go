@@ -19,8 +19,17 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	// Determine the Wi-Fi interface dynamically
 	interfaceName, err := getInterfaceName()
 	if err != nil {
-		logger.WithError(err).Error("Failed to get interface name")
-		return nil, err
+		logger.WithError(err).Warn("Failed to get interface name, attempting to create one")
+		if err := s.connector.ensureSTAInterfaceExists(); err != nil {
+			logger.WithError(err).Error("Failed to create STA interface")
+			return nil, err
+		}
+		// Retry getting the interface name after creation
+		interfaceName, err = getInterfaceName()
+		if err != nil {
+			logger.WithError(err).Error("Failed to get interface name after attempting to create it")
+			return nil, err
+		}
 	}
 
 	cmd := exec.Command("iw", "dev", interfaceName, "scan")
