@@ -269,35 +269,67 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	return c.reloadWifi()
 }
 
-// EnableLocalAP enables the local Wi-Fi access point.
-func (c *Connector) EnableLocalAP() error {
-	logger.Info("Enabling local APs")
-	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=0"); err != nil {
-		logger.WithError(err).Warn("Failed to enable default_radio0")
-	}
-	if _, err := c.ExecuteUCI("set", "wireless.default_radio1.disabled=0"); err != nil {
-		logger.WithError(err).Warn("Failed to enable default_radio1")
-	}
-	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-		return err
-	}
-	return c.reloadWifi()
+// SetAPSSIDSafeMode renames the local AP's SSID to a "SafeMode-" prefix.
+func (c *Connector) SetAPSSIDSafeMode() error {
+	logger.Info("Setting AP SSID to SafeMode")
+	return c.updateAPSSIDWithPrefix("SafeMode-")
 }
 
-// DisableLocalAP disables the local Wi-Fi access point.
-func (c *Connector) DisableLocalAP() error {
-	logger.Info("Disabling local APs")
-	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=1"); err != nil {
-		logger.WithError(err).Warn("Failed to disable default_radio0")
-	}
-	if _, err := c.ExecuteUCI("set", "wireless.default_radio1.disabled=1"); err != nil {
-		logger.WithError(err).Warn("Failed to disable default_radio1")
-	}
-	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-		return err
-	}
-	return c.reloadWifi()
+// RestoreAPSSIDFromSafeMode removes the "SafeMode-" prefix from the local AP's SSID.
+func (c *Connector) RestoreAPSSIDFromSafeMode() error {
+	logger.Info("Restoring AP SSID from SafeMode")
+	return c.updateAPSSIDWithPrefix("") // Pass an empty prefix to restore the original name
 }
+
+func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
+	if err := c.ensureAPInterfacesExist(); err != nil {
+		return fmt.Errorf("failed to ensure AP interfaces exist: %w", err)
+	}
+
+	radios := []string{"default_radio0", "default_radio1"}
+	var commitNeeded bool
+	for _, radio := range radios {
+		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
+			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
+			continue
+		}
+
+		currentSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+		if err != nil {
+			logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Warn("Could not get current SSID")
+			continue
+		}
+		currentSSID = strings.TrimSpace(currentSSID)
+		baseSSID := strings.TrimPrefix(currentSSID, "SafeMode-") // Remove prefix if it exists
+
+		var newSSID string
+		if prefix != "" {
+			newSSID = prefix + baseSSID
+		} else {
+			newSSID = baseSSID // This is the restored SSID
+		}
+
+		if currentSSID != newSSID {
+			if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
+				logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Error("Failed to set new SSID")
+				continue
+			}
+			logger.WithFields(logrus.Fields{"radio": radio, "new_ssid": newSSID}).Info("Updated AP SSID")
+			commitNeeded = true
+		}
+	}
+
+	if commitNeeded {
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
+		}
+		logger.Info("Reloading wifi to apply new AP SSID")
+		return c.reloadWifi()
+	}
+
+	return nil
+}
+
 
 // UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
 func (c *Connector) UpdateLocalAPSSID(hopCount int) error {

@@ -22,7 +22,7 @@ type NetworkMonitor struct {
 	connector     *Connector
 	pingFailures  int
 	pingSuccesses int
-	isAPDisabled  bool
+	isInSafeMode  bool
 	ticker        *time.Ticker
 	stopChan      chan struct{}
 }

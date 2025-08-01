@@ -39,24 +39,24 @@ func (nm *NetworkMonitor) checkConnectivity() {
 		nm.pingFailures++
 		nm.pingSuccesses = 0
 		logger.WithField("consecutive_failures", nm.pingFailures).Warn("Ping failed")
-		if nm.pingFailures >= consecutiveFailures && !nm.isAPDisabled {
-			logger.Warn("Disabling local AP due to lost connectivity")
-			if err := nm.connector.DisableLocalAP(); err != nil {
-				logger.WithError(err).Error("Failed to disable local AP")
+		if nm.pingFailures >= consecutiveFailures && !nm.isInSafeMode {
+			logger.Warn("Entering SafeMode due to lost connectivity")
+			if err := nm.connector.SetAPSSIDSafeMode(); err != nil {
+				logger.WithError(err).Error("Failed to enter SafeMode")
 			} else {
-				nm.isAPDisabled = true
+				nm.isInSafeMode = true
 			}
 		}
 	} else {
 		nm.pingSuccesses++
 		nm.pingFailures = 0
 		logger.WithField("consecutive_successes", nm.pingSuccesses).Debug("Ping successful")
-		if nm.pingSuccesses >= consecutiveSuccesses && nm.isAPDisabled {
-			logger.Info("Re-enabling local AP due to restored connectivity")
-			if err := nm.connector.EnableLocalAP(); err != nil {
-				logger.WithError(err).Error("Failed to enable local AP")
+		if nm.pingSuccesses >= consecutiveSuccesses && nm.isInSafeMode {
+			logger.Info("Restoring AP from SafeMode due to restored connectivity")
+			if err := nm.connector.RestoreAPSSIDFromSafeMode(); err != nil {
+				logger.WithError(err).Error("Failed to restore AP from SafeMode")
 			} else {
-				nm.isAPDisabled = false
+				nm.isInSafeMode = false
 			}
 		}
 	}
