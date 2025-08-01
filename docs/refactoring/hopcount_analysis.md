@@ -2,6 +2,11 @@
 
 This document analyzes the new functionality added by the `feature/hopcount` branch, which builds upon the `feature/autoconnect` branch. The primary focus of this feature branch is the implementation of a hop count mechanism to prevent routing loops in the TollGate mesh network. The changes represent a clear addition of features.
 
+> **Note:** The diagrams in this document were generated from the MermaidJS source code using the following command:
+> ```bash
+> docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)":/data minlag/mermaid-cli -i /data/docs/refactoring/hopcount_analysis.md -o /data/docs/refactoring/images/hopcount_analysis/diagram.svg
+> ```
+
 ## Key Changes
 
 The core changes can be summarized as follows:
@@ -20,31 +25,31 @@ The `crows_nest` module has undergone significant changes to incorporate the hop
 
 ```mermaid
 graph TD
-    subgraph GatewayManager
+    subgraph "GatewayManager"
         direction LR
-        A[RunPeriodicScan] --> B{scanNetworks};
-        B --> C{updateHopCountAndAPSSID};
-        C --> D[GetConnectedSSID];
-        D --> E{Calculate New Hop Count};
-        E --> F[UpdateLocalAPSSID];
-        B --> G{Filter by Hop Count};
-        G --> H[Sort by Score];
-        H --> I{Connect to Best Gateway};
-        I -- on success --> C;
+        A["RunPeriodicScan"] --> B{"scanNetworks"};
+        B --> C{"updateHopCountAndAPSSID"};
+        C --> D["GetConnectedSSID"];
+        D --> E{"Calculate New Hop Count"};
+        E --> F["UpdateLocalAPSSID"];
+        B --> G{"Filter by Hop Count"};
+        G --> H["Sort by Score"];
+        H --> I{"Connect to Best Gateway"};
+        I -- "on success" --> C;
     end
 
-    subgraph Scanner
+    subgraph "Scanner"
         direction LR
-        J[ScanNetworks] --> K{Parse `iw` output};
-        K --> L[parseHopCountFromSSID];
+        J["ScanNetworks"] --> K{"Parse `iw` output"};
+        K --> L["parseHopCountFromSSID"];
     end
 
-    subgraph Connector
+    subgraph "Connector"
         direction LR
-        M[Connect] --> N{`uci` commands};
-        N --> O[reloadWifi];
-        P[UpdateLocalAPSSID] --> Q{ensureAPInterfacesExist};
-        Q --> R{`uci` commands};
+        M["Connect"] --> N["uci commands"];
+        N --> O["reloadWifi"];
+        P["UpdateLocalAPSSID"] --> Q{"ensureAPInterfacesExist"};
+        Q --> R["uci commands"];
         R --> O;
     end
 
@@ -52,6 +57,7 @@ graph TD
     GatewayManager --> Scanner;
     GatewayManager --> Connector;
 ```
+<img src="../images/hopcount_analysis/diagram-1.svg" alt="Hopcount Component Interactions" />
 
 #### `gateway_manager.go`
 
