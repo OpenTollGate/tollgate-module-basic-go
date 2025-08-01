@@ -2,6 +2,11 @@
 
 This document analyzes the changes introduced in the `feature/autoconnect` branch, which builds upon `feature/pay-upstream`. The primary focus of this branch is a significant architectural refactoring: moving the network management logic from a monolithic implementation in `src/main.go` into a dedicated, modular `crows_nest` package.
 
+> **Note:** The diagrams in this document were generated from the MermaidJS source code using the following command:
+> ```bash
+> docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)":/data minlag/mermaid-cli -i /data/docs/refactoring/autoconnect_analysis.md -o /data/docs/refactoring/images/autoconnect_analysis/diagram.svg
+> ```
+
 ## Key Changes
 
 The core changes can be summarized as follows:
@@ -36,6 +41,7 @@ graph TD
 
     A --> B;
 ```
+<img src="../images/autoconnect_analysis/diagram-1.svg" alt="Code Restructuring Diagram" />
 
 ### `src/main.go`
 
@@ -71,6 +77,7 @@ graph TD
     H -- "Yes" --> L;
     I -- "No" --> L;
 ```
+<img src="../images/autoconnect_analysis/diagram-2.svg" alt="GatewayManager Workflow Diagram" />
 
 ### `Scanner` Workflow
 
@@ -85,6 +92,7 @@ graph TD
     E --> F["Parse Hop Count from SSID"];
     F -- "[]NetworkInfo" --> G["Return Parsed Networks"];
 ```
+<img src="../images/autoconnect_analysis/diagram-3.svg" alt="Scanner Workflow Diagram" />
 
 ### `Connector` Workflow
 
@@ -99,6 +107,7 @@ graph TD
     E --> F["Reload WiFi"];
     F --> G["Verify Connection"];
 ```
+<img src="../images/autoconnect_analysis/diagram-4.svg" alt="Connector Workflow Diagram" />
 
 ### `VendorElementProcessor` Workflow
 
@@ -112,6 +121,7 @@ graph TD
     C -- "TollGate- SSID Prefix" --> C;
     C -- "Score" --> D["Return Score"];
 ```
+<img src="../images/autoconnect_analysis/diagram-5.svg" alt="VendorElementProcessor Workflow Diagram" />
 
 ## Summary and Recommendations
 

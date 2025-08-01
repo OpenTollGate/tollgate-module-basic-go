@@ -2,6 +2,11 @@
 
 This document provides a detailed analysis of the changes introduced in the `feature/pay-upstream` branch. This feature represents a major architectural evolution, enabling a TollGate device to act as a client and pay for connectivity from an upstream TollGate provider.
 
+> **Note:** The diagrams in this document were generated from the MermaidJS source code using the following command:
+> ```bash
+> docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd)":/data minlag/mermaid-cli -i /data/docs/refactoring/payupstream_analysis.md -o /data/docs/refactoring/images/payupstream_analysis/diagram.svg
+> ```
+
 ## High-Level Summary
 
 The `feature/pay-upstream` branch introduces two primary Go modules, `crowsnest` and `chandler`, which work in tandem to discover, connect to, and pay for upstream TollGate services. The entire process is governed by a newly defined communication protocol based on Nostr events, documented in a series of TollGate Implementation Possibilities (TIPs).
@@ -67,6 +72,7 @@ graph TD
     D --> F{"Valid Ad?"};
     F -- "Yes" --> G("crowsnest: Handoff to Chandler");
 ```
+<img src="../images/payupstream_analysis/diagram-1.svg" alt="Crowsnest Discovery Flow" />
 
 ### 2. Chandler: Payment and Session Flow
 
@@ -93,6 +99,7 @@ graph TD
         E -- "kind:1022 (Session)" --> M;
     end
 ```
+<img src="../images/payupstream_analysis/diagram-2.svg" alt="Chandler Payment and Session Flow" />
 
 ## Conclusion
 
