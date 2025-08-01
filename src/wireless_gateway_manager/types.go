@@ -9,8 +9,8 @@ import (
 // Constants for network monitoring
 const (
 	pingTarget           = "8.8.8.8"
-	consecutiveFailures  = 5
-	consecutiveSuccesses = 5
+	consecutiveFailures  = 2
+	consecutiveSuccesses = 1
 )
 
 // Connector manages OpenWRT network configurations via UCI commands.
