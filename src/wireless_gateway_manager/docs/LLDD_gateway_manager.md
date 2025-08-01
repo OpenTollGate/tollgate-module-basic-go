@@ -31,7 +31,7 @@ The `GatewayManager` will be a central struct orchestrating the module's operati
         *   Sets up the `log` instance.
         *   Starts a background goroutine for periodic scanning using `time.NewTicker(gm.scanInterval)`. The `ctx` will be used to signal shutdown.
     *   `RunPeriodicScan(ctx context.Context)` (internal goroutine function):
-        *   Loops, calling `scanner.ScanNetworks()` at `scanInterval`.
+        *   Loops, calling `scanner.ScanWirelessNetworks()` at `scanInterval`.
         *   Processes results, updates `availableGateways`, and triggers `vendorProcessor` for scoring.
         *   Filters the `availableGateways` list, removing any gateways with a hop count greater than or equal to the device's `currentHopCount`.
         *   Handles context cancellation for graceful shutdown.
@@ -57,7 +57,7 @@ Handles Wi-Fi network scanning.
     }
     ```
 *   **Methods:**
-    *   `ScanNetworks() ([]NetworkInfo, error)`:
+    *   `ScanWirelessNetworks() ([]NetworkInfo, error)`:
         *   Executes `iw dev <interface> scan` using `os/exec.Command`. Determine the interface dynamically (e.g., `iw dev | awk '/Interface/ {print $2; exit}'`).
         *   Captures `stdout` and `stderr`.
         *   Parses `stdout` line by line using `bufio.Scanner`. Each BSS block will be processed to extract:

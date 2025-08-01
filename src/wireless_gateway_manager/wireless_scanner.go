@@ -12,8 +12,8 @@ import (
 	"strings"
 )
 
-// ScanNetworks scans for available Wi-Fi networks.
-func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
+// ScanWirelessNetworks scans for available Wi-Fi networks.
+func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	s.log.Println("[wireless_gateway_manager] Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
 	interfaceName, err := getInterfaceName()

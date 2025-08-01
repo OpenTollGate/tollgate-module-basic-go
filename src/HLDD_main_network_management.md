@@ -23,7 +23,7 @@ The primary interaction will be between `src/main.go` and the `wireless_gateway_
     *   If offline, calls `GatewayManager` for scanning and connection.
     *   Manages the state of connectivity (online/offline).
 *   **`wireless_gateway_manager.GatewayManager`:** Provides the underlying Wi-Fi scanning, gateway identification (including "TollGate" SSID and vendor element processing), and connection functionalities.
-    *   Exposes `ScanNetworks()`, `GetAvailableGateways()`, and `ConnectToGateway()` APIs.
+    *   Exposes `ScanWirelessNetworks()`, `GetAvailableGateways()`, and `ConnectToGateway()` APIs.
 
 ### 3.1. Data Flow Diagram
 

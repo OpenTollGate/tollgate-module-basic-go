@@ -57,7 +57,7 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			gm.scanNetworks(ctx)
+			gm.ScanWirelessNetworks(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
 			return
@@ -65,13 +65,13 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 	}
 }
 
-func (gm *GatewayManager) scanNetworks(ctx context.Context) {
+func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	gm.log.Println("[wireless_gateway_manager] Starting network scan for gateway selection")
 
 	// Update current hop count based on current connection status before scanning
 	gm.updateHopCountAndAPSSID()
 
-	networks, err := gm.scanner.ScanNetworks()
+	networks, err := gm.scanner.ScanWirelessNetworks()
 	if err != nil {
 		gm.log.Printf("[wireless_gateway_manager] ERROR: Failed to scan networks: %v", err)
 		return

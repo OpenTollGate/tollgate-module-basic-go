@@ -5,12 +5,10 @@ import (
 	"strings"
 )
 
-/*
 const (
-	bitcoinOUI = "00:11:22" // Example OUI for Bitcoin
-	nostrOUI   = "00:33:44" // Example OUI for Nostr
+	tollgateOUI      = "212121" // TollGate custom OUI
+	tollgateElemType = "01"     // TollGate custom elementType
 )
-*/
 
 // ExtractAndScore extracts vendor elements from NetworkInfo and calculates a score.
 func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]interface{}, int, error) {
@@ -84,6 +82,29 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 
 	return score
 }
+
+// // stringToHex converts a string to its hexadecimal representation
+// func stringToHex(s string) string {
+// 	hexStr := ""
+// 	for _, b := range []byte(s) {
+// 		hexStr += fmt.Sprintf("%02x", b)
+// 	}
+// 	return hexStr
+// }
+
+// // createVendorElement creates a vendor element with the given payload
+// func createVendorElement(payload string) (string, error) {
+// 	if len(payload) > 247 {
+// 		return "", errors.New("payload cannot exceed 247 characters to stay within vendor_elements max size of 256 chars")
+// 	}
+
+// 	var vendorElementPayload = tollgateOUI + tollgateElemType + payload
+
+// 	payloadLengthInBytesHex := strconv.FormatInt(int64(len(vendorElementPayload)), 16)
+// 	payloadHex := stringToHex(vendorElementPayload)
+
+// 	return "dd" + payloadLengthInBytesHex + payloadHex, nil
+// }
 
 func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]string) error {
 	// Re-add necessary imports if this functionality is to be fully restored and used.
