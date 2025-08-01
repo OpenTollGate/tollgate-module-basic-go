@@ -1,4 +1,4 @@
-package crows_nest
+package wireless_gateway_manager
 
 import (
 	"context"

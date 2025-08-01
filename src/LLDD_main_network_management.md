@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-This document details the low-level implementation for managing network connectivity within the TollGate main application (`src/main.go`). It specifies the concrete steps, code constructs, error handling, and timing considerations for ensuring the device remains connected to the internet, leveraging the `crows_nest.GatewayManager` module.
+This document details the low-level implementation for managing network connectivity within the TollGate main application (`src/main.go`). It specifies the concrete steps, code constructs, error handling, and timing considerations for ensuring the device remains connected to the internet, leveraging the `wireless_gateway_manager.GatewayManager` module.
 
 ## 2. Implementation Details
 
@@ -10,25 +10,25 @@ The network connectivity management will primarily reside within `src/main.go`, 
 
 ### 2.1. `init` Function Modifications
 
-The `init` function will be responsible for initializing the `crows_nest.GatewayManager`.
+The `init` function will be responsible for initializing the `wireless_gateway_manager.GatewayManager`.
 
 *   **`src/main.go:init()`:**
     ```go
     import (
         // ...
-        "github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest" // Re-import if not already present
+        "github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager" // Re-import if not already present
         // ...
     )
 
     // Global variable declaration
-    var gatewayManager *crows_nest.GatewayManager // Already present in main.go diff
+    var gatewayManager *wireless_gateway_manager.GatewayManager // Already present in main.go diff
 
     func init() {
         var err error
         // ... existing init code ...
 
         // Initialize GatewayManager
-        gatewayManager, err = crows_nest.Init(context.Background(), log.Default())
+        gatewayManager, err = wireless_gateway_manager.Init(context.Background(), log.Default())
         if err != nil {
             log.Fatalf("Failed to initialize GatewayManager: %v", err)
         }
@@ -137,4 +137,4 @@ A simple function to perform a network connectivity check.
 ## 5. Open Questions / Assumptions
 
 *   **TollGate Network Password:** The current implementation assumes "TollGate" networks either don't require a password or the password is pre-configured/retrieved by a different mechanism (e.g., from `config_manager`). This needs explicit clarification and a plan if passwords are required.
-*   **Prioritization of TollGate SSIDs:** The current logic connects to the *first* "TollGate" SSID found in the list returned by `GetAvailableGateways()`. If multiple exist, a scoring mechanism (which `GatewayManager` already provides) should be used to select the *best* one. This needs to be integrated from the `crows_nest.Gateway` score.
+*   **Prioritization of TollGate SSIDs:** The current logic connects to the *first* "TollGate" SSID found in the list returned by `GetAvailableGateways()`. If multiple exist, a scoring mechanism (which `GatewayManager` already provides) should be used to select the *best* one. This needs to be integrated from the `wireless_gateway_manager.Gateway` score.

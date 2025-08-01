@@ -1,4 +1,4 @@
-package crows_nest
+package wireless_gateway_manager
 
 import (
 	"log"
@@ -7,19 +7,19 @@ import (
 )
 
 const (
-	pingTarget          = "8.8.8.8"
-	consecutiveFailures = 5
+	pingTarget           = "8.8.8.8"
+	consecutiveFailures  = 5
 	consecutiveSuccesses = 5
 )
 
 type NetworkMonitor struct {
-	log              *log.Logger
-	connector        *Connector
-	pingFailures     int
-	pingSuccesses    int
-	isAPDisabled     bool
-	ticker           *time.Ticker
-	stopChan         chan struct{}
+	log           *log.Logger
+	connector     *Connector
+	pingFailures  int
+	pingSuccesses int
+	isAPDisabled  bool
+	ticker        *time.Ticker
+	stopChan      chan struct{}
 }
 
 func NewNetworkMonitor(logger *log.Logger, connector *Connector) *NetworkMonitor {
@@ -32,7 +32,7 @@ func NewNetworkMonitor(logger *log.Logger, connector *Connector) *NetworkMonitor
 }
 
 func (nm *NetworkMonitor) Start() {
-	nm.log.Println("[crows_nest] Starting network monitor")
+	nm.log.Println("[wireless_gateway_manager] Starting network monitor")
 	go func() {
 		for {
 			select {
@@ -47,7 +47,7 @@ func (nm *NetworkMonitor) Start() {
 }
 
 func (nm *NetworkMonitor) Stop() {
-	nm.log.Println("[crows_nest] Stopping network monitor")
+	nm.log.Println("[wireless_gateway_manager] Stopping network monitor")
 	close(nm.stopChan)
 }
 
@@ -56,11 +56,11 @@ func (nm *NetworkMonitor) checkConnectivity() {
 	if err != nil {
 		nm.pingFailures++
 		nm.pingSuccesses = 0
-		nm.log.Printf("[crows_nest] Ping failed. Consecutive failures: %d", nm.pingFailures)
+		nm.log.Printf("[wireless_gateway_manager] Ping failed. Consecutive failures: %d", nm.pingFailures)
 		if nm.pingFailures >= consecutiveFailures && !nm.isAPDisabled {
-			nm.log.Println("[crows_nest] Disabling local AP due to lost connectivity")
+			nm.log.Println("[wireless_gateway_manager] Disabling local AP due to lost connectivity")
 			if err := nm.connector.DisableLocalAP(); err != nil {
-				nm.log.Printf("[crows_nest] ERROR: Failed to disable local AP: %v", err)
+				nm.log.Printf("[wireless_gateway_manager] ERROR: Failed to disable local AP: %v", err)
 			} else {
 				nm.isAPDisabled = true
 			}
@@ -68,11 +68,11 @@ func (nm *NetworkMonitor) checkConnectivity() {
 	} else {
 		nm.pingSuccesses++
 		nm.pingFailures = 0
-		nm.log.Printf("[crows_nest] Ping successful. Consecutive successes: %d", nm.pingSuccesses)
+		nm.log.Printf("[wireless_gateway_manager] Ping successful. Consecutive successes: %d", nm.pingSuccesses)
 		if nm.pingSuccesses >= consecutiveSuccesses && nm.isAPDisabled {
-			nm.log.Println("[crows_nest] Re-enabling local AP due to restored connectivity")
+			nm.log.Println("[wireless_gateway_manager] Re-enabling local AP due to restored connectivity")
 			if err := nm.connector.EnableLocalAP(); err != nil {
-				nm.log.Printf("[crows_nest] ERROR: Failed to enable local AP: %v", err)
+				nm.log.Printf("[wireless_gateway_manager] ERROR: Failed to enable local AP: %v", err)
 			} else {
 				nm.isAPDisabled = false
 			}

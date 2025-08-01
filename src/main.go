@@ -16,11 +16,11 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/crows_nest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 )
@@ -32,7 +32,7 @@ var (
 	mainConfig    *config_manager.Config
 	installConfig *config_manager.InstallConfig
 )
-var gatewayManager *crows_nest.GatewayManager
+var gatewayManager *wireless_gateway_manager.GatewayManager
 
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
@@ -85,7 +85,7 @@ func init() {
 
 	installConfig = configManager.GetInstallConfig()
 
-	gatewayManager, err = crows_nest.Init(context.Background(), log.Default())
+	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), log.Default())
 	if err != nil {
 		log.Fatalf("Failed to initialize gateway manager: %v", err)
 	}

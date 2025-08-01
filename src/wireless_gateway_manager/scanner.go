@@ -1,5 +1,5 @@
-// Package crows_nest implements the Scanner for Wi-Fi network scanning.
-package crows_nest
+// Package wireless_gateway_manager implements the Scanner for Wi-Fi network scanning.
+package wireless_gateway_manager
 
 import (
 	"bufio"
@@ -29,11 +29,11 @@ type NetworkInfo struct {
 
 // ScanNetworks scans for available Wi-Fi networks.
 func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
-	s.log.Println("[crows_nest] Starting Wi-Fi network scan")
+	s.log.Println("[wireless_gateway_manager] Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
 	interfaceName, err := getInterfaceName()
 	if err != nil {
-		s.log.Printf("[crows_nest] ERROR: Failed to get interface name: %v", err)
+		s.log.Printf("[wireless_gateway_manager] ERROR: Failed to get interface name: %v", err)
 		return nil, err
 	}
 
@@ -43,18 +43,18 @@ func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		s.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v, stderr: %s", err, stderr.String())
+		s.log.Printf("[wireless_gateway_manager] ERROR: Failed to scan networks: %v, stderr: %s", err, stderr.String())
 		return nil, err
 	}
 
-	s.log.Printf("[crows_nest] Successfully scanned networks")
+	s.log.Printf("[wireless_gateway_manager] Successfully scanned networks")
 
 	networks, err := parseScanOutput(stdout.Bytes(), s.log)
 	if err != nil {
-		s.log.Printf("[crows_nest] ERROR: Failed to parse scan output: %v", err)
+		s.log.Printf("[wireless_gateway_manager] ERROR: Failed to parse scan output: %v", err)
 		return nil, err
 	}
-	s.log.Printf("[crows_nest] Parsed scan output into %d NetworkInfo structures", len(networks))
+	s.log.Printf("[wireless_gateway_manager] Parsed scan output into %d NetworkInfo structures", len(networks))
 
 	return networks, nil
 }
@@ -103,7 +103,7 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 			if len(matches) > 1 {
 				currentNetwork = &NetworkInfo{BSSID: matches[1]}
 			} else {
-				logger.Printf("[crows_nest] WARN: Could not extract BSSID from line: %s", line)
+				logger.Printf("[wireless_gateway_manager] WARN: Could not extract BSSID from line: %s", line)
 				currentNetwork = nil // Invalidate current network
 				continue
 			}
@@ -120,7 +120,7 @@ func parseScanOutput(output []byte, logger *log.Logger) ([]NetworkInfo, error) {
 				signalStr = strings.TrimSuffix(signalStr, " dBm")
 				signal, err := strconv.ParseFloat(signalStr, 64)
 				if err != nil {
-					logger.Printf("[crows_nest] WARN: Failed to parse signal strength '%s': %v", signalStr, err)
+					logger.Printf("[wireless_gateway_manager] WARN: Failed to parse signal strength '%s': %v", signalStr, err)
 				} else {
 					currentNetwork.Signal = int(signal)
 				}

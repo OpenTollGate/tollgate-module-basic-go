@@ -1,5 +1,5 @@
-// Package crows_nest implements the Connector for managing OpenWRT network configurations.
-package crows_nest
+// Package wireless_gateway_manager implements the Connector for managing OpenWRT network configurations.
+package wireless_gateway_manager
 
 import (
 	"bufio"
@@ -20,7 +20,7 @@ type Connector struct {
 
 // Connect configures the network to connect to the specified gateway.
 func (c *Connector) Connect(gateway Gateway, password string) error {
-	c.log.Printf("[crows_nest] Attempting to connect to gateway %s (%s) with encryption %s", gateway.SSID, gateway.BSSID, gateway.Encryption)
+	c.log.Printf("[wireless_gateway_manager] Attempting to connect to gateway %s (%s) with encryption %s", gateway.SSID, gateway.BSSID, gateway.Encryption)
 
 	// Clean up existing STA interfaces to avoid conflicts
 	if err := c.cleanupSTAInterfaces(); err != nil {
@@ -65,7 +65,7 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 				return err
 			}
 		} else {
-			c.log.Printf("[crows_nest] WARN: No password provided for encrypted network %s", gateway.SSID)
+			c.log.Printf("[wireless_gateway_manager] WARN: No password provided for encrypted network %s", gateway.SSID)
 		}
 	} else {
 		// For open networks, ensure no encryption or key is set
@@ -90,7 +90,7 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	c.log.Printf("[crows_nest] Successfully configured connection for gateway %s", gateway.SSID)
+	c.log.Printf("[wireless_gateway_manager] Successfully configured connection for gateway %s", gateway.SSID)
 
 	// Verify the connection
 	return c.verifyConnection(gateway.SSID)
@@ -114,7 +114,7 @@ func getUCIEncryptionType(encryption string) string {
 func (c *Connector) GetConnectedSSID() (string, error) {
 	interfaceName, err := getInterfaceName()
 	if err != nil {
-		c.log.Printf("[crows_nest] INFO: Could not get managed Wi-Fi interface, probably not associated: %v", err)
+		c.log.Printf("[wireless_gateway_manager] INFO: Could not get managed Wi-Fi interface, probably not associated: %v", err)
 		return "", nil
 	}
 
@@ -124,7 +124,7 @@ func (c *Connector) GetConnectedSSID() (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		c.log.Printf("[crows_nest] WARN: Could not get connected SSID from interface %s: %v, stderr: %s", interfaceName, err, stderr.String())
+		c.log.Printf("[wireless_gateway_manager] WARN: Could not get connected SSID from interface %s: %v, stderr: %s", interfaceName, err, stderr.String())
 		return "", nil // Not an error if not connected, but return empty string
 	}
 
@@ -153,10 +153,10 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		// For 'delete', "Entry not found" is not a critical error.
 		if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
-			c.log.Printf("[crows_nest] INFO: UCI entry to delete was not found (which is okay): uci %s", strings.Join(args, " "))
+			c.log.Printf("[wireless_gateway_manager] INFO: UCI entry to delete was not found (which is okay): uci %s", strings.Join(args, " "))
 			return "", nil
 		}
-		c.log.Printf("[crows_nest] ERROR: Failed to execute UCI command: %v, stderr: %s", err, stderr.String())
+		c.log.Printf("[wireless_gateway_manager] ERROR: Failed to execute UCI command: %v, stderr: %s", err, stderr.String())
 		return "", err
 	}
 
@@ -169,7 +169,7 @@ func (c *Connector) reloadWifi() error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		c.log.Printf("[crows_nest] ERROR: Failed to reload wifi: %v, stderr: %s", err, stderr.String())
+		c.log.Printf("[wireless_gateway_manager] ERROR: Failed to reload wifi: %v, stderr: %s", err, stderr.String())
 		return err
 	}
 
@@ -178,7 +178,7 @@ func (c *Connector) reloadWifi() error {
 
 // verifyConnection checks if the device is connected to the specified SSID.
 func (c *Connector) verifyConnection(expectedSSID string) error {
-	c.log.Printf("[crows_nest] Verifying connection to %s...", expectedSSID)
+	c.log.Printf("[wireless_gateway_manager] Verifying connection to %s...", expectedSSID)
 	const retries = 10
 	const delay = 3 * time.Second
 
@@ -186,22 +186,22 @@ func (c *Connector) verifyConnection(expectedSSID string) error {
 		time.Sleep(delay)
 		currentSSID, err := c.GetConnectedSSID()
 		if err != nil {
-			c.log.Printf("[crows_nest] WARN: Verification check failed: could not get current SSID: %v", err)
+			c.log.Printf("[wireless_gateway_manager] WARN: Verification check failed: could not get current SSID: %v", err)
 			continue
 		}
 
 		if currentSSID == expectedSSID {
-			c.log.Printf("[crows_nest] Successfully connected to %s", expectedSSID)
+			c.log.Printf("[wireless_gateway_manager] Successfully connected to %s", expectedSSID)
 			return nil
 		}
-		c.log.Printf("[crows_nest] INFO: Still not connected to %s, currently on %s. Retrying...", expectedSSID, currentSSID)
+		c.log.Printf("[wireless_gateway_manager] INFO: Still not connected to %s, currently on %s. Retrying...", expectedSSID, currentSSID)
 	}
 
 	return fmt.Errorf("failed to verify connection to %s after %d retries", expectedSSID, retries)
 }
 
 func (c *Connector) cleanupSTAInterfaces() error {
-	c.log.Println("[crows_nest] Cleaning up existing STA wifi-iface sections...")
+	c.log.Println("[wireless_gateway_manager] Cleaning up existing STA wifi-iface sections...")
 	output, err := c.ExecuteUCI("show", "wireless")
 	if err != nil {
 		return err
@@ -218,10 +218,10 @@ func (c *Connector) cleanupSTAInterfaces() error {
 	}
 
 	for _, section := range sectionsToDelete {
-		c.log.Printf("[crows_nest] Deleting old STA interface section: %s", section)
+		c.log.Printf("[wireless_gateway_manager] Deleting old STA interface section: %s", section)
 		if _, err := c.ExecuteUCI("delete", section); err != nil {
 			// We log the error but continue, as a failed delete is not critical
-			c.log.Printf("[crows_nest] WARN: Failed to delete section %s: %v", section, err)
+			c.log.Printf("[wireless_gateway_manager] WARN: Failed to delete section %s: %v", section, err)
 		}
 	}
 
@@ -230,12 +230,12 @@ func (c *Connector) cleanupSTAInterfaces() error {
 
 // EnableLocalAP enables the local Wi-Fi access point.
 func (c *Connector) EnableLocalAP() error {
-	c.log.Println("[crows_nest] Enabling local APs")
+	c.log.Println("[wireless_gateway_manager] Enabling local APs")
 	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=0"); err != nil {
-		c.log.Printf("[crows_nest] WARN: Failed to enable default_radio0: %v", err)
+		c.log.Printf("[wireless_gateway_manager] WARN: Failed to enable default_radio0: %v", err)
 	}
 	if _, err := c.ExecuteUCI("set", "wireless.default_radio1.disabled=0"); err != nil {
-		c.log.Printf("[crows_nest] WARN: Failed to enable default_radio1: %v", err)
+		c.log.Printf("[wireless_gateway_manager] WARN: Failed to enable default_radio1: %v", err)
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
@@ -245,12 +245,12 @@ func (c *Connector) EnableLocalAP() error {
 
 // DisableLocalAP disables the local Wi-Fi access point.
 func (c *Connector) DisableLocalAP() error {
-	c.log.Println("[crows_nest] Disabling local APs")
+	c.log.Println("[wireless_gateway_manager] Disabling local APs")
 	if _, err := c.ExecuteUCI("set", "wireless.default_radio0.disabled=1"); err != nil {
-		c.log.Printf("[crows_nest] WARN: Failed to disable default_radio0: %v", err)
+		c.log.Printf("[wireless_gateway_manager] WARN: Failed to disable default_radio0: %v", err)
 	}
 	if _, err := c.ExecuteUCI("set", "wireless.default_radio1.disabled=1"); err != nil {
-		c.log.Printf("[crows_nest] WARN: Failed to disable default_radio1: %v", err)
+		c.log.Printf("[wireless_gateway_manager] WARN: Failed to disable default_radio1: %v", err)
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
@@ -261,7 +261,7 @@ func (c *Connector) DisableLocalAP() error {
 // UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
 func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
-		c.log.Printf("[crows_nest] ERROR: Failed to ensure AP interfaces exist: %v", err)
+		c.log.Printf("[wireless_gateway_manager] ERROR: Failed to ensure AP interfaces exist: %v", err)
 		return err // This is a significant issue, so we return the error.
 	}
 
@@ -272,13 +272,13 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 	for _, radio := range radios {
 		// Check if the interface section exists before trying to update it.
 		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
-			c.log.Printf("[crows_nest] INFO: AP interface %s not found, skipping SSID update for it.", radio)
+			c.log.Printf("[wireless_gateway_manager] INFO: AP interface %s not found, skipping SSID update for it.", radio)
 			continue
 		}
 
 		baseSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
 		if err != nil {
-			c.log.Printf("[crows_nest] WARN: Could not get current SSID for %s: %v", radio, err)
+			c.log.Printf("[wireless_gateway_manager] WARN: Could not get current SSID for %s: %v", radio, err)
 			continue // Try the next radio
 		}
 		baseSSID = strings.TrimSpace(baseSSID)
@@ -295,14 +295,14 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 		var newSSID string
 		if hopCount == math.MaxInt32 {
 			newSSID = baseSSID
-			c.log.Printf("[crows_nest] Disconnected, setting AP SSID for %s to base: %s", radio, newSSID)
+			c.log.Printf("[wireless_gateway_manager] Disconnected, setting AP SSID for %s to base: %s", radio, newSSID)
 		} else {
 			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
-			c.log.Printf("[crows_nest] Updating local AP SSID for %s to: %s", radio, newSSID)
+			c.log.Printf("[wireless_gateway_manager] Updating local AP SSID for %s to: %s", radio, newSSID)
 		}
 
 		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
-			c.log.Printf("[crows_nest] ERROR: Failed to set new SSID for %s: %v", radio, err)
+			c.log.Printf("[wireless_gateway_manager] ERROR: Failed to set new SSID for %s: %v", radio, err)
 			continue
 		}
 		commitNeeded = true
@@ -312,7 +312,7 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 			return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
 		}
-		c.log.Println("[crows_nest] Reloading wifi to apply new AP SSID")
+		c.log.Println("[wireless_gateway_manager] Reloading wifi to apply new AP SSID")
 		return c.reloadWifi()
 	}
 
@@ -321,7 +321,7 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 
 // ensureAPInterfacesExist checks for and creates the default TollGate AP interfaces if they don't exist.
 func (c *Connector) ensureAPInterfacesExist() error {
-	c.log.Println("[crows_nest] Ensuring default AP interfaces exist...")
+	c.log.Println("[wireless_gateway_manager] Ensuring default AP interfaces exist...")
 	var created bool
 	var baseSSIDName string
 
@@ -335,7 +335,7 @@ func (c *Connector) ensureAPInterfacesExist() error {
 				// TollGate-XXXX-2.4GHz or TollGate-XXXX-5GHz
 				if len(parts) >= 3 {
 					baseSSIDName = strings.Join(parts[0:2], "-") // "TollGate-XXXX"
-					c.log.Printf("[crows_nest] Found existing AP with base name: %s", baseSSIDName)
+					c.log.Printf("[wireless_gateway_manager] Found existing AP with base name: %s", baseSSIDName)
 					break
 				}
 			}
@@ -349,7 +349,7 @@ func (c *Connector) ensureAPInterfacesExist() error {
 			return fmt.Errorf("failed to generate random suffix for SSID: %w", err)
 		}
 		baseSSIDName = "TollGate-" + randomSuffix
-		c.log.Printf("[crows_nest] No existing AP found. Generated new base name: %s", baseSSIDName)
+		c.log.Printf("[wireless_gateway_manager] No existing AP found. Generated new base name: %s", baseSSIDName)
 	}
 
 	radios := map[string]string{
@@ -360,18 +360,18 @@ func (c *Connector) ensureAPInterfacesExist() error {
 	for ifaceSection, device := range radios {
 		// Check if the physical radio device exists
 		if _, err := c.ExecuteUCI("get", "wireless."+device); err != nil {
-			c.log.Printf("[crows_nest] INFO: Physical radio device %s not found, cannot create AP interface %s.", device, ifaceSection)
+			c.log.Printf("[wireless_gateway_manager] INFO: Physical radio device %s not found, cannot create AP interface %s.", device, ifaceSection)
 			continue
 		}
 
 		// Check if the AP interface section already exists
 		if _, err := c.ExecuteUCI("get", "wireless."+ifaceSection); err == nil {
-			c.log.Printf("[crows_nest] INFO: AP interface %s already exists.", ifaceSection)
+			c.log.Printf("[wireless_gateway_manager] INFO: AP interface %s already exists.", ifaceSection)
 			continue
 		}
 
 		// Interface doesn't exist, so create it based on defaults.
-		c.log.Printf("[crows_nest] INFO: AP interface %s not found. Creating it now with consistent naming...", ifaceSection)
+		c.log.Printf("[wireless_gateway_manager] INFO: AP interface %s not found. Creating it now with consistent naming...", ifaceSection)
 		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+"=wifi-iface"); err != nil {
 			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceSection, err)
 		}
@@ -403,7 +403,7 @@ func (c *Connector) ensureAPInterfacesExist() error {
 	}
 
 	if created {
-		c.log.Println("[crows_nest] Default AP interfaces were created/updated, committing changes.")
+		c.log.Println("[wireless_gateway_manager] Default AP interfaces were created/updated, committing changes.")
 		_, err := c.ExecuteUCI("commit", "wireless")
 		return err
 	}

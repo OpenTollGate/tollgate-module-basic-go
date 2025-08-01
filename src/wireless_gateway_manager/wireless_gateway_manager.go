@@ -1,5 +1,5 @@
-// Package crows_nest implements the GatewayManager for managing Wi-Fi gateways.
-package crows_nest
+// Package wireless_gateway_manager implements the GatewayManager for managing Wi-Fi gateways.
+package wireless_gateway_manager
 
 import (
 	"context"
@@ -76,7 +76,7 @@ func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {
 
 	if err := gm.loadKnownNetworks(); err != nil {
 		// Log the error but don't fail initialization, as the file may not exist.
-		logger.Printf("[crows_nest] WARN: Could not load known networks: %v", err)
+		logger.Printf("[wireless_gateway_manager] WARN: Could not load known networks: %v", err)
 	}
 
 	go gm.RunPeriodicScan(ctx)
@@ -105,27 +105,27 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) scanNetworks(ctx context.Context) {
-	gm.log.Println("[crows_nest] Starting network scan for gateway selection")
+	gm.log.Println("[wireless_gateway_manager] Starting network scan for gateway selection")
 
 	// Update current hop count based on current connection status before scanning
 	gm.updateHopCountAndAPSSID()
 
 	networks, err := gm.scanner.ScanNetworks()
 	if err != nil {
-		gm.log.Printf("[crows_nest] ERROR: Failed to scan networks: %v", err)
+		gm.log.Printf("[wireless_gateway_manager] ERROR: Failed to scan networks: %v", err)
 		return
 	}
 
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 
-	gm.log.Printf("[crows_nest] Processing %d networks for gateway selection", len(networks))
+	gm.log.Printf("[wireless_gateway_manager] Processing %d networks for gateway selection", len(networks))
 	gm.availableGateways = make(map[string]Gateway)
 	for _, network := range networks {
 		vendorElements, score, err := gm.vendorProcessor.ExtractAndScore(network)
 		if err != nil {
-			gm.log.Printf("[crows_nest] WARN: Failed to extract vendor elements for %s: %v", network.BSSID, err)
-			gm.log.Printf("[crows_nest] WARN: Failed to extract vendor elements for %s: %v", network.BSSID, err)
+			gm.log.Printf("[wireless_gateway_manager] WARN: Failed to extract vendor elements for %s: %v", network.BSSID, err)
+			gm.log.Printf("[wireless_gateway_manager] WARN: Failed to extract vendor elements for %s: %v", network.BSSID, err)
 			continue
 		}
 
@@ -141,7 +141,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 
 		gm.availableGateways[network.BSSID] = gateway
 	}
-	gm.log.Printf("[crows_nest] Identified %d available gateways", len(gm.availableGateways))
+	gm.log.Printf("[wireless_gateway_manager] Identified %d available gateways", len(gm.availableGateways))
 
 	// Filter gateways by hop count
 	var filteredGateways []Gateway
@@ -149,10 +149,10 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		if gateway.HopCount < gm.currentHopCount {
 			filteredGateways = append(filteredGateways, gateway)
 		} else {
-			gm.log.Printf("[crows_nest] INFO: Filtering out gateway %s with hop count %d (our hop count is %d)", gateway.SSID, gateway.HopCount, gm.currentHopCount)
+			gm.log.Printf("[wireless_gateway_manager] INFO: Filtering out gateway %s with hop count %d (our hop count is %d)", gateway.SSID, gateway.HopCount, gm.currentHopCount)
 		}
 	}
-	gm.log.Printf("[crows_nest] Found %d gateways with suitable hop count", len(filteredGateways))
+	gm.log.Printf("[wireless_gateway_manager] Found %d gateways with suitable hop count", len(filteredGateways))
 
 	// Convert map to slice for sorting
 	var sortedGateways []Gateway
@@ -169,7 +169,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 		if i >= 3 { // Limit to top 3 for logging
 			break
 		}
-		gm.log.Printf("[crows_nest] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, HopCount=%d, Score=%d, VendorElements=%v",
+		gm.log.Printf("[wireless_gateway_manager] Top Gateway %d: BSSID=%s, SSID=%s, Signal=%d, Encryption=%s, HopCount=%d, Score=%d, VendorElements=%v",
 			i+1, gateway.BSSID, gateway.SSID, gateway.Signal, gateway.Encryption, gateway.HopCount, gateway.Score, gateway.VendorElements)
 	}
 
@@ -178,7 +178,7 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 
 		currentSSID, err := gm.connector.GetConnectedSSID()
 		if err != nil {
-			gm.log.Printf("[crows_nest] WARN: Could not determine current connected SSID: %v", err)
+			gm.log.Printf("[wireless_gateway_manager] WARN: Could not determine current connected SSID: %v", err)
 			// Proceed with connection attempt if current SSID cannot be determined
 		}
 
@@ -198,28 +198,28 @@ func (gm *GatewayManager) scanNetworks(ctx context.Context) {
 			knownNetwork, isKnown := gm.knownNetworks[highestPriorityGateway.SSID]
 			if isKnown {
 				password = knownNetwork.Password
-				gm.log.Printf("[crows_nest] Found known network '%s'. Using stored password.", highestPriorityGateway.SSID)
+				gm.log.Printf("[wireless_gateway_manager] Found known network '%s'. Using stored password.", highestPriorityGateway.SSID)
 			}
 
 			// Attempt to connect if the network is open, or if it's a known network with a password.
 			if highestPriorityGateway.Encryption == "Open" || highestPriorityGateway.Encryption == "" || isKnown {
-				gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
+				gm.log.Printf("[wireless_gateway_manager] Not connected to a top-3 gateway. Attempting to connect to highest priority gateway: BSSID=%s, SSID=%s",
 					highestPriorityGateway.BSSID, highestPriorityGateway.SSID)
 				err := gm.connector.Connect(highestPriorityGateway, password)
 				if err != nil {
-					gm.log.Printf("[crows_nest] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
+					gm.log.Printf("[wireless_gateway_manager] ERROR: Failed to connect to gateway %s: %v", highestPriorityGateway.SSID, err)
 				} else {
 					// Update hop count and SSID after successful connection
 					gm.updateHopCountAndAPSSID()
 				}
 			} else {
-				gm.log.Printf("[crows_nest] Not connected to a top-3 gateway. Highest priority gateway '%s' is encrypted and not in known networks. Manual connection is required.", highestPriorityGateway.SSID)
+				gm.log.Printf("[wireless_gateway_manager] Not connected to a top-3 gateway. Highest priority gateway '%s' is encrypted and not in known networks. Manual connection is required.", highestPriorityGateway.SSID)
 			}
 		} else {
-			gm.log.Printf("[crows_nest] Already connected to one of the top three gateways (SSID: %s). No action required.", currentSSID)
+			gm.log.Printf("[wireless_gateway_manager] Already connected to one of the top three gateways (SSID: %s). No action required.", currentSSID)
 		}
 	} else {
-		gm.log.Println("[crows_nest] No available gateways to connect to.")
+		gm.log.Println("[wireless_gateway_manager] No available gateways to connect to.")
 	}
 }
 
@@ -274,7 +274,7 @@ func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) 
 }
 
 func (gm *GatewayManager) loadKnownNetworks() error {
-	gm.log.Println("[crows_nest] Loading known networks from /etc/tollgate/known_networks.json")
+	gm.log.Println("[wireless_gateway_manager] Loading known networks from /etc/tollgate/known_networks.json")
 	file, err := ioutil.ReadFile("/etc/tollgate/known_networks.json")
 	if err != nil {
 		return fmt.Errorf("could not read known_networks.json: %w", err)
@@ -289,7 +289,7 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 	defer gm.mu.Unlock()
 	for _, network := range knownNetworks.Networks {
 		gm.knownNetworks[network.SSID] = network
-		gm.log.Printf("[crows_nest] Loaded known network: %s", network.SSID)
+		gm.log.Printf("[wireless_gateway_manager] Loaded known network: %s", network.SSID)
 	}
 
 	return nil
@@ -298,45 +298,45 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 func (gm *GatewayManager) updateHopCountAndAPSSID() {
 	connectedSSID, err := gm.connector.GetConnectedSSID()
 	if err != nil {
-		gm.log.Printf("[crows_nest] WARN: could not get connected SSID to update hop count: %v", err)
+		gm.log.Printf("[wireless_gateway_manager] WARN: could not get connected SSID to update hop count: %v", err)
 		gm.currentHopCount = math.MaxInt32
 		return
 	}
 
 	if connectedSSID == "" {
-		gm.log.Println("[crows_nest] Not connected to any network, setting hop count to max.")
+		gm.log.Println("[wireless_gateway_manager] Not connected to any network, setting hop count to max.")
 		gm.currentHopCount = math.MaxInt32
 		return
 	}
 
 	// Check if it's a known, non-TollGate network (which are our root connections)
 	if _, isKnown := gm.knownNetworks[connectedSSID]; isKnown && !strings.HasPrefix(connectedSSID, "TollGate-") {
-		gm.log.Printf("[crows_nest] Connected to a root network '%s'. Setting hop count to 0.", connectedSSID)
+		gm.log.Printf("[wireless_gateway_manager] Connected to a root network '%s'. Setting hop count to 0.", connectedSSID)
 		gm.currentHopCount = 0
 	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
 		// It's a TollGate network, parse the hop count from its SSID
 		parts := strings.Split(connectedSSID, "-")
 		if len(parts) < 4 {
-			gm.log.Printf("[crows_nest] ERROR: TollGate SSID '%s' has unexpected format. Cannot determine hop count.", connectedSSID)
+			gm.log.Printf("[wireless_gateway_manager] ERROR: TollGate SSID '%s' has unexpected format. Cannot determine hop count.", connectedSSID)
 			gm.currentHopCount = math.MaxInt32 // Set to max as a safe default
 		} else {
 			hopCountStr := parts[len(parts)-1]
 			hopCount, err := strconv.Atoi(hopCountStr)
 			if err != nil {
-				gm.log.Printf("[crows_nest] ERROR: Could not parse hop count from SSID '%s': %v", connectedSSID, err)
+				gm.log.Printf("[wireless_gateway_manager] ERROR: Could not parse hop count from SSID '%s': %v", connectedSSID, err)
 				gm.currentHopCount = math.MaxInt32 // Set to max as a safe default
 			} else {
 				gm.currentHopCount = hopCount + 1
-				gm.log.Printf("[crows_nest] Connected to TollGate '%s' with hop count %d. Our new hop count is %d.", connectedSSID, hopCount, gm.currentHopCount)
+				gm.log.Printf("[wireless_gateway_manager] Connected to TollGate '%s' with hop count %d. Our new hop count is %d.", connectedSSID, hopCount, gm.currentHopCount)
 			}
 		}
 	} else {
-		gm.log.Printf("[crows_nest] Connected to unknown network '%s'. Assuming max hop count.", connectedSSID)
+		gm.log.Printf("[wireless_gateway_manager] Connected to unknown network '%s'. Assuming max hop count.", connectedSSID)
 		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
 	}
 
 	// Update the local AP's SSID to advertise the new hop count
 	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
-		gm.log.Printf("[crows_nest] ERROR: Failed to update local AP SSID with new hop count: %v", err)
+		gm.log.Printf("[wireless_gateway_manager] ERROR: Failed to update local AP SSID with new hop count: %v", err)
 	}
 }

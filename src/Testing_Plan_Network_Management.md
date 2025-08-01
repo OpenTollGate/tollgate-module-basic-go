@@ -80,5 +80,5 @@ To verify that the TollGate main application (`src/main.go`) can autonomously de
 ## Open Questions / Considerations for Testing
 
 *   **TollGate Network Security:** If "TollGate" networks require a password, how will this be handled during the connection attempt? Current design assumes unencrypted or pre-configured. This needs to be addressed for complete testing.
-*   **Vendor Element Verification:** How will the scoring based on vendor elements be visually or programmatically verified during testing? This might require deeper analysis of `iw scan` output or `crows_nest` internal logs.
+*   **Vendor Element Verification:** How will the scoring based on vendor elements be visually or programmatically verified during testing? This might require deeper analysis of `iw scan` output or `wireless_gateway_manager` internal logs.
 *   **Conflicting Networks:** Testing in an environment with other Wi-Fi networks (both "TollGate" and non-"TollGate") to ensure correct filtering and prioritization.

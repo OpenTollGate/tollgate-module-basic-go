@@ -1,5 +1,5 @@
-// Package crows_nest implements the VendorElementProcessor for handling Bitcoin/Nostr vendor elements.
-package crows_nest
+// Package wireless_gateway_manager implements the VendorElementProcessor for handling Bitcoin/Nostr vendor elements.
+package wireless_gateway_manager
 
 import (
 	"log"
@@ -27,7 +27,7 @@ func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]int
 	/*
 		vendorElements, err := v.parseVendorElements(rawIEs)
 		if err != nil {
-			v.log.Printf("[crows_nest] ERROR: Failed to parse vendor elements: %v", err)
+			v.log.Printf("[wireless_gateway_manager] ERROR: Failed to parse vendor elements: %v", err)
 			return nil, 0, err
 		}
 	*/
@@ -95,13 +95,13 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]string) error {
 	// Re-add necessary imports if this functionality is to be fully restored and used.
 	// For now, returning nil to satisfy the interface and allow compilation.
-	v.log.Printf("[crows_nest] SetLocalAPVendorElements called with: %v (functionality currently stubbed)", elements)
+	v.log.Printf("[wireless_gateway_manager] SetLocalAPVendorElements called with: %v (functionality currently stubbed)", elements)
 	return nil
 }
 
 func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, error) {
 	// Re-add necessary imports and logic if this functionality is to be fully restored and used.
 	// For now, returning an empty map and nil error to satisfy the interface and allow compilation.
-	v.log.Println("[crows_nest] GetLocalAPVendorElements called (functionality currently stubbed)")
+	v.log.Println("[wireless_gateway_manager] GetLocalAPVendorElements called (functionality currently stubbed)")
 	return make(map[string]string), nil
 }

@@ -1,8 +1,8 @@
-# Low-Level Design Document (LLDD): `crows_nest` Go Module - Gateway Manager
+# Low-Level Design Document (LLDD): `wireless_gateway_manager` Go Module - Gateway Manager
 
 ## 1. Introduction
 
-This document provides a detailed low-level design for the `crows_nest` Go module, outlining the internal mechanisms, data structures, error handling, and performance considerations for implementing Wi-Fi gateway scanning, selection, and connection management in an OpenWRT environment.
+This document provides a detailed low-level design for the `wireless_gateway_manager` Go module, outlining the internal mechanisms, data structures, error handling, and performance considerations for implementing Wi-Fi gateway scanning, selection, and connection management in an OpenWRT environment.
 
 ## 2. Component-Specific Implementation Details
 
@@ -161,10 +161,10 @@ Handles Bitcoin/Nostr related vendor elements.
 *   **Error Handling:** All functions will return `error` types explicitly. Use `fmt.Errorf("component: action failed: %w", err)` for error wrapping to preserve context.
 *   **Logging:** The Go standard `log` package will be used. The `GatewayManager` will hold a `*log.Logger` instance. This logger should be configured during `Init` to output to `os.Stderr`, which OpenWRT typically redirects to `syslog` for `logread` visibility.
     *   Log levels will be implicitly handled by using different `log.Printf` statements:
-        *   `log.Printf("[crows_nest] INFO: ...")` for general operation.
-        *   `log.Printf("[crows_nest] WARN: ...")` for non-critical issues.
-        *   `log.Printf("[crows_nest] ERROR: ...")` for critical failures.
-    *   All log messages will be prefixed with `[crows_nest]` to facilitate `logread | grep "tollgate"` as requested.
+        *   `log.Printf("[wireless_gateway_manager] INFO: ...")` for general operation.
+        *   `log.Printf("[wireless_gateway_manager] WARN: ...")` for non-critical issues.
+        *   `log.Printf("[wireless_gateway_manager] ERROR: ...")` for critical failures.
+    *   All log messages will be prefixed with `[wireless_gateway_manager]` to facilitate `logread | grep "tollgate"` as requested.
 
 ## 5. Performance Considerations within OpenWRT
 
