@@ -2,7 +2,6 @@
 package wireless_gateway_manager
 
 import (
-	"log"
 	"strings"
 )
 
@@ -12,12 +11,6 @@ const (
 	nostrOUI   = "00:33:44" // Example OUI for Nostr
 )
 */
-
-// VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
-type VendorElementProcessor struct {
-	log       *log.Logger
-	connector *Connector
-}
 
 // ExtractAndScore extracts vendor elements from NetworkInfo and calculates a score.
 func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]interface{}, int, error) {

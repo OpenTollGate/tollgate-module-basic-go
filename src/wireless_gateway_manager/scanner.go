@@ -12,21 +12,6 @@ import (
 	"strings"
 )
 
-// Scanner handles Wi-Fi network scanning.
-type Scanner struct {
-	log *log.Logger
-}
-
-// NetworkInfo represents information about a Wi-Fi network.
-type NetworkInfo struct {
-	BSSID      string
-	SSID       string
-	Signal     int
-	Encryption string
-	HopCount   int
-	RawIEs     []byte
-}
-
 // ScanNetworks scans for available Wi-Fi networks.
 func (s *Scanner) ScanNetworks() ([]NetworkInfo, error) {
 	s.log.Println("[wireless_gateway_manager] Starting Wi-Fi network scan")

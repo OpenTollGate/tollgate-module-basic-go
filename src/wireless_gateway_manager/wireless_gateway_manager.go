@@ -12,47 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
-
-// KnownNetwork holds credentials for a known Wi-Fi network.
-type KnownNetwork struct {
-	SSID       string `json:"ssid"`
-	Password   string `json:"password"`
-	Encryption string `json:"encryption"`
-}
-
-// KnownNetworks is a list of known networks.
-type KnownNetworks struct {
-	Networks []KnownNetwork `json:"known_networks"`
-}
-
-// GatewayManager orchestrates the gateway management operations.
-type GatewayManager struct {
-	scanner           *Scanner
-	connector         *Connector
-	vendorProcessor   *VendorElementProcessor
-	networkMonitor    *NetworkMonitor
-	mu                sync.RWMutex
-	availableGateways map[string]Gateway
-	knownNetworks     map[string]KnownNetwork // Key: SSID
-	currentHopCount   int
-	scanInterval      time.Duration
-	stopChan          chan struct{}
-	log               *log.Logger
-}
-
-// Gateway represents a Wi-Fi gateway with its details.
-type Gateway struct {
-	BSSID          string            `json:"bssid"`
-	SSID           string            `json:"ssid"`
-	Signal         int               `json:"signal"`
-	Encryption     string            `json:"encryption"`
-	HopCount       int               `json:"hop_count"`
-	Score          int               `json:"score"`
-	VendorElements map[string]string `json:"vendor_elements"`
-}
 
 // Init initializes the GatewayManager and starts its background scanning routine.
 func Init(ctx context.Context, logger *log.Logger) (*GatewayManager, error) {

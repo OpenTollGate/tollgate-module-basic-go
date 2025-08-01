@@ -6,22 +6,6 @@ import (
 	"time"
 )
 
-const (
-	pingTarget           = "8.8.8.8"
-	consecutiveFailures  = 5
-	consecutiveSuccesses = 5
-)
-
-type NetworkMonitor struct {
-	log           *log.Logger
-	connector     *Connector
-	pingFailures  int
-	pingSuccesses int
-	isAPDisabled  bool
-	ticker        *time.Ticker
-	stopChan      chan struct{}
-}
-
 func NewNetworkMonitor(logger *log.Logger, connector *Connector) *NetworkMonitor {
 	return &NetworkMonitor{
 		log:       logger,

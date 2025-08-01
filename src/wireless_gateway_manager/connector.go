@@ -5,18 +5,12 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"log"
 	"math"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// Connector manages OpenWRT network configurations via UCI commands.
-type Connector struct {
-	log *log.Logger
-}
 
 // Connect configures the network to connect to the specified gateway.
 func (c *Connector) Connect(gateway Gateway, password string) error {
