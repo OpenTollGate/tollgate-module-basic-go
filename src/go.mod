@@ -9,7 +9,6 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/relay v0.0.0-00010101000000-000000000000
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/nbd-wtf/go-nostr v0.51.12
-	github.com/stretchr/testify v1.10.0
 )
 
 replace (
@@ -58,7 +57,7 @@ require (
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/decred/dcrd/lru v1.1.3 // indirect
-	github.com/elnosh/gonuts v0.4.0 // indirect
+	github.com/elnosh/gonuts v0.4.2 // indirect
 	github.com/fasthttp/websocket v1.5.12 // indirect
 	github.com/fiatjaf/eventstore v0.16.2 // indirect
 	github.com/fiatjaf/khatru v0.18.1 // indirect
@@ -98,6 +97,7 @@ require (
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
