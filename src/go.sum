@@ -126,6 +126,8 @@ github.com/elnosh/btc-docker-test v0.0.0-20241223164556-146e52a0433b h1:JbZVAqKB
 github.com/elnosh/btc-docker-test v0.0.0-20241223164556-146e52a0433b/go.mod h1:4PlP53czOHN+XvjyQZh+zgrzkI7BYFvJajxKK2zquyE=
 github.com/elnosh/gonuts v0.4.0 h1:7d80ngsxdA2FrpNh4/9J7p0NSU9iWFK+Wh2nAxR1qM0=
 github.com/elnosh/gonuts v0.4.0/go.mod h1:vgZomh4YQk7R3w4ltZc0sHwCmndfHkuX6V4sga/8oNs=
+github.com/elnosh/gonuts v0.4.1 h1:pSSIWYgI7MfHDAqApk8U4RqAnZ9OtX9lSfdtu9sZqxM=
+github.com/elnosh/gonuts v0.4.1/go.mod h1:vgZomh4YQk7R3w4ltZc0sHwCmndfHkuX6V4sga/8oNs=
 github.com/fasthttp/websocket v1.5.12 h1:e4RGPpWW2HTbL3zV0Y/t7g0ub294LkiuXXUuTOUInlE=
 github.com/fasthttp/websocket v1.5.12/go.mod h1:I+liyL7/4moHojiOgUOIKEWm9EIxHqxZChS+aMFltyg=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
