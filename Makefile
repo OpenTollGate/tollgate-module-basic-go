@@ -60,11 +60,21 @@ define Build/Compile
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o $(PKG_NAME) main.go
+	
+	# Build CLI tool
+	cd $(PKG_BUILD_DIR)/src/cmd/tollgate-cli && \
+	env GOOS=linux \
+	GOARCH=$(GOARCH) \
+	GOMIPS=$(GOMIPS) \
+	go build -o tollgate -trimpath -ldflags="-s -w"
 endef
 
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(PKG_NAME) $(1)/usr/bin/tollgate-basic
+	
+	# Install CLI tool in system PATH
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
 	
 	# Init script
 	$(INSTALL_DIR) $(1)/etc/init.d
