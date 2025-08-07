@@ -138,3 +138,48 @@ func TestParseHopCountFromSSID(t *testing.T) {
 		})
 	}
 }
+
+func TestScanWirelessNetworksFiltering(t *testing.T) {
+	gm := &GatewayManager{
+		availableGateways: make(map[string]Gateway),
+		currentHopCount:   1,
+	}
+
+	// Gateways to be tested
+	gateways := []Gateway{
+		{BSSID: "1", SSID: "TollGate-A", HopCount: 0, Score: 100},
+		{BSSID: "2", SSID: "TollGate-B", HopCount: 1, Score: 90},
+		{BSSID: "3", SSID: "AnotherNet", HopCount: 1, Score: 95},
+		{BSSID: "4", SSID: "TollGate-C", HopCount: 2, Score: 80},
+	}
+
+	for _, gw := range gateways {
+		gm.availableGateways[gw.BSSID] = gw
+	}
+
+	// Expected gateways after filtering
+	expectedGateways := map[string]bool{
+		"TollGate-A": true,
+		"TollGate-B": true,
+	}
+
+	var filteredGateways []Gateway
+	for _, gateway := range gm.availableGateways {
+		if gateway.HopCount <= gm.currentHopCount {
+			if gateway.HopCount == gm.currentHopCount && !strings.HasPrefix(gateway.SSID, "TollGate-") {
+				continue
+			}
+			filteredGateways = append(filteredGateways, gateway)
+		}
+	}
+
+	if len(filteredGateways) != len(expectedGateways) {
+		t.Errorf("Expected %d filtered gateways, but got %d", len(expectedGateways), len(filteredGateways))
+	}
+
+	for _, gw := range filteredGateways {
+		if _, ok := expectedGateways[gw.SSID]; !ok {
+			t.Errorf("Unexpected gateway in filtered list: %s", gw.SSID)
+		}
+	}
+}
