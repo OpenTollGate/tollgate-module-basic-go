@@ -108,7 +108,21 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	// Filter gateways by hop count
 	var filteredGateways []Gateway
 	for _, gateway := range gm.availableGateways {
-		if gateway.HopCount < gm.currentHopCount {
+		// Filter out gateways that have a higher hop count than our current hop count.
+		// We want to connect to gateways that are "closer" to the root, i.e., have a lower hop count.
+		// We also include gateways with an equal hop count, as we might want to switch to a different
+		// gateway at the same hop level if it has a better score (e.g., stronger signal).
+		if gateway.HopCount <= gm.currentHopCount {
+			// Additionally, if the gateway has the same hop count, only consider it if it's a TollGate network.
+			// This prevents trying to connect to other non-TollGate networks at the same hop level.
+			if gateway.HopCount == gm.currentHopCount && !strings.HasPrefix(gateway.SSID, "TollGate-") {
+				logger.WithFields(logrus.Fields{
+					"ssid":         gateway.SSID,
+					"gateway_hops": gateway.HopCount,
+					"our_hops":     gm.currentHopCount,
+				}).Info("Filtering out non-TollGate gateway at same hop count")
+				continue
+			}
 			filteredGateways = append(filteredGateways, gateway)
 		} else {
 			logger.WithFields(logrus.Fields{
