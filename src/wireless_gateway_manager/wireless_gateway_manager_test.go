@@ -139,47 +139,43 @@ func TestParseHopCountFromSSID(t *testing.T) {
 	}
 }
 
-func TestScanWirelessNetworksFiltering(t *testing.T) {
+func TestScanWirelessNetworksScoring(t *testing.T) {
 	gm := &GatewayManager{
 		availableGateways: make(map[string]Gateway),
-		currentHopCount:   1,
 	}
 
 	// Gateways to be tested
-	gateways := []Gateway{
-		{BSSID: "1", SSID: "TollGate-A", HopCount: 0, Score: 100},
-		{BSSID: "2", SSID: "TollGate-B", HopCount: 1, Score: 90},
-		{BSSID: "3", SSID: "AnotherNet", HopCount: 1, Score: 95},
-		{BSSID: "4", SSID: "TollGate-C", HopCount: 2, Score: 80},
+	gateways := []struct {
+		gateway Gateway
+		penalty int
+	}{
+		{gateway: Gateway{BSSID: "1", SSID: "TollGate-A", HopCount: 0, Score: 100}, penalty: 0},
+		{gateway: Gateway{BSSID: "2", SSID: "TollGate-B", HopCount: 1, Score: 100}, penalty: 20},
+		{gateway: Gateway{BSSID: "3", SSID: "TollGate-C", HopCount: 2, Score: 100}, penalty: 40},
+		{gateway: Gateway{BSSID: "4", SSID: "TollGate-D", HopCount: 3, Score: 100}, penalty: 60},
 	}
 
-	for _, gw := range gateways {
-		gm.availableGateways[gw.BSSID] = gw
+	for _, item := range gateways {
+		gm.availableGateways[item.gateway.BSSID] = item.gateway
 	}
 
-	// Expected gateways after filtering
-	expectedGateways := map[string]bool{
-		"TollGate-A": true,
-		"TollGate-B": true,
+	// Apply scoring penalty
+	for bssid, gw := range gm.availableGateways {
+		gw.Score -= gw.HopCount * 20
+		gm.availableGateways[bssid] = gw
 	}
 
-	var filteredGateways []Gateway
-	for _, gateway := range gm.availableGateways {
-		if gateway.HopCount <= gm.currentHopCount {
-			if gateway.HopCount == gm.currentHopCount && !strings.HasPrefix(gateway.SSID, "TollGate-") {
-				continue
-			}
-			filteredGateways = append(filteredGateways, gateway)
-		}
+	// Expected scores after penalty
+	expectedScores := map[string]int{
+		"1": 100,
+		"2": 80,
+		"3": 60,
+		"4": 40,
 	}
 
-	if len(filteredGateways) != len(expectedGateways) {
-		t.Errorf("Expected %d filtered gateways, but got %d", len(expectedGateways), len(filteredGateways))
-	}
-
-	for _, gw := range filteredGateways {
-		if _, ok := expectedGateways[gw.SSID]; !ok {
-			t.Errorf("Unexpected gateway in filtered list: %s", gw.SSID)
+	for bssid, expectedScore := range expectedScores {
+		if gm.availableGateways[bssid].Score != expectedScore {
+			t.Errorf("Expected score for BSSID %s to be %d, but got %d", bssid, expectedScore, gm.availableGateways[bssid].Score)
 		}
 	}
 }
