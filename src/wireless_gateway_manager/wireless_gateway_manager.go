@@ -43,7 +43,9 @@ func Init(ctx context.Context) (*GatewayManager, error) {
 	gm.networkMonitor.Start()
 
 	// Set initial hop count state
-	gm.updateHopCountAndAPSSID()
+	if err := gm.updateHopCountAndAPSSID(); err != nil {
+		return nil, fmt.Errorf("failed to set initial hop count: %w", err)
+	}
 
 	return gm, nil
 }
@@ -68,7 +70,10 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	logger.Info("Starting network scan for gateway selection")
 
 	// Update current hop count based on current connection status before scanning
-	gm.updateHopCountAndAPSSID()
+	if err := gm.updateHopCountAndAPSSID(); err != nil {
+		logger.WithError(err).Error("Failed to update hop count before scanning")
+		// Continue with the scan, as the hop count will be updated on the next iteration
+	}
 
 	networks, err := gm.scanner.ScanWirelessNetworks()
 	if err != nil {
@@ -177,7 +182,9 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 					}).Error("Failed to connect to gateway")
 				} else {
 					// Update hop count and SSID after successful connection
-					gm.updateHopCountAndAPSSID()
+					if err := gm.updateHopCountAndAPSSID(); err != nil {
+						logger.WithError(err).Error("Failed to update hop count after connecting to gateway")
+					}
 				}
 			} else {
 				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Not connected to top-3 gateway. Highest priority gateway is encrypted and not in known networks. Manual connection required")
@@ -225,7 +232,10 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error 
 	if err == nil {
 		gm.mu.Lock()
 		defer gm.mu.Unlock()
-		gm.updateHopCountAndAPSSID()
+		if err := gm.updateHopCountAndAPSSID(); err != nil {
+			logger.WithError(err).Error("Failed to update hop count after connecting to gateway")
+			// Even if this fails, the connection was successful, so we don't return an error here.
+		}
 	}
 	return err
 }
@@ -262,18 +272,16 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 	return nil
 }
 
-func (gm *GatewayManager) updateHopCountAndAPSSID() {
+func (gm *GatewayManager) updateHopCountAndAPSSID() error {
 	connectedSSID, err := gm.connector.GetConnectedSSID()
 	if err != nil {
 		logger.WithError(err).Warn("Could not get connected SSID to update hop count")
 		gm.currentHopCount = math.MaxInt32
-		return
 	}
 
 	if connectedSSID == "" {
 		logger.Info("Not connected to any network, setting hop count to max")
 		gm.currentHopCount = math.MaxInt32
-		return
 	}
 
 	// Check if it's a known, non-TollGate network (which are our root connections)
@@ -302,5 +310,7 @@ func (gm *GatewayManager) updateHopCountAndAPSSID() {
 	// Update the local AP's SSID to advertise the new hop count
 	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
 		logger.WithError(err).Error("Failed to update local AP SSID with new hop count")
+		return err
 	}
+	return nil
 }

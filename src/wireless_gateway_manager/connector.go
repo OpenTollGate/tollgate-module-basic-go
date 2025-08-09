@@ -4,6 +4,7 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os/exec"
@@ -246,12 +247,19 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	}
 
 	logger.Info("No STA interface found, creating default")
-	// Assuming 'radio0' is the primary radio for STA mode.
-	// This could be made more dynamic if needed.
+	radioNames, err := c.GetRadioDeviceNames()
+	if err != nil {
+		return fmt.Errorf("failed to get radio device names: %w", err)
+	}
+	// Assuming the first radio is suitable for STA mode.
+	primaryRadio := radioNames[0]
+
+	logger.WithField("radio", primaryRadio).Info("Using primary radio for new STA interface")
+
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta=wifi-iface"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device=radio0"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device="+primaryRadio); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.mode=sta"); err != nil {
@@ -282,21 +290,23 @@ func (c *Connector) RestoreAPSSIDFromSafeMode() error {
 }
 
 func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
-	if err := c.ensureAPInterfacesExist(); err != nil {
-		return fmt.Errorf("failed to ensure AP interfaces exist: %w", err)
+	radioNames, err := c.GetRadioDeviceNames()
+	if err != nil {
+		logger.WithError(err).Error("Failed to get radio device names for AP SSID update")
+		return err
 	}
 
-	radios := []string{"default_radio0", "default_radio1"}
 	var commitNeeded bool
-	for _, radio := range radios {
-		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
-			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
+	for _, radioName := range radioNames {
+		ifaceName := getDefaultInterfaceName(radioName)
+		if _, err := c.ExecuteUCI("get", "wireless."+ifaceName); err != nil {
+			logger.WithField("interface", ifaceName).Info("AP interface not found, skipping SSID update")
 			continue
 		}
 
-		currentSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+		currentSSID, err := c.ExecuteUCI("get", "wireless."+ifaceName+".ssid")
 		if err != nil {
-			logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Warn("Could not get current SSID")
+			logger.WithFields(logrus.Fields{"interface": ifaceName, "error": err}).Warn("Could not get current SSID")
 			continue
 		}
 		currentSSID = strings.TrimSpace(currentSSID)
@@ -310,11 +320,11 @@ func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 		}
 
 		if currentSSID != newSSID {
-			if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
-				logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Error("Failed to set new SSID")
+			if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".ssid="+newSSID); err != nil {
+				logger.WithFields(logrus.Fields{"interface": ifaceName, "error": err}).Error("Failed to set new SSID")
 				continue
 			}
-			logger.WithFields(logrus.Fields{"radio": radio, "new_ssid": newSSID}).Info("Updated AP SSID")
+			logger.WithFields(logrus.Fields{"interface": ifaceName, "new_ssid": newSSID}).Info("Updated AP SSID")
 			commitNeeded = true
 		}
 	}
@@ -338,22 +348,25 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 		return err // This is a significant issue, so we return the error.
 	}
 
-	// Now that we've ensured the interfaces exist, we can proceed.
-	// We update both 2.4GHz and 5GHz APs if they exist.
-	radios := []string{"default_radio0", "default_radio1"}
+	radioNames, err := c.GetRadioDeviceNames()
+	if err != nil {
+		logger.WithError(err).Error("Failed to get radio device names for AP SSID update")
+		return err // Return the error to the caller
+	}
 	var commitNeeded bool
-	for _, radio := range radios {
+	for _, radioName := range radioNames {
+		ifaceName := getDefaultInterfaceName(radioName)
 		// Check if the interface section exists before trying to update it.
-		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
-			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
+		if _, err := c.ExecuteUCI("get", "wireless."+ifaceName); err != nil {
+			logger.WithField("interface", ifaceName).Info("AP interface not found, skipping SSID update")
 			continue
 		}
 
-		baseSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+		baseSSID, err := c.ExecuteUCI("get", "wireless."+ifaceName+".ssid")
 		if err != nil {
 			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"error": err,
+				"interface": ifaceName,
+				"error":     err,
 			}).Warn("Could not get current SSID")
 			continue // Try the next radio
 		}
@@ -373,21 +386,21 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 		if hopCount == math.MaxInt32 {
 			newSSID = baseSSID
 			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
+				"interface": ifaceName,
+				"ssid":      newSSID,
 			}).Info("Disconnected, setting AP SSID to base")
 		} else {
 			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
 			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
+				"interface": ifaceName,
+				"ssid":      newSSID,
 			}).Info("Updating local AP SSID")
 		}
 
-		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".ssid="+newSSID); err != nil {
 			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"error": err,
+				"interface": ifaceName,
+				"error":     err,
 			}).Error("Failed to set new SSID")
 			continue
 		}
@@ -411,9 +424,15 @@ func (c *Connector) ensureAPInterfacesExist() error {
 	var created bool
 	var baseSSIDName string
 
+	radioNames, err := c.GetRadioDeviceNames()
+	if err != nil {
+		return fmt.Errorf("failed to get radio names for ensuring AP interfaces: %w", err)
+	}
+
 	// First, try to find an existing AP to get the base SSID name
-	for _, radio := range []string{"default_radio0", "default_radio1"} {
-		ssid, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+	for _, radioName := range radioNames {
+		ifaceName := getDefaultInterfaceName(radioName)
+		ssid, err := c.ExecuteUCI("get", "wireless."+ifaceName+".ssid")
 		if err == nil {
 			ssid = strings.TrimSpace(ssid)
 			if strings.HasPrefix(ssid, "TollGate-") {
@@ -438,54 +457,43 @@ func (c *Connector) ensureAPInterfacesExist() error {
 		logger.WithField("base_name", baseSSIDName).Info("No existing AP found, generated new base name")
 	}
 
-	radios := map[string]string{
-		"default_radio0": "radio0", // 2.4GHz AP iface
-		"default_radio1": "radio1", // 5GHz AP iface
-	}
-
-	for ifaceSection, device := range radios {
-		// Check if the physical radio device exists
-		if _, err := c.ExecuteUCI("get", "wireless."+device); err != nil {
-			logger.WithFields(logrus.Fields{
-				"device":            device,
-				"interface_section": ifaceSection,
-			}).Info("Physical radio device not found, cannot create AP interface")
-			continue
-		}
+	for i, radioName := range radioNames {
+		ifaceName := getDefaultInterfaceName(radioName)
 
 		// Check if the AP interface section already exists
-		if _, err := c.ExecuteUCI("get", "wireless."+ifaceSection); err == nil {
-			logger.WithField("interface_section", ifaceSection).Info("AP interface already exists")
+		if _, err := c.ExecuteUCI("get", "wireless."+ifaceName); err == nil {
+			logger.WithField("interface", ifaceName).Info("AP interface already exists")
 			continue
 		}
 
 		// Interface doesn't exist, so create it based on defaults.
-		logger.WithField("interface_section", ifaceSection).Info("AP interface not found, creating with consistent naming")
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+"=wifi-iface"); err != nil {
-			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceSection, err)
+		logger.WithField("interface", ifaceName).Info("AP interface not found, creating with consistent naming")
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+"=wifi-iface"); err != nil {
+			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceName, err)
 		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".device="+device); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".device="+radioName); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".network=lan"); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".network=lan"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".mode=ap"); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".mode=ap"); err != nil {
 			return err
 		}
 
+		// Basic band detection based on radio index
 		band := "2.4GHz"
-		if device == "radio1" {
+		if i > 0 { // Assume subsequent radios are 5GHz, a common convention
 			band = "5GHz"
 		}
 		defaultSSID := fmt.Sprintf("%s-%s", baseSSIDName, band)
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+defaultSSID); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".ssid="+defaultSSID); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".encryption=none"); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".encryption=none"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".disabled=0"); err != nil {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".disabled=0"); err != nil {
 			return err
 		}
 		created = true
@@ -500,29 +508,45 @@ func (c *Connector) ensureAPInterfacesExist() error {
 	return nil
 }
 
+// GetRadioDeviceNames dynamically discovers the names of the radio devices from the UCI configuration.
+func (c *Connector) GetRadioDeviceNames() ([]string, error) {
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wireless config: %w", err)
+	}
+
+	var radioNames []string
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, "='wifi-device'") {
+			section := strings.TrimSuffix(line, "='wifi-device'")
+			parts := strings.Split(section, ".")
+			if len(parts) > 0 {
+				radioNames = append(radioNames, parts[len(parts)-1])
+			}
+		}
+	}
+
+	if len(radioNames) == 0 {
+		return nil, errors.New("no wifi-device sections found in wireless config")
+	}
+
+	logger.WithField("radios", radioNames).Info("Discovered radio devices")
+	return radioNames, nil
+}
+
 func (c *Connector) generateRandomSuffix(length int) (string, error) {
-	cmd := exec.Command("head", "/dev/urandom")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return "", err
+	// This implementation is not cryptographically secure, but is sufficient for this purpose.
+	// A more robust implementation would use crypto/rand.
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
 	}
+	return string(b), nil
+}
 
-	cmd = exec.Command("tr", "-dc", "A-Z0-9")
-	cmd.Stdin = &stdout
-	var stdout2 bytes.Buffer
-	cmd.Stdout = &stdout2
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	cmd = exec.Command("head", "-c", strconv.Itoa(length))
-	cmd.Stdin = &stdout2
-	var finalStdout bytes.Buffer
-	cmd.Stdout = &finalStdout
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(finalStdout.String()), nil
+func getDefaultInterfaceName(radioName string) string {
+	return "tollgate_" + radioName
 }
