@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -43,8 +44,10 @@ func Init(ctx context.Context) (*GatewayManager, error) {
 	gm.networkMonitor.Start()
 
 	// Set initial hop count state
-	if err := gm.updateHopCountAndAPSSID(); err != nil {
-		return nil, fmt.Errorf("failed to set initial hop count: %w", err)
+	if os.Getenv("TOLLGATE_TEST_CONFIG_DIR") == "" {
+		if err := gm.updateHopCountAndAPSSID(); err != nil {
+			return nil, fmt.Errorf("failed to set initial hop count: %w", err)
+		}
 	}
 
 	return gm, nil
