@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -111,8 +110,6 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 				if ssid != "" {
 					currentNetwork.SSID = ssid
-					// Parse hop count from SSID
-					currentNetwork.HopCount = parseHopCountFromSSID(ssid)
 				}
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
@@ -141,21 +138,3 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 	return networks, scanner.Err()
 }
 
-func parseHopCountFromSSID(ssid string) int {
-	if !strings.HasPrefix(ssid, "TollGate-") {
-		return 0 // Not a TollGate network, hop count is 0
-	}
-
-	parts := strings.Split(ssid, "-")
-	if len(parts) < 4 {
-		return math.MaxInt32 // Invalid format, cannot determine hop count
-	}
-
-	hopCountStr := parts[len(parts)-1]
-	hopCount, err := strconv.Atoi(hopCountStr)
-	if err != nil {
-		return math.MaxInt32 // Could not parse hop count
-	}
-
-	return hopCount
-}

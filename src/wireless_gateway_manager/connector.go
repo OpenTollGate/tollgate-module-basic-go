@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"math"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -331,19 +330,16 @@ func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 }
 
 
-// UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
-func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
+// UpdateLocalAPSSID updates the local AP's SSID to advertise the pricing information.
+func (c *Connector) UpdateLocalAPSSID(pricePerStep int, stepSize int) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
 		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
-		return err // This is a significant issue, so we return the error.
+		return err
 	}
 
-	// Now that we've ensured the interfaces exist, we can proceed.
-	// We update both 2.4GHz and 5GHz APs if they exist.
 	radios := []string{"default_radio0", "default_radio1"}
 	var commitNeeded bool
 	for _, radio := range radios {
-		// Check if the interface section exists before trying to update it.
 		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
 			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
 			continue
@@ -355,34 +351,26 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 				"radio": radio,
 				"error": err,
 			}).Warn("Could not get current SSID")
-			continue // Try the next radio
+			continue
 		}
 		baseSSID = strings.TrimSpace(baseSSID)
 
-		// Strip any existing hop count from the base SSID
+		// Strip any existing pricing from the base SSID
 		parts := strings.Split(baseSSID, "-")
-		if len(parts) > 1 {
-			lastPart := parts[len(parts)-1]
-			if _, err := strconv.Atoi(lastPart); err == nil {
-				// It ends with a number, so it's a hop count. Strip it.
-				baseSSID = strings.Join(parts[:len(parts)-1], "-")
+		if len(parts) > 2 {
+			// Check if the last two parts are numbers
+			if _, err1 := strconv.Atoi(parts[len(parts)-2]); err1 == nil {
+				if _, err2 := strconv.Atoi(parts[len(parts)-1]); err2 == nil {
+					baseSSID = strings.Join(parts[:len(parts)-2], "-")
+				}
 			}
 		}
 
-		var newSSID string
-		if hopCount == math.MaxInt32 {
-			newSSID = baseSSID
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Disconnected, setting AP SSID to base")
-		} else {
-			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Updating local AP SSID")
-		}
+		newSSID := fmt.Sprintf("%s-%d-%d", baseSSID, pricePerStep, stepSize)
+		logger.WithFields(logrus.Fields{
+			"radio":    radio,
+			"new_ssid": newSSID,
+		}).Info("Updating local AP SSID with pricing information")
 
 		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
 			logger.WithFields(logrus.Fields{

@@ -38,7 +38,6 @@ type NetworkInfo struct {
 	SSID       string
 	Signal     int
 	Encryption string
-	HopCount   int
 	RawIEs     []byte
 }
 
@@ -65,7 +64,6 @@ type Gateway struct {
 	SSID           string            `json:"ssid"`
 	Signal         int               `json:"signal"`
 	Encryption     string            `json:"encryption"`
-	HopCount       int               `json:"hop_count"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
 }
@@ -79,7 +77,6 @@ type GatewayManager struct {
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
 	knownNetworks     map[string]KnownNetwork // Key: SSID
-	currentHopCount   int
 	scanInterval      time.Duration
 	stopChan          chan struct{}
 }

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math"
+	"strconv"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +29,6 @@ func Init(ctx context.Context) (*GatewayManager, error) {
 		networkMonitor:    networkMonitor,
 		availableGateways: make(map[string]Gateway),
 		knownNetworks:     make(map[string]KnownNetwork),
-		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
 	}
@@ -42,8 +41,8 @@ func Init(ctx context.Context) (*GatewayManager, error) {
 	go gm.RunPeriodicScan(ctx)
 	gm.networkMonitor.Start()
 
-	// Set initial hop count state
-	gm.updateHopCountAndAPSSID()
+	// Set initial AP SSID state
+	gm.updateAPSSID()
 
 	return gm, nil
 }
@@ -67,8 +66,8 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	logger.Info("Starting network scan for gateway selection")
 
-	// Update current hop count based on current connection status before scanning
-	gm.updateHopCountAndAPSSID()
+	// Update current AP SSID based on current connection status before scanning
+	gm.updateAPSSID()
 
 	networks, err := gm.scanner.ScanWirelessNetworks()
 	if err != nil {
@@ -91,15 +90,11 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			continue
 		}
 
-		// Penalize the score by 20 dB for each hop count
-		score -= network.HopCount * 20
-
 		gateway := Gateway{
 			BSSID:          network.BSSID,
 			SSID:           network.SSID,
 			Signal:         network.Signal,
 			Encryption:     network.Encryption,
-			HopCount:       network.HopCount,
 			Score:          score,
 			VendorElements: convertToStringMap(vendorElements),
 		}
@@ -129,7 +124,6 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"ssid":            gateway.SSID,
 			"signal":          gateway.Signal,
 			"encryption":      gateway.Encryption,
-			"hop_count":       gateway.HopCount,
 			"score":           gateway.Score,
 			"vendor_elements": gateway.VendorElements,
 		}).Info("Top gateway candidate")
@@ -176,8 +170,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 						"error": err,
 					}).Error("Failed to connect to gateway")
 				} else {
-					// Update hop count and SSID after successful connection
-					gm.updateHopCountAndAPSSID()
+					// Update SSID after successful connection
+					gm.updateAPSSID()
 				}
 			} else {
 				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Not connected to top-3 gateway. Highest priority gateway is encrypted and not in known networks. Manual connection required")
@@ -225,7 +219,7 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error 
 	if err == nil {
 		gm.mu.Lock()
 		defer gm.mu.Unlock()
-		gm.updateHopCountAndAPSSID()
+		gm.updateAPSSID()
 	}
 	return err
 }
@@ -262,45 +256,48 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 	return nil
 }
 
-func (gm *GatewayManager) updateHopCountAndAPSSID() {
-	connectedSSID, err := gm.connector.GetConnectedSSID()
+func (gm *GatewayManager) updateAPSSID() {
+	// First, get the pricing information from the vendor elements
+	elements, err := gm.vendorProcessor.GetLocalAPVendorElements()
 	if err != nil {
-		logger.WithError(err).Warn("Could not get connected SSID to update hop count")
-		gm.currentHopCount = math.MaxInt32
+		logger.WithError(err).Error("Failed to get local AP vendor elements")
+		// Handle error appropriately, maybe set default pricing
 		return
 	}
 
-	if connectedSSID == "" {
-		logger.Info("Not connected to any network, setting hop count to max")
-		gm.currentHopCount = math.MaxInt32
+	pricePerStep, err := strconv.Atoi(elements["price_per_step"])
+	if err != nil {
+		logger.WithError(err).Error("Failed to parse price_per_step from vendor elements")
+		// Handle error
 		return
 	}
 
-	// Check if it's a known, non-TollGate network (which are our root connections)
-	if _, isKnown := gm.knownNetworks[connectedSSID]; isKnown && !strings.HasPrefix(connectedSSID, "TollGate-") {
-		logger.WithField("ssid", connectedSSID).Info("Connected to root network, setting hop count to 0")
-		gm.currentHopCount = 0
-	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
-		// It's a TollGate network, parse the hop count from its SSID
-		hopCount := parseHopCountFromSSID(connectedSSID)
-		if hopCount == math.MaxInt32 {
-			logger.WithField("ssid", connectedSSID).Warn("Connected to TollGate network with invalid hop count, assuming max hop count")
-			gm.currentHopCount = math.MaxInt32
-		} else {
-			gm.currentHopCount = hopCount + 1
-			logger.WithFields(logrus.Fields{
-				"ssid":         connectedSSID,
-				"gateway_hops": hopCount,
-				"our_hops":     gm.currentHopCount,
-			}).Info("Connected to TollGate network, updated hop count")
-		}
-	} else {
-		logger.WithField("ssid", connectedSSID).Warn("Connected to unknown network, assuming max hop count")
-		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
+	stepSize, err := strconv.Atoi(elements["step_size"])
+	if err != nil {
+		logger.WithError(err).Error("Failed to parse step_size from vendor elements")
+		// Handle error
+		return
 	}
 
-	// Update the local AP's SSID to advertise the new hop count
-	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
-		logger.WithError(err).Error("Failed to update local AP SSID with new hop count")
+	// Update the local AP's SSID to advertise the new pricing
+	if err := gm.connector.UpdateLocalAPSSID(pricePerStep, stepSize); err != nil {
+		logger.WithError(err).Error("Failed to update local AP SSID with new pricing")
 	}
+}
+
+func parsePricingFromSSID(ssid string) (int, int) {
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 3 {
+		return 0, 0
+	}
+
+	// SSID format is expected to be TollGate-XXXX-price-step
+	price, errPrice := strconv.Atoi(parts[len(parts)-2])
+	step, errStep := strconv.Atoi(parts[len(parts)-1])
+
+	if errPrice != nil || errStep != nil {
+		return 0, 0
+	}
+
+	return price, step
 }
