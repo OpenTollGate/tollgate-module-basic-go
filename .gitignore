@@ -6,6 +6,7 @@ bin/
 tollgate
 tollgate-basic
 tollgate-module-basic-go
+tollgate-wrt
 *.orig
 build_deleteme.yml.orig
 squash_tool.sh
