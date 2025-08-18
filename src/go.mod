@@ -4,11 +4,14 @@ go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/relay v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0-00010101000000-000000000000
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/sirupsen/logrus v1.9.3
@@ -16,6 +19,7 @@ require (
 
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler => ./chandler
+	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest => ./crowsnest
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager => ./wireless_gateway_manager
@@ -27,6 +31,7 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
+	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager => ./wireless_gateway_manager
 )
 
 require (
@@ -34,7 +39,6 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0 // indirect
-	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0 // indirect
 	github.com/Origami74/gonuts-tollgate v0.6.1 // indirect
