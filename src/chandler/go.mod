@@ -1,8 +1,23 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/chandler
 
-go 1.24.1
+go 1.24.2
 
-require github.com/nbd-wtf/go-nostr v0.51.10
+toolchain go1.24.5
+
+require (
+	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0
+	github.com/nbd-wtf/go-nostr v0.51.10
+	github.com/sirupsen/logrus v1.9.3
+)
+
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol => ../tollgate_protocol
+
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
+
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ../merchant
+
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
@@ -14,6 +29,7 @@ require (
 	github.com/coder/websocket v1.8.13 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
@@ -21,7 +37,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

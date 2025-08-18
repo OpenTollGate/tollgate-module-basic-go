@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/nbd-wtf/go-nostr v0.51.11
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
