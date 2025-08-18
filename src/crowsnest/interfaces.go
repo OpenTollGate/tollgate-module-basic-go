@@ -11,7 +11,6 @@ type Crowsnest interface {
 	Start() error
 	Stop() error
 	SetChandler(chandler chandler.ChandlerInterface)
-	GetProber() TollGateProber
 }
 
 // NetworkMonitor defines the interface for network monitoring

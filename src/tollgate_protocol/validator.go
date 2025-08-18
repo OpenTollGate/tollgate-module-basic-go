@@ -77,7 +77,6 @@ func ValidateAdvertisementFromBytes(data []byte) (*nostr.Event, error) {
 	return event, nil
 }
 
-
 // ExtractAdvertisementInfo extracts pricing and configuration information from a TollGate advertisement
 func ExtractAdvertisementInfo(event *nostr.Event) (*AdvertisementInfo, error) {
 	if event == nil {

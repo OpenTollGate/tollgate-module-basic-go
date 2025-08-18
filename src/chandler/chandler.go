@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -82,13 +81,198 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		return err
 	}
 
-	// Use the new retry-enabled connection establishment
-	session, err := c.establishConnectionWithRetry(upstream, adInfo)
+	// Find overlapping mint options and select the best one
+	selectedPricing, err := c.selectCompatiblePricingOption(adInfo.PricingOptions)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"upstream_pubkey": upstream.Advertisement.PubKey,
 			"error":           err,
-		}).Error("Failed to establish connection after retries")
+		}).Error("No compatible pricing options found")
+		return err
+	}
+
+	// Check if we have sufficient funds for minimum purchase
+	minPaymentAmount := selectedPricing.MinSteps * selectedPricing.PricePerStep
+	availableBalance := c.merchant.GetBalanceByMint(selectedPricing.MintURL)
+
+	if availableBalance < minPaymentAmount {
+		err := fmt.Errorf("insufficient funds: need %d sats, have %d sats", minPaymentAmount, availableBalance)
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey":   upstream.Advertisement.PubKey,
+			"required_amount":   minPaymentAmount,
+			"available_balance": availableBalance,
+			"mint_url":          selectedPricing.MintURL,
+		}).Error("Insufficient funds for minimum purchase")
+		return err
+	}
+
+	// Calculate steps based on preferred session increments for granular payments
+	var preferredAllotment uint64
+	switch adInfo.Metric {
+	case "milliseconds":
+		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds
+	case "bytes":
+		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
+	default:
+		return fmt.Errorf("unsupported metric: %s", adInfo.Metric)
+	}
+
+	// Convert preferred allotment to steps
+	preferredSteps := preferredAllotment / adInfo.StepSize
+	if preferredSteps == 0 {
+		preferredSteps = 1 // Minimum 1 step
+	}
+
+	// Calculate affordability constraints
+	maxAffordableSteps := availableBalance / selectedPricing.PricePerStep
+
+	// Choose the smallest of: preferred, affordable, or minimum required
+	desiredSteps := preferredSteps
+
+	logger.WithFields(logrus.Fields{
+		"preferred_allotment":  preferredAllotment,
+		"step_size":            adInfo.StepSize,
+		"preferred_steps":      preferredSteps,
+		"available_balance":    availableBalance,
+		"price_per_step":       selectedPricing.PricePerStep,
+		"max_affordable_steps": maxAffordableSteps,
+		"min_steps":            selectedPricing.MinSteps,
+		"desired_steps_before": desiredSteps,
+	}).Info("🔍 Step calculation details")
+
+	if desiredSteps < selectedPricing.MinSteps {
+		desiredSteps = selectedPricing.MinSteps
+		logger.WithFields(logrus.Fields{
+			"adjusted_to_min": desiredSteps,
+		}).Info("🔍 Adjusted to minimum steps")
+	}
+	if desiredSteps > maxAffordableSteps {
+		desiredSteps = maxAffordableSteps
+		logger.WithFields(logrus.Fields{
+			"adjusted_to_affordable": desiredSteps,
+		}).Info("🔍 Adjusted to affordable steps")
+	}
+
+	steps := desiredSteps
+
+	logger.WithFields(logrus.Fields{
+		"metric":               adInfo.Metric,
+		"preferred_allotment":  preferredAllotment,
+		"preferred_steps":      preferredSteps,
+		"min_required_steps":   selectedPricing.MinSteps,
+		"max_affordable_steps": maxAffordableSteps,
+		"final_steps":          steps,
+		"step_size":            adInfo.StepSize,
+	}).Info("💳 Calculated payment steps for granular session")
+
+	// Final check: ensure we don't send a payment with 0 steps
+	if steps == 0 {
+		err := fmt.Errorf("cannot make payment with 0 steps: insufficient funds or invalid pricing")
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey":      upstream.Advertisement.PubKey,
+			"available_balance":    availableBalance,
+			"price_per_step":       selectedPricing.PricePerStep,
+			"max_affordable_steps": maxAffordableSteps,
+			"min_steps":            selectedPricing.MinSteps,
+		}).Error("Payment rejected: 0 steps calculated")
+		return err
+	}
+
+	// Create payment proposal
+	proposal := &PaymentProposal{
+		UpstreamPubkey:     upstream.Advertisement.PubKey,
+		Steps:              steps,
+		PricingOption:      selectedPricing,
+		Reason:             "initial",
+		EstimatedAllotment: CalculateAllotment(steps, adInfo.StepSize),
+	}
+
+	// Validate budget constraints
+	err = ValidateBudgetConstraints(
+		proposal,
+		config.Chandler.MaxPricePerMillisecond,
+		config.Chandler.MaxPricePerByte,
+		adInfo.Metric,
+		adInfo.StepSize,
+	)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstream.Advertisement.PubKey,
+			"error":           err,
+		}).Warn("Budget constraints not met")
+		return err
+	}
+
+	// Generate unique customer private key for this session
+	customerPrivateKey := nostr.GeneratePrivateKey()
+	customerPublicKey, err := nostr.GetPublicKey(customerPrivateKey)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstream.Advertisement.PubKey,
+			"error":           err,
+		}).Error("Failed to derive customer public key")
+		return err
+	}
+
+	// Create session first
+	session := &ChandlerSession{
+		UpstreamTollgate:   upstream,
+		CustomerPrivateKey: customerPrivateKey,
+		Advertisement:      upstream.Advertisement,
+		AdvertisementInfo:  adInfo,
+		SelectedPricing:    selectedPricing,
+		TotalAllotment:     proposal.EstimatedAllotment,
+		RenewalThresholds:  config.Chandler.Sessions.DefaultRenewalThresholds,
+		CreatedAt:          time.Now(),
+		LastPaymentAt:      time.Now(),
+		TotalSpent:         proposal.Steps * selectedPricing.PricePerStep,
+		PaymentCount:       1,
+		Status:             SessionActive,
+	}
+
+	// Create and send payment
+	// Log payment proposal details for debugging
+	logger.WithFields(logrus.Fields{
+		"upstream_pubkey":     proposal.UpstreamPubkey,
+		"steps":               proposal.Steps,
+		"price_per_step":      proposal.PricingOption.PricePerStep,
+		"mint_url":            proposal.PricingOption.MintURL,
+		"min_steps":           proposal.PricingOption.MinSteps,
+		"reason":              proposal.Reason,
+		"estimated_allotment": proposal.EstimatedAllotment,
+		"total_amount":        proposal.Steps * proposal.PricingOption.PricePerStep,
+	}).Info("💰 Creating payment proposal for upstream TollGate")
+
+	sessionEvent, err := c.createAndSendPayment(session, proposal)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstream.Advertisement.PubKey,
+			"error":           err,
+		}).Error("Failed to create and send payment")
+		return err
+	}
+
+	// Extract actual allotment from session event response
+	actualAllotment, err := c.extractAllotment(sessionEvent)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstream.Advertisement.PubKey,
+			"error":           err,
+		}).Error("Failed to extract allotment from session event")
+		return err
+	}
+
+	// Update session with the received session event and actual allotment
+	session.SessionEvent = sessionEvent
+	session.TotalAllotment = actualAllotment
+
+	// Create and start usage tracker
+	err = c.createUsageTracker(session)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"upstream_pubkey": upstream.Advertisement.PubKey,
+			"error":           err,
+		}).Error("Failed to create usage tracker")
 		return err
 	}
 
@@ -96,9 +280,6 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 	c.mu.Lock()
 	c.sessions[upstream.Advertisement.PubKey] = session
 	c.mu.Unlock()
-
-	// Get customer public key for logging
-	customerPublicKey, _ := nostr.GetPublicKey(session.CustomerPrivateKey)
 
 	logger.WithFields(logrus.Fields{
 		"upstream_pubkey": upstream.Advertisement.PubKey,
@@ -285,7 +466,6 @@ func (c *Chandler) GetActiveSessions() map[string]*ChandlerSession {
 	return result
 }
 
-
 // GetSessionByPubkey returns a session by upstream pubkey
 func (c *Chandler) GetSessionByPubkey(pubkey string) (*ChandlerSession, error) {
 	c.mu.RLock()
@@ -364,24 +544,53 @@ func (c *Chandler) TerminateSession(pubkey string) error {
 	return nil
 }
 
-// createAndSendPayment creates a payment event and sends it to the upstream TollGate with retry logic
+// createAndSendPayment creates a payment event and sends it to the upstream TollGate
 func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *PaymentProposal) (*nostr.Event, error) {
-	// Use the retry mechanism for payment handling
-	sessionEvent, err := c.retryPaymentWithBackoff(session, proposal)
+	// Create payment token through merchant
+	paymentAmount := proposal.Steps * proposal.PricingOption.PricePerStep
+	paymentToken, err := c.merchant.CreatePaymentTokenWithOverpayment(proposal.PricingOption.MintURL, paymentAmount, 10000, 100)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create payment token: %w", err)
 	}
 
-	// Log successful payment
-	paymentAmount := proposal.Steps * proposal.PricingOption.PricePerStep
+	// Get customer private key from session
+	customerPrivateKey := session.CustomerPrivateKey
+	customerPublicKey, _ := nostr.GetPublicKey(customerPrivateKey)
+
+	// Get MAC address from session's upstream tollgate object
+	macAddress := session.UpstreamTollgate.MacAddress
+
+	// Create payment event
+	paymentEvent := nostr.Event{
+		Kind:      21000,
+		PubKey:    customerPublicKey,
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			{"p", proposal.UpstreamPubkey},
+			{"device-identifier", "mac", macAddress},
+			{"payment", paymentToken},
+		},
+		Content: "",
+	}
+
+	// Sign with customer identity
+	err = paymentEvent.Sign(customerPrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign payment event: %w", err)
+	}
+
+	// Send payment to upstream TollGate
+	sessionEvent, err := c.sendPaymentToUpstream(&paymentEvent, session.UpstreamTollgate.GatewayIP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send payment to upstream: %w", err)
+	}
+
 	logger.WithFields(logrus.Fields{
 		"upstream_pubkey": proposal.UpstreamPubkey,
 		"amount":          paymentAmount,
 		"steps":           proposal.Steps,
 		"reason":          proposal.Reason,
-		"total_attempts":  session.RetryCount,
-		"tokens_used":     session.TokenRetryCount + 1,
-	}).Info("✅ Payment sent successfully to upstream TollGate after retry logic")
+	}).Info("Payment sent successfully to upstream TollGate")
 
 	return sessionEvent, nil
 }
@@ -524,68 +733,6 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 	return nil
 }
 
-// TODO: This should be combined with the captive-portal prober, put it here now because of circular reference issues.
-// This issue should be resolved by removing the need to probe it at all.
-// triggerCaptivePortalSession makes an HTTP GET request to port 80 to trigger ndsctl session creation
-func (c *Chandler) triggerCaptivePortalSession(gatewayIP string) error {
-	if gatewayIP == "" {
-		return fmt.Errorf("gateway IP is empty")
-	}
-
-	// Make HTTP GET request to port 80 (standard captive portal)
-	url := fmt.Sprintf("http://%s:80/", gatewayIP)
-
-	logger.WithFields(logrus.Fields{
-		"gateway_ip":    gatewayIP,
-		"url":           url,
-		"purpose":       "trigger_ndsctl_session",
-		"protocol_note": "TEMPORARY WORKAROUND - not part of TollGate protocol",
-	}).Info("🚨 TEMPORARY: Triggering captive portal session for ndsctl")
-
-	// Create request with short timeout
-	client := &http.Client{
-		Timeout: 1 * time.Second, // Very short timeout for captive portal
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow redirects for captive portal (common behavior)
-			return nil
-		},
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create captive portal request: %w", err)
-	}
-
-	// Set headers that mimic a typical browser request
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; TollGate-Client/1.0)")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	req.Header.Set("Connection", "close")
-
-	// Perform the request
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"gateway_ip": gatewayIP,
-			"error":      err,
-		}).Warn("Captive portal request failed (this is expected and non-critical)")
-		// Don't return error - this is a best-effort attempt
-		return nil
-	}
-	defer resp.Body.Close()
-
-	// Read and discard response body (we don't need the content)
-	_, _ = io.ReadAll(resp.Body)
-
-	logger.WithFields(logrus.Fields{
-		"gateway_ip":   gatewayIP,
-		"status_code":  resp.StatusCode,
-		"content_type": resp.Header.Get("Content-Type"),
-	}).Info("✅ Captive portal request completed - ndsctl session should be triggered")
-
-	return nil
-}
-
 // extractAllotment extracts the allotment value from a session event
 func (c *Chandler) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 	for _, tag := range sessionEvent.Tags {
@@ -650,405 +797,4 @@ func (c *Chandler) selectCompatiblePricingOption(upstreamOptions []tollgate_prot
 	}).Debug("Selected compatible pricing option")
 
 	return best, nil
-}
-
-// PaymentRetryResult represents the result of a payment retry attempt
-type PaymentRetryResult struct {
-	Success      bool
-	SessionEvent *nostr.Event
-	IsTokenSpent bool
-	Error        error
-}
-
-// establishConnectionWithRetry handles the entire connection establishment process with retry logic
-func (c *Chandler) establishConnectionWithRetry(upstream *UpstreamTollgate, adInfo *tollgate_protocol.AdvertisementInfo) (*ChandlerSession, error) {
-	config := c.configManager.GetConfig()
-	retryCount := 0
-	backoffFactor := 2 * time.Second
-
-	for {
-		retryCount++
-
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": upstream.Advertisement.PubKey,
-			"attempt":         retryCount,
-		}).Info("🔄 CONNECTION ATTEMPT: Establishing connection with upstream TollGate")
-
-		// Find overlapping mint options and select the best one
-		selectedPricing, err := c.selectCompatiblePricingOption(adInfo.PricingOptions)
-		if err != nil {
-			// Non-retryable error - no compatible pricing options
-			return nil, fmt.Errorf("no compatible pricing options found: %w", err)
-		}
-
-		// Check if we have sufficient funds for minimum purchase
-		minPaymentAmount := selectedPricing.MinSteps * selectedPricing.PricePerStep
-		availableBalance := c.merchant.GetBalanceByMint(selectedPricing.MintURL)
-
-		if availableBalance < minPaymentAmount {
-			// Balance insufficient - this should be retried as balance might change
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey":   upstream.Advertisement.PubKey,
-				"required_amount":   minPaymentAmount,
-				"available_balance": availableBalance,
-				"mint_url":          selectedPricing.MintURL,
-				"attempt":           retryCount,
-			}).Warn("🔄 INSUFFICIENT FUNDS: Balance too low, retrying in case balance changes")
-
-			// Wait with backoff and retry
-			backoffDelay := time.Duration(retryCount) * backoffFactor
-			time.Sleep(backoffDelay)
-			continue
-		}
-
-		// Calculate steps based on preferred session increments for granular payments
-		var preferredAllotment uint64
-		switch adInfo.Metric {
-		case "milliseconds":
-			preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds
-		case "bytes":
-			preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
-		default:
-			return nil, fmt.Errorf("unsupported metric: %s", adInfo.Metric)
-		}
-
-		// Convert preferred allotment to steps
-		preferredSteps := preferredAllotment / adInfo.StepSize
-		if preferredSteps == 0 {
-			preferredSteps = 1 // Minimum 1 step
-		}
-
-		// Calculate affordability constraints
-		maxAffordableSteps := availableBalance / selectedPricing.PricePerStep
-
-		// Choose the smallest of: preferred, affordable, or minimum required
-		desiredSteps := preferredSteps
-
-		logger.WithFields(logrus.Fields{
-			"preferred_allotment":  preferredAllotment,
-			"step_size":            adInfo.StepSize,
-			"preferred_steps":      preferredSteps,
-			"available_balance":    availableBalance,
-			"price_per_step":       selectedPricing.PricePerStep,
-			"max_affordable_steps": maxAffordableSteps,
-			"min_steps":            selectedPricing.MinSteps,
-			"desired_steps_before": desiredSteps,
-			"attempt":              retryCount,
-		}).Info("🔍 Step calculation details")
-
-		if desiredSteps < selectedPricing.MinSteps {
-			desiredSteps = selectedPricing.MinSteps
-		}
-		if desiredSteps > maxAffordableSteps {
-			desiredSteps = maxAffordableSteps
-		}
-
-		steps := desiredSteps
-
-		// Final check: ensure we don't send a payment with 0 steps - RETRY THIS ERROR
-		if steps == 0 {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey":      upstream.Advertisement.PubKey,
-				"available_balance":    availableBalance,
-				"price_per_step":       selectedPricing.PricePerStep,
-				"max_affordable_steps": maxAffordableSteps,
-				"min_steps":            selectedPricing.MinSteps,
-				"attempt":              retryCount,
-			}).Warn("🔄 ZERO STEPS: Payment calculation resulted in 0 steps, retrying as conditions may change")
-
-			// Wait with backoff and retry
-			backoffDelay := time.Duration(retryCount) * backoffFactor
-			time.Sleep(backoffDelay)
-			continue
-		}
-
-		// Create payment proposal
-		proposal := &PaymentProposal{
-			UpstreamPubkey:     upstream.Advertisement.PubKey,
-			Steps:              steps,
-			PricingOption:      selectedPricing,
-			Reason:             "initial",
-			EstimatedAllotment: CalculateAllotment(steps, adInfo.StepSize),
-		}
-
-		// Validate budget constraints
-		err = ValidateBudgetConstraints(
-			proposal,
-			config.Chandler.MaxPricePerMillisecond,
-			config.Chandler.MaxPricePerByte,
-			adInfo.Metric,
-			adInfo.StepSize,
-		)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": upstream.Advertisement.PubKey,
-				"error":           err,
-				"attempt":         retryCount,
-			}).Warn("🔄 BUDGET CONSTRAINTS: Budget constraints not met, retrying as prices may change")
-
-			// Wait with backoff and retry (budget constraints could change)
-			backoffDelay := time.Duration(retryCount) * backoffFactor
-			time.Sleep(backoffDelay)
-			continue
-		}
-
-		// Generate unique customer private key for this session
-		customerPrivateKey := nostr.GeneratePrivateKey()
-		customerPublicKey, err := nostr.GetPublicKey(customerPrivateKey)
-		if err != nil {
-			// Non-retryable error
-			return nil, fmt.Errorf("failed to derive customer public key: %w", err)
-		}
-
-		// Create session first
-		session := &ChandlerSession{
-			UpstreamTollgate:   upstream,
-			CustomerPrivateKey: customerPrivateKey,
-			Advertisement:      upstream.Advertisement,
-			AdvertisementInfo:  adInfo,
-			SelectedPricing:    selectedPricing,
-			TotalAllotment:     proposal.EstimatedAllotment,
-			RenewalThresholds:  config.Chandler.Sessions.DefaultRenewalThresholds,
-			CreatedAt:          time.Now(),
-			LastPaymentAt:      time.Now(),
-			TotalSpent:         proposal.Steps * selectedPricing.PricePerStep,
-			PaymentCount:       1,
-			Status:             SessionActive,
-			// Initialize retry parameters
-			RetryCount:         0,
-			TokenRetryCount:    0,
-			MaxTokenRetries:    3,               // Default max token retries
-			RetryBackoffFactor: 2 * time.Second, // Default backoff factor
-		}
-
-		// Log payment proposal details for debugging
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey":     proposal.UpstreamPubkey,
-			"steps":               proposal.Steps,
-			"price_per_step":      proposal.PricingOption.PricePerStep,
-			"mint_url":            proposal.PricingOption.MintURL,
-			"min_steps":           proposal.PricingOption.MinSteps,
-			"reason":              proposal.Reason,
-			"estimated_allotment": proposal.EstimatedAllotment,
-			"total_amount":        proposal.Steps * proposal.PricingOption.PricePerStep,
-			"connection_attempt":  retryCount,
-		}).Info("💰 Creating payment proposal for upstream TollGate")
-
-		// Create and send payment with retry logic
-		sessionEvent, err := c.createAndSendPayment(session, proposal)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": upstream.Advertisement.PubKey,
-				"error":           err,
-				"attempt":         retryCount,
-			}).Warn("🔄 PAYMENT FAILED: Payment creation/sending failed, connection establishment will retry")
-
-			// Payment failures are handled by the payment retry mechanism
-			// If we get here, it means payment retries were exhausted
-			// Wait with backoff and retry the entire connection process
-			backoffDelay := time.Duration(retryCount) * backoffFactor
-			time.Sleep(backoffDelay)
-			continue
-		}
-
-		// Extract actual allotment from session event response
-		actualAllotment, err := c.extractAllotment(sessionEvent)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": upstream.Advertisement.PubKey,
-				"error":           err,
-				"attempt":         retryCount,
-			}).Warn("🔄 ALLOTMENT EXTRACTION FAILED: Failed to extract allotment, retrying connection")
-
-			// Wait with backoff and retry
-			backoffDelay := time.Duration(retryCount) * backoffFactor
-			time.Sleep(backoffDelay)
-			continue
-		}
-
-		// Update session with the received session event and actual allotment
-		session.SessionEvent = sessionEvent
-		session.TotalAllotment = actualAllotment
-
-		// Create and start usage tracker
-		err = c.createUsageTracker(session)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": upstream.Advertisement.PubKey,
-				"error":           err,
-				"attempt":         retryCount,
-			}).Warn("🔄 USAGE TRACKER FAILED: Failed to create usage tracker, retrying connection")
-
-			// Wait with backoff and retry
-			backoffDelay := time.Duration(retryCount) * backoffFactor
-			time.Sleep(backoffDelay)
-			continue
-		}
-
-		// Success! Return the established session
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey":     upstream.Advertisement.PubKey,
-			"customer_pubkey":     customerPublicKey,
-			"allotment":           session.TotalAllotment,
-			"metric":              adInfo.Metric,
-			"amount_spent":        session.TotalSpent,
-			"connection_attempts": retryCount,
-		}).Info("✅ CONNECTION SUCCESS: Session established successfully after retry logic")
-
-		return session, nil
-	}
-}
-
-// retryPaymentWithBackoff handles payment retry logic with proper token and network error handling
-func (c *Chandler) retryPaymentWithBackoff(session *ChandlerSession, proposal *PaymentProposal) (*nostr.Event, error) {
-	// Initialize retry parameters if not set
-	if session.MaxTokenRetries == 0 {
-		session.MaxTokenRetries = 3 // Default max token retries
-	}
-	if session.RetryBackoffFactor == 0 {
-		session.RetryBackoffFactor = 2 * time.Second // Default backoff factor
-	}
-
-	// Reset counters at the start of a new payment attempt
-	session.RetryCount = 0
-	session.TokenRetryCount = 0
-
-	for {
-		session.RetryCount++
-
-		result := c.attemptPayment(session, proposal)
-
-		if result.Success {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": proposal.UpstreamPubkey,
-				"total_attempts":  session.RetryCount,
-				"tokens_used":     session.TokenRetryCount + 1,
-			}).Info("✅ Payment succeeded")
-			return result.SessionEvent, nil
-		}
-
-		// Handle token spent errors - move to new token
-		if result.IsTokenSpent {
-			session.TokenRetryCount++
-
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": proposal.UpstreamPubkey,
-				"token_attempt":   session.TokenRetryCount,
-				"max_tokens":      session.MaxTokenRetries,
-				"total_attempts":  session.RetryCount,
-				"error":           result.Error,
-			}).Warn("💳 TOKEN SPENT: Moving to new token")
-
-			// Check if we've exhausted token retries
-			if session.TokenRetryCount >= session.MaxTokenRetries {
-				logger.WithFields(logrus.Fields{
-					"upstream_pubkey": proposal.UpstreamPubkey,
-					"tokens_tried":    session.TokenRetryCount,
-					"max_tokens":      session.MaxTokenRetries,
-					"total_attempts":  session.RetryCount,
-					"final_error":     result.Error,
-				}).Error("💀 TOKEN LIMIT EXCEEDED: All token retry attempts failed, terminating connection")
-
-				return nil, fmt.Errorf("payment failed after %d token attempts: %w", session.MaxTokenRetries, result.Error)
-			}
-
-			// Continue to next iteration with new token (no backoff for token spent)
-			continue
-		}
-
-		// Handle other errors (network, DNS, etc.) - retry indefinitely with backoff
-		backoffDelay := time.Duration(session.RetryCount) * session.RetryBackoffFactor
-
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": proposal.UpstreamPubkey,
-			"attempt":         session.RetryCount,
-			"tokens_used":     session.TokenRetryCount,
-			"backoff_delay":   backoffDelay,
-			"error":           result.Error,
-		}).Info("🔄 NETWORK RETRY: Payment failed with network error, retrying indefinitely")
-
-		// Wait for backoff period
-		time.Sleep(backoffDelay)
-
-		// Continue retrying indefinitely for non-token errors
-	}
-}
-
-// attemptPayment makes a single payment attempt and analyzes the result
-func (c *Chandler) attemptPayment(session *ChandlerSession, proposal *PaymentProposal) *PaymentRetryResult {
-	// Trigger captive portal session before payment attempt to keep connection alive
-	gatewayIP := session.UpstreamTollgate.GatewayIP
-	if gatewayIP != "" {
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": proposal.UpstreamPubkey,
-			"gateway_ip":      gatewayIP,
-		}).Debug("🔄 Triggering captive portal session before payment attempt")
-
-		err := c.triggerCaptivePortalSession(gatewayIP)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": proposal.UpstreamPubkey,
-				"gateway_ip":      gatewayIP,
-				"error":           err,
-			}).Debug("Captive portal trigger failed (non-critical)")
-		}
-	}
-
-	// Create new payment token for each attempt
-	paymentAmount := proposal.Steps * proposal.PricingOption.PricePerStep
-	paymentToken, err := c.merchant.CreatePaymentTokenWithOverpayment(proposal.PricingOption.MintURL, paymentAmount, 10000, 100)
-	if err != nil {
-		return &PaymentRetryResult{
-			Success: false,
-			Error:   fmt.Errorf("failed to create payment token: %w", err),
-		}
-	}
-
-	// Create payment event
-	customerPrivateKey := session.CustomerPrivateKey
-	customerPublicKey, _ := nostr.GetPublicKey(customerPrivateKey)
-	macAddress := session.UpstreamTollgate.MacAddress
-
-	paymentEvent := nostr.Event{
-		Kind:      21000,
-		PubKey:    customerPublicKey,
-		CreatedAt: nostr.Now(),
-		Tags: nostr.Tags{
-			{"p", proposal.UpstreamPubkey},
-			{"device-identifier", "mac", macAddress},
-			{"payment", paymentToken},
-		},
-		Content: "",
-	}
-
-	// Sign with customer identity
-	err = paymentEvent.Sign(customerPrivateKey)
-	if err != nil {
-		return &PaymentRetryResult{
-			Success: false,
-			Error:   fmt.Errorf("failed to sign payment event: %w", err),
-		}
-	}
-
-	// Send payment to upstream TollGate
-	sessionEvent, err := c.sendPaymentToUpstream(&paymentEvent, session.UpstreamTollgate.GatewayIP)
-	if err != nil {
-		// Analyze the error to determine if it's a token spent error
-		errorStr := err.Error()
-		isTokenSpent := strings.Contains(errorStr, "Token already spent") ||
-			strings.Contains(errorStr, "payment-error-token-spent")
-
-		return &PaymentRetryResult{
-			Success:      false,
-			IsTokenSpent: isTokenSpent,
-			Error:        err,
-		}
-	}
-
-	// Success case
-	return &PaymentRetryResult{
-		Success:      true,
-		SessionEvent: sessionEvent,
-		Error:        nil,
-	}
 }

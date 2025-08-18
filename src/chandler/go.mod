@@ -18,7 +18,6 @@ replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => .
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ../merchant
 
-
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
