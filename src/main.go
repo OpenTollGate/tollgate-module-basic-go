@@ -168,7 +168,6 @@ func initCLIServer() {
 	}
 
 	mainLogger.Info("CLI server initialized and listening on Unix socket")
-
 }
 
 func startPrivateRelayWithAutoRestart() {
