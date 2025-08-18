@@ -35,6 +35,7 @@ var (
 	mainConfig    *config_manager.Config
 	installConfig *config_manager.InstallConfig
 )
+
 var gatewayManager *wireless_gateway_manager.GatewayManager
 
 var tollgateDetailsString string
@@ -167,6 +168,7 @@ func initCLIServer() {
 	}
 
 	mainLogger.Info("CLI server initialized and listening on Unix socket")
+
 }
 
 func startPrivateRelayWithAutoRestart() {
@@ -380,6 +382,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
+
 		CorsMiddleware(HandleRoot)(w, r)
 	})
 

@@ -6,7 +6,7 @@ on:
 
 ## Add global env vars and matrix configuration for the whole workflow
 env:
-  PACKAGE_NAME: "tollgate-module-basic-go"
+  PACKAGE_NAME: "tollgate-wrt"
   DEBUG: "true"
 
 # Define the architecture matrix once for reuse across jobs
@@ -258,9 +258,15 @@ jobs:
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
             architecture=${{ matrix.architecture }}
+            A=${{ matrix.architecture }}
             version=${{ needs.determine-versioning.outputs.package_version }}
+            v=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
+            c=${{ needs.determine-versioning.outputs.release_channel }}
             package_name=${{ env.PACKAGE_NAME }}
+            n=${{ env.PACKAGE_NAME }}
+
+          # FULL WORD TAGS ARE DEPRECATED AND SHOULD BE REMOVED IN THE FUTURE. DEPRECATED IN FAVOUR OF ONE-LETTER TAGS BECASUE OF RELAY FILTERING.
 
       - name: Verify Package NIP-94 Event
         id: verify_package

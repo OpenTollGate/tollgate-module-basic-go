@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-
 	"github.com/nbd-wtf/go-nostr"
 )
 
