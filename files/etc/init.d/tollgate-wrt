@@ -12,7 +12,7 @@ start_service() {
     
     # Now start the TollGate service
     procd_open_instance
-    procd_set_param command /usr/bin/tollgate-basic
+    procd_set_param command /usr/bin/tollgate-wrt
     
     # Set working directory explicitly to /
     procd_set_param directory /
@@ -43,7 +43,7 @@ stop() {
 }
 
 status() {
-    if pgrep -f "tollgate-basic" >/dev/null; then
+    if pgrep -f "tollgate-wrt" >/dev/null; then
         echo "TollGate basic is running"
         nds_status=$(/etc/init.d/nodogsplash status)
         echo "NoDogSplash: $nds_status"

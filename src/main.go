@@ -49,6 +49,7 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 	return
 }
 
+
 func InitializeGlobalLogger(logLevel string) {
 	level, err := logrus.ParseLevel(strings.ToLower(logLevel))
 	if err != nil {
@@ -84,7 +85,6 @@ func init() {
 
 	// Initialize global logger with the configured log level
 	InitializeGlobalLogger(mainConfig.LogLevel)
-
 	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
 

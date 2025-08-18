@@ -285,6 +285,7 @@ func (c *Chandler) GetActiveSessions() map[string]*ChandlerSession {
 	return result
 }
 
+
 // GetSessionByPubkey returns a session by upstream pubkey
 func (c *Chandler) GetSessionByPubkey(pubkey string) (*ChandlerSession, error) {
 	c.mu.RLock()
