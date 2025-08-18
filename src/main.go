@@ -12,11 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/sirupsen/logrus"
 )
 
 // Global configuration variable
@@ -46,6 +49,25 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 	return
 }
 
+func InitializeGlobalLogger(logLevel string) {
+	level, err := logrus.ParseLevel(strings.ToLower(logLevel))
+	if err != nil {
+		// Default to info level if parsing fails
+		level = logrus.InfoLevel
+		logrus.WithError(err).Warn("Failed to parse log level, defaulting to info")
+	}
+
+	logrus.SetLevel(level)
+
+	// Set a consistent formatter for the entire application
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+		ForceColors:   true,
+	})
+
+	logrus.WithField("log_level", level.String()).Info("Global logger initialized")
+}
+
 func init() {
 	var err error
 
@@ -59,6 +81,9 @@ func init() {
 	installConfig = configManager.GetInstallConfig()
 
 	mainConfig = configManager.GetConfig()
+
+	// Initialize global logger with the configured log level
+	InitializeGlobalLogger(mainConfig.LogLevel)
 
 	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
@@ -76,10 +101,13 @@ func init() {
 	merchantInstance.StartPayoutRoutine()
 
 	// Initialize janitor module
-	initJanitor()
+	// initJanitor()
 
 	// Initialize private relay
 	initPrivateRelay()
+
+	// Initialize crowsnest module
+	initCrowsnest()
 }
 
 func initJanitor() {
@@ -95,6 +123,26 @@ func initJanitor() {
 func initPrivateRelay() {
 	go startPrivateRelayWithAutoRestart()
 	log.Println("Private relay initialization started")
+}
+
+func initCrowsnest() {
+	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
+	if err != nil {
+		log.Fatalf("Failed to create crowsnest instance: %v", err)
+	}
+
+	// Create and set chandler instance
+	chandlerInstance := chandler.NewLoggerChandler()
+	crowsnestInstance.SetChandler(chandlerInstance)
+
+	go func() {
+		err := crowsnestInstance.Start()
+		if err != nil {
+			log.Printf("Error starting crowsnest: %v", err)
+		}
+	}()
+
+	log.Println("Crowsnest module initialized with chandler and monitoring network changes")
 }
 
 func startPrivateRelayWithAutoRestart() {

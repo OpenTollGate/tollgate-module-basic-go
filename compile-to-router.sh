@@ -3,14 +3,14 @@
 # Exit on any error (including SSH timeouts)
 set -e
 
-# compile-to-router.sh - Build and deploy tollgate-basic binary to OpenWrt router
+# compile-to-router.sh - Build and deploy tollgate-wrt binary to OpenWrt router
 #
 # PURPOSE:
 #   Development/debugging tool for quickly testing changes on a router.
 #   NOT intended for official deployments or production use.
 #
 # DESCRIPTION:
-#   This script cross-compiles the tollgate-basic Go application for the target
+#   This script cross-compiles the tollgate-wrt Go application for the target
 #   router architecture and deploys it via SSH/SCP. It handles the service
 #   lifecycle by stopping the service before deployment and restarting it after.
 #   Designed for rapid iteration during development and debugging.
@@ -39,7 +39,7 @@ set -e
 # REQUIREMENTS:
 #   - Go compiler installed and configured
 #   - SSH access to the router (uses root user)
-#   - Router must have the tollgate-basic service configured
+#   - Router must have the tollgate-wrt service configured
 
 echo "Compiling to router"
 
@@ -65,7 +65,7 @@ for i in "$@"; do
       ;;
   esac
 done
-EXECUTABLE_NAME=tollgate-basic
+EXECUTABLE_NAME=tollgate-wrt
 EXECUTABLE_PATH="/usr/bin/$EXECUTABLE_NAME"
 
 cd src

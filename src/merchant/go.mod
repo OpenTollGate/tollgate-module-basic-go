@@ -7,7 +7,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
-	github.com/elnosh/gonuts v0.4.0
+	github.com/Origami74/gonuts-tollgate v0.6.0
 	github.com/nbd-wtf/go-nostr v0.51.11
 )
 

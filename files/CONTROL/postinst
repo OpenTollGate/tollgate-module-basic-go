@@ -4,7 +4,7 @@ echo "Running post-installation script: Starting postinst execution"
 echo "Current working directory: $(pwd)"
 echo "Current timestamp: $(date)"
 
-/etc/init.d/tollgate-basic restart
+/etc/init.d/tollgate-wrt restart
 
 # Update TollGate Captive Portal Symlink
 echo "Setting up TollGate NoDogSplash symlink..."
