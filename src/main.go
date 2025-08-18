@@ -47,7 +47,6 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 	installPath = "/etc/tollgate/install.json"
 	identitiesPath = "/etc/tollgate/identities.json"
 	return
-}
 
 func InitializeGlobalLogger(logLevel string) {
 	level, err := logrus.ParseLevel(strings.ToLower(logLevel))

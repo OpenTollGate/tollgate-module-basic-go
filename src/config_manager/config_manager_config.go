@@ -18,6 +18,7 @@ type Config struct {
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
 	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
+
 }
 
 // MintConfig holds configuration for a specific mint.
