@@ -153,26 +153,6 @@ func initCrowsnest() {
 	mainLogger.Info("Crowsnest module initialized with chandler and monitoring network changes")
 }
 
-func initCrowsnest() {
-	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
-	if err != nil {
-		log.Fatalf("Failed to create crowsnest instance: %v", err)
-	}
-
-	// Create and set chandler instance
-	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance)
-	crowsnestInstance.SetChandler(chandlerInstance)
-
-	go func() {
-		err := crowsnestInstance.Start()
-		if err != nil {
-			log.Printf("Error starting crowsnest: %v", err)
-		}
-	}()
-
-	log.Println("Crowsnest module initialized with chandler and monitoring network changes")
-}
-
 func startPrivateRelayWithAutoRestart() {
 	for {
 		mainLogger.Info("Starting TollGate private relay on ws://localhost:4242")
