@@ -43,6 +43,8 @@ type MerchantInterface interface {
 	// New session management methods
 	GetSession(macAddress string) (*CustomerSession, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
+	// Wallet funding methods
+	Fund(cashuToken string) (uint64, error)
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -879,4 +881,37 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 	}
 
 	return session, nil
+}
+
+// Fund adds a cashu token to the wallet
+func (m *Merchant) Fund(cashuToken string) (uint64, error) {
+	log.Printf("Funding wallet with cashu token (length: %d)", len(cashuToken))
+
+	// Basic validation - cashu tokens typically start with "cashuA" and are much longer
+	if len(cashuToken) < 10 {
+		return 0, fmt.Errorf("invalid cashu token: token too short (expected cashu token format)")
+	}
+
+	// Parse the cashu token with error recovery
+	tokenPreview := cashuToken
+	if len(cashuToken) > 50 {
+		tokenPreview = cashuToken[:50] + "..."
+	}
+	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
+
+	parsedToken, err := cashu.DecodeTokenV4(cashuToken)
+	if err != nil {
+		log.Printf("Failed to decode cashu token (length: %d): %v", len(cashuToken), err)
+		return 0, fmt.Errorf("invalid cashu token format: %w", err)
+	}
+
+	// Add token to wallet
+	amountReceived, err := m.tollwallet.Receive(parsedToken)
+	if err != nil {
+		log.Printf("Failed to receive cashu token: %v", err)
+		return 0, fmt.Errorf("failed to receive token: %w", err)
+	}
+
+	log.Printf("Successfully funded wallet with %d sats", amountReceived)
+	return amountReceived, nil
 }

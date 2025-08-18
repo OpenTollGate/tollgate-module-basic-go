@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
@@ -39,6 +40,7 @@ var gatewayManager *wireless_gateway_manager.GatewayManager
 
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
+var cliServer *cli.CLIServer
 
 // getTollgatePaths returns the configuration file paths based on the environment.
 // If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
@@ -108,6 +110,9 @@ func init() {
 
 	merchantInstance.StartPayoutRoutine()
 
+	// Initialize CLI server
+	initCLIServer()
+
 	// Initialize janitor module
 	// initJanitor()
 
@@ -151,6 +156,18 @@ func initCrowsnest() {
 	}()
 
 	mainLogger.Info("Crowsnest module initialized with chandler and monitoring network changes")
+}
+
+func initCLIServer() {
+	cliServer = cli.NewCLIServer(configManager, merchantInstance)
+
+	err := cliServer.Start()
+	if err != nil {
+		mainLogger.WithError(err).Error("Failed to start CLI server")
+		return
+	}
+
+	mainLogger.Info("CLI server initialized and listening on Unix socket")
 }
 
 func startPrivateRelayWithAutoRestart() {

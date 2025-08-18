@@ -268,6 +268,7 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 
 	// Create and start usage tracker
 	err = c.createUsageTracker(session)
+
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"upstream_pubkey": upstream.Advertisement.PubKey,

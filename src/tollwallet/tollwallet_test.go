@@ -103,7 +103,7 @@ func TestReceive(t *testing.T) {
 		token := createTestToken("https://unaccepted-mint.com")
 
 		// Call the function being tested - should reject before trying to use wallet
-		err := tollWallet.Receive(token)
+		err, _ := tollWallet.Receive(token)
 
 		// Assert expectations
 		assert.Error(t, err)
