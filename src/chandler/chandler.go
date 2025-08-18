@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,6 +81,7 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		}).Warn("Trust policy validation failed")
 		return err
 	}
+
 
 	// Find overlapping mint options and select the best one
 	selectedPricing, err := c.selectCompatiblePricingOption(adInfo.PricingOptions)

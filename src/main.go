@@ -34,6 +34,7 @@ var (
 	mainConfig    *config_manager.Config
 	installConfig *config_manager.InstallConfig
 )
+
 var gatewayManager *wireless_gateway_manager.GatewayManager
 
 var tollgateDetailsString string
@@ -150,6 +151,26 @@ func initCrowsnest() {
 	}()
 
 	mainLogger.Info("Crowsnest module initialized with chandler and monitoring network changes")
+}
+
+func initCrowsnest() {
+	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
+	if err != nil {
+		log.Fatalf("Failed to create crowsnest instance: %v", err)
+	}
+
+	// Create and set chandler instance
+	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance)
+	crowsnestInstance.SetChandler(chandlerInstance)
+
+	go func() {
+		err := crowsnestInstance.Start()
+		if err != nil {
+			log.Printf("Error starting crowsnest: %v", err)
+		}
+	}()
+
+	log.Println("Crowsnest module initialized with chandler and monitoring network changes")
 }
 
 func startPrivateRelayWithAutoRestart() {
@@ -363,6 +384,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
+
 		CorsMiddleware(HandleRoot)(w, r)
 	})
 
