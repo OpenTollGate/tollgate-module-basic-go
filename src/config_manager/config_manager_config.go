@@ -18,7 +18,7 @@ type Config struct {
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
 	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
-
+	Chandler      ChandlerConfig      `json:"chandler"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -55,6 +55,41 @@ type CrowsnestConfig struct {
 
 	// Discovery deduplication
 	DiscoveryTimeout time.Duration `json:"discovery_timeout"`
+}
+
+// ChandlerConfig holds configuration for the chandler module
+type ChandlerConfig struct {
+	// Simple budget settings
+	MaxPricePerMillisecond float64 `json:"max_price_per_millisecond"` // Max sats per ms (can be fractional)
+	MaxPricePerByte        float64 `json:"max_price_per_byte"`        // Max sats per byte (can be fractional)
+
+	// Trust settings
+	Trust TrustConfig `json:"trust"`
+
+	// Session settings
+	Sessions SessionConfig `json:"sessions"`
+
+	// Usage tracking settings
+	UsageTracking UsageTrackingConfig `json:"usage_tracking"`
+}
+
+// TrustConfig holds trust policy configuration
+type TrustConfig struct {
+	DefaultPolicy string   `json:"default_policy"` // "trust_all", "trust_none"
+	Allowlist     []string `json:"allowlist"`      // Trusted pubkeys
+	Blocklist     []string `json:"blocklist"`      // Blocked pubkeys
+}
+
+// SessionConfig holds session management configuration
+type SessionConfig struct {
+	DefaultRenewalThresholds               []float64 `json:"default_renewal_thresholds"`                // [0.8]
+	PreferredSessionIncrementsMilliseconds uint64    `json:"preferred_session_increments_milliseconds"` // Preferred increment for time sessions
+	PreferredSessionIncrementsBytes        uint64    `json:"preferred_session_increments_bytes"`        // Preferred increment for data sessions
+}
+
+// UsageTrackingConfig holds usage tracking configuration
+type UsageTrackingConfig struct {
+	DataMonitoringInterval time.Duration `json:"data_monitoring_interval"` // How often to check data usage
 }
 
 // LoadConfig loads and parses config.json.
@@ -139,6 +174,23 @@ func NewDefaultConfig() *Config {
 			IgnoreInterfaces:      []string{"lo", "docker0", "br-lan", "phy1-ap0", "phy0-ap0", "wlan0-ap", "wlan1-ap", "hostap0"},
 			OnlyInterfaces:        []string{},
 			DiscoveryTimeout:      300 * time.Second,
+		},
+		Chandler: ChandlerConfig{
+			MaxPricePerMillisecond: 0.002777777778,   // 10k sats/hr
+			MaxPricePerByte:        0.00003725782414, // 5k sats/gbit
+			Trust: TrustConfig{
+				DefaultPolicy: "trust_all",
+				Allowlist:     []string{},
+				Blocklist:     []string{},
+			},
+			Sessions: SessionConfig{
+				DefaultRenewalThresholds:               []float64{0.8},
+				PreferredSessionIncrementsMilliseconds: 20000,   // 1 minute
+				PreferredSessionIncrementsBytes:        1048576, // 1 MB
+			},
+			UsageTracking: UsageTrackingConfig{
+				DataMonitoringInterval: 500 * time.Millisecond,
+			},
 		},
 	}
 }

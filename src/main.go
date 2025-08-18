@@ -30,7 +30,7 @@ var (
 	installConfig *config_manager.InstallConfig
 )
 var tollgateDetailsString string
-var merchantInstance *merchant.Merchant
+var merchantInstance merchant.MerchantInterface
 
 // getTollgatePaths returns the configuration file paths based on the environment.
 // If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
@@ -48,6 +48,7 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 	identitiesPath = "/etc/tollgate/identities.json"
 	return
 }
+
 
 func InitializeGlobalLogger(logLevel string) {
 	level, err := logrus.ParseLevel(strings.ToLower(logLevel))
@@ -84,7 +85,6 @@ func init() {
 
 	// Initialize global logger with the configured log level
 	InitializeGlobalLogger(mainConfig.LogLevel)
-
 	IPAddressRandomized := fmt.Sprintf("%t", installConfig.IPAddressRandomized)
 	log.Printf("IPAddressRandomized: %s", IPAddressRandomized)
 
@@ -132,7 +132,7 @@ func initCrowsnest() {
 	}
 
 	// Create and set chandler instance
-	chandlerInstance := chandler.NewLoggerChandler()
+	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance)
 	crowsnestInstance.SetChandler(chandlerInstance)
 
 	go func() {
@@ -316,7 +316,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendNoticeResponse creates and sends a notice event response
-func sendNoticeResponse(w http.ResponseWriter, merchantInstance *merchant.Merchant, statusCode int, level, code, message, customerPubkey string) {
+func sendNoticeResponse(w http.ResponseWriter, merchantInstance merchant.MerchantInterface, statusCode int, level, code, message, customerPubkey string) {
 	noticeEvent, err := merchantInstance.CreateNoticeEvent(level, code, message, customerPubkey)
 	if err != nil {
 		log.Printf("Error creating notice event: %v", err)

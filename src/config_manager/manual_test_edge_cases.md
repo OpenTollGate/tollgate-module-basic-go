@@ -1,7 +1,7 @@
 # Manual Test Cases: Configuration Management
 
 **Prerequisites:**
-- A running OpenWRT device with the `tollgate-wrt` package installed.
+- A running OpenWRT device with the `tollgate-basic` package installed.
 - SSH access to the device.
 
 ## 1. Configuration Resilience Testing
