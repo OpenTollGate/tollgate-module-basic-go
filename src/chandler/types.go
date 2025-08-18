@@ -50,12 +50,6 @@ type ChandlerSession struct {
 	PaymentCount  int           // Number of payments made
 	Status        SessionStatus // Active, Paused, Expired, etc.
 
-	// Payment retry tracking
-	RetryCount         int           // Total number of retry attempts for current payment
-	TokenRetryCount    int           // Number of new tokens tried (max 3)
-	MaxTokenRetries    int           // Maximum number of new tokens allowed (default 3)
-	RetryBackoffFactor time.Duration // Backoff multiplier for non-token errors
-
 	// Mutex for thread safety
 	mu sync.RWMutex
 }
