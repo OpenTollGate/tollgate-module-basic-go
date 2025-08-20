@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -39,6 +40,10 @@ func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManage
 	if err := gm.loadKnownNetworks(); err != nil {
 		// Log the error but don't fail initialization, as the file may not exist.
 		logger.WithError(err).Warn("Could not load known networks")
+	}
+
+	if err := gm.syncKnownNetworksFromWirelessConfig(); err != nil {
+		logger.WithError(err).Warn("Could not sync known networks from wireless config")
 	}
 
 	go gm.RunPeriodicScan(ctx)
@@ -299,6 +304,90 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 	for _, network := range knownNetworks.Networks {
 		gm.knownNetworks[network.SSID] = network
 		logger.WithField("ssid", network.SSID).Debug("Loaded known network")
+	}
+
+	return nil
+}
+
+func (gm *GatewayManager) syncKnownNetworksFromWirelessConfig() error {
+	logger.Info("Syncing known networks from wireless config")
+
+	// 1. Get wireless config
+	output, err := gm.connector.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return fmt.Errorf("could not get wireless config: %w", err)
+	}
+
+	// 2. Parse the output to find STA interfaces
+	// This is a simplified parser. A more robust solution might use a dedicated UCI parsing library.
+	creds := make(map[string]KnownNetwork)
+	var currentSSID, currentKey, currentEncryption string
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.Trim(strings.TrimSpace(parts[1]), "'")
+
+		if strings.HasSuffix(key, ".mode") && value == "sta" {
+			// When we find a new STA section, save the previous one if it's complete
+			if currentSSID != "" && currentKey != "" && currentEncryption != "" {
+				creds[currentSSID] = KnownNetwork{
+					SSID:       currentSSID,
+					Password:   currentKey,
+					Encryption: currentEncryption,
+				}
+			}
+			// Reset for the new section
+			currentSSID, currentKey, currentEncryption = "", "", ""
+		}
+
+		if strings.HasSuffix(key, ".ssid") {
+			currentSSID = value
+		}
+		if strings.HasSuffix(key, ".key") {
+			currentKey = value
+		}
+		if strings.HasSuffix(key, ".encryption") {
+			currentEncryption = value
+		}
+	}
+	// Save the last parsed network
+	if currentSSID != "" && currentKey != "" && currentEncryption != "" {
+		creds[currentSSID] = KnownNetwork{
+			SSID:       currentSSID,
+			Password:   currentKey,
+			Encryption: currentEncryption,
+		}
+	}
+
+	// 3. Add new networks to known_networks.json
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+
+	var updated bool
+	for ssid, cred := range creds {
+		if _, exists := gm.knownNetworks[ssid]; !exists {
+			gm.knownNetworks[ssid] = cred
+			logger.WithField("ssid", ssid).Info("Added new network to known networks from wireless config")
+			updated = true
+		}
+	}
+
+	// 4. Write back to file if updated
+	if updated {
+		var knownNetworks KnownNetworks
+		for _, network := range gm.knownNetworks {
+			knownNetworks.Networks = append(knownNetworks.Networks, network)
+		}
+		file, err := json.MarshalIndent(knownNetworks, "", "  ")
+		if err != nil {
+			return fmt.Errorf("could not marshal known_networks.json: %w", err)
+		}
+		if err := ioutil.WriteFile("/etc/tollgate/known_networks.json", file, 0644); err != nil {
+			return fmt.Errorf("could not write known_networks.json: %w", err)
+		}
 	}
 
 	return nil
