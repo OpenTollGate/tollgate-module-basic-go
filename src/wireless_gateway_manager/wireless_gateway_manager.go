@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -109,6 +110,16 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			VendorElements: convertToStringMap(vendorElements),
 		}
 
+		// Adjust score based on price.
+		if gateway.PricePerStep > 0 && gateway.StepSize > 0 {
+			gatewayPrice := float64(gateway.PricePerStep * gateway.StepSize)
+			if gatewayPrice > 0 {
+				// Use a logarithmic penalty to handle a wide range of prices gracefully.
+				penalty := 20 * (math.Log(gatewayPrice) / math.Log(10))
+				gateway.Score -= int(penalty)
+			}
+		}
+
 		gm.availableGateways[network.BSSID] = gateway
 	}
 	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available gateways")
@@ -144,10 +155,6 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 
 	// Sort gateways by score in descending order
 	sort.Slice(viableGateways, func(i, j int) bool {
-		// Prioritize lower price, then higher score
-		if viableGateways[i].PricePerStep != viableGateways[j].PricePerStep {
-			return viableGateways[i].PricePerStep < viableGateways[j].PricePerStep
-		}
 		return viableGateways[i].Score > viableGateways[j].Score
 	})
 
