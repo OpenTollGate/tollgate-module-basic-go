@@ -95,6 +95,9 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "BSS ") {
 			if currentNetwork != nil && currentNetwork.SSID != "" { // Only add if SSID was found
+				if currentNetwork.Encryption == "" {
+					currentNetwork.Encryption = "Open" // Default to Open if no encryption is detected
+				}
 				networks = append(networks, *currentNetwork)
 			}
 			matches := bssidRegex.FindStringSubmatch(line)
