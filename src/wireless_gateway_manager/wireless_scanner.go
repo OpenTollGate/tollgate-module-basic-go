@@ -126,31 +126,6 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 					currentNetwork.Signal = int(signal)
 				}
 				
-				func parsePricingFromSSID(ssid string) (int, int) {
-					if !strings.HasPrefix(ssid, "TollGate-") {
-						return 0, 0 // Not a TollGate network
-					}
-				
-					parts := strings.Split(ssid, "-")
-					if len(parts) < 4 {
-						return 0, 0 // Invalid format
-					}
-				
-					priceStr := parts[len(parts)-2]
-					stepStr := parts[len(parts)-1]
-				
-					price, err := strconv.Atoi(priceStr)
-					if err != nil {
-						return 0, 0 // Could not parse price
-					}
-				
-					step, err := strconv.Atoi(stepStr)
-					if err != nil {
-						return 0, 0 // Could not parse step
-					}
-				
-					return price, step
-				}
 			} else if strings.Contains(line, "RSN:") || strings.Contains(line, "WPA:") {
 				currentNetwork.Encryption = "WPA/WPA2"
 			} else if strings.Contains(line, "Authentication suites: Open") {
@@ -166,3 +141,29 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 	return networks, scanner.Err()
 }
 
+
+func parsePricingFromSSID(ssid string) (int, int) {
+	if !strings.HasPrefix(ssid, "TollGate-") {
+		return 0, 0 // Not a TollGate network
+	}
+
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 4 {
+		return 0, 0 // Invalid format
+	}
+
+	priceStr := parts[len(parts)-2]
+	stepStr := parts[len(parts)-1]
+
+	price, err := strconv.Atoi(priceStr)
+	if err != nil {
+		return 0, 0 // Could not parse price
+	}
+
+	step, err := strconv.Atoi(stepStr)
+	if err != nil {
+		return 0, 0 // Could not parse step
+	}
+
+	return price, step
+}

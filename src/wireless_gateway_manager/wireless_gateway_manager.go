@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"strconv"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -293,19 +292,3 @@ func (gm *GatewayManager) updateAPSSID() {
 	}
 }
 
-func parsePricingFromSSID(ssid string) (int, int) {
-	parts := strings.Split(ssid, "-")
-	if len(parts) < 3 {
-		return 0, 0
-	}
-
-	// SSID format is expected to be TollGate-XXXX-price-step
-	price, errPrice := strconv.Atoi(parts[len(parts)-2])
-	step, errStep := strconv.Atoi(parts[len(parts)-1])
-
-	if errPrice != nil || errStep != nil {
-		return 0, 0
-	}
-
-	return price, step
-}

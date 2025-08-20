@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"math"
 	"os/exec"
 	"strconv"
 	"strings"
