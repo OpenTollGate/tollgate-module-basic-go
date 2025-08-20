@@ -4,6 +4,8 @@ package wireless_gateway_manager
 import (
 	"sync"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // Constants for network monitoring
@@ -78,6 +80,7 @@ type GatewayManager struct {
 	connector         *Connector
 	vendorProcessor   *VendorElementProcessor
 	networkMonitor    *NetworkMonitor
+	cm                *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
 	knownNetworks     map[string]KnownNetwork // Key: SSID

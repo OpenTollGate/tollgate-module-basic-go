@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // Init initializes the GatewayManager and starts its background scanning routine.
-func Init(ctx context.Context) (*GatewayManager, error) {
+func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManager, error) {
 	connector := &Connector{}
 	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
@@ -27,6 +29,7 @@ func Init(ctx context.Context) (*GatewayManager, error) {
 		connector:         connector,
 		vendorProcessor:   vendorProcessor,
 		networkMonitor:    networkMonitor,
+		cm:                cm,
 		availableGateways: make(map[string]Gateway),
 		knownNetworks:     make(map[string]KnownNetwork),
 		currentHopCount:   math.MaxInt32,
@@ -302,8 +305,28 @@ func (gm *GatewayManager) updateHopCountAndAPSSID() {
 		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
 	}
 
-	// Update the local AP's SSID to advertise the new hop count
-	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
-		logger.WithError(err).Error("Failed to update local AP SSID with new hop count")
+	// If price is 0, use the values from the config
+	pricePerStep, stepSize := parsePricingFromSSID(connectedSSID)
+	if pricePerStep == 0 {
+		config := gm.cm.GetConfig()
+		if len(config.AcceptedMints) > 0 {
+			maxPrice := 0
+			maxStepSize := 0
+			for _, mint := range config.AcceptedMints {
+				if int(mint.PricePerStep) > maxPrice {
+					maxPrice = int(mint.PricePerStep)
+				}
+				if int(config.StepSize) > maxStepSize {
+					maxStepSize = int(config.StepSize)
+				}
+			}
+			pricePerStep = maxPrice
+			stepSize = maxStepSize
+		}
+	}
+
+	// Update the local AP's SSID to advertise the new pricing
+	if err := gm.connector.UpdateLocalAPSSID(pricePerStep, stepSize); err != nil {
+		logger.WithError(err).Error("Failed to update local AP SSID with new pricing")
 	}
 }
