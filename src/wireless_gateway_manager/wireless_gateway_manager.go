@@ -73,6 +73,8 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
 	logger.Info("Starting network scan for gateway selection")
 
 	// Update current AP SSID based on current connection status before scanning
@@ -267,9 +269,9 @@ func (gm *GatewayManager) GetAvailableGateways() ([]Gateway, error) {
 
 // ConnectToGateway instructs the GatewayManager to connect to the specified gateway.
 func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error {
-	gm.mu.RLock()
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
 	gateway, ok := gm.availableGateways[bssid]
-	gm.mu.RUnlock()
 
 	if !ok {
 		return errors.New("gateway not found")

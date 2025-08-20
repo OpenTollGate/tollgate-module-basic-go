@@ -59,8 +59,11 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption=none"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
-			return err
+		// Only delete the key if it exists
+		if _, err := c.ExecuteUCI("get", "wireless.tollgate_sta.key"); err == nil {
+			if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
+				return err
+			}
 		}
 	}
 
