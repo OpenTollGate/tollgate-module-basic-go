@@ -95,6 +95,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			SSID:           network.SSID,
 			Signal:         network.Signal,
 			Encryption:     network.Encryption,
+			PricePerStep:   network.PricePerStep,
+			StepSize:       network.StepSize,
 			Score:          score,
 			VendorElements: convertToStringMap(vendorElements),
 		}
@@ -111,6 +113,10 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 
 	// Sort gateways by score in descending order
 	sort.Slice(sortedGateways, func(i, j int) bool {
+		// Prioritize lower price, then higher score
+		if sortedGateways[i].PricePerStep != sortedGateways[j].PricePerStep {
+			return sortedGateways[i].PricePerStep < sortedGateways[j].PricePerStep
+		}
 		return sortedGateways[i].Score > sortedGateways[j].Score
 	})
 
@@ -124,6 +130,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"ssid":            gateway.SSID,
 			"signal":          gateway.Signal,
 			"encryption":      gateway.Encryption,
+			"price_per_step":  gateway.PricePerStep,
+			"step_size":       gateway.StepSize,
 			"score":           gateway.Score,
 			"vendor_elements": gateway.VendorElements,
 		}).Info("Top gateway candidate")

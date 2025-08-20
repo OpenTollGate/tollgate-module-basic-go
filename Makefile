@@ -76,9 +76,6 @@ define Package/$(PKG_NAME)/install
 	# Install CLI tool in system PATH
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
 	
-	# Install CLI tool in system PATH
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
-	
 	# Init script
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/init.d/tollgate-wrt $(1)/etc/init.d/

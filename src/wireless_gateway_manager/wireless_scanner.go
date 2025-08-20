@@ -110,6 +110,8 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 				if ssid != "" {
 					currentNetwork.SSID = ssid
+					// Parse pricing from SSID
+					currentNetwork.PricePerStep, currentNetwork.StepSize = parsePricingFromSSID(ssid)
 				}
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
@@ -122,6 +124,32 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 					}).Warn("Failed to parse signal strength")
 				} else {
 					currentNetwork.Signal = int(signal)
+				}
+				
+				func parsePricingFromSSID(ssid string) (int, int) {
+					if !strings.HasPrefix(ssid, "TollGate-") {
+						return 0, 0 // Not a TollGate network
+					}
+				
+					parts := strings.Split(ssid, "-")
+					if len(parts) < 4 {
+						return 0, 0 // Invalid format
+					}
+				
+					priceStr := parts[len(parts)-2]
+					stepStr := parts[len(parts)-1]
+				
+					price, err := strconv.Atoi(priceStr)
+					if err != nil {
+						return 0, 0 // Could not parse price
+					}
+				
+					step, err := strconv.Atoi(stepStr)
+					if err != nil {
+						return 0, 0 // Could not parse step
+					}
+				
+					return price, step
 				}
 			} else if strings.Contains(line, "RSN:") || strings.Contains(line, "WPA:") {
 				currentNetwork.Encryption = "WPA/WPA2"

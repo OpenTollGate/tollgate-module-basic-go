@@ -37,8 +37,10 @@ type NetworkInfo struct {
 	BSSID      string
 	SSID       string
 	Signal     int
-	Encryption string
-	RawIEs     []byte
+	Encryption   string
+	PricePerStep int
+	StepSize     int
+	RawIEs       []byte
 }
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
@@ -64,6 +66,8 @@ type Gateway struct {
 	SSID           string            `json:"ssid"`
 	Signal         int               `json:"signal"`
 	Encryption     string            `json:"encryption"`
+	PricePerStep   int               `json:"price_per_step"`
+	StepSize       int               `json:"step_size"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
 }
