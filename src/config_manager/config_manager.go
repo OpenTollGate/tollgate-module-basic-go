@@ -163,6 +163,32 @@ func (cm *ConfigManager) GetIdentity(name string) (*PublicIdentity, error) {
 	return nil, fmt.Errorf("public identity '%s' not found", name)
 }
 
+// UpdatePricing updates the pricing information in the config file if it has changed.
+func (cm *ConfigManager) UpdatePricing(pricePerStep, stepSize int) error {
+	config := cm.GetConfig()
+	needsUpdate := false
+
+	// Assuming the first mint is the one to update. This may need to be revisited.
+	if len(config.AcceptedMints) > 0 {
+		if config.AcceptedMints[0].PricePerStep != uint64(pricePerStep) {
+			config.AcceptedMints[0].PricePerStep = uint64(pricePerStep)
+			needsUpdate = true
+		}
+	}
+
+	if config.StepSize != uint64(stepSize) {
+		config.StepSize = uint64(stepSize)
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		log.Printf("Price changed. Udpating config file with price_per_step=%d, step_size=%d", pricePerStep, stepSize)
+		return SaveConfig(cm.ConfigFilePath, config)
+	}
+
+	return nil
+}
+
 // GetOwnedIdentity retrieves an owned identity by name.
 func (cm *ConfigManager) GetOwnedIdentity(name string) (*OwnedIdentity, error) {
 	for _, identity := range cm.identitiesConfig.OwnedIdentities {

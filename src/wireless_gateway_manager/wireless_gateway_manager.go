@@ -327,5 +327,10 @@ func (gm *GatewayManager) updateAPSSID() {
 	if err := gm.connector.UpdateLocalAPSSID(pricePerStep, stepSize); err != nil {
 		logger.WithError(err).Error("Failed to update local AP SSID with new pricing")
 	}
+
+	// Update the config file with the new pricing
+	if err := gm.cm.UpdatePricing(pricePerStep, stepSize); err != nil {
+		logger.WithError(err).Error("Failed to update config file with new pricing")
+	}
 }
 
