@@ -96,7 +96,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			SSID:           network.SSID,
 			Signal:         network.Signal,
 			Encryption:     network.Encryption,
-			HopCount:       network.HopCount,
+			PricePerStep:   network.PricePerStep,
+			StepSize:       network.StepSize,
 			Score:          score,
 			VendorElements: convertToStringMap(vendorElements),
 		}
@@ -105,29 +106,18 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	}
 	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available gateways")
 
-	// Filter gateways by hop count
-	var filteredGateways []Gateway
-	for _, gateway := range gm.availableGateways {
-		if gateway.HopCount < gm.currentHopCount {
-			filteredGateways = append(filteredGateways, gateway)
-		} else {
-			logger.WithFields(logrus.Fields{
-				"ssid":         gateway.SSID,
-				"gateway_hops": gateway.HopCount,
-				"our_hops":     gm.currentHopCount,
-			}).Info("Filtering out gateway with unsuitable hop count")
-		}
-	}
-	logger.WithField("suitable_gateways", len(filteredGateways)).Info("Found gateways with suitable hop count")
-
 	// Convert map to slice for sorting
 	var sortedGateways []Gateway
-	for _, gateway := range filteredGateways {
+	for _, gateway := range gm.availableGateways {
 		sortedGateways = append(sortedGateways, gateway)
 	}
 
 	// Sort gateways by score in descending order
 	sort.Slice(sortedGateways, func(i, j int) bool {
+		// Prioritize lower price, then higher score
+		if sortedGateways[i].PricePerStep != sortedGateways[j].PricePerStep {
+			return sortedGateways[i].PricePerStep < sortedGateways[j].PricePerStep
+		}
 		return sortedGateways[i].Score > sortedGateways[j].Score
 	})
 
@@ -141,7 +131,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"ssid":            gateway.SSID,
 			"signal":          gateway.Signal,
 			"encryption":      gateway.Encryption,
-			"hop_count":       gateway.HopCount,
+			"price_per_step":  gateway.PricePerStep,
+			"step_size":       gateway.StepSize,
 			"score":           gateway.Score,
 			"vendor_elements": gateway.VendorElements,
 		}).Info("Top gateway candidate")

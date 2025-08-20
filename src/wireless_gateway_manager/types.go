@@ -34,12 +34,13 @@ type Scanner struct {
 
 // NetworkInfo represents information about a Wi-Fi network.
 type NetworkInfo struct {
-	BSSID      string
-	SSID       string
-	Signal     int
-	Encryption string
-	HopCount   int
-	RawIEs     []byte
+	BSSID        string
+	SSID         string
+	Signal       int
+	Encryption   string
+	PricePerStep int
+	StepSize     int
+	RawIEs       []byte
 }
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
@@ -65,7 +66,8 @@ type Gateway struct {
 	SSID           string            `json:"ssid"`
 	Signal         int               `json:"signal"`
 	Encryption     string            `json:"encryption"`
-	HopCount       int               `json:"hop_count"`
+	PricePerStep   int               `json:"price_per_step"`
+	StepSize       int               `json:"step_size"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
 }
