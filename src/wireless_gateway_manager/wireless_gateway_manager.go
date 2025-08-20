@@ -159,7 +159,11 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			}
 		}
 
-		if !isConnectedToTopThree {
+		if !isConnectedToTopThree || !gm.networkMonitor.IsConnected() {
+			if !gm.networkMonitor.IsConnected() {
+				logger.Warn("No internet connectivity, attempting to connect to the best gateway.")
+			}
+
 			password := ""
 			knownNetwork, isKnown := gm.knownNetworks[highestPriorityGateway.SSID]
 			if isKnown {
