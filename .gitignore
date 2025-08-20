@@ -6,6 +6,7 @@ bin/
 tollgate
 tollgate-basic
 tollgate-module-basic-go
+./tollgate-wrt
 *.orig
 build_deleteme.yml.orig
 squash_tool.sh
@@ -13,18 +14,3 @@ squash_tool.sh
 vendor/
 **/tollwallet_db/*
 .roomodes
-prompts.md
-src/wireless_gateway_manager/root/*.sh
-src/basic
-../_BACKUP_141278.gitignore
-../_BASE_141278.gitignore
-../_LOCAL_141278.gitignore
-../_REMOTE_141278.gitignore
-go_BACKUP_145466.mod
-go_BASE_145466.mod
-go_LOCAL_145466.mod
-go_REMOTE_145466.mod
-_BACKUP_141278.gitignore
-_BASE_141278.gitignore
-_LOCAL_141278.gitignore
-_REMOTE_141278.gitignore

@@ -49,7 +49,7 @@ func getInstalledVersion() (string, error) {
 	if err != nil {
 		return "0.0.1+1cac608", nil // Default version if opkg is not found
 	}
-	cmd := exec.Command("opkg", "list-installed", "tollgate-basic")
+	cmd := exec.Command("opkg", "list-installed", "tollgate-wrt")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to get installed version: %w", err)

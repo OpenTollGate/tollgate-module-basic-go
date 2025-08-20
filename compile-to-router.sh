@@ -3,7 +3,7 @@
 # Exit on any error (including SSH timeouts)
 set -e
 
-# compile-to-router.sh - Build and deploy TollGate service + CLI to OpenWrt router
+# compile-to-router.sh - Build and deploy tollgate-wrt binary to OpenWrt router
 #
 # PURPOSE:
 #   Development/debugging tool for quickly testing changes on a router.
@@ -41,7 +41,6 @@ set -e
 #   - SSH access to the router (uses root user)
 #     * For password-less deployment, set up SSH keys: ssh-copy-id root@router_ip
 #   - Router must have the tollgate-basic service configured
-
 echo "Compiling to router"
 
 # Default settings
@@ -69,7 +68,7 @@ done
 
 # SSH/SCP connection options
 SSH_OPTS="-o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-EXECUTABLE_NAME=tollgate-basic
+EXECUTABLE_NAME=tollgate-wrt
 EXECUTABLE_PATH="/usr/bin/$EXECUTABLE_NAME"
 
 cd src

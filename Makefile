@@ -1,6 +1,6 @@
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=tollgate-module-basic-go
+PKG_NAME:=tollgate-wrt
 PKG_VERSION:=$(PACKAGE_VERSION)
 
 PKG_FLAGS:=overwrite
@@ -25,7 +25,7 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
 
-GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
+GO_PKG:=github.com/OpenTollGate/tollgate-wrt
 
 include $(INCLUDE_DIR)/package.mk
 $(eval $(call GoPackage))
@@ -71,14 +71,17 @@ endef
 
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(PKG_NAME) $(1)/usr/bin/tollgate-basic
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(PKG_NAME) $(1)/usr/bin/tollgate-wrt
+	
+	# Install CLI tool in system PATH
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
 	
 	# Install CLI tool in system PATH
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
 	
 	# Init script
 	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/init.d/tollgate-basic $(1)/etc/init.d/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
 	
 	# UCI defaults for configuration
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
@@ -133,8 +136,8 @@ endef
 
 # Update FILES declaration to include NoDogSplash files
 FILES_$(PKG_NAME) += \
-	/usr/bin/tollgate-basic \
-	/etc/init.d/tollgate-basic \
+	/usr/bin/tollgate-wrt \
+	/etc/init.d/tollgate-wrt \
 	/etc/config/firewall-tollgate \
 	/etc/modt/* \
 	/etc/profile \

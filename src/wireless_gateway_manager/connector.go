@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"math"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -334,12 +335,15 @@ func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 func (c *Connector) UpdateLocalAPSSID(pricePerStep int, stepSize int) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
 		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
-		return err
+		return err // This is a significant issue, so we return the error.
 	}
 
+	// Now that we've ensured the interfaces exist, we can proceed.
+	// We update both 2.4GHz and 5GHz APs if they exist.
 	radios := []string{"default_radio0", "default_radio1"}
 	var commitNeeded bool
 	for _, radio := range radios {
+		// Check if the interface section exists before trying to update it.
 		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
 			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
 			continue
