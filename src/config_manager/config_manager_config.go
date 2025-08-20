@@ -17,6 +17,7 @@ type Config struct {
 	Metric        string              `json:"metric"`
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
+	Margin        float64             `json:"margin"`
 	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
 	Chandler      ChandlerConfig      `json:"chandler"`
 }
@@ -124,7 +125,7 @@ func SaveConfig(filePath string, config *Config) error {
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
 	return &Config{
-		ConfigVersion: "v0.0.5",
+		ConfigVersion: "v0.0.6",
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
@@ -166,6 +167,7 @@ func NewDefaultConfig() *Config {
 			"wss://nostr.mom",
 		},
 		ShowSetup: true,
+		Margin:    0.05,
 		Crowsnest: CrowsnestConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
@@ -210,8 +212,14 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	// File exists, attempt to unmarshal
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil || config.ConfigVersion != defaultConfig.ConfigVersion {
+		// Determine the backup directory
+		backupDir := "/etc/tollgate/config_backups"
+		if testDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); testDir != "" {
+			backupDir = testDir
+		}
+
 		// Unmarshal failed or version mismatch, trigger backup and recreate
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+		if backupErr := backupAndLog(filePath, backupDir, "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
 			// Depending on desired behavior, we might return an error or proceed with default
 			return nil, backupErr

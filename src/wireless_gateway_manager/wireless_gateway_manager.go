@@ -312,6 +312,10 @@ func (gm *GatewayManager) updateAPSSID() {
 			pricePerStep = maxPrice
 			stepSize = maxStepSize
 		}
+	} else {
+		// Apply margin to the price
+		config := gm.cm.GetConfig()
+		pricePerStep = int(float64(pricePerStep) * (1 + config.Margin))
 	}
 
 	// Update the local AP's SSID to advertise the new pricing
