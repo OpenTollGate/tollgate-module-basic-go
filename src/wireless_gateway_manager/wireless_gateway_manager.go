@@ -105,6 +105,16 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			VendorElements: convertToStringMap(vendorElements),
 		}
 
+		// Adjust score based on price.
+		if gateway.PricePerStep > 0 && gateway.StepSize > 0 {
+			gatewayPrice := float64(gateway.PricePerStep * gateway.StepSize)
+			if gatewayPrice > 0 {
+				// Use a logarithmic penalty to handle a wide range of prices gracefully.
+				penalty := 20 * (math.Log(gatewayPrice) / math.Log(10))
+				gateway.Score -= int(penalty)
+			}
+		}
+
 		gm.availableGateways[network.BSSID] = gateway
 	}
 	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available gateways")
