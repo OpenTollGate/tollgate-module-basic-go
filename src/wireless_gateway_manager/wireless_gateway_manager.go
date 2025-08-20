@@ -34,7 +34,7 @@ func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManage
 		availableGateways: make(map[string]Gateway),
 		knownNetworks:          make(map[string]KnownNetwork),
 		gatewaysWithNoInternet: make(map[string]time.Time),
-		scanInterval:           30 * time.Second,
+		scanInterval:           60 * time.Second,
 		stopChan:               make(chan struct{}),
 	}
 
