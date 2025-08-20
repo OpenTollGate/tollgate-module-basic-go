@@ -280,6 +280,14 @@ func (c *Connector) RestoreAPSSIDFromSafeMode() error {
 	return c.updateAPSSIDWithPrefix("") // Pass an empty prefix to restore the original name
 }
 
+// SetSafeModeSSID sets or unsets the AP SSID to SafeMode.
+func (c *Connector) SetSafeModeSSID(enable bool) error {
+	if enable {
+		return c.SetAPSSIDSafeMode()
+	}
+	return c.RestoreAPSSIDFromSafeMode()
+}
+
 func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
 		return fmt.Errorf("failed to ensure AP interfaces exist: %w", err)

@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"strconv"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -30,9 +30,10 @@ func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManage
 		networkMonitor:    networkMonitor,
 		cm:                cm,
 		availableGateways: make(map[string]Gateway),
-		knownNetworks:     make(map[string]KnownNetwork),
-		scanInterval:      30 * time.Second,
-		stopChan:          make(chan struct{}),
+		knownNetworks:          make(map[string]KnownNetwork),
+		gatewaysWithNoInternet: make(map[string]time.Time),
+		scanInterval:           30 * time.Second,
+		stopChan:               make(chan struct{}),
 	}
 
 	if err := gm.loadKnownNetworks(); err != nil {
@@ -107,22 +108,45 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	}
 	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available gateways")
 
-	// Convert map to slice for sorting
-	var sortedGateways []Gateway
+	// Filter out gateways that have recently failed internet connectivity checks
+	var viableGateways []Gateway
 	for _, gateway := range gm.availableGateways {
-		sortedGateways = append(sortedGateways, gateway)
+		if _, ok := gm.gatewaysWithNoInternet[gateway.BSSID]; !ok {
+			viableGateways = append(viableGateways, gateway)
+		}
+	}
+
+	// If all available gateways are in the no-internet list, try the least recently failed one.
+	if len(viableGateways) == 0 && len(gm.availableGateways) > 0 {
+		var leastRecentlyFailedGateway Gateway
+		var oldestTimestamp time.Time
+
+		for bssid, timestamp := range gm.gatewaysWithNoInternet {
+			if gateway, ok := gm.availableGateways[bssid]; ok {
+				if oldestTimestamp.IsZero() || timestamp.Before(oldestTimestamp) {
+					oldestTimestamp = timestamp
+					leastRecentlyFailedGateway = gateway
+				}
+			}
+		}
+		if !oldestTimestamp.IsZero() {
+			logger.WithField("bssid", leastRecentlyFailedGateway.BSSID).Info("All gateways have failed connectivity checks. Retrying the least recently failed one.")
+			viableGateways = append(viableGateways, leastRecentlyFailedGateway)
+			// Remove from the no-internet list to allow connection attempt
+			delete(gm.gatewaysWithNoInternet, leastRecentlyFailedGateway.BSSID)
+		}
 	}
 
 	// Sort gateways by score in descending order
-	sort.Slice(sortedGateways, func(i, j int) bool {
+	sort.Slice(viableGateways, func(i, j int) bool {
 		// Prioritize lower price, then higher score
-		if sortedGateways[i].PricePerStep != sortedGateways[j].PricePerStep {
-			return sortedGateways[i].PricePerStep < sortedGateways[j].PricePerStep
+		if viableGateways[i].PricePerStep != viableGateways[j].PricePerStep {
+			return viableGateways[i].PricePerStep < viableGateways[j].PricePerStep
 		}
-		return sortedGateways[i].Score > sortedGateways[j].Score
+		return viableGateways[i].Score > viableGateways[j].Score
 	})
 
-	for i, gateway := range sortedGateways {
+	for i, gateway := range viableGateways {
 		if i >= 3 { // Limit to top 3 for logging
 			break
 		}
@@ -139,17 +163,16 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		}).Info("Top gateway candidate")
 	}
 
-	if len(sortedGateways) > 0 {
-		highestPriorityGateway := sortedGateways[0]
+	if len(viableGateways) > 0 {
+		highestPriorityGateway := viableGateways[0]
 
 		currentSSID, err := gm.connector.GetConnectedSSID()
 		if err != nil {
 			logger.WithError(err).Warn("Could not determine current connected SSID")
-			// Proceed with connection attempt if current SSID cannot be determined
 		}
 
 		isConnectedToTopThree := false
-		for i, gateway := range sortedGateways {
+		for i, gateway := range viableGateways {
 			if i >= 3 {
 				break
 			}
@@ -159,9 +182,20 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			}
 		}
 
+		// If not connected to a top gateway, or if connected but no internet, try to connect.
 		if !isConnectedToTopThree || !gm.networkMonitor.IsConnected() {
 			if !gm.networkMonitor.IsConnected() {
 				logger.Warn("No internet connectivity, attempting to connect to the best gateway.")
+				// If we are connected to a gateway but have no internet, add it to the bad list.
+				if currentSSID != "" {
+					for _, g := range gm.availableGateways {
+						if g.SSID == currentSSID {
+							gm.gatewaysWithNoInternet[g.BSSID] = time.Now()
+							logger.WithField("bssid", g.BSSID).Warn("Added gateway to no-internet list")
+							break
+						}
+					}
+				}
 			}
 
 			password := ""
@@ -171,12 +205,11 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 				logger.WithField("ssid", highestPriorityGateway.SSID).Info("Found known network, using stored password")
 			}
 
-			// Attempt to connect if the network is open, or if it's a known network with a password.
 			if highestPriorityGateway.Encryption == "Open" || highestPriorityGateway.Encryption == "" || isKnown {
 				logger.WithFields(logrus.Fields{
 					"bssid": highestPriorityGateway.BSSID,
 					"ssid":  highestPriorityGateway.SSID,
-				}).Info("Not connected to top-3 gateway, attempting to connect to highest priority gateway")
+				}).Info("Attempting to connect to highest priority gateway")
 				err := gm.connector.Connect(highestPriorityGateway, password)
 				if err != nil {
 					logger.WithFields(logrus.Fields{
@@ -184,11 +217,12 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 						"error": err,
 					}).Error("Failed to connect to gateway")
 				} else {
-					// Update SSID after successful connection
+					// Connection successful, clear the no-internet list
+					gm.gatewaysWithNoInternet = make(map[string]time.Time)
 					gm.updateAPSSID()
 				}
 			} else {
-				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Not connected to top-3 gateway. Highest priority gateway is encrypted and not in known networks. Manual connection required")
+				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Highest priority gateway is encrypted and not in known networks. Manual connection required")
 			}
 		} else {
 			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three gateways, no action required")

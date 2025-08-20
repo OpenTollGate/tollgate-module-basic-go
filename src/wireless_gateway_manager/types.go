@@ -83,7 +83,8 @@ type GatewayManager struct {
 	cm                *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
-	knownNetworks     map[string]KnownNetwork // Key: SSID
-	scanInterval      time.Duration
-	stopChan          chan struct{}
+	knownNetworks           map[string]KnownNetwork // Key: SSID
+	gatewaysWithNoInternet  map[string]time.Time    // Key: BSSID
+	scanInterval            time.Duration
+	stopChan                chan struct{}
 }
