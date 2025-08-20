@@ -106,39 +106,49 @@ func getUCIEncryptionType(encryption string) string {
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {
-	interfaceName, err := getInterfaceName()
+	interfaces, err := getSTAManagedInterfaces()
 	if err != nil {
-		logger.WithError(err).Info("Could not get managed Wi-Fi interface, probably not associated")
+		logger.WithError(err).Info("Could not get managed Wi-Fi interfaces, probably not associated")
 		return "", nil
 	}
 
-	cmd := exec.Command("iw", "dev", interfaceName, "link")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	for iface := range interfaces {
+		cmd := exec.Command("iw", "dev", iface, "link")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		logger.WithFields(logrus.Fields{
-			"interface": interfaceName,
-			"error":     err,
-			"stderr":    stderr.String(),
-		}).Warn("Could not get connected SSID from interface")
-		return "", nil // Not an error if not connected, but return empty string
-	}
+		if err := cmd.Run(); err != nil {
+			// This is expected if the interface is not connected, so we just log debug info
+			logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err,
+				"stderr":    stderr.String(),
+			}).Debug("Could not get link info from interface (likely not connected)")
+			continue // Try the next interface
+		}
 
-	output := stdout.String()
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "SSID:") {
-			// Correctly parse the line, which is formatted as "\tSSID: MySSID"
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), nil
+		output := stdout.String()
+		if strings.Contains(output, "Not connected") {
+			continue
+		}
+
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "SSID:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					ssid := strings.TrimSpace(parts[1])
+					if ssid != "" {
+						logger.WithFields(logrus.Fields{"interface": iface, "ssid": ssid}).Info("Found connected SSID")
+						return ssid, nil
+					}
+				}
 			}
 		}
 	}
 
-	return "", nil // No SSID found, likely not connected
+	return "", nil // No connected SSID found on any interface
 }
 
 // ExecuteUCI executes a UCI command.
