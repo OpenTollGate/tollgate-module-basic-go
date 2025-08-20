@@ -19,6 +19,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/mint_proxy"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/nbd-wtf/go-nostr"
@@ -41,6 +42,7 @@ var gatewayManager *wireless_gateway_manager.GatewayManager
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
 var cliServer *cli.CLIServer
+var mintProxyInstance *mint_proxy.MintProxy
 
 // getTollgatePaths returns the configuration file paths based on the environment.
 // If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
@@ -121,6 +123,9 @@ func init() {
 
 	// Initialize crowsnest module
 	initCrowsnest()
+
+	// Initialize mint_proxy module
+	initMintProxy()
 }
 
 func initJanitor() {
@@ -168,6 +173,40 @@ func initCLIServer() {
 	}
 
 	mainLogger.Info("CLI server initialized and listening on Unix socket")
+}
+
+func initMintProxy() {
+	mainLogger.Info("Initializing mint proxy...")
+
+	// Log merchant instance status
+	if merchantInstance == nil {
+		mainLogger.Fatal("Merchant instance is nil - cannot initialize mint proxy")
+		return
+	}
+
+	acceptedMints := merchantInstance.GetAcceptedMints()
+	mainLogger.WithField("accepted_mints_count", len(acceptedMints)).Info("Merchant instance ready for mint proxy")
+
+	var err error
+	mintProxyInstance, err = mint_proxy.NewMintProxy(merchantInstance, ":2122")
+	if err != nil {
+		mainLogger.WithError(err).Fatal("Failed to create mint proxy instance")
+	}
+
+	mainLogger.Info("Mint proxy instance created successfully")
+
+	// Start the mint proxy server in a separate goroutine
+	go func() {
+		mainLogger.Info("Starting mint proxy server...")
+		err := mintProxyInstance.Start()
+		if err != nil {
+			mainLogger.WithError(err).Error("Error starting mint proxy server")
+		}
+	}()
+
+	// Give the server a moment to start
+	time.Sleep(100 * time.Millisecond)
+	mainLogger.Info("Mint proxy initialized and listening on ws://localhost:2122/mint-proxy")
 }
 
 func startPrivateRelayWithAutoRestart() {

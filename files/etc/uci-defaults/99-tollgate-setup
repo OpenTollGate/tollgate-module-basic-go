@@ -220,6 +220,7 @@ uci_safe_set nodogsplash @nodogsplash[0] gatewayinterface 'br-lan'
 
 # Ensure TollGate protocol port is allowed
 uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
+uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2122' # Lightning proxy
 uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
 uci commit nodogsplash
 log_message "NoDogSplash configuration completed"
