@@ -19,6 +19,7 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		"ssid":       gateway.SSID,
 		"bssid":      gateway.BSSID,
 		"encryption": gateway.Encryption,
+		"radio":      gateway.Radio,
 	}).Info("Attempting to connect to gateway")
 
 	// Ensure a STA interface exists, creating one if necessary
@@ -34,7 +35,10 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure wireless.tollgate_sta for STA mode
+	// Configure wireless.tollgate_sta for STA mode on the correct radio
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device="+gateway.Radio); err != nil {
+		return err
+	}
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.ssid="+gateway.SSID); err != nil {
 		return err
 	}
@@ -234,26 +238,35 @@ func (c *Connector) cleanupSTAInterfaces() error {
 	return nil
 }
 
-// ensureSTAInterfaceExists checks for a STA interface and creates a default one if it doesn't exist.
+// ensureSTAInterfaceExists ensures a single, consistently named STA interface ('tollgate_sta') exists.
+// It cleans up old STA interfaces and creates a default one on the first available radio if none exist.
 func (c *Connector) ensureSTAInterfaceExists() error {
-	logger.Info("Ensuring STA wifi-iface section exists")
-	output, err := c.ExecuteUCI("show", "wireless")
+	logger.Info("Ensuring a consistent STA wifi-iface section exists")
+
+	// First, clean up any existing STA interfaces to start from a known state.
+	// This prevents issues with multiple or misconfigured STA interfaces.
+	if err := c.cleanupSTAInterfaces(); err != nil {
+		return fmt.Errorf("failed during cleanup of STA interfaces: %w", err)
+	}
+
+	// After cleanup, no STA interfaces should exist. We now create a single, default one.
+	radios, err := c.getAvailableRadios()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get available radios: %w", err)
+	}
+	if len(radios) == 0 {
+		return fmt.Errorf("no wifi radio devices found, cannot create STA interface")
 	}
 
-	if strings.Contains(output, ".mode='sta'") {
-		logger.Info("STA interface already exists")
-		return nil
-	}
+	// Create the default STA interface on the first available radio.
+	// The 'Connect' function will later set the correct radio device based on the selected gateway.
+	defaultRadio := radios[0]
+	logger.WithField("radio", defaultRadio).Info("No STA interface found, creating default 'tollgate_sta'")
 
-	logger.Info("No STA interface found, creating default")
-	// Assuming 'radio0' is the primary radio for STA mode.
-	// This could be made more dynamic if needed.
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta=wifi-iface"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device=radio0"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device="+defaultRadio); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.mode=sta"); err != nil {
@@ -269,6 +282,34 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 		return err
 	}
 	return c.reloadWifi()
+}
+
+// getAvailableRadios scans the UCI configuration to find all wifi-device sections.
+func (c *Connector) getAvailableRadios() ([]string, error) {
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return nil, err
+	}
+
+	radios := []string{}
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, "=wifi-device") {
+			radioName := strings.TrimSuffix(line, "=wifi-device")
+			// The section name is in the format 'wireless.radio0', 'wireless.radio1', etc.
+			parts := strings.Split(radioName, ".")
+			if len(parts) == 2 {
+				radios = append(radios, parts[1])
+			}
+		}
+	}
+
+	if len(radios) == 0 {
+		logger.Warn("No wifi-device sections found in UCI config")
+	}
+
+	return radios, nil
 }
 
 // SetAPSSIDSafeMode renames the local AP's SSID to a "SafeMode-" prefix.

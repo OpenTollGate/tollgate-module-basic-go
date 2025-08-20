@@ -43,6 +43,7 @@ type NetworkInfo struct {
 	PricePerStep int
 	StepSize     int
 	RawIEs       []byte
+	Radio        string
 }
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
@@ -72,6 +73,7 @@ type Gateway struct {
 	StepSize       int               `json:"step_size"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
+	Radio          string            `json:"radio"`
 }
 
 // GatewayManager orchestrates the gateway management operations.

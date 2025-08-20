@@ -13,78 +13,109 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ScanWirelessNetworks scans for available Wi-Fi networks.
+// ScanWirelessNetworks scans for available Wi-Fi networks on all available STA interfaces.
 func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
-	logger.Info("Starting Wi-Fi network scan")
-	// Determine the Wi-Fi interface dynamically
-	interfaceName, err := getInterfaceName()
+	logger.Info("Starting Wi-Fi network scan on all STA interfaces")
+
+	interfaces, err := getSTAManagedInterfaces()
 	if err != nil {
-		logger.WithError(err).Warn("Failed to get interface name, attempting to create one")
+		logger.WithError(err).Error("Failed to get STA managed interfaces")
+		// If no interfaces exist, try to create one and retry.
 		if err := s.connector.ensureSTAInterfaceExists(); err != nil {
 			logger.WithError(err).Error("Failed to create STA interface")
 			return nil, err
 		}
-		// Retry getting the interface name after creation
-		interfaceName, err = getInterfaceName()
+		interfaces, err = getSTAManagedInterfaces()
 		if err != nil {
-			logger.WithError(err).Error("Failed to get interface name after attempting to create it")
+			logger.WithError(err).Error("Still failed to get STA managed interfaces after creation attempt")
 			return nil, err
 		}
 	}
 
-	cmd := exec.Command("iw", "dev", interfaceName, "scan")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		logger.WithFields(logrus.Fields{
-			"error":  err,
-			"stderr": stderr.String(),
-		}).Error("Failed to scan networks")
-		return nil, err
+	if len(interfaces) == 0 {
+		logger.Warn("No STA managed interfaces found to scan on.")
+		return []NetworkInfo{}, nil
 	}
 
-	logger.Info("Successfully scanned networks")
+	var allNetworks []NetworkInfo
+	for iface, radio := range interfaces {
+		logger.WithFields(logrus.Fields{"interface": iface, "radio": radio}).Info("Scanning on interface")
+		cmd := exec.Command("iw", "dev", iface, "scan")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	networks, err := parseScanOutput(stdout.Bytes())
-	if err != nil {
-		logger.WithError(err).Error("Failed to parse scan output")
-		return nil, err
+		if err := cmd.Run(); err != nil {
+			// A scan can fail if the interface is busy, which is not a fatal error for the whole process.
+			logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err,
+				"stderr":    stderr.String(),
+			}).Warn("Failed to scan on a specific interface, continuing with others")
+			continue
+		}
+
+		networks, err := parseScanOutput(stdout.Bytes(), radio)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err,
+			}).Warn("Failed to parse scan output for an interface")
+			continue
+		}
+		allNetworks = append(allNetworks, networks...)
 	}
-	logger.WithField("network_count", len(networks)).Info("Parsed scan output into NetworkInfo structures")
 
-	return networks, nil
+	logger.WithField("total_network_count", len(allNetworks)).Info("Finished scanning all interfaces")
+	return allNetworks, nil
 }
 
-func getInterfaceName() (string, error) {
+// getSTAManagedInterfaces finds all network interfaces of type 'managed' (STA).
+// It returns a map of the interface name to its corresponding radio device (e.g., "phy0-sta0" -> "radio0").
+func getSTAManagedInterfaces() (map[string]string, error) {
 	cmd := exec.Command("iw", "dev")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-
 	if err := cmd.Run(); err != nil {
-		return "", err
+		return nil, err
 	}
 
+	interfaces := make(map[string]string)
 	scanner := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
-	var currentInterface string
+	var currentPhy, currentInterface string
+
+	phyRegex := regexp.MustCompile(`phy#(\d+)`)
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Interface") {
+		if strings.HasPrefix(line, "phy#") {
+			matches := phyRegex.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				currentPhy = "radio" + matches[1]
+			}
+		} else if strings.HasPrefix(line, "Interface") {
 			parts := strings.Fields(line)
 			if len(parts) > 1 {
 				currentInterface = parts[1]
 			}
 		} else if strings.HasPrefix(line, "type") && strings.Contains(line, "managed") {
-			if currentInterface != "" {
-				return currentInterface, nil
+			if currentInterface != "" && currentPhy != "" {
+				interfaces[currentInterface] = currentPhy
+				// Reset for next interface block
+				currentInterface = ""
+				// currentPhy is sticky until the next phy is found
 			}
 		}
 	}
-	return "", errors.New("no managed Wi-Fi interface found")
+
+	if len(interfaces) == 0 {
+		return nil, errors.New("no managed Wi-Fi interfaces found")
+	}
+	return interfaces, nil
 }
 
-func parseScanOutput(output []byte) ([]NetworkInfo, error) {
+
+func parseScanOutput(output []byte, radio string) ([]NetworkInfo, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	var networks []NetworkInfo
 	var currentNetwork *NetworkInfo
@@ -102,7 +133,7 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 			}
 			matches := bssidRegex.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				currentNetwork = &NetworkInfo{BSSID: matches[1]}
+				currentNetwork = &NetworkInfo{BSSID: matches[1], Radio: radio}
 			} else {
 				logger.WithField("line", line).Warn("Could not extract BSSID from line")
 				currentNetwork = nil // Invalidate current network

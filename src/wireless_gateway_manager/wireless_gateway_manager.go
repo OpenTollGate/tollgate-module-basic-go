@@ -110,6 +110,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			StepSize:       network.StepSize,
 			Score:          score,
 			VendorElements: convertToStringMap(vendorElements),
+			Radio:          network.Radio,
 		}
 
 		// Adjust score based on price.
@@ -174,6 +175,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"step_size":       gateway.StepSize,
 			"score":           gateway.Score,
 			"vendor_elements": gateway.VendorElements,
+			"radio":           gateway.Radio,
 		}).Info("Top gateway candidate")
 	}
 
