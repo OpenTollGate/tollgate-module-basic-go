@@ -272,18 +272,24 @@ func (gm *GatewayManager) updateAPSSID() {
 		return
 	}
 
-	pricePerStep, err := strconv.Atoi(elements["price_per_step"])
+	priceStr, ok := elements["price_per_step"]
+	if !ok {
+		priceStr = "0" // Default to 0 if not set
+	}
+	pricePerStep, err := strconv.Atoi(priceStr)
 	if err != nil {
-		logger.WithError(err).Error("Failed to parse price_per_step from vendor elements")
-		// Handle error
-		return
+		logger.WithError(err).Error("Failed to parse price_per_step from vendor elements, defaulting to 0")
+		pricePerStep = 0 // Default to 0 on parsing error
 	}
 
-	stepSize, err := strconv.Atoi(elements["step_size"])
+	stepStr, ok := elements["step_size"]
+	if !ok {
+		stepStr = "0" // Default to 0 if not set
+	}
+	stepSize, err := strconv.Atoi(stepStr)
 	if err != nil {
-		logger.WithError(err).Error("Failed to parse step_size from vendor elements")
-		// Handle error
-		return
+		logger.WithError(err).Error("Failed to parse step_size from vendor elements, defaulting to 0")
+		stepSize = 0 // Default to 0 on parsing error
 	}
 
 	// Update the local AP's SSID to advertise the new pricing
