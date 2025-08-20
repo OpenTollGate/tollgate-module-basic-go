@@ -4,8 +4,6 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
-	"errors"
-	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -14,78 +12,64 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ScanWirelessNetworks scans for available Wi-Fi networks.
+// ScanWirelessNetworks scans for available Wi-Fi networks on all available STA interfaces.
 func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
-	logger.Info("Starting Wi-Fi network scan")
-	// Determine the Wi-Fi interface dynamically
-	interfaceName, err := getInterfaceName()
+	logger.Info("Starting Wi-Fi network scan on all STA interfaces")
+
+	interfaces, err := getSTAManagedInterfaces()
 	if err != nil {
-		logger.WithError(err).Warn("Failed to get interface name, attempting to create one")
+		logger.WithError(err).Error("Failed to get STA managed interfaces")
+		// If no interfaces exist, try to create one and retry.
 		if err := s.connector.ensureSTAInterfaceExists(); err != nil {
 			logger.WithError(err).Error("Failed to create STA interface")
 			return nil, err
 		}
-		// Retry getting the interface name after creation
-		interfaceName, err = getInterfaceName()
+		interfaces, err = getSTAManagedInterfaces()
 		if err != nil {
-			logger.WithError(err).Error("Failed to get interface name after attempting to create it")
+			logger.WithError(err).Error("Still failed to get STA managed interfaces after creation attempt")
 			return nil, err
 		}
 	}
 
-	cmd := exec.Command("iw", "dev", interfaceName, "scan")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		logger.WithFields(logrus.Fields{
-			"error":  err,
-			"stderr": stderr.String(),
-		}).Error("Failed to scan networks")
-		return nil, err
+	if len(interfaces) == 0 {
+		logger.Warn("No STA managed interfaces found to scan on.")
+		return []NetworkInfo{}, nil
 	}
 
-	logger.Info("Successfully scanned networks")
+	var allNetworks []NetworkInfo
+	for iface, radio := range interfaces {
+		logger.WithFields(logrus.Fields{"interface": iface, "radio": radio}).Info("Scanning on interface")
+		cmd := exec.Command("iw", "dev", iface, "scan")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	networks, err := parseScanOutput(stdout.Bytes())
-	if err != nil {
-		logger.WithError(err).Error("Failed to parse scan output")
-		return nil, err
-	}
-	logger.WithField("network_count", len(networks)).Info("Parsed scan output into NetworkInfo structures")
-
-	return networks, nil
-}
-
-func getInterfaceName() (string, error) {
-	cmd := exec.Command("iw", "dev")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
-	var currentInterface string
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Interface") {
-			parts := strings.Fields(line)
-			if len(parts) > 1 {
-				currentInterface = parts[1]
-			}
-		} else if strings.HasPrefix(line, "type") && strings.Contains(line, "managed") {
-			if currentInterface != "" {
-				return currentInterface, nil
-			}
+		if err := cmd.Run(); err != nil {
+			// A scan can fail if the interface is busy, which is not a fatal error for the whole process.
+			logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err,
+				"stderr":    stderr.String(),
+			}).Warn("Failed to scan on a specific interface, continuing with others")
+			continue
 		}
+
+		networks, err := parseScanOutput(stdout.Bytes(), radio)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err,
+			}).Warn("Failed to parse scan output for an interface")
+			continue
+		}
+		allNetworks = append(allNetworks, networks...)
 	}
-	return "", errors.New("no managed Wi-Fi interface found")
+
+	logger.WithField("total_network_count", len(allNetworks)).Info("Finished scanning all interfaces")
+	return allNetworks, nil
 }
 
-func parseScanOutput(output []byte) ([]NetworkInfo, error) {
+func parseScanOutput(output []byte, radio string) ([]NetworkInfo, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	var networks []NetworkInfo
 	var currentNetwork *NetworkInfo
@@ -96,11 +80,14 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "BSS ") {
 			if currentNetwork != nil && currentNetwork.SSID != "" { // Only add if SSID was found
+				if currentNetwork.Encryption == "" {
+					currentNetwork.Encryption = "Open" // Default to Open if no encryption is detected
+				}
 				networks = append(networks, *currentNetwork)
 			}
 			matches := bssidRegex.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				currentNetwork = &NetworkInfo{BSSID: matches[1]}
+				currentNetwork = &NetworkInfo{BSSID: matches[1], Radio: radio}
 			} else {
 				logger.WithField("line", line).Warn("Could not extract BSSID from line")
 				currentNetwork = nil // Invalidate current network
@@ -111,8 +98,8 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 				if ssid != "" {
 					currentNetwork.SSID = ssid
-					// Parse hop count from SSID
-					currentNetwork.HopCount = parseHopCountFromSSID(ssid)
+					// Parse pricing from SSID
+					currentNetwork.PricePerStep, currentNetwork.StepSize = parsePricingFromSSID(ssid)
 				}
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
@@ -126,6 +113,7 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 				} else {
 					currentNetwork.Signal = int(signal)
 				}
+				
 			} else if strings.Contains(line, "RSN:") || strings.Contains(line, "WPA:") {
 				currentNetwork.Encryption = "WPA/WPA2"
 			} else if strings.Contains(line, "Authentication suites: Open") {
@@ -141,21 +129,29 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 	return networks, scanner.Err()
 }
 
-func parseHopCountFromSSID(ssid string) int {
+
+func parsePricingFromSSID(ssid string) (int, int) {
 	if !strings.HasPrefix(ssid, "TollGate-") {
-		return 0 // Not a TollGate network, hop count is 0
+		return 0, 0 // Not a TollGate network
 	}
 
 	parts := strings.Split(ssid, "-")
 	if len(parts) < 4 {
-		return math.MaxInt32 // Invalid format, cannot determine hop count
+		return 0, 0 // Invalid format
 	}
 
-	hopCountStr := parts[len(parts)-1]
-	hopCount, err := strconv.Atoi(hopCountStr)
+	priceStr := parts[len(parts)-2]
+	stepStr := parts[len(parts)-1]
+
+	price, err := strconv.Atoi(priceStr)
 	if err != nil {
-		return math.MaxInt32 // Could not parse hop count
+		return 0, 0 // Could not parse price
 	}
 
-	return hopCount
+	step, err := strconv.Atoi(stepStr)
+	if err != nil {
+		return 0, 0 // Could not parse step
+	}
+
+	return price, step
 }

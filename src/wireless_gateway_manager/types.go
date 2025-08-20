@@ -4,6 +4,8 @@ package wireless_gateway_manager
 import (
 	"sync"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // Constants for network monitoring
@@ -37,9 +39,11 @@ type NetworkInfo struct {
 	BSSID      string
 	SSID       string
 	Signal     int
-	Encryption string
-	HopCount   int
-	RawIEs     []byte
+	Encryption   string
+	PricePerStep int
+	StepSize     int
+	RawIEs       []byte
+	Radio        string
 }
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
@@ -65,9 +69,11 @@ type Gateway struct {
 	SSID           string            `json:"ssid"`
 	Signal         int               `json:"signal"`
 	Encryption     string            `json:"encryption"`
-	HopCount       int               `json:"hop_count"`
+	PricePerStep   int               `json:"price_per_step"`
+	StepSize       int               `json:"step_size"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
+	Radio          string            `json:"radio"`
 }
 
 // GatewayManager orchestrates the gateway management operations.
@@ -76,10 +82,11 @@ type GatewayManager struct {
 	connector         *Connector
 	vendorProcessor   *VendorElementProcessor
 	networkMonitor    *NetworkMonitor
+	cm                *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
-	knownNetworks     map[string]KnownNetwork // Key: SSID
-	currentHopCount   int
-	scanInterval      time.Duration
-	stopChan          chan struct{}
+	knownNetworks           map[string]KnownNetwork // Key: SSID
+	gatewaysWithNoInternet  map[string]time.Time    // Key: BSSID
+	scanInterval            time.Duration
+	stopChan                chan struct{}
 }

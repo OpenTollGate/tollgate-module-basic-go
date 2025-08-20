@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"math"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -20,6 +19,7 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		"ssid":       gateway.SSID,
 		"bssid":      gateway.BSSID,
 		"encryption": gateway.Encryption,
+		"radio":      gateway.Radio,
 	}).Info("Attempting to connect to gateway")
 
 	// Ensure a STA interface exists, creating one if necessary
@@ -35,7 +35,10 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure wireless.tollgate_sta for STA mode
+	// Configure wireless.tollgate_sta for STA mode on the correct radio
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device="+gateway.Radio); err != nil {
+		return err
+	}
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.ssid="+gateway.SSID); err != nil {
 		return err
 	}
@@ -60,8 +63,11 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption=none"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
-			return err
+		// Only delete the key if it exists
+		if _, err := c.ExecuteUCI("get", "wireless.tollgate_sta.key"); err == nil {
+			if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -100,39 +106,49 @@ func getUCIEncryptionType(encryption string) string {
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {
-	interfaceName, err := getInterfaceName()
+	interfaces, err := getSTAManagedInterfaces()
 	if err != nil {
-		logger.WithError(err).Info("Could not get managed Wi-Fi interface, probably not associated")
+		logger.WithError(err).Info("Could not get managed Wi-Fi interfaces, probably not associated")
 		return "", nil
 	}
 
-	cmd := exec.Command("iw", "dev", interfaceName, "link")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	for iface := range interfaces {
+		cmd := exec.Command("iw", "dev", iface, "link")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		logger.WithFields(logrus.Fields{
-			"interface": interfaceName,
-			"error":     err,
-			"stderr":    stderr.String(),
-		}).Warn("Could not get connected SSID from interface")
-		return "", nil // Not an error if not connected, but return empty string
-	}
+		if err := cmd.Run(); err != nil {
+			// This is expected if the interface is not connected, so we just log debug info
+			logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err,
+				"stderr":    stderr.String(),
+			}).Debug("Could not get link info from interface (likely not connected)")
+			continue // Try the next interface
+		}
 
-	output := stdout.String()
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "SSID:") {
-			// Correctly parse the line, which is formatted as "\tSSID: MySSID"
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), nil
+		output := stdout.String()
+		if strings.Contains(output, "Not connected") {
+			continue
+		}
+
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "SSID:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					ssid := strings.TrimSpace(parts[1])
+					if ssid != "" {
+						logger.WithFields(logrus.Fields{"interface": iface, "ssid": ssid}).Info("Found connected SSID")
+						return ssid, nil
+					}
+				}
 			}
 		}
 	}
 
-	return "", nil // No SSID found, likely not connected
+	return "", nil // No connected SSID found on any interface
 }
 
 // ExecuteUCI executes a UCI command.
@@ -232,26 +248,35 @@ func (c *Connector) cleanupSTAInterfaces() error {
 	return nil
 }
 
-// ensureSTAInterfaceExists checks for a STA interface and creates a default one if it doesn't exist.
+// ensureSTAInterfaceExists ensures a single, consistently named STA interface ('tollgate_sta') exists.
+// It cleans up old STA interfaces and creates a default one on the first available radio if none exist.
 func (c *Connector) ensureSTAInterfaceExists() error {
-	logger.Info("Ensuring STA wifi-iface section exists")
-	output, err := c.ExecuteUCI("show", "wireless")
+	logger.Info("Ensuring a consistent STA wifi-iface section exists")
+
+	// First, clean up any existing STA interfaces to start from a known state.
+	// This prevents issues with multiple or misconfigured STA interfaces.
+	if err := c.cleanupSTAInterfaces(); err != nil {
+		return fmt.Errorf("failed during cleanup of STA interfaces: %w", err)
+	}
+
+	// After cleanup, no STA interfaces should exist. We now create a single, default one.
+	radios, err := c.getAvailableRadios()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get available radios: %w", err)
+	}
+	if len(radios) == 0 {
+		return fmt.Errorf("no wifi radio devices found, cannot create STA interface")
 	}
 
-	if strings.Contains(output, ".mode='sta'") {
-		logger.Info("STA interface already exists")
-		return nil
-	}
+	// Create the default STA interface on the first available radio.
+	// The 'Connect' function will later set the correct radio device based on the selected gateway.
+	defaultRadio := radios[0]
+	logger.WithField("radio", defaultRadio).Info("No STA interface found, creating default 'tollgate_sta'")
 
-	logger.Info("No STA interface found, creating default")
-	// Assuming 'radio0' is the primary radio for STA mode.
-	// This could be made more dynamic if needed.
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta=wifi-iface"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device=radio0"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.device="+defaultRadio); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.mode=sta"); err != nil {
@@ -269,6 +294,34 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	return c.reloadWifi()
 }
 
+// getAvailableRadios scans the UCI configuration to find all wifi-device sections.
+func (c *Connector) getAvailableRadios() ([]string, error) {
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return nil, err
+	}
+
+	radios := []string{}
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, "=wifi-device") {
+			radioName := strings.TrimSuffix(line, "=wifi-device")
+			// The section name is in the format 'wireless.radio0', 'wireless.radio1', etc.
+			parts := strings.Split(radioName, ".")
+			if len(parts) == 2 {
+				radios = append(radios, parts[1])
+			}
+		}
+	}
+
+	if len(radios) == 0 {
+		logger.Warn("No wifi-device sections found in UCI config")
+	}
+
+	return radios, nil
+}
+
 // SetAPSSIDSafeMode renames the local AP's SSID to a "SafeMode-" prefix.
 func (c *Connector) SetAPSSIDSafeMode() error {
 	logger.Info("Setting AP SSID to SafeMode")
@@ -279,6 +332,14 @@ func (c *Connector) SetAPSSIDSafeMode() error {
 func (c *Connector) RestoreAPSSIDFromSafeMode() error {
 	logger.Info("Restoring AP SSID from SafeMode")
 	return c.updateAPSSIDWithPrefix("") // Pass an empty prefix to restore the original name
+}
+
+// SetSafeModeSSID sets or unsets the AP SSID to SafeMode.
+func (c *Connector) SetSafeModeSSID(enable bool) error {
+	if enable {
+		return c.SetAPSSIDSafeMode()
+	}
+	return c.RestoreAPSSIDFromSafeMode()
 }
 
 func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
@@ -331,8 +392,8 @@ func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 }
 
 
-// UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
-func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
+// UpdateLocalAPSSID updates the local AP's SSID to advertise the pricing information.
+func (c *Connector) UpdateLocalAPSSID(pricePerStep int, stepSize int) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
 		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
 		return err // This is a significant issue, so we return the error.
@@ -355,34 +416,26 @@ func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
 				"radio": radio,
 				"error": err,
 			}).Warn("Could not get current SSID")
-			continue // Try the next radio
+			continue
 		}
 		baseSSID = strings.TrimSpace(baseSSID)
 
-		// Strip any existing hop count from the base SSID
+		// Strip any existing pricing from the base SSID
 		parts := strings.Split(baseSSID, "-")
-		if len(parts) > 1 {
-			lastPart := parts[len(parts)-1]
-			if _, err := strconv.Atoi(lastPart); err == nil {
-				// It ends with a number, so it's a hop count. Strip it.
-				baseSSID = strings.Join(parts[:len(parts)-1], "-")
+		if len(parts) > 2 {
+			// Check if the last two parts are numbers
+			if _, err1 := strconv.Atoi(parts[len(parts)-2]); err1 == nil {
+				if _, err2 := strconv.Atoi(parts[len(parts)-1]); err2 == nil {
+					baseSSID = strings.Join(parts[:len(parts)-2], "-")
+				}
 			}
 		}
 
-		var newSSID string
-		if hopCount == math.MaxInt32 {
-			newSSID = baseSSID
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Disconnected, setting AP SSID to base")
-		} else {
-			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Updating local AP SSID")
-		}
+		newSSID := fmt.Sprintf("%s-%d-%d", baseSSID, pricePerStep, stepSize)
+		logger.WithFields(logrus.Fields{
+			"radio":    radio,
+			"new_ssid": newSSID,
+		}).Info("Updating local AP SSID with pricing information")
 
 		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
 			logger.WithFields(logrus.Fields{

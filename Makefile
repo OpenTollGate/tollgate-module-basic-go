@@ -34,7 +34,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq
+	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq +iw
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files

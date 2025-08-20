@@ -1,3 +1,4 @@
+// Package wireless_gateway_manager implements the GatewayManager for managing Wi-Fi gateways.
 package wireless_gateway_manager
 
 import (
@@ -5,16 +6,23 @@ import (
 	"time"
 )
 
+// IsConnected returns true if the network is considered connected.
+func (nm *NetworkMonitor) IsConnected() bool {
+	return nm.pingFailures < consecutiveFailures
+}
+
+// NewNetworkMonitor initializes and returns a new NetworkMonitor.
 func NewNetworkMonitor(connector *Connector) *NetworkMonitor {
 	return &NetworkMonitor{
 		connector: connector,
-		ticker:    time.NewTicker(30 * time.Second),
 		stopChan:  make(chan struct{}),
 	}
 }
 
+// Start begins the network monitoring process.
 func (nm *NetworkMonitor) Start() {
 	logger.Info("Starting network monitor")
+	nm.ticker = time.NewTicker(15 * time.Second)
 	go func() {
 		for {
 			select {
@@ -28,41 +36,45 @@ func (nm *NetworkMonitor) Start() {
 	}()
 }
 
+// Stop halts the network monitoring process.
 func (nm *NetworkMonitor) Stop() {
-	logger.Info("Stopping network monitor")
 	close(nm.stopChan)
 }
 
 func (nm *NetworkMonitor) checkConnectivity() {
-	err := ping(pingTarget)
+	err := exec.Command("ping", "-c", "1", pingTarget).Run()
 	if err != nil {
 		nm.pingFailures++
 		nm.pingSuccesses = 0
 		logger.WithField("consecutive_failures", nm.pingFailures).Warn("Ping failed")
 		if nm.pingFailures >= consecutiveFailures && !nm.isInSafeMode {
-			logger.Warn("Entering SafeMode due to lost connectivity")
-			if err := nm.connector.SetAPSSIDSafeMode(); err != nil {
-				logger.WithError(err).Error("Failed to enter SafeMode")
-			} else {
-				nm.isInSafeMode = true
-			}
+			nm.setSafeMode(true)
 		}
 	} else {
 		nm.pingSuccesses++
-		nm.pingFailures = 0
-		logger.WithField("consecutive_successes", nm.pingSuccesses).Debug("Ping successful")
-		if nm.pingSuccesses >= consecutiveSuccesses && nm.isInSafeMode {
-			logger.Info("Restoring AP from SafeMode due to restored connectivity")
-			if err := nm.connector.RestoreAPSSIDFromSafeMode(); err != nil {
-				logger.WithError(err).Error("Failed to restore AP from SafeMode")
-			} else {
-				nm.isInSafeMode = false
-			}
+		if nm.pingSuccesses >= consecutiveSuccesses {
+			nm.pingFailures = 0
+		}
+		if nm.isInSafeMode {
+			nm.setSafeMode(false)
 		}
 	}
 }
 
-func ping(host string) error {
-	cmd := exec.Command("ping", "-c", "1", "-W", "5", host)
-	return cmd.Run()
+func (nm *NetworkMonitor) setSafeMode(enable bool) {
+	if enable {
+		logger.Warn("Entering SafeMode due to lost connectivity")
+		nm.isInSafeMode = true
+		// Prepend "SafeMode-" to the SSIDs of the local APs
+		if err := nm.connector.SetSafeModeSSID(true); err != nil {
+			logger.WithError(err).Error("Failed to set SafeMode SSID")
+		}
+	} else {
+		logger.Info("Exiting SafeMode, connectivity restored")
+		nm.isInSafeMode = false
+		// Remove "SafeMode-" from the SSIDs of the local APs
+		if err := nm.connector.SetSafeModeSSID(false); err != nil {
+			logger.WithError(err).Error("Failed to restore normal SSID")
+		}
+	}
 }

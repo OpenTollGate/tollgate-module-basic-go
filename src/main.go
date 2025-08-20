@@ -35,7 +35,6 @@ var (
 	mainConfig    *config_manager.Config
 	installConfig *config_manager.InstallConfig
 )
-
 var gatewayManager *wireless_gateway_manager.GatewayManager
 
 var tollgateDetailsString string
@@ -90,7 +89,7 @@ func init() {
 
 	installConfig = configManager.GetInstallConfig()
 
-	gatewayManager, err = wireless_gateway_manager.Init(context.Background())
+	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to initialize gateway manager")
 	}
@@ -381,7 +380,6 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
-
 		CorsMiddleware(HandleRoot)(w, r)
 	})
 

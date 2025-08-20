@@ -127,7 +127,6 @@ func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverp
 	return tokenString, nil
 }
 
-
 func ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }
