@@ -322,6 +322,8 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		if ourStepSize > 0 {
 			pricePerStep = int(ourPrice / ourStepSize)
 		}
+		// ensure stepSize is updated to our configured StepSize
+		stepSize = int(config.StepSize)
 	}
 
 	// Update the local AP's SSID to advertise the new pricing
