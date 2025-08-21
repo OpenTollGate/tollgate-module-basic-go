@@ -4,8 +4,9 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"fmt"
-	"math"
+	"math/big"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -331,67 +332,44 @@ func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 }
 
 
-// UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
-func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
+// UpdateLocalAPSSID updates the local AP's SSID to advertise the current price.
+func (c *Connector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
 		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
-		return err // This is a significant issue, so we return the error.
+		return err
 	}
 
-	// Now that we've ensured the interfaces exist, we can proceed.
-	// We update both 2.4GHz and 5GHz APs if they exist.
 	radios := []string{"default_radio0", "default_radio1"}
 	var commitNeeded bool
 	for _, radio := range radios {
-		// Check if the interface section exists before trying to update it.
 		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
 			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
 			continue
 		}
 
-		baseSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
+		currentSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
 		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"error": err,
-			}).Warn("Could not get current SSID")
-			continue // Try the next radio
-		}
-		baseSSID = strings.TrimSpace(baseSSID)
-
-		// Strip any existing hop count from the base SSID
-		parts := strings.Split(baseSSID, "-")
-		if len(parts) > 1 {
-			lastPart := parts[len(parts)-1]
-			if _, err := strconv.Atoi(lastPart); err == nil {
-				// It ends with a number, so it's a hop count. Strip it.
-				baseSSID = strings.Join(parts[:len(parts)-1], "-")
-			}
-		}
-
-		var newSSID string
-		if hopCount == math.MaxInt32 {
-			newSSID = baseSSID
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Disconnected, setting AP SSID to base")
-		} else {
-			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Updating local AP SSID")
-		}
-
-		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"error": err,
-			}).Error("Failed to set new SSID")
+			logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Warn("Could not get current SSID")
 			continue
 		}
-		commitNeeded = true
+		currentSSID = strings.TrimSpace(currentSSID)
+
+		// Strip existing pricing info to get the base SSID
+		baseSSID := stripPricingFromSSID(currentSSID)
+
+		newSSID := fmt.Sprintf("%s-%d-%d", baseSSID, pricePerStep, stepSize)
+		logger.WithFields(logrus.Fields{
+			"radio":    radio,
+			"new_ssid": newSSID,
+		}).Info("Updating local AP SSID with new pricing")
+
+		if currentSSID != newSSID {
+			if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
+				logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Error("Failed to set new SSID")
+				continue
+			}
+			commitNeeded = true
+		}
 	}
 
 	if commitNeeded {
@@ -501,28 +479,32 @@ func (c *Connector) ensureAPInterfacesExist() error {
 }
 
 func (c *Connector) generateRandomSuffix(length int) (string, error) {
-	cmd := exec.Command("head", "/dev/urandom")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return "", err
+	const chars = "0123456789"
+	result := make([]byte, length)
+	for i := range result {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = chars[num.Int64()]
+	}
+	return string(result), nil
+}
+
+func stripPricingFromSSID(ssid string) string {
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 4 { // Expects TollGate-<ID>-<price>-<step>
+		return ssid // Not a format we can parse, return original
 	}
 
-	cmd = exec.Command("tr", "-dc", "A-Z0-9")
-	cmd.Stdin = &stdout
-	var stdout2 bytes.Buffer
-	cmd.Stdout = &stdout2
-	if err := cmd.Run(); err != nil {
-		return "", err
+	// Check if the last two parts are numbers (price and step)
+	_, err1 := strconv.Atoi(parts[len(parts)-1])
+	_, err2 := strconv.Atoi(parts[len(parts)-2])
+
+	if err1 == nil && err2 == nil {
+		// Both are numbers, so strip them
+		return strings.Join(parts[:len(parts)-2], "-")
 	}
 
-	cmd = exec.Command("head", "-c", strconv.Itoa(length))
-	cmd.Stdin = &stdout2
-	var finalStdout bytes.Buffer
-	cmd.Stdout = &finalStdout
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(finalStdout.String()), nil
+	return ssid // Return original if parsing fails
 }

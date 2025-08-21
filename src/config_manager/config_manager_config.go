@@ -14,6 +14,7 @@ type Config struct {
 	AcceptedMints []MintConfig        `json:"accepted_mints"`
 	ProfitShare   []ProfitShareConfig `json:"profit_share"`
 	StepSize      uint64              `json:"step_size"`
+	Margin        float64             `json:"margin"`
 	Metric        string              `json:"metric"`
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
@@ -159,6 +160,7 @@ func NewDefaultConfig() *Config {
 			},
 		},
 		StepSize: 20000,
+		Margin:   0.1,
 		Metric:   "milliseconds",
 		Relays: []string{
 			"wss://relay.damus.io",

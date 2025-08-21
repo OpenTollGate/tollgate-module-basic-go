@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -45,8 +44,8 @@ func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManage
 	go gm.RunPeriodicScan(ctx)
 	gm.networkMonitor.Start()
 
-	// Set initial hop count state
-	gm.updateHopCountAndAPSSID()
+	// Set initial price state
+	gm.updatePriceAndAPSSID()
 
 	return gm, nil
 }
@@ -70,8 +69,8 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	logger.Info("Starting network scan for gateway selection")
 
-	// Update current hop count based on current connection status before scanning
-	gm.updateHopCountAndAPSSID()
+	// Update current price based on current connection status before scanning
+	gm.updatePriceAndAPSSID()
 
 	networks, err := gm.scanner.ScanWirelessNetworks()
 	if err != nil {
@@ -192,8 +191,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 						"error": err,
 					}).Error("Failed to connect to gateway")
 				} else {
-					// Update hop count and SSID after successful connection
-					gm.updateHopCountAndAPSSID()
+					// Update price and SSID after successful connection
+					gm.updatePriceAndAPSSID()
 				}
 			} else {
 				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Not connected to top-3 gateway. Highest priority gateway is encrypted and not in known networks. Manual connection required")
@@ -241,7 +240,7 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error 
 	if err == nil {
 		gm.mu.Lock()
 		defer gm.mu.Unlock()
-		gm.updateHopCountAndAPSSID()
+		gm.updatePriceAndAPSSID()
 	}
 	return err
 }
@@ -278,44 +277,14 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 	return nil
 }
 
-func (gm *GatewayManager) updateHopCountAndAPSSID() {
+func (gm *GatewayManager) updatePriceAndAPSSID() {
 	connectedSSID, err := gm.connector.GetConnectedSSID()
 	if err != nil {
-		logger.WithError(err).Warn("Could not get connected SSID to update hop count")
-		gm.currentHopCount = math.MaxInt32
-		return
+		logger.WithError(err).Warn("Could not get connected SSID to update price")
+		// We can still proceed to set a default price based on config
 	}
 
-	if connectedSSID == "" {
-		logger.Info("Not connected to any network, setting hop count to max")
-		gm.currentHopCount = math.MaxInt32
-		return
-	}
-
-	// Check if it's a known, non-TollGate network (which are our root connections)
-	if _, isKnown := gm.knownNetworks[connectedSSID]; isKnown && !strings.HasPrefix(connectedSSID, "TollGate-") {
-		logger.WithField("ssid", connectedSSID).Info("Connected to root network, setting hop count to 0")
-		gm.currentHopCount = 0
-	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
-		// It's a TollGate network, parse the hop count from its SSID
-		hopCount := parseHopCountFromSSID(connectedSSID)
-		if hopCount == math.MaxInt32 {
-			logger.WithField("ssid", connectedSSID).Warn("Connected to TollGate network with invalid hop count, assuming max hop count")
-			gm.currentHopCount = math.MaxInt32
-		} else {
-			gm.currentHopCount = hopCount + 1
-			logger.WithFields(logrus.Fields{
-				"ssid":         connectedSSID,
-				"gateway_hops": hopCount,
-				"our_hops":     gm.currentHopCount,
-			}).Info("Connected to TollGate network, updated hop count")
-		}
-	} else {
-		logger.WithField("ssid", connectedSSID).Warn("Connected to unknown network, assuming max hop count")
-		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
-	}
-
-	// If price is 0, use the values from the config
+	// If price is 0 (or not connected), use the values from the config
 	pricePerStep, stepSize := parsePricingFromSSID(connectedSSID)
 	if pricePerStep == 0 {
 		config := gm.cm.GetConfig()
