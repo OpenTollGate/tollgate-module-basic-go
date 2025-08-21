@@ -255,23 +255,27 @@ func (c *Connector) findAvailableSTAInterface() (string, error) {
 
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	var staInterfaces []string
+	disabledSTAInterfaces := make(map[string]bool)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasSuffix(line, ".mode='sta'") {
 			section := strings.TrimSuffix(line, ".mode='sta'")
 			staInterfaces = append(staInterfaces, section)
+		} else if strings.HasSuffix(line, ".disabled='1'") {
+			section := strings.TrimSuffix(line, ".disabled='1'")
+			disabledSTAInterfaces[section] = true
 		}
 	}
 
 	// Prefer disabled interfaces to avoid disrupting an active connection
 	for _, iface := range staInterfaces {
-		disabledStatus, err := c.ExecuteUCI("get", iface+".disabled")
-		if err == nil && strings.TrimSpace(disabledStatus) == "'1'" {
+		if disabledSTAInterfaces[iface] {
 			return iface, nil
 		}
 	}
 
-	// If no disabled interface is found, use the first available one
+	// If no disabled interface is found, use the first available one, if any exist.
 	if len(staInterfaces) > 0 {
 		return staInterfaces[0], nil
 	}
