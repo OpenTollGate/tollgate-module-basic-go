@@ -23,10 +23,12 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		"encryption": gateway.Encryption,
 	}).Info("Attempting to connect to gateway")
 
-	// Ensure a STA interface exists, creating one if necessary
-	if err := c.ensureSTAInterfaceExists(); err != nil {
-		return fmt.Errorf("failed to ensure STA interface exists: %w", err)
+	// Find an available STA interface to use for the connection
+	staInterface, err := c.findAvailableSTAInterface()
+	if err != nil {
+		return fmt.Errorf("failed to find an available STA interface: %w", err)
 	}
+	logger.WithField("interface", staInterface).Info("Found available STA interface")
 
 	// Configure network.wwan (STA interface) with DHCP
 	if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
@@ -36,21 +38,21 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure wireless.tollgate_sta for STA mode
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.ssid="+gateway.SSID); err != nil {
+	// Configure the selected STA interface
+	if _, err := c.ExecuteUCI("set", staInterface+".ssid="+gateway.SSID); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.bssid="+gateway.BSSID); err != nil {
+	if _, err := c.ExecuteUCI("set", staInterface+".bssid="+gateway.BSSID); err != nil {
 		return err
 	}
 
 	// Set encryption based on gateway information
 	if gateway.Encryption != "" && gateway.Encryption != "Open" {
-		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
+		if _, err := c.ExecuteUCI("set", staInterface+".encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
 			return err
 		}
 		if password != "" {
-			if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.key="+password); err != nil {
+			if _, err := c.ExecuteUCI("set", staInterface+".key="+password); err != nil {
 				return err
 			}
 		} else {
@@ -58,12 +60,17 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		}
 	} else {
 		// For open networks, ensure no encryption or key is set
-		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption=none"); err != nil {
+		if _, err := c.ExecuteUCI("set", staInterface+".encryption=none"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
-			return err
+		if _, err := c.ExecuteUCI("delete", staInterface+".key"); err != nil {
+			// This might fail if the key doesn't exist, which is fine. The ExecuteUCI function handles this.
 		}
+	}
+
+	// Enable the interface
+	if _, err := c.ExecuteUCI("set", staInterface+".disabled=0"); err != nil {
+		return err
 	}
 
 	// Commit changes
@@ -233,6 +240,40 @@ func (c *Connector) cleanupSTAInterfaces() error {
 	return nil
 }
 
+// findAvailableSTAInterface scans the wireless config for a disabled STA interface and returns its name.
+func (c *Connector) findAvailableSTAInterface() (string, error) {
+	logger.Info("Searching for an available STA wifi-iface section")
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	var staInterfaces []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			staInterfaces = append(staInterfaces, section)
+		}
+	}
+
+	// Prefer disabled interfaces to avoid disrupting an active connection
+	for _, iface := range staInterfaces {
+		disabledStatus, err := c.ExecuteUCI("get", iface+".disabled")
+		if err == nil && strings.TrimSpace(disabledStatus) == "'1'" {
+			return iface, nil
+		}
+	}
+
+	// If no disabled interface is found, use the first available one
+	if len(staInterfaces) > 0 {
+		return staInterfaces[0], nil
+	}
+
+	return "", fmt.Errorf("no STA interface found in wireless configuration")
+}
+
 // ensureSTAInterfaceExists checks for a STA interface and creates a default one if it doesn't exist.
 func (c *Connector) ensureSTAInterfaceExists() error {
 	logger.Info("Ensuring STA wifi-iface section exists")
@@ -261,7 +302,7 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.network=wwan"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=0"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=1"); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
