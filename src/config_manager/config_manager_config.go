@@ -14,7 +14,7 @@ type Config struct {
 	AcceptedMints []MintConfig        `json:"accepted_mints"`
 	ProfitShare   []ProfitShareConfig `json:"profit_share"`
 	StepSize      uint64              `json:"step_size"`
-	Margin        float64             `json:"margin"`
+	Margin        float64             `json:"margin,omitempty"`
 	Metric        string              `json:"metric"`
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
@@ -125,7 +125,7 @@ func SaveConfig(filePath string, config *Config) error {
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
 	return &Config{
-		ConfigVersion: "v0.0.5",
+		ConfigVersion: "v0.0.6",
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
