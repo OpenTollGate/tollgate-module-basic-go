@@ -3,6 +3,7 @@ package crowsnest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,7 +30,7 @@ type crowsnest struct {
 }
 
 // NewCrowsnest creates a new crowsnest instance
-func NewCrowsnest(configManager *config_manager.ConfigManager) (Crowsnest, error) {
+func NewCrowsnest(configManager *config_manager.ConfigManager, connector Connector) (Crowsnest, error) {
 	if configManager == nil {
 		return nil, fmt.Errorf("config manager is required")
 	}
@@ -43,7 +44,7 @@ func NewCrowsnest(configManager *config_manager.ConfigManager) (Crowsnest, error
 	config := &mainConfig.Crowsnest
 
 	// Create components
-	networkMonitor := NewNetworkMonitor(config)
+	networkMonitor := NewNetworkMonitor(config, connector)
 	tollGateProber := NewTollGateProber(config)
 	discoveryTracker := NewDiscoveryTracker(config)
 
@@ -245,6 +246,21 @@ func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
 
 // attemptTollGateDiscovery attempts to discover a TollGate on the given gateway
 func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
+	// Check if the connected SSID is a TollGate network
+	ssid, err := cs.networkMonitor.GetConnectedSSID()
+	if err != nil {
+		logger.WithError(err).Error("Failed to get connected SSID")
+		// We might not have an SSID in some cases, proceed with caution
+	}
+
+	if ssid != "" && !strings.HasPrefix(ssid, "TollGate-") {
+		logger.WithFields(logrus.Fields{
+			"interface": interfaceName,
+			"ssid":      ssid,
+		}).Info("Connected to a non-TollGate upstream, skipping discovery probe.")
+		return
+	}
+
 	// Check if we should attempt discovery (prevents concurrent attempts)
 	if !cs.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
 		logger.WithFields(logrus.Fields{

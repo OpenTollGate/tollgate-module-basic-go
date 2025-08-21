@@ -20,6 +20,7 @@ type NetworkMonitor interface {
 	Events() <-chan NetworkEvent
 	GetCurrentInterfaces() ([]*InterfaceInfo, error)
 	GetGatewayForInterface(interfaceName string) string
+	GetConnectedSSID() (string, error)
 }
 
 // TollGateProber defines the interface for probing TollGate advertisements

@@ -139,7 +139,7 @@ func initPrivateRelay() {
 }
 
 func initCrowsnest() {
-	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
+	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager, gatewayManager.GetConnector())
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create crowsnest instance")
 	}

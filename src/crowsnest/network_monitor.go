@@ -18,6 +18,7 @@ import (
 // networkMonitor implements the NetworkMonitor interface using event-driven netlink subscriptions
 type networkMonitor struct {
 	config        *config_manager.CrowsnestConfig
+	connector     Connector // Add connector field
 	events        chan NetworkEvent
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
@@ -28,9 +29,10 @@ type networkMonitor struct {
 }
 
 // NewNetworkMonitor creates a new event-driven network monitor
-func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
+func NewNetworkMonitor(config *config_manager.CrowsnestConfig, connector Connector) NetworkMonitor {
 	return &networkMonitor{
 		config:        config,
+		connector:     connector, // Initialize connector
 		events:        make(chan NetworkEvent, 100),
 		stopChan:      make(chan struct{}),
 		lastEventTime: make(map[string]time.Time),
@@ -509,4 +511,9 @@ func (nm *networkMonitor) sendEvent(event NetworkEvent) {
 	default:
 		logger.WithField("interface", event.InterfaceName).Warn("Network event channel full, dropping event for interface")
 	}
+}
+
+// GetConnectedSSID retrieves the connected SSID using the connector.
+func (nm *networkMonitor) GetConnectedSSID() (string, error) {
+	return nm.connector.GetConnectedSSID()
 }

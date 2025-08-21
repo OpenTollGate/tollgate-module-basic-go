@@ -316,3 +316,8 @@ func (gm *GatewayManager) updateHopCountAndAPSSID() {
 		logger.WithError(err).Error("Failed to update local AP SSID with new hop count")
 	}
 }
+
+// GetConnector returns the underlying connector instance.
+func (gm *GatewayManager) GetConnector() *Connector {
+	return gm.connector
+}
