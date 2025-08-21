@@ -289,6 +289,21 @@ func (gm *GatewayManager) loadKnownNetworks() error {
 }
 
 func (gm *GatewayManager) updatePriceAndAPSSID() {
+	// If not connected to a gateway, we are in safemode.
+	// We should not update the price in the config file, but we should update the SSID to reflect SafeMode.
+	if !gm.networkMonitor.IsConnected() {
+		logger.WithField("module", "wireless_gateway_manager").Info("Not connected to a gateway, setting AP to SafeMode")
+		gm.setSafeModeSSID()
+		return
+	}
+
+	// If we are connected to a gateway, we should exit safemode.
+	// The SSID will be updated with the new pricing below.
+	if gm.isInSafeMode() {
+		logger.WithField("module", "wireless_gateway_manager").Info("Exiting SafeMode")
+		gm.exitSafeMode()
+	}
+
 	connectedSSID, err := gm.connector.GetConnectedSSID()
 	if err != nil {
 		logger.WithError(err).Warn("Could not get connected SSID to update price")
@@ -317,6 +332,12 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		// Apply margin to the price
 		config := gm.cm.GetConfig()
 		gatewayPrice := float64(pricePerStep) * float64(stepSize)
+		
+		// Add detailed logging for debugging the margin issue
+		logger.WithField("module", "wireless_gateway_manager").
+			Infof("Applying margin. Upstream price_per_step=%d, step_size=%d. Config margin=%f, config step_size=%d",
+				pricePerStep, stepSize, config.Margin, config.StepSize)
+
 		ourPrice := gatewayPrice * (1 + config.Margin)
 		ourStepSize := float64(config.StepSize)
 		if ourStepSize > 0 {
@@ -324,6 +345,10 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		}
 		// ensure stepSize is updated to our configured StepSize
 		stepSize = int(config.StepSize)
+		
+		logger.WithField("module", "wireless_gateway_manager").
+			Infof("Price with margin calculated. New price_per_step=%d, new step_size=%d",
+				pricePerStep, stepSize)
 	}
 
 	// Update the local AP's SSID to advertise the new pricing
