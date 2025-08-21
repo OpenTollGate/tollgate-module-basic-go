@@ -84,6 +84,17 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	logger.WithField("network_count", len(networks)).Info("Processing networks for gateway selection")
 	gm.availableGateways = make(map[string]Gateway)
 	for _, network := range networks {
+		// Strict filtering: if a network is encrypted and not in known_networks, skip it.
+		isEncrypted := network.Encryption != "Open" && network.Encryption != ""
+		_, isKnown := gm.knownNetworks[network.SSID]
+		if isEncrypted && !isKnown {
+			logger.WithFields(logrus.Fields{
+				"ssid":       network.SSID,
+				"encryption": network.Encryption,
+			}).Debug("Skipping encrypted network not in known_networks.json")
+			continue
+		}
+
 		vendorElements, score, err := gm.vendorProcessor.ExtractAndScore(network)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
