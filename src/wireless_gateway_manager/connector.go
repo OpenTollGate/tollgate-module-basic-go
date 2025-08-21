@@ -30,6 +30,11 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	}
 	logger.WithField("interface", staInterface).Info("Found available STA interface")
 
+	// Disable other STA interfaces to prevent conflicts
+	if err := c.disableOtherSTAInterfaces(staInterface); err != nil {
+		logger.WithError(err).Warn("Could not disable other STA interfaces, proceeding anyway")
+	}
+
 	// Configure network.wwan (STA interface) with DHCP
 	if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
 		return err
@@ -272,6 +277,48 @@ func (c *Connector) findAvailableSTAInterface() (string, error) {
 	}
 
 	return "", fmt.Errorf("no STA interface found in wireless configuration")
+}
+
+// disableOtherSTAInterfaces disables all STA interfaces except for the one provided.
+func (c *Connector) disableOtherSTAInterfaces(activeInterfaceName string) error {
+	logger.WithField("active_interface", activeInterfaceName).Info("Disabling other STA interfaces")
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	var staInterfaces []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			staInterfaces = append(staInterfaces, section)
+		}
+	}
+
+	var commitNeeded bool
+	for _, iface := range staInterfaces {
+		if iface != activeInterfaceName {
+			logger.WithField("interface", iface).Debug("Disabling STA interface")
+			if _, err := c.ExecuteUCI("set", iface+".disabled=1"); err != nil {
+				logger.WithFields(logrus.Fields{
+					"interface": iface,
+					"error":     err,
+				}).Warn("Failed to disable STA interface")
+				continue // Continue trying to disable others
+			}
+			commitNeeded = true
+		}
+	}
+
+	if commitNeeded {
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			return fmt.Errorf("failed to commit wireless config after disabling STA interfaces: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // ensureSTAInterfaceExists checks for a STA interface and creates a default one if it doesn't exist.
