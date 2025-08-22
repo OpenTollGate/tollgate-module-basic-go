@@ -66,3 +66,11 @@ func ping(host string) error {
 	cmd := exec.Command("ping", "-c", "1", "-W", "5", host)
 	return cmd.Run()
 }
+
+func (nm *NetworkMonitor) IsConnected() bool {
+	return nm.pingSuccesses > 0
+}
+
+func (nm *NetworkMonitor) IsInSafeMode() bool {
+	return nm.isInSafeMode
+}

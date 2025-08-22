@@ -361,3 +361,22 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		logger.WithError(err).Error("Failed to update config file with new pricing")
 	}
 }
+
+func (gm *GatewayManager) isInSafeMode() bool {
+	// Forward the call to the network monitor
+	return gm.networkMonitor.IsInSafeMode()
+}
+
+func (gm *GatewayManager) setSafeModeSSID() {
+	// Set the local AP's SSID to SafeMode
+	if err := gm.connector.SetAPSSIDSafeMode(); err != nil {
+		logger.WithError(err).Error("Failed to set AP SSID to SafeMode")
+	}
+}
+
+func (gm *GatewayManager) exitSafeMode() {
+	// Restore the local AP's SSID from SafeMode
+	if err := gm.connector.RestoreAPSSIDFromSafeMode(); err != nil {
+		logger.WithError(err).Error("Failed to restore AP SSID from SafeMode")
+	}
+}
