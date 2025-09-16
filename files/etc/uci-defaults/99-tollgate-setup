@@ -7,92 +7,92 @@ LOGFILE="/tmp/tollgate-setup.log"
 
 # Helper function to safely set UCI values with error handling
 uci_safe_set() {
-    local config="$1"
-    local section="$2"
-    local option="$3"
-    local value="$4"
-    
-    # Check if the config exists
-    if [ ! -f "/etc/config/$config" ]; then
-        echo "Creating config: $config"
-        touch "/etc/config/$config"
-    fi
-    
-    # Check if the section exists
-    if ! uci -q get "$config.$section" >/dev/null 2>&1; then
-        # Section doesn't exist, try to create it
-        if [[ "$section" == *"@"* ]]; then
-            # For array sections like @dnsmasq[0], we need special handling
-            # Extract the section type
-            section_type=$(echo "$section" | cut -d'@' -f2 | cut -d'[' -f1)
-            uci add "$config" "$section_type" >/dev/null 2>&1
-        else
-            # For named sections
-            uci set "$config.$section=" >/dev/null 2>&1
-        fi
-    fi
-    
-    # Now set the option safely
-    uci set "$config.$section.$option=$value" >/dev/null 2>&1
+	local config="$1"
+	local section="$2"
+	local option="$3"
+	local value="$4"
+
+	# Check if the config exists
+	if [ ! -f "/etc/config/$config" ]; then
+		echo "Creating config: $config"
+		touch "/etc/config/$config"
+	fi
+
+	# Check if the section exists
+	if ! uci -q get "$config.$section" >/dev/null 2>&1; then
+		# Section doesn't exist, try to create it
+		if [[ "$section" == *"@"* ]]; then
+			# For array sections like @dnsmasq[0], we need special handling
+			# Extract the section type
+			section_type=$(echo "$section" | cut -d'@' -f2 | cut -d'[' -f1)
+			uci add "$config" "$section_type" >/dev/null 2>&1
+		else
+			# For named sections
+			uci set "$config.$section=" >/dev/null 2>&1
+		fi
+	fi
+
+	# Now set the option safely
+	uci set "$config.$section.$option=$value" >/dev/null 2>&1
 }
 
 # Logging function
 log_message() {
-    if [ "$ENABLE_LOGGING" -eq 1 ]; then
-        echo "$(date "+%Y-%m-%d %H:%M:%S") - $1" >> "$LOGFILE"
-    fi
+	if [ "$ENABLE_LOGGING" -eq 1 ]; then
+		echo "$(date "+%Y-%m-%d %H:%M:%S") - $1" >>"$LOGFILE"
+	fi
 }
 
 # Initialize log file if logging is enabled
 if [ "$ENABLE_LOGGING" -eq 1 ]; then
-    echo "TollGate Setup Log - Started at $(date)" > "$LOGFILE"
-    log_message "Starting TollGate configuration script"
+	echo "TollGate Setup Log - Started at $(date)" >"$LOGFILE"
+	log_message "Starting TollGate configuration script"
 fi
 
 # Safe delete function
 uci_safe_delete() {
-    if uci -q get "$1" >/dev/null 2>&1; then
-        uci -q delete "$1"
-    fi
+	if uci -q get "$1" >/dev/null 2>&1; then
+		uci -q delete "$1"
+	fi
 }
 
 # Safe add_list function
 uci_safe_add_list() {
-    local path="$1"
-    local value="$2"
-    
-    # Check if config and section exist
-    local config=$(echo "$path" | cut -d. -f1)
-    local section=$(echo "$path" | cut -d. -f2)
-    
-    if [ ! -f "/etc/config/$config" ]; then
-        echo "Creating config: $config"
-        touch "/etc/config/$config"
-    fi
-    
-    if ! uci -q get "$config.$section" >/dev/null 2>&1; then
-        # Create section
-        if [[ "$section" == *"@"* ]]; then
-            section_type=$(echo "$section" | cut -d'@' -f2 | cut -d'[' -f1)
-            uci add "$config" "$section_type" >/dev/null 2>&1
-        else
-            uci set "$config.$section=" >/dev/null 2>&1
-        fi
-    fi
-    
-    uci add_list "$path=$value" >/dev/null 2>&1
+	local path="$1"
+	local value="$2"
+
+	# Check if config and section exist
+	local config=$(echo "$path" | cut -d. -f1)
+	local section=$(echo "$path" | cut -d. -f2)
+
+	if [ ! -f "/etc/config/$config" ]; then
+		echo "Creating config: $config"
+		touch "/etc/config/$config"
+	fi
+
+	if ! uci -q get "$config.$section" >/dev/null 2>&1; then
+		# Create section
+		if [[ "$section" == *"@"* ]]; then
+			section_type=$(echo "$section" | cut -d'@' -f2 | cut -d'[' -f1)
+			uci add "$config" "$section_type" >/dev/null 2>&1
+		else
+			uci set "$config.$section=" >/dev/null 2>&1
+		fi
+	fi
+
+	uci add_list "$path=$value" >/dev/null 2>&1
 }
 
 # 1. Firewall configuration
 log_message "Configuring firewall rules"
 if ! uci -q get firewall.tollgate_rules >/dev/null 2>&1; then
-    uci add firewall include >/dev/null 2>&1
-    uci_safe_set firewall @include[-1] path '/etc/config/firewall-tollgate'
-    uci rename firewall.@include[-1]='tollgate_rules' >/dev/null 2>&1
-    uci commit firewall
-    log_message "Added firewall-tollgate include section"
+	uci add firewall include >/dev/null 2>&1
+	uci_safe_set firewall @include[-1] path '/etc/config/firewall-tollgate'
+	uci rename firewall.@include[-1]='tollgate_rules' >/dev/null 2>&1
+	uci commit firewall
+	log_message "Added firewall-tollgate include section"
 else
-    log_message "Firewall tollgate_rules already exists"
+	log_message "Firewall tollgate_rules already exists"
 fi
 
 # 2. Configure uhttpd listener ports and settings
@@ -100,9 +100,9 @@ log_message "Configuring uhttpd settings"
 
 # Ensure uhttpd config exists
 if [ ! -f "/etc/config/uhttpd" ]; then
-    touch "/etc/config/uhttpd"
-    uci add uhttpd uhttpd >/dev/null 2>&1
-    uci rename uhttpd.@uhttpd[-1]='main' >/dev/null 2>&1
+	touch "/etc/config/uhttpd"
+	uci add uhttpd uhttpd >/dev/null 2>&1
+	uci rename uhttpd.@uhttpd[-1]='main' >/dev/null 2>&1
 fi
 
 # Set HTTP listeners
@@ -134,20 +134,20 @@ log_message "Updated uhttpd configuration"
 log_message "Configuring DNS settings"
 current_dns=$(uci -q get network.lan.dns)
 if [ "$current_dns" = "127.0.0.1" ] || [ "$current_dns" = "::1" ] || [ -z "$current_dns" ]; then
-    # Only change DNS if it's set to localhost or not set
-    uci_safe_delete network.lan.dns
-    uci_safe_add_list network.lan.dns '1.1.1.1'  # CloudFlare primary DNS
-    uci_safe_add_list network.lan.dns '1.0.0.1'  # CloudFlare secondary DNS
-    log_message "Set DNS servers to Cloudflare (1.1.1.1, 1.0.0.1)"
+	# Only change DNS if it's set to localhost or not set
+	uci_safe_delete network.lan.dns
+	uci_safe_add_list network.lan.dns '1.1.1.1' # CloudFlare primary DNS
+	uci_safe_add_list network.lan.dns '1.0.0.1' # CloudFlare secondary DNS
+	log_message "Set DNS servers to Cloudflare (1.1.1.1, 1.0.0.1)"
 else
-    log_message "Keeping existing DNS configuration: $current_dns"
+	log_message "Keeping existing DNS configuration: $current_dns"
 fi
 uci_safe_set network lan domain 'lan'
 
 # Configure dnsmasq
 log_message "Configuring dnsmasq"
 uci_safe_set dhcp @dnsmasq[0] domainneeded '1'
-uci_safe_set dhcp @dnsmasq[0] localise_queries '1' 
+uci_safe_set dhcp @dnsmasq[0] localise_queries '1'
 uci_safe_set dhcp @dnsmasq[0] rebind_protection '1'
 uci_safe_set dhcp @dnsmasq[0] local '/lan/'
 uci_safe_set dhcp @dnsmasq[0] domain 'lan'
@@ -163,45 +163,45 @@ RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
 # Check if SSID is already configured with TollGate prefix
 current_ssid=$(uci -q get wireless.default_radio0.ssid)
 if [[ "$current_ssid" == "TollGate-"* ]]; then
-    SSID_BASE="$current_ssid"
-    log_message "Using existing SSID: $SSID_BASE"
+	SSID_BASE="$current_ssid"
+	log_message "Using existing SSID: $SSID_BASE"
 else
-    SSID_BASE="TollGate-${RANDOM_SUFFIX}"
-    log_message "Generated new random SSID: $SSID_BASE"
+	SSID_BASE="TollGate-${RANDOM_SUFFIX}"
+	log_message "Generated new random SSID: $SSID_BASE"
 fi
 
 # Check if default radio0 exists before configuring
 if uci -q get wireless.default_radio0 >/dev/null; then
-    # Configure 2.4GHz WiFi with random suffix
-    uci_safe_set wireless default_radio0 name 'tollgate_2g_open'
-    uci_safe_set wireless default_radio0 ssid "${SSID_BASE}"
-    uci_safe_set wireless default_radio0 encryption 'none'
-    uci_safe_set wireless default_radio0 disabled '0'  # Ensure the interface is enabled
-    log_message "Configured 2.4GHz WiFi with SSID: ${SSID_BASE}"
+	# Configure 2.4GHz WiFi with random suffix
+	uci_safe_set wireless default_radio0 name 'tollgate_2g_open'
+	uci_safe_set wireless default_radio0 ssid "${SSID_BASE}"
+	uci_safe_set wireless default_radio0 encryption 'none'
+	uci_safe_set wireless default_radio0 disabled '0' # Ensure the interface is enabled
+	log_message "Configured 2.4GHz WiFi with SSID: ${SSID_BASE}"
 else
-    log_message "No 2.4GHz radio (default_radio0) found"
+	log_message "No 2.4GHz radio (default_radio0) found"
 fi
 
 # Check if default radio1 exists before configuring
 if uci -q get wireless.default_radio1 >/dev/null; then
-    # Configure 5GHz WiFi with the same random suffix
-    uci_safe_set wireless default_radio1 name 'tollgate_5g_open'
-    uci_safe_set wireless default_radio1 ssid "${SSID_BASE}"
-    uci_safe_set wireless default_radio1 encryption 'none'
-    uci_safe_set wireless default_radio1 disabled '0'  # Ensure the interface is enabled
-    log_message "Configured 5GHz WiFi with SSID: ${SSID_BASE}"
+	# Configure 5GHz WiFi with the same random suffix
+	uci_safe_set wireless default_radio1 name 'tollgate_5g_open'
+	uci_safe_set wireless default_radio1 ssid "${SSID_BASE}"
+	uci_safe_set wireless default_radio1 encryption 'none'
+	uci_safe_set wireless default_radio1 disabled '0' # Ensure the interface is enabled
+	log_message "Configured 5GHz WiFi with SSID: ${SSID_BASE}"
 else
-    log_message "No 5GHz radio (default_radio1) found"
+	log_message "No 5GHz radio (default_radio1) found"
 fi
 
 # Enable wireless interfaces if they exist
 if uci -q get wireless.radio0 >/dev/null; then
-    uci_safe_set wireless radio0 disabled '0'
-    log_message "Enabled radio0"
+	uci_safe_set wireless radio0 disabled '0'
+	log_message "Enabled radio0"
 fi
 if uci -q get wireless.radio1 >/dev/null; then
-    uci_safe_set wireless radio1 disabled '0'
-    log_message "Enabled radio1"
+	uci_safe_set wireless radio1 disabled '0'
+	log_message "Enabled radio1"
 fi
 
 # Commit wireless changes
@@ -211,11 +211,11 @@ log_message "Committed wireless configuration"
 # 5. Configure NoDogSplash
 log_message "Configuring NoDogSplash"
 if ! uci -q get nodogsplash.@nodogsplash[0]; then
-    # Create nodogsplash section if it doesn't exist
-    uci add nodogsplash nodogsplash
-    log_message "Created new nodogsplash configuration"
+	# Create nodogsplash section if it doesn't exist
+	uci add nodogsplash nodogsplash
+	log_message "Created new nodogsplash configuration"
 else
-    log_message "NoDogSplash configuration already exists"
+	log_message "NoDogSplash configuration already exists"
 fi
 
 # Set basic NoDogSplash configuration with matching gateway name
@@ -232,44 +232,44 @@ log_message "NoDogSplash configuration completed"
 # 6. Add TollGate port to firewall (if not in firewall-tollgate)
 log_message "Checking for TollGate protocol port in firewall rules"
 if ! grep -q "port 2121" /etc/config/firewall-tollgate 2>/dev/null; then
-    # Add rule directly to main firewall if not in tollgate-specific file
-    uci add firewall rule
-    uci_safe_set firewall @rule[-1] name 'Allow-TollGate-Protocol'
-    uci_safe_set firewall @rule[-1] src 'wan'
-    uci_safe_set firewall @rule[-1] proto 'tcp'
-    uci_safe_set firewall @rule[-1] dest_port '2121'
-    uci_safe_set firewall @rule[-1] target 'ACCEPT'
-    uci commit firewall
-    log_message "Added firewall rule for TollGate protocol port 2121"
+	# Add rule directly to main firewall if not in tollgate-specific file
+	uci add firewall rule
+	uci_safe_set firewall @rule[-1] name 'Allow-TollGate-Protocol'
+	uci_safe_set firewall @rule[-1] src 'wan'
+	uci_safe_set firewall @rule[-1] proto 'tcp'
+	uci_safe_set firewall @rule[-1] dest_port '2121'
+	uci_safe_set firewall @rule[-1] target 'ACCEPT'
+	uci commit firewall
+	log_message "Added firewall rule for TollGate protocol port 2121"
 else
-    log_message "TollGate protocol port already in firewall rules"
+	log_message "TollGate protocol port already in firewall rules"
 fi
 
 # 7. Add first-login-setup hook to profile if it doesn't exist
 log_message "Checking for first-login-setup hook in profile"
 if ! grep -q "first-login-setup" /etc/profile; then
-    # Append the first-login-setup code to the end of profile
-    cat >> /etc/profile << 'EOF'
+	# Append the first-login-setup code to the end of profile
+	cat >>/etc/profile <<'EOF'
 
 # TollGate first login setup
 if [ ! -f /etc/first_login_done ] && [ -t 0 ] && [ -t 1 ]; then
     /usr/local/bin/first-login-setup
 fi
 EOF
-    log_message "Added first-login-setup hook to /etc/profile"
+	log_message "Added first-login-setup hook to /etc/profile"
 else
-    log_message "first-login-setup hook already exists in profile"
+	log_message "first-login-setup hook already exists in profile"
 fi
 
 # 8. Enable modem interfaces if they exist
 log_message "Checking for modem interfaces to enable"
 for section in $(uci show network | cut -d. -f2); do
-    if [[ "$section" == "modem_"* ]]; then
-        if uci -q get "network.$section" >/dev/null 2>&1; then
-            uci_safe_set network "$section" disabled '0'
-            log_message "Enabled modem interface: $section"
-        fi
-    fi
+	if [[ "$section" == "modem_"* ]]; then
+		if uci -q get "network.$section" >/dev/null 2>&1; then
+			uci_safe_set network "$section" disabled '0'
+			log_message "Enabled modem interface: $section"
+		fi
+	fi
 done
 uci commit network
 log_message "Committed network configuration changes"
