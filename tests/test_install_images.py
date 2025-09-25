@@ -1,5 +1,31 @@
 import pytest
 import subprocess
+import time
+
+def wait_for_router_reboot(router_ip, router_ssid, timeout=300):
+    """Wait for the router to come back online after reboot."""
+    print(f"Waiting for router {router_ssid} ({router_ip}) to come back online...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            # Try to ping the router
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "5", router_ip],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                print(f"Router {router_ssid} ({router_ip}) is back online")
+                return True
+        except Exception as e:
+            pass
+        
+        time.sleep(10)
+    
+    print(f"Router {router_ssid} ({router_ip}) did not come back online within {timeout} seconds")
+    return False
 
 def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_networks):
     """Test that collects networks for flashing after tests complete."""
@@ -16,6 +42,9 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
     router_password = "c03rad0r123"
     target_ssid = "GL-MT6000-e50-5G"
     target_password = "c03rad0r123"
+    
+    router_ips = []
+    router_ssids = []
     
     for network in post_test_image_flasher:
         try:
@@ -55,51 +84,50 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                 continue
                 
             print(f"Determined router IP: {router_ip}")
+            router_ips.append(router_ip)
+            router_ssids.append(network)
             
-            # SSH into the router and check if wifi-connect command is available
-            print(f"Checking available commands on router {router_ip}")
+            # SSH into the router and connect to the target SSID using uci commands
+            print(f"Using uci commands to connect to target SSID {target_ssid} on router {router_ip}")
+            # First, let's check if the sta interface exists
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                "which wifi-connect || echo 'wifi-connect not found'"
+                "uci show wireless.sta"
             ]
             
             result = subprocess.run(ssh_command, capture_output=True, text=True)
-            if "wifi-connect" in result.stdout:
-                print(f"wifi-connect command is available on router {router_ip}")
-                # SSH into the router and connect to the target SSID
-                print(f"Connecting to target SSID {target_ssid} on router {router_ip}")
+            print(f"Checking if sta interface exists: {result.stdout}")
+            if "Entry not found" in result.stderr:
+                # Create the sta interface
+                print("Creating sta interface")
                 ssh_command = [
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    f"wifi-connect -s {target_ssid} -p {target_password}"
+                    "uci set wireless.sta=wifi-iface && uci set wireless.sta.device='radio0' && uci set wireless.sta.network='wwan' && uci set wireless.sta.mode='sta' && uci set wireless.sta.ssid='PLACEHOLDER' && uci set wireless.sta.key='PLACEHOLDER' && uci set wireless.sta.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f"Successfully connected to {target_ssid} on router {router_ip}")
-                else:
-                    print(f"Failed to connect to {target_ssid} on router {router_ip}")
-                    print(f"Stderr: {result.stderr}")
+                print(f"Creating sta interface result: {result.stdout}, stderr: {result.stderr}")
+            
+            # Set the SSID and password for the sta interface
+            ssh_command = [
+                "sshpass", "-p", router_password,
+                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                f"root@{router_ip}",
+                f"uci set wireless.sta.ssid='{target_ssid}' && uci set wireless.sta.key='{target_password}' && uci set wireless.sta.disabled='0' && uci commit wireless && wifi"
+            ]
+            
+            print(f"Executing uci commands: {' '.join(ssh_command)}")
+            result = subprocess.run(ssh_command, capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"Successfully connected to {target_ssid} on router {router_ip} using uci commands")
             else:
-                print(f"wifi-connect command not found on router {router_ip}")
-                # Try using uci commands to connect to the target SSID
-                print(f"Using uci commands to connect to target SSID {target_ssid} on router {router_ip}")
-                ssh_command = [
-                    "sshpass", "-p", router_password,
-                    "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
-                    f"root@{router_ip}",
-                    f"uci set wireless.sta.ssid='{target_ssid}' && uci set wireless.sta.key='{target_password}' && uci commit wireless && wifi"
-                ]
-                
-                result = subprocess.run(ssh_command, capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f"Successfully connected to {target_ssid} on router {router_ip} using uci commands")
-                else:
-                    print(f"Failed to connect to {target_ssid} on router {router_ip} using uci commands")
-                    print(f"Stderr: {result.stderr}")
+                print(f"Failed to connect to {target_ssid} on router {router_ip} using uci commands")
+                print(f"Stderr: {result.stderr}")
+                print(f"Stdout: {result.stdout}")
             
             # Reboot the router
             print(f"Rebooting router {router_ip}")
@@ -123,3 +151,59 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             print(f"Unexpected error processing network {network}: {e}")
             
     print("Completed processing all routers")
+    
+    # Wait for all routers to come back online
+    print("Waiting for all routers to come back online...")
+    for i, router_ip in enumerate(router_ips):
+        if not wait_for_router_reboot(router_ip, router_ssids[i]):
+            print(f"Router {router_ssids[i]} ({router_ip}) did not come back online")
+    
+    # Prompt the user for input
+    input("Please press Enter after verifying that all routers have restarted and connected to the new network...")
+    
+    # Get new IP addresses for all routers
+    print("Getting new IP addresses for all routers...")
+    new_router_ips = []
+    for network in post_test_image_flasher:
+        try:
+            print(f"Connecting to network: {network}")
+            subprocess.run(
+                ["nmcli", "device", "wifi", "connect", network],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print(f"Successfully connected to network: {network}")
+            
+            # Get the router's new IP address
+            result = subprocess.run(
+                ["ip", "route", "get", "1.1.1.1"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            new_router_ip = None
+            for line in result.stdout.split('\n'):
+                if "via" in line:
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == "via":
+                            new_router_ip = parts[i + 1]
+                            break
+                    if new_router_ip:
+                        break
+            
+            if not new_router_ip:
+                print(f"Could not determine new router IP for network {network}")
+                continue
+                
+            print(f"Determined new router IP: {new_router_ip}")
+            new_router_ips.append(new_router_ip)
+        except subprocess.CalledProcessError as e:
+            print(f"Error connecting to network {network}: {e}")
+        except Exception as e:
+            print(f"Unexpected error connecting to network {network}: {e}")
+    
+    # Print the new IP addresses
+    print(f"New router IP addresses: {new_router_ips}")
