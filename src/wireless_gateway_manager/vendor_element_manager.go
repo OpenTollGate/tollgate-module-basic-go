@@ -123,3 +123,6 @@ func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, 
 	logger.Debug("GetLocalAPVendorElements called (functionality currently stubbed)")
 	return make(map[string]string), nil
 }
+
+// Ensure VendorElementProcessor implements VendorElementProcessorInterface
+var _ VendorElementProcessorInterface = (*VendorElementProcessor)(nil)

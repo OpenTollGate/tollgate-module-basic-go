@@ -74,3 +74,6 @@ func (nm *NetworkMonitor) IsConnected() bool {
 func (nm *NetworkMonitor) IsInSafeMode() bool {
 	return nm.isInSafeMode
 }
+
+// Ensure NetworkMonitor implements NetworkMonitorInterface
+var _ NetworkMonitorInterface = (*NetworkMonitor)(nil)

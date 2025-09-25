@@ -25,6 +25,40 @@ func (m *MockConnector) GetConnectedSSID() (string, error) {
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockConnector) ExecuteUCI(args ...string) (string, error) {
+	callArgs := make([]interface{}, len(args))
+	for i, arg := range args {
+		callArgs[i] = arg
+	}
+	result := m.Called(callArgs...)
+	return result.String(0), result.Error(1)
+}
+
+func (m *MockConnector) SetAPSSIDSafeMode() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockConnector) RestoreAPSSIDFromSafeMode() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockConnector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
+	args := m.Called(pricePerStep, stepSize)
+	return args.Error(0)
+}
+
+func (m *MockConnector) Disconnect() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockConnector) Reconnect() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 // MockScanner is a mock implementation of the Scanner interface for testing
 type MockScanner struct {
 	mock.Mock
@@ -38,6 +72,29 @@ func (m *MockScanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 // MockVendorElementProcessor is a mock implementation of the VendorElementProcessor interface for testing
 type MockVendorElementProcessor struct {
 	mock.Mock
+}
+
+// MockNetworkMonitor is a mock implementation of the NetworkMonitor for testing
+type MockNetworkMonitor struct {
+	mock.Mock
+}
+
+func (m *MockNetworkMonitor) IsConnected() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
+
+func (m *MockNetworkMonitor) IsInSafeMode() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
+
+func (m *MockNetworkMonitor) Start() {
+	m.Called()
+}
+
+func (m *MockNetworkMonitor) Stop() {
+	m.Called()
 }
 
 func (m *MockVendorElementProcessor) ExtractAndScore(network NetworkInfo) (map[string]interface{}, int, error) {
@@ -68,12 +125,14 @@ func TestResellerModeDisabled(t *testing.T) {
 	mockConnector := &MockConnector{}
 	mockScanner := &MockScanner{}
 	mockVendorProcessor := &MockVendorElementProcessor{}
+	mockNetworkMonitor := &MockNetworkMonitor{}
 
 	// Create a GatewayManager with mock components
 	gm := &GatewayManager{
-		connector:       &Connector{},
-		scanner:         &Scanner{},
-		vendorProcessor: &VendorElementProcessor{},
+		connector:       mockConnector,
+		scanner:         mockScanner,
+		vendorProcessor: mockVendorProcessor,
+		networkMonitor:  mockNetworkMonitor,
 		cm:              cm,
 	}
 
@@ -85,6 +144,7 @@ func TestResellerModeDisabled(t *testing.T) {
 	mockConnector.AssertExpectations(t)
 	mockScanner.AssertExpectations(t)
 	mockVendorProcessor.AssertExpectations(t)
+	mockNetworkMonitor.AssertExpectations(t)
 }
 
 func TestResellerModeEnabled_FilterTollGateNetworks(t *testing.T) {
@@ -100,6 +160,7 @@ func TestResellerModeEnabled_FilterTollGateNetworks(t *testing.T) {
 	mockConnector := &MockConnector{}
 	mockScanner := &MockScanner{}
 	mockVendorProcessor := &MockVendorElementProcessor{}
+	mockNetworkMonitor := &MockNetworkMonitor{}
 
 	// Set up mock expectations
 	mockScanner.On("ScanWirelessNetworks").Return([]NetworkInfo{
@@ -110,12 +171,21 @@ func TestResellerModeEnabled_FilterTollGateNetworks(t *testing.T) {
 
 	// Set up vendor processor expectations for TollGate networks
 	mockVendorProcessor.On("ExtractAndScore", mock.AnythingOfType("NetworkInfo")).Return(map[string]interface{}{}, 100, nil)
-
+	
+	// Set up network monitor expectations
+	mockNetworkMonitor.On("IsConnected").Return(true)
+	mockNetworkMonitor.On("IsInSafeMode").Return(false)
+	
+	// Set up connector expectations
+	mockConnector.On("GetConnectedSSID").Return("TollGate-ABC", nil)
+	mockConnector.On("UpdateLocalAPSSID", 1, 20000).Return(nil)
+	
 	// Create a GatewayManager with mock components
 	gm := &GatewayManager{
-		connector:       &Connector{},
-		scanner:         &Scanner{},
-		vendorProcessor: &VendorElementProcessor{},
+		connector:       mockConnector,
+		scanner:         mockScanner,
+		vendorProcessor: mockVendorProcessor,
+		networkMonitor:  mockNetworkMonitor,
 		cm:              cm,
 	}
 
@@ -128,6 +198,7 @@ func TestResellerModeEnabled_FilterTollGateNetworks(t *testing.T) {
 	// We expect ExtractAndScore to be called twice (once for each TollGate network)
 	mockVendorProcessor.AssertNumberOfCalls(t, "ExtractAndScore", 2)
 	mockConnector.AssertExpectations(t)
+	mockNetworkMonitor.AssertExpectations(t)
 }
 
 func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
@@ -143,6 +214,7 @@ func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
 	mockConnector := &MockConnector{}
 	mockScanner := &MockScanner{}
 	mockVendorProcessor := &MockVendorElementProcessor{}
+	mockNetworkMonitor := &MockNetworkMonitor{}
 
 	// Set up mock expectations
 	mockScanner.On("ScanWirelessNetworks").Return([]NetworkInfo{
@@ -154,12 +226,21 @@ func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
 	mockVendorProcessor.On("ExtractAndScore", mock.MatchedBy(func(network NetworkInfo) bool {
 		return network.SSID == "TollGate-XYZ" && network.Encryption == "Open"
 	})).Return(map[string]interface{}{}, 100, nil)
-
+	
+	// Set up network monitor expectations
+	mockNetworkMonitor.On("IsConnected").Return(true)
+	mockNetworkMonitor.On("IsInSafeMode").Return(false)
+	
+	// Set up connector expectations
+	mockConnector.On("GetConnectedSSID").Return("TollGate-XYZ", nil)
+	mockConnector.On("UpdateLocalAPSSID", 1, 20000).Return(nil)
+	
 	// Create a GatewayManager with mock components
 	gm := &GatewayManager{
-		connector:       &Connector{},
-		scanner:         &Scanner{},
-		vendorProcessor: &VendorElementProcessor{},
+		connector:       mockConnector,
+		scanner:         mockScanner,
+		vendorProcessor: mockVendorProcessor,
+		networkMonitor:  mockNetworkMonitor,
 		cm:              cm,
 	}
 
@@ -171,6 +252,7 @@ func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
 	// We expect ExtractAndScore to be called only once for the open TollGate network
 	mockVendorProcessor.AssertNumberOfCalls(t, "ExtractAndScore", 1)
 	mockConnector.AssertExpectations(t)
+	mockNetworkMonitor.AssertExpectations(t)
 }
 // Helper function to set the private config field using reflection
 func setConfigField(cm *config_manager.ConfigManager, config *config_manager.Config) {

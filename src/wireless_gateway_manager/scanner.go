@@ -189,3 +189,6 @@ func parseHopCountFromSSID(ssid string) int {
 
 	return hopCount
 }
+
+// Ensure Scanner implements ScannerInterface
+var _ ScannerInterface = (*Scanner)(nil)

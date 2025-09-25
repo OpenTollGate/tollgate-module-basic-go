@@ -64,10 +64,10 @@ type Gateway struct {
 
 // GatewayManager orchestrates the gateway management operations.
 type GatewayManager struct {
-	scanner           *Scanner
-	connector         *Connector
-	vendorProcessor   *VendorElementProcessor
-	networkMonitor    *NetworkMonitor
+	scanner           ScannerInterface
+	connector         ConnectorInterface
+	vendorProcessor   VendorElementProcessorInterface
+	networkMonitor    NetworkMonitorInterface
 	cm                *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway

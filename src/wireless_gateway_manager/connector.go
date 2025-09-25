@@ -710,6 +710,82 @@ func stripPricingFromSSID(ssid string) string {
 	return ssid // Return original if parsing fails
 }
 
+// Disconnect disconnects from the current network.
+func (c *Connector) Disconnect() error {
+	logger.Info("Disconnecting from current network")
+	
+	// Find the currently active STA interface
+	activeInterface, err := c.getActiveSTAInterface()
+	if err != nil {
+		return fmt.Errorf("failed to get active STA interface: %w", err)
+	}
+	
+	if activeInterface == "" {
+		logger.Info("No active STA interface found, nothing to disconnect")
+		return nil
+	}
+	
+	// Disable the active interface
+	if _, err := c.ExecuteUCI("set", activeInterface+".disabled=1"); err != nil {
+		return fmt.Errorf("failed to disable interface %s: %w", activeInterface, err)
+	}
+	
+	// Commit the changes
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return fmt.Errorf("failed to commit wireless config: %w", err)
+	}
+	
+	// Reload wifi to apply changes
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi: %w", err)
+	}
+	
+	logger.WithField("interface", activeInterface).Info("Successfully disconnected from network")
+	return nil
+}
+
+// Reconnect attempts to reconnect to the network.
+// This is a simple implementation that just reloads the wifi.
+func (c *Connector) Reconnect() error {
+	logger.Info("Reconnecting to network")
+	
+	// Reload wifi to apply any pending changes or reconnect
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi: %w", err)
+	}
+	
+	logger.Info("Reconnect command issued")
+	return nil
+}
+
+// getActiveSTAInterface finds the currently active STA interface.
+func (c *Connector) getActiveSTAInterface() (string, error) {
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Look for an interface that is in sta mode and not disabled
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			// Check if it's disabled
+			disabledOutput, err := c.ExecuteUCI("get", section+".disabled")
+			if err != nil {
+				// If we can't get the disabled status, assume it's enabled
+				return section, nil
+			}
+			if strings.TrimSpace(disabledOutput) != "1" {
+				return section, nil
+			}
+		}
+	}
+	
+	return "", nil // No active STA interface found
+}
+
 // determineBandFromSSID attempts to determine the band (2g or 5g) from the SSID
 func determineBandFromSSID(ssid string) string {
 	// If the SSID contains "2.4GHz" or "2G", assume it's a 2.4GHz network
@@ -725,3 +801,6 @@ func determineBandFromSSID(ssid string) string {
 	// Default to empty string if we can't determine the band
 	return ""
 }
+
+// Ensure Connector implements ConnectorInterface
+var _ ConnectorInterface = (*Connector)(nil)
