@@ -118,7 +118,7 @@ def find_tollgate_networks():
             if ssid.endswith("-2.4GHz"):
                 base_name = ssid[:-7]  # Remove "-2.4GHz"
             elif ssid.endswith("-5GHz"):
-                base_name = ssid[:-6]  # Remove "-5GHz"
+                base_name = ssid[:-5]  # Remove "-5GHz" (5 characters)
                 
             # Group networks by base name
             if base_name not in network_groups:
@@ -128,13 +128,16 @@ def find_tollgate_networks():
         # For each group, select one network (prefer 5GHz over 2.4GHz if available)
         for base_name, networks in network_groups.items():
             # Prefer 5GHz networks over 2.4GHz
-            preferred_network = networks[0]  # Default to first one
+            preferred_network = None
             for network in networks:
                 if network.endswith("-5GHz"):
                     preferred_network = network
-                    break
-                elif network.endswith("-2.4GHz"):
-                    preferred_network = network
+                    break  # Prefer 5GHz, so we can stop looking
+            
+            # If no 5GHz network found, use the first available network
+            if preferred_network is None:
+                preferred_network = networks[0]
+                
             deduplicated_networks.append(preferred_network)
         
         deduplicated_networks.sort()
@@ -461,6 +464,105 @@ def install_images_on_tollgates(tollgate_networks):
             print(f"Failed to flash image to network {network}: {e}")
             
     yield flashed_routers
+    
+    # Reconnect to the previous network
+    if previous_connection:
+        try:
+            subprocess.run(
+                ["nmcli", "connection", "up", previous_connection],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"Successfully reconnected to previous network: {previous_connection}")
+        except subprocess.CalledProcessError:
+            print(f"Failed to reconnect to previous network: {previous_connection}")
+
+
+@pytest.fixture(scope="session")
+def post_test_image_flasher(tollgate_networks):
+    """Collect networks during tests and flash images after all tests complete."""
+    if not tollgate_networks:
+        raise Exception("No TollGate networks found")
+    
+    # Store the networks to flash later
+    networks_to_flash = tollgate_networks.copy()
+    
+    # Get the current network connection
+    previous_connection = get_current_wifi_connection()
+    print(f"Current network connection: {previous_connection}")
+    
+    # Path to the image file
+    image_file = "9b64fb839b21813b92c0a8f791f18b7d02fc3a5288341462531180b09258c3fc.bin"
+    image_path = os.path.join(os.path.dirname(__file__), image_file)
+    
+    # Check if the image file exists
+    if not os.path.exists(image_path):
+        raise Exception(f"Image file not found: {image_path}")
+    
+    flashed_routers = []
+    
+    # This will run after all tests complete
+    yield networks_to_flash
+    
+    # Flash images after all tests have completed
+    print("Flashing images on tollgates after tests complete...")
+    for network in networks_to_flash:
+        try:
+            # Connect to the TollGate network
+            connected_network = connect_to_network(network)
+            
+            # Get the router's IP address dynamically
+            router_ip = get_router_ip()
+            
+            # Copy the image to the router
+            copy_image_to_router(router_ip, image_path)
+            
+            # Flash the router with the image
+            print(f"Flashing router at {router_ip} with image {image_path}")
+            # Get the filename from the path
+            image_filename = os.path.basename(image_path)
+            remote_path = f"/tmp/{image_filename}"
+            
+            # Execute the sysupgrade command on the router
+            print(f"Executing sysupgrade command on router {router_ip}...")
+            sysupgrade_command = [
+                "sshpass", "-p", ROUTER_PASSWORD,
+                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                f"root@{router_ip}",
+                f"sysupgrade -n {remote_path}"
+            ]
+            
+            print(f"Executing command: {' '.join(sysupgrade_command[:-1])} \"sysupgrade -n {remote_path}\"")
+            result = subprocess.run(sysupgrade_command, capture_output=True, text=True)
+            
+            # Print command output if there is any
+            if result.stdout:
+                print(f"Command stdout: {result.stdout}")
+            if result.stderr:
+                print(f"Command stderr: {result.stderr}")
+                
+            # Check if this is an expected "failure" due to the router rebooting
+            # When sysupgrade works, it disconnects the SSH session, which causes a non-zero exit code
+            # Look for signs that the upgrade actually started
+            stderr_output = result.stderr
+            stdout_output = result.stdout
+            
+            # If we see upgrade messages, it means the flashing started successfully
+            if result.returncode == 0 or "upgrade: Commencing upgrade" in stderr_output or "verifying sysupgrade tar file integrity" in stderr_output:
+                print(f"Router {router_ip} is rebooting with new firmware (this is expected)")
+                print(f"Flashing process initiated successfully on {router_ip}")
+                flashed_routers.append(router_ip)
+            else:
+                print(f"Failed to execute sysupgrade command on {router_ip}")
+                print(f"Stdout: {stdout_output}")
+                print(f"Stderr: {stderr_output}")
+                print(f"Return code: {result.returncode}")
+            
+        except Exception as e:
+            print(f"Failed to flash image to network {network}: {e}")
+            
+    print(f"Successfully flashed routers: {flashed_routers}")
     
     # Reconnect to the previous network
     if previous_connection:
