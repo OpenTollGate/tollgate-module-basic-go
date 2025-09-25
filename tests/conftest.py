@@ -189,17 +189,15 @@ def connect_to_tollgate_network(tollgate_networks):
 def install_package(ip_address):
     """Install the latest package on the router."""
     try:
-        # Check if the router is reachable
-        print(f"Pinging router at {ip_address}...")
-        ping_result = subprocess.run(["ping", "-c", "1", ip_address], capture_output=True, text=True)
-        if ping_result.returncode != 0:
-            raise Exception(f"Router at {ip_address} is not reachable")
+        # Instead of just pinging, let's try to establish an SSH connection directly
+        # This is a more reliable way to check if the router is reachable and ready
+        print(f"Attempting to connect to router at {ip_address}...")
         
         # SSH into the router and install the package
         print(f"Connecting to router at {ip_address}...")
         ssh_command = [
             "sshpass", "-p", ROUTER_PASSWORD,
-            "ssh", "-o", "StrictHostKeyChecking=no",
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
             f"root@{ip_address}",
             f"cd /tmp/ && wget {BLOSSOM_URL} && opkg install *.ipk"
         ]
