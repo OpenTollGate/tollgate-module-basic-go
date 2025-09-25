@@ -6,7 +6,7 @@ import os
 import time
 
 LOCAL_MINT_URL = "https://nofees.testnut.cashu.space"
-TOLLGATE_NETWORK_PREFIX = "TollGate-"
+TOLLGATE_NETWORK_PREFIXES = ["TollGate-", "SafeMode-TollGate-"]
 INTERFACE = "wlp59s0"  # This should be configurable
 BLOSSOM_URL = "https://blossom.swissdash.site/21d180236f012e5ece0e7881b3602779f14d6b1d8deaaf63914aa0f5b67d4bc3.ipk"
 ROUTER_PASSWORD = "c03rad0r123"
@@ -87,30 +87,29 @@ def get_current_wifi_connection():
     return ""
 
 def find_tollgate_networks():
-    """Find all available WiFi networks with SSID starting with 'TollGate-'."""
+    """Find all available WiFi networks with SSID starting with 'TollGate-' or 'SafeMode-TollGate-'."""
     try:
-        # Get list of available WiFi networks
+        # Get list of available WiFi SSIDs
         result = subprocess.run(
-            ["nmcli", "device", "wifi", "list"],
+            ["nmcli", "-f", "SSID", "device", "wifi", "list"],
             capture_output=True,
             text=True,
             check=True
         )
-        
+
+        all_ssids = result.stdout.strip().split('\n')[1:]  # Skip header
+
         tollgate_networks = []
-        for line in result.stdout.split('\n'):
-            if TOLLGATE_NETWORK_PREFIX in line:
-                # Extract the SSID by splitting on whitespace and finding the column with our prefix
-                parts = line.split()
-                for i, part in enumerate(parts):
-                    if part.startswith(TOLLGATE_NETWORK_PREFIX):
-                        tollgate_networks.append(part)
-                        break
-        
-        # Sort the networks
+        for ssid in all_ssids:
+            ssid = ssid.strip()
+            for prefix in TOLLGATE_NETWORK_PREFIXES:
+                if ssid.startswith(prefix):
+                    tollgate_networks.append(ssid)
+                    break  # Found a match for this ssid, check next one.
+
         tollgate_networks.sort()
         return tollgate_networks
-            
+
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to scan for networks: {e}")
 
