@@ -50,18 +50,6 @@ type VendorElementProcessor struct {
 	connector *Connector
 }
 
-// KnownNetwork holds credentials for a known Wi-Fi network.
-type KnownNetwork struct {
-	SSID       string `json:"ssid"`
-	Password   string `json:"password"`
-	Encryption string `json:"encryption"`
-}
-
-// KnownNetworks is a list of known networks.
-type KnownNetworks struct {
-	Networks []KnownNetwork `json:"known_networks"`
-}
-
 // Gateway represents a Wi-Fi gateway with its details.
 type Gateway struct {
 	BSSID          string            `json:"bssid"`
@@ -83,7 +71,6 @@ type GatewayManager struct {
 	cm                *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
-	knownNetworks     map[string]KnownNetwork // Key: SSID
 	currentHopCount   int
 	scanInterval      time.Duration
 	stopChan          chan struct{}

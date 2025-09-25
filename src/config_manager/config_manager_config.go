@@ -18,6 +18,7 @@ type Config struct {
 	Metric        string              `json:"metric"`
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
+	ResellerMode  bool                `json:"reseller_mode"`
 	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
 	Chandler      ChandlerConfig      `json:"chandler"`
 }
@@ -168,6 +169,7 @@ func NewDefaultConfig() *Config {
 			"wss://nostr.mom",
 		},
 		ShowSetup: true,
+		ResellerMode: false,
 		Crowsnest: CrowsnestConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,

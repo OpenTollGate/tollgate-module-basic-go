@@ -24,7 +24,9 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	}).Info("Attempting to connect to gateway")
 
 	// Find an available STA interface to use for the connection
-	staInterface, err := c.findAvailableSTAInterface()
+	// Determine the band from the gateway's SSID
+	band := determineBandFromSSID(gateway.SSID)
+	staInterface, err := c.findAvailableSTAInterface(band)
 	if err != nil {
 		return fmt.Errorf("failed to find an available STA interface: %w", err)
 	}
@@ -246,7 +248,8 @@ func (c *Connector) cleanupSTAInterfaces() error {
 }
 
 // findAvailableSTAInterface scans the wireless config for a disabled STA interface and returns its name.
-func (c *Connector) findAvailableSTAInterface() (string, error) {
+// In reseller mode, it looks for tollgate_sta_2g and tollgate_sta_5g interfaces.
+func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 	logger.Info("Searching for an available STA wifi-iface section")
 	output, err := c.ExecuteUCI("show", "wireless")
 	if err != nil {
@@ -256,31 +259,137 @@ func (c *Connector) findAvailableSTAInterface() (string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	var staInterfaces []string
 	disabledSTAInterfaces := make(map[string]bool)
+	tollgateSTA2GFound := false
+	tollgateSTA5GFound := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasSuffix(line, ".mode='sta'") {
 			section := strings.TrimSuffix(line, ".mode='sta'")
 			staInterfaces = append(staInterfaces, section)
+			
+			// Check if we have our specific TollGate interfaces
+			if strings.HasSuffix(section, ".tollgate_sta_2g") {
+				tollgateSTA2GFound = true
+			} else if strings.HasSuffix(section, ".tollgate_sta_5g") {
+				tollgateSTA5GFound = true
+			}
 		} else if strings.HasSuffix(line, ".disabled='1'") {
 			section := strings.TrimSuffix(line, ".disabled='1'")
 			disabledSTAInterfaces[section] = true
 		}
 	}
 
+	// Create our specific TollGate interfaces if they don't exist
+	if !tollgateSTA2GFound {
+		logger.Info("Creating tollgate_sta_2g interface")
+		if err := c.createTollgateSTAInterface("tollgate_sta_2g", "radio0"); err != nil {
+			logger.WithError(err).Error("Failed to create tollgate_sta_2g interface")
+			return "", err
+		}
+		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_2g")
+		disabledSTAInterfaces["wireless.tollgate_sta_2g"] = true
+	}
+
+	if !tollgateSTA5GFound {
+		logger.Info("Creating tollgate_sta_5g interface")
+		if err := c.createTollgateSTAInterface("tollgate_sta_5g", "radio1"); err != nil {
+			logger.WithError(err).Error("Failed to create tollgate_sta_5g interface")
+			return "", err
+		}
+		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_5g")
+		disabledSTAInterfaces["wireless.tollgate_sta_5g"] = true
+	}
+
+	// If a specific band is requested, try to find an interface for that band
+	if band == "2g" || band == "5g" {
+		// Prefer disabled interfaces to avoid disrupting an active connection
+		// First, try to find a disabled TollGate interface for the requested band
+		interfaceName := "tollgate_sta_" + band
+		for _, iface := range staInterfaces {
+			if disabledSTAInterfaces[iface] && strings.HasSuffix(iface, "."+interfaceName) {
+				return iface, nil
+			}
+		}
+
+		// If no disabled interface for the requested band is found, use any available one for that band
+		for _, iface := range staInterfaces {
+			if strings.HasSuffix(iface, "."+interfaceName) {
+				return iface, nil
+			}
+		}
+	}
+
+	// If no specific band is requested or no interface for the requested band is found,
+	// use the general logic
 	// Prefer disabled interfaces to avoid disrupting an active connection
+	// First, try to find a disabled TollGate interface
+	for _, iface := range staInterfaces {
+		if disabledSTAInterfaces[iface] && (strings.HasSuffix(iface, ".tollgate_sta_2g") || strings.HasSuffix(iface, ".tollgate_sta_5g")) {
+			return iface, nil
+		}
+	}
+
+	// If no disabled TollGate interface is found, use any disabled interface
 	for _, iface := range staInterfaces {
 		if disabledSTAInterfaces[iface] {
 			return iface, nil
 		}
 	}
 
-	// If no disabled interface is found, use the first available one, if any exist.
+	// If no disabled interface is found, use the first available TollGate interface
+	for _, iface := range staInterfaces {
+		if strings.HasSuffix(iface, ".tollgate_sta_2g") || strings.HasSuffix(iface, ".tollgate_sta_5g") {
+			return iface, nil
+		}
+	}
+
+	// If no TollGate interface is found, use the first available one, if any exist.
 	if len(staInterfaces) > 0 {
 		return staInterfaces[0], nil
 	}
 
 	return "", fmt.Errorf("no STA interface found in wireless configuration")
+}
+
+// createTollgateSTAInterface creates a new STA interface with the specified name and device.
+func (c *Connector) createTollgateSTAInterface(interfaceName, device string) error {
+	logger.WithFields(logrus.Fields{
+		"interface": interfaceName,
+		"device":    device,
+	}).Info("Creating new TollGate STA interface")
+	
+	// Create the interface section
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+"=wifi-iface"); err != nil {
+		return err
+	}
+	
+	// Set the device
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".device="+device); err != nil {
+		return err
+	}
+	
+	// Set mode to sta
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".mode=sta"); err != nil {
+		return err
+	}
+	
+	// Set network to wwan
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".network=wwan"); err != nil {
+		return err
+	}
+	
+	// Disable by default
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".disabled=1"); err != nil {
+		return err
+	}
+	
+	// Commit the changes
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return err
+	}
+	
+	return nil
 }
 
 // disableOtherSTAInterfaces disables all STA interfaces except for the one provided.
@@ -599,4 +708,20 @@ func stripPricingFromSSID(ssid string) string {
 	}
 
 	return ssid // Return original if parsing fails
+}
+
+// determineBandFromSSID attempts to determine the band (2g or 5g) from the SSID
+func determineBandFromSSID(ssid string) string {
+	// If the SSID contains "2.4GHz" or "2G", assume it's a 2.4GHz network
+	if strings.Contains(ssid, "2.4GHz") || strings.Contains(ssid, "2G") {
+		return "2g"
+	}
+	
+	// If the SSID contains "5GHz" or "5G", assume it's a 5GHz network
+	if strings.Contains(ssid, "5GHz") || strings.Contains(ssid, "5G") {
+		return "5g"
+	}
+	
+	// Default to empty string if we can't determine the band
+	return ""
 }

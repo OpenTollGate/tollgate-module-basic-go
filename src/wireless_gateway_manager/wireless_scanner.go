@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -164,4 +165,27 @@ func parsePricingFromSSID(ssid string) (int, int) {
 	}
 
 	return price, step
+}
+
+// parseHopCountFromSSID extracts the hop count from a TollGate SSID.
+// The hop count is expected to be the last part of the SSID after the last hyphen.
+// Returns math.MaxInt32 if the hop count cannot be parsed or if the SSID is not a TollGate SSID.
+func parseHopCountFromSSID(ssid string) int {
+	if !strings.HasPrefix(ssid, "TollGate-") {
+		return 0 // Not a TollGate network
+	}
+
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 4 {
+		return math.MaxInt32 // Invalid format
+	}
+
+	// The hop count should be the last part
+	hopCountStr := parts[len(parts)-1]
+	hopCount, err := strconv.Atoi(hopCountStr)
+	if err != nil {
+		return math.MaxInt32 // Could not parse hop count
+	}
+
+	return hopCount
 }

@@ -3,10 +3,8 @@ package wireless_gateway_manager
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"sort"
 	"time"
@@ -30,15 +28,9 @@ func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManage
 		networkMonitor:    networkMonitor,
 		cm:                cm,
 		availableGateways: make(map[string]Gateway),
-		knownNetworks:     make(map[string]KnownNetwork),
 		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
-	}
-
-	if err := gm.loadKnownNetworks(); err != nil {
-		// Log the error but don't fail initialization, as the file may not exist.
-		logger.WithError(err).Warn("Could not load known networks")
 	}
 
 	go gm.RunPeriodicScan(ctx)
@@ -67,7 +59,16 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
-	logger.Info("Starting network scan for gateway selection")
+	// Get the current configuration
+	config := gm.cm.GetConfig()
+	
+	// Check if reseller mode is enabled
+	if !config.ResellerMode {
+		logger.Info("Reseller mode is disabled. Skipping automatic gateway selection.")
+		return
+	}
+	
+	logger.Info("Starting network scan for gateway selection in reseller mode")
 
 	// Update current price based on current connection status before scanning
 	gm.updatePriceAndAPSSID()
@@ -81,17 +82,24 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 
-	logger.WithField("network_count", len(networks)).Info("Processing networks for gateway selection")
-	gm.availableGateways = make(map[string]Gateway)
+	// Filter networks to only include those with SSIDs starting with "TollGate-"
+	var tollgateNetworks []NetworkInfo
 	for _, network := range networks {
-		// Strict filtering: if a network is encrypted and not in known_networks, skip it.
+		if len(network.SSID) >= 9 && network.SSID[:9] == "TollGate-" {
+			tollgateNetworks = append(tollgateNetworks, network)
+		}
+	}
+	
+	logger.WithField("network_count", len(tollgateNetworks)).Info("Processing TollGate networks for gateway selection")
+	gm.availableGateways = make(map[string]Gateway)
+	for _, network := range tollgateNetworks {
+		// In reseller mode, we only connect to open TollGate networks
 		isEncrypted := network.Encryption != "Open" && network.Encryption != ""
-		_, isKnown := gm.knownNetworks[network.SSID]
-		if isEncrypted && !isKnown {
+		if isEncrypted {
 			logger.WithFields(logrus.Fields{
 				"ssid":       network.SSID,
 				"encryption": network.Encryption,
-			}).Debug("Skipping encrypted network not in known_networks.json")
+			}).Debug("Skipping encrypted TollGate network")
 			continue
 		}
 
@@ -127,7 +135,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 
 		gm.availableGateways[network.BSSID] = gateway
 	}
-	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available gateways")
+	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available TollGate gateways")
 
 	// Convert map to slice for sorting
 	var sortedGateways []Gateway
@@ -158,7 +166,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"step_size":       gateway.StepSize,
 			"score":           gateway.Score,
 			"vendor_elements": gateway.VendorElements,
-		}).Info("Top gateway candidate")
+		}).Info("Top TollGate gateway candidate")
 	}
 
 	if len(sortedGateways) > 0 {
@@ -182,37 +190,29 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		}
 
 		if !isConnectedToTopThree {
+			// In reseller mode, all TollGate networks are considered "known" and open
 			password := ""
-			knownNetwork, isKnown := gm.knownNetworks[highestPriorityGateway.SSID]
-			if isKnown {
-				password = knownNetwork.Password
-				logger.WithField("ssid", highestPriorityGateway.SSID).Info("Found known network, using stored password")
-			}
 
-			// Attempt to connect if the network is open, or if it's a known network with a password.
-			if highestPriorityGateway.Encryption == "Open" || highestPriorityGateway.Encryption == "" || isKnown {
+			// Attempt to connect to the highest priority TollGate network
+			logger.WithFields(logrus.Fields{
+				"bssid": highestPriorityGateway.BSSID,
+				"ssid":  highestPriorityGateway.SSID,
+			}).Info("Not connected to top-3 TollGate gateway, attempting to connect to highest priority gateway")
+			err := gm.connector.Connect(highestPriorityGateway, password)
+			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"bssid": highestPriorityGateway.BSSID,
 					"ssid":  highestPriorityGateway.SSID,
-				}).Info("Not connected to top-3 gateway, attempting to connect to highest priority gateway")
-				err := gm.connector.Connect(highestPriorityGateway, password)
-				if err != nil {
-					logger.WithFields(logrus.Fields{
-						"ssid":  highestPriorityGateway.SSID,
-						"error": err,
-					}).Error("Failed to connect to gateway")
-				} else {
-					// Update price and SSID after successful connection
-					gm.updatePriceAndAPSSID()
-				}
+					"error": err,
+				}).Error("Failed to connect to TollGate gateway")
 			} else {
-				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Not connected to top-3 gateway. Highest priority gateway is encrypted and not in known networks. Manual connection required")
+				// Update price and SSID after successful connection
+				gm.updatePriceAndAPSSID()
 			}
 		} else {
-			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three gateways, no action required")
+			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three TollGate gateways, no action required")
 		}
 	} else {
-		logger.Info("No available gateways to connect to")
+		logger.Info("No available TollGate gateways to connect to")
 	}
 }
 
@@ -266,27 +266,6 @@ func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) 
 	return gm.vendorProcessor.GetLocalAPVendorElements()
 }
 
-func (gm *GatewayManager) loadKnownNetworks() error {
-	logger.Info("Loading known networks from /etc/tollgate/known_networks.json")
-	file, err := ioutil.ReadFile("/etc/tollgate/known_networks.json")
-	if err != nil {
-		return fmt.Errorf("could not read known_networks.json: %w", err)
-	}
-
-	var knownNetworks KnownNetworks
-	if err := json.Unmarshal(file, &knownNetworks); err != nil {
-		return fmt.Errorf("could not unmarshal known_networks.json: %w", err)
-	}
-
-	gm.mu.Lock()
-	defer gm.mu.Unlock()
-	for _, network := range knownNetworks.Networks {
-		gm.knownNetworks[network.SSID] = network
-		logger.WithField("ssid", network.SSID).Debug("Loaded known network")
-	}
-
-	return nil
-}
 
 func (gm *GatewayManager) updatePriceAndAPSSID() {
 	// If not connected to a gateway, we are in safemode.
