@@ -107,8 +107,38 @@ def find_tollgate_networks():
                     tollgate_networks.append(ssid)
                     break  # Found a match for this ssid, check next one.
 
-        tollgate_networks.sort()
-        return tollgate_networks
+        # Deduplicate networks by removing frequency suffixes (2.4GHz, 5GHz)
+        # Group networks by their base name and only keep one per group
+        deduplicated_networks = []
+        network_groups = {}
+        
+        for ssid in tollgate_networks:
+            # Remove frequency suffix to get base name
+            base_name = ssid
+            if ssid.endswith("-2.4GHz"):
+                base_name = ssid[:-7]  # Remove "-2.4GHz"
+            elif ssid.endswith("-5GHz"):
+                base_name = ssid[:-6]  # Remove "-5GHz"
+                
+            # Group networks by base name
+            if base_name not in network_groups:
+                network_groups[base_name] = []
+            network_groups[base_name].append(ssid)
+        
+        # For each group, select one network (prefer 5GHz over 2.4GHz if available)
+        for base_name, networks in network_groups.items():
+            # Prefer 5GHz networks over 2.4GHz
+            preferred_network = networks[0]  # Default to first one
+            for network in networks:
+                if network.endswith("-5GHz"):
+                    preferred_network = network
+                    break
+                elif network.endswith("-2.4GHz"):
+                    preferred_network = network
+            deduplicated_networks.append(preferred_network)
+        
+        deduplicated_networks.sort()
+        return deduplicated_networks
 
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to scan for networks: {e}")
@@ -208,21 +238,33 @@ def install_package(ip_address):
 
 
 def copy_image_to_router(ip_address, image_path):
-    """Copy an image file to the router's /tmp directory using scp."""
+    """Copy an image file to the router's /tmp directory using ssh and cat."""
     try:
         print(f"Copying image to router at {ip_address}...")
-        # Use scp to copy the image file to the router's /tmp directory
-        scp_command = [
-            "sshpass", "-p", ROUTER_PASSWORD,
-            "scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
-            image_path,
-            f"root@{ip_address}:/tmp/"
-        ]
-        result = subprocess.run(scp_command, capture_output=True, text=True, check=True)
-        print(f"Image copied successfully to {ip_address}:/tmp/")
-        return result.stdout
+        # Use ssh with cat to copy the image file to the router's /tmp directory
+        # This approach works better with embedded systems that don't have sftp-server
+        # Also automatically accepts new host keys
+        
+        # Get the filename from the path
+        image_filename = os.path.basename(image_path)
+        remote_path = f"/tmp/{image_filename}"
+        
+        # Read the local file and send it through ssh
+        with open(image_path, 'rb') as f:
+            ssh_command = [
+                "sshpass", "-p", ROUTER_PASSWORD,
+                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                f"root@{ip_address}",
+                f"cat > {remote_path}"
+            ]
+            
+            result = subprocess.run(ssh_command, input=f.read(), capture_output=True, check=True)
+            
+        print(f"Image copied successfully to {ip_address}:{remote_path}")
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to copy image to {ip_address}:/tmp/: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+    except IOError as e:
+        raise Exception(f"Failed to read image file {image_path}: {e}")
 
 def get_router_ip(interface=INTERFACE):
     """Get the router's IP address for the current network."""
@@ -328,6 +370,97 @@ def copy_images_to_tollgates(tollgate_networks):
             print(f"Failed to copy image to network {network}: {e}")
             
     yield copied_routers
+    
+    # Reconnect to the previous network
+    if previous_connection:
+        try:
+            subprocess.run(
+                ["nmcli", "connection", "up", previous_connection],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"Successfully reconnected to previous network: {previous_connection}")
+        except subprocess.CalledProcessError:
+            print(f"Failed to reconnect to previous network: {previous_connection}")
+
+
+@pytest.fixture(scope="session")
+def install_images_on_tollgates(tollgate_networks):
+    """Find all TollGate networks, connect to each one, and flash the latest image."""
+    if not tollgate_networks:
+        raise Exception("No TollGate networks found")
+    
+    # Get the current network connection
+    previous_connection = get_current_wifi_connection()
+    print(f"Current network connection: {previous_connection}")
+    
+    # Path to the image file
+    image_file = "9b64fb839b21813b92c0a8f791f18b7d02fc3a5288341462531180b09258c3fc.bin"
+    image_path = os.path.join(os.path.dirname(__file__), image_file)
+    
+    # Check if the image file exists
+    if not os.path.exists(image_path):
+        raise Exception(f"Image file not found: {image_path}")
+    
+    flashed_routers = []
+    
+    for network in tollgate_networks:
+        try:
+            # Connect to the TollGate network
+            connected_network = connect_to_network(network)
+            
+            # Get the router's IP address dynamically
+            router_ip = get_router_ip()
+            
+            # Copy the image to the router
+            copy_image_to_router(router_ip, image_path)
+            
+            # Flash the router with the image
+            print(f"Flashing router at {router_ip} with image {image_path}")
+            # Get the filename from the path
+            image_filename = os.path.basename(image_path)
+            remote_path = f"/tmp/{image_filename}"
+            
+            # Execute the sysupgrade command on the router
+            print(f"Executing sysupgrade command on router {router_ip}...")
+            sysupgrade_command = [
+                "sshpass", "-p", ROUTER_PASSWORD,
+                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                f"root@{router_ip}",
+                f"sysupgrade -n {remote_path}"
+            ]
+            
+            print(f"Executing command: {' '.join(sysupgrade_command[:-1])} \"sysupgrade -n {remote_path}\"")
+            result = subprocess.run(sysupgrade_command, capture_output=True, text=True)
+            
+            # Print command output if there is any
+            if result.stdout:
+                print(f"Command stdout: {result.stdout}")
+            if result.stderr:
+                print(f"Command stderr: {result.stderr}")
+                
+            # Check if this is an expected "failure" due to the router rebooting
+            # When sysupgrade works, it disconnects the SSH session, which causes a non-zero exit code
+            # Look for signs that the upgrade actually started
+            stderr_output = result.stderr
+            stdout_output = result.stdout
+            
+            # If we see upgrade messages, it means the flashing started successfully
+            if result.returncode == 0 or "upgrade: Commencing upgrade" in stderr_output or "verifying sysupgrade tar file integrity" in stderr_output:
+                print(f"Router {router_ip} is rebooting with new firmware (this is expected)")
+                print(f"Flashing process initiated successfully on {router_ip}")
+                flashed_routers.append(router_ip)
+            else:
+                print(f"Failed to execute sysupgrade command on {router_ip}")
+                print(f"Stdout: {stdout_output}")
+                print(f"Stderr: {stderr_output}")
+                print(f"Return code: {result.returncode}")
+            
+        except Exception as e:
+            print(f"Failed to flash image to network {network}: {e}")
+            
+    yield flashed_routers
     
     # Reconnect to the previous network
     if previous_connection:
