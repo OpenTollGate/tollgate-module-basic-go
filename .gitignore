@@ -13,3 +13,8 @@ squash_tool.sh
 .github/workflows/roo-auto-commit.yml
 vendor/
 **/tollwallet_db/*
+.obsidian/
+Untitled 1.base
+Untitled.base
+Untitled.canvas
+tests/__pycache__/
