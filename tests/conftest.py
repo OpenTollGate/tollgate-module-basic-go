@@ -206,6 +206,24 @@ def install_package(ip_address):
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to install package on {ip_address}: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
 
+
+def copy_image_to_router(ip_address, image_path):
+    """Copy an image file to the router's /tmp directory using scp."""
+    try:
+        print(f"Copying image to router at {ip_address}...")
+        # Use scp to copy the image file to the router's /tmp directory
+        scp_command = [
+            "sshpass", "-p", ROUTER_PASSWORD,
+            "scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+            image_path,
+            f"root@{ip_address}:/tmp/"
+        ]
+        result = subprocess.run(scp_command, capture_output=True, text=True, check=True)
+        print(f"Image copied successfully to {ip_address}:/tmp/")
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"Failed to copy image to {ip_address}:/tmp/: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+
 def get_router_ip(interface=INTERFACE):
     """Get the router's IP address for the current network."""
     try:
@@ -260,6 +278,56 @@ def install_packages_on_tollgates(tollgate_networks):
             print(f"Failed to install package on network {network}: {e}")
             
     yield installed_routers
+    
+    # Reconnect to the previous network
+    if previous_connection:
+        try:
+            subprocess.run(
+                ["nmcli", "connection", "up", previous_connection],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"Successfully reconnected to previous network: {previous_connection}")
+        except subprocess.CalledProcessError:
+            print(f"Failed to reconnect to previous network: {previous_connection}")
+
+@pytest.fixture(scope="function")
+def copy_images_to_tollgates(tollgate_networks):
+    """Find all TollGate networks, connect to each one, and copy the latest image."""
+    if not tollgate_networks:
+        raise Exception("No TollGate networks found")
+    
+    # Get the current network connection
+    previous_connection = get_current_wifi_connection()
+    print(f"Current network connection: {previous_connection}")
+    
+    # Path to the image file
+    image_file = "9b64fb839b21813b92c0a8f791f18b7d02fc3a5288341462531180b09258c3fc.bin"
+    image_path = os.path.join(os.path.dirname(__file__), image_file)
+    
+    # Check if the image file exists
+    if not os.path.exists(image_path):
+        raise Exception(f"Image file not found: {image_path}")
+    
+    copied_routers = []
+    
+    for network in tollgate_networks:
+        try:
+            # Connect to the TollGate network
+            connected_network = connect_to_network(network)
+            
+            # Get the router's IP address dynamically
+            router_ip = get_router_ip()
+            
+            # Copy the image to the router
+            copy_image_to_router(router_ip, image_path)
+            copied_routers.append(router_ip)
+            
+        except Exception as e:
+            print(f"Failed to copy image to network {network}: {e}")
+            
+    yield copied_routers
     
     # Reconnect to the previous network
     if previous_connection:
