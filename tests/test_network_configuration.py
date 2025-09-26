@@ -307,18 +307,9 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
             configured_routers.append(router_ip)
             configured_ssids.append(network)
             
-        except Exception as e:
-            print(f"Failed to configure router for network {network}: {e}")
-            # Continue with the next router instead of failing the entire test
-            continue
-    
-    # Restart all routers
-    print("\n=== Restarting all routers ===")
-    router_password = "c03rad0r123"
-    restarted_routers = []
-    for i, router_ip in enumerate(configured_routers):
-        try:
-            print(f"Restarting router {i+1}/{len(configured_routers)}: {configured_ssids[i]} ({router_ip})")
+            # Reboot the router immediately after configuration while still connected to its network
+            print(f"Rebooting router {router_ip}...")
+            router_password = "c03rad0r123"
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
@@ -326,16 +317,23 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
                 "reboot"
             ]
             
-            result = subprocess.run(ssh_command, capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"Successfully sent reboot command to router {router_ip}")
-            else:
-                # Reboot command will disconnect the SSH session, so this is expected to fail
+            try:
+                result = subprocess.run(ssh_command, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    print(f"Successfully sent reboot command to router {router_ip}")
+                else:
+                    # Reboot command will disconnect the SSH session, so this is expected to fail
+                    print(f"Router {router_ip} is rebooting (this is expected)")
+            except subprocess.TimeoutExpired:
+                # This is expected as the reboot command will disconnect the SSH session
                 print(f"Router {router_ip} is rebooting (this is expected)")
+            except Exception as e:
+                print(f"Error rebooting router {router_ip}: {e}")
             
-            restarted_routers.append((router_ip, configured_ssids[i]))
         except Exception as e:
-            print(f"Error rebooting router {router_ip}: {e}")
+            print(f"Failed to configure router for network {network}: {e}")
+            # Continue with the next router instead of failing the entire test
+            continue
     
     # Wait for all routers to come back online and their SSIDs to reappear
     print("\n=== Waiting for routers to come back online and SSIDs to reappear ===")
@@ -348,7 +346,7 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     
     # Create a list of possible SSID patterns for each router
     ssid_patterns = []
-    for router_ip, ssid in restarted_routers:
+    for router_ip, ssid in zip(configured_routers, configured_ssids):
         # For TollGate-* SSIDs, also check for SafeMode-TollGate-* and vice versa
         if ssid.startswith("TollGate-"):
             pattern = ssid.replace("TollGate-", "SafeMode-TollGate-", 1)
@@ -395,18 +393,18 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
                         print(f"Failed to connect to {found_ssid}, router may not be fully back online yet: {e}")
             
             # If all routers are back, we're done
-            if len(available_networks) == len(restarted_routers):
+            if len(available_networks) == len(configured_routers):
                 print("All routers are back online and their SSIDs are available")
                 break
         except subprocess.CalledProcessError as e:
             print(f"Error scanning for networks: {e}")
         
         # Wait before checking again
-        print(f"Waiting for {len(restarted_routers) - len(available_networks)} routers to come back online...")
+        print(f"Waiting for {len(configured_routers) - len(available_networks)} routers to come back online...")
         time.sleep(wait_interval)
     
-    if len(available_networks) < len(restarted_routers):
-        print(f"Warning: Only {len(available_networks)} out of {len(restarted_routers)} routers came back online")
+    if len(available_networks) < len(configured_routers):
+        print(f"Warning: Only {len(available_networks)} out of {len(configured_routers)} routers came back online")
     
     # Reconnect to the first available network to continue with other tests
     if available_networks:
