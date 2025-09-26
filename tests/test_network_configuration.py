@@ -312,6 +312,77 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
             # Continue with the next router instead of failing the entire test
             continue
     
+    # Restart all routers
+    print("\n=== Restarting all routers ===")
+    router_password = "c03rad0r123"
+    restarted_routers = []
+    for i, router_ip in enumerate(configured_routers):
+        try:
+            print(f"Restarting router {i+1}/{len(configured_routers)}: {configured_ssids[i]} ({router_ip})")
+            ssh_command = [
+                "sshpass", "-p", router_password,
+                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                f"root@{router_ip}",
+                "reboot"
+            ]
+            
+            result = subprocess.run(ssh_command, capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"Successfully sent reboot command to router {router_ip}")
+            else:
+                # Reboot command will disconnect the SSH session, so this is expected to fail
+                print(f"Router {router_ip} is rebooting (this is expected)")
+            
+            restarted_routers.append((router_ip, configured_ssids[i]))
+        except Exception as e:
+            print(f"Error rebooting router {router_ip}: {e}")
+    
+    # Wait for all routers to come back online and their SSIDs to reappear
+    print("\n=== Waiting for routers to come back online and SSIDs to reappear ===")
+    available_networks = []
+    max_wait_time = 300  # 5 minutes
+    wait_interval = 10   # 10 seconds
+    
+    start_time = time.time()
+    while time.time() - start_time < max_wait_time:
+        # Scan for available networks
+        try:
+            result = subprocess.run(
+                ["nmcli", "device", "wifi", "list"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Check if our routers' SSIDs are in the list
+            for router_ip, ssid in restarted_routers:
+                if ssid in result.stdout and ssid not in available_networks:
+                    print(f"SSID {ssid} is now available")
+                    available_networks.append(ssid)
+            
+            # If all routers are back, we're done
+            if len(available_networks) == len(restarted_routers):
+                print("All routers are back online and their SSIDs are available")
+                break
+        except subprocess.CalledProcessError as e:
+            print(f"Error scanning for networks: {e}")
+        
+        # Wait before checking again
+        print(f"Waiting for {len(restarted_routers) - len(available_networks)} routers to come back online...")
+        time.sleep(wait_interval)
+    
+    if len(available_networks) < len(restarted_routers):
+        print(f"Warning: Only {len(available_networks)} out of {len(restarted_routers)} routers came back online")
+    
+    # Reconnect to the first available network to continue with other tests
+    if available_networks:
+        print(f"\n=== Reconnecting to network {available_networks[0]} ===")
+        try:
+            connect_to_network(available_networks[0])
+            print(f"Successfully reconnected to network {available_networks[0]}")
+        except Exception as e:
+            print(f"Failed to reconnect to network {available_networks[0]}: {e}")
+    
     # Store router information for use by other tests
     pytest.router_ips = configured_routers
     pytest.router_ssids = configured_ssids
