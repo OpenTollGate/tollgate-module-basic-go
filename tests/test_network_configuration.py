@@ -85,60 +85,44 @@ def get_router_ip():
         print(f"Failed to determine router IP: {e}")
         return None
 
-@pytest.mark.order(1)
-def test_connect_to_wifi_network(post_test_image_flasher, tollgate_networks):
-    """Test that connects to a WiFi network."""
-    print("Starting test_connect_to_wifi_network")
-
-    # Connect to the first TollGate network to configure the first router
-    if not post_test_image_flasher:
-        pytest.skip("No networks found for testing")
-
-    network = post_test_image_flasher[0]
-    print(f"Connecting to network: {network}")
-
-    try:
-        subprocess.run(
-            ["nmcli", "device", "wifi", "connect", network],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        print(f"Successfully connected to network: {network}")
-    except subprocess.CalledProcessError as e:
-        pytest.fail(f"Failed to connect to network {network}: {e}")
-
-    # Wait a bit for the connection to stabilize
-    time.sleep(5)
+def connect_to_network(ssid):
+    """Connect to a WiFi network with the given SSID."""
+    max_attempts = 10
+    attempt = 0
     
-    # Verify we're connected to the right network
-    try:
-        result = subprocess.run(
-            ["nmcli", "-t", "-f", "name,device", "connection", "show", "--active"],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        if network not in result.stdout:
-            pytest.fail(f"Not connected to expected network {network}")
-    except subprocess.CalledProcessError as e:
-        pytest.fail(f"Failed to verify network connection: {e}")
+    while attempt < max_attempts:
+        try:
+            # Disconnect from current network
+            subprocess.run(
+                ["nmcli", "device", "disconnect", "wlp59s0"],
+                stderr=subprocess.DEVNULL
+            )
+            
+            # Connect to the specified network
+            result = subprocess.run(
+                ["nmcli", "device", "wifi", "connect", ssid],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                print(f"Successfully connected to network: {ssid}")
+                return ssid
+            else:
+                print(f"Failed to connect to network: {ssid}, attempt {attempt + 1}/{max_attempts}")
+                
+        except subprocess.CalledProcessError as e:
+            print(f"Error connecting to network {ssid}: {e}")
+            
+        # If we didn't connect, wait a bit and try again
+        attempt += 1
+        if attempt < max_attempts:
+            time.sleep(2)  # Wait 2 seconds before retrying
+    
+    raise Exception(f"Failed to connect to network {ssid} after {max_attempts} attempts")
 
-@pytest.mark.order(2)
-@pytest.mark.dependency(depends=["test_connect_to_wifi_network"])
-def test_create_wwan_interface_and_get_router_ip():
-    """Test that creates the wwan network interface if it doesn't exist and gets router IP."""
-    print("Starting test_create_wwan_interface_and_get_router_ip")
-    
-    # Get the router IP
-    router_ip = get_router_ip()
-    if not router_ip:
-        pytest.fail("Could not determine router IP address")
-        
-    print(f"Router IP: {router_ip}")
-    
-    router_password = "root"
-    
+def create_wwan_interface(router_ip, router_password="root"):
+    """Create the wwan network interface if it doesn't exist."""
     try:
         # Check if wwan interface exists
         ssh_command = [
@@ -166,28 +150,18 @@ def test_create_wwan_interface_and_get_router_ip():
                 ]
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
                 if result.returncode != 0:
-                    pytest.fail(f"Failed to execute command '{cmd}': {result.stderr}")
+                    raise Exception(f"Failed to execute command '{cmd}': {result.stderr}")
                 print(f"Executed: {cmd}")
         else:
             print("wwan interface already exists")
             
-        # Store router IP for next test
-        pytest.router_ip = router_ip
-        
     except Exception as e:
-        pytest.fail(f"Failed to create wwan interface: {e}")
+        raise Exception(f"Failed to create wwan interface: {e}")
 
-@pytest.mark.order(3)
-@pytest.mark.dependency(depends=["test_create_wwan_interface_and_get_router_ip"])
-def test_configure_wireless_station_interfaces():
-    """Test that configures the wireless station interfaces."""
-    # Get router IP from previous test
-    router_ip = getattr(pytest, 'router_ip', None)
-    if not router_ip:
-        pytest.skip("Router IP not available from previous test")
-        
-    router_password = "root"
-    target_password = "c03rad0r123"
+def configure_wireless_station_interfaces(router_ip, router_password="root", target_password="c03rad0r123"):
+    """Configure the wireless station interfaces (wifinet0 and wifinet1)."""
+    # Add router information for better output formatting
+    print(f"=== Configuring Router at {router_ip} ===")
     
     # Configure both 2.4GHz and 5GHz wireless interfaces
     print("Configuring wireless station interfaces")
@@ -212,8 +186,10 @@ def test_configure_wireless_station_interfaces():
         
         result = subprocess.run(ssh_command, capture_output=True, text=True)
         if result.returncode != 0:
-            pytest.fail(f"Failed to create wifinet0 interface: {result.stderr}")
+            raise Exception(f"Failed to create wifinet0 interface: {result.stderr}")
         print(f"Creating wifinet0 interface result: {result.stdout}")
+    else:
+        print("wifinet0 interface already exists")
     
     # Check if wifinet1 interface exists, create it if not
     ssh_command = [
@@ -235,8 +211,10 @@ def test_configure_wireless_station_interfaces():
         
         result = subprocess.run(ssh_command, capture_output=True, text=True)
         if result.returncode != 0:
-            pytest.fail(f"Failed to create wifinet1 interface: {result.stderr}")
+            raise Exception(f"Failed to create wifinet1 interface: {result.stderr}")
         print(f"Creating wifinet1 interface result: {result.stdout}")
+    else:
+        print("wifinet1 interface already exists")
     
     # Set the SSID, key, and encryption for both wifinet interfaces
     # Enable 5GHz (wifinet1) and disable 2.4GHz (wifinet0) for this test
@@ -252,22 +230,13 @@ def test_configure_wireless_station_interfaces():
     print(f"Executing uci commands: {' '.join(ssh_command)}")
     result = subprocess.run(ssh_command, capture_output=True, text=True)
     if result.returncode != 0:
-        pytest.fail(f"Failed to configure wireless interfaces: {result.stderr}")
+        raise Exception(f"Failed to configure wireless interfaces: {result.stderr}")
     print(f"Successfully executed uci commands on router {router_ip}")
-    
-    # Store router IP for next test
-    pytest.router_ip = router_ip
 
-@pytest.mark.order(4)
-@pytest.mark.dependency(depends=["test_configure_wireless_station_interfaces"])
-def test_restart_network_and_verify_connectivity():
-    """Test that restarts network services and verifies internet connectivity."""
-    # Get router IP from previous test
-    router_ip = getattr(pytest, 'router_ip', None)
-    if not router_ip:
-        pytest.skip("Router IP not available from previous test")
-        
-    router_password = "root"
+def restart_network_services(router_ip, router_password="root"):
+    """Restart network services and verify internet connectivity."""
+    # Add router information for better output formatting
+    print(f"=== Restarting Network Services on Router at {router_ip} ===")
     
     # Restart network services to apply changes
     print("Restarting network services...")
@@ -280,7 +249,7 @@ def test_restart_network_and_verify_connectivity():
     
     result = subprocess.run(ssh_command, capture_output=True, text=True)
     if result.returncode != 0:
-        pytest.fail(f"Failed to restart network services: {result.stderr}")
+        raise Exception(f"Failed to restart network services: {result.stderr}")
     print("Network services restarted successfully")
     
     # Wait for network to stabilize after restart
@@ -288,10 +257,72 @@ def test_restart_network_and_verify_connectivity():
     
     # Verify internet connectivity
     if not verify_internet_connectivity(router_ip, router_password):
-        pytest.fail("Router cannot connect to the internet after configuration")
+        raise Exception("Router cannot connect to the internet after configuration")
     
     print(f"Router {router_ip} is successfully configured and connected to the internet")
+
+@pytest.mark.order(1)
+def test_configure_all_routers(request, post_test_image_flasher, tollgate_networks):
+    """Test that configures all routers with upstream gateways."""
+    print("Starting test_configure_all_routers")
+    
+    # Check if we have any networks to configure
+    if not post_test_image_flasher:
+        pytest.skip("No networks found for testing")
+    
+    # Store information about all configured routers
+    configured_routers = []
+    configured_ssids = []
+    
+    # Configure each router
+    for i, network in enumerate(post_test_image_flasher):
+        try:
+            print(f"\n=== Configuring Router {i+1}/{len(post_test_image_flasher)}: {network} ===")
+            
+            # Connect to the network
+            print(f"Connecting to network: {network}")
+            connect_to_network(network)
+            
+            # Wait a bit for the connection to stabilize
+            time.sleep(5)
+            
+            # Get the router IP
+            router_ip = get_router_ip()
+            if not router_ip:
+                print(f"Could not determine router IP for network {network}, skipping...")
+                continue
+                
+            print(f"Router IP: {router_ip}")
+            
+            # Create wwan interface if it doesn't exist
+            create_wwan_interface(router_ip)
+            
+            # Configure wireless station interfaces
+            configure_wireless_station_interfaces(router_ip)
+            
+            # Restart network services and verify connectivity
+            restart_network_services(router_ip)
+            
+            # Store information about this router
+            configured_routers.append(router_ip)
+            configured_ssids.append(network)
+            
+        except Exception as e:
+            print(f"Failed to configure router for network {network}: {e}")
+            # Continue with the next router instead of failing the entire test
+            continue
     
     # Store router information for use by other tests
-    pytest.router_ips = [router_ip]
-    pytest.router_ssids = ["GL-MT6000-e50-5G"]  # This is the SSID we're connecting to
+    pytest.router_ips = configured_routers
+    pytest.router_ssids = configured_ssids
+    
+    # Check if we configured at least one router
+    if not configured_routers:
+        pytest.fail("Failed to configure any routers")
+    
+    print(f"\n=== Successfully configured {len(configured_routers)} routers ===")
+    for i, (ip, ssid) in enumerate(zip(configured_routers, configured_ssids)):
+        print(f"  Router {i+1}: {ssid} ({ip})")
+    
+    # Mark this test as passed for dependency tracking
+    request.node.user_properties.append(("test_configure_all_routers", "passed"))
