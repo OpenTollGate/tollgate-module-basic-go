@@ -47,17 +47,25 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
     
     for network in post_test_image_flasher:
         try:
+            print(f"\n{'='*50}")
             print(f"Processing router for network: {network}")
+            print(f"{'='*50}")
             
             # Determine the target SSID based on the network name
-            if network.endswith("-5G"):
+            print(f"DEBUG: Network name is '{network}'")
+            if network.endswith("-5GHz"):
+                print("DEBUG: Network ends with '-5GHz', selecting 5GHz radio and SSID")
                 target_ssid = "GL-MT6000-e50-5G"
                 radio_device = "radio1"  # 5GHz radio
+                other_target_ssid = "GL-MT6000-e50"  # 2.4GHz SSID
             else:
+                print("DEBUG: Network does not end with '-5GHz', selecting 2.4GHz radio and SSID")
                 target_ssid = "GL-MT6000-e50"
                 radio_device = "radio0"  # 2.4GHz radio
+                other_target_ssid = "GL-MT6000-e50-5G"  # 5GHz SSID
                 
             print(f"Target SSID for {network}: {target_ssid} (using {radio_device})")
+            print(f"Other SSID (not used for this connection): {other_target_ssid}")
             
             # Connect to the TollGate network
             print(f"Connecting to network: {network}")
@@ -69,6 +77,37 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             )
             print(f"Successfully connected to network: {network}")
             
+            # Wait for the network to be stable
+            print("Waiting for network to be stable...")
+            max_wait_time = 30  # seconds
+            wait_interval = 2   # seconds
+            start_time = time.time()
+            network_stable = False
+            
+            while time.time() - start_time < max_wait_time:
+                try:
+                    # Try to get the route
+                    result = subprocess.run(
+                        ["ip", "route", "get", "1.1.1.1"],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    # If we get here, the network is stable
+                    network_stable = True
+                    print("Network is stable.")
+                    break
+                except subprocess.CalledProcessError:
+                    # Network is not ready yet, wait and try again
+                    print("Network not ready, waiting...")
+                    time.sleep(wait_interval)
+            
+            if not network_stable:
+                print(f"Network did not become stable within {max_wait_time} seconds")
+                continue
+            
+            # The network stability check has already verified the route, so we can proceed
             # Get the router's IP address
             result = subprocess.run(
                 ["ip", "route", "get", "1.1.1.1"],
@@ -103,7 +142,11 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             sta_interface = "sta1" if radio_device == "radio1" else "sta0"
             other_sta_interface = "sta0" if radio_device == "radio1" else "sta1"
             
+            # Determine the target SSID for the other radio
+            other_radio_target_ssid = other_target_ssid
+            
             # Check if sta0 interface exists, create it if not
+            # Always set the correct SSID and key for both interfaces
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
@@ -119,13 +162,14 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    "uci set wireless.sta0=wifi-iface && uci set wireless.sta0.device='radio0' && uci set wireless.sta0.network='wwan' && uci set wireless.sta0.mode='sta' && uci set wireless.sta0.ssid='PLACEHOLDER' && uci set wireless.sta0.key='PLACEHOLDER' && uci set wireless.sta0.disabled='1'"
+                    f"uci set wireless.sta0=wifi-iface && uci set wireless.sta0.device='radio0' && uci set wireless.sta0.network='wwan' && uci set wireless.sta0.mode='sta' && uci set wireless.sta0.ssid='GL-MT6000-e50' && uci set wireless.sta0.key='{target_password}' && uci set wireless.sta0.encryption='psk2' && uci set wireless.sta0.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
                 print(f"Creating sta0 interface result: {result.stdout}, stderr: {result.stderr}")
             
             # Check if sta1 interface exists, create it if not
+            # Always set the correct SSID and key for both interfaces
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
@@ -141,18 +185,20 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    "uci set wireless.sta1=wifi-iface && uci set wireless.sta1.device='radio1' && uci set wireless.sta1.network='wwan' && uci set wireless.sta1.mode='sta' && uci set wireless.sta1.ssid='PLACEHOLDER' && uci set wireless.sta1.key='PLACEHOLDER' && uci set wireless.sta1.disabled='1'"
+                    f"uci set wireless.sta1=wifi-iface && uci set wireless.sta1.device='radio1' && uci set wireless.sta1.network='wwan' && uci set wireless.sta1.mode='sta' && uci set wireless.sta1.ssid='GL-MT6000-e50-5G' && uci set wireless.sta1.key='{target_password}' && uci set wireless.sta1.encryption='psk2' && uci set wireless.sta1.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
                 print(f"Creating sta1 interface result: {result.stdout}, stderr: {result.stderr}")
             
-            # Set the SSID and password for the correct sta interface and enable it, disable the other
+            # Set the SSID, key, and encryption for both sta interfaces and enable the target one, disable the other
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                f"uci set wireless.{sta_interface}.ssid='{target_ssid}' && uci set wireless.{sta_interface}.key='{target_password}' && uci set wireless.{sta_interface}.disabled='0' && uci set wireless.{other_sta_interface}.disabled='1' && uci commit wireless && wifi"
+                f"uci set wireless.sta0.ssid='GL-MT6000-e50' && uci set wireless.sta0.key='{target_password}' && uci set wireless.sta0.encryption='psk2' && "
+                f"uci set wireless.sta1.ssid='GL-MT6000-e50-5G' && uci set wireless.sta1.key='{target_password}' && uci set wireless.sta1.encryption='psk2' && "
+                f"uci set wireless.{sta_interface}.disabled='0' && uci set wireless.{other_sta_interface}.disabled='1' && uci commit wireless && wifi"
             ]
             
             print(f"Executing uci commands: {' '.join(ssh_command)}")
@@ -184,6 +230,10 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             print(f"Error processing network {network}: {e}")
         except Exception as e:
             print(f"Unexpected error processing network {network}: {e}")
+        finally:
+            print(f"{'-'*50}")
+            print(f"Finished processing router for network: {network}")
+            print(f"{'-'*50}\n")
             
     print("Completed processing all routers")
     
@@ -210,6 +260,37 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             )
             print(f"Successfully connected to network: {network}")
             
+            # Wait for the network to be stable
+            print("Waiting for network to be stable...")
+            max_wait_time = 30  # seconds
+            wait_interval = 2   # seconds
+            start_time = time.time()
+            network_stable = False
+            
+            while time.time() - start_time < max_wait_time:
+                try:
+                    # Try to get the route
+                    result = subprocess.run(
+                        ["ip", "route", "get", "1.1.1.1"],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    # If we get here, the network is stable
+                    network_stable = True
+                    print("Network is stable.")
+                    break
+                except subprocess.CalledProcessError:
+                    # Network is not ready yet, wait and try again
+                    print("Network not ready, waiting...")
+                    time.sleep(wait_interval)
+            
+            if not network_stable:
+                print(f"Network did not become stable within {max_wait_time} seconds")
+                continue
+            
+            # The network stability check has already verified the route, so we can proceed
             # Get the router's new IP address
             result = subprocess.run(
                 ["ip", "route", "get", "1.1.1.1"],

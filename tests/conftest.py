@@ -241,27 +241,25 @@ def install_package(ip_address):
 
 
 def copy_image_to_router(ip_address, image_path):
-    """Copy an image file to the router's /tmp directory using ssh and cat."""
+    """Copy an image file to the router's /tmp directory using scp."""
     try:
         print(f"Copying image to router at {ip_address}...")
-        # Use ssh with cat to copy the image file to the router's /tmp directory
-        # This approach works better with embedded systems that don't have sftp-server
+        # Use scp to copy the image file to the router's /tmp directory
         # Also automatically accepts new host keys
         
         # Get the filename from the path
         image_filename = os.path.basename(image_path)
         remote_path = f"/tmp/{image_filename}"
         
-        # Read the local file and send it through ssh
-        with open(image_path, 'rb') as f:
-            ssh_command = [
-                "sshpass", "-p", ROUTER_PASSWORD,
-                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
-                f"root@{ip_address}",
-                f"cat > {remote_path}"
-            ]
-            
-            result = subprocess.run(ssh_command, input=f.read(), capture_output=True, check=True)
+        # Use scp to copy the file
+        scp_command = [
+            "sshpass", "-p", ROUTER_PASSWORD,
+            "scp", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+            image_path,
+            f"root@{ip_address}:{remote_path}"
+        ]
+        
+        result = subprocess.run(scp_command, capture_output=True, check=True)
             
         print(f"Image copied successfully to {ip_address}:{remote_path}")
     except subprocess.CalledProcessError as e:
