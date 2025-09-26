@@ -348,7 +348,7 @@ def copy_images_to_tollgates(tollgate_networks):
     print(f"Current network connection: {previous_connection}")
     
     # Path to the image file
-    image_file = "9b64fb839b21813b92c0a8f791f18b7d02fc3a5288341462531180b09258c3fc.bin"
+    image_file = "8d84c36880d3957bdb9feda280902dc023438ac8c26ba3c10eb9177953f113c1.bin"
     image_path = os.path.join(os.path.dirname(__file__), image_file)
     
     # Check if the image file exists
@@ -399,7 +399,7 @@ def install_images_on_tollgates(tollgate_networks):
     print(f"Current network connection: {previous_connection}")
     
     # Path to the image file
-    image_file = "9b64fb839b21813b92c0a8f791f18b7d02fc3a5288341462531180b09258c3fc.bin"
+    image_file = "8d84c36880d3957bdb9feda280902dc023438ac8c26ba3c10eb9177953f113c1.bin"
     image_path = os.path.join(os.path.dirname(__file__), image_file)
     
     # Check if the image file exists
@@ -493,7 +493,7 @@ def post_test_image_flasher(tollgate_networks):
     print(f"Current network connection: {previous_connection}")
     
     # Path to the image file
-    image_file = "9b64fb839b21813b92c0a8f791f18b7d02fc3a5288341462531180b09258c3fc.bin"
+    image_file = "8d84c36880d3957bdb9feda280902dc023438ac8c26ba3c10eb9177953f113c1.bin"
     image_path = os.path.join(os.path.dirname(__file__), image_file)
     
     # Check if the image file exists

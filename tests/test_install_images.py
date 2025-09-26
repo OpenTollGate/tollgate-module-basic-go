@@ -38,9 +38,8 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
     # We don't assert on the number of networks since some may not be available
     # in a real-world scenario. The test passes as long as the fixture completes.
     
-    # Connect to each router, SSH into it, connect to GL-MT6000-e50-5G SSID, and reboot
+    # Connect to each router, SSH into it, connect to the appropriate SSID, and reboot
     router_password = "c03rad0r123"
-    target_ssid = "GL-MT6000-e50-5G"
     target_password = "c03rad0r123"
     
     router_ips = []
@@ -49,6 +48,16 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
     for network in post_test_image_flasher:
         try:
             print(f"Processing router for network: {network}")
+            
+            # Determine the target SSID based on the network name
+            if network.endswith("-5G"):
+                target_ssid = "GL-MT6000-e50-5G"
+                radio_device = "radio1"  # 5GHz radio
+            else:
+                target_ssid = "GL-MT6000-e50"
+                radio_device = "radio0"  # 2.4GHz radio
+                
+            print(f"Target SSID for {network}: {target_ssid} (using {radio_device})")
             
             # Connect to the TollGate network
             print(f"Connecting to network: {network}")
@@ -89,35 +98,61 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             
             # SSH into the router and connect to the target SSID using uci commands
             print(f"Using uci commands to connect to target SSID {target_ssid} on router {router_ip}")
-            # First, let's check if the sta interface exists
+            
+            # Determine the sta interface name based on the radio device
+            sta_interface = "sta1" if radio_device == "radio1" else "sta0"
+            other_sta_interface = "sta0" if radio_device == "radio1" else "sta1"
+            
+            # Check if sta0 interface exists, create it if not
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                "uci show wireless.sta"
+                "uci show wireless.sta0"
             ]
             
             result = subprocess.run(ssh_command, capture_output=True, text=True)
-            print(f"Checking if sta interface exists: {result.stdout}")
+            print(f"Checking if sta0 interface exists: {result.stdout}")
             if "Entry not found" in result.stderr:
-                # Create the sta interface
-                print("Creating sta interface")
+                print("Creating sta0 interface on radio0")
                 ssh_command = [
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    "uci set wireless.sta=wifi-iface && uci set wireless.sta.device='radio0' && uci set wireless.sta.network='wwan' && uci set wireless.sta.mode='sta' && uci set wireless.sta.ssid='PLACEHOLDER' && uci set wireless.sta.key='PLACEHOLDER' && uci set wireless.sta.disabled='1'"
+                    "uci set wireless.sta0=wifi-iface && uci set wireless.sta0.device='radio0' && uci set wireless.sta0.network='wwan' && uci set wireless.sta0.mode='sta' && uci set wireless.sta0.ssid='PLACEHOLDER' && uci set wireless.sta0.key='PLACEHOLDER' && uci set wireless.sta0.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
-                print(f"Creating sta interface result: {result.stdout}, stderr: {result.stderr}")
+                print(f"Creating sta0 interface result: {result.stdout}, stderr: {result.stderr}")
             
-            # Set the SSID and password for the sta interface
+            # Check if sta1 interface exists, create it if not
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                f"uci set wireless.sta.ssid='{target_ssid}' && uci set wireless.sta.key='{target_password}' && uci set wireless.sta.disabled='0' && uci commit wireless && wifi"
+                "uci show wireless.sta1"
+            ]
+            
+            result = subprocess.run(ssh_command, capture_output=True, text=True)
+            print(f"Checking if sta1 interface exists: {result.stdout}")
+            if "Entry not found" in result.stderr:
+                print("Creating sta1 interface on radio1")
+                ssh_command = [
+                    "sshpass", "-p", router_password,
+                    "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                    f"root@{router_ip}",
+                    "uci set wireless.sta1=wifi-iface && uci set wireless.sta1.device='radio1' && uci set wireless.sta1.network='wwan' && uci set wireless.sta1.mode='sta' && uci set wireless.sta1.ssid='PLACEHOLDER' && uci set wireless.sta1.key='PLACEHOLDER' && uci set wireless.sta1.disabled='1'"
+                ]
+                
+                result = subprocess.run(ssh_command, capture_output=True, text=True)
+                print(f"Creating sta1 interface result: {result.stdout}, stderr: {result.stderr}")
+            
+            # Set the SSID and password for the correct sta interface and enable it, disable the other
+            ssh_command = [
+                "sshpass", "-p", router_password,
+                "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                f"root@{router_ip}",
+                f"uci set wireless.{sta_interface}.ssid='{target_ssid}' && uci set wireless.{sta_interface}.key='{target_password}' && uci set wireless.{sta_interface}.disabled='0' && uci set wireless.{other_sta_interface}.disabled='1' && uci commit wireless && wifi"
             ]
             
             print(f"Executing uci commands: {' '.join(ssh_command)}")
