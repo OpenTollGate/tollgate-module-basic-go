@@ -27,18 +27,102 @@ def wait_for_router_reboot(router_ip, router_ssid, timeout=300):
     print(f"Router {router_ssid} ({router_ip}) did not come back online within {timeout} seconds")
     return False
 
-def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_networks):
-    """Test that collects networks for flashing after tests complete."""
+def verify_wireless_config(router_ip, router_password, expected_ssid, expected_disabled, interface_name):
+    """Verify that the wireless configuration is correctly set."""
+    ssh_command = [
+        "sshpass", "-p", router_password,
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+        f"root@{router_ip}",
+        f"/sbin/uci get wireless.{interface_name}.ssid && /sbin/uci get wireless.{interface_name}.disabled"
+    ]
+    
+    result = subprocess.run(ssh_command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to verify configuration for {interface_name}: {result.stderr}")
+    
+    output_lines = result.stdout.strip().split('\n')
+    if len(output_lines) != 2:
+        raise Exception(f"Unexpected output when verifying configuration for {interface_name}: {result.stdout}")
+    
+    actual_ssid = output_lines[0]
+    actual_disabled = output_lines[1]
+    
+    if actual_ssid != expected_ssid:
+        raise Exception(f"SSID mismatch for {interface_name}. Expected: {expected_ssid}, Actual: {actual_ssid}")
+    
+    if actual_disabled != expected_disabled:
+        raise Exception(f"Disabled status mismatch for {interface_name}. Expected: {expected_disabled}, Actual: {actual_disabled}")
+    
+    print(f"Verified configuration for {interface_name}: SSID={actual_ssid}, Disabled={actual_disabled}")
+
+def configure_wwan_interface(router_ip, router_password):
+    """Configure the wwan network interface for wireless client connections."""
+    # Check if wwan interface exists
+    ssh_command = [
+        "sshpass", "-p", router_password,
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+        f"root@{router_ip}",
+        "/sbin/uci show network.wwan"
+    ]
+    
+    result = subprocess.run(ssh_command, capture_output=True, text=True)
+    if "Entry not found" in result.stderr:
+        print("Creating wwan network interface")
+        ssh_command = [
+            "sshpass", "-p", router_password,
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+            f"root@{router_ip}",
+            "/sbin/uci set network.wwan=interface && /sbin/uci set network.wwan.proto='dhcp' && /sbin/uci commit network"
+        ]
+        
+        result = subprocess.run(ssh_command, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"Failed to create wwan interface: {result.stderr}")
+        print("Successfully created wwan network interface")
+    else:
+        print("wwan network interface already exists")
+
+def restart_network_services(router_ip, router_password):
+    """Restart network services to apply changes."""
+    print("Restarting network services...")
+    ssh_command = [
+        "sshpass", "-p", router_password,
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+        f"root@{router_ip}",
+        "/etc/init.d/network restart"
+    ]
+    
+    result = subprocess.run(ssh_command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to restart network services: {result.stderr}")
+    print("Network services restarted successfully")
+
+def verify_internet_connectivity(router_ip, router_password):
+    """Verify that the router can connect to the internet."""
+    print("Verifying internet connectivity...")
+    ssh_command = [
+        "sshpass", "-p", router_password,
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+        f"root@{router_ip}",
+        "ping -c 3 8.8.8.8"
+    ]
+    
+    result = subprocess.run(ssh_command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Failed to verify internet connectivity: {result.stderr}")
+    print("Internet connectivity verified successfully")
+
+@pytest.mark.order(1)
+def test_configure_router_upstream_gateways(post_test_image_flasher, tollgate_networks):
+    """Test that configures router upstream gateways."""
     # Print the SSIDs of all found networks
     print(f"Found TollGate networks (SSIDs): {tollgate_networks}")
     
     # The fixture collects networks to flash after tests complete
     # We just need to verify that the fixture ran and collected results
     print(f"Networks collected for post-test flashing: {post_test_image_flasher}")
-    # We don't assert on the number of networks since some may not be available
-    # in a real-world scenario. The test passes as long as the fixture completes.
     
-    # Connect to each router, SSH into it, connect to the appropriate SSID, and reboot
+    # Connect to each router, SSH into it, and connect to the appropriate SSID
     router_password = "c03rad0r123"
     target_password = "c03rad0r123"
     
@@ -135,6 +219,9 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             router_ips.append(router_ip)
             router_ssids.append(network)
             
+            # Configure the wwan network interface
+            configure_wwan_interface(router_ip, router_password)
+            
             # SSH into the router and connect to the target SSID using uci commands
             print(f"Using uci commands to connect to target SSID {target_ssid} on router {router_ip}")
             
@@ -151,7 +238,7 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                "uci show wireless.wifinet0"
+                "/sbin/uci show wireless.wifinet0"
             ]
             
             result = subprocess.run(ssh_command, capture_output=True, text=True)
@@ -162,10 +249,12 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    f"uci set wireless.wifinet0=wifi-iface && uci set wireless.wifinet0.device='radio0' && uci set wireless.wifinet0.network='wwan' && uci set wireless.wifinet0.mode='sta' && uci set wireless.wifinet0.ssid='GL-MT6000-e50' && uci set wireless.wifinet0.key='{target_password}' && uci set wireless.wifinet0.encryption='psk2' && uci set wireless.wifinet0.disabled='1'"
+                    f"/sbin/uci set wireless.wifinet0=wifi-iface && /sbin/uci set wireless.wifinet0.device='radio0' && /sbin/uci set wireless.wifinet0.network='wwan' && /sbin/uci set wireless.wifinet0.mode='sta' && /sbin/uci set wireless.wifinet0.ssid='GL-MT6000-e50' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='psk2' && /sbin/uci set wireless.wifinet0.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create wifinet0 interface: {result.stderr}")
                 print(f"Creating wifinet0 interface result: {result.stdout}, stderr: {result.stderr}")
             
             # Check if wifinet1 interface exists, create it if not
@@ -174,7 +263,7 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                "uci show wireless.wifinet1"
+                "/sbin/uci show wireless.wifinet1"
             ]
             
             result = subprocess.run(ssh_command, capture_output=True, text=True)
@@ -185,10 +274,12 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    f"uci set wireless.wifinet1=wifi-iface && uci set wireless.wifinet1.device='radio1' && uci set wireless.wifinet1.network='wwan' && uci set wireless.wifinet1.mode='sta' && uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && uci set wireless.wifinet1.key='{target_password}' && uci set wireless.wifinet1.encryption='psk2' && uci set wireless.wifinet1.disabled='1'"
+                    f"/sbin/uci set wireless.wifinet1=wifi-iface && /sbin/uci set wireless.wifinet1.device='radio1' && /sbin/uci set wireless.wifinet1.network='wwan' && /sbin/uci set wireless.wifinet1.mode='sta' && /sbin/uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='psk2' && /sbin/uci set wireless.wifinet1.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create wifinet1 interface: {result.stderr}")
                 print(f"Creating wifinet1 interface result: {result.stdout}, stderr: {result.stderr}")
             
             # Set the SSID, key, and encryption for both wifinet interfaces and enable the target one, disable the other
@@ -196,21 +287,63 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                f"uci set wireless.wifinet0.ssid='{other_target_ssid}' && uci set wireless.wifinet0.key='{target_password}' && uci set wireless.wifinet0.encryption='psk2' && "
-                f"uci set wireless.wifinet1.ssid='{target_ssid}' && uci set wireless.wifinet1.key='{target_password}' && uci set wireless.wifinet1.encryption='psk2' && "
-                f"uci set wireless.{sta_interface}.disabled='0' && uci set wireless.{other_sta_interface}.disabled='1' && uci commit wireless && wifi"
+                f"/sbin/uci set wireless.wifinet0.ssid='{other_target_ssid}' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='psk2' && "
+                f"/sbin/uci set wireless.wifinet1.ssid='{target_ssid}' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='psk2' && "
+                f"/sbin/uci set wireless.{sta_interface}.disabled='0' && /sbin/uci set wireless.{other_sta_interface}.disabled='1' && /sbin/uci commit wireless && wifi"
             ]
             
             print(f"Executing uci commands: {' '.join(ssh_command)}")
             result = subprocess.run(ssh_command, capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"Successfully connected to {target_ssid} on router {router_ip} using uci commands")
-            else:
-                print(f"Failed to connect to {target_ssid} on router {router_ip} using uci commands")
-                print(f"Stderr: {result.stderr}")
-                print(f"Stdout: {result.stdout}")
+            if result.returncode != 0:
+                raise Exception(f"Failed to configure wireless interfaces: {result.stderr}")
+            print(f"Successfully executed uci commands on router {router_ip}")
             
-            # Reboot the router
+            # Verify that the changes were applied correctly
+            print("Verifying wireless configuration...")
+            # Verify the enabled interface
+            verify_wireless_config(router_ip, router_password, target_ssid, "0", sta_interface)
+            # Verify the disabled interface
+            verify_wireless_config(router_ip, router_password, other_target_ssid, "1", other_sta_interface)
+            
+            # Restart network services to apply changes
+            restart_network_services(router_ip, router_password)
+            
+            # Verify internet connectivity
+            verify_internet_connectivity(router_ip, router_password)
+            
+            print(f"Successfully configured and verified wireless interfaces on router {router_ip}")
+                
+        except subprocess.CalledProcessError as e:
+            print(f"Error processing network {network}: {e}")
+            raise
+        except Exception as e:
+            print(f"Unexpected error processing network {network}: {e}")
+            raise
+        finally:
+            print(f"{'-'*50}")
+            print(f"Finished processing router for network: {network}")
+            print(f"{'-'*50}\n")
+            
+    print("Completed processing all routers")
+    
+    # Store router IPs and SSIDs for use in the next test
+    pytest.router_ips = router_ips
+    pytest.router_ssids = router_ssids
+
+@pytest.mark.order(2)
+def test_reboot_routers(post_test_image_flasher, tollgate_networks):
+    """Test that reboots routers after configuring upstream gateways."""
+    # This test depends on the previous test having run
+    if not hasattr(pytest, 'router_ips') or not hasattr(pytest, 'router_ssids'):
+        pytest.skip("Router IPs and SSIDs not available from previous test")
+    
+    router_ips = pytest.router_ips
+    router_ssids = pytest.router_ssids
+    
+    # Reboot all routers
+    router_password = "c03rad0r123"
+    for i, router_ip in enumerate(router_ips):
+        try:
             print(f"Rebooting router {router_ip}")
             ssh_command = [
                 "sshpass", "-p", router_password,
@@ -225,17 +358,8 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             else:
                 # Reboot command will disconnect the SSH session, so this is expected to fail
                 print(f"Router {router_ip} is rebooting (this is expected)")
-                
-        except subprocess.CalledProcessError as e:
-            print(f"Error processing network {network}: {e}")
         except Exception as e:
-            print(f"Unexpected error processing network {network}: {e}")
-        finally:
-            print(f"{'-'*50}")
-            print(f"Finished processing router for network: {network}")
-            print(f"{'-'*50}\n")
-            
-    print("Completed processing all routers")
+            print(f"Error rebooting router {router_ip}: {e}")
     
     # Wait for all routers to come back online
     print("Waiting for all routers to come back online...")
