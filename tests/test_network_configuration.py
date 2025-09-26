@@ -339,6 +339,9 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     
     # Wait for all routers to come back online and their SSIDs to reappear
     print("\n=== Waiting for routers to come back online and SSIDs to reappear ===")
+    # First, wait a bit for routers to actually start rebooting
+    time.sleep(30)
+    
     available_networks = []
     max_wait_time = 300  # 5 minutes
     wait_interval = 10   # 10 seconds
@@ -354,11 +357,22 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
                 check=True
             )
             
-            # Check if our routers' SSIDs are in the list
+            # Check if our routers' SSIDs are in the list and we can actually connect
             for router_ip, ssid in restarted_routers:
                 if ssid in result.stdout and ssid not in available_networks:
-                    print(f"SSID {ssid} is now available")
-                    available_networks.append(ssid)
+                    print(f"SSID {ssid} is now available, attempting to connect...")
+                    # Try to connect to verify it's actually back online
+                    try:
+                        connect_to_network(ssid)
+                        print(f"Successfully connected to {ssid}")
+                        available_networks.append(ssid)
+                        # Disconnect to continue checking other networks
+                        subprocess.run(
+                            ["nmcli", "device", "disconnect", "wlp59s0"],
+                            stderr=subprocess.DEVNULL
+                        )
+                    except Exception as e:
+                        print(f"Failed to connect to {ssid}, router may not be fully back online yet: {e}")
             
             # If all routers are back, we're done
             if len(available_networks) == len(restarted_routers):
