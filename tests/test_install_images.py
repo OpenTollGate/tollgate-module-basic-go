@@ -196,8 +196,8 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                f"uci set wireless.wifinet0.ssid='GL-MT6000-e50' && uci set wireless.wifinet0.key='{target_password}' && uci set wireless.wifinet0.encryption='psk2' && "
-                f"uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && uci set wireless.wifinet1.key='{target_password}' && uci set wireless.wifinet1.encryption='psk2' && "
+                f"uci set wireless.wifinet0.ssid='{other_target_ssid}' && uci set wireless.wifinet0.key='{target_password}' && uci set wireless.wifinet0.encryption='psk2' && "
+                f"uci set wireless.wifinet1.ssid='{target_ssid}' && uci set wireless.wifinet1.key='{target_password}' && uci set wireless.wifinet1.encryption='psk2' && "
                 f"uci set wireless.{sta_interface}.disabled='0' && uci set wireless.{other_sta_interface}.disabled='1' && uci commit wireless && wifi"
             ]
             
