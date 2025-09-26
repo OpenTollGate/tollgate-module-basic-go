@@ -139,65 +139,65 @@ def test_collect_networks_for_flashing(post_test_image_flasher, tollgate_network
             print(f"Using uci commands to connect to target SSID {target_ssid} on router {router_ip}")
             
             # Determine the sta interface name based on the radio device
-            sta_interface = "sta1" if radio_device == "radio1" else "sta0"
-            other_sta_interface = "sta0" if radio_device == "radio1" else "sta1"
+            sta_interface = "wifinet1" if radio_device == "radio1" else "wifinet0"
+            other_sta_interface = "wifinet0" if radio_device == "radio1" else "wifinet1"
             
             # Determine the target SSID for the other radio
             other_radio_target_ssid = other_target_ssid
             
-            # Check if sta0 interface exists, create it if not
+            # Check if wifinet0 interface exists, create it if not
             # Always set the correct SSID and key for both interfaces
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                "uci show wireless.sta0"
+                "uci show wireless.wifinet0"
             ]
             
             result = subprocess.run(ssh_command, capture_output=True, text=True)
-            print(f"Checking if sta0 interface exists: {result.stdout}")
+            print(f"Checking if wifinet0 interface exists: {result.stdout}")
             if "Entry not found" in result.stderr:
-                print("Creating sta0 interface on radio0")
+                print("Creating wifinet0 interface on radio0")
                 ssh_command = [
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    f"uci set wireless.sta0=wifi-iface && uci set wireless.sta0.device='radio0' && uci set wireless.sta0.network='wwan' && uci set wireless.sta0.mode='sta' && uci set wireless.sta0.ssid='GL-MT6000-e50' && uci set wireless.sta0.key='{target_password}' && uci set wireless.sta0.encryption='psk2' && uci set wireless.sta0.disabled='1'"
+                    f"uci set wireless.wifinet0=wifi-iface && uci set wireless.wifinet0.device='radio0' && uci set wireless.wifinet0.network='wwan' && uci set wireless.wifinet0.mode='sta' && uci set wireless.wifinet0.ssid='GL-MT6000-e50' && uci set wireless.wifinet0.key='{target_password}' && uci set wireless.wifinet0.encryption='psk2' && uci set wireless.wifinet0.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
-                print(f"Creating sta0 interface result: {result.stdout}, stderr: {result.stderr}")
+                print(f"Creating wifinet0 interface result: {result.stdout}, stderr: {result.stderr}")
             
-            # Check if sta1 interface exists, create it if not
+            # Check if wifinet1 interface exists, create it if not
             # Always set the correct SSID and key for both interfaces
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                "uci show wireless.sta1"
+                "uci show wireless.wifinet1"
             ]
             
             result = subprocess.run(ssh_command, capture_output=True, text=True)
-            print(f"Checking if sta1 interface exists: {result.stdout}")
+            print(f"Checking if wifinet1 interface exists: {result.stdout}")
             if "Entry not found" in result.stderr:
-                print("Creating sta1 interface on radio1")
+                print("Creating wifinet1 interface on radio1")
                 ssh_command = [
                     "sshpass", "-p", router_password,
                     "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                     f"root@{router_ip}",
-                    f"uci set wireless.sta1=wifi-iface && uci set wireless.sta1.device='radio1' && uci set wireless.sta1.network='wwan' && uci set wireless.sta1.mode='sta' && uci set wireless.sta1.ssid='GL-MT6000-e50-5G' && uci set wireless.sta1.key='{target_password}' && uci set wireless.sta1.encryption='psk2' && uci set wireless.sta1.disabled='1'"
+                    f"uci set wireless.wifinet1=wifi-iface && uci set wireless.wifinet1.device='radio1' && uci set wireless.wifinet1.network='wwan' && uci set wireless.wifinet1.mode='sta' && uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && uci set wireless.wifinet1.key='{target_password}' && uci set wireless.wifinet1.encryption='psk2' && uci set wireless.wifinet1.disabled='1'"
                 ]
                 
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
-                print(f"Creating sta1 interface result: {result.stdout}, stderr: {result.stderr}")
+                print(f"Creating wifinet1 interface result: {result.stdout}, stderr: {result.stderr}")
             
-            # Set the SSID, key, and encryption for both sta interfaces and enable the target one, disable the other
+            # Set the SSID, key, and encryption for both wifinet interfaces and enable the target one, disable the other
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
                 f"root@{router_ip}",
-                f"uci set wireless.sta0.ssid='GL-MT6000-e50' && uci set wireless.sta0.key='{target_password}' && uci set wireless.sta0.encryption='psk2' && "
-                f"uci set wireless.sta1.ssid='GL-MT6000-e50-5G' && uci set wireless.sta1.key='{target_password}' && uci set wireless.sta1.encryption='psk2' && "
+                f"uci set wireless.wifinet0.ssid='GL-MT6000-e50' && uci set wireless.wifinet0.key='{target_password}' && uci set wireless.wifinet0.encryption='psk2' && "
+                f"uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && uci set wireless.wifinet1.key='{target_password}' && uci set wireless.wifinet1.encryption='psk2' && "
                 f"uci set wireless.{sta_interface}.disabled='0' && uci set wireless.{other_sta_interface}.disabled='1' && uci commit wireless && wifi"
             ]
             
