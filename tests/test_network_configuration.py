@@ -346,6 +346,19 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     max_wait_time = 300  # 5 minutes
     wait_interval = 10   # 10 seconds
     
+    # Create a list of possible SSID patterns for each router
+    ssid_patterns = []
+    for router_ip, ssid in restarted_routers:
+        # For TollGate-* SSIDs, also check for SafeMode-TollGate-* and vice versa
+        if ssid.startswith("TollGate-"):
+            pattern = ssid.replace("TollGate-", "SafeMode-TollGate-", 1)
+            ssid_patterns.append((router_ip, ssid, pattern))
+        elif ssid.startswith("SafeMode-TollGate-"):
+            pattern = ssid.replace("SafeMode-TollGate-", "TollGate-", 1)
+            ssid_patterns.append((router_ip, ssid, pattern))
+        else:
+            ssid_patterns.append((router_ip, ssid, ssid))  # Fallback to same SSID
+    
     start_time = time.time()
     while time.time() - start_time < max_wait_time:
         # Scan for available networks
@@ -358,21 +371,28 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
             )
             
             # Check if our routers' SSIDs are in the list and we can actually connect
-            for router_ip, ssid in restarted_routers:
-                if ssid in result.stdout and ssid not in available_networks:
-                    print(f"SSID {ssid} is now available, attempting to connect...")
+            for router_ip, original_ssid, alternate_ssid in ssid_patterns:
+                # Check for both original and alternate SSID patterns
+                found_ssid = None
+                if original_ssid in result.stdout and original_ssid not in available_networks:
+                    found_ssid = original_ssid
+                elif alternate_ssid in result.stdout and alternate_ssid not in available_networks:
+                    found_ssid = alternate_ssid
+                
+                if found_ssid:
+                    print(f"SSID {found_ssid} is now available, attempting to connect...")
                     # Try to connect to verify it's actually back online
                     try:
-                        connect_to_network(ssid)
-                        print(f"Successfully connected to {ssid}")
-                        available_networks.append(ssid)
+                        connect_to_network(found_ssid)
+                        print(f"Successfully connected to {found_ssid}")
+                        available_networks.append(found_ssid)
                         # Disconnect to continue checking other networks
                         subprocess.run(
                             ["nmcli", "device", "disconnect", "wlp59s0"],
                             stderr=subprocess.DEVNULL
                         )
                     except Exception as e:
-                        print(f"Failed to connect to {ssid}, router may not be fully back online yet: {e}")
+                        print(f"Failed to connect to {found_ssid}, router may not be fully back online yet: {e}")
             
             # If all routers are back, we're done
             if len(available_networks) == len(restarted_routers):
