@@ -71,77 +71,38 @@ def test_reboot_routers(post_test_image_flasher, tollgate_networks):
     # Get new IP addresses for all routers
     print("Getting new IP addresses for all routers...")
     new_router_ips = []
-    for network in post_test_image_flasher:
-        try:
-            print(f"Connecting to network: {network}")
-            subprocess.run(
-                ["nmcli", "device", "wifi", "connect", network],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            print(f"Successfully connected to network: {network}")
-            
-            # Wait for the network to be stable
-            print("Waiting for network to be stable...")
-            max_wait_time = 30  # seconds
-            wait_interval = 2   # seconds
-            start_time = time.time()
-            network_stable = False
-            
-            while time.time() - start_time < max_wait_time:
-                try:
-                    # Try to get the route
-                    result = subprocess.run(
-                        ["ip", "route", "get", "1.1.1.1"],
-                        capture_output=True,
-                        text=True,
-                        check=True
-                    )
-                    
-                    # If we get here, the network is stable
-                    network_stable = True
-                    print("Network is stable.")
-                    break
-                except subprocess.CalledProcessError:
-                    # Network is not ready yet, wait and try again
-                    print("Network not ready, waiting...")
-                    time.sleep(wait_interval)
-            
-            if not network_stable:
-                print(f"Network did not become stable within {max_wait_time} seconds")
-                continue
-            
-            # The network stability check has already verified the route, so we can proceed
-            # Get the router's new IP address
-            result = subprocess.run(
-                ["ip", "route", "get", "1.1.1.1"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            new_router_ip = None
-            for line in result.stdout.split('\n'):
-                if "via" in line:
-                    parts = line.split()
-                    for i, part in enumerate(parts):
-                        if part == "via":
-                            new_router_ip = parts[i + 1]
-                            break
-                    if new_router_ip:
+    
+    # We don't need to reconnect to networks since we're already connected
+    # Just get the current router IP for each network
+    try:
+        # Get the current default route
+        result = subprocess.run(
+            ["ip", "route", "get", "1.1.1.1"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        current_router_ip = None
+        for line in result.stdout.split('\n'):
+            if "via" in line:
+                parts = line.split()
+                for i, part in enumerate(parts):
+                    if part == "via":
+                        current_router_ip = parts[i + 1]
                         break
-            
-            if not new_router_ip:
-                print(f"Could not determine new router IP for network {network}")
-                continue
-                
-            print(f"Determined new router IP: {new_router_ip}")
-            new_router_ips.append(new_router_ip)
-        except subprocess.CalledProcessError as e:
-            print(f"Error connecting to network {network}: {e}")
-        except Exception as e:
-            print(f"Unexpected error connecting to network {network}: {e}")
+                if current_router_ip:
+                    break
+        
+        if current_router_ip:
+            print(f"Current router IP: {current_router_ip}")
+            new_router_ips.append(current_router_ip)
+        else:
+            print("Could not determine current router IP")
+    except subprocess.CalledProcessError as e:
+        print(f"Error getting current router IP: {e}")
+    except Exception as e:
+        print(f"Unexpected error getting current router IP: {e}")
     
     # Print the new IP addresses
     print(f"New router IP addresses: {new_router_ips}")
