@@ -11,12 +11,18 @@ INTERFACE = "wlp59s0"  # This should be configurable
 BLOSSOM_URL = "https://blossom.swissdash.site/21d180236f012e5ece0e7881b3602779f14d6b1d8deaaf63914aa0f5b67d4bc3.ipk"
 ROUTER_PASSWORD = "c03rad0r123"
 
+# Global variable to store router information
+router_info = {
+    "ips": [],
+    "ssids": []
+}
+
 @pytest.fixture(scope="session")
 def ecash_wallet():
     """Create a temporary e-cash wallet funded from the public test mint."""
     wallet_dir = tempfile.mkdtemp()
     print(f"Created temporary e-cash wallet directory: {wallet_dir}")
-
+    
     try:
         # Mint some tokens to the wallet
         mint_result = subprocess.run(
@@ -26,15 +32,15 @@ def ecash_wallet():
             check=True
         )
         print(f"Minted tokens to wallet: {mint_result.stdout}")
-
+        
         yield wallet_dir
-
+        
     finally:
         # Clean up the temporary directory
         if os.path.exists(wallet_dir):
             shutil.rmtree(wallet_dir)
             print(f"Cleaned up e-cash wallet directory: {wallet_dir}")
-
+        
 @pytest.fixture(scope="session")
 def test_token(ecash_wallet):
     """Generate a test token."""
@@ -47,13 +53,13 @@ def test_token(ecash_wallet):
             stderr=subprocess.PIPE,
             text=True
         )
-
+        
         # Send the amount to stdin
         send_output, send_error = send_process.communicate(input="100\n")
-
+        
         if send_process.returncode != 0:
             raise Exception(f"Send command failed: {send_error}")
-
+        
         # Extract the token from the send output
         token_lines = send_output.strip().split('\n')
         token = None
@@ -64,7 +70,7 @@ def test_token(ecash_wallet):
         
         if token is None:
             raise Exception("Token not found in send output")
-
+        
         return token
             
     except Exception as e:
@@ -96,9 +102,9 @@ def find_tollgate_networks():
             text=True,
             check=True
         )
-
+        
         all_ssids = result.stdout.strip().split('\n')[1:]  # Skip header
-
+        
         tollgate_networks = []
         for ssid in all_ssids:
             ssid = ssid.strip()
@@ -106,7 +112,7 @@ def find_tollgate_networks():
                 if ssid.startswith(prefix):
                     tollgate_networks.append(ssid)
                     break  # Found a match for this ssid, check next one.
-
+        
         # Deduplicate networks by removing frequency suffixes (2.4GHz, 5GHz)
         # Group networks by their base name and only keep one per group
         deduplicated_networks = []
@@ -142,7 +148,7 @@ def find_tollgate_networks():
         
         deduplicated_networks.sort()
         return deduplicated_networks
-
+        
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to scan for networks: {e}")
 
@@ -574,3 +580,8 @@ def post_test_image_flasher(tollgate_networks):
             print(f"Successfully reconnected to previous network: {previous_connection}")
         except subprocess.CalledProcessError:
             print(f"Failed to reconnect to previous network: {previous_connection}")
+
+@pytest.fixture(scope="session")
+def router_information():
+    """Provide access to router information collected during network configuration tests."""
+    return router_info
