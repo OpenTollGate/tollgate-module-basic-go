@@ -134,7 +134,7 @@ func NewDefaultConfig() *Config {
 				MinBalance:              9446744073709551615,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
-				MinPayoutAmount:         9446744073709551615
+				MinPayoutAmount:         9446744073709551615,
 				PricePerStep:            1,
 				PriceUnit:               "sats",
 				MinPurchaseSteps:        0,
@@ -168,7 +168,7 @@ func NewDefaultConfig() *Config {
 			"wss://nos.lol",
 			"wss://nostr.mom",
 		},
-		ShowSetup: true,
+		ShowSetup:    true,
 		ResellerMode: false,
 		Crowsnest: CrowsnestConfig{
 			ProbeTimeout:          10 * time.Second,
