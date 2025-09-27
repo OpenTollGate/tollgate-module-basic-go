@@ -347,7 +347,7 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     # Wait for all routers to come back online and their SSIDs to reappear
     print("\n=== Waiting for routers to come back online and SSIDs to reappear ===")
     # First, wait a bit for routers to actually start rebooting
-    time.sleep(15)
+    time.sleep(30)
     
     available_networks = []
     max_wait_time = 300  # 5 minutes
