@@ -131,10 +131,10 @@ func NewDefaultConfig() *Config {
 		AcceptedMints: []MintConfig{
 			{
 				URL:                     "https://nofees.testnut.cashu.space",
-				MinBalance:              64,
+				MinBalance:              18446744073709551615,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
-				MinPayoutAmount:         128,
+				MinPayoutAmount:         18446744073709551615,
 				PricePerStep:            1,
 				PriceUnit:               "sats",
 				MinPurchaseSteps:        0,

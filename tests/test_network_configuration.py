@@ -428,6 +428,9 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     print(f"\n=== Successfully configured {len(configured_routers)} routers ===")
     for i, (ip, ssid) in enumerate(zip(configured_routers, configured_ssids)):
         print(f"  Router {i+1}: {ssid} ({ip})")
+
+    # Prompt the user for input and only proceed after receiving user input.
+    input("Press Enter to continue with the next test...")
     
     # Mark this test as passed for dependency tracking
     request.node.user_properties.append(("test_configure_all_routers", "passed"))
