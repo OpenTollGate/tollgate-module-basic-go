@@ -15,7 +15,7 @@ import sys
 # Configuration
 INTERFACE = "enx00e04c683d2d"
 ROUTER_PASSWORD = "c03rad0r123"
-IMAGE_FILE = "8d84c36880d3957bdb9feda280902dc023438ac8c26ba3c10eb9177953f113c1.bin"
+IMAGE_FILE = "7feceb8bfcdb5b315550994f3dd958362890493ff269ebffcc9ec55a3dd81c7f.bin"
 
 
 def get_interface_ip(interface):
@@ -156,30 +156,38 @@ def flash_router(router_ip, image_path):
         ]
         
         print(f"Executing command: {' '.join(sysupgrade_command[:-1])} \"sysupgrade -n {remote_path}\"")
-        result = subprocess.run(sysupgrade_command, capture_output=True, text=True, check=True)
-        
-        # Print command output if there is any
-        if result.stdout:
-            print(f"Command stdout: {result.stdout}")
-        if result.stderr:
-            print(f"Command stderr: {result.stderr}")
+        # Execute the sysupgrade command without waiting for it to complete
+        # since the router will reboot and break the SSH connection
+        try:
+            process = subprocess.Popen(sysupgrade_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Wait a short time to capture any immediate output
+            stdout, stderr = process.communicate(timeout=10)
+            stdout_output = stdout.decode() if isinstance(stdout, bytes) else str(stdout)
+            stderr_output = stderr.decode() if isinstance(stderr, bytes) else str(stderr)
             
-        print(f"Successfully flashed router at {router_ip}")
-    except subprocess.CalledProcessError as e:
-        # Check if this is an expected "failure" due to the router rebooting
-        # When sysupgrade works, it disconnects the SSH session, which causes a non-zero exit code
-        # Look for signs that the upgrade actually started
-        stderr_output = e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
-        stdout_output = e.stdout.decode() if isinstance(e.stdout, bytes) else str(e.stdout)
-        
-        # If we see upgrade messages, it means the flashing started successfully
-        if "upgrade: Commencing upgrade" in stderr_output or "verifying sysupgrade tar file integrity" in stderr_output:
+            # Print command output if there is any
+            if stdout_output:
+                print(f"Command stdout: {stdout_output}")
+            if stderr_output:
+                print(f"Command stderr: {stderr_output}")
+                
+            # Check if we see upgrade messages, it means the flashing started successfully
+            if "upgrade: Commencing upgrade" in stderr_output or "verifying sysupgrade tar file integrity" in stderr_output:
+                print(f"Router {router_ip} is rebooting with new firmware (this is expected)")
+                print(f"Flashing process initiated successfully on {router_ip}")
+            else:
+                print(f"Failed to execute sysupgrade command on {router_ip}")
+                print(f"Stdout: {stdout_output}")
+                print(f"Stderr: {stderr_output}")
+                print(f"Return code: {process.returncode}")
+        except subprocess.TimeoutExpired:
+            # This is expected - the router is rebooting and the connection is broken
             print(f"Router {router_ip} is rebooting with new firmware (this is expected)")
             print(f"Flashing process initiated successfully on {router_ip}")
-        else:
-            print(f"Failed to execute sysupgrade command on {router_ip}: {e}")
-            print(f"Stdout: {stdout_output}")
-            print(f"Stderr: {stderr_output}")
+            # Terminate the process since we don't need to wait for it
+            process.terminate()
+        except Exception as e:
+            print(f"Error executing sysupgrade command on {router_ip}: {e}")
     except Exception as e:
         print(f"Failed to flash router at {router_ip}: {e}")
 

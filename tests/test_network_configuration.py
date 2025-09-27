@@ -347,7 +347,7 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     # Wait for all routers to come back online and their SSIDs to reappear
     print("\n=== Waiting for routers to come back online and SSIDs to reappear ===")
     # First, wait a bit for routers to actually start rebooting
-    time.sleep(30)
+    time.sleep(15)
     
     available_networks = []
     max_wait_time = 300  # 5 minutes
@@ -356,15 +356,8 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
     # Create a list of possible SSID patterns for each router
     ssid_patterns = []
     for router_ip, ssid in zip(configured_routers, configured_ssids):
-        # For TollGate-* SSIDs, also check for SafeMode-TollGate-* and vice versa
-        if ssid.startswith("TollGate-"):
-            pattern = ssid.replace("TollGate-", "SafeMode-TollGate-", 1)
-            ssid_patterns.append((router_ip, ssid, pattern))
-        elif ssid.startswith("SafeMode-TollGate-"):
-            pattern = ssid.replace("SafeMode-TollGate-", "TollGate-", 1)
-            ssid_patterns.append((router_ip, ssid, pattern))
-        else:
-            ssid_patterns.append((router_ip, ssid, ssid))  # Fallback to same SSID
+        # Only check for the original SSID
+        ssid_patterns.append((router_ip, ssid, ssid))
     
     start_time = time.time()
     while time.time() - start_time < max_wait_time:
