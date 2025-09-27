@@ -130,7 +130,7 @@ func NewDefaultConfig() *Config {
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
-				URL:                     "https://mint.minibits.cash/Bitcoin",
+				URL:                     "https://nofees.testnut.cashu.space",
 				MinBalance:              64,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,

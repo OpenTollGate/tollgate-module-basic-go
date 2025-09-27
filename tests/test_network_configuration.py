@@ -247,16 +247,25 @@ def restart_network_services(router_ip, router_password="root"):
         "/etc/init.d/network restart"
     ]
     
-    result = subprocess.run(ssh_command, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise Exception(f"Failed to restart network services: {result.stderr}")
-    print("Network services restarted successfully")
+    try:
+        # Use a timeout since the SSH connection will be dropped when network services restart
+        result = subprocess.run(ssh_command, capture_output=True, text=True, timeout=30)
+        # If we get here, the command completed (unexpected)
+        if result.returncode != 0:
+            raise Exception(f"Failed to restart network services: {result.stderr}")
+        print("Network services restarted successfully")
+    except subprocess.TimeoutExpired:
+        # This is expected when restarting network services as the SSH connection is dropped
+        print("Network services restart initiated (SSH connection dropped as expected)")
+    except Exception as e:
+        raise Exception(f"Failed to restart network services: {e}")
     
     # Wait for network to stabilize after restart
-    time.sleep(10)  # Give the network some time to come up
+    print("Waiting for network to stabilize...")
+    time.sleep(30)  # Give the network more time to come up
     
     # Verify internet connectivity
-    if not verify_internet_connectivity(router_ip, router_password):
+    if not verify_internet_connectivity(router_ip, router_password, timeout=60):
         raise Exception("Router cannot connect to the internet after configuration")
     
     print(f"Router {router_ip} is successfully configured and connected to the internet")
