@@ -19,8 +19,6 @@ type ConnectorInterface interface {
 	Disconnect() error
 	Reconnect() error
 	ExecuteUCI(args ...string) (string, error)
-	SetAPSSIDSafeMode() error
-	RestoreAPSSIDFromSafeMode() error
 	UpdateLocalAPSSID(pricePerStep, stepSize int) error
 }
 
@@ -34,7 +32,6 @@ type NetworkMonitorInterface interface {
 	Start()
 	Stop()
 	IsConnected() bool
-	IsInSafeMode() bool
 }
 
 // VendorElementProcessorInterface defines the methods for vendor element processing.

@@ -271,16 +271,8 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 	// If not connected to a gateway, we are in safemode.
 	// We should not update the price in the config file, but we should update the SSID to reflect SafeMode.
 	if !gm.networkMonitor.IsConnected() {
-		logger.WithField("module", "wireless_gateway_manager").Info("Not connected to a gateway, setting AP to SafeMode")
-		gm.setSafeModeSSID()
+		logger.WithField("module", "wireless_gateway_manager").Info("Not connected to a gateway")
 		return
-	}
-
-	// If we are connected to a gateway, we should exit safemode.
-	// The SSID will be updated with the new pricing below.
-	if gm.isInSafeMode() {
-		logger.WithField("module", "wireless_gateway_manager").Info("Exiting SafeMode")
-		gm.exitSafeMode()
 	}
 
 	connectedSSID, err := gm.connector.GetConnectedSSID()
@@ -341,21 +333,3 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 	}
 }
 
-func (gm *GatewayManager) isInSafeMode() bool {
-	// Forward the call to the network monitor
-	return gm.networkMonitor.IsInSafeMode()
-}
-
-func (gm *GatewayManager) setSafeModeSSID() {
-	// Set the local AP's SSID to SafeMode
-	if err := gm.connector.SetAPSSIDSafeMode(); err != nil {
-		logger.WithError(err).Error("Failed to set AP SSID to SafeMode")
-	}
-}
-
-func (gm *GatewayManager) exitSafeMode() {
-	// Restore the local AP's SSID from SafeMode
-	if err := gm.connector.RestoreAPSSIDFromSafeMode(); err != nil {
-		logger.WithError(err).Error("Failed to restore AP SSID from SafeMode")
-	}
-}

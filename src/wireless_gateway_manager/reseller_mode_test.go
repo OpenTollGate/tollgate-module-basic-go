@@ -34,16 +34,6 @@ func (m *MockConnector) ExecuteUCI(args ...string) (string, error) {
 	return result.String(0), result.Error(1)
 }
 
-func (m *MockConnector) SetAPSSIDSafeMode() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
-func (m *MockConnector) RestoreAPSSIDFromSafeMode() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
 func (m *MockConnector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
 	args := m.Called(pricePerStep, stepSize)
 	return args.Error(0)
@@ -80,11 +70,6 @@ type MockNetworkMonitor struct {
 }
 
 func (m *MockNetworkMonitor) IsConnected() bool {
-	args := m.Called()
-	return args.Bool(0)
-}
-
-func (m *MockNetworkMonitor) IsInSafeMode() bool {
 	args := m.Called()
 	return args.Bool(0)
 }
@@ -174,7 +159,6 @@ func TestResellerModeEnabled_FilterTollGateNetworks(t *testing.T) {
 	
 	// Set up network monitor expectations
 	mockNetworkMonitor.On("IsConnected").Return(true)
-	mockNetworkMonitor.On("IsInSafeMode").Return(false)
 	
 	// Set up connector expectations
 	mockConnector.On("GetConnectedSSID").Return("TollGate-ABC", nil)
@@ -229,7 +213,6 @@ func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
 	
 	// Set up network monitor expectations
 	mockNetworkMonitor.On("IsConnected").Return(true)
-	mockNetworkMonitor.On("IsInSafeMode").Return(false)
 	
 	// Set up connector expectations
 	mockConnector.On("GetConnectedSSID").Return("TollGate-XYZ", nil)
