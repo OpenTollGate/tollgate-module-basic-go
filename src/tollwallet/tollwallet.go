@@ -65,7 +65,10 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
 	}
 
+	log.Printf("TollWallet.Receive: Wallet object: %+v", w.wallet)
+	
 	if (w.wallet == nil) {
+		log.Printf("Loading wallet")
 		// Doing this because of timing issue of being offline when initially trying to load wallet (27.09.2025)
 		// Long term: migrate to CDK
 		cashuWallet, load_wallet_err := wallet.LoadWallet(w.config)

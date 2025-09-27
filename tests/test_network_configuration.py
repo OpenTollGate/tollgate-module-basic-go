@@ -181,7 +181,7 @@ def configure_wireless_station_interfaces(router_ip, router_password="root", tar
             "sshpass", "-p", router_password,
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
             f"root@{router_ip}",
-            f"/sbin/uci set wireless.wifinet0=wifi-iface && /sbin/uci set wireless.wifinet0.device='radio0' && /sbin/uci set wireless.wifinet0.network='wwan' && /sbin/uci set wireless.wifinet0.mode='sta' && /sbin/uci set wireless.wifinet0.ssid='GL-MT6000-e50' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='psk2' && /sbin/uci set wireless.wifinet0.disabled='1'"
+            f"/sbin/uci set wireless.wifinet0=wifi-iface && /sbin/uci set wireless.wifinet0.device='radio0' && /sbin/uci set wireless.wifinet0.network='wwan' && /sbin/uci set wireless.wifinet0.mode='sta' && /sbin/uci set wireless.wifinet0.ssid='Stargate' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='psk2' && /sbin/uci set wireless.wifinet0.disabled='1'"
         ]
         
         result = subprocess.run(ssh_command, capture_output=True, text=True)
@@ -206,7 +206,7 @@ def configure_wireless_station_interfaces(router_ip, router_password="root", tar
             "sshpass", "-p", router_password,
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
             f"root@{router_ip}",
-            f"/sbin/uci set wireless.wifinet1=wifi-iface && /sbin/uci set wireless.wifinet1.device='radio1' && /sbin/uci set wireless.wifinet1.network='wwan' && /sbin/uci set wireless.wifinet1.mode='sta' && /sbin/uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='psk2' && /sbin/uci set wireless.wifinet1.disabled='1'"
+            f"/sbin/uci set wireless.wifinet1=wifi-iface && /sbin/uci set wireless.wifinet1.device='radio1' && /sbin/uci set wireless.wifinet1.network='wwan' && /sbin/uci set wireless.wifinet1.mode='sta' && /sbin/uci set wireless.wifinet1.ssid='Stargate' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='psk2' && /sbin/uci set wireless.wifinet1.disabled='1'"
         ]
         
         result = subprocess.run(ssh_command, capture_output=True, text=True)
@@ -222,8 +222,8 @@ def configure_wireless_station_interfaces(router_ip, router_password="root", tar
         "sshpass", "-p", router_password,
         "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
         f"root@{router_ip}",
-        f"/sbin/uci set wireless.wifinet0.ssid='GL-MT6000-e50' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='psk2' && /sbin/uci set wireless.wifinet0.disabled='1' && "
-        f"/sbin/uci set wireless.wifinet1.ssid='GL-MT6000-e50-5G' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='psk2' && /sbin/uci set wireless.wifinet1.disabled='0' && "
+        f"/sbin/uci set wireless.wifinet0.ssid='Stargate' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='psk2' && /sbin/uci set wireless.wifinet0.disabled='1' && "
+        f"/sbin/uci set wireless.wifinet1.ssid='Stargate' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='psk2' && /sbin/uci set wireless.wifinet1.disabled='0' && "
         f"/sbin/uci commit wireless"
     ]
     

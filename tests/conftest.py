@@ -506,7 +506,7 @@ def post_test_image_flasher(tollgate_networks):
     print(f"Current network connection: {previous_connection}")
     
     # Path to the image file
-    image_file = "e57d7721fae46de87a7fce93cf5dcce2837b5568e1978db5b04d772c17e642c2.bin"
+    image_file = "d702fbc5c69f2833539173fd1c5a138f77cf2b9854a12a2c10068ee5f8277097.bin"
     image_path = os.path.join(os.path.dirname(__file__), image_file)
     
     # Check if the image file exists
