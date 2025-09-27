@@ -19,4 +19,6 @@ Untitled.base
 Untitled.canvas
 tests/__pycache__/
 /home/c03rad0r/tollgate-module-basic-go/tests/*.bin
+/home/c03rad0r/tollgate-module-basic-go/tests/*/*.bin
 tests/*.bin
+tests/eccf3ecef01541de35494f12463b16d74ed131ca-mint-not-accepted/
