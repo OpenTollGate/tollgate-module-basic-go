@@ -65,16 +65,18 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
 	}
 
-	// Doing this because of timing issue of being offline when initially trying to load wallet (27.09.2025)
-	// Long term: migrate to CDK
-	cashuWallet, load_wallet_err := wallet.LoadWallet(w.config)
+	if (w.wallet == nil) {
+		// Doing this because of timing issue of being offline when initially trying to load wallet (27.09.2025)
+		// Long term: migrate to CDK
+		cashuWallet, load_wallet_err := wallet.LoadWallet(w.config)
 
-	if load_wallet_err != nil {
-		log.Printf("TollWallet.Receive: Failed to load wallet (likely offline): %v", load_wallet_err)
-		return 0, fmt.Errorf("Failed to load wallet (likely offline): %w", load_wallet_err)
+		if load_wallet_err != nil {
+			log.Printf("TollWallet.Receive: Failed to load wallet (likely offline): %v", load_wallet_err)
+			return 0, fmt.Errorf("Failed to load wallet (likely offline): %w", load_wallet_err)
+		}
+
+		w.wallet = cashuWallet
 	}
-
-	w.wallet = cashuWallet
 
 	log.Printf("TollWallet.Receive: Calling wallet.Receive")
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
