@@ -18,6 +18,8 @@ type TollWallet struct {
 
 // New creates a new Cashu wallet instance
 func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (*TollWallet, error) {
+	log.Printf("TollWallet.New: Initializing wallet at path: %s", walletPath)
+	log.Printf("TollWallet.New: Accepted mints: %v", acceptedMints)
 
 	// TODO: We want to restore from our mnemnonic seed phrase on startup as we have to keep our db in memory
 	// TODO: Copy approach from alby: https://github.com/getAlby/hub/blob/158d4a2539307bda289149792c3748d44c9fed37/lnclient/cashu/cashu.go#L46
@@ -27,11 +29,14 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}
 
 	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
+	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
 	cashuWallet, err := wallet.LoadWallet(config)
 
 	if err != nil {
+		log.Printf("TollWallet.New: Failed to load wallet: %v", err)
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
+	log.Printf("TollWallet.New: Wallet loaded successfully")
 
 	return &TollWallet{
 		wallet:                     cashuWallet,
@@ -41,19 +46,30 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 }
 
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
+	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()
+	log.Printf("TollWallet.Receive: Token mint: %s", mint)
 
 	swapToTrusted := false
 
 	// If mint is untrusted, check if operator allows swapping or rejects untrusted mints.
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
-			return 0, fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
+			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
+			log.Printf("TollWallet.Receive: %v", err)
+			return 0, err
 		}
 		swapToTrusted = true
+		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
 	}
 
+	log.Printf("TollWallet.Receive: Calling wallet.Receive")
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
+	if err != nil {
+		log.Printf("TollWallet.Receive: wallet.Receive failed: %v", err)
+		return 0, err
+	}
+	log.Printf("TollWallet.Receive: Successfully received %d sats", amountAfterSwap)
 
 	return amountAfterSwap, err
 }
