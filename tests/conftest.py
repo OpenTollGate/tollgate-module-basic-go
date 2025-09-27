@@ -247,25 +247,23 @@ def install_package(ip_address):
 
 
 def copy_image_to_router(ip_address, image_path):
-    """Copy an image file to the router's /tmp directory using scp."""
+    """Copy an image file to the router's /tmp directory using ssh and cat."""
     try:
         print(f"Copying image to router at {ip_address}...")
-        # Use scp to copy the image file to the router's /tmp directory
-        # Also automatically accepts new host keys
-        
         # Get the filename from the path
         image_filename = os.path.basename(image_path)
         remote_path = f"/tmp/{image_filename}"
         
-        # Use scp to copy the file
-        scp_command = [
+        # Use ssh with cat to transfer the file
+        ssh_command = [
             "sshpass", "-p", ROUTER_PASSWORD,
-            "scp", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
-            image_path,
-            f"root@{ip_address}:{remote_path}"
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+            f"root@{ip_address}",
+            f"cat > {remote_path}"
         ]
         
-        result = subprocess.run(scp_command, capture_output=True, check=True)
+        with open(image_path, 'rb') as f:
+            result = subprocess.run(ssh_command, stdin=f, capture_output=True, check=True)
             
         print(f"Image copied successfully to {ip_address}:{remote_path}")
     except subprocess.CalledProcessError as e:
@@ -278,16 +276,16 @@ def get_router_ip(interface=INTERFACE):
     try:
         # Get the default gateway (router IP) using ip route
         result = subprocess.run(
-            ["ip", "route", "get", "1.1.1.1"],
+            ["ip", "route", "show", "dev", interface],
             capture_output=True,
             text=True,
             check=True
         )
-        output_lines = result.stdout.split('\n')
+        
         # Parse the output to find the gateway
-        # Example output: "1.1.1.1 via 192.168.13.1 dev wlp59s0 src 192.168.13.199 uid 1000"
-        for line in output_lines:
-            if "via" in line:
+        # Example output: "default via 192.168.9.1 dev enx00e04c683d2d proto dhcp src 192.168.9.106 metric 100"
+        for line in result.stdout.split('\n'):
+            if line.startswith("default via"):
                 parts = line.split()
                 # Find the "via" keyword and get the next part (gateway IP)
                 for i, part in enumerate(parts):
@@ -295,6 +293,7 @@ def get_router_ip(interface=INTERFACE):
                         router_ip = parts[i + 1]
                         print(f"Determined router IP: {router_ip} (using ip route)")
                         return router_ip
+                        
         raise Exception("Could not find gateway in ip route output")
     except (subprocess.CalledProcessError, ValueError, IndexError) as e:
         raise Exception(f"Failed to determine router IP: {e}")
