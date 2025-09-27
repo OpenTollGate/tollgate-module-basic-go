@@ -84,6 +84,32 @@ def funded_ecash_wallet(ecash_wallet):
 
 def fetch_discovery_event(tollgate_ip):
     """Fetch the discovery event from the TollGate."""
+    # First, try to make a curl request to port 80 to ensure network connectivity
+    print(f"Checking connectivity to TollGate at {tollgate_ip}...")
+    
+    # Try curl request to port 80 multiple times with a delay between attempts
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        print(f"Curl attempt {attempt + 1}/{max_attempts}...")
+        curl_result = subprocess.run(
+            ["curl", "-s", f"http://{tollgate_ip}:80/"],
+            capture_output=True,
+            text=True
+        )
+        
+        if curl_result.returncode == 0:
+            print(f"Successfully connected to TollGate at {tollgate_ip}:80")
+            break
+        else:
+            print(f"Curl request failed, waiting 1 second before retry...")
+            time.sleep(1)
+    else:
+        # This block executes if the loop completes without breaking
+        raise Exception(f"Failed to connect to TollGate at {tollgate_ip}:80 after {max_attempts} attempts")
+    
+    # Wait a bit more for the network to stabilize
+    time.sleep(2)
+    
     try:
         result = subprocess.run(
             ["curl", "-s", f"http://{tollgate_ip}:2121/"],
@@ -295,7 +321,7 @@ def test_pay_tollgate_and_verify_connectivity(tollgate_networks, funded_ecash_wa
     # Generate tokens for all TollGates
     for info in tollgate_info:
         try:
-            token = create_cashu_token(funded_ecash_wallet, info["price_per_step"])
+            token = create_cashu_token(funded_ecash_wallet, 100 * info["price_per_step"])
             cashu_tokens[info["network"]] = token
             print(f"Generated Cashu token for network {info['network']}: {token[:20]}...")
         except Exception as e:
@@ -341,6 +367,23 @@ def test_pay_tollgate_and_verify_connectivity(tollgate_networks, funded_ecash_wa
                 cashu_token
             )
             print(f"Constructed payment event with id: {payment_event.get('id')}")
+            
+            # Send a curl request to the router before paying
+            # First hit port 80 to trigger the captive portal bug workaround
+            curl_command_port80 = ["curl", "-s", "-v", f"http://{router_ip}:80/"]
+            print(f"Sending curl request to port 80: {' '.join(curl_command_port80)}")
+            curl_result_port80 = subprocess.run(
+                curl_command_port80,
+                capture_output=True,
+                text=True
+            )
+            
+            print("Port 80 curl result: ", curl_result_port80)
+            
+            if curl_result_port80.returncode == 0:
+                print("Successfully sent curl request to router port 80")
+            else:
+                print(f"Failed to send curl request to router port 80: {curl_result_port80.stderr}")
             
             # Send the payment event to the TollGate
             print("Sending payment event to TollGate...")
