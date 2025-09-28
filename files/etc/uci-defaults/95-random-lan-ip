@@ -1,22 +1,14 @@
 #!/bin/sh
 # TollGate - Generate random LAN IP address on first boot
 
-INSTALL_JSON="/etc/tollgate/install.json"
-if [ -f "$INSTALL_JSON" ]; then
-    IP_RANDOMIZED=$(jq -r '.ip_address_randomized' "$INSTALL_JSON")
-    echo "DEBUG: IP_RANDOMIZED value: $IP_RANDOMIZED"
-    valid_ip=$(echo "$IP_RANDOMIZED" | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
-    if [ -n "$valid_ip" ]; then
-        echo "IP is already randomized to $IP_RANDOMIZED. Exiting."
-        exit 0
-    fi
-else
-    echo "install.json not found. Exiting."
-    exit 1
-fi
+# Check current LAN IP address
+CURRENT_IP=$(uci -q get network.lan.ipaddr)
 
-# We don't need to check for a flag file since uci-defaults scripts 
-# are automatically run only once after installation or upgrade
+# If IP is already randomized (not 192.168.1.1), exit
+if [ "$CURRENT_IP" != "192.168.1.1" ]; then
+    echo "IP is already randomized to $CURRENT_IP. Exiting."
+    exit 0
+fi
 
 # Helper function to safely set UCI values with error handling
 uci_safe_set() {
@@ -124,15 +116,4 @@ uci_safe_set network lan netmask "$NETMASK"
 # For a /24 network, the broadcast is always x.y.z.255
 BROADCAST="$OCTET1.$OCTET2.$OCTET3.255"
 uci_safe_set network lan broadcast "$BROADCAST"
-
-# No need for a flag file - uci-defaults handles this automatically
-
-# Schedule network restart (safer than immediate restart during boot)
-(sleep 5 && /etc/init.d/network restart &&
- [ -f "/etc/init.d/nodogsplash" ] && /etc/init.d/nodogsplash restart) &
-
-# Update install.json with the new random IP
-jq '.ip_address_randomized = "'"$RANDOM_IP"'"' "$INSTALL_JSON" > "$INSTALL_JSON.tmp" && mv "$INSTALL_JSON.tmp" "$INSTALL_JSON"
-
-
-exit 0
+(sleep 5 && reboot) &
