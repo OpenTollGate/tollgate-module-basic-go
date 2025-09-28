@@ -11,7 +11,6 @@ import (
 
 // TollWallet represents a Cashu wallet that can receive, swap, and send tokens
 type TollWallet struct {
-	config                     wallet.Config
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
 	allowAndSwapUntrustedMints bool
@@ -32,6 +31,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
 	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
 	cashuWallet, err := wallet.LoadWallet(config)
+	// TODO: Catch warning here and fail fast. The service can be configured to automatically restart..
 
 	if err != nil {
 		log.Printf("TollWallet.New: Failed to load wallet: %v", err)
@@ -40,7 +40,6 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	log.Printf("TollWallet.New: Wallet loaded successfully")
 
 	return &TollWallet{
-		config:                     config,
 		wallet:                     cashuWallet,
 		acceptedMints:              acceptedMints,
 		allowAndSwapUntrustedMints: allowAndSwapUntrustedMints,
@@ -63,22 +62,6 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		}
 		swapToTrusted = true
 		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
-	}
-
-	log.Printf("TollWallet.Receive: Wallet object: %+v", w.wallet)
-	
-	if (w.wallet == nil) {
-		log.Printf("Loading wallet")
-		// Doing this because of timing issue of being offline when initially trying to load wallet (27.09.2025)
-		// Long term: migrate to CDK
-		cashuWallet, load_wallet_err := wallet.LoadWallet(w.config)
-
-		if load_wallet_err != nil {
-			log.Printf("TollWallet.Receive: Failed to load wallet (likely offline): %v", load_wallet_err)
-			return 0, fmt.Errorf("Failed to load wallet (likely offline): %w", load_wallet_err)
-		}
-
-		w.wallet = cashuWallet
 	}
 
 	log.Printf("TollWallet.Receive: Calling wallet.Receive")
