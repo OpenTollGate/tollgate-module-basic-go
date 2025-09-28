@@ -229,6 +229,10 @@ def test_pay_tollgate_and_verify_connectivity(tollgate_networks, funded_ecash_wa
             # Connect to the TollGate network
             connect_to_network(network)
             
+            # Print the current MAC address for debugging
+            mac_address = get_mac_address()
+            print(f"Connected to network {network} with MAC address: {mac_address}")
+            
             # Wait a bit for the connection to stabilize
             time.sleep(2)
             
@@ -346,6 +350,10 @@ def test_pay_tollgate_and_verify_connectivity(tollgate_networks, funded_ecash_wa
             
             # Connect to the TollGate network
             connect_to_network(network)
+            
+            # Print the current MAC address for debugging
+            mac_address = get_mac_address()
+            print(f"Connected to network {network} with MAC address: {mac_address}")
             
             # Wait a bit for the connection to stabilize
             time.sleep(2)

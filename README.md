@@ -111,6 +111,22 @@ go clean -testcache && TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.r6VVmTRFcp go fmt . && 
 
 This command will format the Go code and then run all tests within the `src` module.
 
+### Pytest Integration Tests
+
+The project includes several pytest integration tests for end-to-end testing of TollGate functionality:
+
+#### test_teardown.py
+- **Purpose**: Installs a new firmware image on all TollGate routers
+- **When to use**: When you need to flash new firmware on the routers, typically after making changes to the router software or when setting up new hardware
+
+#### test_network_configuration.py
+- **Purpose**: Connects routers to a gateway and configures network settings
+- **When to use**: To establish network connectivity between routers and verify gateway connections
+
+#### test_ecash_payment.py
+- **Purpose**: Confirms that you can actually purchase internet access from TollGate captive portals using e-cash payments
+- **When to use**: To verify the complete payment flow, from connecting to a TollGate network to successfully purchasing internet access
+
 ## Documentation
 
 For more detailed information about TollGate modules and usage:
