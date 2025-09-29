@@ -13,13 +13,3 @@ squash_tool.sh
 .github/workflows/roo-auto-commit.yml
 vendor/
 **/tollwallet_db/*
-.obsidian/
-Untitled 1.base
-Untitled.base
-Untitled.canvas
-tests/__pycache__/
-/home/c03rad0r/tollgate-module-basic-go/tests/*.bin
-/home/c03rad0r/tollgate-module-basic-go/tests/*/*.bin
-tests/*.bin
-tests/eccf3ecef01541de35494f12463b16d74ed131ca-mint-not-accepted/
-tests/29f40cf7360f57702a3ff76d739269bf604e3f32-fixsimplify-reseller-mode_cant-reproduce-problems/

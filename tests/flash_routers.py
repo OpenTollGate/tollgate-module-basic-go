@@ -15,7 +15,7 @@ import sys
 # Configuration
 INTERFACE = "enx00e04c683d2d"
 ROUTER_PASSWORD = "c03rad0r123"
-IMAGE_FILE = "5ccecb2bdc0e613e2b8315f398e6514ccd49ac2ab90b77e970a0a25ceb8c7e8c.bin"
+IMAGE_FILE = "1cdd1f66e03a4b5d13bd97e76785417d80796a12b55e6e869cb6401ca74b4cda.bin"
 
 
 def get_interface_ip(interface):
