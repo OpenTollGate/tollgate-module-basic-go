@@ -118,7 +118,7 @@ func TestResellerModeDisabled(t *testing.T) {
 		scanner:         mockScanner,
 		vendorProcessor: mockVendorProcessor,
 		networkMonitor:  mockNetworkMonitor,
-		cm:              cm,
+		configManager:   cm,
 	}
 
 	// Call ScanWirelessNetworks
@@ -156,21 +156,21 @@ func TestResellerModeEnabled_FilterTollGateNetworks(t *testing.T) {
 
 	// Set up vendor processor expectations for TollGate networks
 	mockVendorProcessor.On("ExtractAndScore", mock.AnythingOfType("NetworkInfo")).Return(map[string]interface{}{}, 100, nil)
-	
+
 	// Set up network monitor expectations
 	mockNetworkMonitor.On("IsConnected").Return(true)
-	
+
 	// Set up connector expectations
 	mockConnector.On("GetConnectedSSID").Return("TollGate-ABC", nil)
 	mockConnector.On("UpdateLocalAPSSID", 1, 20000).Return(nil)
-	
+
 	// Create a GatewayManager with mock components
 	gm := &GatewayManager{
 		connector:       mockConnector,
 		scanner:         mockScanner,
 		vendorProcessor: mockVendorProcessor,
 		networkMonitor:  mockNetworkMonitor,
-		cm:              cm,
+		configManager:   cm,
 	}
 
 	// Call ScanWirelessNetworks
@@ -210,21 +210,21 @@ func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
 	mockVendorProcessor.On("ExtractAndScore", mock.MatchedBy(func(network NetworkInfo) bool {
 		return network.SSID == "TollGate-XYZ" && network.Encryption == "Open"
 	})).Return(map[string]interface{}{}, 100, nil)
-	
+
 	// Set up network monitor expectations
 	mockNetworkMonitor.On("IsConnected").Return(true)
-	
+
 	// Set up connector expectations
 	mockConnector.On("GetConnectedSSID").Return("TollGate-XYZ", nil)
 	mockConnector.On("UpdateLocalAPSSID", 1, 20000).Return(nil)
-	
+
 	// Create a GatewayManager with mock components
 	gm := &GatewayManager{
 		connector:       mockConnector,
 		scanner:         mockScanner,
 		vendorProcessor: mockVendorProcessor,
 		networkMonitor:  mockNetworkMonitor,
-		cm:              cm,
+		configManager:   cm,
 	}
 
 	// Call ScanWirelessNetworks
@@ -237,21 +237,22 @@ func TestResellerModeEnabled_SkipEncryptedTollGateNetworks(t *testing.T) {
 	mockConnector.AssertExpectations(t)
 	mockNetworkMonitor.AssertExpectations(t)
 }
+
 // Helper function to set the private config field using reflection
 func setConfigField(cm *config_manager.ConfigManager, config *config_manager.Config) {
 	// Get the reflect.Value of the ConfigManager instance
 	cmValue := reflect.ValueOf(cm).Elem()
-	
+
 	// Find the config field by name
 	configField := cmValue.FieldByName("config")
-	
+
 	// Make the field writable if it's not already
 	if !configField.CanSet() {
 		// If the field is not exported, we need to use unsafe operations
 		// This is a workaround for setting private fields in tests
 		configField = reflect.NewAt(configField.Type(), unsafe.Pointer(configField.UnsafeAddr())).Elem()
 	}
-	
+
 	// Set the new config value
 	configField.Set(reflect.ValueOf(config))
 }

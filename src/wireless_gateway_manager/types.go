@@ -68,7 +68,7 @@ type GatewayManager struct {
 	connector         ConnectorInterface
 	vendorProcessor   VendorElementProcessorInterface
 	networkMonitor    NetworkMonitorInterface
-	cm                *config_manager.ConfigManager
+	configManager     *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
 	currentHopCount   int

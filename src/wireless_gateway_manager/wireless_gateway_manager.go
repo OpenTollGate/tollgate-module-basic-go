@@ -26,7 +26,7 @@ func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManage
 		connector:         connector,
 		vendorProcessor:   vendorProcessor,
 		networkMonitor:    networkMonitor,
-		cm:                cm,
+		configManager:     cm,
 		availableGateways: make(map[string]Gateway),
 		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
@@ -60,14 +60,14 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	// Get the current configuration
-	config := gm.cm.GetConfig()
-	
+	config := gm.configManager.GetConfig()
+
 	// Check if reseller mode is enabled
 	if !config.ResellerMode {
 		logger.Info("Reseller mode is disabled. Skipping automatic gateway selection.")
 		return
 	}
-	
+
 	logger.Info("Starting network scan for gateway selection in reseller mode")
 
 	// Update current price based on current connection status before scanning
@@ -89,7 +89,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			tollgateNetworks = append(tollgateNetworks, network)
 		}
 	}
-	
+
 	logger.WithField("network_count", len(tollgateNetworks)).Info("Processing TollGate networks for gateway selection")
 	gm.availableGateways = make(map[string]Gateway)
 	for _, network := range tollgateNetworks {
@@ -266,7 +266,6 @@ func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) 
 	return gm.vendorProcessor.GetLocalAPVendorElements()
 }
 
-
 func (gm *GatewayManager) updatePriceAndAPSSID() {
 	// If not connected to a gateway, we are in safemode.
 	// We should not update the price in the config file, but we should update the SSID to reflect SafeMode.
@@ -284,7 +283,7 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 	// If price is 0 (or not connected), use the values from the config
 	pricePerStep, stepSize := parsePricingFromSSID(connectedSSID)
 	if pricePerStep == 0 {
-		config := gm.cm.GetConfig()
+		config := gm.configManager.GetConfig()
 		if len(config.AcceptedMints) > 0 {
 			maxPrice := 0
 			maxStepSize := 0
@@ -301,9 +300,9 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		}
 	} else {
 		// Apply margin to the price
-		config := gm.cm.GetConfig()
+		config := gm.configManager.GetConfig()
 		gatewayPrice := float64(pricePerStep) * float64(stepSize)
-		
+
 		// Add detailed logging for debugging the margin issue
 		logger.WithField("module", "wireless_gateway_manager").
 			Infof("Applying margin. Upstream price_per_step=%d, step_size=%d. Config margin=%f, config step_size=%d",
@@ -316,7 +315,7 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		}
 		// ensure stepSize is updated to our configured StepSize
 		stepSize = int(config.StepSize)
-		
+
 		logger.WithField("module", "wireless_gateway_manager").
 			Infof("Price with margin calculated. New price_per_step=%d, new step_size=%d",
 				pricePerStep, stepSize)
@@ -328,8 +327,7 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 	}
 
 	// Update the config file with the new pricing
-	if err := gm.cm.UpdatePricing(pricePerStep, stepSize); err != nil {
+	if err := gm.configManager.UpdatePricing(pricePerStep, stepSize); err != nil {
 		logger.WithError(err).Error("Failed to update config file with new pricing")
 	}
 }
-
