@@ -1,0 +1,56 @@
+#!/bin/sh
+
+# This script handles the one-time restart of the tollgate-wrt service
+# after the WAN interface comes up and internet connectivity is confirmed.
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+# Get the actual device name for the 'wan' logical interface
+WAN_DEVICE=$(uci get network.wan.device 2>/dev/null)
+
+# Check if the interface that came up is the one associated with 'wan'
+# This handles cases where wan might use a wireless interface like 'wwan'
+if [ -n "$WAN_DEVICE" ] && [ "$DEVICE" = "$WAN_DEVICE" ]; then
+    # This is the wan interface coming up
+    :
+elif [ "$INTERFACE" = "wan" ]; then
+    # Fallback to checking INTERFACE if DEVICE didn't match
+    # This covers standard configurations
+    :
+else
+    # Not the wan interface we're interested in
+    exit 0
+fi
+
+FLAG_FILE="/tmp/tollgate_initial_restart_done"
+
+# Check if the restart has already been performed
+if [ -f "$FLAG_FILE" ]; then
+    # Already restarted once, nothing to do
+    exit 0
+fi
+
+# Function to check internet connectivity
+check_connectivity() {
+    ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1
+    return $?
+}
+
+# Wait a bit for the interface to be fully configured
+sleep 5
+
+# Check for connectivity
+if check_connectivity; then
+    # Restart the tollgate-wrt service
+    /etc/init.d/tollgate-wrt restart
+    
+    # Create the flag file to indicate the restart has been done
+    touch "$FLAG_FILE"
+    
+    # Log the action
+    logger "tollgate-wrt: Restarted service after initial WAN up and connectivity check."
+else
+    # No connectivity yet, exit silently
+    # The script will run again on the next wan ifup event if needed
+    logger "tollgate-wrt: WAN up but no connectivity to 8.8.8.8, skipping restart."
+fi
