@@ -170,7 +170,7 @@ func NewDefaultConfig() *Config {
 				Identity: "developer",
 			},
 		},
-		StepSize: 20000,
+		StepSize: 600000,
 		Margin:   0.1,
 		Metric:   "milliseconds",
 		Relays: []string{

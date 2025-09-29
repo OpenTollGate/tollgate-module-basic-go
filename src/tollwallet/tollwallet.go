@@ -3,6 +3,7 @@ package tollwallet
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -32,9 +33,17 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
 	cashuWallet, err := wallet.LoadWallet(config)
 	// TODO: Catch warning here and fail fast. The service can be configured to automatically restart..
+	// Sun Apr 13 16:38:57 2025 daemon.info tollgate-wrt[2740]: Warning: network connection issue during adding new mint: network connection issue during fetching active keyset from mint: error getting active keysets from mint: Get "https://nofees.testnut.cashu.space/v1/keysets": dial tcp: lookup nofees.testnut.cashu.space on [::1]:53: server misbehaving
 
 	if err != nil {
 		log.Printf("TollWallet.New: Failed to load wallet: %v", err)
+		// Check for specific network error that indicates a transient issue
+		// and fail fast to allow service restart logic to kick in.
+		errStr := err.Error()
+		if strings.Contains(errStr, "server misbehaving") || strings.Contains(errStr, "network connection issue") {
+			log.Printf("TollWallet.New: Detected critical network error, failing fast to trigger restart: %s", errStr)
+			return nil, fmt.Errorf("critical network error during wallet initialization, failing fast: %w", err)
+		}
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 	log.Printf("TollWallet.New: Wallet loaded successfully")
