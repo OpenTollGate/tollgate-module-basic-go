@@ -1,12 +1,26 @@
 #!/bin/sh
 # TollGate - Generate random LAN IP address on first boot
 
+FLAG_FILE="/etc/config/95-random-lan-ip.done"
+REBOOT_NEEDED=0
+
+# Check if the script has already been executed
+if [ -f "$FLAG_FILE" ]; then
+    echo "95-random-lan-ip already executed. Exiting."
+    exit 0
+else
+    REBOOT_NEEDED=1
+fi
+
 # Check current LAN IP address
 CURRENT_IP=$(uci -q get network.lan.ipaddr)
 
 # If IP is already randomized (not 192.168.1.1), exit
 if [ "$CURRENT_IP" != "192.168.1.1" ]; then
     echo "IP is already randomized to $CURRENT_IP. Exiting."
+    # Create flag file even if IP is already randomized, to prevent future runs
+    touch "$FLAG_FILE"
+    REBOOT_NEEDED=0 # No reboot needed if IP was already randomized
     exit 0
 fi
 
@@ -116,4 +130,10 @@ uci_safe_set network lan netmask "$NETMASK"
 # For a /24 network, the broadcast is always x.y.z.255
 BROADCAST="$OCTET1.$OCTET2.$OCTET3.255"
 uci_safe_set network lan broadcast "$BROADCAST"
-(sleep 5 && reboot) &
+
+# Create flag file to indicate script has been executed
+touch "$FLAG_FILE"
+
+if [ "$REBOOT_NEEDED" -eq 1 ]; then
+    (sleep 5 && reboot) &
+fi
