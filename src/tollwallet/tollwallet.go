@@ -34,11 +34,8 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
 	cashuWallet, err := wallet.LoadWallet(config)
 
-	var walletIsLoaded = false
-	if err == nil {
-		walletIsLoaded = true
-	} else {
-		log.Printf("TollWallet.New: Wallet loadeding fialed, will retry on receive. Error: %s", err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
 	// // TODO: Catch warning here and fail fast. The service can be configured to automatically restart..
@@ -70,7 +67,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	// log.Printf("TollWallet.New: Wallet loaded successfully")
 
 	return &TollWallet{
-		walletIsLoaded:             walletIsLoaded,
+		walletIsLoaded:             false,
 		config:                     config,
 		wallet:                     cashuWallet,
 		acceptedMints:              acceptedMints,
@@ -100,10 +97,10 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		cashuWallet, err := wallet.LoadWallet(w.config)
 
 		if err != nil {
-			log.Printf("TollWallet.Receive: wallet.Load failed: %v", err)
+			return 0, fmt.Errorf("TollWallet.Receive: Failed to create wallet: %w", err)
 		} else {
 			w.wallet = cashuWallet
-			log.Printf("TollWallet.Receive: Sucessfully loaded wallet.")
+			w.walletIsLoaded = true
 		}
 	}
 

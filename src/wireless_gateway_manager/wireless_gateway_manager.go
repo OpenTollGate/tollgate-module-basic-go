@@ -15,31 +15,31 @@ import (
 )
 
 // Init initializes the GatewayManager and starts its background scanning routine.
-func Init(ctx context.Context, cm *config_manager.ConfigManager) (*GatewayManager, error) {
+func Init(ctx context.Context, configManager *config_manager.ConfigManager) (*GatewayManager, error) {
 	connector := &Connector{}
 	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
 	networkMonitor := NewNetworkMonitor(connector)
 
-	gm := &GatewayManager{
+	gatewayManager := &GatewayManager{
 		scanner:           scanner,
 		connector:         connector,
 		vendorProcessor:   vendorProcessor,
 		networkMonitor:    networkMonitor,
-		configManager:     cm,
+		configManager:     configManager,
 		availableGateways: make(map[string]Gateway),
 		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
 	}
 
-	go gm.RunPeriodicScan(ctx)
-	gm.networkMonitor.Start()
+	go gatewayManager.RunPeriodicScan(ctx)
+	gatewayManager.networkMonitor.Start()
 
 	// Set initial price state
-	gm.updatePriceAndAPSSID()
+	gatewayManager.updatePriceAndAPSSID()
 
-	return gm, nil
+	return gatewayManager, nil
 }
 
 // RunPeriodicScan runs the periodic scanning routine.
