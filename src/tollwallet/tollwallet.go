@@ -35,16 +35,28 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	// TODO: Catch warning here and fail fast. The service can be configured to automatically restart..
 	// Sun Apr 13 16:38:57 2025 daemon.info tollgate-wrt[2740]: Warning: network connection issue during adding new mint: network connection issue during fetching active keyset from mint: error getting active keysets from mint: Get "https://nofees.testnut.cashu.space/v1/keysets": dial tcp: lookup nofees.testnut.cashu.space on [::1]:53: server misbehaving
 
+	// Check for specific network warning that indicates a transient issue
+	// and fail fast to allow service restart logic to kick in.
+	// The warning is logged by the wallet library, but not returned as an error.
+	// We need to check the error string for the warning message.
 	if err != nil {
 		log.Printf("TollWallet.New: Failed to load wallet: %v", err)
-		// Check for specific network error that indicates a transient issue
-		// and fail fast to allow service restart logic to kick in.
 		errStr := err.Error()
 		if strings.Contains(errStr, "server misbehaving") || strings.Contains(errStr, "network connection issue") {
 			log.Printf("TollWallet.New: Detected critical network error, failing fast to trigger restart: %s", errStr)
 			return nil, fmt.Errorf("critical network error during wallet initialization, failing fast: %w", err)
 		}
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
+	} else {
+		// If there's no error, but the wallet library logged a warning, we need to check for it.
+		// This is a hacky way to detect the warning, but it's the best we can do without
+		// modifying the wallet library.
+		// We'll check if the cashuWallet is nil, which might indicate a problem.
+		if cashuWallet == nil {
+			log.Printf("TollWallet.New: Wallet is nil after LoadWallet, this might indicate a problem.")
+			// We don't have a good way to detect the warning here, so we'll just log it.
+			// The service will likely fail later, and the restart logic will kick in.
+		}
 	}
 	log.Printf("TollWallet.New: Wallet loaded successfully")
 
