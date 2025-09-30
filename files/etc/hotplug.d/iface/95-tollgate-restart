@@ -3,22 +3,29 @@
 # This script handles the one-time restart of the tollgate-wrt service
 # after the WAN interface comes up and internet connectivity is confirmed.
 
+# --- DEBUG: Log all environment variables passed to the script ---
+logger "DEBUG tollgate-wrt hotplug: ACTION='$ACTION', INTERFACE='$INTERFACE', DEVICE='$DEVICE'"
+# --- END DEBUG ---
+
 [ "$ACTION" = "ifup" ] || exit 0
 
 # Get the actual device name for the 'wan' logical interface
 WAN_DEVICE=$(uci get network.wan.device 2>/dev/null)
 
-# Check if the interface that came up is the one associated with 'wan'
+# Check if the interface that came up is the one associated with 'wan' or 'wwan'
 # This handles cases where wan might use a wireless interface like 'wwan'
 if [ -n "$WAN_DEVICE" ] && [ "$DEVICE" = "$WAN_DEVICE" ]; then
     # This is the wan interface coming up
+    logger "DEBUG tollgate-wrt hotplug: Matched device '$DEVICE' to UCI wan.device '$WAN_DEVICE'"
     :
-elif [ "$INTERFACE" = "wan" ]; then
+elif [ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wwan" ]; then
     # Fallback to checking INTERFACE if DEVICE didn't match
-    # This covers standard configurations
+    # This covers standard configurations and wireless configurations
+    logger "DEBUG tollgate-wrt hotplug: Matched INTERFACE '$INTERFACE'"
     :
 else
     # Not the wan interface we're interested in
+    logger "DEBUG tollgate-wrt hotplug: No match. ACTION='$ACTION', INTERFACE='$INTERFACE', DEVICE='$DEVICE', UCI wan.device='$WAN_DEVICE'"
     exit 0
 fi
 
@@ -27,6 +34,7 @@ FLAG_FILE="/tmp/tollgate_initial_restart_done"
 # Check if the restart has already been performed
 if [ -f "$FLAG_FILE" ]; then
     # Already restarted once, nothing to do
+    logger "DEBUG tollgate-wrt hotplug: Flag file '$FLAG_FILE' found, exiting."
     exit 0
 fi
 
