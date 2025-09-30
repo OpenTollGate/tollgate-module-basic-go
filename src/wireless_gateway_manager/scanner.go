@@ -111,8 +111,8 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 				ssid := strings.TrimSpace(strings.TrimPrefix(line, "\tSSID:"))
 				if ssid != "" {
 					currentNetwork.SSID = ssid
-					// Parse hop count from SSID
-					currentNetwork.HopCount = parseHopCountFromSSID(ssid)
+					// Parse pricing from SSID
+					currentNetwork.PricePerStep, currentNetwork.StepSize = parsePricingFromSSID(ssid)
 				}
 			} else if strings.HasPrefix(line, "\tsignal:") {
 				signalStr := strings.TrimSpace(strings.TrimPrefix(line, "\tsignal:"))
@@ -141,16 +141,46 @@ func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 	return networks, scanner.Err()
 }
 
-func parseHopCountFromSSID(ssid string) int {
+func parsePricingFromSSID(ssid string) (int, int) {
 	if !strings.HasPrefix(ssid, "TollGate-") {
-		return 0 // Not a TollGate network, hop count is 0
+		return 0, 0 // Not a TollGate network
 	}
 
 	parts := strings.Split(ssid, "-")
 	if len(parts) < 4 {
-		return math.MaxInt32 // Invalid format, cannot determine hop count
+		return 0, 0 // Invalid format
 	}
 
+	priceStr := parts[len(parts)-2]
+	stepStr := parts[len(parts)-1]
+
+	price, err := strconv.Atoi(priceStr)
+	if err != nil {
+		return 0, 0 // Could not parse price
+	}
+
+	step, err := strconv.Atoi(stepStr)
+	if err != nil {
+		return 0, 0 // Could not parse step
+	}
+
+	return price, step
+}
+
+// parseHopCountFromSSID extracts the hop count from a TollGate SSID.
+// The hop count is expected to be the last part of the SSID after the last hyphen.
+// Returns math.MaxInt32 if the hop count cannot be parsed or if the SSID is not a TollGate SSID.
+func parseHopCountFromSSID(ssid string) int {
+	if !strings.HasPrefix(ssid, "TollGate-") {
+		return 0 // Not a TollGate network
+	}
+
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 4 {
+		return math.MaxInt32 // Invalid format
+	}
+
+	// The hop count should be the last part
 	hopCountStr := parts[len(parts)-1]
 	hopCount, err := strconv.Atoi(hopCountStr)
 	if err != nil {
@@ -159,3 +189,6 @@ func parseHopCountFromSSID(ssid string) int {
 
 	return hopCount
 }
+
+// Ensure Scanner implements ScannerInterface
+var _ ScannerInterface = (*Scanner)(nil)

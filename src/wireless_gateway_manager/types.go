@@ -4,6 +4,8 @@ package wireless_gateway_manager
 import (
 	"sync"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // Constants for network monitoring
@@ -34,29 +36,18 @@ type Scanner struct {
 
 // NetworkInfo represents information about a Wi-Fi network.
 type NetworkInfo struct {
-	BSSID      string
-	SSID       string
-	Signal     int
-	Encryption string
-	HopCount   int
-	RawIEs     []byte
+	BSSID        string
+	SSID         string
+	Signal       int
+	Encryption   string
+	PricePerStep int
+	StepSize     int
+	RawIEs       []byte
 }
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.
 type VendorElementProcessor struct {
 	connector *Connector
-}
-
-// KnownNetwork holds credentials for a known Wi-Fi network.
-type KnownNetwork struct {
-	SSID       string `json:"ssid"`
-	Password   string `json:"password"`
-	Encryption string `json:"encryption"`
-}
-
-// KnownNetworks is a list of known networks.
-type KnownNetworks struct {
-	Networks []KnownNetwork `json:"known_networks"`
 }
 
 // Gateway represents a Wi-Fi gateway with its details.
@@ -65,20 +56,21 @@ type Gateway struct {
 	SSID           string            `json:"ssid"`
 	Signal         int               `json:"signal"`
 	Encryption     string            `json:"encryption"`
-	HopCount       int               `json:"hop_count"`
+	PricePerStep   int               `json:"price_per_step"`
+	StepSize       int               `json:"step_size"`
 	Score          int               `json:"score"`
 	VendorElements map[string]string `json:"vendor_elements"`
 }
 
 // GatewayManager orchestrates the gateway management operations.
 type GatewayManager struct {
-	scanner           *Scanner
-	connector         *Connector
-	vendorProcessor   *VendorElementProcessor
-	networkMonitor    *NetworkMonitor
+	scanner           ScannerInterface
+	connector         ConnectorInterface
+	vendorProcessor   VendorElementProcessorInterface
+	networkMonitor    NetworkMonitorInterface
+	configManager     *config_manager.ConfigManager
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
-	knownNetworks     map[string]KnownNetwork // Key: SSID
 	currentHopCount   int
 	scanInterval      time.Duration
 	stopChan          chan struct{}

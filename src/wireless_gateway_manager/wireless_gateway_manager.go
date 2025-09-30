@@ -3,49 +3,43 @@ package wireless_gateway_manager
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // Init initializes the GatewayManager and starts its background scanning routine.
-func Init(ctx context.Context) (*GatewayManager, error) {
+func Init(ctx context.Context, configManager *config_manager.ConfigManager) (*GatewayManager, error) {
 	connector := &Connector{}
 	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
 	networkMonitor := NewNetworkMonitor(connector)
 
-	gm := &GatewayManager{
+	gatewayManager := &GatewayManager{
 		scanner:           scanner,
 		connector:         connector,
 		vendorProcessor:   vendorProcessor,
 		networkMonitor:    networkMonitor,
+		configManager:     configManager,
 		availableGateways: make(map[string]Gateway),
-		knownNetworks:     make(map[string]KnownNetwork),
 		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
 	}
 
-	if err := gm.loadKnownNetworks(); err != nil {
-		// Log the error but don't fail initialization, as the file may not exist.
-		logger.WithError(err).Warn("Could not load known networks")
-	}
+	go gatewayManager.RunPeriodicScan(ctx)
+	gatewayManager.networkMonitor.Start()
 
-	go gm.RunPeriodicScan(ctx)
-	gm.networkMonitor.Start()
+	// Set initial price state
+	gatewayManager.updatePriceAndAPSSID()
 
-	// Set initial hop count state
-	gm.updateHopCountAndAPSSID()
-
-	return gm, nil
+	return gatewayManager, nil
 }
 
 // RunPeriodicScan runs the periodic scanning routine.
@@ -65,10 +59,19 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
-	logger.Info("Starting network scan for gateway selection")
+	// Get the current configuration
+	config := gm.configManager.GetConfig()
 
-	// Update current hop count based on current connection status before scanning
-	gm.updateHopCountAndAPSSID()
+	// Check if reseller mode is enabled
+	if !config.ResellerMode {
+		logger.Info("Reseller mode is disabled. Skipping automatic gateway selection.")
+		return
+	}
+
+	logger.Info("Starting network scan for gateway selection in reseller mode")
+
+	// Update current price based on current connection status before scanning
+	gm.updatePriceAndAPSSID()
 
 	networks, err := gm.scanner.ScanWirelessNetworks()
 	if err != nil {
@@ -79,9 +82,27 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 
-	logger.WithField("network_count", len(networks)).Info("Processing networks for gateway selection")
-	gm.availableGateways = make(map[string]Gateway)
+	// Filter networks to only include those with SSIDs starting with "TollGate-"
+	var tollgateNetworks []NetworkInfo
 	for _, network := range networks {
+		if len(network.SSID) >= 9 && network.SSID[:9] == "TollGate-" {
+			tollgateNetworks = append(tollgateNetworks, network)
+		}
+	}
+
+	logger.WithField("network_count", len(tollgateNetworks)).Info("Processing TollGate networks for gateway selection")
+	gm.availableGateways = make(map[string]Gateway)
+	for _, network := range tollgateNetworks {
+		// In reseller mode, we only connect to open TollGate networks
+		isEncrypted := network.Encryption != "Open" && network.Encryption != ""
+		if isEncrypted {
+			logger.WithFields(logrus.Fields{
+				"ssid":       network.SSID,
+				"encryption": network.Encryption,
+			}).Debug("Skipping encrypted TollGate network")
+			continue
+		}
+
 		vendorElements, score, err := gm.vendorProcessor.ExtractAndScore(network)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -96,38 +117,38 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			SSID:           network.SSID,
 			Signal:         network.Signal,
 			Encryption:     network.Encryption,
-			HopCount:       network.HopCount,
+			PricePerStep:   network.PricePerStep,
+			StepSize:       network.StepSize,
 			Score:          score,
 			VendorElements: convertToStringMap(vendorElements),
 		}
 
+		// Adjust score based on price.
+		if gateway.PricePerStep > 0 && gateway.StepSize > 0 {
+			gatewayPrice := float64(gateway.PricePerStep * gateway.StepSize)
+			if gatewayPrice > 0 {
+				// Use a logarithmic penalty to handle a wide range of prices gracefully.
+				penalty := 20 * (math.Log(gatewayPrice) / math.Log(10))
+				gateway.Score -= int(penalty)
+			}
+		}
+
 		gm.availableGateways[network.BSSID] = gateway
 	}
-	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available gateways")
-
-	// Filter gateways by hop count
-	var filteredGateways []Gateway
-	for _, gateway := range gm.availableGateways {
-		if gateway.HopCount < gm.currentHopCount {
-			filteredGateways = append(filteredGateways, gateway)
-		} else {
-			logger.WithFields(logrus.Fields{
-				"ssid":         gateway.SSID,
-				"gateway_hops": gateway.HopCount,
-				"our_hops":     gm.currentHopCount,
-			}).Info("Filtering out gateway with unsuitable hop count")
-		}
-	}
-	logger.WithField("suitable_gateways", len(filteredGateways)).Info("Found gateways with suitable hop count")
+	logger.WithField("gateway_count", len(gm.availableGateways)).Info("Identified available TollGate gateways")
 
 	// Convert map to slice for sorting
 	var sortedGateways []Gateway
-	for _, gateway := range filteredGateways {
+	for _, gateway := range gm.availableGateways {
 		sortedGateways = append(sortedGateways, gateway)
 	}
 
 	// Sort gateways by score in descending order
 	sort.Slice(sortedGateways, func(i, j int) bool {
+		// Prioritize lower price, then higher score
+		if sortedGateways[i].PricePerStep != sortedGateways[j].PricePerStep {
+			return sortedGateways[i].PricePerStep < sortedGateways[j].PricePerStep
+		}
 		return sortedGateways[i].Score > sortedGateways[j].Score
 	})
 
@@ -141,10 +162,11 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"ssid":            gateway.SSID,
 			"signal":          gateway.Signal,
 			"encryption":      gateway.Encryption,
-			"hop_count":       gateway.HopCount,
+			"price_per_step":  gateway.PricePerStep,
+			"step_size":       gateway.StepSize,
 			"score":           gateway.Score,
 			"vendor_elements": gateway.VendorElements,
-		}).Info("Top gateway candidate")
+		}).Info("Top TollGate gateway candidate")
 	}
 
 	if len(sortedGateways) > 0 {
@@ -168,37 +190,29 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		}
 
 		if !isConnectedToTopThree {
+			// In reseller mode, all TollGate networks are considered "known" and open
 			password := ""
-			knownNetwork, isKnown := gm.knownNetworks[highestPriorityGateway.SSID]
-			if isKnown {
-				password = knownNetwork.Password
-				logger.WithField("ssid", highestPriorityGateway.SSID).Info("Found known network, using stored password")
-			}
 
-			// Attempt to connect if the network is open, or if it's a known network with a password.
-			if highestPriorityGateway.Encryption == "Open" || highestPriorityGateway.Encryption == "" || isKnown {
+			// Attempt to connect to the highest priority TollGate network
+			logger.WithFields(logrus.Fields{
+				"bssid": highestPriorityGateway.BSSID,
+				"ssid":  highestPriorityGateway.SSID,
+			}).Info("Not connected to top-3 TollGate gateway, attempting to connect to highest priority gateway")
+			err := gm.connector.Connect(highestPriorityGateway, password)
+			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"bssid": highestPriorityGateway.BSSID,
 					"ssid":  highestPriorityGateway.SSID,
-				}).Info("Not connected to top-3 gateway, attempting to connect to highest priority gateway")
-				err := gm.connector.Connect(highestPriorityGateway, password)
-				if err != nil {
-					logger.WithFields(logrus.Fields{
-						"ssid":  highestPriorityGateway.SSID,
-						"error": err,
-					}).Error("Failed to connect to gateway")
-				} else {
-					// Update hop count and SSID after successful connection
-					gm.updateHopCountAndAPSSID()
-				}
+					"error": err,
+				}).Error("Failed to connect to TollGate gateway")
 			} else {
-				logger.WithField("ssid", highestPriorityGateway.SSID).Warn("Not connected to top-3 gateway. Highest priority gateway is encrypted and not in known networks. Manual connection required")
+				// Update price and SSID after successful connection
+				gm.updatePriceAndAPSSID()
 			}
 		} else {
-			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three gateways, no action required")
+			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three TollGate gateways, no action required")
 		}
 	} else {
-		logger.Info("No available gateways to connect to")
+		logger.Info("No available TollGate gateways to connect to")
 	}
 }
 
@@ -237,7 +251,7 @@ func (gm *GatewayManager) ConnectToGateway(bssid string, password string) error 
 	if err == nil {
 		gm.mu.Lock()
 		defer gm.mu.Unlock()
-		gm.updateHopCountAndAPSSID()
+		gm.updatePriceAndAPSSID()
 	}
 	return err
 }
@@ -252,67 +266,68 @@ func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) 
 	return gm.vendorProcessor.GetLocalAPVendorElements()
 }
 
-func (gm *GatewayManager) loadKnownNetworks() error {
-	logger.Info("Loading known networks from /etc/tollgate/known_networks.json")
-	file, err := ioutil.ReadFile("/etc/tollgate/known_networks.json")
-	if err != nil {
-		return fmt.Errorf("could not read known_networks.json: %w", err)
+func (gm *GatewayManager) updatePriceAndAPSSID() {
+	// If not connected to a gateway, we are in safemode.
+	// We should not update the price in the config file, but we should update the SSID to reflect SafeMode.
+	if !gm.networkMonitor.IsConnected() {
+		logger.WithField("module", "wireless_gateway_manager").Info("Not connected to a gateway")
+		return
 	}
 
-	var knownNetworks KnownNetworks
-	if err := json.Unmarshal(file, &knownNetworks); err != nil {
-		return fmt.Errorf("could not unmarshal known_networks.json: %w", err)
-	}
-
-	gm.mu.Lock()
-	defer gm.mu.Unlock()
-	for _, network := range knownNetworks.Networks {
-		gm.knownNetworks[network.SSID] = network
-		logger.WithField("ssid", network.SSID).Debug("Loaded known network")
-	}
-
-	return nil
-}
-
-func (gm *GatewayManager) updateHopCountAndAPSSID() {
 	connectedSSID, err := gm.connector.GetConnectedSSID()
 	if err != nil {
-		logger.WithError(err).Warn("Could not get connected SSID to update hop count")
-		gm.currentHopCount = math.MaxInt32
-		return
+		logger.WithError(err).Warn("Could not get connected SSID to update price")
+		// We can still proceed to set a default price based on config
 	}
 
-	if connectedSSID == "" {
-		logger.Info("Not connected to any network, setting hop count to max")
-		gm.currentHopCount = math.MaxInt32
-		return
-	}
-
-	// Check if it's a known, non-TollGate network (which are our root connections)
-	if _, isKnown := gm.knownNetworks[connectedSSID]; isKnown && !strings.HasPrefix(connectedSSID, "TollGate-") {
-		logger.WithField("ssid", connectedSSID).Info("Connected to root network, setting hop count to 0")
-		gm.currentHopCount = 0
-	} else if strings.HasPrefix(connectedSSID, "TollGate-") {
-		// It's a TollGate network, parse the hop count from its SSID
-		hopCount := parseHopCountFromSSID(connectedSSID)
-		if hopCount == math.MaxInt32 {
-			logger.WithField("ssid", connectedSSID).Warn("Connected to TollGate network with invalid hop count, assuming max hop count")
-			gm.currentHopCount = math.MaxInt32
-		} else {
-			gm.currentHopCount = hopCount + 1
-			logger.WithFields(logrus.Fields{
-				"ssid":         connectedSSID,
-				"gateway_hops": hopCount,
-				"our_hops":     gm.currentHopCount,
-			}).Info("Connected to TollGate network, updated hop count")
+	// If price is 0 (or not connected), use the values from the config
+	pricePerStep, stepSize := parsePricingFromSSID(connectedSSID)
+	if pricePerStep == 0 {
+		config := gm.configManager.GetConfig()
+		if len(config.AcceptedMints) > 0 {
+			maxPrice := 0
+			maxStepSize := 0
+			for _, mint := range config.AcceptedMints {
+				if int(mint.PricePerStep) > maxPrice {
+					maxPrice = int(mint.PricePerStep)
+				}
+				if int(config.StepSize) > maxStepSize {
+					maxStepSize = int(config.StepSize)
+				}
+			}
+			pricePerStep = maxPrice
+			stepSize = maxStepSize
 		}
 	} else {
-		logger.WithField("ssid", connectedSSID).Warn("Connected to unknown network, assuming max hop count")
-		gm.currentHopCount = math.MaxInt32 // Unknown upstream, treat as disconnected for TollGate purposes
+		// Apply margin to the price
+		config := gm.configManager.GetConfig()
+		gatewayPrice := float64(pricePerStep) * float64(stepSize)
+
+		// Add detailed logging for debugging the margin issue
+		logger.WithField("module", "wireless_gateway_manager").
+			Infof("Applying margin. Upstream price_per_step=%d, step_size=%d. Config margin=%f, config step_size=%d",
+				pricePerStep, stepSize, config.Margin, config.StepSize)
+
+		ourPrice := gatewayPrice * (1 + config.Margin)
+		ourStepSize := float64(config.StepSize)
+		if ourStepSize > 0 {
+			pricePerStep = int(ourPrice / ourStepSize)
+		}
+		// ensure stepSize is updated to our configured StepSize
+		stepSize = int(config.StepSize)
+
+		logger.WithField("module", "wireless_gateway_manager").
+			Infof("Price with margin calculated. New price_per_step=%d, new step_size=%d",
+				pricePerStep, stepSize)
 	}
 
-	// Update the local AP's SSID to advertise the new hop count
-	if err := gm.connector.UpdateLocalAPSSID(gm.currentHopCount); err != nil {
-		logger.WithError(err).Error("Failed to update local AP SSID with new hop count")
+	// Update the local AP's SSID to advertise the new pricing
+	if err := gm.connector.UpdateLocalAPSSID(pricePerStep, stepSize); err != nil {
+		logger.WithError(err).Error("Failed to update local AP SSID with new pricing")
+	}
+
+	// Update the config file with the new pricing
+	if err := gm.configManager.UpdatePricing(pricePerStep, stepSize); err != nil {
+		logger.WithError(err).Error("Failed to update config file with new pricing")
 	}
 }

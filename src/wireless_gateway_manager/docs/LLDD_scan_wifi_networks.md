@@ -121,6 +121,6 @@ graph TD
 To verify the functionality of `iw scan` on the target OpenWRT router, the following commands were executed remotely via SSH:
 
 1. `iw dev`: Listed available wireless interfaces on the router.
-2. `iw dev phy0-sta0 scan | tail -n 20`: Tested the `iw scan` command on the `phy0-sta0` (managed) interface, confirming its operation.
+2. `iw dev phy0-wifinet0 scan | tail -n 20`: Tested the `iw scan` command on the `phy0-wifinet0` (managed) interface, confirming its operation.
 
-These tests confirmed that `iw scan` is functional on the `phy0-sta0` interface, returning valid scan results.
+These tests confirmed that `iw scan` is functional on the `phy0-wifinet0` interface, returning valid scan results.

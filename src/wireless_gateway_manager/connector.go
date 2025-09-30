@@ -4,8 +4,9 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"fmt"
-	"math"
+	"math/big"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -22,9 +23,18 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		"encryption": gateway.Encryption,
 	}).Info("Attempting to connect to gateway")
 
-	// Ensure a STA interface exists, creating one if necessary
-	if err := c.ensureSTAInterfaceExists(); err != nil {
-		return fmt.Errorf("failed to ensure STA interface exists: %w", err)
+	// Find an available STA interface to use for the connection
+	// Determine the band from the gateway's SSID
+	band := determineBandFromSSID(gateway.SSID)
+	staInterface, err := c.findAvailableSTAInterface(band)
+	if err != nil {
+		return fmt.Errorf("failed to find an available STA interface: %w", err)
+	}
+	logger.WithField("interface", staInterface).Info("Found available STA interface")
+
+	// Disable other STA interfaces to prevent conflicts
+	if err := c.disableOtherSTAInterfaces(staInterface); err != nil {
+		logger.WithError(err).Warn("Could not disable other STA interfaces, proceeding anyway")
 	}
 
 	// Configure network.wwan (STA interface) with DHCP
@@ -35,21 +45,21 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure wireless.tollgate_sta for STA mode
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.ssid="+gateway.SSID); err != nil {
+	// Configure the selected STA interface
+	if _, err := c.ExecuteUCI("set", staInterface+".ssid="+gateway.SSID); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.bssid="+gateway.BSSID); err != nil {
+	if _, err := c.ExecuteUCI("set", staInterface+".bssid="+gateway.BSSID); err != nil {
 		return err
 	}
 
 	// Set encryption based on gateway information
 	if gateway.Encryption != "" && gateway.Encryption != "Open" {
-		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
+		if _, err := c.ExecuteUCI("set", staInterface+".encryption="+getUCIEncryptionType(gateway.Encryption)); err != nil {
 			return err
 		}
 		if password != "" {
-			if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.key="+password); err != nil {
+			if _, err := c.ExecuteUCI("set", staInterface+".key="+password); err != nil {
 				return err
 			}
 		} else {
@@ -57,12 +67,17 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		}
 	} else {
 		// For open networks, ensure no encryption or key is set
-		if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.encryption=none"); err != nil {
+		if _, err := c.ExecuteUCI("set", staInterface+".encryption=none"); err != nil {
 			return err
 		}
-		if _, err := c.ExecuteUCI("delete", "wireless.tollgate_sta.key"); err != nil {
-			return err
+		if _, err := c.ExecuteUCI("delete", staInterface+".key"); err != nil {
+			// This might fail if the key doesn't exist, which is fine. The ExecuteUCI function handles this.
 		}
+	}
+
+	// Enable the interface
+	if _, err := c.ExecuteUCI("set", staInterface+".disabled=0"); err != nil {
+		return err
 	}
 
 	// Commit changes
@@ -232,6 +247,193 @@ func (c *Connector) cleanupSTAInterfaces() error {
 	return nil
 }
 
+// findAvailableSTAInterface scans the wireless config for a disabled STA interface and returns its name.
+// In reseller mode, it looks for tollgate_sta_2g and tollgate_sta_5g interfaces.
+func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
+	logger.Info("Searching for an available STA wifi-iface section")
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	var staInterfaces []string
+	disabledSTAInterfaces := make(map[string]bool)
+	tollgateSTA2GFound := false
+	tollgateSTA5GFound := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			staInterfaces = append(staInterfaces, section)
+			
+			// Check if we have our specific TollGate interfaces
+			if strings.HasSuffix(section, ".tollgate_sta_2g") {
+				tollgateSTA2GFound = true
+			} else if strings.HasSuffix(section, ".tollgate_sta_5g") {
+				tollgateSTA5GFound = true
+			}
+		} else if strings.HasSuffix(line, ".disabled='1'") {
+			section := strings.TrimSuffix(line, ".disabled='1'")
+			disabledSTAInterfaces[section] = true
+		}
+	}
+
+	// Create our specific TollGate interfaces if they don't exist
+	if !tollgateSTA2GFound {
+		logger.Info("Creating tollgate_sta_2g interface")
+		if err := c.createTollgateSTAInterface("tollgate_sta_2g", "radio0"); err != nil {
+			logger.WithError(err).Error("Failed to create tollgate_sta_2g interface")
+			return "", err
+		}
+		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_2g")
+		disabledSTAInterfaces["wireless.tollgate_sta_2g"] = true
+	}
+
+	if !tollgateSTA5GFound {
+		logger.Info("Creating tollgate_sta_5g interface")
+		if err := c.createTollgateSTAInterface("tollgate_sta_5g", "radio1"); err != nil {
+			logger.WithError(err).Error("Failed to create tollgate_sta_5g interface")
+			return "", err
+		}
+		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_5g")
+		disabledSTAInterfaces["wireless.tollgate_sta_5g"] = true
+	}
+
+	// If a specific band is requested, try to find an interface for that band
+	if band == "2g" || band == "5g" {
+		// Prefer disabled interfaces to avoid disrupting an active connection
+		// First, try to find a disabled TollGate interface for the requested band
+		interfaceName := "tollgate_sta_" + band
+		for _, iface := range staInterfaces {
+			if disabledSTAInterfaces[iface] && strings.HasSuffix(iface, "."+interfaceName) {
+				return iface, nil
+			}
+		}
+
+		// If no disabled interface for the requested band is found, use any available one for that band
+		for _, iface := range staInterfaces {
+			if strings.HasSuffix(iface, "."+interfaceName) {
+				return iface, nil
+			}
+		}
+	}
+
+	// If no specific band is requested or no interface for the requested band is found,
+	// use the general logic
+	// Prefer disabled interfaces to avoid disrupting an active connection
+	// First, try to find a disabled TollGate interface
+	for _, iface := range staInterfaces {
+		if disabledSTAInterfaces[iface] && (strings.HasSuffix(iface, ".tollgate_sta_2g") || strings.HasSuffix(iface, ".tollgate_sta_5g")) {
+			return iface, nil
+		}
+	}
+
+	// If no disabled TollGate interface is found, use any disabled interface
+	for _, iface := range staInterfaces {
+		if disabledSTAInterfaces[iface] {
+			return iface, nil
+		}
+	}
+
+	// If no disabled interface is found, use the first available TollGate interface
+	for _, iface := range staInterfaces {
+		if strings.HasSuffix(iface, ".tollgate_sta_2g") || strings.HasSuffix(iface, ".tollgate_sta_5g") {
+			return iface, nil
+		}
+	}
+
+	// If no TollGate interface is found, use the first available one, if any exist.
+	if len(staInterfaces) > 0 {
+		return staInterfaces[0], nil
+	}
+
+	return "", fmt.Errorf("no STA interface found in wireless configuration")
+}
+
+// createTollgateSTAInterface creates a new STA interface with the specified name and device.
+func (c *Connector) createTollgateSTAInterface(interfaceName, device string) error {
+	logger.WithFields(logrus.Fields{
+		"interface": interfaceName,
+		"device":    device,
+	}).Info("Creating new TollGate STA interface")
+	
+	// Create the interface section
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+"=wifi-iface"); err != nil {
+		return err
+	}
+	
+	// Set the device
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".device="+device); err != nil {
+		return err
+	}
+	
+	// Set mode to sta
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".mode=sta"); err != nil {
+		return err
+	}
+	
+	// Set network to wwan
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".network=wwan"); err != nil {
+		return err
+	}
+	
+	// Disable by default
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".disabled=1"); err != nil {
+		return err
+	}
+	
+	// Commit the changes
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+// disableOtherSTAInterfaces disables all STA interfaces except for the one provided.
+func (c *Connector) disableOtherSTAInterfaces(activeInterfaceName string) error {
+	logger.WithField("active_interface", activeInterfaceName).Info("Disabling other STA interfaces")
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	var staInterfaces []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			staInterfaces = append(staInterfaces, section)
+		}
+	}
+
+	var commitNeeded bool
+	for _, iface := range staInterfaces {
+		if iface != activeInterfaceName {
+			logger.WithField("interface", iface).Debug("Disabling STA interface")
+			if _, err := c.ExecuteUCI("set", iface+".disabled=1"); err != nil {
+				logger.WithFields(logrus.Fields{
+					"interface": iface,
+					"error":     err,
+				}).Warn("Failed to disable STA interface")
+				continue // Continue trying to disable others
+			}
+			commitNeeded = true
+		}
+	}
+
+	if commitNeeded {
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			return fmt.Errorf("failed to commit wireless config after disabling STA interfaces: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // ensureSTAInterfaceExists checks for a STA interface and creates a default one if it doesn't exist.
 func (c *Connector) ensureSTAInterfaceExists() error {
 	logger.Info("Ensuring STA wifi-iface section exists")
@@ -260,7 +462,7 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.network=wwan"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=0"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=1"); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
@@ -269,21 +471,13 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	return c.reloadWifi()
 }
 
-// SetAPSSIDSafeMode renames the local AP's SSID to a "SafeMode-" prefix.
-func (c *Connector) SetAPSSIDSafeMode() error {
-	logger.Info("Setting AP SSID to SafeMode")
-	return c.updateAPSSIDWithPrefix("SafeMode-")
-}
 
-// RestoreAPSSIDFromSafeMode removes the "SafeMode-" prefix from the local AP's SSID.
-func (c *Connector) RestoreAPSSIDFromSafeMode() error {
-	logger.Info("Restoring AP SSID from SafeMode")
-	return c.updateAPSSIDWithPrefix("") // Pass an empty prefix to restore the original name
-}
 
-func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
+// UpdateLocalAPSSID updates the local AP's SSID to advertise the current price.
+func (c *Connector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
 	if err := c.ensureAPInterfacesExist(); err != nil {
-		return fmt.Errorf("failed to ensure AP interfaces exist: %w", err)
+		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
+		return err
 	}
 
 	radios := []string{"default_radio0", "default_radio1"}
@@ -300,98 +494,23 @@ func (c *Connector) updateAPSSIDWithPrefix(prefix string) error {
 			continue
 		}
 		currentSSID = strings.TrimSpace(currentSSID)
-		baseSSID := strings.TrimPrefix(currentSSID, "SafeMode-") // Remove prefix if it exists
 
-		var newSSID string
-		if prefix != "" {
-			newSSID = prefix + baseSSID
-		} else {
-			newSSID = baseSSID // This is the restored SSID
-		}
+		// Strip existing pricing info to get the base SSID
+		baseSSID := stripPricingFromSSID(currentSSID)
+
+		newSSID := fmt.Sprintf("%s-%d-%d", baseSSID, pricePerStep, stepSize)
+		logger.WithFields(logrus.Fields{
+			"radio":    radio,
+			"new_ssid": newSSID,
+		}).Info("Updating local AP SSID with new pricing")
 
 		if currentSSID != newSSID {
 			if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
 				logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Error("Failed to set new SSID")
 				continue
 			}
-			logger.WithFields(logrus.Fields{"radio": radio, "new_ssid": newSSID}).Info("Updated AP SSID")
 			commitNeeded = true
 		}
-	}
-
-	if commitNeeded {
-		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-			return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
-		}
-		logger.Info("Reloading wifi to apply new AP SSID")
-		return c.reloadWifi()
-	}
-
-	return nil
-}
-
-
-// UpdateLocalAPSSID updates the local AP's SSID to advertise the current hop count.
-func (c *Connector) UpdateLocalAPSSID(hopCount int) error {
-	if err := c.ensureAPInterfacesExist(); err != nil {
-		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
-		return err // This is a significant issue, so we return the error.
-	}
-
-	// Now that we've ensured the interfaces exist, we can proceed.
-	// We update both 2.4GHz and 5GHz APs if they exist.
-	radios := []string{"default_radio0", "default_radio1"}
-	var commitNeeded bool
-	for _, radio := range radios {
-		// Check if the interface section exists before trying to update it.
-		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
-			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
-			continue
-		}
-
-		baseSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"error": err,
-			}).Warn("Could not get current SSID")
-			continue // Try the next radio
-		}
-		baseSSID = strings.TrimSpace(baseSSID)
-
-		// Strip any existing hop count from the base SSID
-		parts := strings.Split(baseSSID, "-")
-		if len(parts) > 1 {
-			lastPart := parts[len(parts)-1]
-			if _, err := strconv.Atoi(lastPart); err == nil {
-				// It ends with a number, so it's a hop count. Strip it.
-				baseSSID = strings.Join(parts[:len(parts)-1], "-")
-			}
-		}
-
-		var newSSID string
-		if hopCount == math.MaxInt32 {
-			newSSID = baseSSID
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Disconnected, setting AP SSID to base")
-		} else {
-			newSSID = fmt.Sprintf("%s-%d", baseSSID, hopCount)
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"ssid":  newSSID,
-			}).Info("Updating local AP SSID")
-		}
-
-		if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
-			logger.WithFields(logrus.Fields{
-				"radio": radio,
-				"error": err,
-			}).Error("Failed to set new SSID")
-			continue
-		}
-		commitNeeded = true
 	}
 
 	if commitNeeded {
@@ -501,28 +620,127 @@ func (c *Connector) ensureAPInterfacesExist() error {
 }
 
 func (c *Connector) generateRandomSuffix(length int) (string, error) {
-	cmd := exec.Command("head", "/dev/urandom")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return "", err
+	const chars = "0123456789"
+	result := make([]byte, length)
+	for i := range result {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = chars[num.Int64()]
 	}
-
-	cmd = exec.Command("tr", "-dc", "A-Z0-9")
-	cmd.Stdin = &stdout
-	var stdout2 bytes.Buffer
-	cmd.Stdout = &stdout2
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	cmd = exec.Command("head", "-c", strconv.Itoa(length))
-	cmd.Stdin = &stdout2
-	var finalStdout bytes.Buffer
-	cmd.Stdout = &finalStdout
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(finalStdout.String()), nil
+	return string(result), nil
 }
+
+func stripPricingFromSSID(ssid string) string {
+	parts := strings.Split(ssid, "-")
+	if len(parts) < 4 { // Expects TollGate-<ID>-<price>-<step>
+		return ssid // Not a format we can parse, return original
+	}
+
+	// Check if the last two parts are numbers (price and step)
+	_, err1 := strconv.Atoi(parts[len(parts)-1])
+	_, err2 := strconv.Atoi(parts[len(parts)-2])
+
+	if err1 == nil && err2 == nil {
+		// Both are numbers, so strip them
+		return strings.Join(parts[:len(parts)-2], "-")
+	}
+
+	return ssid // Return original if parsing fails
+}
+
+// Disconnect disconnects from the current network.
+func (c *Connector) Disconnect() error {
+	logger.Info("Disconnecting from current network")
+	
+	// Find the currently active STA interface
+	activeInterface, err := c.getActiveSTAInterface()
+	if err != nil {
+		return fmt.Errorf("failed to get active STA interface: %w", err)
+	}
+	
+	if activeInterface == "" {
+		logger.Info("No active STA interface found, nothing to disconnect")
+		return nil
+	}
+	
+	// Disable the active interface
+	if _, err := c.ExecuteUCI("set", activeInterface+".disabled=1"); err != nil {
+		return fmt.Errorf("failed to disable interface %s: %w", activeInterface, err)
+	}
+	
+	// Commit the changes
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return fmt.Errorf("failed to commit wireless config: %w", err)
+	}
+	
+	// Reload wifi to apply changes
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi: %w", err)
+	}
+	
+	logger.WithField("interface", activeInterface).Info("Successfully disconnected from network")
+	return nil
+}
+
+// Reconnect attempts to reconnect to the network.
+// This is a simple implementation that just reloads the wifi.
+func (c *Connector) Reconnect() error {
+	logger.Info("Reconnecting to network")
+	
+	// Reload wifi to apply any pending changes or reconnect
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi: %w", err)
+	}
+	
+	logger.Info("Reconnect command issued")
+	return nil
+}
+
+// getActiveSTAInterface finds the currently active STA interface.
+func (c *Connector) getActiveSTAInterface() (string, error) {
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Look for an interface that is in sta mode and not disabled
+		if strings.HasSuffix(line, ".mode='sta'") {
+			section := strings.TrimSuffix(line, ".mode='sta'")
+			// Check if it's disabled
+			disabledOutput, err := c.ExecuteUCI("get", section+".disabled")
+			if err != nil {
+				// If we can't get the disabled status, assume it's enabled
+				return section, nil
+			}
+			if strings.TrimSpace(disabledOutput) != "1" {
+				return section, nil
+			}
+		}
+	}
+	
+	return "", nil // No active STA interface found
+}
+
+// determineBandFromSSID attempts to determine the band (2g or 5g) from the SSID
+func determineBandFromSSID(ssid string) string {
+	// If the SSID contains "2.4GHz" or "2G", assume it's a 2.4GHz network
+	if strings.Contains(ssid, "2.4GHz") || strings.Contains(ssid, "2G") {
+		return "2g"
+	}
+	
+	// If the SSID contains "5GHz" or "5G", assume it's a 5GHz network
+	if strings.Contains(ssid, "5GHz") || strings.Contains(ssid, "5G") {
+		return "5g"
+	}
+	
+	// Default to empty string if we can't determine the band
+	return ""
+}
+
+// Ensure Connector implements ConnectorInterface
+var _ ConnectorInterface = (*Connector)(nil)

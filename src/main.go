@@ -90,7 +90,7 @@ func init() {
 
 	installConfig = configManager.GetInstallConfig()
 
-	gatewayManager, err = wireless_gateway_manager.Init(context.Background())
+	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to initialize gateway manager")
 	}

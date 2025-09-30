@@ -14,9 +14,11 @@ type Config struct {
 	AcceptedMints []MintConfig        `json:"accepted_mints"`
 	ProfitShare   []ProfitShareConfig `json:"profit_share"`
 	StepSize      uint64              `json:"step_size"`
+	Margin        float64             `json:"margin,omitempty"`
 	Metric        string              `json:"metric"`
 	Relays        []string            `json:"relays"`
 	ShowSetup     bool                `json:"show_setup"`
+	ResellerMode  bool                `json:"reseller_mode"`
 	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
 	Chandler      ChandlerConfig      `json:"chandler"`
 }
@@ -124,11 +126,11 @@ func SaveConfig(filePath string, config *Config) error {
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
 	return &Config{
-		ConfigVersion: "v0.0.5",
+		ConfigVersion: "v0.0.6",
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
-				URL:                     "https://mint.minibits.cash/Bitcoin",
+				URL:                     "https://mint.coinos.io/",
 				MinBalance:              64,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
@@ -138,7 +140,7 @@ func NewDefaultConfig() *Config {
 				MinPurchaseSteps:        0,
 			},
 			{
-				URL:                     "https://mint.coinos.io/",
+				URL:                     "https://mint.minibits.cash/Bitcoin",
 				MinBalance:              64,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
@@ -158,14 +160,16 @@ func NewDefaultConfig() *Config {
 				Identity: "developer",
 			},
 		},
-		StepSize: 20000,
+		StepSize: 600000,
+		Margin:   0.1,
 		Metric:   "milliseconds",
 		Relays: []string{
 			"wss://relay.damus.io",
 			"wss://nos.lol",
 			"wss://nostr.mom",
 		},
-		ShowSetup: true,
+		ShowSetup:    true,
+		ResellerMode: false,
 		Crowsnest: CrowsnestConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
