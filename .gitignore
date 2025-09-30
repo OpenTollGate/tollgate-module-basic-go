@@ -13,3 +13,9 @@ squash_tool.sh
 .github/workflows/roo-auto-commit.yml
 vendor/
 **/tollwallet_db/*
+.obsidian/
+docs/tollgate-wrt-initial-restart.md
+tests/*.bin
+tests/29f40cf7360f57702a3ff76d739269bf604e3f32-fixsimplify-reseller-mode_cant-reproduce-problems/
+tests/__pycache__/
+tests/eccf3ecef01541de35494f12463b16d74ed131ca-mint-not-accepted/

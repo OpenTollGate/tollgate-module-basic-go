@@ -42,7 +42,7 @@ To avoid this inconsistent state, we can implement solutions to make the shutdow
 
 We can enhance the `NetworkMonitor` to react to link-layer events in addition to application-layer ping tests.
 
-*   **Implementation:** The `NetworkMonitor` can subscribe to netlink events to monitor the state of the client (STA) interface (`phy0-sta0`). When it detects that the STA interface has lost its association with the upstream AP, it can immediately trigger the `DisableLocalAP()` function.
+*   **Implementation:** The `NetworkMonitor` can subscribe to netlink events to monitor the state of the client (STA) interface (`phy0-wifinet0`). When it detects that the STA interface has lost its association with the upstream AP, it can immediately trigger the `DisableLocalAP()` function.
 *   **Pros:**
     *   This is the most robust software solution.
     *   It synchronizes the shutdown of both APs, making them disappear at almost the same time.

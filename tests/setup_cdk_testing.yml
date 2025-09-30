@@ -1,0 +1,87 @@
+---
+- name: Setup CDK Testing Environment
+  hosts: localhost
+  become: yes
+  vars:
+    cdk_repo_url: "https://github.com/cashubtc/cdk.git"
+    user_home: "{{ lookup('env', 'HOME') }}"
+    cdk_repo_path: "{{ user_home }}/cdk"
+    project_path: "{{ user_home }}/tollgate-module-basic-go"
+    venv_path: "{{ project_path }}/venv"
+  tasks:
+    - name: Debug user home and paths
+      debug:
+        msg: "User home: {{ user_home }}, CDK repo path: {{ cdk_repo_path }}, Project path: {{ project_path }}"
+
+    - name: Ensure Python 3 and pip are installed
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+        state: present
+
+    - name: Create virtual environment
+      command: python3 -m venv {{ venv_path }}
+      args:
+        creates: "{{ venv_path }}/bin/activate"
+
+    - name: Install pytest in the virtual environment
+      pip:
+        name: pytest
+        virtualenv: "{{ venv_path }}"
+        virtualenv_command: python3 -m venv
+
+    - name: Check if Rust is installed
+      command: rustc --version
+      register: rust_version
+      ignore_errors: yes
+      become: no
+      become_user: "{{ lookup('env', 'USER') }}"
+
+    - name: Install Rust and Cargo if not present
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "{{ user_home }}"
+      when: rust_version.rc != 0
+      become: no
+      become_user: "{{ lookup('env', 'USER') }}"
+
+    - name: Check if cdk repository exists
+      stat:
+        path: "{{ cdk_repo_path }}"
+      register: cdk_repo_stat
+      become: no
+      become_user: "{{ lookup('env', 'USER') }}"
+
+    - name: Clone cdk repository if it doesn't exist
+      git:
+        repo: "{{ cdk_repo_url }}"
+        dest: "{{ cdk_repo_path }}"
+        clone: yes
+        update: no
+      when: not cdk_repo_stat.stat.exists
+      become: no
+      become_user: "{{ lookup('env', 'USER') }}"
+
+    - name: Compile cdk-cli in release mode
+      shell: |
+        source "$HOME/.cargo/env"
+        cargo build --release --bin cdk-cli
+      args:
+        chdir: "{{ cdk_repo_path }}"
+      environment:
+        HOME: "{{ user_home }}"
+      become: no
+      become_user: "{{ lookup('env', 'USER') }}"
+
+    - name: Install cdk-cli
+      copy:
+        src: "{{ cdk_repo_path }}/target/release/cdk-cli"
+        dest: "/usr/local/bin/cdk-cli"
+        mode: "0755"
+        remote_src: yes

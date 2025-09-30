@@ -97,7 +97,7 @@ Manages OpenWRT network configurations via `uci` commands.
         *   Executes a series of `uci` commands via `os/exec.Command` to:
             *   Configure `network.wwan` (STA interface) with DHCP.
             *   Disable existing `wlan0` AP, configure `wireless.wifinetX` for STA mode on `radio0` (or appropriate radio).
-            *   Set SSID, BSSID, encryption (`none`, `psk2`, `sae`), and `key` for the STA interface.
+            *   Set SSID, BSSID, encryption (`none`, `psk2`, `sae`), and `key` for the wifinet interface.
             *   Commit changes: `uci commit network`, `uci commit wireless`, `uci commit firewall`.
         *   Restarts network: `os/exec.Command("/etc/init.d/network", "restart")`.
         *   Performs internet connectivity check: `ping -c 1 8.8.8.8` in a loop with timeout.

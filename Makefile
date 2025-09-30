@@ -129,6 +129,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/CONTROL
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/preinst $(1)/CONTROL/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/postinst $(1)/CONTROL/
+	
+	# Install hotplug script for wan interface restart
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
 endef
 
 # Update FILES declaration to include NoDogSplash files
@@ -147,7 +151,7 @@ FILES_$(PKG_NAME) += \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
-	/etc/tollgate/known_networks.json
+	/etc/hotplug.d/iface/95-tollgate-restart
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
