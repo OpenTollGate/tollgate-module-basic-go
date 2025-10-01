@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Script to monitor an ethernet interface for connected routers and flash them with an image.
+Script to monitor ethernet interfaces for connected routers and flash them with an image.
 
-This script continuously monitors the specified ethernet interface for IP address changes.
+This script continuously monitors the specified ethernet interfaces for IP address changes.
 When a router is detected (IP address assigned), it flashes the router with the image.
 When the network cable is unplugged, it returns to monitoring mode.
 """
@@ -13,9 +13,9 @@ import os
 import sys
 
 # Configuration
-INTERFACE = "enx00e04c683d2d"
+INTERFACES = ["enx00e04c683d2d", "enx00e04c6812d4"]  # List of interfaces to monitor
 ROUTER_PASSWORD = "c03rad0r123"
-IMAGE_FILE = "24b50fa1ad82fe1bf0044ff922e3c01604dc0c83cf5519b503abb716173949fc.bin"
+IMAGE_FILE = "78ccda8fdbd71df9143fb41aff75d2104fbb56313d2c1ba8ce56c8ab951e5d26.bin"
 
 
 def get_interface_ip(interface):
@@ -194,7 +194,7 @@ def flash_router(router_ip, image_path):
 
 def main():
     """Main monitoring loop."""
-    print(f"Monitoring interface {INTERFACE} for router connections...")
+    print(f"Monitoring interfaces {INTERFACES} for router connections...")
     
     # Get the path to the image file (should be in the same directory as this script)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -207,37 +207,40 @@ def main():
     
     print(f"Using image file: {image_path}")
     
-    previous_ip = None
-    router_flashed = False
+    # Track state for each interface
+    previous_ips = {interface: None for interface in INTERFACES}
+    routers_flashed = {interface: False for interface in INTERFACES}
     
     while True:
         try:
-            # Get the current IP address of the interface
-            current_ip = get_interface_ip(INTERFACE)
-            
-            # Check if the IP address has changed
-            if current_ip != previous_ip:
-                if current_ip is None:
-                    print(f"Interface {INTERFACE} is down or has no IP address")
-                    router_flashed = False
-                else:
-                    print(f"Interface {INTERFACE} has IP address: {current_ip}")
-                    try:
-                        # Get the router's IP address
-                        router_ip = get_router_ip(INTERFACE)
-                        print(f"Router detected at IP: {router_ip}")
-                        
-                        # Flash the router if not already flashed
-                        if not router_flashed:
-                            flash_router(router_ip, image_path)
-                            router_flashed = True
-                        else:
-                            print("Router already flashed, skipping...")
+            # Check each interface
+            for interface in INTERFACES:
+                # Get the current IP address of the interface
+                current_ip = get_interface_ip(interface)
+                
+                # Check if the IP address has changed
+                if current_ip != previous_ips[interface]:
+                    if current_ip is None:
+                        print(f"Interface {interface} is down or has no IP address")
+                        routers_flashed[interface] = False
+                    else:
+                        print(f"Interface {interface} has IP address: {current_ip}")
+                        try:
+                            # Get the router's IP address
+                            router_ip = get_router_ip(interface)
+                            print(f"Router detected at IP: {router_ip}")
                             
-                    except Exception as e:
-                        print(f"Error getting router IP or flashing router: {e}")
-            
-            previous_ip = current_ip
+                            # Flash the router if not already flashed
+                            if not routers_flashed[interface]:
+                                flash_router(router_ip, image_path)
+                                routers_flashed[interface] = True
+                            else:
+                                print("Router already flashed, skipping...")
+                                
+                        except Exception as e:
+                            print(f"Error getting router IP or flashing router: {e}")
+                
+                previous_ips[interface] = current_ip
             
             # Wait before checking again
             time.sleep(2)
