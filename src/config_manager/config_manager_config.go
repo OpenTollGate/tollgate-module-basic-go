@@ -130,7 +130,7 @@ func NewDefaultConfig() *Config {
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
-				URL:                     "https://mint.coinos.io/",
+				URL:                     "https://mint.coinos.io",
 				MinBalance:              64,
 				BalanceTolerancePercent: 10,
 				PayoutIntervalSeconds:   60,
