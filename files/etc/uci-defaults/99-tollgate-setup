@@ -83,17 +83,41 @@ uci_safe_add_list() {
     uci add_list "$path=$value" >/dev/null 2>&1
 }
 
-# 1. Firewall configuration
-log_message "Configuring firewall rules"
-if ! uci -q get firewall.tollgate_rules >/dev/null 2>&1; then
-    uci add firewall include >/dev/null 2>&1
-    uci_safe_set firewall @include[-1] path '/etc/config/firewall-tollgate'
-    uci rename firewall.@include[-1]='tollgate_rules' >/dev/null 2>&1
-    uci commit firewall
-    log_message "Added firewall-tollgate include section"
+# 1. Derive Private IP from LAN IP
+log_message "Deriving private IP from LAN IP"
+LAN_IP=$(uci -q get network.lan.ipaddr)
+OCTET1=$(echo "$LAN_IP" | cut -d'.' -f1)
+OCTET2=$(echo "$LAN_IP" | cut -d'.' -f2)
+OCTET3=$(echo "$LAN_IP" | cut -d'.' -f3)
+
+if [ "$OCTET3" -eq 255 ]; then
+    PRIVATE_OCTET3=$((OCTET3 - 1))
 else
-    log_message "Firewall tollgate_rules already exists"
+    PRIVATE_OCTET3=$((OCTET3 + 1))
 fi
+
+PRIVATE_IP="${OCTET1}.${OCTET2}.${PRIVATE_OCTET3}.1"
+log_message "Private IP will be: $PRIVATE_IP"
+
+# 2. Firewall configuration
+log_message "Configuring firewall rules"
+# Remove the problematic include
+uci_safe_delete firewall.tollgate_rules
+
+# Add the TollGate rules directly
+uci_safe_set firewall tollgate_in name 'Allow-TollGate-In'
+uci_safe_set firewall tollgate_in src 'lan'
+uci_safe_set firewall tollgate_in proto 'tcp'
+uci_safe_set firewall tollgate_in dest_port '2121'
+uci_safe_set firewall tollgate_in target 'ACCEPT'
+
+uci_safe_set firewall relay_in name 'Allow-Relay-In'
+uci_safe_set firewall relay_in src 'lan'
+uci_safe_set firewall relay_in proto 'tcp'
+uci_safe_set firewall relay_in dest_port '4242'
+uci_safe_set firewall relay_in target 'ACCEPT'
+uci commit firewall
+log_message "Configured firewall rules directly"
 
 # 2. Configure uhttpd listener ports and settings
 log_message "Configuring uhttpd settings"
@@ -163,7 +187,9 @@ RANDOM_SUFFIX=$(head /dev/urandom | tr -dc 'A-Z0-9' | head -c 4)
 GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
 SSID_2G="${GATEWAY_NAME}-2.4GHz"
 SSID_5G="${GATEWAY_NAME}-5GHz"
-log_message "Generated new SSIDs: ${SSID_2G} and ${SSID_5G}"
+PRIVATE_SSID_2G="c03rad0r-${RANDOM_SUFFIX}-2.4GHz"
+PRIVATE_SSID_5G="c03rad0r-${RANDOM_SUFFIX}-5GHz"
+log_message "Generated new SSIDs: ${SSID_2G}, ${SSID_5G}, ${PRIVATE_SSID_2G}, and ${PRIVATE_SSID_5G}"
 
 # Check if default radio0 exists before configuring
 if uci -q get wireless.default_radio0 >/dev/null; then
@@ -202,6 +228,59 @@ fi
 # Commit wireless changes
 uci commit wireless
 log_message "Committed wireless configuration"
+
+# --- Private Network Configuration ---
+log_message "Configuring private network"
+uci_safe_set network private interface
+uci_safe_set network private proto 'static'
+uci_safe_set network private device 'br-private'
+uci_safe_set network private ipaddr "$PRIVATE_IP"
+uci_safe_set network private netmask '255.255.255.0'
+
+uci_safe_set network private_bridge device
+uci_safe_set network private_bridge type 'bridge'
+uci_safe_set network private_bridge name 'br-private'
+
+uci_safe_set dhcp private dhcp
+uci_safe_set dhcp private interface 'private'
+uci_safe_set dhcp private start '100'
+uci_safe_set dhcp private limit '150'
+uci_safe_set dhcp private leasetime '12h'
+
+uci add wireless wifi-iface >/dev/null 2>&1
+uci_safe_set wireless @wifi-iface[-1] device 'radio0'
+uci_safe_set wireless @wifi-iface[-1] network 'private'
+uci_safe_set wireless @wifi-iface[-1] mode 'ap'
+uci_safe_set wireless @wifi-iface[-1] ssid "${PRIVATE_SSID_2G}"
+uci_safe_set wireless @wifi-iface[-1] encryption 'psk2+ccmp'
+uci_safe_set wireless @wifi-iface[-1] key 'securepassword123'
+uci_safe_set wireless @wifi-iface[-1] disabled '0'
+
+uci add wireless wifi-iface >/dev/null 2>&1
+uci_safe_set wireless @wifi-iface[-1] device 'radio1'
+uci_safe_set wireless @wifi-iface[-1] network 'private'
+uci_safe_set wireless @wifi-iface[-1] mode 'ap'
+uci_safe_set wireless @wifi-iface[-1] ssid "${PRIVATE_SSID_5G}"
+uci_safe_set wireless @wifi-iface[-1] encryption 'psk2+ccmp'
+uci_safe_set wireless @wifi-iface[-1] key 'securepassword123'
+uci_safe_set wireless @wifi-iface[-1] disabled '0'
+
+uci_safe_set firewall private_zone zone
+uci_safe_set firewall private_zone name 'private'
+uci_safe_set firewall private_zone network 'private'
+uci_safe_set firewall private_zone input 'ACCEPT'
+uci_safe_set firewall private_zone output 'ACCEPT'
+uci_safe_set firewall private_zone forward 'ACCEPT'
+
+uci_safe_set firewall private_forwarding forwarding
+uci_safe_set firewall private_forwarding src 'private'
+uci_safe_set firewall private_forwarding dest 'wan'
+
+uci commit network
+uci commit dhcp
+uci commit wireless
+uci commit firewall
+log_message "Private network configuration complete"
 
 # 5. Configure NoDogSplash
 log_message "Configuring NoDogSplash"
