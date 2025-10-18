@@ -64,7 +64,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 
 	// Check if reseller mode is enabled
 	if !config.ResellerMode {
-		logger.Info("Reseller mode is disabled. Skipping automatic gateway selection.")
+		logger.Debug("Reseller mode is disabled. Skipping automatic gateway selection.")
 		return
 	}
 
