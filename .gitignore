@@ -5,6 +5,7 @@ artifacts/
 bin/
 tollgate
 tollgate-basic
+tollgate-wrt
 tollgate-module-basic-go
 ./tollgate-wrt
 *.orig

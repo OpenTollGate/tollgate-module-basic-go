@@ -145,6 +145,8 @@ func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 	switch msg.Command {
 	case "wallet":
 		return s.handleWalletCommand(msg.Args, msg.Flags)
+	case "network":
+		return s.handleNetworkCommand(msg.Args, msg.Flags)
 	case "status":
 		return s.handleStatusCommand(msg.Args, msg.Flags)
 	case "version":

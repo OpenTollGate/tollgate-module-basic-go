@@ -1,0 +1,181 @@
+#!/bin/sh
+
+# Function to log messages
+log_message() {
+    logger -t tollgate-private-setup "$1"
+    echo "$1"
+}
+
+log_message "Starting 99b-tollgate-setup-private-ssid script..."
+
+# Helper function to safely set UCI option-value pairs
+uci_safe_set() {
+    local config="$1"
+    local section="$2"
+    local option="$3"
+    local value="$4"
+    uci set "$config.$section.$option=$value"
+}
+
+# --- 1. Derive Dynamic Configuration ---
+log_message "Deriving private network configuration..."
+PUBLIC_SSID_2G=$(uci -q get wireless.default_radio0.ssid)
+if [ -z "$PUBLIC_SSID_2G" ] || [ "$PUBLIC_SSID_2G" = "OpenWrt" ]; then
+    log_message "Error: Could not get valid public 2.4GHz SSID. Exiting."
+    exit 1
+fi
+RANDOM_SUFFIX=$(echo "$PUBLIC_SSID_2G" | awk -F'-' '{print $2}')
+if [ -z "$RANDOM_SUFFIX" ]; then
+    log_message "Error: Could not extract random suffix from SSID: $PUBLIC_SSID_2G. Exiting."
+    exit 1
+fi
+log_message "Derived random suffix: $RANDOM_SUFFIX"
+
+LAN_IP=$(uci -q get network.lan.ipaddr)
+if [ -z "$LAN_IP" ]; then
+    log_message "Error: Could not get LAN IP address. Exiting."
+    exit 1
+fi
+OCTET1=$(echo "$LAN_IP" | cut -d'.' -f1)
+OCTET2=$(echo "$LAN_IP" | cut -d'.' -f2)
+OCTET3=$(echo "$LAN_IP" | cut -d'.' -f3)
+
+if [ "$OCTET3" -eq 255 ]; then
+    PRIVATE_OCTET3=$((OCTET3 - 1))
+else
+    PRIVATE_OCTET3=$((OCTET3 + 1))
+fi
+
+PRIVATE_IP="${OCTET1}.${OCTET2}.${PRIVATE_OCTET3}.1"
+log_message "Derived private IP: $PRIVATE_IP"
+
+PRIVATE_SSID="c03rad0r-${RANDOM_SUFFIX}"
+
+# Generate human-readable password from random words
+generate_readable_password() {
+    # Simple word list for memorable passwords
+    local words="alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu"
+    
+    # Count words
+    local word_count=0
+    for word in $words; do
+        word_count=$((word_count + 1))
+    done
+    
+    # Generate random numbers using /dev/urandom and hexdump
+    local rand1=$(hexdump -n 2 -e '"%u"' /dev/urandom)
+    local rand2=$(hexdump -n 2 -e '"%u"' /dev/urandom)
+    local rand3=$(hexdump -n 2 -e '"%u"' /dev/urandom)
+    local rand_num=$(hexdump -n 1 -e '"%u"' /dev/urandom)
+    
+    # Calculate indices
+    local idx1=$((rand1 % word_count))
+    local idx2=$((rand2 % word_count))
+    local idx3=$((rand3 % word_count))
+    local num=$((rand_num % 100))
+    
+    # Get words by index
+    local i=0
+    local word1=""
+    local word2=""
+    local word3=""
+    for word in $words; do
+        if [ $i -eq $idx1 ]; then word1="$word"; fi
+        if [ $i -eq $idx2 ]; then word2="$word"; fi
+        if [ $i -eq $idx3 ]; then word3="$word"; fi
+        i=$((i + 1))
+    done
+    
+    # Capitalize first letter of each word
+    word1="$(echo "$word1" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word1" | cut -c2-)"
+    word2="$(echo "$word2" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word2" | cut -c2-)"
+    word3="$(echo "$word3" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word3" | cut -c2-)"
+    
+    printf "%s-%s-%s-%02d" "$word1" "$word2" "$word3" "$num"
+}
+
+PRIVATE_KEY=$(generate_readable_password)
+log_message "Generated private network password: $PRIVATE_KEY"
+
+# --- 2. Network and DHCP Configuration ---
+log_message "Configuring private network, bridge, and DHCP..."
+uci set network.private='interface'
+uci_safe_set network private proto 'static'
+uci_safe_set network private device 'br-private'
+uci_safe_set network private ipaddr "$PRIVATE_IP"
+uci_safe_set network private netmask '255.255.255.0'
+
+uci set network.private_bridge='device'
+uci_safe_set network private_bridge type 'bridge'
+uci_safe_set network private_bridge name 'br-private'
+
+uci set dhcp.private='dhcp'
+uci_safe_set dhcp private interface 'private'
+uci_safe_set dhcp private start '100'
+uci_safe_set dhcp private limit '150'
+uci_safe_set dhcp private leasetime '12h'
+
+# --- 3. Wireless Configuration ---
+log_message "Configuring private wireless interfaces..."
+uci set wireless.private_radio0='wifi-iface'
+uci_safe_set wireless private_radio0 device 'radio0'
+uci_safe_set wireless private_radio0 network 'private'
+uci_safe_set wireless private_radio0 mode 'ap'
+uci_safe_set wireless private_radio0 ssid "$PRIVATE_SSID"
+uci_safe_set wireless private_radio0 encryption 'psk2+ccmp'
+uci_safe_set wireless private_radio0 key "$PRIVATE_KEY"
+uci_safe_set wireless private_radio0 disabled '0'
+
+uci set wireless.private_radio1='wifi-iface'
+uci_safe_set wireless private_radio1 device 'radio1'
+uci_safe_set wireless private_radio1 network 'private'
+uci_safe_set wireless private_radio1 mode 'ap'
+uci_safe_set wireless private_radio1 ssid "$PRIVATE_SSID"
+uci_safe_set wireless private_radio1 encryption 'psk2+ccmp'
+uci_safe_set wireless private_radio1 key "$PRIVATE_KEY"
+uci_safe_set wireless private_radio1 disabled '0'
+
+# --- 4. Firewall Configuration and Fix ---
+log_message "Configuring firewall for private network and applying fix..."
+if uci -q get firewall.tollgate_rules >/dev/null 2>&1; then
+    uci delete firewall.tollgate_rules
+    log_message "Removed faulty firewall include 'tollgate_rules'."
+fi
+
+uci set firewall.tollgate_in='rule'
+uci_safe_set firewall tollgate_in name 'Allow-TollGate-In'
+uci_safe_set firewall tollgate_in src 'lan'
+uci_safe_set firewall tollgate_in proto 'tcp'
+uci_safe_set firewall tollgate_in dest_port '2121'
+uci_safe_set firewall tollgate_in target 'ACCEPT'
+
+uci set firewall.relay_in='rule'
+uci_safe_set firewall relay_in name 'Allow-Relay-In'
+uci_safe_set firewall relay_in src 'lan'
+uci_safe_set firewall relay_in proto 'tcp'
+uci_safe_set firewall relay_in dest_port '4242'
+uci_safe_set firewall relay_in target 'ACCEPT'
+
+uci set firewall.private_zone='zone'
+uci_safe_set firewall private_zone name 'private'
+uci_safe_set firewall private_zone network 'private'
+uci_safe_set firewall private_zone input 'ACCEPT'
+uci_safe_set firewall private_zone output 'ACCEPT'
+uci_safe_set firewall private_zone forward 'ACCEPT'
+
+uci set firewall.private_forwarding='forwarding'
+uci_safe_set firewall private_forwarding src 'private'
+uci_safe_set firewall private_forwarding dest 'wan'
+
+# --- 5. Commit All Changes ---
+log_message "Committing all changes..."
+uci commit network
+uci commit dhcp
+uci commit wireless
+uci commit firewall
+
+service network reload
+
+log_message "Private SSID setup script finished successfully."
+
+exit 0
