@@ -15,7 +15,7 @@ import sys
 # Configuration
 INTERFACES = ["enx00e04c683d2d", "enx00e04c6812d4"]  # List of interfaces to monitor
 ROUTER_PASSWORD = "c03rad0r123"
-IMAGE_FILE = "78ccda8fdbd71df9143fb41aff75d2104fbb56313d2c1ba8ce56c8ab951e5d26.bin"
+IMAGE_FILE = "ba25ce36cef0016ccd8eab2dcef75ae0d2d41592462c960667338469ed06d6b1.bin"
 
 
 def get_interface_ip(interface):
