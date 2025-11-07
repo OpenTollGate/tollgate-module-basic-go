@@ -55,23 +55,39 @@ PRIVATE_SSID="c03rad0r-${RANDOM_SUFFIX}"
 generate_readable_password() {
     # Simple word list for memorable passwords
     local words="alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu"
-    local word_array=($words)
-    local word_count=${#word_array[@]}
     
-    # Generate 3 random words
-    local word1=${word_array[$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))]}
-    local word2=${word_array[$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))]}
-    local word3=${word_array[$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))]}
+    # Count words
+    local word_count=0
+    for word in $words; do
+        word_count=$((word_count + 1))
+    done
+    
+    # Generate 3 random word indices
+    local idx1=$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))
+    local idx2=$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))
+    local idx3=$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))
+    
+    # Get words by index
+    local i=0
+    local word1=""
+    local word2=""
+    local word3=""
+    for word in $words; do
+        if [ $i -eq $idx1 ]; then word1="$word"; fi
+        if [ $i -eq $idx2 ]; then word2="$word"; fi
+        if [ $i -eq $idx3 ]; then word3="$word"; fi
+        i=$((i + 1))
+    done
     
     # Add a random 2-digit number for extra security
     local num=$(($(od -An -N1 -i /dev/urandom | tr -d ' ') % 100))
     
-    # Capitalize first letter of each word and combine
-    word1="$(echo ${word1:0:1} | tr '[:lower:]' '[:upper:]')${word1:1}"
-    word2="$(echo ${word2:0:1} | tr '[:lower:]' '[:upper:]')${word2:1}"
-    word3="$(echo ${word3:0:1} | tr '[:lower:]' '[:upper:]')${word3:1}"
+    # Capitalize first letter of each word
+    word1="$(echo "$word1" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word1" | cut -c2-)"
+    word2="$(echo "$word2" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word2" | cut -c2-)"
+    word3="$(echo "$word3" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word3" | cut -c2-)"
     
-    echo "${word1}-${word2}-${word3}-${num}"
+    printf "%s-%s-%s-%02d" "$word1" "$word2" "$word3" "$num"
 }
 
 PRIVATE_KEY=$(generate_readable_password)
