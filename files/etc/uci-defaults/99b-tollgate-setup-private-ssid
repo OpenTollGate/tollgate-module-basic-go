@@ -62,10 +62,17 @@ generate_readable_password() {
         word_count=$((word_count + 1))
     done
     
-    # Generate 3 random word indices
-    local idx1=$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))
-    local idx2=$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))
-    local idx3=$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))
+    # Generate random numbers using /dev/urandom and hexdump
+    local rand1=$(hexdump -n 2 -e '"%u"' /dev/urandom)
+    local rand2=$(hexdump -n 2 -e '"%u"' /dev/urandom)
+    local rand3=$(hexdump -n 2 -e '"%u"' /dev/urandom)
+    local rand_num=$(hexdump -n 1 -e '"%u"' /dev/urandom)
+    
+    # Calculate indices
+    local idx1=$((rand1 % word_count))
+    local idx2=$((rand2 % word_count))
+    local idx3=$((rand3 % word_count))
+    local num=$((rand_num % 100))
     
     # Get words by index
     local i=0
@@ -78,9 +85,6 @@ generate_readable_password() {
         if [ $i -eq $idx3 ]; then word3="$word"; fi
         i=$((i + 1))
     done
-    
-    # Add a random 2-digit number for extra security
-    local num=$(($(od -An -N1 -i /dev/urandom | tr -d ' ') % 100))
     
     # Capitalize first letter of each word
     word1="$(echo "$word1" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$word1" | cut -c2-)"
