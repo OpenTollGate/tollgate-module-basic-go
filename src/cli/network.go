@@ -83,16 +83,14 @@ func (s *CLIServer) handlePrivateNetworkStatus() CLIResponse {
 		}
 	}
 
+	// Get password - it might not be set yet
 	password, err := getUCIValue("wireless.private_radio0.key")
 	if err != nil {
-		return CLIResponse{
-			Success:   false,
-			Error:     fmt.Sprintf("Failed to get private network password: %v", err),
-			Timestamp: time.Now(),
-		}
+		password = "(not set)"
 	}
 
-	disabled, err := getUCIValue("wireless.private_radio0.disabled")
+	// Get disabled status
+	disabled, _ := getUCIValue("wireless.private_radio0.disabled")
 	enabled := disabled != "1" // If disabled is not "1", it's enabled
 
 	info := PrivateNetworkInfo{
