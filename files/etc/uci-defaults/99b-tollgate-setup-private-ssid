@@ -49,9 +49,33 @@ fi
 PRIVATE_IP="${OCTET1}.${OCTET2}.${PRIVATE_OCTET3}.1"
 log_message "Derived private IP: $PRIVATE_IP"
 
-PRIVATE_SSID_2G="c03rad0r-${RANDOM_SUFFIX}-2.4GHz"
-PRIVATE_SSID_5G="c03rad0r-${RANDOM_SUFFIX}-5GHz"
-PRIVATE_KEY="securepassword123"
+PRIVATE_SSID="c03rad0r-${RANDOM_SUFFIX}"
+
+# Generate human-readable password from random words
+generate_readable_password() {
+    # Simple word list for memorable passwords
+    local words="alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu"
+    local word_array=($words)
+    local word_count=${#word_array[@]}
+    
+    # Generate 3 random words
+    local word1=${word_array[$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))]}
+    local word2=${word_array[$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))]}
+    local word3=${word_array[$(($(od -An -N2 -i /dev/urandom | tr -d ' ') % word_count))]}
+    
+    # Add a random 2-digit number for extra security
+    local num=$(($(od -An -N1 -i /dev/urandom | tr -d ' ') % 100))
+    
+    # Capitalize first letter of each word and combine
+    word1="$(echo ${word1:0:1} | tr '[:lower:]' '[:upper:]')${word1:1}"
+    word2="$(echo ${word2:0:1} | tr '[:lower:]' '[:upper:]')${word2:1}"
+    word3="$(echo ${word3:0:1} | tr '[:lower:]' '[:upper:]')${word3:1}"
+    
+    echo "${word1}-${word2}-${word3}-${num}"
+}
+
+PRIVATE_KEY=$(generate_readable_password)
+log_message "Generated private network password: $PRIVATE_KEY"
 
 # --- 2. Network and DHCP Configuration ---
 log_message "Configuring private network, bridge, and DHCP..."
@@ -77,7 +101,7 @@ uci set wireless.private_radio0='wifi-iface'
 uci_safe_set wireless private_radio0 device 'radio0'
 uci_safe_set wireless private_radio0 network 'private'
 uci_safe_set wireless private_radio0 mode 'ap'
-uci_safe_set wireless private_radio0 ssid "$PRIVATE_SSID_2G"
+uci_safe_set wireless private_radio0 ssid "$PRIVATE_SSID"
 uci_safe_set wireless private_radio0 encryption 'psk2+ccmp'
 uci_safe_set wireless private_radio0 key "$PRIVATE_KEY"
 uci_safe_set wireless private_radio0 disabled '0'
@@ -86,7 +110,7 @@ uci set wireless.private_radio1='wifi-iface'
 uci_safe_set wireless private_radio1 device 'radio1'
 uci_safe_set wireless private_radio1 network 'private'
 uci_safe_set wireless private_radio1 mode 'ap'
-uci_safe_set wireless private_radio1 ssid "$PRIVATE_SSID_5G"
+uci_safe_set wireless private_radio1 ssid "$PRIVATE_SSID"
 uci_safe_set wireless private_radio1 encryption 'psk2+ccmp'
 uci_safe_set wireless private_radio1 key "$PRIVATE_KEY"
 uci_safe_set wireless private_radio1 disabled '0'
@@ -129,6 +153,8 @@ uci commit network
 uci commit dhcp
 uci commit wireless
 uci commit firewall
+
+service network reload
 
 log_message "Private SSID setup script finished successfully."
 

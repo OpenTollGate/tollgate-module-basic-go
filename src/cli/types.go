@@ -49,3 +49,10 @@ type ServiceStatus struct {
 	WalletOK  bool   `json:"wallet_ok"`
 	NetworkOK bool   `json:"network_ok"`
 }
+
+// PrivateNetworkInfo represents private network configuration
+type PrivateNetworkInfo struct {
+	SSID     string `json:"ssid"`
+	Password string `json:"password"`
+	Enabled  bool   `json:"enabled"`
+}

@@ -12,6 +12,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// askConfirmation prompts the user for yes/no confirmation
+func askConfirmation(message string) bool {
+	fmt.Printf("%s (y/N): ", message)
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return false
+	}
+	response := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return response == "y" || response == "yes"
+}
+
 const (
 	SocketPath = "/var/run/tollgate.sock"
 )
@@ -43,6 +54,18 @@ var walletCmd = &cobra.Command{
 	Use:   "wallet",
 	Short: "Wallet operations",
 	Long:  "Manage your TollGate wallet - check balance, drain funds, view information",
+}
+
+var networkCmd = &cobra.Command{
+	Use:   "network",
+	Short: "Network operations",
+	Long:  "Manage network settings and configurations",
+}
+
+var privateCmd = &cobra.Command{
+	Use:   "private",
+	Short: "Private network operations",
+	Long:  "Manage your private network - enable/disable, rename, change password",
 }
 
 var drainCmd = &cobra.Command{
@@ -109,6 +132,67 @@ var statusCmd = &cobra.Command{
 	},
 }
 
+var privateStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show private network status",
+	Long:  "Display private network status including SSID, password, and enabled state",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("network", []string{"private", "status"}, nil)
+	},
+}
+
+var privateEnableCmd = &cobra.Command{
+	Use:   "enable",
+	Short: "Enable private network",
+	Long:  "Enable the private WiFi network on both 2.4GHz and 5GHz radios",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("network", []string{"private", "enable"}, nil)
+	},
+}
+
+var privateDisableCmd = &cobra.Command{
+	Use:   "disable",
+	Short: "Disable private network",
+	Long:  "Disable the private WiFi network on both 2.4GHz and 5GHz radios",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Warn user about potential lockout
+		fmt.Println("\n⚠️  WARNING: Disabling the private network may lock you out of the router!")
+		fmt.Println("Make sure you have another way to access the router (e.g., via the public network or physical access).")
+
+		if !askConfirmation("\nAre you sure you want to disable the private network?") {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+
+		return sendCommandAndDisplay("network", []string{"private", "disable"}, nil)
+	},
+}
+
+var privateRenameCmd = &cobra.Command{
+	Use:   "rename [new-ssid]",
+	Short: "Rename private network SSID",
+	Long:  "Change the SSID of the private WiFi network",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("network", []string{"private", "rename", args[0]}, nil)
+	},
+}
+
+var privateSetPasswordCmd = &cobra.Command{
+	Use:   "set-password [new-password]",
+	Short: "Set private network password",
+	Long:  "Change the password for the private WiFi network. If no password is provided, a random one will be generated.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			// Generate random password
+			return sendCommandAndDisplay("network", []string{"private", "set-password"}, nil)
+		}
+		// Set specific password
+		return sendCommandAndDisplay("network", []string{"private", "set-password", args[0]}, nil)
+	},
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
@@ -122,7 +206,9 @@ func init() {
 	// Build command tree
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
-	rootCmd.AddCommand(walletCmd, statusCmd, versionCmd)
+	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
+	networkCmd.AddCommand(privateCmd)
+	rootCmd.AddCommand(walletCmd, networkCmd, statusCmd, versionCmd)
 }
 
 func main() {
@@ -216,6 +302,9 @@ func displayData(data interface{}) {
 		// Check if this is a WalletDrainResult
 		if _, ok := v["tokens"]; ok {
 			displayWalletDrainResult(v)
+		} else if _, ok := v["ssid"]; ok {
+			// This is PrivateNetworkInfo
+			displayPrivateNetworkInfo(v)
 		} else {
 			displayMap(v, "")
 		}
@@ -226,6 +315,30 @@ func displayData(data interface{}) {
 			fmt.Println(string(jsonData))
 		}
 	}
+}
+
+func displayPrivateNetworkInfo(data map[string]interface{}) {
+	fmt.Println()
+	fmt.Println("Private Network Configuration")
+	fmt.Println("=============================")
+
+	if ssid, ok := data["ssid"].(string); ok {
+		fmt.Printf("SSID:     %s\n", ssid)
+	}
+
+	if password, ok := data["password"].(string); ok {
+		fmt.Printf("Password: %s\n", password)
+	}
+
+	if enabled, ok := data["enabled"].(bool); ok {
+		status := "Disabled"
+		if enabled {
+			status = "Enabled"
+		}
+		fmt.Printf("Status:   %s\n", status)
+	}
+
+	fmt.Println()
 }
 
 func displayWalletDrainResult(data map[string]interface{}) {
