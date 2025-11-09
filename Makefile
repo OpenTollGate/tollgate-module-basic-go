@@ -55,7 +55,7 @@ endef
 
 define Build/Compile
 	cd $(PKG_BUILD_DIR) && \
-	echo "DEBUG: GOARCH=$(GOARCH) GOMIPS=$(GOMIPS)" && \
+	echo "DEBUG: GOARCH=$(GOARCH) GOMIPS=$(GOMIPS) USE_UPX=$(USE_UPX)" && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
@@ -68,13 +68,17 @@ define Build/Compile
 	GOMIPS=$(GOMIPS) \
 	go build -o tollgate -trimpath -ldflags="-s -w"
 	
-	# Compress binaries with UPX if available
-	@if which upx >/dev/null 2>&1; then \
-		echo "UPX found, compressing binaries..."; \
-		upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
-		upx --brute $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+	# Compress binaries with UPX if USE_UPX is enabled
+	@if [ "$(USE_UPX)" = "1" ]; then \
+		if which upx >/dev/null 2>&1; then \
+			echo "UPX enabled, compressing binaries..."; \
+			upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
+			upx --brute $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+		else \
+			echo "UPX not found, skipping compression"; \
+		fi; \
 	else \
-		echo "UPX not found, skipping compression"; \
+		echo "UPX disabled, skipping compression"; \
 	fi
 endef
 

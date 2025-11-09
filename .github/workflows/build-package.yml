@@ -27,34 +27,77 @@ jobs:
                 "architecture": "aarch64_cortex-a53",
                 "goarch": "arm64",
                 "sdk": "mediatek-filogic",
-                "openwrt_version": "24.10.1"
+                "openwrt_version": "24.10.1",
+                "compression": "none"
+              },
+              {
+                "architecture": "aarch64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx"
               },
               {
                 "architecture": "aarch64_cortex-a72",
                 "goarch": "arm64",
                 "sdk": "bcm27xx-bcm2711",
-                "openwrt_version": "24.10.1"
+                "openwrt_version": "24.10.1",
+                "compression": "none"
+              },
+              {
+                "architecture": "aarch64_cortex-a72",
+                "goarch": "arm64",
+                "sdk": "bcm27xx-bcm2711",
+                "openwrt_version": "24.10.1",
+                "compression": "upx"
               },
               {
                 "architecture": "arm_cortex-a7",
                 "goarch": "arm",
                 "goarm": "7",
                 "sdk": "bcm27xx-bcm2709",
-                "openwrt_version": "24.10.1"
+                "openwrt_version": "24.10.1",
+                "compression": "none"
+              },
+              {
+                "architecture": "arm_cortex-a7",
+                "goarch": "arm",
+                "goarm": "7",
+                "sdk": "bcm27xx-bcm2709",
+                "openwrt_version": "24.10.1",
+                "compression": "upx"
               },
               {
                 "architecture": "mipsel_24kc",
                 "goarch": "mipsle",
                 "gomips": "softfloat",
                 "sdk": "ramips-mt7621",
-                "openwrt_version": "24.10.1"
+                "openwrt_version": "24.10.1",
+                "compression": "none"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt7621",
+                "openwrt_version": "24.10.1",
+                "compression": "upx"
               },
               {
                 "architecture": "mips_24kc",
                 "goarch": "mips",
                 "gomips": "softfloat",
                 "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1"
+                "openwrt_version": "24.10.1",
+                "compression": "none"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx"
               }
             ]
           }
@@ -140,9 +183,16 @@ jobs:
 
       - name: Initialize
         run: |
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
+          # Add compression suffix if using UPX
+          if [ "${{ matrix.compression }}" = "upx" ]; then
+            COMPRESSION_SUFFIX="-upx"
+          else
+            COMPRESSION_SUFFIX=""
+          fi
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
+          echo "ℹ️ COMPRESSION: ${{ matrix.compression }}"
 
           # Move sources to sdk folder
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
@@ -179,9 +229,17 @@ jobs:
             export GOMIPS=softfloat
           fi
           
+          # Set USE_UPX based on compression variant
+          if [ "${{ matrix.compression }}" = "upx" ]; then
+            export USE_UPX=1
+          else
+            export USE_UPX=0
+          fi
+          
           env GOARCH=${{ matrix.goarch }} \
             GOMIPS=${{ matrix.gomips }} \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
+            USE_UPX=$USE_UPX \
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${{ env.PACKAGE_NAME }}/compile
 
       - name: List output package(s)
@@ -214,9 +272,16 @@ jobs:
       - name: Initialize
         id: init
         run: |
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
+          # Add compression suffix if using UPX
+          if [ "${{ matrix.compression }}" = "upx" ]; then
+            COMPRESSION_SUFFIX="-upx"
+          else
+            COMPRESSION_SUFFIX=""
+          fi
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
+          echo "ℹ️ COMPRESSION: ${{ matrix.compression }}"
 
       - name: Download artifact
         uses: actions/download-artifact@v4
