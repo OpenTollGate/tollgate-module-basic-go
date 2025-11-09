@@ -155,6 +155,10 @@ jobs:
           # Install Go from backports
           apt-get install -y -t bookworm-backports golang-go
 
+      - name: Install UPX
+        run: |
+          apt-get install -y upx-ucl
+
       - name: Configure SDK
         run: |
           cd /builder

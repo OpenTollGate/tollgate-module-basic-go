@@ -59,7 +59,7 @@ define Build/Compile
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) main.go
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" main.go
 	
 	# Build CLI tool
 	cd $(PKG_BUILD_DIR)/src/cmd/tollgate-cli && \
@@ -67,6 +67,15 @@ define Build/Compile
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o tollgate -trimpath -ldflags="-s -w"
+	
+	# Compress binaries with UPX if available
+	@if which upx >/dev/null 2>&1; then \
+		echo "UPX found, compressing binaries..."; \
+		upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
+		upx --brute $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+	else \
+		echo "UPX not found, skipping compression"; \
+	fi
 endef
 
 define Package/$(PKG_NAME)/install
