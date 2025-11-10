@@ -59,13 +59,15 @@ define Build/Compile
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) main.go
+	CGO_ENABLED=0 \
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" main.go
 	
 	# Build CLI tool
 	cd $(PKG_BUILD_DIR)/src/cmd/tollgate-cli && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
+	CGO_ENABLED=0 \
 	go build -o tollgate -trimpath -ldflags="-s -w"
 endef
 
