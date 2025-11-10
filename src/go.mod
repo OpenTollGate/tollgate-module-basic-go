@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go
 
-go 1.22
+go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler v0.0.0-00010101000000-000000000000

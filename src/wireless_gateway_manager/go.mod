@@ -1,6 +1,6 @@
 module tollgate-module-basic-go
 
-go 1.23
+go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250818175037-e6150a413cf2

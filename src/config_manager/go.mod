@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager
 
-go 1.23
+go 1.24.2
 
 require (
 	github.com/hashicorp/go-version v1.7.0

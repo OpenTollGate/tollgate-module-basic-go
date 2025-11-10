@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest
 
-go 1.23
+go 1.24.2
 
 
 require (

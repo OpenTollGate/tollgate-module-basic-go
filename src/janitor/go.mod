@@ -2,7 +2,7 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/janitor
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
 
-go 1.23
+go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250508155752-c38b5e886bf9
