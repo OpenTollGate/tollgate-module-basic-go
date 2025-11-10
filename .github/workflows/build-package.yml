@@ -55,20 +55,37 @@ jobs:
                 "gomips": "softfloat",
                 "sdk": "ath79-generic",
                 "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "x86_64",
+                "goarch": "amd64",
+                "sdk": "x86-64",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "i386_pentium4",
+                "goarch": "386",
+                "sdk": "x86-generic",
+                "openwrt_version": "24.10.1"
               }
             ]
           }
           EOF
 
-          # TODO: AMD64 build currently fails with the following error:
-          # Error: Architecture 'amd64' not supported by the SDK 'x86-generic-24.10.1'.
-          # This will be re-enabled after fixing SDK compatibility issues.
+          # Additional x86 targets available but commented out:
+          # Uncomment these to build for older x86 hardware
           # {
-          #   "architecture": "amd64",
-          #   "goarch": "amd64",
-          #   "sdk": "x86-generic",
+          #   "architecture": "i386_pentium-mmx",
+          #   "goarch": "386",
+          #   "sdk": "x86-geode",
           #   "openwrt_version": "24.10.1"
           # },
+          # {
+          #   "architecture": "i386_pentium-mmx",
+          #   "goarch": "386",
+          #   "sdk": "x86-legacy",
+          #   "openwrt_version": "24.10.1"
+          # }
           
           # Create a properly escaped JSON for GitHub output
           # We need to use jq to compact the JSON and properly escape it
