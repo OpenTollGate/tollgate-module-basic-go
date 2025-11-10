@@ -616,13 +616,14 @@ func sendTIP07Command(controllerPrivKey, tollgatePubkey, command, argsJSON, devi
 				defer relay.Close()
 
 				// Subscribe to response events
+				since := nostr.Timestamp(time.Now().Add(-1 * time.Minute).Unix())
 				filter := nostr.Filter{
 					Kinds: []int{ResponseEventKind},
 					Tags: nostr.TagMap{
 						"p":           []string{controllerPubkey},
 						"in_reply_to": []string{event.ID},
 					},
-					Since: nostr.Timestamp(time.Now().Add(-1 * time.Minute).Unix()),
+					Since: &since,
 				}
 
 				sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})

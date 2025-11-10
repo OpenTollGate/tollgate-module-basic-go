@@ -138,12 +138,13 @@ func (c *Commander) listenOnRelay(ctx context.Context, relayURL string) {
 		retryDelay = 5 * time.Second
 
 		// Subscribe to TIP-07 command events (kind 21024)
+		since := nostr.Timestamp(time.Now().Add(-5 * time.Minute).Unix())
 		filter := nostr.Filter{
 			Kinds: []int{CommandEventKind},
 			Tags: nostr.TagMap{
 				"p": []string{c.tollgatePubKey}, // Commands addressed to us
 			},
-			Since: nostr.Timestamp(time.Now().Add(-5 * time.Minute).Unix()),
+			Since: &since,
 		}
 
 		sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
@@ -245,21 +246,21 @@ func (c *Commander) parseCommand(event *nostr.Event) (*CommandRequest, error) {
 
 	// Get command from tags
 	cmdTag := event.Tags.GetFirst([]string{"cmd"})
-	if cmdTag == nil || len(cmdTag.Value()) < 2 {
+	if cmdTag == nil || len(*cmdTag) < 2 {
 		return nil, fmt.Errorf("missing cmd tag")
 	}
-	cmd.Command = strings.ToLower(strings.TrimSpace(cmdTag.Value()[1]))
+	cmd.Command = strings.ToLower(strings.TrimSpace((*cmdTag)[1]))
 
 	// Get device_id from tags (optional)
 	deviceTag := event.Tags.GetFirst([]string{"device_id"})
-	if deviceTag != nil && len(deviceTag.Value()) >= 2 {
-		cmd.DeviceID = deviceTag.Value()[1]
+	if deviceTag != nil && len(*deviceTag) >= 2 {
+		cmd.DeviceID = (*deviceTag)[1]
 	}
 
 	// Get nonce from tags
 	nonceTag := event.Tags.GetFirst([]string{"nonce"})
-	if nonceTag != nil && len(nonceTag.Value()) >= 2 {
-		cmd.Nonce = nonceTag.Value()[1]
+	if nonceTag != nil && len(*nonceTag) >= 2 {
+		cmd.Nonce = (*nonceTag)[1]
 	}
 
 	// Parse content if present
@@ -459,8 +460,8 @@ func (c *Commander) sendResponse(commandEvent *nostr.Event, response *CommandRes
 	// Get command name from original event
 	cmdTag := commandEvent.Tags.GetFirst([]string{"cmd"})
 	cmdName := ""
-	if cmdTag != nil && len(cmdTag.Value()) >= 2 {
-		cmdName = cmdTag.Value()[1]
+	if cmdTag != nil && len(*cmdTag) >= 2 {
+		cmdName = (*cmdTag)[1]
 	}
 
 	// Marshal response to JSON
@@ -486,8 +487,8 @@ func (c *Commander) sendResponse(commandEvent *nostr.Event, response *CommandRes
 
 	// Only include device_id if it was in the command (optional field)
 	deviceTag := commandEvent.Tags.GetFirst([]string{"device_id"})
-	if deviceTag != nil && len(deviceTag.Value()) >= 2 && deviceTag.Value()[1] != "" {
-		event.Tags = append(event.Tags, nostr.Tag{"device_id", deviceTag.Value()[1]})
+	if deviceTag != nil && len(*deviceTag) >= 2 && (*deviceTag)[1] != "" {
+		event.Tags = append(event.Tags, nostr.Tag{"device_id", (*deviceTag)[1]})
 	}
 
 	// Sign the event
