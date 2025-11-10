@@ -21,6 +21,7 @@ type Config struct {
 	ResellerMode  bool                `json:"reseller_mode"`
 	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
 	Chandler      ChandlerConfig      `json:"chandler"`
+	Control       ControlConfig       `json:"control"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -92,6 +93,18 @@ type SessionConfig struct {
 // UsageTrackingConfig holds usage tracking configuration
 type UsageTrackingConfig struct {
 	DataMonitoringInterval time.Duration `json:"data_monitoring_interval"` // How often to check data usage
+}
+
+// ControlConfig holds remote control configuration (TIP-07)
+// Note: DeviceID is optional and may be removed in future versions.
+// The pubkey already uniquely identifies each TollGate.
+type ControlConfig struct {
+	Enabled                bool     `json:"enabled"`                   // Enable remote control
+	AllowedPubkeys        []string `json:"allowed_pubkeys"`           // List of authorized controller pubkeys
+	DeviceID              string   `json:"device_id"`                 // Optional device identifier (leave empty for most deployments)
+	RebootMinIntervalSec  int      `json:"reboot_min_interval_sec"`   // Minimum seconds between reboots
+	CommandTimeoutSec     int      `json:"command_timeout_sec"`       // Max age for commands in seconds
+	LedgerPath            string   `json:"ledger_path"`               // Path to command ledger file
 }
 
 // LoadConfig loads and parses config.json.
@@ -195,6 +208,14 @@ func NewDefaultConfig() *Config {
 			UsageTracking: UsageTrackingConfig{
 				DataMonitoringInterval: 500 * time.Millisecond,
 			},
+		},
+		Control: ControlConfig{
+			Enabled:              false,
+			AllowedPubkeys:       []string{},
+			DeviceID:             "", // Optional, leave empty unless managing fleet with shared keys
+			RebootMinIntervalSec: 600,
+			CommandTimeoutSec:    300,
+			LedgerPath:           "/etc/tollgate/command_ledger.json",
 		},
 	}
 }

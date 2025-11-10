@@ -15,6 +15,9 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/commander"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
@@ -121,6 +124,9 @@ func init() {
 
 	// Initialize crowsnest module
 	initCrowsnest()
+
+	// Initialize commander module for TIP-07 remote control
+	initCommander()
 }
 
 func initJanitor() {
@@ -156,6 +162,17 @@ func initCrowsnest() {
 	}()
 
 	mainLogger.Info("Crowsnest module initialized with chandler and monitoring network changes")
+}
+
+func initCommander() {
+	commandInstance, err := commander.NewCommander(configManager)
+	if err != nil {
+		mainLogger.WithError(err).Warn("Failed to create commander instance - remote control disabled")
+		return
+	}
+
+	go commandInstance.ListenForCommands()
+	mainLogger.Info("Commander module initialized - listening for TIP-07 remote control events")
 }
 
 func initCLIServer() {

@@ -118,11 +118,46 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+var controlCmd = &cobra.Command{
+	Use:   "control <command> <tollgate_pubkey>",
+	Short: "Send remote control commands (TIP-07)",
+	Long:  "Send remote control commands to another TollGate router using TIP-07 protocol",
+	Example: `  # Query uptime
+  tollgate control uptime npub1...
+
+  # Reboot a router
+  tollgate control reboot npub1... --args '{"delay_sec":60}'
+
+  # Get status
+  tollgate control status npub1... --device-id router-office-1 --timeout 45`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		flags := make(map[string]string)
+		
+		if argsJSON, _ := cmd.Flags().GetString("args"); argsJSON != "" {
+			flags["args"] = argsJSON
+		}
+		if deviceID, _ := cmd.Flags().GetString("device-id"); deviceID != "" {
+			flags["device-id"] = deviceID
+		}
+		if timeout, _ := cmd.Flags().GetInt("timeout"); timeout > 0 {
+			flags["timeout"] = fmt.Sprintf("%d", timeout)
+		}
+		
+		return sendCommandAndDisplay("control", args, flags)
+	},
+}
+
 func init() {
+	// Add flags to control command
+	controlCmd.Flags().String("args", "", "Command arguments as JSON (e.g. '{\"delay_sec\":60}')")
+	controlCmd.Flags().String("device-id", "", "(Optional) Device ID for fleet management scenarios")
+	controlCmd.Flags().Int("timeout", 30, "Response timeout in seconds")
+
 	// Build command tree
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
-	rootCmd.AddCommand(walletCmd, statusCmd, versionCmd)
+	rootCmd.AddCommand(walletCmd, statusCmd, versionCmd, controlCmd)
 }
 
 func main() {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 )
 
@@ -145,6 +147,8 @@ func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 	switch msg.Command {
 	case "wallet":
 		return s.handleWalletCommand(msg.Args, msg.Flags)
+	case "control":
+		return s.handleControlCommand(msg.Args, msg.Flags)
 	case "status":
 		return s.handleStatusCommand(msg.Args, msg.Flags)
 	case "version":
@@ -449,6 +453,225 @@ func (s *CLIServer) handleVersionCommand() CLIResponse {
 			"build_time": "development",
 		},
 		Timestamp: time.Now(),
+	}
+}
+
+// handleControlCommand sends remote control commands to another TollGate (TIP-07)
+func (s *CLIServer) handleControlCommand(args []string, flags map[string]string) CLIResponse {
+	if len(args) < 2 {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Usage: control <command> <tollgate_pubkey> [--args '{\"key\":\"value\"}'] [--device-id <id>] [--timeout <sec>]",
+			Timestamp: time.Now(),
+		}
+	}
+
+	command := args[0]
+	tollgatePubkey := args[1]
+	
+	// Get optional arguments
+	argsJSON := flags["args"]
+	if argsJSON == "" {
+		argsJSON = "{}"
+	}
+	
+	// Get device_id from flags (optional, leave empty for most cases)
+	// Note: device_id is optional and may be removed in future protocol versions
+	deviceID := flags["device-id"]
+	
+	timeout := 30
+	if timeoutStr, ok := flags["timeout"]; ok {
+		fmt.Sscanf(timeoutStr, "%d", &timeout)
+	}
+
+	// Get controller identity (use tollgate identity for sending commands)
+	identities := s.configManager.GetIdentities()
+	if identities == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Identities config not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	tollgateIdentity, err := identities.GetOwnedIdentity("tollgate")
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to get tollgate identity: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+
+	// Send command and wait for response
+	result, err := sendTIP07Command(
+		tollgateIdentity.PrivateKey,
+		tollgatePubkey,
+		command,
+		argsJSON,
+		deviceID,
+		s.configManager.GetConfig().Relays,
+		timeout,
+	)
+	
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Command failed: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+
+	return CLIResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("Command '%s' sent successfully", command),
+		Data:      result,
+		Timestamp: time.Now(),
+	}
+}
+
+// sendTIP07Command sends a remote control command per TIP-07
+func sendTIP07Command(controllerPrivKey, tollgatePubkey, command, argsJSON, deviceID string, relays []string, timeoutSec int) (map[string]interface{}, error) {
+	const (
+		CommandEventKind  = 21024
+		ResponseEventKind = 21025
+	)
+
+	ctx := context.Background()
+
+	// Get controller public key
+	controllerPubkey, err := nostr.GetPublicKey(controllerPrivKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid controller private key: %w", err)
+	}
+
+	// Generate unique nonce
+	nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// Create command event
+	tags := nostr.Tags{
+		{"p", tollgatePubkey},
+		{"cmd", command},
+		{"nonce", nonce},
+	}
+	
+	// Only include device_id if provided (optional field)
+	if deviceID != "" {
+		tags = append(tags, nostr.Tag{"device_id", deviceID})
+	}
+	
+	event := nostr.Event{
+		PubKey:    controllerPubkey,
+		CreatedAt: nostr.Now(),
+		Kind:      CommandEventKind,
+		Tags:      tags,
+		Content: argsJSON,
+	}
+
+	// Sign the event
+	if err := event.Sign(controllerPrivKey); err != nil {
+		return nil, fmt.Errorf("failed to sign event: %w", err)
+	}
+
+	cliLogger.WithFields(logrus.Fields{
+		"command":   command,
+		"to":        tollgatePubkey,
+		"event_id":  event.ID,
+		"device_id": deviceID,
+	}).Info("Sending TIP-07 command")
+
+	// Publish to relays
+	publishCount := 0
+	for _, relayURL := range relays {
+		relay, err := nostr.RelayConnect(ctx, relayURL)
+		if err != nil {
+			cliLogger.WithError(err).Warnf("Failed to connect to relay %s", relayURL)
+			continue
+		}
+		defer relay.Close()
+
+		if err := relay.Publish(ctx, event); err != nil {
+			cliLogger.WithError(err).Warnf("Failed to publish to %s", relayURL)
+		} else {
+			cliLogger.Infof("Command published to %s", relayURL)
+			publishCount++
+		}
+	}
+
+	if publishCount == 0 {
+		return nil, fmt.Errorf("failed to publish to any relay")
+	}
+
+	// Listen for response
+	responseChan := make(chan map[string]interface{}, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		for _, relayURL := range relays {
+			go func(url string) {
+				relay, err := nostr.RelayConnect(ctx, url)
+				if err != nil {
+					return
+				}
+				defer relay.Close()
+
+				// Subscribe to response events
+				filter := nostr.Filter{
+					Kinds: []int{ResponseEventKind},
+					Tags: nostr.TagMap{
+						"p":           []string{controllerPubkey},
+						"in_reply_to": []string{event.ID},
+					},
+					Since: nostr.Timestamp(time.Now().Add(-1 * time.Minute).Unix()),
+				}
+
+				sub, err := relay.Subscribe(ctx, []nostr.Filter{filter})
+				if err != nil {
+					return
+				}
+
+				// Wait for response
+				timeout := time.After(time.Duration(timeoutSec) * time.Second)
+				for {
+					select {
+					case respEvent := <-sub.Events:
+						if respEvent == nil {
+							continue
+						}
+
+						// Parse response
+						var response map[string]interface{}
+						if err := json.Unmarshal([]byte(respEvent.Content), &response); err != nil {
+							continue
+						}
+
+						// Add event metadata
+						response["event_id"] = respEvent.ID
+						response["from_pubkey"] = respEvent.PubKey
+
+						select {
+						case responseChan <- response:
+						default:
+						}
+						return
+
+					case <-timeout:
+						return
+					}
+				}
+			}(relayURL)
+		}
+	}()
+
+	// Wait for response or timeout
+	select {
+	case response := <-responseChan:
+		cliLogger.Info("Received TIP-07 response")
+		return response, nil
+	case err := <-errorChan:
+		return nil, err
+	case <-time.After(time.Duration(timeoutSec) * time.Second):
+		return nil, fmt.Errorf("timeout waiting for response (%ds)", timeoutSec)
 	}
 }
 
