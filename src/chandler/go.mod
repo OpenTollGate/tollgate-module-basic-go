@@ -1,8 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/chandler
 
-go 1.24.2
-
-toolchain go1.24.5
+go 1.23
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0

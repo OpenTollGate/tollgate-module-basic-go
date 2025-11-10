@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/relay
 
-go 1.24.2
+go 1.23
 
 require (
 	github.com/fiatjaf/khatru v0.18.1
