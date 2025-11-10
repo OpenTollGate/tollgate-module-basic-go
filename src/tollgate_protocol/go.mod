@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol
 
-go 1.24.2
+go 1.24.1
 
 require github.com/nbd-wtf/go-nostr v0.51.10
 
