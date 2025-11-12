@@ -271,11 +271,14 @@ jobs:
           # Add compression suffix if using UPX
           if [ "${{ matrix.compression }}" = "upx" ]; then
             COMPRESSION_SUFFIX="-compressed"
+            COMPRESSION_TYPE="upx"
           else
             COMPRESSION_SUFFIX=""
+            COMPRESSION_TYPE="none"
           fi
           PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+          echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
           echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
           echo "ℹ️ COMPRESSION: ${{ matrix.compression }}"
 
@@ -330,7 +333,11 @@ jobs:
             c=${{ needs.determine-versioning.outputs.release_channel }}
             package_name=${{ env.PACKAGE_NAME }}
             n=${{ env.PACKAGE_NAME }}
+<<<<<<< HEAD
             compression=${{ matrix.compression == 'upx' }}
+=======
+            compression=${{ env.COMPRESSION_TYPE }}
+>>>>>>> a762a4d (Add compression as separate tag in NIP-94 metadata)
 
           # FULL WORD TAGS ARE DEPRECATED AND SHOULD BE REMOVED IN THE FUTURE. DEPRECATED IN FAVOUR OF ONE-LETTER TAGS BECASUE OF RELAY FILTERING.
 
