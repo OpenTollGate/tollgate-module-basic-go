@@ -180,7 +180,7 @@ jobs:
         run: |
           # Add compression suffix if using UPX
           if [ "${{ matrix.compression }}" = "upx" ]; then
-            COMPRESSION_SUFFIX="-upx-compressed"
+            COMPRESSION_SUFFIX="-compressed"
           else
             COMPRESSION_SUFFIX=""
           fi
@@ -270,7 +270,7 @@ jobs:
         run: |
           # Add compression suffix if using UPX
           if [ "${{ matrix.compression }}" = "upx" ]; then
-            COMPRESSION_SUFFIX="-upx-compressed"
+            COMPRESSION_SUFFIX="-compressed"
           else
             COMPRESSION_SUFFIX=""
           fi
@@ -308,7 +308,7 @@ jobs:
         id: determine_arch_tag
         run: |
           if [ "${{ matrix.compression }}" = "upx" ]; then
-            echo "architecture_tag=${{ matrix.architecture }}-upx-compressed" >> $GITHUB_OUTPUT
+            echo "architecture_tag=${{ matrix.architecture }}-compressed" >> $GITHUB_OUTPUT
           else
             echo "architecture_tag=${{ matrix.architecture }}" >> $GITHUB_OUTPUT
           fi
