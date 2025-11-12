@@ -304,6 +304,14 @@ jobs:
           filePath: ${{ env.PACKAGE_PATH }}
           privatekey: ${{ secrets.NSEC_HEX }}
 
+      - name: Determine Architecture Tag
+        id: determine_arch_tag
+        run: |
+          if [ "${{ matrix.compression }}" = "upx" ]; then
+            echo "architecture_tag=${{ matrix.architecture }}-upx-compressed" >> $GITHUB_OUTPUT
+          else
+            echo "architecture_tag=${{ matrix.architecture }}" >> $GITHUB_OUTPUT
+          fi
       - name: Publish Package NIP-94 Metadata
         id: publish_package
         uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
@@ -318,18 +326,12 @@ jobs:
           fileHash: ${{ steps.blossom_upload.outputs.hash }}
           originalHash: ${{ steps.blossom_upload.outputs.hash }}
           filename: "${{ env.PACKAGE_FILENAME }}"
-          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}${{ matrix.compression == 'upx' && '-upx-compressed' || '' }}"
+          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ steps.determine_arch_tag.outputs.architecture_tag }}"
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
-            # Add compression suffix if using UPX
-            if [ "${{ matrix.compression }}" = "upx" ]; then
-              ARCHITECTURE_TAG=${{ matrix.architecture }}-upx-compressed
-            else
-              ARCHITECTURE_TAG=${{ matrix.architecture }}
-            fi
-            architecture=$ARCHITECTURE_TAG
-            A=$ARCHITECTURE_TAG
+            architecture=${{ steps.determine_arch_tag.outputs.architecture_tag }}
+            A=${{ steps.determine_arch_tag.outputs.architecture_tag }}
             version=${{ needs.determine-versioning.outputs.package_version }}
             v=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
