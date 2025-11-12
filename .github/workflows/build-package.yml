@@ -318,7 +318,7 @@ jobs:
           fileHash: ${{ steps.blossom_upload.outputs.hash }}
           originalHash: ${{ steps.blossom_upload.outputs.hash }}
           filename: "${{ env.PACKAGE_FILENAME }}"
-          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}"
+          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}${{ matrix.compression == 'upx' && '-upx-compressed' || '' }}"
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
