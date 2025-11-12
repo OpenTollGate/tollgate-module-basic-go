@@ -68,6 +68,7 @@ define Build/Compile
 	GOMIPS=$(GOMIPS) \
 	go build -o tollgate -trimpath -ldflags="-s -w"
 	
+	# Try ultra-brute to make it even more compact in future
 	# Compress binaries with UPX if USE_UPX is enabled
 	@if [ "$(USE_UPX)" = "1" ]; then \
 		if which upx >/dev/null 2>&1; then \
