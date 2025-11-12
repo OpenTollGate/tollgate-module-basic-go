@@ -322,8 +322,14 @@ jobs:
           nsec: ${{ secrets.NSEC_HEX }}
           size: ${{ env.PACKAGE_SIZE }}
           customTags: |
-            architecture=${{ matrix.architecture }}
-            A=${{ matrix.architecture }}
+            # Add compression suffix if using UPX
+            if [ "${{ matrix.compression }}" = "upx" ]; then
+              ARCHITECTURE_TAG=${{ matrix.architecture }}-upx-compressed
+            else
+              ARCHITECTURE_TAG=${{ matrix.architecture }}
+            fi
+            architecture=$ARCHITECTURE_TAG
+            A=$ARCHITECTURE_TAG
             version=${{ needs.determine-versioning.outputs.package_version }}
             v=${{ needs.determine-versioning.outputs.package_version }}
             release_channel=${{ needs.determine-versioning.outputs.release_channel }}
