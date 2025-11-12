@@ -333,11 +333,7 @@ jobs:
             c=${{ needs.determine-versioning.outputs.release_channel }}
             package_name=${{ env.PACKAGE_NAME }}
             n=${{ env.PACKAGE_NAME }}
-<<<<<<< HEAD
-            compression=${{ matrix.compression == 'upx' }}
-=======
             compression=${{ env.COMPRESSION_TYPE }}
->>>>>>> a762a4d (Add compression as separate tag in NIP-94 metadata)
 
           # FULL WORD TAGS ARE DEPRECATED AND SHOULD BE REMOVED IN THE FUTURE. DEPRECATED IN FAVOUR OF ONE-LETTER TAGS BECASUE OF RELAY FILTERING.
 
