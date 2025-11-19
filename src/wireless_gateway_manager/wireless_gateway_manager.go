@@ -209,6 +209,11 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			} else {
 				// Update price and SSID after successful connection
 				gm.updatePriceAndAPSSID()
+
+				// Add a delay to allow for DHCP to complete
+				logger.Info("Connection successful, waiting for DHCP...")
+				time.Sleep(5 * time.Second)
+
 				// Scan the new interface for TollGates
 				interfaceName, err := GetInterfaceName()
 				if err != nil {
