@@ -18,7 +18,7 @@ import (
 func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	logger.Info("Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
-	interfaceName, err := getInterfaceName()
+	interfaceName, err := GetInterfaceName()
 	if err != nil {
 		logger.WithError(err).Warn("Failed to get interface name, attempting to create one")
 		if err := s.connector.ensureSTAInterfaceExists(); err != nil {
@@ -26,7 +26,7 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 			return nil, err
 		}
 		// Retry getting the interface name after creation
-		interfaceName, err = getInterfaceName()
+		interfaceName, err = GetInterfaceName()
 		if err != nil {
 			logger.WithError(err).Error("Failed to get interface name after attempting to create it")
 			return nil, err
@@ -58,7 +58,8 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	return networks, nil
 }
 
-func getInterfaceName() (string, error) {
+// GetInterfaceName returns the name of the managed Wi-Fi interface.
+func GetInterfaceName() (string, error) {
 	cmd := exec.Command("iw", "dev")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout

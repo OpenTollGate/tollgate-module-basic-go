@@ -37,6 +37,7 @@ var (
 )
 
 var gatewayManager *wireless_gateway_manager.GatewayManager
+var crowsnestInstance crowsnest.Crowsnest
 
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
@@ -90,7 +91,12 @@ func init() {
 
 	installConfig = configManager.GetInstallConfig()
 
-	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager)
+	crowsnestInstance, err = crowsnest.NewCrowsnest(configManager)
+	if err != nil {
+		mainLogger.WithError(err).Fatal("Failed to create crowsnest instance")
+	}
+
+	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager, crowsnestInstance)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to initialize gateway manager")
 	}
@@ -139,13 +145,11 @@ func initPrivateRelay() {
 }
 
 func initCrowsnest() {
-	crowsnestInstance, err := crowsnest.NewCrowsnest(configManager)
-	if err != nil {
-		mainLogger.WithError(err).Fatal("Failed to create crowsnest instance")
-	}
-
 	// Create and set chandler instance
 	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance)
+	if err != nil {
+		mainLogger.WithError(err).Fatal("Failed to create chandler instance")
+	}
 	crowsnestInstance.SetChandler(chandlerInstance)
 
 	go func() {

@@ -12,10 +12,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 )
 
 // Init initializes the GatewayManager and starts its background scanning routine.
-func Init(ctx context.Context, configManager *config_manager.ConfigManager) (*GatewayManager, error) {
+func Init(ctx context.Context, configManager *config_manager.ConfigManager, crowsnest crowsnest.Crowsnest) (*GatewayManager, error) {
 	connector := &Connector{}
 	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
@@ -27,6 +28,7 @@ func Init(ctx context.Context, configManager *config_manager.ConfigManager) (*Ga
 		vendorProcessor:   vendorProcessor,
 		networkMonitor:    networkMonitor,
 		configManager:     configManager,
+		crowsnest:         crowsnest,
 		availableGateways: make(map[string]Gateway),
 		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
@@ -207,6 +209,13 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			} else {
 				// Update price and SSID after successful connection
 				gm.updatePriceAndAPSSID()
+				// Scan the new interface for TollGates
+				interfaceName, err := GetInterfaceName()
+				if err != nil {
+					logger.WithError(err).Error("Failed to get interface name")
+				} else {
+					gm.crowsnest.ScanInterface(interfaceName)
+				}
 			}
 		} else {
 			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three TollGate gateways, no action required")

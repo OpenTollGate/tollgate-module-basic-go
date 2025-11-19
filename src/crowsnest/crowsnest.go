@@ -125,6 +125,41 @@ func (cs *crowsnest) SetChandler(chandler chandler.ChandlerInterface) {
 	logger.Info("Chandler set for Crowsnest")
 }
 
+// ScanInterface scans a specific interface for TollGates
+func (cs *crowsnest) ScanInterface(interfaceName string) {
+	logger.WithField("interface", interfaceName).Info("Scanning interface for TollGates")
+
+	// Get gateway for this interface
+	gatewayIP := cs.networkMonitor.GetGatewayForInterface(interfaceName)
+	if gatewayIP == "" {
+		logger.WithField("interface", interfaceName).Warn("No gateway found for interface")
+		return
+	}
+
+	// Get mac address for this interface
+	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()
+	if err != nil {
+		logger.WithError(err).Error("Error getting current interfaces")
+		return
+	}
+
+	var macAddress string
+	for _, iface := range interfaces {
+		if iface.Name == interfaceName {
+			macAddress = iface.MacAddress
+			break
+		}
+	}
+
+	if macAddress == "" {
+		logger.WithField("interface", interfaceName).Warn("No mac address found for interface")
+		return
+	}
+
+	// Attempt TollGate discovery asynchronously
+	go cs.attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP)
+}
+
 // eventLoop is the main event processing loop
 func (cs *crowsnest) eventLoop() {
 	defer cs.wg.Done()

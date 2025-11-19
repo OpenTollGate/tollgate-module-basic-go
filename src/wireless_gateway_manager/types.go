@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 )
 
 // Constants for network monitoring
@@ -69,6 +70,7 @@ type GatewayManager struct {
 	vendorProcessor   VendorElementProcessorInterface
 	networkMonitor    NetworkMonitorInterface
 	configManager     *config_manager.ConfigManager
+	crowsnest         crowsnest.Crowsnest
 	mu                sync.RWMutex
 	availableGateways map[string]Gateway
 	currentHopCount   int
