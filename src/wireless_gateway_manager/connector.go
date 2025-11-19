@@ -115,7 +115,7 @@ func getUCIEncryptionType(encryption string) string {
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {
-	interfaceName, err := getInterfaceName()
+	interfaceName, err := GetInterfaceName()
 	if err != nil {
 		logger.WithError(err).Info("Could not get managed Wi-Fi interface, probably not associated")
 		return "", nil
