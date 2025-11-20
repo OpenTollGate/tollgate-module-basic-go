@@ -240,6 +240,7 @@ jobs:
           echo "CONFIG_PACKAGE_jq=y" >> .config
 
       - name: Compile Package
+        shell: bash
         run: |
           cd /builder
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
@@ -250,7 +251,8 @@ jobs:
           # Set UPX flags from compression type (e.g., upx-fast -> --fast)
           if [ -n "${{ matrix.compression }}" ]; then
             export USE_UPX=1
-            export UPX_FLAGS="--${matrix.compression#upx-}"
+            COMP="${{ matrix.compression }}"
+            export UPX_FLAGS="--${COMP#upx-}"
           else
             export USE_UPX=0
           fi
