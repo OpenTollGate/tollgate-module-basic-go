@@ -73,23 +73,14 @@ define Build/Compile
 		if which upx >/dev/null 2>&1; then \
 			echo "=========================================="; \
 			echo "Compressing with UPX flags: $(UPX_FLAGS)"; \
-			for binary in $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; do \
-				FILENAME=`basename $$binary`; \
-				BEFORE_SIZE=`stat -c%s $$binary`; \
-				BEFORE_SIZE_HR=`ls -lh $$binary | awk '{print $$5}'`; \
-				echo "Before: $$FILENAME = $$BEFORE_SIZE_HR ($$BEFORE_SIZE bytes)"; \
-				START=`date +%s`; \
-				upx $(UPX_FLAGS) $$binary; \
-				END=`date +%s`; \
-				DURATION=`expr $$END - $$START`; \
-				AFTER_SIZE=`stat -c%s $$binary`; \
-				AFTER_SIZE_HR=`ls -lh $$binary | awk '{print $$5}'`; \
-				SAVED_BYTES=`expr $$BEFORE_SIZE - $$AFTER_SIZE`; \
-				SAVED_PERCENT=`expr 100 \* $$SAVED_BYTES / $$BEFORE_SIZE`; \
-				echo "COMPRESSED $$FILENAME in $${DURATION}s from $$BEFORE_SIZE_HR to $$AFTER_SIZE_HR saving $${SAVED_PERCENT}% ($$SAVED_BYTES bytes)"; \
-			done; \
+			echo "Before compression:"; \
+			ls -lh $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+			upx $(UPX_FLAGS) $(PKG_BUILD_DIR)/$(PKG_NAME); \
+			upx $(UPX_FLAGS) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+			echo "After compression:"; \
+			ls -lh $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
 			echo "=========================================="; \
-			else \
+		else \
 			echo "UPX not found, skipping compression"; \
 		fi; \
 	else \
