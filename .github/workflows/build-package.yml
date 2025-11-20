@@ -311,6 +311,7 @@ jobs:
   publish-metadata:
     needs: [determine-versioning, build-package, define-matrix]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:

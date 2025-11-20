@@ -1,0 +1,191 @@
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=tollgate-wrt
+PKG_VERSION:=$(PACKAGE_VERSION)
+
+PKG_FLAGS:=overwrite
+
+# Place conditional checks EARLY - before variables that depend on them
+ifneq ($(TOPDIR),)
+	# Feed-specific settings (auto-clone from git)
+	PKG_SOURCE_PROTO:=git
+	PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go.git
+	PKG_SOURCE_VERSION:=$(shell git rev-parse HEAD) # Use exact current commit
+	PKG_MIRROR_HASH:=skip
+else
+	# SDK build context (local files)
+	PKG_BUILD_DIR:=$(CURDIR)
+endif
+
+PKG_MAINTAINER:=Your Name <your@email.com>
+PKG_LICENSE:=CC0-1.0
+PKG_LICENSE_FILES:=LICENSE
+
+PKG_BUILD_DEPENDS:=golang/host
+PKG_BUILD_PARALLEL:=1
+PKG_USE_MIPS16:=0
+
+GO_PKG:=github.com/OpenTollGate/tollgate-wrt
+
+include $(INCLUDE_DIR)/package.mk
+$(eval $(call GoPackage))
+
+define Package/$(PKG_NAME)
+	SECTION:=net
+	CATEGORY:=Network
+	TITLE:=TollGate Basic Module
+	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq
+	PROVIDES:=nodogsplash-files
+	CONFLICTS:=
+	REPLACES:=nodogsplash base-files
+endef
+
+define Package/$(PKG_NAME)/description
+	TollGate Basic Module for OpenWrt
+endef
+
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	echo "DEBUG: Contents of go.mod after prepare:"
+	cat $(PKG_BUILD_DIR)/go.mod
+endef
+
+define Build/Configure
+endef
+
+define Build/Compile
+	cd $(PKG_BUILD_DIR) && \
+	echo "DEBUG: GOARCH=$(GOARCH) GOMIPS=$(GOMIPS)" && \
+	env GOOS=linux \
+	GOARCH=$(GOARCH) \
+	GOMIPS=$(GOMIPS) \
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" main.go
+	
+	# Build CLI tool
+	cd $(PKG_BUILD_DIR)/src/cmd/tollgate-cli && \
+	env GOOS=linux \
+	GOARCH=$(GOARCH) \
+	GOMIPS=$(GOMIPS) \
+	go build -o tollgate -trimpath -ldflags="-s -w"
+	
+	# Compress binaries with UPX if USE_UPX is enabled
+	@if [ "$(USE_UPX)" = "1" ]; then \
+		if which upx >/dev/null 2>&1; then \
+			echo "=========================================="; \
+			echo "� Compressing with UPX flags: $(UPX_FLAGS)"; \
+			echo "=========================================="; \
+			for binary in "$(PKG_BUILD_DIR)/$(PKG_NAME)" "$(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate"; do \
+				FILENAME=$$(basename $$binary); \
+				BEFORE_SIZE=$$(stat -c%s $$binary); \
+				BEFORE_SIZE_HR=$$(ls -lh $$binary | awk '{print $$5}'); \
+				echo "📦 Before: $$FILENAME = $$BEFORE_SIZE_HR ($$BEFORE_SIZE bytes)"; \
+				START_TIME=$$(date +%s); \
+				upx $(UPX_FLAGS) $$binary; \
+				END_TIME=$$(date +%s); \
+				DURATION=$$((END_TIME - START_TIME)); \
+				AFTER_SIZE=$$(stat -c%s $$binary); \
+				AFTER_SIZE_HR=$$(ls -lh $$binary | awk '{print $$5}'); \
+				SAVED_BYTES=$$((BEFORE_SIZE - AFTER_SIZE)); \
+				SAVED_PERCENT=$$((100 * SAVED_BYTES / BEFORE_SIZE)); \
+				echo "✅ COMPRESSED $$FILENAME in $${DURATION}s from $$BEFORE_SIZE_HR to $$AFTER_SIZE_HR saving $${SAVED_PERCENT}% ($$SAVED_BYTES bytes)"; \
+				echo "=========================================="; \
+			done; \
+		else \
+			echo "UPX not found, skipping compression"; \
+		fi; \
+	else \
+		echo "UPX disabled, skipping compression"; \
+	fi
+endef
+
+define Package/$(PKG_NAME)/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(PKG_NAME) $(1)/usr/bin/tollgate-wrt
+	
+	# Install CLI tool in system PATH
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
+	
+	# Init script
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
+	
+	# UCI defaults for configuration
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99a-tollgate-setup $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99b-tollgate-setup-private-ssid $(1)/etc/uci-defaults/
+
+	# UCI defaults for config migration (runs before 99-tollgate-setup)
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration $(1)/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration $(1)/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration
+	
+	# UCI defaults for random LAN IP
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
+	
+	# UCI defaults for captive portal symlink
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
+
+
+	# Keep only TollGate-specific configs
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/config/firewall-tollgate $(1)/etc/config/
+
+	# First-login setup
+	$(INSTALL_DIR) $(1)/usr/local/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	
+	# Create required directories
+	$(INSTALL_DIR) $(1)/etc/tollgate
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/known_networks.json $(1)/etc/tollgate/
+	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
+	
+	# TollGate captive portal site files (will be symlinked by nodogsplash)
+	$(INSTALL_DIR) $(1)/etc/tollgate/tollgate-captive-portal-site
+	$(CP) $(PKG_BUILD_DIR)/files/tollgate-captive-portal-site/* $(1)/etc/tollgate/tollgate-captive-portal-site/
+	
+	# Install check_package_path script
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/check_package_path $(1)/usr/bin/
+
+	# Install cron table
+	$(INSTALL_DIR) $(1)/etc/crontabs
+	
+	# Install backup configuration for sysupgrade
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/lib/upgrade/keep.d/tollgate $(1)/lib/upgrade/keep.d/
+
+	# Install control scripts
+	$(INSTALL_DIR) $(1)/CONTROL
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/preinst $(1)/CONTROL/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/CONTROL/postinst $(1)/CONTROL/
+	
+	# Install hotplug script for wan interface restart
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
+endef
+
+# Update FILES declaration to include NoDogSplash files
+FILES_$(PKG_NAME) += \
+	/usr/bin/tollgate-wrt \
+	/etc/init.d/tollgate-wrt \
+	/etc/config/firewall-tollgate \
+	/etc/modt/* \
+	/etc/profile \
+	/usr/local/bin/first-login-setup \
+	/etc/uci-defaults/99a-tollgate-setup \
+	/etc/uci-defaults/99b-tollgate-setup-private-ssid \
+	/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration \
+	/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration \
+	/etc/uci-defaults/95-random-lan-ip \
+	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
+	/etc/tollgate/tollgate-captive-portal-site/* \
+	/etc/crontabs/root \
+	/lib/upgrade/keep.d/tollgate \
+	/etc/hotplug.d/iface/95-tollgate-restart
+
+
+$(eval $(call BuildPackage,$(PKG_NAME)))
+
+# Print IPK path after successful compilation
+PKG_FINISH:=$(shell echo "Successfully built: $(IPK_FILE)" >&2)
