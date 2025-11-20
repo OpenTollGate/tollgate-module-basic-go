@@ -68,13 +68,12 @@ define Build/Compile
 	GOMIPS=$(GOMIPS) \
 	go build -o tollgate -trimpath -ldflags="-s -w"
 	
-	# Try ultra-brute to make it even more compact in future
 	# Compress binaries with UPX if USE_UPX is enabled
 	@if [ "$(USE_UPX)" = "1" ]; then \
 		if which upx >/dev/null 2>&1; then \
-			echo "UPX enabled, compressing binaries..."; \
-			upx --brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
-			upx --brute $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+			echo "UPX enabled, compressing binaries with ultra-brute..."; \
+			upx --ultra-brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
+			upx --ultra-brute $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
 		else \
 			echo "UPX not found, skipping compression"; \
 		fi; \

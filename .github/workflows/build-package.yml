@@ -34,7 +34,7 @@ jobs:
                 "goarch": "arm64",
                 "sdk": "mediatek-filogic",
                 "openwrt_version": "24.10.1",
-                "compression": "upx"
+                "compression": "upx-ultra-brute"
               },
               {
                 "architecture": "aarch64_cortex-a72",
@@ -47,7 +47,7 @@ jobs:
                 "goarch": "arm64",
                 "sdk": "bcm27xx-bcm2711",
                 "openwrt_version": "24.10.1",
-                "compression": "upx"
+                "compression": "upx-ultra-brute"
               },
               {
                 "architecture": "arm_cortex-a7",
@@ -62,7 +62,7 @@ jobs:
                 "goarm": "7",
                 "sdk": "bcm27xx-bcm2709",
                 "openwrt_version": "24.10.1",
-                "compression": "upx"
+                "compression": "upx-ultra-brute"
               },
               {
                 "architecture": "mipsel_24kc",
@@ -77,7 +77,7 @@ jobs:
                 "gomips": "softfloat",
                 "sdk": "ramips-mt7621",
                 "openwrt_version": "24.10.1",
-                "compression": "upx"
+                "compression": "upx-ultra-brute"
               },
               {
                 "architecture": "mips_24kc",
@@ -92,7 +92,7 @@ jobs:
                 "gomips": "softfloat",
                 "sdk": "ath79-generic",
                 "openwrt_version": "24.10.1",
-                "compression": "upx"
+                "compression": "upx-ultra-brute"
               }
             ]
           }
@@ -178,9 +178,9 @@ jobs:
 
       - name: Initialize
         run: |
-          # Add compression suffix if using UPX
-          if [ "${{ matrix.compression }}" = "upx" ]; then
-            COMPRESSION_SUFFIX="-upx-compressed"
+          # Add compression suffix if using compression
+          if [ -n "${{ matrix.compression }}" ]; then
+            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
           else
             COMPRESSION_SUFFIX=""
           fi
@@ -201,7 +201,7 @@ jobs:
           apt-get install -y -t bookworm-backports golang-go
 
       - name: Install UPX
-        if: matrix.compression == 'upx'
+        if: contains(matrix.compression, 'upx')
         run: |
           apt-get install -y upx-ucl
 
@@ -268,10 +268,10 @@ jobs:
       - name: Initialize
         id: init
         run: |
-          # Add compression suffix if using UPX
-          if [ "${{ matrix.compression }}" = "upx" ]; then
-            COMPRESSION_SUFFIX="-compressed"
-            COMPRESSION_TYPE="upx"
+          # Add compression suffix if using compression
+          if [ -n "${{ matrix.compression }}" ]; then
+            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
+            COMPRESSION_TYPE="${{ matrix.compression }}"
           else
             COMPRESSION_SUFFIX=""
             COMPRESSION_TYPE="none"
