@@ -210,8 +210,6 @@ jobs:
           fi
           PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
-          echo "ℹ️ COMPRESSION: ${{ matrix.compression }}"
 
           # Move sources to sdk folder
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
@@ -249,30 +247,12 @@ jobs:
             export GOMIPS=softfloat
           fi
           
-          # Set USE_UPX and UPX_FLAGS based on compression variant
+          # Set UPX flags from compression type (e.g., upx-fast -> --fast)
           if [ -n "${{ matrix.compression }}" ]; then
             export USE_UPX=1
-            # Map compression type to UPX flags
-            case "${{ matrix.compression }}" in
-              upx-fast)
-                export UPX_FLAGS="--fast"
-                ;;
-              upx-best)
-                export UPX_FLAGS="--best"
-                ;;
-              upx-brute)
-                export UPX_FLAGS="--brute"
-                ;;
-              upx-ultra-brute)
-                export UPX_FLAGS="--ultra-brute"
-                ;;
-              *)
-                export UPX_FLAGS="--best"
-                ;;
-            esac
+            export UPX_FLAGS="--${matrix.compression#upx-}"
           else
             export USE_UPX=0
-            export UPX_FLAGS=""
           fi
           
           env GOARCH=${{ matrix.goarch }} \
@@ -284,19 +264,13 @@ jobs:
 
       - name: List output package(s)
         run: |
-          echo "=========================================="
-          echo "📦 Listing all .ipk files in /builder/bin/packages:"
           find /builder/bin/packages -name "*.ipk" -type f
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
-            echo "❌ No .ipk package found in /builder/bin/packages"
+            echo "No .ipk package found"
             exit 1
           fi
-          echo "✅ Found package at: $PACKAGE_PATH"
-          echo "=========================================="
-          echo "📊 Final package size:"
-          ls -lh "$PACKAGE_PATH" | awk '{print "  " $9 ": " $5}'
-          echo "=========================================="
+          ls -lh "$PACKAGE_PATH"
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
@@ -329,8 +303,6 @@ jobs:
           PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
-          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
-          echo "ℹ️ COMPRESSION: ${{ matrix.compression }}"
 
       - name: Download artifact
         uses: actions/download-artifact@v4
