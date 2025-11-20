@@ -71,9 +71,25 @@ define Build/Compile
 	# Compress binaries with UPX if USE_UPX is enabled
 	@if [ "$(USE_UPX)" = "1" ]; then \
 		if which upx >/dev/null 2>&1; then \
-			echo "UPX enabled, compressing binaries with ultra-brute..."; \
-			upx --ultra-brute $(PKG_BUILD_DIR)/$(PKG_NAME); \
-			upx --ultra-brute $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+			echo "=========================================="; \
+			echo "� Compressing with UPX flags: $(UPX_FLAGS)"; \
+			echo "=========================================="; \
+			for binary in "$(PKG_BUILD_DIR)/$(PKG_NAME)" "$(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate"; do \
+				FILENAME=$$(basename $$binary); \
+				BEFORE_SIZE=$$(stat -c%s $$binary); \
+				BEFORE_SIZE_HR=$$(ls -lh $$binary | awk '{print $$5}'); \
+				echo "📦 Before: $$FILENAME = $$BEFORE_SIZE_HR ($$BEFORE_SIZE bytes)"; \
+				START_TIME=$$(date +%s); \
+				upx $(UPX_FLAGS) $$binary; \
+				END_TIME=$$(date +%s); \
+				DURATION=$$((END_TIME - START_TIME)); \
+				AFTER_SIZE=$$(stat -c%s $$binary); \
+				AFTER_SIZE_HR=$$(ls -lh $$binary | awk '{print $$5}'); \
+				SAVED_BYTES=$$((BEFORE_SIZE - AFTER_SIZE)); \
+				SAVED_PERCENT=$$((100 * SAVED_BYTES / BEFORE_SIZE)); \
+				echo "✅ COMPRESSED $$FILENAME in $${DURATION}s from $$BEFORE_SIZE_HR to $$AFTER_SIZE_HR saving $${SAVED_PERCENT}% ($$SAVED_BYTES bytes)"; \
+				echo "=========================================="; \
+			done; \
 		else \
 			echo "UPX not found, skipping compression"; \
 		fi; \
