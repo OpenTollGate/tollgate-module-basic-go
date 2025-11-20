@@ -67,16 +67,16 @@ define Build/Compile
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
 	go build -o tollgate -trimpath -ldflags="-s -w"
-	
-	       # Compress binaries with UPX if USE_UPX is enabled
-       @if [ "$(USE_UPX)" = "1" ]; then \
-               if which upx >/dev/null 2>&1; then \
-                       ls -lh $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
-                       upx $(UPX_FLAGS) $(PKG_BUILD_DIR)/$(PKG_NAME); \
-                       upx $(UPX_FLAGS) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
-                       ls -lh $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
-               fi; \
-       fi
+
+	# Compress binaries with UPX if USE_UPX is enabled
+	@if [ "$(USE_UPX)" = "1" ]; then \
+		if which upx >/dev/null 2>&1; then \
+			ls -lh $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+			upx $(UPX_FLAGS) $(PKG_BUILD_DIR)/$(PKG_NAME); \
+			upx $(UPX_FLAGS) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+			ls -lh $(PKG_BUILD_DIR)/$(PKG_NAME) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate; \
+		fi; \
+	fi
 endef
 
 define Package/$(PKG_NAME)/install
