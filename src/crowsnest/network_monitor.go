@@ -6,6 +6,7 @@ package crowsnest
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,23 +18,23 @@ import (
 
 // networkMonitor implements the NetworkMonitor interface using event-driven netlink subscriptions
 type networkMonitor struct {
-	config        *config_manager.CrowsnestConfig
-	events        chan NetworkEvent
-	stopChan      chan struct{}
-	wg            sync.WaitGroup
-	running       bool
-	mu            sync.RWMutex
-	lastEventTime map[string]time.Time // Track last event time per interface
-	eventMutex    sync.RWMutex         // Protect lastEventTime map
+	config         *config_manager.CrowsnestConfig
+	events         chan NetworkEvent
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	running        bool
+	mu             sync.RWMutex
+	debounceTimers map[string]*time.Timer
+	debounceMutex  sync.Mutex
 }
 
 // NewNetworkMonitor creates a new event-driven network monitor
 func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
 	return &networkMonitor{
-		config:        config,
-		events:        make(chan NetworkEvent, 100),
-		stopChan:      make(chan struct{}),
-		lastEventTime: make(map[string]time.Time),
+		config:         config,
+		events:         make(chan NetworkEvent, 100),
+		stopChan:       make(chan struct{}),
+		debounceTimers: make(map[string]*time.Timer),
 	}
 }
 
@@ -183,32 +184,69 @@ func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
 		gatewayIP = nm.getGatewayForInterface(interfaceName)
 	}
 
-	// Determine event type
-	eventType := EventInterfaceUp
-	if !isUp {
-		eventType = EventInterfaceDown
+	// Handle debouncing for wireless interfaces
+	isWireless, err := isWirelessInterface(interfaceName)
+	if err != nil {
+		logger.WithError(err).WithField("interface", interfaceName).Warn("Could not determine if interface is wireless")
 	}
 
-	// Create and send event
-	event := NetworkEvent{
-		Type:          eventType,
-		InterfaceName: interfaceName,
-		InterfaceInfo: interfaceInfo,
-		GatewayIP:     gatewayIP,
-		Timestamp:     time.Now(),
-	}
+	nm.debounceMutex.Lock()
+	defer nm.debounceMutex.Unlock()
 
-	nm.sendEvent(event)
-
-	// Log the change
 	if isUp {
+		// If interface comes up, cancel any pending down event timer
+		if timer, exists := nm.debounceTimers[interfaceName]; exists {
+			timer.Stop()
+			delete(nm.debounceTimers, interfaceName)
+			logger.WithField("interface", interfaceName).Info("Interface came back up, cancelling down event")
+		}
+
+		event := NetworkEvent{
+			Type:          EventInterfaceUp,
+			InterfaceName: interfaceName,
+			InterfaceInfo: interfaceInfo,
+			GatewayIP:     gatewayIP,
+			Timestamp:     time.Now(),
+		}
+		nm.sendEvent(event)
 		logger.WithFields(logrus.Fields{
 			"interface": interfaceName,
 			"mac":       attrs.HardwareAddr.String(),
 			"gateway":   gatewayIP,
 		}).Debug("Interface is UP")
-	} else {
-		logger.WithField("interface", interfaceName).Debug("Interface is DOWN")
+
+	} else { // Interface is down
+		if isWireless {
+			// If it's a wireless interface, start a debounce timer
+			logger.WithField("interface", interfaceName).Info("Wireless interface is down, starting debounce timer")
+			if timer, exists := nm.debounceTimers[interfaceName]; exists {
+				timer.Stop()
+			}
+			nm.debounceTimers[interfaceName] = time.AfterFunc(5*time.Second, func() {
+				logger.WithField("interface", interfaceName).Info("Debounce timer expired, sending interface down event")
+				event := NetworkEvent{
+					Type:          EventInterfaceDown,
+					InterfaceName: interfaceName,
+					InterfaceInfo: interfaceInfo,
+					Timestamp:     time.Now(),
+				}
+				nm.sendEvent(event)
+
+				nm.debounceMutex.Lock()
+				delete(nm.debounceTimers, interfaceName)
+				nm.debounceMutex.Unlock()
+			})
+		} else {
+			// For wired interfaces, send the down event immediately
+			event := NetworkEvent{
+				Type:          EventInterfaceDown,
+				InterfaceName: interfaceName,
+				InterfaceInfo: interfaceInfo,
+				Timestamp:     time.Now(),
+			}
+			nm.sendEvent(event)
+			logger.WithField("interface", interfaceName).Debug("Interface is DOWN")
+		}
 	}
 }
 
@@ -481,32 +519,26 @@ func (nm *networkMonitor) GetGatewayForInterface(interfaceName string) string {
 	return nm.getGatewayForInterface(interfaceName)
 }
 
-// sendEvent safely sends an event to the events channel with deduplication
+// sendEvent safely sends an event to the events channel
 func (nm *networkMonitor) sendEvent(event NetworkEvent) {
-	// Create a unique key for this event type and interface
-	eventKey := fmt.Sprintf("%s:%d", event.InterfaceName, event.Type)
-
-	// Check if we should throttle this event
-	nm.eventMutex.Lock()
-	lastTime, exists := nm.lastEventTime[eventKey]
-	now := time.Now()
-
-	// Only send if enough time has passed since last event of this type
-	minInterval := 2 * time.Second // Configurable throttling interval
-	if exists && now.Sub(lastTime) < minInterval {
-		nm.eventMutex.Unlock()
-		// Skip this event - too soon since last one
-		return
-	}
-
-	// Update last event time
-	nm.lastEventTime[eventKey] = now
-	nm.eventMutex.Unlock()
-
 	select {
 	case nm.events <- event:
 		// Event sent successfully
 	default:
 		logger.WithField("interface", event.InterfaceName).Warn("Network event channel full, dropping event for interface")
+	}
+}
+
+// isWirelessInterface checks if a network interface is a wireless interface.
+func isWirelessInterface(name string) (bool, error) {
+	// A common way to check is to see if the /sys/class/net/<interface>/wireless directory exists.
+	// This is a Linux-specific method.
+	wirelessPath := fmt.Sprintf("/sys/class/net/%s/wireless", name)
+	if _, err := os.Stat(wirelessPath); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, err
 	}
 }

@@ -14,3 +14,6 @@ squash_tool.sh
 vendor/
 **/tollwallet_db/*
 .roomodes
+src/tollgate-wrt
+tests/
+.obsidian/
