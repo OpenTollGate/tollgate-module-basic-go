@@ -156,6 +156,12 @@ func (cs *crowsnest) ScanInterface(interfaceName string) {
 		return
 	}
 
+	logger.WithFields(logrus.Fields{
+		"interface":   interfaceName,
+		"mac_address": macAddress,
+		"gateway_ip":  gatewayIP,
+	}).Info("Found interface details, proceeding with discovery")
+
 	// Attempt TollGate discovery asynchronously
 	go cs.attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP)
 }
