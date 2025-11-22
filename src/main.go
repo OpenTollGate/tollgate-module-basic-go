@@ -163,7 +163,7 @@ func initCrowsnest() {
 }
 
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantInstance)
+	cliServer = cli.NewCLIServer(configManager, merchantInstance, crowsnestInstance)
 
 	err := cliServer.Start()
 	if err != nil {

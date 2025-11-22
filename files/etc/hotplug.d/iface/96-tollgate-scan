@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# This script triggers a network scan in the tollgate-wrt service
+# when a WAN interface comes up.
+
+# Log all environment variables passed to the script for debugging
+logger "DEBUG tollgate-wrt hotplug: ACTION='$ACTION', INTERFACE='$INTERFACE', DEVICE='$DEVICE'"
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+# Check if the interface is 'wan' or 'wwan'
+if [ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wwan" ]; then
+    logger "DEBUG tollgate-wrt hotplug: Matched interface '$INTERFACE', triggering network scan."
+    
+    # Wait a moment for the interface to settle
+    sleep 5
+    
+    # Trigger a network scan via the CLI
+    /usr/bin/tollgate-cli network scan
+    
+    logger "tollgate-wrt: Network scan triggered for interface '$INTERFACE'."
+else
+    logger "DEBUG tollgate-wrt hotplug: No match for interface '$INTERFACE'."
+    exit 0
+fi

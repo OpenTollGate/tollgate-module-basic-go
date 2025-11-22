@@ -21,12 +21,34 @@ func (s *CLIServer) handleNetworkCommand(args []string, flags map[string]string)
 	switch subcommand {
 	case "private":
 		return s.handlePrivateNetworkCommand(args[1:], flags)
+	case "scan":
+		return s.handleNetworkScan(args[1:], flags)
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown network subcommand: %s (supported: private)", subcommand),
+			Error:     fmt.Sprintf("Unknown network subcommand: %s (supported: private, scan)", subcommand),
 			Timestamp: time.Now(),
 		}
+	}
+}
+
+// handleNetworkScan triggers a crowsnest scan
+func (s *CLIServer) handleNetworkScan(args []string, flags map[string]string) CLIResponse {
+	if s.crowsnest == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Crowsnest service not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	// Run the scan in a goroutine to avoid blocking the CLI
+	go s.crowsnest.ScanInterfaces()
+
+	return CLIResponse{
+		Success:   true,
+		Message:   "Network scan initiated",
+		Timestamp: time.Now(),
 	}
 }
 

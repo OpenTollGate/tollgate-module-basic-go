@@ -25,16 +25,18 @@ var cliLogger = logrus.WithField("module", "cli")
 type CLIServer struct {
 	configManager *config_manager.ConfigManager
 	merchant      merchant.MerchantInterface
+	crowsnest     crowsnest.Crowsnest // Add crowsnest instance
 	startTime     time.Time
 	listener      net.Listener
 	running       bool
 }
 
 // NewCLIServer creates a new CLI server instance
-func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface) *CLIServer {
+func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface, crowsnest crowsnest.Crowsnest) *CLIServer {
 	return &CLIServer{
 		configManager: configManager,
 		merchant:      merchant,
+		crowsnest:     crowsnest, // Initialize crowsnest
 		startTime:     time.Now(),
 	}
 }
