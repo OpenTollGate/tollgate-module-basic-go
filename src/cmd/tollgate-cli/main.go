@@ -68,6 +68,15 @@ var privateCmd = &cobra.Command{
 	Long:  "Manage your private network - enable/disable, rename, change password",
 }
 
+var scanCmd = &cobra.Command{
+	Use:   "scan",
+	Short: "Scan for upstream TollGate gateways",
+	Long:  "Triggers a new scan for TollGate advertisements on all available network interfaces.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("network", []string{"scan"}, nil)
+	},
+}
+
 var drainCmd = &cobra.Command{
 	Use:   "drain",
 	Short: "Drain wallet funds",
@@ -207,7 +216,7 @@ func init() {
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
-	networkCmd.AddCommand(privateCmd)
+	networkCmd.AddCommand(privateCmd, scanCmd)
 	rootCmd.AddCommand(walletCmd, networkCmd, statusCmd, versionCmd)
 }
 
