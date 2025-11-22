@@ -3,7 +3,7 @@ package cli
 import (
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 )
 
 // Crowsnest defines the interface for crowsnest operations required by the CLI.
@@ -11,7 +11,7 @@ type Crowsnest interface {
 	Start() error
 	ScanInterfaces()
 	ScanInterface(ifaceName string)
-	SetChandler(chandler crowsnest.Chandler)
+	SetChandler(chandler chandler.ChandlerInterface)
 }
 
 // CLIMessage represents communication between CLI client and service

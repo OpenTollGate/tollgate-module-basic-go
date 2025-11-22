@@ -81,7 +81,7 @@ func (cs *crowsnest) Start() error {
 	go cs.eventLoop()
 
 	// Perform initial interface scan to auto-connect after startup/reboot
-	go cs.performInitialInterfaceScan()
+	go cs.ScanInterfaces()
 
 	logger.Info("Crowsnest started successfully")
 	return nil
@@ -383,8 +383,8 @@ func (cs *crowsnest) eventTypeToString(eventType EventType) string {
 	}
 }
 
-// performInitialInterfaceScan scans existing network interfaces on startup
-func (cs *crowsnest) performInitialInterfaceScan() {
+// ScanInterfaces scans existing network interfaces on startup
+func (cs *crowsnest) ScanInterfaces() {
 	// Small delay to allow the system to fully initialize
 	time.Sleep(2 * time.Second)
 

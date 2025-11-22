@@ -12,6 +12,7 @@ type Crowsnest interface {
 	Stop() error
 	SetChandler(chandler chandler.ChandlerInterface)
 	ScanInterface(interfaceName string)
+	ScanInterfaces()
 }
 
 // NetworkMonitor defines the interface for network monitoring

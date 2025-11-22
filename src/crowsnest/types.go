@@ -52,3 +52,4 @@ const (
 	DiscoveryResultValidationFailed
 	DiscoveryResultError
 )
+

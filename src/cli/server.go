@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/sirupsen/logrus"
 )
