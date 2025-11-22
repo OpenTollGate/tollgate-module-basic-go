@@ -145,6 +145,7 @@ endef
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-wrt \
 	/etc/init.d/tollgate-wrt \
+	/usr/bin/tollgate \
 	/etc/config/firewall-tollgate \
 	/etc/modt/* \
 	/etc/profile \
