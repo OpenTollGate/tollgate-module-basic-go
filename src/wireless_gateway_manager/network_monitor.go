@@ -5,11 +5,13 @@ import (
 	"time"
 )
 
-func NewNetworkMonitor(connector *Connector) *NetworkMonitor {
+const pingFailureThreshold = 3
+
+func NewNetworkMonitor(forceScanChan chan struct{}) *NetworkMonitor {
 	return &NetworkMonitor{
-		connector: connector,
-		ticker:    time.NewTicker(30 * time.Second),
-		stopChan:  make(chan struct{}),
+		ticker:        time.NewTicker(30 * time.Second),
+		stopChan:      make(chan struct{}),
+		forceScanChan: forceScanChan,
 	}
 }
 
@@ -39,6 +41,14 @@ func (nm *NetworkMonitor) checkConnectivity() {
 		nm.pingFailures++
 		nm.pingSuccesses = 0
 		logger.WithField("consecutive_failures", nm.pingFailures).Warn("Ping failed")
+		if nm.pingFailures >= pingFailureThreshold {
+			logger.Warn("Ping failure threshold reached, forcing a network scan")
+			// Non-blocking send
+			select {
+			case nm.forceScanChan <- struct{}{}:
+			default:
+			}
+		}
 	} else {
 		nm.pingSuccesses++
 		nm.pingFailures = 0

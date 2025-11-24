@@ -20,20 +20,21 @@ func Init(ctx context.Context, configManager *config_manager.ConfigManager, crow
 	connector := &Connector{}
 	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
-	networkMonitor := NewNetworkMonitor(connector)
-
 	gatewayManager := &GatewayManager{
 		scanner:           scanner,
 		connector:         connector,
 		vendorProcessor:   vendorProcessor,
-		networkMonitor:    networkMonitor,
 		configManager:     configManager,
 		crowsnest:         crowsnest,
 		availableGateways: make(map[string]Gateway),
 		currentHopCount:   math.MaxInt32,
 		scanInterval:      30 * time.Second,
 		stopChan:          make(chan struct{}),
+		forceScanChan:     make(chan struct{}, 1), // Buffered channel
 	}
+
+	networkMonitor := NewNetworkMonitor(gatewayManager.forceScanChan)
+	gatewayManager.networkMonitor = networkMonitor
 
 	go gatewayManager.RunPeriodicScan(ctx)
 	gatewayManager.networkMonitor.Start()
@@ -52,6 +53,9 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			gm.ScanWirelessNetworks(ctx)
+		case <-gm.forceScanChan:
+			logger.Info("Forcing immediate network scan due to connectivity loss")
 			gm.ScanWirelessNetworks(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
@@ -172,58 +176,68 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 	}
 
 	if len(sortedGateways) > 0 {
-		highestPriorityGateway := sortedGateways[0]
-
-		currentSSID, err := gm.connector.GetConnectedSSID()
-		if err != nil {
-			logger.WithError(err).Warn("Could not determine current connected SSID")
-			// Proceed with connection attempt if current SSID cannot be determined
-		}
-
-		isConnectedToTopThree := false
-		for i, gateway := range sortedGateways {
-			if i >= 3 {
-				break
-			}
-			if gateway.SSID == currentSSID {
-				isConnectedToTopThree = true
-				break
-			}
-		}
-
-		if !isConnectedToTopThree {
-			// In reseller mode, all TollGate networks are considered "known" and open
-			password := ""
-
-			// Attempt to connect to the highest priority TollGate network
-			logger.WithFields(logrus.Fields{
-				"bssid": highestPriorityGateway.BSSID,
-				"ssid":  highestPriorityGateway.SSID,
-			}).Info("Not connected to top-3 TollGate gateway, attempting to connect to highest priority gateway")
-			err := gm.connector.Connect(highestPriorityGateway, password)
+		// Force a reconnection attempt if the network monitor has detected a disconnection.
+		// This handles the case where the gateway reboots but the client is still associated.
+		if !gm.networkMonitor.IsConnected() {
+			logger.Info("Network monitor reports disconnection. Forcing reconnection attempt.")
+		} else {
+			// If we are connected, check if it's to a top-tier gateway.
+			currentSSID, err := gm.connector.GetConnectedSSID()
 			if err != nil {
-				logger.WithFields(logrus.Fields{
-					"ssid":  highestPriorityGateway.SSID,
-					"error": err,
-				}).Error("Failed to connect to TollGate gateway")
-			} else {
-				// Update price and SSID after successful connection
-				gm.updatePriceAndAPSSID()
+				logger.WithError(err).Warn("Could not determine current connected SSID")
+			}
 
-				// Add a delay to allow for DHCP to complete
-				logger.Info("Connection successful, waiting for DHCP...")
-				time.Sleep(5 * time.Second)
-
-				// Scan the new interface for TollGates
-				interfaceName, err := GetInterfaceName()
-				if err != nil {
-					logger.WithError(err).Error("Failed to get interface name")
-				} else {
-					gm.crowsnest.ScanInterface(interfaceName)
+			isConnectedToTopThree := false
+			if currentSSID != "" {
+				for i, gateway := range sortedGateways {
+					if i >= 3 {
+						break
+					}
+					if gateway.SSID == currentSSID {
+						isConnectedToTopThree = true
+						break
+					}
 				}
 			}
+
+			if isConnectedToTopThree {
+				logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three TollGate gateways, no action required")
+				return // Return early, no need to attempt connection
+			}
+		}
+
+		// If we've reached here, it's either because we are disconnected or not connected to a top gateway.
+		// Proceed with connection attempt to the highest priority gateway.
+		highestPriorityGateway := sortedGateways[0]
+		// In reseller mode, all TollGate networks are considered "known" and open
+		password := ""
+
+		// Attempt to connect to the highest priority TollGate network
+		logger.WithFields(logrus.Fields{
+			"bssid": highestPriorityGateway.BSSID,
+			"ssid":  highestPriorityGateway.SSID,
+		}).Info("Not connected to top-3 TollGate gateway, attempting to connect to highest priority gateway")
+		err := gm.connector.Connect(highestPriorityGateway, password)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"ssid":  highestPriorityGateway.SSID,
+				"error": err,
+			}).Error("Failed to connect to TollGate gateway")
 		} else {
-			logger.WithField("ssid", currentSSID).Info("Already connected to one of the top three TollGate gateways, no action required")
+			// Update price and SSID after successful connection
+			gm.updatePriceAndAPSSID()
+
+			// Add a delay to allow for DHCP to complete
+			logger.Info("Connection successful, waiting for DHCP...")
+			time.Sleep(5 * time.Second)
+
+			// Scan the new interface for TollGates
+			interfaceName, err := GetInterfaceName()
+			if err != nil {
+				logger.WithError(err).Error("Failed to get interface name")
+			} else {
+				gm.crowsnest.ScanInterface(interfaceName)
+			}
 		}
 	} else {
 		logger.Info("No available TollGate gateways to connect to")

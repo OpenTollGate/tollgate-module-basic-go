@@ -22,12 +22,12 @@ type Connector struct {
 
 // NetworkMonitor monitors network connectivity and manages AP state.
 type NetworkMonitor struct {
-	connector     *Connector
 	pingFailures  int
 	pingSuccesses int
 	isInSafeMode  bool
 	ticker        *time.Ticker
 	stopChan      chan struct{}
+	forceScanChan chan struct{}
 }
 
 // Scanner handles Wi-Fi network scanning.
@@ -76,4 +76,5 @@ type GatewayManager struct {
 	currentHopCount   int
 	scanInterval      time.Duration
 	stopChan          chan struct{}
+	forceScanChan     chan struct{}
 }
