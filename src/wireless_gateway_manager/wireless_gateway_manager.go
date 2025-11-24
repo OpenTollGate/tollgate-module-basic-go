@@ -55,8 +55,8 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 		case <-ticker.C:
 			gm.ScanWirelessNetworks(ctx)
 		case <-gm.forceScanChan:
-			logger.Info("Forcing immediate network scan due to connectivity loss")
-			gm.ScanWirelessNetworks(ctx)
+			logger.Info("Connectivity loss detected, handling reconnection")
+			gm.handleConnectivityLoss(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
 			return
@@ -357,5 +357,19 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 	// Update the config file with the new pricing
 	if err := gm.configManager.UpdatePricing(pricePerStep, stepSize); err != nil {
 		logger.WithError(err).Error("Failed to update config file with new pricing")
+	}
+}
+
+
+func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
+	config := gm.configManager.GetConfig()
+	if config.ResellerMode {
+		logger.Info("Reseller mode enabled, performing a full network scan")
+		gm.ScanWirelessNetworks(ctx)
+	} else {
+		logger.Info("Reseller mode disabled, attempting to reconnect to the current network")
+		if err := gm.connector.Reconnect(); err != nil {
+			logger.WithError(err).Error("Failed to reconnect to the network")
+		}
 	}
 }
