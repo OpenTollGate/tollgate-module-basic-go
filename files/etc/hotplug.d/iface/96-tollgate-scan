@@ -10,10 +10,27 @@ logger -t "tollgate-hotplug-scan" "Executing 96-tollgate-scan script. ACTION: $A
 
 # Check if the interface is 'wan' or 'wwan'
 if [ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wwan" ]; then
-    logger -t "tollgate-hotplug-scan" "Matched INTERFACE '$INTERFACE'. Waiting 5 seconds before scan."
-    
-    # Wait a moment for the interface to settle
-    sleep 5
+    logger -t "tollgate-hotplug-scan" "Matched INTERFACE '$INTERFACE'. Waiting for default route..."
+
+    # Wait for the default route to be established on the interface
+    attempts=0
+    max_attempts=30 # Wait for up to 30 seconds
+    route_found=0
+    while [ $attempts -lt $max_attempts ]; do
+        # Check for a default route via the specified interface
+        if ip route show default | grep -q "dev $INTERFACE"; then
+            logger -t "tollgate-hotplug-scan" "Default route for '$INTERFACE' found after $attempts seconds."
+            route_found=1
+            break
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+
+    if [ $route_found -eq 0 ]; then
+        logger -t "tollgate-hotplug-scan" "Timed out waiting for default route on '$INTERFACE'. Aborting scan."
+        exit 1
+    fi
     
     # Trigger a network scan via the CLI
     logger -t "tollgate-hotplug-scan" "Executing tollgate-cli network scan."
