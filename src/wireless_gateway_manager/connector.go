@@ -400,12 +400,15 @@ func (c *Connector) createTollgateSTAInterface(interfaceName, device string) err
 	const retryDelay = 1 * time.Second
 	logger.WithField("interface", interfaceName).Info("Waiting for new STA interface to become available...")
 	for i := 0; i < maxRetries; i++ {
-		cmd := exec.Command("iw", "dev")
+		// Use 'ip link' as it shows interfaces even when they are down/disabled.
+		cmd := exec.Command("ip", "link", "show")
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		if err := cmd.Run(); err == nil {
-			if strings.Contains(stdout.String(), interfaceName) {
-				logger.WithField("interface", interfaceName).Info("New STA interface is now available.")
+			// We search for the interface name followed by a colon, e.g., "tollgate_sta_2g:"
+			// to avoid matching substrings in other interface names.
+			if strings.Contains(stdout.String(), interfaceName+":") {
+				logger.WithField("interface", interfaceName).Info("New STA interface is now available in the kernel.")
 				return nil
 			}
 		}
@@ -722,6 +725,40 @@ func (c *Connector) Reconnect() error {
 	}
 	
 	logger.Info("Reconnect command issued")
+	return nil
+}
+
+// EnableInterface enables the specified wireless interface if it's disabled.
+func (c *Connector) EnableInterface(uciInterfaceName string) error {
+	logger.WithField("interface", uciInterfaceName).Info("Ensuring wireless interface is enabled")
+
+	// The uciInterfaceName is the full section name, e.g., "wireless.tollgate_sta_2g"
+	// We need to check its 'disabled' status.
+	disabledStatus, err := c.ExecuteUCI("get", uciInterfaceName+".disabled")
+	// If err is not nil, it might mean the 'disabled' option isn't set, which OpenWRT treats as enabled.
+	// If disabledStatus is "0", it's also already enabled.
+	if err == nil && (strings.TrimSpace(disabledStatus) == "0" || strings.TrimSpace(disabledStatus) == "") {
+		logger.WithField("interface", uciInterfaceName).Info("Interface is already enabled")
+		return nil
+	}
+
+	logger.WithField("interface", uciInterfaceName).Info("Interface is disabled, enabling it now")
+	// Enable the interface
+	if _, err := c.ExecuteUCI("set", uciInterfaceName+".disabled=0"); err != nil {
+		return fmt.Errorf("failed to enable interface %s: %w", uciInterfaceName, err)
+	}
+
+	// Commit the changes
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return fmt.Errorf("failed to commit wireless config for enabling interface: %w", err)
+	}
+
+	// Reload wifi to apply changes
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi after enabling interface: %w", err)
+	}
+
+	logger.WithField("interface", uciInterfaceName).Info("Successfully enabled and reloaded wifi")
 	return nil
 }
 
