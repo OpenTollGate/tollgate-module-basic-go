@@ -20,6 +20,7 @@ type ConnectorInterface interface {
 	Reconnect() error
 	ExecuteUCI(args ...string) (string, error)
 	UpdateLocalAPSSID(pricePerStep, stepSize int) error
+	getActiveSTAInterface() (string, error)
 }
 
 // ScannerInterface defines the methods for network scanning operations.
