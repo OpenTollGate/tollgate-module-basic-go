@@ -394,10 +394,29 @@ func (c *Connector) createTollgateSTAInterface(interfaceName, device string) err
 		return fmt.Errorf("failed to reload wifi after creating STA interface: %w", err)
 	}
 
-	// Add a small delay to allow the interface to be ready
-	time.Sleep(2 * time.Second)
+	// Poll for a few seconds to wait for the interface to become available.
+	// A simple sleep is not reliable as the reload is asynchronous.
+	const maxRetries = 15
+	const retryDelay = 1 * time.Second
+	logger.WithField("interface", interfaceName).Info("Waiting for new STA interface to become available...")
+	for i := 0; i < maxRetries; i++ {
+		cmd := exec.Command("iw", "dev")
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err == nil {
+			if strings.Contains(stdout.String(), interfaceName) {
+				logger.WithField("interface", interfaceName).Info("New STA interface is now available.")
+				return nil
+			}
+		}
+		logger.WithFields(logrus.Fields{
+			"interface": interfaceName,
+			"retry":     i + 1,
+		}).Debug("Interface not yet available, waiting...")
+		time.Sleep(retryDelay)
+	}
 
-	return nil
+	return fmt.Errorf("timed out waiting for interface %s to become available", interfaceName)
 }
 
 // disableOtherSTAInterfaces disables all STA interfaces except for the one provided.

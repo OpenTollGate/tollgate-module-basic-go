@@ -18,14 +18,17 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	logger.Info("Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
 	// We pass an empty string for the band, so it will find any available STA interface
-	interfaceName, err := s.connector.findAvailableSTAInterface("")
+	uciInterfaceName, err := s.connector.findAvailableSTAInterface("")
 	if err != nil {
 		logger.WithError(err).Error("Failed to find or create a suitable STA interface for scanning")
 		return nil, err
 	}
-	logger.WithField("interface", interfaceName).Info("Using STA interface for scanning")
+	// The iw command needs the physical device name, not the UCI section name.
+	// The UCI section name is "wireless.<device_name>".
+	physicalInterfaceName := strings.TrimPrefix(uciInterfaceName, "wireless.")
+	logger.WithField("interface", physicalInterfaceName).Info("Using STA interface for scanning")
 
-	cmd := exec.Command("iw", "dev", interfaceName, "scan")
+	cmd := exec.Command("iw", "dev", physicalInterfaceName, "scan")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
