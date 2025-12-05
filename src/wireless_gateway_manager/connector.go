@@ -17,7 +17,6 @@ import (
 
 // Connect configures the network to connect to the specified gateway.
 func (c *Connector) Connect(gateway Gateway, password string) error {
-	logger.Info("Connect function called in connector.go")
 	logger.WithFields(logrus.Fields{
 		"ssid":       gateway.SSID,
 		"bssid":      gateway.BSSID,

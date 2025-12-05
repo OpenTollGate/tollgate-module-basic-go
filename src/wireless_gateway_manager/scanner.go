@@ -18,20 +18,13 @@ import (
 func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	logger.Info("Starting Wi-Fi network scan")
 	// Determine the Wi-Fi interface dynamically
-	interfaceName, err := GetInterfaceName()
+	// We pass an empty string for the band, so it will find any available STA interface
+	interfaceName, err := s.connector.findAvailableSTAInterface("")
 	if err != nil {
-		logger.WithError(err).Warn("Failed to get interface name, attempting to create one")
-		if err := s.connector.ensureSTAInterfaceExists(); err != nil {
-			logger.WithError(err).Error("Failed to create STA interface")
-			return nil, err
-		}
-		// Retry getting the interface name after creation
-		interfaceName, err = GetInterfaceName()
-		if err != nil {
-			logger.WithError(err).Error("Failed to get interface name after attempting to create it")
-			return nil, err
-		}
+		logger.WithError(err).Error("Failed to find or create a suitable STA interface for scanning")
+		return nil, err
 	}
+	logger.WithField("interface", interfaceName).Info("Using STA interface for scanning")
 
 	cmd := exec.Command("iw", "dev", interfaceName, "scan")
 	var stdout, stderr bytes.Buffer
@@ -58,34 +51,6 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	return networks, nil
 }
 
-// GetInterfaceName returns the name of the managed Wi-Fi interface.
-func GetInterfaceName() (string, error) {
-	cmd := exec.Command("iw", "dev")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(stdout.Bytes()))
-	var currentInterface string
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "Interface") {
-			parts := strings.Fields(line)
-			if len(parts) > 1 {
-				currentInterface = parts[1]
-			}
-		} else if strings.HasPrefix(line, "type") && strings.Contains(line, "managed") {
-			if currentInterface != "" {
-				logger.WithField("interface", currentInterface).Info("Found managed Wi-Fi interface for scanning")
-				return currentInterface, nil
-			}
-		}
-	}
-	return "", errors.New("no managed Wi-Fi interface found")
-}
 
 func parseScanOutput(output []byte) ([]NetworkInfo, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
