@@ -370,6 +370,18 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 		logger.Info("Reseller mode disabled, attempting to reconnect to the current network")
 		if err := gm.connector.Reconnect(); err != nil {
 			logger.WithError(err).Error("Failed to reconnect to the network")
+			return
+		}
+
+		// After reconnecting, we must trigger a scan to re-establish the payment session.
+		logger.Info("Reconnect successful, waiting for DHCP and triggering interface scan...")
+		time.Sleep(5 * time.Second) // Give DHCP time to work
+
+		interfaceName, err := GetInterfaceName()
+		if err != nil {
+			logger.WithError(err).Error("Failed to get interface name after reconnect")
+		} else {
+			gm.crowsnest.ScanInterface(interfaceName)
 		}
 	}
 }
