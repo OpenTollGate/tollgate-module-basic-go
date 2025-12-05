@@ -4,7 +4,6 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"math"
 	"os/exec"
 	"regexp"

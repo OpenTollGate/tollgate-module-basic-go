@@ -232,7 +232,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			time.Sleep(5 * time.Second)
 
 			// Scan the new interface for TollGates
-			interfaceName, err := GetInterfaceName()
+			interfaceName, err := gm.connector.getActiveSTAInterface()
 			if err != nil {
 				logger.WithError(err).Error("Failed to get interface name")
 			} else {
@@ -377,7 +377,7 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 		logger.Info("Reconnect successful, waiting for DHCP and triggering interface scan...")
 		time.Sleep(5 * time.Second) // Give DHCP time to work
 
-		interfaceName, err := GetInterfaceName()
+		interfaceName, err := gm.connector.getActiveSTAInterface()
 		if err != nil {
 			logger.WithError(err).Error("Failed to get interface name after reconnect")
 		} else {
