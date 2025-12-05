@@ -388,7 +388,15 @@ func (c *Connector) createTollgateSTAInterface(interfaceName, device string) err
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	
+
+	// Reload wifi to apply the new interface creation
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi after creating STA interface: %w", err)
+	}
+
+	// Add a small delay to allow the interface to be ready
+	time.Sleep(2 * time.Second)
+
 	return nil
 }
 
