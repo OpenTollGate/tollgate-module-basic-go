@@ -79,6 +79,7 @@ func GetInterfaceName() (string, error) {
 			}
 		} else if strings.HasPrefix(line, "type") && strings.Contains(line, "managed") {
 			if currentInterface != "" {
+				logger.WithField("interface", currentInterface).Info("Found managed Wi-Fi interface for scanning")
 				return currentInterface, nil
 			}
 		}
