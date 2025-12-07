@@ -984,5 +984,46 @@ func (c *Connector) WaitForIPAddress(interfaceName string, timeout time.Duration
 	}
 }
 
+// WaitForDefaultRoute polls until a default route is established on the specified physical interface.
+func (c *Connector) WaitForDefaultRoute(physicalInterfaceName string, timeout time.Duration) error {
+	logger.WithFields(logrus.Fields{
+		"interface": physicalInterfaceName,
+		"timeout":   timeout,
+	}).Info("Waiting for default route...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for default route on interface %s", physicalInterfaceName)
+		case <-ticker.C:
+			cmd := exec.Command("ip", "route", "show")
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err != nil {
+				logger.WithError(err).Debug("Failed to check routes, retrying...")
+				continue
+			}
+
+			scanner := bufio.NewScanner(&stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				// Look for a line like: "default via 192.168.1.1 dev eth0"
+				if strings.HasPrefix(line, "default") && strings.Contains(line, "dev "+physicalInterfaceName) {
+					logger.WithField("route", line).Info("Default route acquired")
+					return nil
+				}
+			}
+			logger.WithField("interface", physicalInterfaceName).Debug("Default route not yet available, still waiting...")
+		}
+	}
+}
+
+
 // Ensure Connector implements ConnectorInterface
 var _ ConnectorInterface = (*Connector)(nil)

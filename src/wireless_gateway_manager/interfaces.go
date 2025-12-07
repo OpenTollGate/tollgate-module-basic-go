@@ -29,6 +29,7 @@ type ConnectorInterface interface {
 	waitForInterface(uciInterfaceName string) (string, error)
 	CheckInternetConnectivity() (bool, error)
 	WaitForIPAddress(interfaceName string, timeout time.Duration) error
+	WaitForDefaultRoute(physicalInterfaceName string, timeout time.Duration) error
 }
 
 // ScannerInterface defines the methods for network scanning operations.

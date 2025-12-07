@@ -241,12 +241,28 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			// Add a delay to allow for DHCP to complete.
 			// Crowsnest will automatically detect the new interface and gateway via netlink events.
 			// There is no need to manually trigger a scan here.
-			logger.Info("Connection successful, verifying DHCP lease...")
+			logger.Info("Connection successful, verifying DHCP lease and route...")
 			if err := gm.connector.WaitForIPAddress("wwan", 30*time.Second); err != nil {
 				logger.WithError(err).Error("Failed to acquire IP address after connection")
-				// We will let the periodic scan handle the next attempt.
 			} else {
-				logger.Info("Successfully acquired IP address on wwan")
+				logger.Info("Successfully acquired IP address on wwan, waiting for default route...")
+				// We need the physical interface name for the route check.
+				// It's safe to assume the active STA interface is the one we just configured.
+				uciInterface, err := gm.connector.getActiveSTAInterface()
+				if err != nil {
+					logger.WithError(err).Error("Could not get active STA interface to check for route")
+				} else {
+					physicalInterface, err := gm.connector.waitForInterface(uciInterface)
+					if err != nil {
+						logger.WithError(err).Error("Could not get physical interface to check for route")
+					} else {
+						if err := gm.connector.WaitForDefaultRoute(physicalInterface, 15*time.Second); err != nil {
+							logger.WithError(err).Error("Failed to acquire default route after getting IP")
+						} else {
+							logger.Info("Default route is active. Network is fully up.")
+						}
+					}
+				}
 			}
 		}
 	} else {
@@ -389,12 +405,26 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 		}
 
 		// After reconnecting, Crowsnest will detect the new interface and trigger a scan automatically.
-		logger.Info("Reconnect successful, verifying DHCP lease...")
-		// Use "wwan" as the interface name, as this is the logical name for the STA connection.
+		logger.Info("Reconnect successful, verifying DHCP lease and route...")
 		if err := gm.connector.WaitForIPAddress("wwan", 30*time.Second); err != nil {
 			logger.WithError(err).Error("Failed to acquire IP address after reconnect")
 		} else {
-			logger.Info("Successfully acquired IP address on wwan after reconnect")
+			logger.Info("Successfully acquired IP address on wwan, waiting for default route...")
+			uciInterface, err := gm.connector.getActiveSTAInterface()
+			if err != nil {
+				logger.WithError(err).Error("Could not get active STA interface to check for route")
+			} else {
+				physicalInterface, err := gm.connector.waitForInterface(uciInterface)
+				if err != nil {
+					logger.WithError(err).Error("Could not get physical interface to check for route")
+				} else {
+					if err := gm.connector.WaitForDefaultRoute(physicalInterface, 15*time.Second); err != nil {
+						logger.WithError(err).Error("Failed to acquire default route after getting IP")
+					} else {
+						logger.Info("Default route is active. Network is fully up.")
+					}
+				}
+			}
 		}
 	}
 }
