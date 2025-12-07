@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"os/exec"
@@ -837,6 +838,73 @@ func determineBandFromSSID(ssid string) string {
 	
 	// Default to empty string if we can't determine the band
 	return ""
+}
+
+// waitForInterface polls the system to get the physical interface name (e.g., phy0-sta0)
+// associated with a given UCI wireless interface section (e.g., wireless.tollgate_sta_2g).
+// It does this by finding the logical network name (e.g., wwan) and then polling
+// ubus until the 'l3_device' for that network becomes available.
+func (c *Connector) waitForInterface(uciInterfaceName string) (string, error) {
+	logger.WithField("uci_interface", uciInterfaceName).Info("Waiting for physical interface to become available...")
+
+	// 1. Get the logical network name (e.g., "wwan") from the UCI section.
+	networkName, err := c.ExecuteUCI("get", uciInterfaceName+".network")
+	if err != nil {
+		return "", fmt.Errorf("could not get network name for %s: %w", uciInterfaceName, err)
+	}
+	networkName = strings.TrimSpace(networkName)
+	if networkName == "" {
+		return "", fmt.Errorf("got empty network name for %s", uciInterfaceName)
+	}
+	logger.WithFields(logrus.Fields{
+		"uci_interface": uciInterfaceName,
+		"network":       networkName,
+	}).Debug("Found logical network for interface")
+
+	// 2. Poll ubus until the l3_device is reported.
+	const maxRetries = 15
+	const retryDelay = 1 * time.Second
+	for i := 0; i < maxRetries; i++ {
+		// ubus call network.interface.wwan status
+		cmd := exec.Command("ubus", "call", "network.interface."+networkName, "status")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			// It's normal for this to fail if the interface isn't up yet.
+			logger.WithFields(logrus.Fields{
+				"network": networkName,
+				"retry":   i + 1,
+				"stderr":  stderr.String(),
+			}).Debug("ubus call failed, interface likely not ready yet, retrying...")
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Parse the JSON output
+		var status map[string]interface{}
+		if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+			logger.WithError(err).Warn("Failed to unmarshal ubus status JSON, retrying...")
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Check for the "l3_device" key
+		if l3Device, ok := status["l3_device"].(string); ok && l3Device != "" {
+			logger.WithFields(logrus.Fields{
+				"network":        networkName,
+				"l3_device":      l3Device,
+				"time_to_detect": fmt.Sprintf("%ds", i+1),
+			}).Info("Physical interface detected via ubus")
+			return l3Device, nil
+		}
+
+		logger.WithField("retry", i+1).Debug("l3_device not found in ubus status, retrying...")
+		time.Sleep(retryDelay)
+	}
+
+	return "", fmt.Errorf("timed out waiting for physical interface for network %s to become available", networkName)
 }
 
 // Ensure Connector implements ConnectorInterface

@@ -24,9 +24,7 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 		return nil, err
 	}
 	// The iw command needs the physical device name, not the UCI section name.
-	// The UCI section name is "wireless.<device_name>".
-	physicalInterfaceName := strings.TrimPrefix(uciInterfaceName, "wireless.")
-	logger.WithField("interface", physicalInterfaceName).Info("Found STA interface for scanning")
+	logger.WithField("interface", uciInterfaceName).Info("Found STA interface for scanning")
 
 	// Ensure the interface is enabled before trying to scan with it.
 	if err := s.connector.EnableInterface(uciInterfaceName); err != nil {
@@ -40,7 +38,14 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 		return nil, err
 	}
 
-	logger.WithField("interface", physicalInterfaceName).Info("Scanning with interface")
+	// After PrepareForScan, the physical interface is recreated. We need to wait for it and get its new name.
+	physicalInterfaceName, err := s.connector.waitForInterface(uciInterfaceName)
+	if err != nil {
+		logger.WithError(err).WithField("uci_interface", uciInterfaceName).Error("Failed to wait for physical interface to become available")
+		return nil, err
+	}
+
+	logger.WithField("interface", physicalInterfaceName).Info("Scanning with ready interface")
 	cmd := exec.Command("iw", "dev", physicalInterfaceName, "scan")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

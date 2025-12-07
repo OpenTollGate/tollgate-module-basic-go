@@ -24,6 +24,7 @@ type ConnectorInterface interface {
 	PrepareForScan(uciInterfaceName string) error
 	getActiveSTAInterface() (string, error)
 	findAvailableSTAInterface(band string) (string, error)
+	waitForInterface(uciInterfaceName string) (string, error)
 }
 
 // ScannerInterface defines the methods for network scanning operations.
