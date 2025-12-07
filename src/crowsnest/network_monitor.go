@@ -31,7 +31,7 @@ type networkMonitor struct {
 func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
 	return &networkMonitor{
 		config:        config,
-		events:        make(chan NetworkEvent, 100),
+		events:        make(chan NetworkEvent, 512),
 		stopChan:      make(chan struct{}),
 		lastEventTime: make(map[string]time.Time),
 	}
