@@ -238,17 +238,11 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			// Update price and SSID after successful connection
 			gm.updatePriceAndAPSSID()
 
-			// Add a delay to allow for DHCP to complete
+			// Add a delay to allow for DHCP to complete.
+			// Crowsnest will automatically detect the new interface and gateway via netlink events.
+			// There is no need to manually trigger a scan here.
 			logger.Info("Connection successful, waiting for DHCP...")
 			time.Sleep(5 * time.Second)
-
-			// Scan the new interface for TollGates
-			interfaceName, err := gm.connector.getActiveSTAInterface()
-			if err != nil {
-				logger.WithError(err).Error("Failed to get interface name")
-			} else {
-				gm.crowsnest.ScanInterface(interfaceName)
-			}
 		}
 	} else {
 		logger.Info("No available TollGate gateways to connect to")
@@ -384,15 +378,8 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 			return
 		}
 
-		// After reconnecting, we must trigger a scan to re-establish the payment session.
-		logger.Info("Reconnect successful, waiting for DHCP and triggering interface scan...")
+		// After reconnecting, Crowsnest will detect the new interface and trigger a scan automatically.
+		logger.Info("Reconnect successful, waiting for DHCP...")
 		time.Sleep(5 * time.Second) // Give DHCP time to work
-
-		interfaceName, err := gm.connector.getActiveSTAInterface()
-		if err != nil {
-			logger.WithError(err).Error("Failed to get interface name after reconnect")
-		} else {
-			gm.crowsnest.ScanInterface(interfaceName)
-		}
 	}
 }
