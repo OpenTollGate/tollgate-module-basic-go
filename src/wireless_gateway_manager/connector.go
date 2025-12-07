@@ -260,19 +260,16 @@ func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 	var staInterfaces []string
 	disabledSTAInterfaces := make(map[string]bool)
 	tollgateSTA2GFound := false
-	tollgateSTA5GFound := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasSuffix(line, ".mode='sta'") {
 			section := strings.TrimSuffix(line, ".mode='sta'")
 			staInterfaces = append(staInterfaces, section)
-			
+
 			// Check if we have our specific TollGate interfaces
 			if strings.HasSuffix(section, ".tollgate_sta_2g") {
 				tollgateSTA2GFound = true
-			} else if strings.HasSuffix(section, ".tollgate_sta_5g") {
-				tollgateSTA5GFound = true
 			}
 		} else if strings.HasSuffix(line, ".disabled='1'") {
 			section := strings.TrimSuffix(line, ".disabled='1'")
@@ -291,15 +288,15 @@ func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 		disabledSTAInterfaces["wireless.tollgate_sta_2g"] = true
 	}
 
-	if !tollgateSTA5GFound {
-		logger.Info("Creating tollgate_sta_5g interface")
-		if err := c.createTollgateSTAInterface("tollgate_sta_5g", "radio1"); err != nil {
-			logger.WithError(err).Error("Failed to create tollgate_sta_5g interface")
-			return "", err
-		}
-		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_5g")
-		disabledSTAInterfaces["wireless.tollgate_sta_5g"] = true
-	}
+	// if !tollgateSTA5GFound {
+	// 	logger.Info("Creating tollgate_sta_5g interface")
+	// 	if err := c.createTollgateSTAInterface("tollgate_sta_5g", "radio1"); err != nil {
+	// 		logger.WithError(err).Error("Failed to create tollgate_sta_5g interface")
+	// 		return "", err
+	// 	}
+	// 	staInterfaces = append(staInterfaces, "wireless.tollgate_sta_5g")
+	// 	disabledSTAInterfaces["wireless.tollgate_sta_5g"] = true
+	// }
 
 	// If a specific band is requested, try to find an interface for that band
 	if band == "2g" || band == "5g" {
@@ -757,6 +754,11 @@ func (c *Connector) EnableInterface(uciInterfaceName string) error {
 	if err := c.reloadWifi(); err != nil {
 		return fmt.Errorf("failed to reload wifi after enabling interface: %w", err)
 	}
+
+	// Add a short delay to allow the interface to fully initialize after reload.
+	// This helps prevent a race condition where the scanner tries to use the
+	// interface before the driver has made it available for scanning.
+	time.Sleep(2 * time.Second)
 
 	logger.WithField("interface", uciInterfaceName).Info("Successfully enabled and reloaded wifi")
 	return nil
