@@ -56,7 +56,7 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 			gm.ScanWirelessNetworks(ctx)
 		case <-gm.forceScanChan:
 			logger.Info("Connectivity loss detected, forcing immediate network scan.")
-			gm.ScanWirelessNetworks(ctx)
+			gm.handleConnectivityLoss(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
 			return
@@ -260,6 +260,10 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 							logger.WithError(err).Error("Failed to acquire default route after getting IP")
 						} else {
 							logger.Info("Default route is active. Network is fully up.")
+							// Explicitly trigger a crowsnest scan on the new interface to ensure
+							// the payment session is established.
+							logger.WithField("interface", physicalInterface).Info("Triggering Crowsnest scan on new interface.")
+							gm.crowsnest.ScanInterface(physicalInterface)
 						}
 					}
 				}
@@ -385,7 +389,6 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		logger.WithError(err).Error("Failed to update config file with new pricing")
 	}
 }
-
 
 func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 	// Add a cooldown period to allow the OS to fully process the interface down event
