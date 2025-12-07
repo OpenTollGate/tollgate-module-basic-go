@@ -235,6 +235,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"bssid": highestPriorityGateway.BSSID,
 			"ssid":  highestPriorityGateway.SSID,
 		}).Info("Not connected to top-3 TollGate gateway, attempting to connect to highest priority gateway")
+		gm.lastConnectionAttempt = time.Now()
 		err := gm.connector.Connect(highestPriorityGateway, password)
 		if err != nil {
 			logger.WithFields(logrus.Fields{

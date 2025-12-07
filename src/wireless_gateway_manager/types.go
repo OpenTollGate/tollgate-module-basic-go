@@ -75,10 +75,11 @@ type GatewayManager struct {
 	crowsnest         crowsnest.Crowsnest
 	mu                sync.RWMutex
 	scanningMutex     sync.Mutex
-	isScanning        bool
-	availableGateways map[string]Gateway
-	currentHopCount   int
-	scanInterval      time.Duration
-	stopChan          chan struct{}
-	forceScanChan     chan struct{}
+	isScanning              bool
+	lastConnectionAttempt   time.Time
+	availableGateways       map[string]Gateway
+	currentHopCount         int
+	scanInterval            time.Duration
+	stopChan                chan struct{}
+	forceScanChan           chan struct{}
 }

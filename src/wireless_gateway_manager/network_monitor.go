@@ -46,6 +46,11 @@ func (nm *NetworkMonitor) checkConnectivity() {
 		return
 	}
 
+	if time.Since(nm.gatewayManager.lastConnectionAttempt) < 60*time.Second {
+		logger.Info("In grace period after connection attempt, skipping connectivity check.")
+		return
+	}
+
 	online, err := nm.connector.CheckInternetConnectivity()
 	if err != nil {
 		// Log the error from the check itself, but still treat it as a failure.
