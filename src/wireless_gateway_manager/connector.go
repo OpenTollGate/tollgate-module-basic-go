@@ -797,14 +797,9 @@ func (c *Connector) PrepareForScan(uciInterfaceName string) error {
 		return fmt.Errorf("failed to commit wireless config for scan preparation: %w", err)
 	}
 
-	// Reload wifi to apply the changes, which should release the interface.
-	if err := c.reloadWifi(); err != nil {
-		return fmt.Errorf("failed to reload wifi during scan preparation: %w", err)
-	}
-
-	// Give the system a moment to process the reload.
-	time.Sleep(1 * time.Second)
-
+	// NOTE: A wifi reload here is not necessary and can cause race conditions.
+	// The interface is released for scanning by committing the cleared SSID/BSSID.
+	// The subsequent `iw scan` command will work on a free interface.
 	logger.WithField("interface", uciInterfaceName).Info("Interface prepared for scanning")
 	return nil
 }
@@ -898,7 +893,9 @@ func (c *Connector) waitForInterface(uciInterfaceName string) (string, error) {
 		// Parse the JSON output
 		var status map[string]interface{}
 		if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
-			logger.WithError(err).Warn("Failed to unmarshal ubus status JSON, retrying...")
+			logger.WithError(err).
+				WithField("json_output", string(stdout.Bytes())).
+				Warn("Failed to unmarshal ubus status JSON, retrying...")
 			time.Sleep(retryDelay)
 			continue
 		}

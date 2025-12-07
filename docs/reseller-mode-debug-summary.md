@@ -1,64 +1,44 @@
-# Reseller Mode Debugging Session Summary
+# Reseller Mode Automatic Reconnection: Debugging Summary
 
-This document summarizes the debugging session focused on fixing the non-functional "reseller mode" in the `tollgate-wrt` firmware.
+## 1. Goal
 
-## 1. Initial Problem
+The primary objective is to ensure a "customer" router running `tollgate-wrt` in reseller mode can automatically recover its internet connection and resume micropayments after its upstream "gateway" router is power-cycled. Currently, the customer router reconnects to the gateway's Wi-Fi but fails to re-establish a payment session, requiring a manual restart of the `tollgate-wrt` service to restore connectivity.
 
-The core issue was that when `reseller_mode` was enabled, the client router would fail to connect to an upstream TollGate gateway and would not get internet access. The initial symptoms included:
+## 2. Debugging Journey & Current Status
 
--   A disabled and malformed `tollgate_sta` interface being created in the `/etc/config/wireless` file.
--   The device failing to scan for wireless networks.
--   The device being unable to ping external addresses (`8.8.8.8`).
+Our investigation has gone through several phases, leading to our current understanding of the problem.
 
-## 2. Achievements & Key Fixes
+### Phase 1: Initial Analysis (Incorrect)
 
-Through an iterative process of logging, analysis, and fixing, we successfully diagnosed and resolved several layers of bugs.
+*   **Observation:** The client router would enter a loop of failed connectivity checks and Wi-Fi scans.
+*   **Initial Hypothesis:** The `crowsnest` module's `discoveryTracker` was caching a successful discovery result and refusing to re-probe the gateway after it came back online. This was seemingly confirmed by logs showing the state-clearing function (`handleInterfaceDown`) was not being called.
+*   **Action Taken:** A patch was applied to `crowsnest/network_monitor.go` to ensure `EventInterfaceDown` events were never throttled, with the expectation that this would guarantee the state was cleared.
+*   **Result:** **The fix was ineffective.** The logs from the subsequent test run showed the failure occurred *before* `crowsnest` was even involved in the reconnection logic.
 
-### Key Achievements:
+### Phase 2: Deeper Log Analysis (Current Diagnosis)
 
-1.  **Identified Major Regression:** We discovered that a significant code refactoring had replaced robust logic for finding wireless interfaces with a simplistic and faulty `GetInterfaceName` function. This was the root cause of the initial failure.
-2.  **Fixed Cascading Build Errors:** After reverting the regression, we fixed several build errors caused by the incomplete refactoring.
-3.  **Solved Multiple Race Conditions:** We identified and fixed two critical race conditions:
-    -   The application was trying to use a wireless interface before the OS had finished creating it.
-    -   The application was trying to scan with an interface before the wireless driver was fully ready, even after the OS had created the device.
-4.  **Corrected Interface Naming:** We fixed a bug where the application was using the wrong identifier (a UCI section name like `wireless.tollgate_sta_2g`) instead of the correct physical device name (`tollgate_sta_2g`) with the `iw` command.
-5.  **Identified and Mitigated Routing Conflict:** We diagnosed that having two active STA interfaces (`2.4GHz` and `5GHz`) connected to the same `wwan` network was causing kernel routing conflicts, leading to a loss of internet connectivity.
+*   **Observation:** The new logs revealed the true point of failure. When the `wireless_gateway_manager` attempts to run a scan after losing internet, it consistently fails with the error:
+    ```
+    ERRO[2025-12-07T19:51:28Z] Failed to wait for physical interface to become available error="timed out waiting for physical interface for network wwan to become available"
+    ```
+*   **Current Hypothesis:** This timeout is caused by a **race condition** originating from redundant `wifi reload` commands within the `wireless_gateway_manager/connector.go` file. The sequence is as follows:
+    1.  `ScanWirelessNetworks` calls `EnableInterface`, which may issue a `wifi reload`.
+    2.  It then immediately calls `PrepareForScan`, which *always* issues a second `wifi reload`.
+    3.  These two back-to-back, disruptive commands leave the Wi-Fi subsystem in an unstable state.
+    4.  The subsequent `waitForInterface` function begins polling `ubus` for the interface to become ready, but it times out because the interface is still flapping from the double reload.
 
-### Files Modified:
+## 3. Current Challenges
 
--   `src/wireless_gateway_manager/scanner.go`:
-    -   Removed the faulty `GetInterfaceName` function.
-    -   Added logic to explicitly enable the STA interface before scanning.
--   `src/wireless_gateway_manager/connector.go`:
-    -   Modified the interface creation polling loop to use `ip link show` for reliable detection of disabled interfaces.
-    -   Added a new `EnableInterface` function to robustly enable a wireless interface.
-    -   Added a `time.Sleep` delay after enabling an interface to resolve the final race condition with the wireless driver.
-    -   **Disabled the creation of the `tollgate_sta_5g` interface** to prevent routing conflicts, enforcing a "one active STA" policy.
--   `src/wireless_gateway_manager/interfaces.go`:
-    -   Updated the `ConnectorInterface` to include the new `EnableInterface` and `findAvailableSTAInterface` methods, resolving build errors.
+The core challenge is the instability caused by the `wifi reload` race condition. The `PrepareForScan` function is too aggressive, and its `wifi reload` is both unnecessary and harmful. A `uci commit` is sufficient to apply the configuration changes needed to prepare an interface for scanning; a full reload is not required.
 
-## 3. Where We Left Off
+## 4. Proposed Solution
 
-We have just applied the final set of fixes:
--   Removing the logic that created a second (`5GHz`) STA interface to prevent routing conflicts.
--   Adding a `time.Sleep` to the `EnableInterface` function to give the wireless driver time to initialize before a scan is attempted.
--   Fixing the resulting build error by removing the unused `tollgateSTA5GFound` variable.
+The plan is to resolve the race condition and improve our diagnostic capabilities:
 
-The code is now in a state where it should, in theory, work correctly.
+1.  **Eliminate the Race Condition:** Remove the `wifi reload` command from the `PrepareForScan` function in `src/wireless_gateway_manager/connector.go`. This is the critical fix.
+2.  **Improve Debugging:** Add a new log line to the `waitForInterface` function to print the raw JSON output from the `ubus` status call. This will give us direct insight into what the system is reporting if the timeout issue persists.
 
-## 4. Remaining Challenges
+## 5. Unresolved Questions
 
-The primary challenge is **verification**. While the current logic appears sound, the interaction with the OS, drivers, and networking stack is complex. The `time.Sleep` is a pragmatic but not perfectly elegant solution; it's possible that on some hardware or under heavy load, the 2-second delay might not be sufficient, although it is a very likely fix.
-
-The main risk is that the "single STA interface" solution, while preventing routing conflicts, might not be the desired long-term behavior if dual-band failover is a future requirement. For now, it is the correct strategy to achieve a stable connection.
-
-## 5. Next Steps
-
-1.  **Compile and Deploy:** The user needs to compile the latest version of the `tollgate-wrt` binary with all the recent changes.
-2.  **Test Reseller Mode:** Flash the new binary to the client router and enable reseller mode.
-3.  **Verify Connectivity:** Observe the logs and confirm that the router:
-    -   Creates and enables the `tollgate_sta_2g` interface.
-    -   Successfully scans for networks.
-    -   Connects to the upstream TollGate gateway.
-    -   Makes a payment.
-    -   **Crucially, can successfully `ping 8.8.8.8`**, confirming it has internet access.
+*   **Will removing the `wifi reload` from `PrepareForScan` be sufficient to solve the timeout?** Our current diagnosis strongly suggests it will, but this is pending experimental validation.
+*   **Are there other, more subtle race conditions or state management issues within the `wireless_gateway_manager`?** The improved logging will help us answer this if the primary fix is not completely effective.
