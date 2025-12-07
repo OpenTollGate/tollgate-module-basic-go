@@ -55,8 +55,8 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 		case <-ticker.C:
 			gm.ScanWirelessNetworks(ctx)
 		case <-gm.forceScanChan:
-			logger.Info("Connectivity loss detected, handling reconnection")
-			gm.handleConnectivityLoss(ctx)
+			logger.Info("Connectivity loss detected, forcing immediate network scan.")
+			gm.ScanWirelessNetworks(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
 			return

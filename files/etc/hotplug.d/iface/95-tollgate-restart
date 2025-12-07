@@ -45,20 +45,24 @@ check_connectivity() {
 }
 
 # Wait a bit for the interface to be fully configured
+logger "DEBUG tollgate-wrt hotplug: Waiting 5 seconds for interface to settle..."
 sleep 5
 
 # Check for connectivity
+logger "DEBUG tollgate-wrt hotplug: Checking for internet connectivity..."
 if check_connectivity; then
+    logger "DEBUG tollgate-wrt hotplug: Internet connectivity confirmed."
     # Restart the tollgate-wrt service
+    logger "tollgate-wrt: Restarting service after initial WAN up and connectivity check."
     /etc/init.d/tollgate-wrt restart
     
     # Create the flag file to indicate the restart has been done
     touch "$FLAG_FILE"
     
     # Log the action
-    logger "tollgate-wrt: Restarted service after initial WAN up and connectivity check."
+    logger "tollgate-wrt: Service restarted and flag file created."
 else
     # No connectivity yet, exit silently
     # The script will run again on the next wan ifup event if needed
-    logger "tollgate-wrt: WAN up but no connectivity to 8.8.8.8, skipping restart."
+    logger "tollgate-wrt: WAN up but no connectivity to 8.8.8.8, skipping restart for now."
 fi
