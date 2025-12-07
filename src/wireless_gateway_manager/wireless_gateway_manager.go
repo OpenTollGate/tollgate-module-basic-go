@@ -274,6 +274,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 							logger.WithError(err).Error("Failed to acquire default route after getting IP")
 						} else {
 							logger.Info("Default route is active. Network is fully up.")
+							gm.networkMonitor.ResetConnectivityCounters()
 							// Explicitly trigger a crowsnest scan on the new interface to ensure
 							// the payment session is established.
 							logger.WithField("interface", physicalInterface).Info("Triggering Crowsnest scan on new interface.")
@@ -439,6 +440,7 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 						logger.WithError(err).Error("Failed to acquire default route after getting IP")
 					} else {
 						logger.Info("Default route is active. Network is fully up.")
+						gm.networkMonitor.ResetConnectivityCounters()
 					}
 				}
 			}

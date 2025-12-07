@@ -42,6 +42,7 @@ type NetworkMonitorInterface interface {
 	Start(gatewayManager *GatewayManager)
 	Stop()
 	IsConnected() bool
+	ResetConnectivityCounters()
 }
 
 // VendorElementProcessorInterface defines the methods for vendor element processing.

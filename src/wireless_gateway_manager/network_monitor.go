@@ -80,5 +80,11 @@ func (nm *NetworkMonitor) IsConnected() bool {
 	return nm.pingSuccesses > 0
 }
 
+func (nm *NetworkMonitor) ResetConnectivityCounters() {
+	logger.Info("Resetting network monitor connectivity counters.")
+	nm.pingFailures = 0
+	nm.pingSuccesses = 0
+}
+
 // Ensure NetworkMonitor implements NetworkMonitorInterface
 var _ NetworkMonitorInterface = (*NetworkMonitor)(nil)
