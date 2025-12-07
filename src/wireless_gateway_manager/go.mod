@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-20250818175037-e6150a413cf2
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest v0.0.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 )
@@ -41,3 +42,4 @@ require (
 )
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest => ../crowsnest

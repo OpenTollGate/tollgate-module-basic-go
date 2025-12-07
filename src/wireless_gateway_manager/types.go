@@ -22,6 +22,7 @@ type Connector struct {
 
 // NetworkMonitor monitors network connectivity and manages AP state.
 type NetworkMonitor struct {
+	connector     ConnectorInterface
 	pingFailures  int
 	pingSuccesses int
 	isInSafeMode  bool

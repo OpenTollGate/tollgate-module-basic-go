@@ -116,23 +116,36 @@ func getUCIEncryptionType(encryption string) string {
 }
 
 func (c *Connector) GetConnectedSSID() (string, error) {
-	interfaceName, err := c.getActiveSTAInterface()
+	uciInterfaceName, err := c.getActiveSTAInterface()
 	if err != nil {
-		logger.WithError(err).Info("Could not get managed Wi-Fi interface, probably not associated")
+		logger.WithError(err).Info("Could not get active STA UCI interface")
+		return "", nil // Not an error, just not active
+	}
+	if uciInterfaceName == "" {
+		logger.Info("No active STA UCI interface found.")
 		return "", nil
 	}
 
-	cmd := exec.Command("iw", "dev", interfaceName, "link")
+	// Use waitForInterface to robustly get the physical device name.
+	// This handles the race condition after a `wifi reload`.
+	physicalInterfaceName, err := c.waitForInterface(uciInterfaceName)
+	if err != nil {
+		logger.WithError(err).WithField("uci_interface", uciInterfaceName).Warn("Could not get physical interface for active STA")
+		// This is the source of the "No such device" error. Return nil to indicate not connected.
+		return "", nil
+	}
+
+	cmd := exec.Command("iw", "dev", physicalInterfaceName, "link")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		logger.WithFields(logrus.Fields{
-			"interface": interfaceName,
+			"interface": physicalInterfaceName,
 			"error":     err,
 			"stderr":    stderr.String(),
-		}).Warn("Could not get connected SSID from interface")
+		}).Warn("Could not get connected SSID from interface (iw dev link)")
 		return "", nil // Not an error if not connected, but return empty string
 	}
 
@@ -905,6 +918,22 @@ func (c *Connector) waitForInterface(uciInterfaceName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("timed out waiting for physical interface for network %s to become available", networkName)
+}
+
+// CheckInternetConnectivity pings a public DNS server to check for internet access.
+func (c *Connector) CheckInternetConnectivity() (bool, error) {
+	logger.Debug("Checking for internet connectivity...")
+	// Using -W 2 for a 2-second timeout and -c 1 for a single packet.
+	cmd := exec.Command("ping", "-c", "1", "-W", "2", "8.8.8.8")
+	err := cmd.Run()
+	if err != nil {
+		// An exit code of 1 from ping usually means no reply, i.e., no connectivity.
+		// Other errors could be more serious, but for this check, any error means no connection.
+		logger.Info("Internet connectivity check failed")
+		return false, nil
+	}
+	logger.Info("Internet connectivity check successful")
+	return true, nil
 }
 
 // Ensure Connector implements ConnectorInterface

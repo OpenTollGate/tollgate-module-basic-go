@@ -33,7 +33,7 @@ func Init(ctx context.Context, configManager *config_manager.ConfigManager, crow
 		forceScanChan:     make(chan struct{}, 1), // Buffered channel
 	}
 
-	networkMonitor := NewNetworkMonitor(gatewayManager.forceScanChan)
+	networkMonitor := NewNetworkMonitor(connector, gatewayManager.forceScanChan)
 	gatewayManager.networkMonitor = networkMonitor
 
 	go gatewayManager.RunPeriodicScan(ctx)
@@ -65,6 +65,17 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
+	// Check for internet connectivity before initiating a disruptive scan
+	online, err := gm.connector.CheckInternetConnectivity()
+	if err != nil {
+		logger.WithError(err).Warn("Failed to perform internet connectivity check")
+		// Proceed with scan anyway, as the check itself might have failed for other reasons
+	}
+	if online {
+		logger.Info("Internet connection is active, skipping gateway scan.")
+		return
+	}
+
 	// Get the current configuration
 	config := gm.configManager.GetConfig()
 
