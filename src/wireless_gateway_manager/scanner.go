@@ -34,6 +34,12 @@ func (s *Scanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 		return nil, err
 	}
 
+	// Prepare the interface for scanning by clearing any existing connection details.
+	if err := s.connector.PrepareForScan(uciInterfaceName); err != nil {
+		logger.WithError(err).WithField("interface", uciInterfaceName).Error("Failed to prepare interface for scanning")
+		return nil, err
+	}
+
 	logger.WithField("interface", physicalInterfaceName).Info("Scanning with interface")
 	cmd := exec.Command("iw", "dev", physicalInterfaceName, "scan")
 	var stdout, stderr bytes.Buffer

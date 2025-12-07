@@ -21,6 +21,7 @@ type ConnectorInterface interface {
 	ExecuteUCI(args ...string) (string, error)
 	UpdateLocalAPSSID(pricePerStep, stepSize int) error
 	EnableInterface(uciInterfaceName string) error
+	PrepareForScan(uciInterfaceName string) error
 	getActiveSTAInterface() (string, error)
 	findAvailableSTAInterface(band string) (string, error)
 }

@@ -764,6 +764,37 @@ func (c *Connector) EnableInterface(uciInterfaceName string) error {
 	return nil
 }
 
+// PrepareForScan clears the SSID and BSSID from the given STA interface
+// and reloads the wifi configuration. This is done to ensure that the interface
+// is free for scanning and not locked by an existing connection attempt.
+func (c *Connector) PrepareForScan(uciInterfaceName string) error {
+	logger.WithField("interface", uciInterfaceName).Info("Preparing interface for scanning by clearing connection details")
+
+	// Clear SSID and BSSID to prevent netifd from trying to connect.
+	if _, err := c.ExecuteUCI("set", uciInterfaceName+".ssid="); err != nil {
+		return fmt.Errorf("failed to clear ssid for %s: %w", uciInterfaceName, err)
+	}
+	if _, err := c.ExecuteUCI("set", uciInterfaceName+".bssid="); err != nil {
+		return fmt.Errorf("failed to clear bssid for %s: %w", uciInterfaceName, err)
+	}
+
+	// Commit the changes
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return fmt.Errorf("failed to commit wireless config for scan preparation: %w", err)
+	}
+
+	// Reload wifi to apply the changes, which should release the interface.
+	if err := c.reloadWifi(); err != nil {
+		return fmt.Errorf("failed to reload wifi during scan preparation: %w", err)
+	}
+
+	// Give the system a moment to process the reload.
+	time.Sleep(1 * time.Second)
+
+	logger.WithField("interface", uciInterfaceName).Info("Interface prepared for scanning")
+	return nil
+}
+
 // getActiveSTAInterface finds the currently active STA interface.
 func (c *Connector) getActiveSTAInterface() (string, error) {
 	output, err := c.ExecuteUCI("show", "wireless")
