@@ -4,6 +4,7 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -931,6 +932,56 @@ func (c *Connector) CheckInternetConnectivity() (bool, error) {
 	}
 	logger.Info("Internet connectivity check successful")
 	return true, nil
+}
+
+// WaitForIPAddress polls the given network interface until it has a valid IPv4 address or the timeout is reached.
+func (c *Connector) WaitForIPAddress(interfaceName string, timeout time.Duration) error {
+	logger.WithFields(logrus.Fields{
+		"interface": interfaceName,
+		"timeout":   timeout,
+	}).Info("Waiting for IP address...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for IP address on interface %s", interfaceName)
+		case <-ticker.C:
+			// ubus call network.interface.wwan status
+			cmd := exec.Command("ubus", "call", "network.interface."+interfaceName, "status")
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err != nil {
+				logger.WithError(err).Debug("ubus call for IP address failed, retrying...")
+				continue
+			}
+
+			var status map[string]interface{}
+			if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+				logger.WithError(err).Warn("Failed to unmarshal ubus status for IP check")
+				continue
+			}
+
+			// The IPv4 address is nested in the 'ipv4-address' array
+			if ipv4Addrs, ok := status["ipv4-address"].([]interface{}); ok && len(ipv4Addrs) > 0 {
+				if addrMap, ok := ipv4Addrs[0].(map[string]interface{}); ok {
+					if addr, ok := addrMap["address"].(string); ok && addr != "" {
+						logger.WithFields(logrus.Fields{
+							"interface": interfaceName,
+							"ip_address": addr,
+						}).Info("IP address acquired")
+						return nil
+					}
+				}
+			}
+			logger.WithField("interface", interfaceName).Debug("IP address not yet available, still waiting...")
+		}
+	}
 }
 
 // Ensure Connector implements ConnectorInterface

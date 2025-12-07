@@ -1,6 +1,8 @@
 // Package wireless_gateway_manager defines interfaces for dependency injection.
 package wireless_gateway_manager
 
+import "time"
+
 // NetworkEvent represents a network event.
 type NetworkEvent struct {
 	Type      string
@@ -26,6 +28,7 @@ type ConnectorInterface interface {
 	findAvailableSTAInterface(band string) (string, error)
 	waitForInterface(uciInterfaceName string) (string, error)
 	CheckInternetConnectivity() (bool, error)
+	WaitForIPAddress(interfaceName string, timeout time.Duration) error
 }
 
 // ScannerInterface defines the methods for network scanning operations.

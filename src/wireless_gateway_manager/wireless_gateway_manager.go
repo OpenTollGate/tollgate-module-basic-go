@@ -241,8 +241,13 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			// Add a delay to allow for DHCP to complete.
 			// Crowsnest will automatically detect the new interface and gateway via netlink events.
 			// There is no need to manually trigger a scan here.
-			logger.Info("Connection successful, waiting for DHCP...")
-			time.Sleep(5 * time.Second)
+			logger.Info("Connection successful, verifying DHCP lease...")
+			if err := gm.connector.WaitForIPAddress("wwan", 30*time.Second); err != nil {
+				logger.WithError(err).Error("Failed to acquire IP address after connection")
+				// We will let the periodic scan handle the next attempt.
+			} else {
+				logger.Info("Successfully acquired IP address on wwan")
+			}
 		}
 	} else {
 		logger.Info("No available TollGate gateways to connect to")
@@ -367,6 +372,11 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 
 
 func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
+	// Add a cooldown period to allow the OS to fully process the interface down event
+	// before we attempt to reconfigure it. This helps prevent race conditions.
+	logger.Info("Connectivity loss detected, starting cooldown before attempting reconnection...")
+	time.Sleep(5 * time.Second)
+
 	config := gm.configManager.GetConfig()
 	if config.ResellerMode {
 		logger.Info("Reseller mode enabled, performing a full network scan")
@@ -379,7 +389,12 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 		}
 
 		// After reconnecting, Crowsnest will detect the new interface and trigger a scan automatically.
-		logger.Info("Reconnect successful, waiting for DHCP...")
-		time.Sleep(5 * time.Second) // Give DHCP time to work
+		logger.Info("Reconnect successful, verifying DHCP lease...")
+		// Use "wwan" as the interface name, as this is the logical name for the STA connection.
+		if err := gm.connector.WaitForIPAddress("wwan", 30*time.Second); err != nil {
+			logger.WithError(err).Error("Failed to acquire IP address after reconnect")
+		} else {
+			logger.Info("Successfully acquired IP address on wwan after reconnect")
+		}
 	}
 }
