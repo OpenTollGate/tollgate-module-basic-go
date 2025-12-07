@@ -217,6 +217,17 @@ func (nm *networkMonitor) handleAddressUpdate(update netlink.AddrUpdate) {
 	// Get the link for this address update
 	link, err := netlink.LinkByIndex(update.LinkIndex)
 	if err != nil {
+		// This is a race condition: if the link is deleted, we might get an address update
+		// for an index that no longer exists. If the address is being deleted, it's safe
+		// to ignore this, as a link deletion event will follow.
+		if !update.NewAddr {
+			logger.WithFields(logrus.Fields{
+				"link_index": update.LinkIndex,
+				"address":    update.LinkAddress.IP.String(),
+			}).Debug("Ignoring address deletion for a link that is already gone.")
+			return
+		}
+
 		logger.WithFields(logrus.Fields{
 			"link_index": update.LinkIndex,
 			"error":      err,
