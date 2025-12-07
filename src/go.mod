@@ -6,7 +6,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
-	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/relay v0.0.0-00010101000000-000000000000
