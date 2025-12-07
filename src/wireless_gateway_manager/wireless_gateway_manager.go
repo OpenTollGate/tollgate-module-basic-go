@@ -37,7 +37,7 @@ func Init(ctx context.Context, configManager *config_manager.ConfigManager, crow
 	gatewayManager.networkMonitor = networkMonitor
 
 	go gatewayManager.RunPeriodicScan(ctx)
-	gatewayManager.networkMonitor.Start()
+	gatewayManager.networkMonitor.Start(gatewayManager)
 
 	// Set initial price state
 	gatewayManager.updatePriceAndAPSSID()
@@ -65,6 +65,13 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 }
 
 func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
+	gm.scanningMutex.Lock()
+	gm.isScanning = true
+	defer func() {
+		gm.isScanning = false
+		gm.scanningMutex.Unlock()
+	}()
+
 	// Check for internet connectivity before initiating a disruptive scan
 	online, err := gm.connector.CheckInternetConnectivity()
 	if err != nil {

@@ -22,13 +22,14 @@ type Connector struct {
 
 // NetworkMonitor monitors network connectivity and manages AP state.
 type NetworkMonitor struct {
-	connector     ConnectorInterface
-	pingFailures  int
-	pingSuccesses int
-	isInSafeMode  bool
-	ticker        *time.Ticker
-	stopChan      chan struct{}
-	forceScanChan chan struct{}
+	gatewayManager *GatewayManager
+	connector      ConnectorInterface
+	pingFailures   int
+	pingSuccesses  int
+	isInSafeMode   bool
+	ticker         *time.Ticker
+	stopChan       chan struct{}
+	forceScanChan  chan struct{}
 }
 
 // Scanner handles Wi-Fi network scanning.
@@ -73,6 +74,8 @@ type GatewayManager struct {
 	configManager     *config_manager.ConfigManager
 	crowsnest         crowsnest.Crowsnest
 	mu                sync.RWMutex
+	scanningMutex     sync.Mutex
+	isScanning        bool
 	availableGateways map[string]Gateway
 	currentHopCount   int
 	scanInterval      time.Duration

@@ -15,7 +15,8 @@ func NewNetworkMonitor(connector ConnectorInterface, forceScanChan chan struct{}
 	}
 }
 
-func (nm *NetworkMonitor) Start() {
+func (nm *NetworkMonitor) Start(gatewayManager *GatewayManager) {
+	nm.gatewayManager = gatewayManager
 	logger.Info("Starting network monitor")
 	go func() {
 		for {
@@ -36,6 +37,15 @@ func (nm *NetworkMonitor) Stop() {
 }
 
 func (nm *NetworkMonitor) checkConnectivity() {
+	nm.gatewayManager.scanningMutex.Lock()
+	isScanning := nm.gatewayManager.isScanning
+	nm.gatewayManager.scanningMutex.Unlock()
+
+	if isScanning {
+		logger.Info("Gateway scan in progress, skipping connectivity check.")
+		return
+	}
+
 	online, err := nm.connector.CheckInternetConnectivity()
 	if err != nil {
 		// Log the error from the check itself, but still treat it as a failure.

@@ -39,7 +39,7 @@ type ScannerInterface interface {
 
 // NetworkMonitorInterface defines the methods for network monitoring operations.
 type NetworkMonitorInterface interface {
-	Start()
+	Start(gatewayManager *GatewayManager)
 	Stop()
 	IsConnected() bool
 }
