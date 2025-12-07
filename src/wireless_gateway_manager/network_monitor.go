@@ -46,7 +46,7 @@ func (nm *NetworkMonitor) checkConnectivity() {
 		return
 	}
 
-	if time.Since(nm.gatewayManager.lastConnectionAttempt) < 60*time.Second {
+	if time.Since(nm.gatewayManager.lastConnectionAttempt) < 120*time.Second {
 		logger.Info("In grace period after connection attempt, skipping connectivity check.")
 		return
 	}
@@ -79,7 +79,6 @@ func (nm *NetworkMonitor) checkConnectivity() {
 func (nm *NetworkMonitor) IsConnected() bool {
 	return nm.pingSuccesses > 0
 }
-
 
 // Ensure NetworkMonitor implements NetworkMonitorInterface
 var _ NetworkMonitorInterface = (*NetworkMonitor)(nil)

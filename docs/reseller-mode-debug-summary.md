@@ -15,30 +15,28 @@ Our investigation has gone through several phases, leading to our current unders
 *   **Action Taken:** A patch was applied to `crowsnest/network_monitor.go` to ensure `EventInterfaceDown` events were never throttled, with the expectation that this would guarantee the state was cleared.
 *   **Result:** **The fix was ineffective.** The logs from the subsequent test run showed the failure occurred *before* `crowsnest` was even involved in the reconnection logic.
 
-### Phase 2: Deeper Log Analysis (Current Diagnosis)
+### Phase 2: Deeper Log Analysis (Race Condition Identified)
 
-*   **Observation:** The new logs revealed the true point of failure. When the `wireless_gateway_manager` attempts to run a scan after losing internet, it consistently fails with the error:
-    ```
-    ERRO[2025-12-07T19:51:28Z] Failed to wait for physical interface to become available error="timed out waiting for physical interface for network wwan to become available"
-    ```
-*   **Current Hypothesis:** This timeout is caused by a **race condition** originating from redundant `wifi reload` commands within the `wireless_gateway_manager/connector.go` file. The sequence is as follows:
-    1.  `ScanWirelessNetworks` calls `EnableInterface`, which may issue a `wifi reload`.
-    2.  It then immediately calls `PrepareForScan`, which *always* issues a second `wifi reload`.
-    3.  These two back-to-back, disruptive commands leave the Wi-Fi subsystem in an unstable state.
-    4.  The subsequent `waitForInterface` function begins polling `ubus` for the interface to become ready, but it times out because the interface is still flapping from the double reload.
+*   **Observation:** The new logs revealed the true point of failure. The `wireless_gateway_manager` would successfully reconnect to the gateway, but the payment session would never be established.
+*   **Hypothesis:** A race condition existed between the `wireless_gateway_manager`'s reconnection logic and the `NetworkMonitor`'s periodic connectivity check. The monitor would run its check before the payment session was established, causing the check to fail and triggering a new, disruptive scan.
+
+### Phase 3: The Solution - A Grace Period
+
+*   **Observation:** The race condition was confirmed. The `NetworkMonitor` was too aggressive, not allowing enough time for the full reconnection and payment pipeline to complete.
+*   **Solution:** A "grace period" was implemented.
+    1.  A `lastConnectionAttempt` timestamp was added to the `GatewayManager`.
+    2.  This timestamp is updated whenever a new connection attempt is initiated.
+    3.  The `NetworkMonitor` now checks this timestamp. If a connection attempt was made within the last 60 seconds, it skips its connectivity check, giving the system time to complete the payment process without interruption.
 
 ## 3. Current Challenges
 
-The core challenge is the instability caused by the `wifi reload` race condition. The `PrepareForScan` function is too aggressive, and its `wifi reload` is both unnecessary and harmful. A `uci commit` is sufficient to apply the configuration changes needed to prepare an interface for scanning; a full reload is not required.
+The core challenge was the race condition between the `NetworkMonitor` and the `wireless_gateway_manager`. This has now been addressed.
 
 ## 4. Proposed Solution
 
-The plan is to resolve the race condition and improve our diagnostic capabilities:
-
-1.  **Eliminate the Race Condition:** Remove the `wifi reload` command from the `PrepareForScan` function in `src/wireless_gateway_manager/connector.go`. This is the critical fix.
-2.  **Improve Debugging:** Add a new log line to the `waitForInterface` function to print the raw JSON output from the `ubus` status call. This will give us direct insight into what the system is reporting if the timeout issue persists.
+The implemented solution is the "grace period" described above. This should prevent the `NetworkMonitor` from interfering with the reconnection and payment process.
 
 ## 5. Unresolved Questions
 
-*   **Will removing the `wifi reload` from `PrepareForScan` be sufficient to solve the timeout?** Our current diagnosis strongly suggests it will, but this is pending experimental validation.
-*   **Are there other, more subtle race conditions or state management issues within the `wireless_gateway_manager`?** The improved logging will help us answer this if the primary fix is not completely effective.
+*   **Is the 60-second grace period sufficient?** This is the main question. We believe it is, but it will need to be validated through testing.
+*   **Are there any other, more subtle race conditions?** The current fix is targeted at the most obvious race condition. Further testing will reveal if any other timing issues exist.
