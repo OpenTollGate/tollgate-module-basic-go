@@ -72,6 +72,12 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		gm.scanningMutex.Unlock()
 	}()
 
+	// Honor the grace period before initiating any checks.
+	if time.Since(gm.lastConnectionAttempt) < 120*time.Second {
+		logger.Info("In grace period after connection attempt, skipping scan.")
+		return
+	}
+
 	// Check for internet connectivity before initiating a disruptive scan
 	online, err := gm.connector.CheckInternetConnectivity()
 	if err != nil {
