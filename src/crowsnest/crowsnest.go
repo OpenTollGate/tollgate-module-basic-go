@@ -230,6 +230,7 @@ func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
 
 	// Clear discovery attempts for this interface (including successful ones)
 	// This allows re-discovery when the interface comes back up
+	logger.WithField("interface", event.InterfaceName).Info("Clearing discovery tracker for down interface.")
 	cs.discoveryTracker.ClearInterface(event.InterfaceName)
 
 	// Notify chandler of disconnect
