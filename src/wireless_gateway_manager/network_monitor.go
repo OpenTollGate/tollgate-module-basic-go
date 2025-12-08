@@ -6,7 +6,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const pingFailureThreshold = 4
+const pingFailureThreshold = 8
 
 func NewNetworkMonitor(connector ConnectorInterface, forceScanChan, resetChan chan struct{}) *NetworkMonitor {
 	return &NetworkMonitor{
