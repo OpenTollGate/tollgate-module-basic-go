@@ -39,6 +39,7 @@ graph TD
 
     E -- Manages Session & Payments with --> H
     E -- Uses --> F
+    E -.-> C: Signals Reset
 ```
 
 ## Detailed Sequence Diagram
@@ -53,7 +54,7 @@ sequenceDiagram
     participant Chandler
     participant Gateway as Upstream TollGate Gateway
 
-    OS->>+Crowsnest: Hotplug event (e.g., ifup/ifdown)
+    OS->>+Crowsnest: Hotplug event (e.g., ifup)
     Crowsnest->>Crowsnest: Start Scan for TollGate advertisements
     Crowsnest->>Gateway: Probe for TollGate advertisement (HTTP request)
     Gateway-->>Crowsnest: Return TollGate advertisement
@@ -62,6 +63,9 @@ sequenceDiagram
     Chandler->>Gateway: Send payment (Cashu tokens)
     Gateway-->>Chandler: Return session token (proof of payment)
     Chandler->>Chandler: Start session monitoring
+    Chandler-->>NM: Send reset signal on resetChan
+
+    NM->>NM: Reset consecutiveFailures counter
 
     loop Connectivity Check
         NM->>Gateway: Check internet connectivity (e.g., ping 8.8.8.8)
@@ -72,3 +76,4 @@ sequenceDiagram
             NM->>WGM: Trigger force scan after threshold
         end
     end
+```

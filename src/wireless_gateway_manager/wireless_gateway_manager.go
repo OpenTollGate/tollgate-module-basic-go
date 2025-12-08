@@ -16,7 +16,7 @@ import (
 )
 
 // Init initializes the GatewayManager and starts its background scanning routine.
-func Init(ctx context.Context, configManager *config_manager.ConfigManager, crowsnest crowsnest.Crowsnest) (*GatewayManager, error) {
+func Init(ctx context.Context, configManager *config_manager.ConfigManager, crowsnest crowsnest.Crowsnest, resetChan chan struct{}) (*GatewayManager, error) {
 	connector := &Connector{}
 	scanner := &Scanner{connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
@@ -33,7 +33,7 @@ func Init(ctx context.Context, configManager *config_manager.ConfigManager, crow
 		forceScanChan:     make(chan struct{}, 1), // Buffered channel
 	}
 
-	networkMonitor := NewNetworkMonitor(connector, gatewayManager.forceScanChan)
+	networkMonitor := NewNetworkMonitor(connector, gatewayManager.forceScanChan, resetChan)
 	gatewayManager.networkMonitor = networkMonitor
 
 	go gatewayManager.RunPeriodicScan(ctx)

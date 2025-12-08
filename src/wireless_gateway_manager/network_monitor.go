@@ -8,12 +8,13 @@ import (
 
 const pingFailureThreshold = 4
 
-func NewNetworkMonitor(connector ConnectorInterface, forceScanChan chan struct{}) *NetworkMonitor {
+func NewNetworkMonitor(connector ConnectorInterface, forceScanChan, resetChan chan struct{}) *NetworkMonitor {
 	return &NetworkMonitor{
 		connector:     connector,
 		ticker:        time.NewTicker(30 * time.Second),
 		stopChan:      make(chan struct{}),
 		forceScanChan: forceScanChan,
+		resetChan:     resetChan,
 	}
 }
 
@@ -28,6 +29,8 @@ func (nm *NetworkMonitor) Start(gatewayManager *GatewayManager) {
 			case <-nm.stopChan:
 				nm.ticker.Stop()
 				return
+			case <-nm.resetChan:
+				nm.ResetConnectivityCounters()
 			}
 		}
 	}()

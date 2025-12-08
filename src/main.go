@@ -96,7 +96,8 @@ func init() {
 		mainLogger.WithError(err).Fatal("Failed to create crowsnest instance")
 	}
 
-	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager, crowsnestInstance)
+	resetChan := make(chan struct{})
+	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager, crowsnestInstance, resetChan)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to initialize gateway manager")
 	}
@@ -126,7 +127,7 @@ func init() {
 	initPrivateRelay()
 
 	// Initialize crowsnest module
-	initCrowsnest()
+	initCrowsnest(resetChan)
 }
 
 func initJanitor() {
@@ -144,9 +145,9 @@ func initPrivateRelay() {
 	mainLogger.Info("Private relay initialization started")
 }
 
-func initCrowsnest() {
+func initCrowsnest(resetChan chan struct{}) {
 	// Create and set chandler instance
-	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance)
+	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance, resetChan)
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create chandler instance")
 	}

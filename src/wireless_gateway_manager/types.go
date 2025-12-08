@@ -30,6 +30,7 @@ type NetworkMonitor struct {
 	ticker         *time.Ticker
 	stopChan       chan struct{}
 	forceScanChan  chan struct{}
+	resetChan      chan struct{}
 }
 
 // Scanner handles Wi-Fi network scanning.

@@ -26,10 +26,11 @@ type Chandler struct {
 	merchant      merchant.MerchantInterface
 	sessions      map[string]*ChandlerSession // keyed by upstream pubkey
 	mu            sync.RWMutex
+	resetChan     chan struct{}
 }
 
 // NewChandler creates a new chandler instance
-func NewChandler(configManager *config_manager.ConfigManager, merchantImpl merchant.MerchantInterface) (ChandlerInterface, error) {
+func NewChandler(configManager *config_manager.ConfigManager, merchantImpl merchant.MerchantInterface, resetChan chan struct{}) (ChandlerInterface, error) {
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -39,6 +40,7 @@ func NewChandler(configManager *config_manager.ConfigManager, merchantImpl merch
 		configManager: configManager,
 		merchant:      merchantImpl,
 		sessions:      make(map[string]*ChandlerSession),
+		resetChan:     resetChan,
 	}
 
 	logger.Info("Chandler initialized successfully")
@@ -289,6 +291,9 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		"metric":          adInfo.Metric,
 		"amount_spent":    session.TotalSpent,
 	}).Info("✅ CONNECTED: Session created successfully with upstream TollGate")
+
+	// Notify network monitor to reset its counters
+	c.resetChan <- struct{}{}
 
 	// Also log advertisement details
 	if upstream.Advertisement != nil {
