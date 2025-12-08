@@ -28,7 +28,6 @@ graph TD
     G --> E
     G --> F
 
-    A -- Triggers --> B
     A -- Triggers --> D
 
     B -- Contains --> C
@@ -54,16 +53,8 @@ sequenceDiagram
     participant Chandler
     participant Gateway as Upstream TollGate Gateway
 
-    OS->>+WGM: Hotplug event (e.g., ifup/ifdown)
-    WGM->>WGM: Start Scan for Wi-Fi Networks
-    WGM-->>Gateway: Scans Wi-Fi signals
-    Gateway-->>WGM: Responds with SSID, signal strength
-    WGM->>WGM: Selects best TollGate Gateway
-    WGM->>OS: Request to connect to Gateway's Wi-Fi
-    OS-->>Gateway: Wi-Fi Association
-    Gateway-->>OS: Wi-Fi Associated
-    OS-->>Client: Network interface is up
-
+    OS->>+Crowsnest: Hotplug event (e.g., ifup/ifdown)
+    Crowsnest->>Crowsnest: Start Scan for TollGate advertisements
     Crowsnest->>Gateway: Probe for TollGate advertisement (HTTP request)
     Gateway-->>Crowsnest: Return TollGate advertisement
     Crowsnest->>Chandler: Forward advertisement
