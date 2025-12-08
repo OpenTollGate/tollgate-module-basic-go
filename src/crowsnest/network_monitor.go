@@ -140,6 +140,10 @@ func (nm *networkMonitor) monitorAddressChanges() {
 
 // handleLinkUpdate processes a network link update
 func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
+	logger.WithFields(logrus.Fields{
+		"iface_name": update.Link.Attrs().Name,
+		"is_up":      update.Flags&net.FlagUp != 0,
+	}).Debug("Netlink: Received Link Update")
 	link := update.Link
 	if link == nil {
 		return
@@ -214,6 +218,11 @@ func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
 
 // handleAddressUpdate processes an IP address update
 func (nm *networkMonitor) handleAddressUpdate(update netlink.AddrUpdate) {
+	logger.WithFields(logrus.Fields{
+		"address":   update.LinkAddress.IP.String(),
+		"new_addr":  update.NewAddr,
+		"linkIndex": update.LinkIndex,
+	}).Debug("Netlink: Received Address Update")
 	// Get the link for this address update
 	link, err := netlink.LinkByIndex(update.LinkIndex)
 	if err != nil {
@@ -507,9 +516,26 @@ func (nm *networkMonitor) sendEvent(event NetworkEvent) {
 	minInterval := 2 * time.Second // Configurable throttling interval
 	if event.Type != EventInterfaceDown && event.Type != EventAddressDeleted && exists && now.Sub(lastTime) < minInterval {
 		nm.eventMutex.Unlock()
+		logger.WithFields(logrus.Fields{
+			"event_type":    event.Type,
+			"interface":     event.InterfaceName,
+			"min_interval":  minInterval,
+			"time_since":    now.Sub(lastTime),
+			"decision":      "throttled",
+			"event_key":     eventKey,
+			"last_event_at": lastTime,
+		}).Debug("sendEvent: Throttling event")
 		// Skip this event - too soon since last one
 		return
 	}
+	logger.WithFields(logrus.Fields{
+		"event_type":    event.Type,
+		"interface":     event.InterfaceName,
+		"min_interval":  minInterval,
+		"decision":      "sent",
+		"event_key":     eventKey,
+		"last_event_at": lastTime,
+	}).Debug("sendEvent: Sending event")
 
 	// Update last event time
 	nm.lastEventTime[eventKey] = now

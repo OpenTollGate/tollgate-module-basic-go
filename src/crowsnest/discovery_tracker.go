@@ -69,12 +69,19 @@ func (dt *simpleDiscoveryTracker) ClearInterface(interfaceName string) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
+	logger.WithField("interface", interfaceName).Info("DiscoveryTracker: Clearing all discovery attempts for interface")
 	// Remove all attempts for this interface
+	deletedCount := 0
 	for key, attempt := range dt.lastAttempts {
 		if attempt.InterfaceName == interfaceName {
 			delete(dt.lastAttempts, key)
+			deletedCount++
 		}
 	}
+	logger.WithFields(logrus.Fields{
+		"interface":     interfaceName,
+		"deleted_count": deletedCount,
+	}).Info("DiscoveryTracker: Finished clearing interface")
 }
 
 // Cleanup clears all recorded attempts

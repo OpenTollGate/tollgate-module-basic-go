@@ -223,14 +223,16 @@ func (cs *crowsnest) handleInterfaceUp(event NetworkEvent) {
 
 // handleInterfaceDown handles interface down events
 func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
-	logger.WithField("interface", event.InterfaceName).Info("Interface is down - cleaning up and notifying chandler")
+	logger.WithFields(logrus.Fields{
+		"interface":   event.InterfaceName,
+		"mac_address": event.InterfaceInfo.MacAddress,
+	}).Info("Interface is down - clearing state and notifying chandler")
 
 	// Cancel any active probes for this interface
 	cs.tollGateProber.CancelProbesForInterface(event.InterfaceName)
 
 	// Clear discovery attempts for this interface (including successful ones)
-	// This allows re-discovery when the interface comes back up
-	logger.WithField("interface", event.InterfaceName).Info("Clearing discovery tracker for down interface.")
+	// This is now redundant since handleAddressDeleted will also be called, but it's safe to keep.
 	cs.discoveryTracker.ClearInterface(event.InterfaceName)
 
 	// Notify chandler of disconnect
@@ -261,7 +263,10 @@ func (cs *crowsnest) handleAddressAdded(event NetworkEvent) {
 
 // handleAddressDeleted handles address deleted events
 func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
-	logger.WithField("interface", event.InterfaceName).Debug("Address deleted from interface - checking for TollGate disconnection")
+	logger.WithFields(logrus.Fields{
+		"interface":   event.InterfaceName,
+		"mac_address": event.InterfaceInfo.MacAddress,
+	}).Info("Address deleted from interface - clearing state and notifying chandler")
 
 	// When an address is deleted, this might indicate a disconnection
 	// Check if we had a successful TollGate connection on this interface
