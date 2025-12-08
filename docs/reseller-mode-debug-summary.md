@@ -1,35 +1,57 @@
-# Reseller Mode Automatic Reconnection: Debugging Summary
+# Tollgate-WRT Control Flow Diagram
 
-## 1. Goal
+This diagram illustrates the different logic paths for handling network events in `tollgate-wrt`, contrasting the standard (gateway) mode with the reseller (client) mode.
 
-The primary objective is to ensure a "customer" router running `tollgate-wrt` in reseller mode can automatically recover its internet connection and resume micropayments after its upstream "gateway" router is power-cycled. Initially, the customer router would reconnect to the gateway's Wi-Fi but fail to re-establish a payment session, getting stuck in a reconnection loop.
+```mermaid
+graph TD
+    subgraph "System Events"
+        A[Interface Event e.g., ifup/ifdown wwan]
+    end
 
-## 2. Debugging Journey & Final Solution
+    A --> B{OpenWrt Hotplug};
 
-Our investigation was a multi-stage process of peeling back layers of race conditions and incorrect assumptions.
+    subgraph "Hotplug Scripts"
+        B --> C[95-tollgate-restart];
+        B --> D[96-tollgate-scan];
+    end
 
-### Phase 1: The Grace Period (First Attempt)
+    subgraph "tollgate-wrt Daemon"
+        E[Wireless Gateway Manager]
+        F[Network Monitor]
+        G[Crowsnest Prober/Scanner]
+        H[Chandler Session Manager]
+    end
 
-*   **Observation:** The `NetworkMonitor`'s aggressive connectivity checks were interfering with the reconnection process. It would declare the connection failed before the payment session could be established, triggering a disruptive new scan.
-*   **Hypothesis:** A race condition existed between the `wireless_gateway_manager`'s reconnection logic and the `NetworkMonitor`'s periodic checks.
-*   **Action Taken:** A "grace period" was implemented. A `lastConnectionAttempt` timestamp was added to the `GatewayManager`. The `NetworkMonitor` was modified to skip its check if a connection had been attempted within the last 120 seconds.
-*   **Result:** **Partially successful, but ultimately a failure.** The fix worked for the *first* power cycle, but subsequent power cycles still resulted in a reconnection loop.
+    C --> I{Reseller Mode Enabled?};
+    I -- No --> J[Check Internet, Restart Service];
+    I -- Yes --> K[Exit Script];
 
-### Phase 2: The Second Race Condition (Second Attempt)
+    D --> L{Reseller Mode Enabled?};
+    L -- No --> M[Trigger Crowsnest Scan];
+    L -- Yes --> N[Exit Script];
 
-*   **Observation:** Logs showed two contradictory messages in the same second: "In grace period... skipping connectivity check" and "Internet connectivity check failed".
-*   **Hypothesis:** Two different parts of the code were checking for connectivity, but only one was respecting the new grace period.
-*   **Action Taken:** A `grep` search confirmed a second, unguarded call to `CheckInternetConnectivity()` inside the main `ScanWirelessNetworks` function. The grace period logic was added to this function as well.
-*   **Result:** **Still a failure.** The behavior remained the same: success on the first power cycle, failure on all subsequent ones. This proved we were still missing the true root cause.
+    A -- Notifies Kernel --> F;
+    F -- Connectivity Lost --> E;
+    E -- Start Scan --> G;
+    G -- Finds Gateways --> E;
+    E -- Selects & Connects --> G;
+    G -- Probes & Auth Captive Portal --> H;
+    H -- Starts Payment Session --> E;
+    E -- Confirms Connection --> F;
 
-### Phase 3: The Real Root Cause & The Final Fix
+    style J fill:#f9f,stroke:#333,stroke-width:2px
+    style M fill:#f9f,stroke:#333,stroke-width:2px
+    style K fill:#9cf,stroke:#333,stroke-width:2px
+    style N fill:#9cf,stroke:#333,stroke-width:2px
+```
 
-*   **Observation:** A deep analysis of the logs from the failed second power cycle revealed the true, subtle flaw. The `NetworkMonitor` was triggering a forced scan immediately after the grace period ended, even after a successful reconnection.
-*   **Hypothesis:** The `NetworkMonitor`'s `pingFailures` counter was not being reset correctly. It was only reset on a *successful ping*. Since no pings occur during the grace period, the failure count from before the reconnection was never cleared. After the grace period, the first legitimate failed ping (due to the next power cycle) would increment the stale counter, immediately hitting the failure threshold and triggering the loop.
-*   **The Final Solution:**
-    1.  A new method, `ResetConnectivityCounters()`, was added to the `NetworkMonitor` interface and implementation. This method explicitly resets both `pingFailures` and `pingSuccesses` to zero.
-    2.  The `GatewayManager` now calls `networkMonitor.ResetConnectivityCounters()` immediately after it confirms a new connection is fully established (i.e., a default route is active).
+## Analysis of Current Issue
 
-## 3. Current Status
+The logs show a race condition:
+1.  The `wwan` interface comes up (`ifup`).
+2.  The `tollgate-wrt` daemon's `Wireless Gateway Manager` begins its complex process: connect, get IP, get route, probe gateway, **trigger captive portal**, and start payment.
+3.  Simultaneously, the `95-tollgate-restart` hotplug script is triggered. It does **not** currently check for reseller mode. It waits 5 seconds and runs its own simple `ping 8.8.8.8` check.
+4.  This ping check happens *before* the daemon has completed the captive portal authorization. The ping fails, and the script logs `WAN up but no connectivity...`.
+5.  The daemon, unaware of the script's failure, successfully completes its process and establishes a payment session. However, other services that might depend on the hotplug script are not correctly notified/restarted.
 
-The final fix is implemented. By ensuring the `NetworkMonitor`'s state is reset after every successful connection, we have eliminated the stale failure count that was causing the reconnection loop. The system is now believed to be robust against multiple, consecutive power cycles of the upstream gateway. The next step is to compile and deploy this final version for verification.
+The core issue is that `95-tollgate-restart` is interfering with the `Wireless Gateway Manager`, which should have sole authority over the `wwan` interface in reseller mode.
