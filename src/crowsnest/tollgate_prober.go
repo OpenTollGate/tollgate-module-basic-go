@@ -244,8 +244,19 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 	}
 	defer resp.Body.Close()
 
-	// Read and discard response body (we don't need the content)
-	_, _ = io.ReadAll(resp.Body)
+	// Read the response body for more detailed logging
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		logger.WithError(readErr).WithField("gateway_ip", gatewayIP).Warn("Failed to read captive portal response body")
+	}
+
+	// Log detailed response information
+	logger.WithFields(logrus.Fields{
+		"gateway_ip":  gatewayIP,
+		"status_code": resp.StatusCode,
+		"headers":     resp.Header,
+		"body":        string(body),
+	}).Info("Full response from captive portal trigger")
 
 	logger.WithFields(logrus.Fields{
 		"gateway_ip":   gatewayIP,
