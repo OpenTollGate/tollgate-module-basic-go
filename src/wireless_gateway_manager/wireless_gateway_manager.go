@@ -411,8 +411,10 @@ func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
 
 	config := gm.configManager.GetConfig()
 	if config.ResellerMode {
-		logger.Info("Reseller mode enabled, performing a full network scan")
-		gm.ScanWirelessNetworks(ctx)
+		// In reseller mode, we no longer trigger the scan from here.
+		// We rely on the hotplug script (96-tollgate-scan) to call `tollgate-cli network scan`,
+		// which will send the results to the daemon via the unix socket.
+		logger.Info("Reseller mode enabled. Waiting for hotplug script to trigger network scan.")
 	} else {
 		logger.Info("Reseller mode disabled, attempting to reconnect to the current network")
 		if err := gm.connector.Reconnect(); err != nil {

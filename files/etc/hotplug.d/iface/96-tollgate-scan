@@ -54,10 +54,10 @@ if [ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wwan" ]; then
     fi
     
     # Trigger a network scan via the CLI
-    logger -t "tollgate-hotplug-scan" "Executing tollgate-cli network scan..."
-    /usr/bin/tollgate-cli network scan
+    logger -t "tollgate-hotplug-scan" "Executing tollgate network scan..."
+    /usr/bin/tollgate network scan
     SCAN_EXIT_CODE=$?
-    logger -t "tollgate-hotplug-scan" "tollgate-cli network scan finished with exit code: $SCAN_EXIT_CODE"
+    logger -t "tollgate-hotplug-scan" "tollgate network scan finished with exit code: $SCAN_EXIT_CODE"
 else
     logger -t "tollgate-hotplug-scan" "No match for INTERFACE '$INTERFACE'."
     exit 0
