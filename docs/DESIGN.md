@@ -45,3 +45,28 @@ graph TD
 4.  **Modify the `ScanWirelessNetworks` function in `wireless_gateway_manager.go` to call `crowsnest.ScanInterface` after a successful connection.** This will trigger the discovery and payment flow.
 
 5.  **Implement the `ScanInterface` function in `crowsnest.go`.** This function will perform a scan on the specified interface and hand off any discovered TollGates to the `chandler` module.
+
+## 4. State Synchronization with `resetChan`
+
+### 4.1. Problem
+
+A reconnection loop was caused by the `NetworkMonitor` being unaware of successful reconnections initiated by a separate, hotplug-driven flow. The `NetworkMonitor` would continue to see the connection as down and trigger disruptive scans, even after the `chandler` had successfully re-established a session.
+
+### 4.2. Solution
+
+A Go channel, `resetChan`, was introduced to create a direct communication path between the `chandler` (which confirms the connection) and the `NetworkMonitor` (which monitors it).
+
+#### How it Works:
+
+1.  **Signal on Success:** When the `chandler` successfully purchases a new session, it sends a signal on `resetChan`.
+2.  **Reset Counters:** The `NetworkMonitor`, which is listening on this channel, receives the signal and immediately calls the `ResetConnectivityCounters()` function. This resets its internal `pingFailures` and `pingSuccesses` counters to zero.
+
+This ensures the `NetworkMonitor`'s state is synchronized with the actual connection status, preventing it from acting on stale failure data.
+
+#### Subsequent Connection Loss:
+
+If the connection is lost again after a successful reset, the `NetworkMonitor` will function as intended:
+- It will start incrementing the `pingFailures` counter from zero.
+- Once the failure threshold is met, it will trigger a new recovery scan.
+
+This change ensures the system is resilient and only triggers recovery actions when genuinely needed.
