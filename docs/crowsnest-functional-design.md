@@ -480,6 +480,14 @@ type ChandlerInterface interface {
 4. **Testing**: Implement comprehensive test coverage before integration
 5. **Documentation**: Maintain both technical and operational documentation
 
+### Event Throttling and State Management
+
+The `network_monitor` component of `crowsnest` implements event throttling to prevent event spam, especially during network flaps. However, a critical implementation detail is that `EventInterfaceDown` and `EventAddressDeleted` events must **never** be throttled.
+
+- **Problem**: The initial implementation of the event throttling mechanism correctly exempted `EventInterfaceDown` but failed to do the same for `EventAddressDeleted`. When an upstream gateway disconnects, the client's interface loses its IP address, which generates an `EventAddressDeleted` event. If this event was throttled, `crowsnest` would not be notified of the disconnection.
+- **Impact**: This caused a severe state desynchronization issue. The `discoveryTracker` would retain a stale record of a successful connection, and the `chandler` would not be notified to clean up the old session. When the gateway came back online, `crowsnest` would see the stale "successful" discovery and refuse to re-initiate a connection, leaving the `chandler` in a broken, idle state.
+- **Solution**: The fix was to modify the throttling logic to also exempt `EventAddressDeleted` events from being throttled. This ensures that critical disconnection events are always processed, allowing for proper state cleanup and enabling the client to reliably reconnect to the gateway after a power cycle or other network interruption.
+
 ## Conclusion
 
 The Crowsnest module provides a focused, single-responsibility component for network monitoring and upstream TollGate discovery. By cleanly separating discovery from management, it creates a clear interface with the Chandler module while maintaining the robustness required for reliable network monitoring.
