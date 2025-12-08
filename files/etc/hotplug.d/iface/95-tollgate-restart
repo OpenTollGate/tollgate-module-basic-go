@@ -9,14 +9,6 @@ logger "DEBUG tollgate-wrt hotplug: ACTION='$ACTION', INTERFACE='$INTERFACE', DE
 
 [ "$ACTION" = "ifup" ] || exit 0
 
-# Check if reseller_mode is enabled. If so, exit immediately.
-# The wireless_gateway_manager is responsible for all wwan interface handling.
-reseller_mode=$(jsonfilter -e '@.reseller_mode' < /etc/tollgate/config.json 2>/dev/null)
-if [ "$reseller_mode" = "true" ]; then
-    logger "DEBUG tollgate-wrt hotplug: Reseller mode enabled, 95-tollgate-restart exiting."
-    exit 0
-fi
-
 # Get the actual device name for the 'wan' logical interface
 WAN_DEVICE=$(uci get network.wan.device 2>/dev/null)
 

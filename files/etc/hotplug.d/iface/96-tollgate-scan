@@ -8,13 +8,8 @@ logger -t "tollgate-hotplug-scan" "Executing 96-tollgate-scan script. ACTION: $A
 
 [ "$ACTION" = "ifup" ] || exit 0
 
-# Check if reseller_mode is enabled. If so, exit immediately.
-# The wireless_gateway_manager is responsible for scanning in reseller mode.
-reseller_mode=$(jsonfilter -e '@.reseller_mode' < /etc/tollgate/config.json)
-if [ "$reseller_mode" = "true" ]; then
-    logger -t "tollgate-hotplug-scan" "Reseller mode is enabled. Exiting hotplug script."
-    exit 0
-fi
+# This script now runs in all modes. The tollgate-cli will handle
+# the distinction between a reseller scan and a standard scan.
 
 # Check if the interface is 'wan' or 'wwan'
 if [ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wwan" ]; then

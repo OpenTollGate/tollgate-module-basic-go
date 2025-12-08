@@ -275,10 +275,8 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 						} else {
 							logger.Info("Default route is active. Network is fully up.")
 							gm.networkMonitor.ResetConnectivityCounters()
-							// Explicitly trigger a crowsnest scan on the new interface to ensure
-							// the payment session is established.
-							logger.WithField("interface", physicalInterface).Info("Triggering Crowsnest scan on new interface.")
-							gm.crowsnest.ScanInterface(physicalInterface)
+							// The hotplug script is now responsible for triggering the scan.
+							// No manual trigger is needed here.
 						}
 					}
 				}
