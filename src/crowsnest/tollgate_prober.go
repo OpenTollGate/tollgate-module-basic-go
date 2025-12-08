@@ -95,19 +95,15 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 
 			// TEMPORARY WORKAROUND: Trigger captive portal session after successful probe
 			// This ensures ndsctl creates a client session for our device
-			// TEMPORARY WORKAROUND: Trigger captive portal session after successful probe
-			// This ensures ndsctl creates a client session for our device
-			err := tp.TriggerCaptivePortalSession(ctx, gatewayIP)
-			if err != nil {
-				// Treat captive portal failure as a critical error for the probe
-				lastErr = fmt.Errorf("captive portal trigger failed: %w", err)
-				logger.WithFields(logrus.Fields{
-					"gateway": gatewayIP,
-					"attempt": attempt + 1,
-					"error":   lastErr,
-				}).Warn("Probe attempt failed due to captive portal trigger failure")
-				continue // Continue to the next retry attempt
-			}
+			go func() {
+				err := tp.TriggerCaptivePortalSession(ctx, gatewayIP)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"gateway": gatewayIP,
+						"error":   err,
+					}).Debug("Captive portal trigger failed (non-critical)")
+				}
+			}()
 
 			return data, nil
 		}
@@ -239,9 +235,12 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 	// Perform the request
 	resp, err := captiveClient.Do(req)
 	if err != nil {
-		// Return the error so the caller can decide how to handle it.
-		// This is no longer a non-critical failure.
-		return fmt.Errorf("captive portal request failed: %w", err)
+		logger.WithFields(logrus.Fields{
+			"gateway_ip": gatewayIP,
+			"error":      err,
+		}).Warn("Captive portal request failed (this is expected and non-critical)")
+		// Don't return error - this is a best-effort attempt
+		return nil
 	}
 	defer resp.Body.Close()
 
