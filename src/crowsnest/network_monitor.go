@@ -503,9 +503,9 @@ func (nm *networkMonitor) sendEvent(event NetworkEvent) {
 	now := time.Now()
 
 	// Only send if enough time has passed since last event of this type.
-	// CRITICAL: Do NOT throttle InterfaceDown events, as they are essential for state clearing.
+	// CRITICAL: Do NOT throttle InterfaceDown or AddressDeleted events, as they are essential for state clearing.
 	minInterval := 2 * time.Second // Configurable throttling interval
-	if event.Type != EventInterfaceDown && exists && now.Sub(lastTime) < minInterval {
+	if event.Type != EventInterfaceDown && event.Type != EventAddressDeleted && exists && now.Sub(lastTime) < minInterval {
 		nm.eventMutex.Unlock()
 		// Skip this event - too soon since last one
 		return
