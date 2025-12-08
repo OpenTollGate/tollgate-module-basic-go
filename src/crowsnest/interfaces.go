@@ -26,7 +26,7 @@ type NetworkMonitor interface {
 
 // TollGateProber defines the interface for probing TollGate advertisements
 type TollGateProber interface {
-	ProbeGatewayWithContext(ctx context.Context, interfaceName, gatewayIP string) ([]byte, error)
+	ProbeGatewayWithContext(ctx context.Context, cancel context.CancelFunc, interfaceName, gatewayIP string) ([]byte, error)
 	CancelProbesForInterface(interfaceName string)
 	TriggerCaptivePortalSession(ctx context.Context, gatewayIP string) error
 }
