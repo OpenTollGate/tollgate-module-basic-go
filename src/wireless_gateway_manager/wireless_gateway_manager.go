@@ -52,6 +52,9 @@ func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
 		select {
 		case <-gm.forceScanChan:
 			logger.Info("NetworkMonitor detected persistent connectivity loss. Forcing a Wi-Fi gateway scan.")
+			logger.WithFields(logrus.Fields{
+				"isScanning": gm.isScanning,
+			}).Info("Forcing gateway scan")
 			gm.ScanWirelessNetworks(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
@@ -68,7 +71,6 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		gm.isScanning = false
 		gm.scanningMutex.Unlock()
 	}()
-
 
 	// Check for internet connectivity before initiating a disruptive scan
 	online, err := gm.connector.CheckInternetConnectivity()
@@ -393,4 +395,3 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 		logger.WithError(err).Error("Failed to update config file with new pricing")
 	}
 }
-

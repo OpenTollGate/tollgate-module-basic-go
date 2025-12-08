@@ -2,6 +2,8 @@ package wireless_gateway_manager
 
 import (
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 const pingFailureThreshold = 4
@@ -37,6 +39,10 @@ func (nm *NetworkMonitor) Stop() {
 }
 
 func (nm *NetworkMonitor) checkConnectivity() {
+	logger.WithFields(logrus.Fields{
+		"pingFailures":  nm.pingFailures,
+		"pingSuccesses": nm.pingSuccesses,
+	}).Debug("Checking connectivity")
 	nm.gatewayManager.scanningMutex.Lock()
 	isScanning := nm.gatewayManager.isScanning
 	nm.gatewayManager.scanningMutex.Unlock()
@@ -81,7 +87,10 @@ func (nm *NetworkMonitor) IsConnected() bool {
 }
 
 func (nm *NetworkMonitor) ResetConnectivityCounters() {
-	logger.Info("Resetting network monitor connectivity counters.")
+	logger.WithFields(logrus.Fields{
+		"pingFailures_before":  nm.pingFailures,
+		"pingSuccesses_before": nm.pingSuccesses,
+	}).Info("Resetting network monitor connectivity counters.")
 	nm.pingFailures = 0
 	nm.pingSuccesses = 0
 }
