@@ -76,7 +76,6 @@ type GatewayManager struct {
 	mu                sync.RWMutex
 	scanningMutex     sync.Mutex
 	isScanning              bool
-	lastConnectionAttempt   time.Time
 	availableGateways       map[string]Gateway
 	currentHopCount         int
 	scanInterval            time.Duration

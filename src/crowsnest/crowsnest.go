@@ -389,7 +389,7 @@ func (cs *crowsnest) ScanInterfaces() {
 	// Small delay to allow the system to fully initialize
 	time.Sleep(2 * time.Second)
 
-	logger.Info("Performing initial interface scan for TollGate auto-discovery")
+	logger.Info("Crowsnest: Performing initial scan for TollGate advertisements on connected interfaces")
 
 	// Get current network interfaces
 	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()

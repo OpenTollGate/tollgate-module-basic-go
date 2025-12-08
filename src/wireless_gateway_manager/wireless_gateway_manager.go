@@ -45,20 +45,17 @@ func Init(ctx context.Context, configManager *config_manager.ConfigManager, crow
 	return gatewayManager, nil
 }
 
-// RunPeriodicScan runs the periodic scanning routine.
+// RunPeriodicScan waits for signals to perform a Wi-Fi scan.
 func (gm *GatewayManager) RunPeriodicScan(ctx context.Context) {
-	ticker := time.NewTicker(gm.scanInterval)
-	defer ticker.Stop()
-
+	logger.Info("WirelessGatewayManager scan loop started. Waiting for trigger from NetworkMonitor.")
 	for {
 		select {
-		case <-ticker.C:
-			gm.ScanWirelessNetworks(ctx)
 		case <-gm.forceScanChan:
-			logger.Info("Connectivity loss detected, forcing immediate network scan.")
-			gm.handleConnectivityLoss(ctx)
+			logger.Info("NetworkMonitor detected persistent connectivity loss. Forcing a Wi-Fi gateway scan.")
+			gm.ScanWirelessNetworks(ctx)
 		case <-ctx.Done():
 			close(gm.stopChan)
+			logger.Info("WirelessGatewayManager scan loop stopped.")
 			return
 		}
 	}
@@ -72,11 +69,6 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		gm.scanningMutex.Unlock()
 	}()
 
-	// Honor the grace period before initiating any checks.
-	if time.Since(gm.lastConnectionAttempt) < 120*time.Second {
-		logger.Info("In grace period after connection attempt, skipping scan.")
-		return
-	}
 
 	// Check for internet connectivity before initiating a disruptive scan
 	online, err := gm.connector.CheckInternetConnectivity()
@@ -98,7 +90,7 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 		return
 	}
 
-	logger.Info("Starting network scan for gateway selection in reseller mode")
+	logger.Info("WirelessGatewayManager: Starting Wi-Fi network scan for available gateways")
 
 	// Update current price based on current connection status before scanning
 	gm.updatePriceAndAPSSID()
@@ -241,7 +233,6 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 			"bssid": highestPriorityGateway.BSSID,
 			"ssid":  highestPriorityGateway.SSID,
 		}).Info("Not connected to top-3 TollGate gateway, attempting to connect to highest priority gateway")
-		gm.lastConnectionAttempt = time.Now()
 		err := gm.connector.Connect(highestPriorityGateway, password)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -403,47 +394,3 @@ func (gm *GatewayManager) updatePriceAndAPSSID() {
 	}
 }
 
-func (gm *GatewayManager) handleConnectivityLoss(ctx context.Context) {
-	// Add a cooldown period to allow the OS to fully process the interface down event
-	// before we attempt to reconfigure it. This helps prevent race conditions.
-	logger.Info("Connectivity loss detected, starting cooldown before attempting reconnection...")
-	time.Sleep(5 * time.Second)
-
-	config := gm.configManager.GetConfig()
-	if config.ResellerMode {
-		// In reseller mode, we no longer trigger the scan from here.
-		// We rely on the hotplug script (96-tollgate-scan) to call `tollgate-cli network scan`,
-		// which will send the results to the daemon via the unix socket.
-		logger.Info("Reseller mode enabled. Waiting for hotplug script to trigger network scan.")
-	} else {
-		logger.Info("Reseller mode disabled, attempting to reconnect to the current network")
-		if err := gm.connector.Reconnect(); err != nil {
-			logger.WithError(err).Error("Failed to reconnect to the network")
-			return
-		}
-
-		// After reconnecting, Crowsnest will detect the new interface and trigger a scan automatically.
-		logger.Info("Reconnect successful, verifying DHCP lease and route...")
-		if err := gm.connector.WaitForIPAddress("wwan", 30*time.Second); err != nil {
-			logger.WithError(err).Error("Failed to acquire IP address after reconnect")
-		} else {
-			logger.Info("Successfully acquired IP address on wwan, waiting for default route...")
-			uciInterface, err := gm.connector.getActiveSTAInterface()
-			if err != nil {
-				logger.WithError(err).Error("Could not get active STA interface to check for route")
-			} else {
-				physicalInterface, err := gm.connector.waitForInterface(uciInterface)
-				if err != nil {
-					logger.WithError(err).Error("Could not get physical interface to check for route")
-				} else {
-					if err := gm.connector.WaitForDefaultRoute(physicalInterface, 15*time.Second); err != nil {
-						logger.WithError(err).Error("Failed to acquire default route after getting IP")
-					} else {
-						logger.Info("Default route is active. Network is fully up.")
-						gm.networkMonitor.ResetConnectivityCounters()
-					}
-				}
-			}
-		}
-	}
-}

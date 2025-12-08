@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-const pingFailureThreshold = 3
+const pingFailureThreshold = 4
 
 func NewNetworkMonitor(connector ConnectorInterface, forceScanChan chan struct{}) *NetworkMonitor {
 	return &NetworkMonitor{
@@ -46,10 +46,6 @@ func (nm *NetworkMonitor) checkConnectivity() {
 		return
 	}
 
-	if time.Since(nm.gatewayManager.lastConnectionAttempt) < 120*time.Second {
-		logger.Info("In grace period after connection attempt, skipping connectivity check.")
-		return
-	}
 
 	online, err := nm.connector.CheckInternetConnectivity()
 	if err != nil {
@@ -62,12 +58,16 @@ func (nm *NetworkMonitor) checkConnectivity() {
 		nm.pingSuccesses = 0
 		logger.WithField("consecutive_failures", nm.pingFailures).Warn("Connectivity check failed")
 		if nm.pingFailures >= pingFailureThreshold {
-			logger.Warn("Connectivity failure threshold reached, forcing a network scan")
-			// Non-blocking send
+			logger.Warn("Connectivity failure threshold reached, forcing a Wi-Fi gateway scan")
+			// Non-blocking send to trigger the scan
 			select {
 			case nm.forceScanChan <- struct{}{}:
 			default:
 			}
+			// Reset the counter immediately after triggering the scan.
+			// This "spends" the failures and starts a new 120-second countdown,
+			// creating a grace period for the connection attempt to succeed.
+			nm.pingFailures = 0
 		}
 	} else {
 		nm.pingSuccesses++
