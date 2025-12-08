@@ -41,17 +41,14 @@ func NewTollGateProber(config *config_manager.CrowsnestConfig) TollGateProber {
 }
 
 // ProbeGatewayWithContext probes a gateway with context for cancellation
-func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interfaceName, gatewayIP string) ([]byte, error) {
+func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, cancel context.CancelFunc, interfaceName, gatewayIP string) ([]byte, error) {
 	if gatewayIP == "" {
 		return nil, fmt.Errorf("gateway IP is empty")
 	}
 
 	// Store the cancel function for this interface
 	tp.probesMutex.Lock()
-	tp.activeProbes[interfaceName] = func() {
-		// This function will be called when the probe is cancelled
-		// The actual cancellation is handled by the context
-	}
+	tp.activeProbes[interfaceName] = cancel
 	tp.probesMutex.Unlock()
 
 	// Cleanup when done

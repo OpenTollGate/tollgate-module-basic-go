@@ -309,7 +309,7 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 		"interface": interfaceName,
 	}).Debug("Probing gateway for TollGate advertisement")
 
-	data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, interfaceName, gatewayIP)
+	data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, cancel, interfaceName, gatewayIP)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"gateway": gatewayIP,
