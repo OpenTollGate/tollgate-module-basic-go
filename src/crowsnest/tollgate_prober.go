@@ -199,10 +199,8 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 		return fmt.Errorf("gateway IP is empty")
 	}
 
-	// Make HTTP GET request to a well-known captive portal detection URL.
-	// This is more robust than hitting the gateway IP directly, as it's more likely
-	// to be intercepted by the captive portal software (ndsctl).
-	url := "http://captive.apple.com/hotspot-detect.html"
+	// Make HTTP GET request to port 80 (standard captive portal)
+	url := fmt.Sprintf("http://%s:80/", gatewayIP)
 
 	logger.WithFields(logrus.Fields{
 		"gateway_ip":    gatewayIP,
