@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,9 +154,9 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 		return nil, fmt.Errorf("HTTP request returned status %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	// Check content type (optional, but good practice)
+	// Check content type, allowing for application/json or text/plain for flexibility
 	contentType := resp.Header.Get("Content-Type")
-	if contentType != "" && contentType != "application/json" {
+	if contentType != "" && !strings.HasPrefix(contentType, "application/json") && !strings.HasPrefix(contentType, "text/plain") {
 		logger.WithFields(logrus.Fields{
 			"url":          url,
 			"content_type": contentType,
