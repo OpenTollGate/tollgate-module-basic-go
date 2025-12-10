@@ -140,10 +140,6 @@ func (nm *networkMonitor) monitorAddressChanges() {
 
 // handleLinkUpdate processes a network link update
 func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
-	logger.WithFields(logrus.Fields{
-		"iface_name": update.Link.Attrs().Name,
-		"is_up":      update.Flags&net.FlagUp != 0,
-	}).Debug("Netlink: Received Link Update")
 	link := update.Link
 	if link == nil {
 		return
@@ -153,6 +149,11 @@ func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
 	if attrs == nil {
 		return
 	}
+
+	logger.WithFields(logrus.Fields{
+		"iface_name": attrs.Name,
+		"is_up":      (attrs.Flags&net.FlagUp) != 0,
+	}).Debug("Netlink: Received Link Update")
 
 	interfaceName := attrs.Name
 

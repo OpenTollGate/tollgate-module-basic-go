@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/sirupsen/logrus"
 )
 
 // simpleDiscoveryTracker implements basic deduplication with timestamps and results
