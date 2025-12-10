@@ -175,7 +175,7 @@ func NewDefaultConfig() *Config {
 			ProbeRetryCount:       3,
 			ProbeRetryDelay:       2 * time.Second,
 			RequireValidSignature: true,
-			IgnoreInterfaces:      []string{"lo", "docker0", "br-lan", "phy1-ap0", "phy0-ap0", "wlan0-ap", "wlan1-ap", "hostap0"},
+			IgnoreInterfaces:      []string{"lo", "docker0", "br-lan", "hostap0"},
 			OnlyInterfaces:        []string{},
 			DiscoveryTimeout:      300 * time.Second,
 		},
