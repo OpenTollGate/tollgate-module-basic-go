@@ -30,10 +30,24 @@ jobs:
                 "openwrt_version": "24.10.1"
               },
               {
+                "architecture": "aarch64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
                 "architecture": "aarch64_cortex-a72",
                 "goarch": "arm64",
                 "sdk": "bcm27xx-bcm2711",
                 "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "aarch64_cortex-a72",
+                "goarch": "arm64",
+                "sdk": "bcm27xx-bcm2711",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
               },
               {
                 "architecture": "arm_cortex-a7",
@@ -43,6 +57,14 @@ jobs:
                 "openwrt_version": "24.10.1"
               },
               {
+                "architecture": "arm_cortex-a7",
+                "goarch": "arm",
+                "goarm": "7",
+                "sdk": "bcm27xx-bcm2709",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
                 "architecture": "mipsel_24kc",
                 "goarch": "mipsle",
                 "gomips": "softfloat",
@@ -50,11 +72,51 @@ jobs:
                 "openwrt_version": "24.10.1"
               },
               {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt7621",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
                 "architecture": "mips_24kc",
                 "goarch": "mips",
                 "gomips": "softfloat",
                 "sdk": "ath79-generic",
                 "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-fast"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-best"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-brute"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
               }
             ]
           }
@@ -140,9 +202,14 @@ jobs:
 
       - name: Initialize
         run: |
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
+          # Add compression suffix if using compression
+          if [ -n "${{ matrix.compression }}" ]; then
+            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
+          else
+            COMPRESSION_SUFFIX=""
+          fi
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
 
           # Move sources to sdk folder
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
@@ -154,6 +221,11 @@ jobs:
           apt-get update
           # Install Go from backports
           apt-get install -y -t bookworm-backports golang-go
+
+      - name: Install UPX
+        if: contains(matrix.compression, 'upx')
+        run: |
+          apt-get install -y upx-ucl
 
       - name: Configure SDK
         run: |
@@ -168,6 +240,7 @@ jobs:
           echo "CONFIG_PACKAGE_jq=y" >> .config
 
       - name: Compile Package
+        shell: bash
         run: |
           cd /builder
           # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
@@ -175,21 +248,31 @@ jobs:
             export GOMIPS=softfloat
           fi
           
+          # Set UPX flags from compression type (e.g., upx-fast -> --fast)
+          if [ -n "${{ matrix.compression }}" ]; then
+            export USE_UPX=1
+            COMP="${{ matrix.compression }}"
+            export UPX_FLAGS="--${COMP#upx-}"
+          else
+            export USE_UPX=0
+          fi
+          
           env GOARCH=${{ matrix.goarch }} \
             GOMIPS=${{ matrix.gomips }} \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
+            USE_UPX=$USE_UPX \
+            UPX_FLAGS="$UPX_FLAGS" \
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${{ env.PACKAGE_NAME }}/compile
 
       - name: List output package(s)
         run: |
-          echo "Listing all .ipk files in /builder/bin/packages:"
           find /builder/bin/packages -name "*.ipk" -type f
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
-            echo "❌ No .ipk package found in /builder/bin/packages"
+            echo "No .ipk package found"
             exit 1
           fi
-          echo "✅ Found package at: $PACKAGE_PATH"
+          ls -lh "$PACKAGE_PATH"
           # Copy file to a location GitHub can access
           mkdir -p /github/workspace/artifacts
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
@@ -204,15 +287,24 @@ jobs:
   publish-metadata:
     needs: [determine-versioning, build-package, define-matrix]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
       - name: Initialize
         id: init
         run: |
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}.ipk
+          # Add compression suffix if using compression
+          if [ -n "${{ matrix.compression }}" ]; then
+            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
+            COMPRESSION_TYPE="${{ matrix.compression }}"
+          else
+            COMPRESSION_SUFFIX=""
+            COMPRESSION_TYPE="none"
+          fi
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-          echo "ℹ️ PACKAGE_FILENAME: $PACKAGE_FILENAME"
+          echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -265,6 +357,7 @@ jobs:
             c=${{ needs.determine-versioning.outputs.release_channel }}
             package_name=${{ env.PACKAGE_NAME }}
             n=${{ env.PACKAGE_NAME }}
+            compression=${{ env.COMPRESSION_TYPE }}
 
           # FULL WORD TAGS ARE DEPRECATED AND SHOULD BE REMOVED IN THE FUTURE. DEPRECATED IN FAVOUR OF ONE-LETTER TAGS BECASUE OF RELAY FILTERING.
 
