@@ -6,7 +6,6 @@ package crowsnest
 import (
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -281,12 +280,6 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 		if name == ignored {
 			return false
 		}
-	}
-
-	// Skip bridge interfaces as they are typically local LAN bridges, not upstream connections
-	if strings.HasPrefix(name, "br-") {
-		logger.WithField("interface", name).Debug("Skipping bridge interface - likely local LAN bridge")
-		return false
 	}
 
 	// Check only list
