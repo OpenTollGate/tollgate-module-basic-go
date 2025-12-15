@@ -268,7 +268,7 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 			"rx_bytes":    rxBytes,
 			"tx_bytes":    txBytes,
 			"total_bytes": totalBytes,
-		}).Debug("Updated interface byte counts")
+		}).Debug("Summing RX and TX bytes for total usage")
 
 		return totalBytes, nil
 	}
