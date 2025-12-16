@@ -13,6 +13,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 )
@@ -544,6 +545,73 @@ func (c *Chandler) TerminateSession(pubkey string) error {
 	logger.WithField("upstream_pubkey", pubkey).Info("Session terminated")
 	return nil
 }
+
+// StartSession is called by the merchant to start a session after a successful payment
+func (c *Chandler) StartSession(macAddress string) error {
+	logger.WithField("mac_address", macAddress).Info("Chandler.StartSession called")
+
+	// Get the session from the merchant
+	session, err := c.merchant.GetSession(macAddress)
+	if err != nil {
+		return fmt.Errorf("failed to get session from merchant: %w", err)
+	}
+
+	// Create and start the appropriate usage tracker
+	var trackerType string
+
+	switch session.Metric {
+	case "milliseconds":
+		trackerType = "time-based"
+		// Open the gate for the duration of the allotment
+		endTimestamp := session.StartTime + int64(session.Allotment/1000)
+		err = valve.OpenGateUntil(macAddress, endTimestamp)
+		if err != nil {
+			return fmt.Errorf("failed to open gate for time-based session: %w", err)
+		}
+	case "bytes":
+		trackerType = "data-based"
+		// For data-based sessions, we need to find the correct interface name.
+		ifaceName, err := c.findInterfaceForMac(macAddress)
+		if err != nil {
+			return fmt.Errorf("could not find interface for mac %s: %w", macAddress, err)
+		}
+
+		// Open the gate indefinitely; the tracker will close it.
+		err = valve.OpenGate(macAddress)
+		if err != nil {
+			return fmt.Errorf("failed to open gate for data-based session: %w", err)
+		}
+
+		// Start a new customer session tracker
+		customerTracker := NewCustomerSessionTracker(macAddress, ifaceName, session.Allotment)
+		err = customerTracker.Start()
+		if err != nil {
+			return fmt.Errorf("failed to start customer session tracker: %w", err)
+		}
+		// A proper implementation would store the tracker in a session object
+		// associated with the macAddress.
+	default:
+		return fmt.Errorf("unsupported metric: %s", session.Metric)
+	}
+
+	logger.WithFields(logrus.Fields{
+		"mac_address":     macAddress,
+		"tracker_type":    trackerType,
+		"metric":          session.Metric,
+		"total_allotment": session.Allotment,
+	}).Info("Creating usage tracker for customer session")
+
+	return nil
+}
+
+// findInterfaceForMac is a helper function to find the interface for a given MAC address.
+func (c *Chandler) findInterfaceForMac(macAddress string) (string, error) {
+	// This is a simplified implementation. In a real-world scenario, you would
+	// likely get this information from the DHCP lease file or another source.
+	// For now, we'll just return the default LAN interface name "br-lan".
+	return "br-lan", nil
+}
+
 
 // createAndSendPayment creates a payment event and sends it to the upstream TollGate
 func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *PaymentProposal) (*nostr.Event, error) {

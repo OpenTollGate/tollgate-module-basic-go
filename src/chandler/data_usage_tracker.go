@@ -28,7 +28,7 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	d.chandler = chandler
 
 	// Get initial byte count for the interface
-	initialBytes, err := d.getInterfaceBytes()
+	initialBytes, err := getInterfaceBytes(d.interfaceName)
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func (d *DataUsageTracker) monitor() {
 
 // updateCurrentBytes updates the current byte count from the interface
 func (d *DataUsageTracker) updateCurrentBytes() {
-	bytes, err := d.getInterfaceBytes()
+	bytes, err := getInterfaceBytes(d.interfaceName)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"interface": d.interfaceName,
@@ -210,7 +210,7 @@ func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 
 // getInterfaceBytes reads the current byte count for the interface from /proc/net/dev
 // This function is designed to work on both 32-bit and 64-bit systems
-func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
+func getInterfaceBytes(interfaceName string) (uint64, error) {
 	file, err := os.Open("/proc/net/dev")
 	if err != nil {
 		return 0, fmt.Errorf("failed to open /proc/net/dev: %w", err)
@@ -234,15 +234,15 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 			continue
 		}
 
-		interfaceName := strings.TrimSpace(line[:colonIndex])
-		if interfaceName != d.interfaceName {
+		iface := strings.TrimSpace(line[:colonIndex])
+		if iface != interfaceName {
 			continue
 		}
 
 		// Parse the statistics after the colon
 		stats := strings.Fields(line[colonIndex+1:])
 		if len(stats) < 16 {
-			return 0, fmt.Errorf("insufficient statistics for interface %s", d.interfaceName)
+			return 0, fmt.Errorf("insufficient statistics for interface %s", interfaceName)
 		}
 
 		// /proc/net/dev format:
@@ -252,19 +252,19 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 		// Get RX bytes (index 0) and TX bytes (index 8)
 		rxBytes, err := parseUint64Safe(stats[0])
 		if err != nil {
-			return 0, fmt.Errorf("failed to parse RX bytes for %s: %w", d.interfaceName, err)
+			return 0, fmt.Errorf("failed to parse RX bytes for %s: %w", interfaceName, err)
 		}
 
 		txBytes, err := parseUint64Safe(stats[8])
 		if err != nil {
-			return 0, fmt.Errorf("failed to parse TX bytes for %s: %w", d.interfaceName, err)
+			return 0, fmt.Errorf("failed to parse TX bytes for %s: %w", interfaceName, err)
 		}
 
 		// Return total bytes (RX + TX)
 		totalBytes := rxBytes + txBytes
 
 		logrus.WithFields(logrus.Fields{
-			"interface":   d.interfaceName,
+			"interface":   interfaceName,
 			"rx_bytes":    rxBytes,
 			"tx_bytes":    txBytes,
 			"total_bytes": totalBytes,
@@ -277,7 +277,7 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 		return 0, fmt.Errorf("error reading /proc/net/dev: %w", err)
 	}
 
-	return 0, fmt.Errorf("interface %s not found in /proc/net/dev", d.interfaceName)
+	return 0, fmt.Errorf("interface %s not found in /proc/net/dev", interfaceName)
 }
 
 // parseUint64Safe safely parses a uint64 from string, handling 32-bit system limitations

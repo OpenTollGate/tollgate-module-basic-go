@@ -16,7 +16,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -45,6 +44,8 @@ type MerchantInterface interface {
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
+	// SetChandler sets the chandler instance for the merchant
+	SetChandler(chandler interface{})
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -53,6 +54,7 @@ type Merchant struct {
 	configManager *config_manager.ConfigManager
 	tollwallet    tollwallet.TollWallet
 	advertisement string
+	chandler      interface{} // Use interface{} to avoid import cycle
 	// In-memory session store
 	customerSessions map[string]*CustomerSession
 	sessionMu        sync.RWMutex
@@ -102,6 +104,11 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 	}, nil
+}
+
+// SetChandler sets the chandler instance for the merchant
+func (m *Merchant) SetChandler(chandler interface{}) {
+	m.chandler = chandler
 }
 
 func (m *Merchant) StartPayoutRoutine() {
@@ -272,24 +279,25 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		return noticeEvent, nil
 	}
 
-	// Calculate end timestamp based on session allotment
-	var endTimestamp int64
-	if session.Metric == "milliseconds" {
-		endTimestamp = session.StartTime + int64(session.Allotment/1000)
-	} else {
-		// For other metrics, set to 24h from now
-		endTimestamp = time.Now().Unix() + (24 * 60 * 60) // 24 hours from now
+	// Notify the chandler to start the session
+	// The chandler is now responsible for opening the gate and managing the session lifecycle.
+	// We need to cast the chandler back to its specific type to call the method.
+	type ChandlerInterface interface {
+		StartSession(macAddress string) error
 	}
-
-	// Open gate until the calculated end time
-	err = valve.OpenGateUntil(macAddress, endTimestamp)
-	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-opening-failed",
-			fmt.Sprintf("Failed to open gate for session: %v", err), paymentEvent.PubKey)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to open gate for session and failed to create notice: %w", noticeErr)
+	if chandler, ok := m.chandler.(ChandlerInterface); ok {
+		err = chandler.StartSession(macAddress)
+		if err != nil {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-start-failed",
+				fmt.Sprintf("Failed to start session: %v", err), paymentEvent.PubKey)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("failed to start session and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
 		}
-		return noticeEvent, nil
+	} else {
+		// This should not happen if the setup in main.go is correct
+		return nil, fmt.Errorf("chandler is not set or does not implement the required interface")
 	}
 
 	// Create a success notice event
