@@ -261,7 +261,7 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	macAddress := deviceIdentifier
 
 	// Add allotment to session (creates new session if doesn't exist)
-	metric := "milliseconds" // Use milliseconds as default metric
+	metric := m.config.Metric
 	session, err := m.AddAllotment(macAddress, metric, allotment)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
@@ -401,8 +401,8 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 	switch m.config.Metric {
 	case "milliseconds":
 		return m.calculateAllotmentMs(steps, mintConfig)
-	// case "bytes":
-	//     return m.calculateAllotmentBytes(steps, mintConfig)
+	case "bytes":
+		return m.calculateAllotmentBytes(steps, mintConfig)
 	default:
 		return 0, fmt.Errorf("unsupported metric: %s", m.config.Metric)
 	}
@@ -419,35 +419,16 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 	return totalMs, nil
 }
 
-// calculateAllotmentBytes calculates allotment in bytes from payment amount using mint-specific pricing
-// func (m *Merchant) calculateAllotmentBytes(amountSats uint64, mintURL string) (uint64, error) {
-//     // Find the mint configuration for this mint
-//     var mintConfig *MintConfig
-//     for _, mint := range m.config.AcceptedMints {
-//         if mint.URL == mintURL {
-//             mintConfig = &mint
-//             break
-//         }
-//     }
-//
-//     if mintConfig == nil {
-//         return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
-//     }
-//
-//     // Calculate steps from payment amount using mint-specific pricing
-//     allottedSteps := amountSats / mintConfig.PricePerStep
-//     if allottedSteps < 1 {
-//         allottedSteps = 1 // Minimum 1 step
-//     }
-//
-//     // Convert steps to bytes using configured step size
-//     totalBytes := allottedSteps * m.config.StepSize
-//
-//     log.Printf("Calculated %d steps (%d bytes) from %d sats at %d sats per step",
-//         allottedSteps, totalBytes, amountSats, mintConfig.PricePerStep)
-//
-//     return totalBytes, nil
-// }
+// calculateAllotmentBytes calculates allotment in bytes from steps
+func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+	// Convert steps to bytes using configured step size
+	totalBytes := steps * m.config.StepSize
+
+	log.Printf("Converting %d steps to %d bytes using step size %d",
+		steps, totalBytes, m.config.StepSize)
+
+	return totalBytes, nil
+}
 
 // getLatestSession queries the local relay pool for the most recent session by customer pubkey
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
