@@ -40,8 +40,8 @@ def netcat_server():
         ssh_client.exec_command(kill_command)
         time.sleep(1) # Give a moment for the process to be killed
 
-        # Start netcat in the background
-        command = f"nohup nc -l -p {NETCAT_PORT} > /dev/null 2>&1 &"
+        # Start a persistent netcat listener in the background using the -k flag
+        command = f"nohup nc -l -k -p {NETCAT_PORT} > /dev/null 2>&1 &"
         ssh_client.exec_command(command)
         
         time.sleep(2)
