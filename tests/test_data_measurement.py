@@ -35,13 +35,14 @@ def netcat_server():
         print("--> [SETUP] SSH connection successful.")
         
         print(f"--> [SETUP] Starting netcat listener on port {NETCAT_PORT}...")
-        # Ensure no old netcat process is running
-        kill_command = f"pkill -f 'nc -l -p {NETCAT_PORT}'"
+        # Ensure no old netcat process is running. The pattern needs to be specific to avoid killing other processes.
+        kill_command = f"pkill -f 'nc -l -k -p {NETCAT_PORT}' || pkill -f 'while true; do nc -l -p {NETCAT_PORT}'"
         ssh_client.exec_command(kill_command)
         time.sleep(1) # Give a moment for the process to be killed
 
-        # Start a persistent netcat listener in the background using the -k flag
-        command = f"nohup nc -l -k -p {NETCAT_PORT} > /dev/null 2>&1 &"
+        # Start an extremely resilient netcat listener using a while loop.
+        # This ensures the listener restarts immediately if it ever closes.
+        command = f"nohup sh -c 'while true; do nc -l -p {NETCAT_PORT} > /dev/null; done' > /dev/null 2>&1 &"
         ssh_client.exec_command(command)
         
         time.sleep(2)
@@ -52,7 +53,8 @@ def netcat_server():
     finally:
         if ssh_client:
             print("\n--> [TEARDOWN] Cleaning up...")
-            kill_command = f"pkill -f 'nc -l -p {NETCAT_PORT}'"
+            # Kill the shell running the while loop to stop the listener
+            kill_command = f"pkill -f \"sh -c 'while true; do nc -l -p {NETCAT_PORT}\""
             print(f"--> [TEARDOWN] Stopping netcat listener with command: {kill_command}")
             ssh_client.exec_command(kill_command)
             ssh_client.close()
