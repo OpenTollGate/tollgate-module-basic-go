@@ -9,7 +9,7 @@ import logging
 SERVER_HOST = "188.40.151.90"
 SERVER_USER = "root"
 SERVER_PORT = 22
-NETCAT_PORT = 9999
+IPERF_PORT = 5201 # Default iperf3 port
 TEST_TIMEOUT = 300  # 5 minutes
 PING_HOST = "8.8.8.8" # Host to ping for connectivity check
 
@@ -20,9 +20,9 @@ PING_HOST = "8.8.8.8" # Host to ping for connectivity check
 
 
 @pytest.fixture(scope="module")
-def netcat_server():
+def iperf_server():
     """
-    A pytest fixture to manage the netcat listener on the remote server.
+    A pytest fixture to manage the iperf3 server on the remote machine.
     """
     ssh_client = None
     try:
@@ -34,34 +34,36 @@ def netcat_server():
         ssh_client.connect(SERVER_HOST, port=SERVER_PORT, username=SERVER_USER)
         print("--> [SETUP] SSH connection successful.")
         
-        print(f"--> [SETUP] Starting netcat listener on port {NETCAT_PORT}...")
-        # Ensure no old netcat process is running. The pattern needs to be specific to avoid killing other processes.
-        kill_command = f"pkill -f 'nc -l -k -p {NETCAT_PORT}' || pkill -f 'while true; do nc -l -p {NETCAT_PORT}'"
+        print(f"--> [SETUP] Starting iperf3 server on port {IPERF_PORT}...")
+        # Ensure no old iperf3 process is running
+        kill_command = "pkill -f 'iperf3 -s'"
         ssh_client.exec_command(kill_command)
-        time.sleep(1) # Give a moment for the process to be killed
+        time.sleep(1)
 
-        # Start an extremely resilient netcat listener using a while loop.
-        # This ensures the listener restarts immediately if it ever closes.
-        command = f"nohup sh -c 'while true; do nc -l -p {NETCAT_PORT} > /dev/null; done' > /dev/null 2>&1 &"
-        ssh_client.exec_command(command)
+        # Start iperf3 as a daemon
+        command = f"iperf3 -s -p {IPERF_PORT} -D"
+        stdin, stdout, stderr = ssh_client.exec_command(command)
+        exit_status = stdout.channel.recv_exit_status() # Wait for command to complete
         
-        time.sleep(2)
-        print("--> [SETUP] Netcat listener started on server.")
+        if exit_status == 0:
+            print("--> [SETUP] iperf3 server started successfully as a daemon.")
+        else:
+            error_output = stderr.read().decode()
+            pytest.fail(f"Failed to start iperf3 server. Exit status: {exit_status}\nError: {error_output}")
 
         yield ssh_client
 
     finally:
         if ssh_client:
             print("\n--> [TEARDOWN] Cleaning up...")
-            # Kill the shell running the while loop to stop the listener
-            kill_command = f"pkill -f \"sh -c 'while true; do nc -l -p {NETCAT_PORT}\""
-            print(f"--> [TEARDOWN] Stopping netcat listener with command: {kill_command}")
+            kill_command = "pkill -f 'iperf3 -s'"
+            print(f"--> [TEARDOWN] Stopping iperf3 server with command: {kill_command}")
             ssh_client.exec_command(kill_command)
             ssh_client.close()
             print("--> [TEARDOWN] Server connection closed.")
 
 
-def test_data_allotment(netcat_server):
+def test_data_allotment(iperf_server):
     """
     Tests the data allotment enforcement by the TollGate.
     """
@@ -87,14 +89,14 @@ def test_data_allotment(netcat_server):
 
     process = None
     try:
-        # Using pv (Pipe Viewer) to monitor the data stream.
-        # You may need to install it: `sudo apt install pv`
-        command = f"dd if=/dev/zero | pv | nc {SERVER_HOST} {NETCAT_PORT}"
+        # The iperf3 client will run for the duration of the timeout, sending data.
+        # The '-u' flag specifies UDP, which is a simple, fire-and-forget protocol.
+        # The '-b 0' flag tells iperf to send as fast as possible.
+        command = f"iperf3 -c {SERVER_HOST} -p {IPERF_PORT} -t {TEST_TIMEOUT} -b 0"
         print(f"--> [TEST] Executing local command: {command}")
-        # We use stderr=subprocess.PIPE to capture pv's output
+        
         process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        process.wait(timeout=TEST_TIMEOUT)
+        process.wait(timeout=TEST_TIMEOUT + 10) # Add a small buffer to the timeout
 
         # --- Verification Step ---
         print("\n--> [VERIFY] Data stream stopped. Checking internet connectivity...")
@@ -105,9 +107,9 @@ def test_data_allotment(netcat_server):
             print(f"--> [VERIFY] Ping to {PING_HOST} SUCCEEDED.")
             print("❌ FAILURE: Internet connection is still active after data stream stopped.")
             print("--> This means the stream was terminated for a reason other than the TollGate cutting access.")
-            _, stderr = process.communicate()
+            stdout, stderr = process.communicate()
             if stderr:
-                print(f"--> Subprocess stderr that may indicate the issue:\n{stderr.decode()}")
+                print(f"--> iperf3 client stderr that may indicate the issue:\n{stderr.decode()}")
             pytest.fail("Internet connection was not terminated by the TollGate.")
         except subprocess.CalledProcessError:
             # If ping fails, the connection is down, which is the desired outcome.
