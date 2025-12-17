@@ -69,6 +69,16 @@ def test_data_allotment(netcat_server):
     
     input("--> Press Enter once you have successfully paid and have internet access...")
 
+    # --- Pre-Test Connectivity Check ---
+    print(f"\n--> [PRE-CHECK] Verifying initial internet connectivity by pinging {PING_HOST}...")
+    ping_command = ["ping", "-c", "1", "-W", "5", PING_HOST]
+    try:
+        subprocess.run(ping_command, check=True, capture_output=True, text=True)
+        print(f"--> [PRE-CHECK] Initial ping to {PING_HOST} SUCCEEDED. Proceeding with test.")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        print(f"--> [PRE-CHECK] Initial ping to {PING_HOST} FAILED.")
+        pytest.fail("Cannot establish initial internet connection. Aborting test.")
+
     print("\n--> [TEST] Starting data stream to the server...")
     print(f"--> [TEST] This will run for a maximum of {TEST_TIMEOUT} seconds.")
     print("--> [TEST] The test will pass if this process is terminated and internet access is cut.")
