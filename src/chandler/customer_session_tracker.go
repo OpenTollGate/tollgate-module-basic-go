@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,10 +44,10 @@ func (t *CustomerSessionTracker) Start() error {
 	go t.monitor()
 
 	logger.WithFields(logrus.Fields{
-		"mac_address":     t.macAddress,
-		"interface":       t.interfaceName,
-		"allotment_bytes": t.allotmentBytes,
-		"start_bytes":     initialBytes,
+		"mac_address": t.macAddress,
+		"interface":   t.interfaceName,
+		"allotment":   utils.BytesToHumanReadable(t.allotmentBytes),
+		"start_bytes": utils.BytesToHumanReadable(initialBytes),
 	}).Info("Started customer session tracker.")
 
 	return nil
@@ -89,9 +90,9 @@ func (t *CustomerSessionTracker) monitor() {
 
 			if usage >= allotment {
 				logger.WithFields(logrus.Fields{
-					"mac_address":     t.macAddress,
-					"usage_bytes":     usage,
-					"allotment_bytes": allotment,
+					"mac_address": t.macAddress,
+					"usage":       utils.BytesToHumanReadable(usage),
+					"allotment":   utils.BytesToHumanReadable(allotment),
 				}).Info("Customer data allotment reached. Closing gate.")
 
 				if err := valve.CloseGate(t.macAddress); err != nil {

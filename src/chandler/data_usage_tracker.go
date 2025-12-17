@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 )
 
 // NewDataUsageTracker creates a new data-based usage tracker
@@ -48,8 +49,8 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey": d.upstreamPubkey,
 		"interface":       d.interfaceName,
-		"start_bytes":     d.startBytes,
-		"total_allotment": d.totalAllotment,
+		"start_bytes":     utils.BytesToHumanReadable(d.startBytes),
+		"total_allotment": utils.BytesToHumanReadable(d.totalAllotment),
 		"thresholds":      d.thresholds,
 	}).Info("Data usage tracker started")
 
@@ -72,7 +73,7 @@ func (d *DataUsageTracker) Stop() error {
 
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey": d.upstreamPubkey,
-		"total_usage":     d.GetCurrentUsage(),
+		"total_usage":     utils.BytesToHumanReadable(d.GetCurrentUsage()),
 	}).Info("Data usage tracker stopped")
 
 	return nil
@@ -125,9 +126,9 @@ func (d *DataUsageTracker) SessionChanged(session *ChandlerSession) error {
 
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey":          d.upstreamPubkey,
-		"previous_total_allotment": previousTotalAllotment,
-		"new_total_allotment":      d.totalAllotment,
-		"current_increment":        d.currentIncrement,
+		"previous_total_allotment": utils.BytesToHumanReadable(previousTotalAllotment),
+		"new_total_allotment":      utils.BytesToHumanReadable(d.totalAllotment),
+		"current_increment":        utils.BytesToHumanReadable(d.currentIncrement),
 	}).Info("Session changed, updating data usage tracker")
 
 	return nil
@@ -190,8 +191,8 @@ func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 				"upstream_pubkey": upstreamPubkey,
 				"threshold":       threshold,
 				"usage_percent":   usagePercent * 100,
-				"current_usage":   currentUsage,
-				"total_allotment": totalAllotment,
+				"current_usage":   utils.BytesToHumanReadable(currentUsage),
+				"total_allotment": utils.BytesToHumanReadable(totalAllotment),
 			}).Info("Data usage threshold reached, triggering renewal")
 
 			// Call the chandler's renewal handler
@@ -264,10 +265,10 @@ func getInterfaceBytes(interfaceName string) (uint64, error) {
 		totalBytes := rxBytes + txBytes
 
 		logrus.WithFields(logrus.Fields{
-			"interface":   interfaceName,
-			"rx_bytes":    rxBytes,
-			"tx_bytes":    txBytes,
-			"total_bytes": totalBytes,
+			"interface": interfaceName,
+			"rx":        utils.BytesToHumanReadable(rxBytes),
+			"tx":        utils.BytesToHumanReadable(txBytes),
+			"total":     utils.BytesToHumanReadable(totalBytes),
 		}).Debug("Summing RX and TX bytes for total usage")
 
 		return totalBytes, nil

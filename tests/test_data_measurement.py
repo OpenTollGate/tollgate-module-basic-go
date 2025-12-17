@@ -11,6 +11,7 @@ SERVER_USER = "root"
 SERVER_PORT = 22
 NETCAT_PORT = 9999
 TEST_TIMEOUT = 300  # 5 minutes
+PING_HOST = "8.8.8.8" # Host to ping for connectivity check
 
 # --- Optional: Enable verbose logging for Paramiko ---
 # Uncomment the following lines to get detailed SSH logs written to "paramiko.log"
@@ -70,22 +71,37 @@ def test_data_allotment(netcat_server):
 
     print("\n--> [TEST] Starting data stream to the server...")
     print(f"--> [TEST] This will run for a maximum of {TEST_TIMEOUT} seconds.")
-    print("--> [TEST] The test will pass if this process is terminated before the timeout.")
+    print("--> [TEST] The test will pass if this process is terminated and internet access is cut.")
 
     process = None
     try:
-        command = f"dd if=/dev/zero | nc {SERVER_HOST} {NETCAT_PORT}"
+        # Using pv (Pipe Viewer) to monitor the data stream.
+        # You may need to install it: `sudo apt install pv`
+        command = f"dd if=/dev/zero | pv | nc {SERVER_HOST} {NETCAT_PORT}"
         print(f"--> [TEST] Executing local command: {command}")
+        # We use stderr=subprocess.PIPE to capture pv's output
         process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         process.wait(timeout=TEST_TIMEOUT)
 
-        stdout, stderr = process.communicate()
-        print("\n✅ SUCCESS: Data stream process terminated.")
-        print("--> This indicates the TollGate likely enforced the data allotment and closed the connection.")
-        if stderr:
-            print(f"--> Subprocess stderr:\n{stderr.decode()}")
-        assert True
+        # --- Verification Step ---
+        print("\n--> [VERIFY] Data stream stopped. Checking internet connectivity...")
+        ping_command = ["ping", "-c", "1", "-W", "5", PING_HOST]
+        try:
+            subprocess.run(ping_command, check=True, capture_output=True, text=True)
+            # If ping succeeds, the connection is still active, which is a failure.
+            print(f"--> [VERIFY] Ping to {PING_HOST} SUCCEEDED.")
+            print("❌ FAILURE: Internet connection is still active after data stream stopped.")
+            print("--> This means the stream was terminated for a reason other than the TollGate cutting access.")
+            _, stderr = process.communicate()
+            if stderr:
+                print(f"--> Subprocess stderr that may indicate the issue:\n{stderr.decode()}")
+            pytest.fail("Internet connection was not terminated by the TollGate.")
+        except subprocess.CalledProcessError:
+            # If ping fails, the connection is down, which is the desired outcome.
+            print(f"--> [VERIFY] Ping to {PING_HOST} FAILED as expected.")
+            print("✅ SUCCESS: Internet connection appears to be correctly terminated by the TollGate.")
+            assert True
 
     except subprocess.TimeoutExpired:
         print(f"\n❌ FAILURE: Test timed out after {TEST_TIMEOUT} seconds.")
