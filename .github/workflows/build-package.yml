@@ -24,11 +24,99 @@ jobs:
           {
             "include": [
               {
+                "architecture": "aarch64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "aarch64_cortex-a53",
+                "goarch": "arm64",
+                "sdk": "mediatek-filogic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
+                "architecture": "aarch64_cortex-a72",
+                "goarch": "arm64",
+                "sdk": "bcm27xx-bcm2711",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "aarch64_cortex-a72",
+                "goarch": "arm64",
+                "sdk": "bcm27xx-bcm2711",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
+                "architecture": "arm_cortex-a7",
+                "goarch": "arm",
+                "goarm": "7",
+                "sdk": "bcm27xx-bcm2709",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "arm_cortex-a7",
+                "goarch": "arm",
+                "goarm": "7",
+                "sdk": "bcm27xx-bcm2709",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
                 "architecture": "mipsel_24kc",
                 "goarch": "mipsle",
                 "gomips": "softfloat",
-                "sdk": "ramips-mt7620",
+                "sdk": "ramips-mt7621",
                 "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt7621",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-fast"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-best"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-brute"
+              },
+              {
+                "architecture": "mips_24kc",
+                "goarch": "mips",
+                "gomips": "softfloat",
+                "sdk": "ath79-generic",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
               }
             ]
           }
@@ -120,10 +208,8 @@ jobs:
           else
             COMPRESSION_SUFFIX=""
           fi
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}_${{ matrix.sdk }}${COMPRESSION_SUFFIX}.ipk
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-
-          # Move sources to sdk folder
 
           # Move sources to sdk folder
           mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
@@ -191,9 +277,6 @@ jobs:
           mkdir -p /github/workspace/artifacts
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
 
-      - name: Debug filename
-        run: echo "Uploading artifact with name: ${{ env.PACKAGE_FILENAME }}"
-
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
@@ -219,7 +302,7 @@ jobs:
             COMPRESSION_SUFFIX=""
             COMPRESSION_TYPE="none"
           fi
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}_${{ matrix.sdk }}${COMPRESSION_SUFFIX}.ipk
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
