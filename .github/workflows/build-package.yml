@@ -238,7 +238,7 @@ jobs:
           else
             COMPRESSION_SUFFIX=""
           fi
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}_${{ matrix.sdk }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
 
           # Move sources to sdk folder
@@ -309,6 +309,9 @@ jobs:
           mkdir -p /github/workspace/artifacts
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
 
+      - name: Debug filename
+        run: echo "Uploading artifact with name: ${{ env.PACKAGE_FILENAME }}"
+
       - name: GitHub Artifact upload
         uses: actions/upload-artifact@v4
         with:
@@ -334,8 +337,7 @@ jobs:
             COMPRESSION_SUFFIX=""
             COMPRESSION_TYPE="none"
           fi
-          RANDOM_STRING=$(openssl rand -hex 8)
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}_${RANDOM_STRING}${COMPRESSION_SUFFIX}.ipk
+          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}_${{ matrix.sdk }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
