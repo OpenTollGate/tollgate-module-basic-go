@@ -80,6 +80,36 @@ jobs:
                 "compression": "upx-ultra-brute"
               },
               {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt7620",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt7620",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt76x8",
+                "openwrt_version": "24.10.1"
+              },
+              {
+                "architecture": "mipsel_24kc",
+                "goarch": "mipsle",
+                "gomips": "softfloat",
+                "sdk": "ramips-mt76x8",
+                "openwrt_version": "24.10.1",
+                "compression": "upx-ultra-brute"
+              },
+              {
                 "architecture": "mips_24kc",
                 "goarch": "mips",
                 "gomips": "softfloat",
