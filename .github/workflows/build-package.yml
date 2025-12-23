@@ -223,7 +223,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
-      image: ubuntu:latest
+      image: node:alpine
       options: --user root
       volumes:
         - /tmp/tollgate-artifacts:/tmp/tollgate-artifacts
@@ -243,7 +243,12 @@ jobs:
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
+      - name: Install required tools (Alpine)
+        run: |
+          apk add --no-cache curl bash git tar gzip
+
       - name: Get artifact from volume (ACT) or download (GitHub)
+        shell: bash
         run: |
           mkdir -p ./artifacts
           if [ "$ACT" = "true" ]; then
@@ -259,6 +264,7 @@ jobs:
           path: ./artifacts
 
       - name: Get package size
+        shell: bash
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
@@ -274,6 +280,7 @@ jobs:
           privatekey: ${{ secrets.NSEC_HEX }}
 
       - name: Install nak
+        shell: bash
         run: |
           # Detect architecture
           ARCH=$(uname -m)
@@ -476,3 +483,4 @@ jobs:
         token: ${{ secrets.REPO_ACCESS_TOKEN }}
         repository: OpenTollGate/tollgate-os
         event-type: update-release-json
+
