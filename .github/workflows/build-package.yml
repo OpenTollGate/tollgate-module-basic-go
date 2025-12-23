@@ -273,48 +273,65 @@ jobs:
           filePath: ${{ env.PACKAGE_PATH }}
           privatekey: ${{ secrets.NSEC_HEX }}
 
+      - name: Install nak
+        run: |
+          curl -L https://github.com/fiatjaf/nak/releases/download/v0.17.3/nak-v0.17.3-linux-amd64 -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version || echo "nak installed"
+
       - name: Publish Package NIP-94 Metadata
         id: publish_package
-        uses: OpenTollGate/nostr-publish-file-metadata-action@v0.1.0
-        with:
-          relays: >-
-            wss://relay.damus.io,
-            wss://nos.lol,
-            wss://nostr.mom/,
-            wss://relay.tollgate.me/
-          url: ${{ steps.blossom_upload.outputs.url }}
-          mimeType: application/octet-stream
-          fileHash: ${{ steps.blossom_upload.outputs.hash }}
-          originalHash: ${{ steps.blossom_upload.outputs.hash }}
-          filename: "${{ env.PACKAGE_FILENAME }}"
-          content: "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}"
-          nsec: ${{ secrets.NSEC_HEX }}
-          size: ${{ env.PACKAGE_SIZE }}
-          customTags: |
-            architecture=${{ matrix.architecture }}
-            A=${{ matrix.architecture }}
-            version=${{ needs.determine-versioning.outputs.package_version }}
-            v=${{ needs.determine-versioning.outputs.package_version }}
-            release_channel=${{ needs.determine-versioning.outputs.release_channel }}
-            c=${{ needs.determine-versioning.outputs.release_channel }}
-            package_name=${{ env.PACKAGE_NAME }}
-            n=${{ env.PACKAGE_NAME }}
-            compression=${{ env.COMPRESSION_TYPE }}
+        env:
+          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+        run: |
+          # Create NIP-94 event using nak
+          EVENT_JSON=$(nak event --sec "${{ secrets.NSEC_HEX }}" -k 1063 \
+            -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
+            --tag url="${{ steps.blossom_upload.outputs.url }}" \
+            --tag m="application/octet-stream" \
+            --tag x="${{ steps.blossom_upload.outputs.hash }}" \
+            --tag ox="${{ steps.blossom_upload.outputs.hash }}" \
+            --tag size="${{ env.PACKAGE_SIZE }}" \
+            --tag A="${{ matrix.architecture }}" \
+            --tag v="${{ needs.determine-versioning.outputs.package_version }}" \
+            --tag c="${{ needs.determine-versioning.outputs.release_channel }}" \
+            --tag n="${{ env.PACKAGE_NAME }}" \
+            --tag compression="${{ env.COMPRESSION_TYPE }}" \
+            $RELAYS)
+          
+          # Extract event ID
+          EVENT_ID=$(echo "$EVENT_JSON" | jq -r '.id')
+          echo "eventId=$EVENT_ID" >> $GITHUB_OUTPUT
+          echo "✅ Published NIP-94 event: $EVENT_ID"
 
       - name: Verify Package NIP-94 Event
         id: verify_package
         if: ${{ steps.publish_package.outputs.eventId != '' }}
-        uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@v0.1.0
-        with:
-          eventId: ${{ steps.publish_package.outputs.eventId }}
-          relays: >-
-            wss://relay.damus.io,
-            wss://nos.lol,
-            wss://nostr.mom/,
-            wss://relay.tollgate.me/
+        env:
+          EVENT_ID: ${{ steps.publish_package.outputs.eventId }}
+          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+        run: |
+          echo "Verifying event $EVENT_ID on relays..."
+          FOUND=0
+          for relay in $RELAYS; do
+            echo "Checking $relay..."
+            RESULT=$(nak req -i "$EVENT_ID" "$relay" 2>/dev/null || echo "")
+            if [ -n "$RESULT" ]; then
+              echo "✅ Found on $relay"
+              FOUND=1
+            else
+              echo "⚠️  Not found on $relay"
+            fi
+          done
+          
+          if [ $FOUND -eq 0 ]; then
+            echo "verification_failed=true" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "✅ Event verified on at least one relay"
 
       - name: Check Package Publication
-        if: steps.verify_package.outcome == 'failure'
+        if: steps.verify_package.outputs.verification_failed == 'true'
         run: |
           echo "❌ Failed to verify package publication on relays"
           exit 1
