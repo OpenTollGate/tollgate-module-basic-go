@@ -245,7 +245,7 @@ jobs:
 
       - name: Install required tools (Alpine)
         run: |
-          apk add --no-cache curl bash git tar gzip libc6-compat
+          apk add --no-cache curl bash git tar gzip libc6-compat jq
 
       - name: Get artifact from volume (ACT) or download (GitHub)
         shell: bash
