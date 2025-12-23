@@ -269,7 +269,7 @@ jobs:
         id: blossom_upload
         uses: Origami74/upload-blossom-action@feature/polyfill
         with:
-          host: "https://blossom.swissdash.site"
+          host: "https://cdn.sovbit.host" # https://blossom.swissdash.site
           filePath: ${{ env.PACKAGE_PATH }}
           privatekey: ${{ secrets.NSEC_HEX }}
 
