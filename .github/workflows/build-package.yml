@@ -321,12 +321,21 @@ jobs:
             --tag package_name="${{ env.PACKAGE_NAME }}" \
             --tag n="${{ env.PACKAGE_NAME }}" \
             --tag compression="${{ env.COMPRESSION_TYPE }}" \
-            > event.json
+            > event.json 2> event.err
           
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to create event"
+          NAK_EXIT=$?
+          
+          # Print stderr if there was any
+          if [ -s event.err ]; then
+            echo "=== nak stderr output ==="
+            cat event.err
+            echo "========================="
+          fi
+          
+          if [ $NAK_EXIT -ne 0 ]; then
+            echo "❌ Failed to create event (exit code: $NAK_EXIT)"
             cat event.json 2>/dev/null || echo "No event.json created"
-            exit 1
+            exit $NAK_EXIT
           fi
           
           # Validate and extract event ID
