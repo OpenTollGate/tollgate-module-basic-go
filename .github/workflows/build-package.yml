@@ -303,7 +303,32 @@ jobs:
           echo "Secret Key set: $([ -n "$NSEC_HEX" ] && echo 'yes' || echo 'no')"
           echo "====================================="
           
-          # Step 1: Create event without publishing (to get clean JSON)
+          # Test: Publish a simple kind 1 note first to verify nak works
+          echo "Testing nak with a simple kind 1 note..."
+          nak event --sec "$NSEC_HEX" -k 1 -c "Test note from GitHub Actions" $RELAYS > test.json 2> test.err
+          TEST_EXIT=$?
+          
+          if [ -s test.err ]; then
+            echo "=== Test note stderr ==="
+            cat test.err
+            echo "======================="
+          fi
+          
+          if [ $TEST_EXIT -ne 0 ]; then
+            echo "❌ Test note failed (exit code: $TEST_EXIT)"
+            cat test.json 2>/dev/null || echo "No test.json created"
+            exit $TEST_EXIT
+          fi
+          
+          TEST_ID=$(jq -r '.id' test.json 2>/dev/null || echo "")
+          if [ -n "$TEST_ID" ] && [ "$TEST_ID" != "null" ]; then
+            echo "✅ Test note published successfully with ID: $TEST_ID"
+          else
+            echo "⚠️  Test note may have failed to publish"
+            cat test.json
+          fi
+          
+          # Step 1: Create NIP-94 event without publishing (to get clean JSON)
           echo "Creating NIP-94 event..."
           nak event --quiet --sec "$NSEC_HEX" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
