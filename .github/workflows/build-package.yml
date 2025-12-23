@@ -281,8 +281,10 @@ jobs:
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
+        shell: bash
         env:
           RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
           set -e  # Exit on any error
           
@@ -298,12 +300,12 @@ jobs:
           echo "Release Channel: ${{ needs.determine-versioning.outputs.release_channel }}"
           echo "Compression Type: ${{ env.COMPRESSION_TYPE }}"
           echo "Relays: $RELAYS"
-          echo "Secret Key (first 10 chars): ${NSEC_HEX:0:10}..."
+          echo "Secret Key set: $([ -n "$NSEC_HEX" ] && echo 'yes' || echo 'no')"
           echo "====================================="
           
           # Create and publish NIP-94 event using nak
           set +e  # Temporarily disable exit on error to capture output
-          EVENT_OUTPUT=$(nak event --sec "${{ secrets.NSEC_HEX }}" -k 1063 \
+          EVENT_OUTPUT=$(nak event --sec "$NSEC_HEX" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
             --tag url="${{ steps.blossom_upload.outputs.url }}" \
             --tag m="application/octet-stream" \
