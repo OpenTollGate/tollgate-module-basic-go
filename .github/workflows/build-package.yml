@@ -271,7 +271,7 @@ jobs:
         with:
           host: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" # https://blossom.swissdash.site
           filePath: ${{ env.PACKAGE_PATH }}
-          privatekey: "3f0cd9b8e07258dd777527757c4729a9e879ec69a61c6d554cdd3d8e61457d85" #${{ secrets.NSEC_HEX }}
+          privatekey: ${{ secrets.NSEC_HEX }}
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
