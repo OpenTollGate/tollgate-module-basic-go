@@ -145,9 +145,10 @@ jobs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
     steps:
-      # Note: Checkout step removed for local execution compatibility
-      # When running in GitHub Actions, the repository is already checked out by default
-      # When running locally (e.g., with Magnolia), you're already in the repository
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for commit height
+          
       - id: commit-hash
         shell: bash
         run: |
