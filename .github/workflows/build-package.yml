@@ -284,17 +284,21 @@ jobs:
         env:
           RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
         run: |
-          # Create NIP-94 event using nak
+          # Create NIP-94 event using nak with all tags (both full names and short versions)
           EVENT_JSON=$(nak event --sec "${{ secrets.NSEC_HEX }}" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
             --tag url="${{ steps.blossom_upload.outputs.url }}" \
             --tag m="application/octet-stream" \
             --tag x="${{ steps.blossom_upload.outputs.hash }}" \
             --tag ox="${{ steps.blossom_upload.outputs.hash }}" \
-            --tag size="${{ env.PACKAGE_SIZE }}" \
+            --tag filename="${{ env.PACKAGE_FILENAME }}" \
+            --tag architecture="${{ matrix.architecture }}" \
             --tag A="${{ matrix.architecture }}" \
+            --tag version="${{ needs.determine-versioning.outputs.package_version }}" \
             --tag v="${{ needs.determine-versioning.outputs.package_version }}" \
+            --tag release_channel="${{ needs.determine-versioning.outputs.release_channel }}" \
             --tag c="${{ needs.determine-versioning.outputs.release_channel }}" \
+            --tag package_name="${{ env.PACKAGE_NAME }}" \
             --tag n="${{ env.PACKAGE_NAME }}" \
             --tag compression="${{ env.COMPRESSION_TYPE }}" \
             $RELAYS)
