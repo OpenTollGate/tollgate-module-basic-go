@@ -285,6 +285,7 @@ jobs:
           RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
         run: |
           # Create NIP-94 event using nak with all tags (both full names and short versions)
+          # First create the event without publishing to get clean JSON
           EVENT_JSON=$(nak event --sec "${{ secrets.NSEC_HEX }}" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
             --tag url="${{ steps.blossom_upload.outputs.url }}" \
@@ -300,11 +301,16 @@ jobs:
             --tag c="${{ needs.determine-versioning.outputs.release_channel }}" \
             --tag package_name="${{ env.PACKAGE_NAME }}" \
             --tag n="${{ env.PACKAGE_NAME }}" \
-            --tag compression="${{ env.COMPRESSION_TYPE }}" \
-            $RELAYS)
+            --tag compression="${{ env.COMPRESSION_TYPE }}")
           
           # Extract event ID
           EVENT_ID=$(echo "$EVENT_JSON" | jq -r '.id')
+          echo "Event JSON: $EVENT_JSON"
+          echo "Event ID: $EVENT_ID"
+          
+          # Now publish the event to relays
+          echo "$EVENT_JSON" | nak event $RELAYS
+          
           echo "eventId=$EVENT_ID" >> $GITHUB_OUTPUT
           echo "✅ Published NIP-94 event: $EVENT_ID"
 
