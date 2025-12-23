@@ -19,6 +19,9 @@ jobs:
     steps:
       - id: set-matrix
         run: |
+          # Set GITHUB_OUTPUT to a temp file if not running in GitHub Actions
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          
           # Create a human-readable matrix definition
           cat > matrix.json << 'EOF'
           {
@@ -142,15 +145,24 @@ jobs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required for commit height
+      # Note: Checkout step removed for local execution compatibility
+      # When running in GitHub Actions, the repository is already checked out by default
+      # When running locally (e.g., with Magnolia), you're already in the repository
       - id: commit-hash
-        uses: prompt/actions-commit-hash@v3
+        shell: bash
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # Get short commit hash directly instead of using an action
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          echo "short=$SHORT_HASH" >> $GITHUB_OUTPUT
 
       - name: Set package_version variable
         id: determine-package-version
+        shell: bash
         run: |
+          # Set GITHUB_OUTPUT to a temp file if not running in GitHub Actions
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             # If this is a tag push, use the tag name (vX.X.X)
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
@@ -164,7 +176,11 @@ jobs:
         
       - name: Set version variable
         id: determine-release-channel
+        shell: bash
         run: |
+          # Set GITHUB_OUTPUT to a temp file if not running in GitHub Actions
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             # Extract tag name from refs/tags/v1.2.3 format
             TAG_NAME=${GITHUB_REF#refs/tags/}
@@ -195,6 +211,9 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
+      - name: Pre-pull Docker image
+        run: docker pull openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
+        
       - uses: actions/checkout@v4
         with:
           path: ${{ env.PACKAGE_NAME }}/
