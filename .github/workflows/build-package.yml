@@ -267,7 +267,7 @@ jobs:
 
       - name: Blossom Artifact upload
         id: blossom_upload
-        uses: Origami74/upload-blossom-action@v0.1.1
+        uses: Origami74/upload-blossom-action@feature/polyfill
         with:
           host: "https://blossom.swissdash.site"
           filePath: ${{ env.PACKAGE_PATH }}
