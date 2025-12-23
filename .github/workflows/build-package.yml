@@ -286,8 +286,22 @@ jobs:
         run: |
           set -e  # Exit on any error
           
+          # Log all input values for debugging
+          echo "=== Input Values for NIP-94 Event ==="
+          echo "PACKAGE_NAME: ${{ env.PACKAGE_NAME }}"
+          echo "Architecture: ${{ matrix.architecture }}"
+          echo "Blossom URL: ${{ steps.blossom_upload.outputs.url }}"
+          echo "Blossom Hash: ${{ steps.blossom_upload.outputs.hash }}"
+          echo "Package Filename: ${{ env.PACKAGE_FILENAME }}"
+          echo "Package Size: ${{ env.PACKAGE_SIZE }}"
+          echo "Package Version: ${{ needs.determine-versioning.outputs.package_version }}"
+          echo "Release Channel: ${{ needs.determine-versioning.outputs.release_channel }}"
+          echo "Compression Type: ${{ env.COMPRESSION_TYPE }}"
+          echo "Relays: $RELAYS"
+          echo "Secret Key (first 10 chars): ${NSEC_HEX:0:10}..."
+          echo "====================================="
+          
           # Create and publish NIP-94 event using nak
-          # Capture both stdout and stderr, but preserve exit code
           set +e  # Temporarily disable exit on error to capture output
           EVENT_OUTPUT=$(nak event --sec "${{ secrets.NSEC_HEX }}" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
@@ -310,7 +324,9 @@ jobs:
           set -e  # Re-enable exit on error
           
           # Print all output for debugging
+          echo "=== nak event output ==="
           echo "$EVENT_OUTPUT"
+          echo "========================"
           
           # Check if nak command failed
           if [ $NAK_EXIT_CODE -ne 0 ]; then
@@ -323,6 +339,8 @@ jobs:
           
           if [ -z "$EVENT_JSON" ]; then
             echo "❌ Failed to extract event JSON from output"
+            echo "Full output was:"
+            echo "$EVENT_OUTPUT"
             exit 1
           fi
           
@@ -331,6 +349,7 @@ jobs:
           
           if [ -z "$EVENT_ID" ] || [ "$EVENT_ID" = "null" ]; then
             echo "❌ Failed to extract event ID from JSON"
+            echo "Event JSON: $EVENT_JSON"
             exit 1
           fi
           
