@@ -222,6 +222,11 @@ jobs:
     needs: [determine-versioning, build-package, define-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    container:
+      image: catthehacker/ubuntu:act-latest
+      options: --user root
+      volumes:
+        - /tmp/tollgate-artifacts:/tmp/tollgate-artifacts
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
