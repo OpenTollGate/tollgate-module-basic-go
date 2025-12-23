@@ -258,6 +258,13 @@ jobs:
           name: ${{ env.PACKAGE_FILENAME }}
           path: ./artifacts
 
+      - name: Install nak
+        run: |
+          # Download nak binary for Linux AMD64
+          curl -L https://github.com/fiatjaf/nak/releases/download/v0.17.3/nak-v0.17.3-linux-amd64 -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version || echo "nak installed"
+
       - name: Get package size
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
@@ -267,11 +274,23 @@ jobs:
 
       - name: Blossom Artifact upload
         id: blossom_upload
-        uses: Origami74/upload-blossom-action@feature/polyfill
-        with:
-          host: "https://cdn.sovbit.host" # https://blossom.swissdash.site
-          filePath: ${{ env.PACKAGE_PATH }}
-          privatekey: "3f0cd9b8e07258dd777527757c4729a9e879ec69a61c6d554cdd3d8e61457d85" #${{ secrets.NSEC_HEX }}
+        env:
+          BLOSSOM_SERVER: "https://blossom.swissdash.site"
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+        run: |
+          # Upload to Blossom using nak
+          UPLOAD_RESULT=$(nak blossom --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" upload "${{ env.PACKAGE_PATH }}")
+          
+          # Extract URL and hash from JSON response
+          BLOB_URL=$(echo "$UPLOAD_RESULT" | jq -r '.url')
+          BLOB_HASH=$(echo "$UPLOAD_RESULT" | jq -r '.sha256')
+          
+          # Set outputs for next steps
+          echo "url=$BLOB_URL" >> $GITHUB_OUTPUT
+          echo "hash=$BLOB_HASH" >> $GITHUB_OUTPUT
+          
+          echo "✅ Uploaded to Blossom: $BLOB_URL"
+          echo "📦 SHA256: $BLOB_HASH"
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
