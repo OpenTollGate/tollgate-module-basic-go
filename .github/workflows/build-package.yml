@@ -258,26 +258,6 @@ jobs:
           name: ${{ env.PACKAGE_FILENAME }}
           path: ./artifacts
 
-      - name: Install nak
-        run: |
-          # Download nak binary for Linux AMD64
-          curl -L https://github.com/fiatjaf/nak/releases/download/v0.17.3/nak-v0.17.3-linux-amd64 -o /usr/local/bin/nak
-          chmod +x /usr/local/bin/nak
-          nak --version || echo "nak installed"
-
-      - name: Setup secret key
-        id: setup_key
-        run: |
-          if [ "$ACT" = "true" ]; then
-            # Generate a temporary key for ACT testing
-            TEMP_KEY=$(nak key generate)
-            echo "SECRET_KEY=$TEMP_KEY" >> $GITHUB_OUTPUT
-            echo "ℹ️  Generated temporary key for ACT testing"
-          else
-            # Use the actual secret from GitHub
-            echo "SECRET_KEY=${{ secrets.NSEC_HEX }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Get package size
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
@@ -287,23 +267,11 @@ jobs:
 
       - name: Blossom Artifact upload
         id: blossom_upload
-        env:
-          BLOSSOM_SERVER: "http://localhost:4870" #"https://blossom.swissdash.site"
-          SECRET_KEY: ${{ steps.setup_key.outputs.SECRET_KEY }}
-        run: |
-          # Upload to Blossom using nak
-          UPLOAD_RESULT=$(nak blossom --server "$BLOSSOM_SERVER" --sec "$SECRET_KEY" upload "${{ env.PACKAGE_PATH }}")
-          
-          # Extract URL and hash from JSON response
-          BLOB_URL=$(echo "$UPLOAD_RESULT" | jq -r '.url')
-          BLOB_HASH=$(echo "$UPLOAD_RESULT" | jq -r '.sha256')
-          
-          # Set outputs for next steps
-          echo "url=$BLOB_URL" >> $GITHUB_OUTPUT
-          echo "hash=$BLOB_HASH" >> $GITHUB_OUTPUT
-          
-          echo "✅ Uploaded to Blossom: $BLOB_URL"
-          echo "📦 SHA256: $BLOB_HASH"
+        uses: Origami74/upload-blossom-action@feature/polyfill
+        with:
+          host: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" # https://blossom.swissdash.site
+          filePath: ${{ env.PACKAGE_PATH }}
+          privatekey: "3f0cd9b8e07258dd777527757c4729a9e879ec69a61c6d554cdd3d8e61457d85" #${{ secrets.NSEC_HEX }}
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
