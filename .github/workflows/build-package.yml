@@ -332,34 +332,39 @@ jobs:
           echo "Secret Key set: $([ -n "$NSEC_HEX" ] && echo 'yes' || echo 'no')"
           echo "====================================="
           
-          # Test: Publish a simple kind 1 note first to verify nak works
-          echo "Testing nak with a simple kind 1 note..."
-          nak event --sec "$NSEC_HEX" -k 1 -c "Test note from GitHub Actions" $RELAYS > test.json 2> test.err
+          # Test: Create a simple kind 1 note (without publishing)
+          echo "Testing nak event creation..."
+          nak event --sec "$NSEC_HEX" -k 1 -c "Test note from GitHub Actions" > test.json 2> test.err
           TEST_EXIT=$?
           
+          echo "Test creation exit code: $TEST_EXIT"
+          echo "test.json size: $(wc -c < test.json 2>/dev/null || echo '0') bytes"
+          echo "test.err size: $(wc -c < test.err 2>/dev/null || echo '0') bytes"
+          
           if [ -s test.err ]; then
-            echo "=== Test note stderr ==="
+            echo "=== Test stderr ==="
             cat test.err
-            echo "======================="
+            echo "==================="
           fi
           
-          if [ $TEST_EXIT -ne 0 ]; then
-            echo "❌ Test note failed (exit code: $TEST_EXIT)"
-            cat test.json 2>/dev/null || echo "No test.json created"
-            exit $TEST_EXIT
-          fi
-          
-          TEST_ID=$(jq -r '.id' test.json 2>/dev/null || echo "")
-          if [ -n "$TEST_ID" ] && [ "$TEST_ID" != "null" ]; then
-            echo "✅ Test note published successfully with ID: $TEST_ID"
-          else
-            echo "⚠️  Test note may have failed to publish"
+          if [ -s test.json ]; then
+            echo "=== Test JSON ==="
             cat test.json
+            echo "================="
+            
+            # Now try to publish it
+            echo "Publishing test note to relays..."
+            cat test.json | nak event $RELAYS 2>&1
+            echo "Test publish complete"
+          else
+            echo "❌ No JSON output from nak event"
+            exit 1
           fi
           
-          # Step 1: Create NIP-94 event without publishing (to get clean JSON)
+          # Step 1: Create NIP-94 event (without publishing)
+          echo ""
           echo "Creating NIP-94 event..."
-          nak event --quiet --sec "$NSEC_HEX" -k 1063 \
+          nak event --sec "$NSEC_HEX" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
             --tag url="${{ steps.blossom_upload.outputs.url }}" \
             --tag m="application/octet-stream" \
@@ -379,11 +384,14 @@ jobs:
           
           NAK_EXIT=$?
           
-          # Print stderr if there was any
+          echo "Event creation exit code: $NAK_EXIT"
+          echo "event.json size: $(wc -c < event.json 2>/dev/null || echo '0') bytes"
+          echo "event.err size: $(wc -c < event.err 2>/dev/null || echo '0') bytes"
+          
           if [ -s event.err ]; then
-            echo "=== nak stderr output ==="
+            echo "=== Event stderr ==="
             cat event.err
-            echo "========================="
+            echo "===================="
           fi
           
           if [ $NAK_EXIT -ne 0 ]; then
@@ -392,25 +400,28 @@ jobs:
             exit $NAK_EXIT
           fi
           
+          if [ ! -s event.json ]; then
+            echo "❌ event.json is empty"
+            exit 1
+          fi
+          
+          echo "=== Event JSON ==="
+          cat event.json
+          echo "=================="
+          
           # Validate and extract event ID
           EVENT_ID=$(jq -r '.id' event.json)
           
           if [ -z "$EVENT_ID" ] || [ "$EVENT_ID" = "null" ]; then
             echo "❌ Failed to extract event ID"
-            echo "Event JSON:"
-            cat event.json
             exit 1
           fi
           
           echo "Event created with ID: $EVENT_ID"
           
-          # Step 2: Publish to relays (verbose output for debugging)
+          # Step 2: Publish to relays
           echo "Publishing to relays..."
-          cat event.json | nak event $RELAYS
-          
-          if [ $? -ne 0 ]; then
-            echo "⚠️  Warning: Some relays may have failed, but event was created"
-          fi
+          cat event.json | nak event $RELAYS 2>&1
           
           echo "eventId=$EVENT_ID" >> $GITHUB_OUTPUT
           echo "✅ Published NIP-94 event: $EVENT_ID"
