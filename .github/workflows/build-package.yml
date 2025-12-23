@@ -223,7 +223,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
-      image: catthehacker/ubuntu:act-latest
+      image: node:alpine
       options: --user root
       volumes:
         - /tmp/tollgate-artifacts:/tmp/tollgate-artifacts
