@@ -209,12 +209,11 @@ jobs:
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
       options: --user root
+      volumes:
+        - /tmp/tollgate-artifacts:/artifacts
     strategy:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
-      - name: Pre-pull Docker image
-        run: docker pull openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
-        
       - uses: actions/checkout@v4
         with:
           path: ${{ env.PACKAGE_NAME }}/
@@ -293,12 +292,15 @@ jobs:
             exit 1
           fi
           ls -lh "$PACKAGE_PATH"
-          # Copy file to a location GitHub can access
+          # Copy to mounted volume that persists outside container
+          mkdir -p /artifacts
+          cp "$PACKAGE_PATH" "/artifacts/${{ env.PACKAGE_FILENAME }}"
+          # Also copy to GitHub workspace for artifact upload
           mkdir -p /github/workspace/artifacts
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
 
       - name: GitHub Artifact upload
-        if: ${{ github.event_name != 'workflow_dispatch' || github.repository != '' }}
+        if: ${{ env.ACT != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PACKAGE_FILENAME }}
@@ -313,9 +315,7 @@ jobs:
       matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
     steps:
       - name: Initialize
-        id: init
         run: |
-          # Add compression suffix if using compression
           if [ -n "${{ matrix.compression }}" ]; then
             COMPRESSION_SUFFIX="-${{ matrix.compression }}"
             COMPRESSION_TYPE="${{ matrix.compression }}"
@@ -327,20 +327,25 @@ jobs:
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
-      - name: Download artifact
+      - name: Get artifact from volume (ACT) or download (GitHub)
+        run: |
+          mkdir -p ./artifacts
+          if [ "$ACT" = "true" ]; then
+            # In ACT, copy from mounted volume
+            cp /tmp/tollgate-artifacts/${{ env.PACKAGE_FILENAME }} ./artifacts/
+          fi
+
+      - name: Download artifact from GitHub
+        if: ${{ env.ACT != 'true' }}
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.PACKAGE_FILENAME }}
           path: ./artifacts
 
-      - name: Prepare package metadata
-        id: package_info
+      - name: Get package size
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
           FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-
-          echo "ℹ️ PACKAGE_PATH: $PACKAGE_PATH, FILE_SIZE: $FILE_SIZE"
-          
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
 
@@ -359,7 +364,7 @@ jobs:
           relays: >-
             wss://relay.damus.io,
             wss://nos.lol,
-            wss://nostr.mom/
+            wss://nostr.mom/,
             wss://relay.tollgate.me/
           url: ${{ steps.blossom_upload.outputs.url }}
           mimeType: application/octet-stream
@@ -380,11 +385,9 @@ jobs:
             n=${{ env.PACKAGE_NAME }}
             compression=${{ env.COMPRESSION_TYPE }}
 
-          # FULL WORD TAGS ARE DEPRECATED AND SHOULD BE REMOVED IN THE FUTURE. DEPRECATED IN FAVOUR OF ONE-LETTER TAGS BECASUE OF RELAY FILTERING.
-
       - name: Verify Package NIP-94 Event
         id: verify_package
-        if: ${{ steps.publish_package.outputs.eventId }} != ''
+        if: ${{ steps.publish_package.outputs.eventId != '' }}
         uses: OpenTollGate/nostr-publish-file-metadata-action/python/verify@v0.1.0
         with:
           eventId: ${{ steps.publish_package.outputs.eventId }}
@@ -395,7 +398,6 @@ jobs:
             wss://relay.tollgate.me/
 
       - name: Check Package Publication
-        # Only run this step if the verification ran and failed
         if: steps.verify_package.outcome == 'failure'
         run: |
           echo "❌ Failed to verify package publication on relays"
@@ -413,6 +415,7 @@ jobs:
     needs: publish-metadata
     steps:
     - name: Trigger OS Workflow
+      if: ${{ env.ACT != 'true' }}
       uses: peter-evans/repository-dispatch@v2
       with:
         token: ${{ secrets.REPO_ACCESS_TOKEN }}
