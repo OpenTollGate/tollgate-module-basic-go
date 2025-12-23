@@ -303,9 +303,9 @@ jobs:
           echo "Secret Key set: $([ -n "$NSEC_HEX" ] && echo 'yes' || echo 'no')"
           echo "====================================="
           
-          # Create and publish NIP-94 event using nak
-          set +e  # Temporarily disable exit on error to capture output
-          EVENT_OUTPUT=$(nak event --sec "$NSEC_HEX" -k 1063 \
+          # Step 1: Create event without publishing (to get clean JSON)
+          echo "Creating NIP-94 event..."
+          nak event --quiet --sec "$NSEC_HEX" -k 1063 \
             -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
             --tag url="${{ steps.blossom_upload.outputs.url }}" \
             --tag m="application/octet-stream" \
@@ -321,41 +321,34 @@ jobs:
             --tag package_name="${{ env.PACKAGE_NAME }}" \
             --tag n="${{ env.PACKAGE_NAME }}" \
             --tag compression="${{ env.COMPRESSION_TYPE }}" \
-            $RELAYS 2>&1)
-          NAK_EXIT_CODE=$?
-          set -e  # Re-enable exit on error
+            > event.json
           
-          # Print all output for debugging
-          echo "=== nak event output ==="
-          echo "$EVENT_OUTPUT"
-          echo "========================"
-          
-          # Check if nak command failed
-          if [ $NAK_EXIT_CODE -ne 0 ]; then
-            echo "❌ nak event command failed with exit code $NAK_EXIT_CODE"
-            exit $NAK_EXIT_CODE
-          fi
-          
-          # Extract the JSON line (first line that starts with {)
-          EVENT_JSON=$(echo "$EVENT_OUTPUT" | grep -m1 '^{' || echo "")
-          
-          if [ -z "$EVENT_JSON" ]; then
-            echo "❌ Failed to extract event JSON from output"
-            echo "Full output was:"
-            echo "$EVENT_OUTPUT"
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to create event"
+            cat event.json 2>/dev/null || echo "No event.json created"
             exit 1
           fi
           
-          # Extract event ID
-          EVENT_ID=$(echo "$EVENT_JSON" | jq -r '.id')
+          # Validate and extract event ID
+          EVENT_ID=$(jq -r '.id' event.json)
           
           if [ -z "$EVENT_ID" ] || [ "$EVENT_ID" = "null" ]; then
-            echo "❌ Failed to extract event ID from JSON"
-            echo "Event JSON: $EVENT_JSON"
+            echo "❌ Failed to extract event ID"
+            echo "Event JSON:"
+            cat event.json
             exit 1
           fi
           
-          echo "Event ID: $EVENT_ID"
+          echo "Event created with ID: $EVENT_ID"
+          
+          # Step 2: Publish to relays (verbose output for debugging)
+          echo "Publishing to relays..."
+          cat event.json | nak event $RELAYS
+          
+          if [ $? -ne 0 ]; then
+            echo "⚠️  Warning: Some relays may have failed, but event was created"
+          fi
+          
           echo "eventId=$EVENT_ID" >> $GITHUB_OUTPUT
           echo "✅ Published NIP-94 event: $EVENT_ID"
 
