@@ -288,7 +288,7 @@ jobs:
       - name: Blossom Artifact upload
         id: blossom_upload
         env:
-          BLOSSOM_SERVER: "https://cdn.sovbit.host" #"https://blossom.swissdash.site"
+          BLOSSOM_SERVER: "http://localhost:4870" #"https://blossom.swissdash.site"
           SECRET_KEY: ${{ steps.setup_key.outputs.SECRET_KEY }}
         run: |
           # Upload to Blossom using nak
