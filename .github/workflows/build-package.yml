@@ -265,6 +265,19 @@ jobs:
           chmod +x /usr/local/bin/nak
           nak --version || echo "nak installed"
 
+      - name: Setup secret key
+        id: setup_key
+        run: |
+          if [ "$ACT" = "true" ]; then
+            # Generate a temporary key for ACT testing
+            TEMP_KEY=$(nak key generate)
+            echo "SECRET_KEY=$TEMP_KEY" >> $GITHUB_OUTPUT
+            echo "ℹ️  Generated temporary key for ACT testing"
+          else
+            # Use the actual secret from GitHub
+            echo "SECRET_KEY=${{ secrets.NSEC_HEX }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Get package size
         run: |
           PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
@@ -275,11 +288,11 @@ jobs:
       - name: Blossom Artifact upload
         id: blossom_upload
         env:
-          BLOSSOM_SERVER: "https://blossom.swissdash.site"
-          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BLOSSOM_SERVER: "https://cdn.sovbit.host" #"https://blossom.swissdash.site"
+          SECRET_KEY: ${{ steps.setup_key.outputs.SECRET_KEY }}
         run: |
           # Upload to Blossom using nak
-          UPLOAD_RESULT=$(nak blossom --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" upload "${{ env.PACKAGE_PATH }}")
+          UPLOAD_RESULT=$(nak blossom --server "$BLOSSOM_SERVER" --sec "$SECRET_KEY" upload "${{ env.PACKAGE_PATH }}")
           
           # Extract URL and hash from JSON response
           BLOB_URL=$(echo "$UPLOAD_RESULT" | jq -r '.url')
