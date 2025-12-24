@@ -243,10 +243,10 @@ jobs:
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
-      # - name: Install required tools
-      #   run: |
-      #     apt-get update
-      #     apt-get install -y curl bash git tar gzip jq
+      - name: Install required tools
+        run: |
+          # apt-get update
+          apt-get install -y curl jq
 
       - name: Get artifact from volume (ACT) or download (GitHub)
         shell: bash
