@@ -223,7 +223,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
-      image: node:alpine
+      image: ubuntu:latest
       options: --user root
       volumes:
         - /tmp/tollgate-artifacts:/tmp/tollgate-artifacts
@@ -243,7 +243,7 @@ jobs:
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
           echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
 
-      - name: Install required tools (Alpine)
+      - name: Install required tools
         run: |
           apk add --no-cache curl bash git tar gzip libc6-compat jq
 
@@ -271,13 +271,13 @@ jobs:
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
 
-      - name: Blossom Artifact upload
+      - name: Blossom Artifact upload using nak
         id: blossom_upload
-        uses: Origami74/upload-blossom-action@polyfill
-        with:
-          host: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" # https://blossom.swissdash.site
-          filePath: ${{ env.PACKAGE_PATH }}
-          privatekey: ${{ secrets.NSEC_HEX }}
+        shell: bash
+        run: |
+          BLOSSOM_URL=$(nak upload --host "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" --file "${{ env.PACKAGE_PATH }}" --sec "${{ secrets.NSEC_HEX }}")
+          echo "url=$BLOSSOM_URL" >> $GITHUB_OUTPUT
+          echo "✅ Uploaded to Blossom: $BLOSSOM_URL"
 
       - name: Install nak
         shell: bash
