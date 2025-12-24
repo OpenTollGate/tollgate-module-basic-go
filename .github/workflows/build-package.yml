@@ -245,7 +245,8 @@ jobs:
 
       - name: Install required tools
         run: |
-          apk add --no-cache curl bash git tar gzip libc6-compat jq
+          apt-get update
+          apt-get install -y curl bash git tar gzip jq
 
       - name: Get artifact from volume (ACT) or download (GitHub)
         shell: bash
