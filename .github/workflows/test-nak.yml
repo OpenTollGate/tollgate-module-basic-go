@@ -1,0 +1,64 @@
+name: Test Nak Publication
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-nak:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install nak
+        shell: bash
+        run: |
+          # Detect architecture
+          ARCH=$(uname -m)
+          echo "Detected architecture: $ARCH"
+
+          # Map to nak binary naming
+          case "$ARCH" in
+            x86_64)
+              NAK_ARCH="linux-amd64"
+              ;;
+            aarch64|arm64)
+              NAK_ARCH="linux-arm64"
+              ;;
+            armv7l)
+              NAK_ARCH="linux-armv7"
+              ;;
+            *)
+              echo "❌ Unsupported architecture: $ARCH"
+              exit 1
+              ;;
+          esac
+
+          echo "Downloading nak for $NAK_ARCH..."
+          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.17.3/nak-v0.17.3-${NAK_ARCH}" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+
+          # Verify installation
+          if nak --version; then
+            echo "✅ nak installed successfully"
+          else
+            echo "❌ nak installation failed"
+            exit 1
+            fi
+
+      - name: Test nak event creation and publication
+        shell: bash
+        env:
+          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+        run: |
+          set -e  # Exit on any error
+
+          # Create a simple kind 1 note
+          echo "Creating test note..."
+          nak event --sec "$NSEC_HEX" -k 1 -c "Test note from GitHub Actions" > test.json 2> test.err
+
+          # Publish the note
+          echo "Publishing test note to relays..."
+          cat test.json | nak event $RELAYS 2>&1
+          echo "Test publish complete"
