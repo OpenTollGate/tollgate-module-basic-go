@@ -272,40 +272,12 @@ jobs:
           echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
           echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
 
-      - name: Blossom Artifact upload using nak
-        id: blossom_upload
-        shell: bash
-        run: |
-          BLOSSOM_URL=$(nak upload --host "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" --file "${{ env.PACKAGE_PATH }}" --sec "${{ secrets.NSEC_HEX }}")
-          echo "url=$BLOSSOM_URL" >> $GITHUB_OUTPUT
-          echo "✅ Uploaded to Blossom: $BLOSSOM_URL"
 
       - name: Install nak
         shell: bash
         run: |
-          # Detect architecture
-          ARCH=$(uname -m)
-          echo "Detected architecture: $ARCH"
-          
-          # Map to nak binary naming
-          case "$ARCH" in
-            x86_64)
-              NAK_ARCH="linux-amd64"
-              ;;
-            aarch64|arm64)
-              NAK_ARCH="linux-arm64"
-              ;;
-            armv7l)
-              NAK_ARCH="linux-armv7"
-              ;;
-            *)
-              echo "❌ Unsupported architecture: $ARCH"
-              exit 1
-              ;;
-          esac
-          
-          echo "Downloading nak for $NAK_ARCH..."
-          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-${NAK_ARCH}" -o /usr/local/bin/nak
+          echo "Downloading nak for linux-amd64..."
+          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
           chmod +x /usr/local/bin/nak
           
           # Verify installation
@@ -315,6 +287,14 @@ jobs:
             echo "❌ nak installation failed"
             exit 1
           fi
+
+      - name: Blossom Artifact upload using nak
+        id: blossom_upload
+        shell: bash
+        run: |
+          BLOSSOM_URL=$(nak upload --host "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" --file "${{ env.PACKAGE_PATH }}" --sec "${{ secrets.NSEC_HEX }}")
+          echo "url=$BLOSSOM_URL" >> $GITHUB_OUTPUT
+          echo "✅ Uploaded to Blossom: $BLOSSOM_URL"
 
       - name: Publish Package NIP-94 Metadata
         id: publish_package
