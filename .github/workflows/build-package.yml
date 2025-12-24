@@ -291,9 +291,29 @@ jobs:
       - name: Blossom Artifact upload using nak
         id: blossom_upload
         shell: bash
+        env:
+          BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
-          BLOSSOM_URL=$(nak upload --host "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com" --file "${{ env.PACKAGE_PATH }}" --sec "${{ secrets.NSEC_HEX }}")
+          # Upload file to Blossom using nak
+          UPLOAD_RESPONSE=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "${{ env.PACKAGE_PATH }}")
+          
+          echo "Upload response:"
+          echo "$UPLOAD_RESPONSE"
+          
+          # Extract sha256 hash from JSON response
+          FILE_HASH=$(echo "$UPLOAD_RESPONSE" | jq -r '.sha256')
+          
+          if [ -z "$FILE_HASH" ] || [ "$FILE_HASH" = "null" ]; then
+            echo "❌ Failed to extract hash from upload response"
+            exit 1
+          fi
+          
+          # Construct Blossom URL
+          BLOSSOM_URL="$BLOSSOM_SERVER/$FILE_HASH"
+          
           echo "url=$BLOSSOM_URL" >> $GITHUB_OUTPUT
+          echo "hash=$FILE_HASH" >> $GITHUB_OUTPUT
           echo "✅ Uploaded to Blossom: $BLOSSOM_URL"
 
       - name: Publish Package NIP-94 Metadata
