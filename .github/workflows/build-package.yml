@@ -304,7 +304,7 @@ jobs:
           esac
           
           echo "Downloading nak for $NAK_ARCH..."
-          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.17.3/nak-v0.17.3-${NAK_ARCH}" -o /usr/local/bin/nak
+          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-${NAK_ARCH}" -o /usr/local/bin/nak
           chmod +x /usr/local/bin/nak
           
           # Verify installation
