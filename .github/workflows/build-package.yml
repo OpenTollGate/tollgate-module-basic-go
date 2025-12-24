@@ -295,8 +295,8 @@ jobs:
           BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
-          # Upload file to Blossom using nak
-          UPLOAD_RESPONSE=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "${{ env.PACKAGE_PATH }}")
+          # Upload file to Blossom using nak (redirect stdin from /dev/null to avoid pipe detection)
+          UPLOAD_RESPONSE=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "${{ env.PACKAGE_PATH }}" < /dev/null)
           
           echo "Upload response:"
           echo "$UPLOAD_RESPONSE"
