@@ -245,7 +245,7 @@ jobs:
 
       - name: Install required tools
         run: |
-          # apt-get update
+          apt-get update
           apt-get install -y curl jq
 
       - name: Get artifact from volume (ACT) or download (GitHub)
