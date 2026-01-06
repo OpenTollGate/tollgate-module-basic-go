@@ -270,12 +270,22 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get MAC address from request
+	ip := getIP(r)
+	macAddress, err := getMacAddress(ip)
+	if err != nil {
+		mainLogger.WithError(err).Error("Error getting MAC address")
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "mac-address-lookup-failed",
+			fmt.Sprintf("Failed to lookup MAC address for IP %s: %v", ip, err), "")
+		return
+	}
+
 	// Read the request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error reading request body")
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
-			fmt.Sprintf("Error reading request body: %v", err), "")
+		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-request",
+			fmt.Sprintf("Error reading request body: %v", err), macAddress)
 		return
 	}
 	defer r.Body.Close()
@@ -284,42 +294,46 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	bodyStr := string(body)
 	mainLogger.WithField("body", bodyStr).Debug("Received POST request")
 
-	// Parse the request body as a nostr event
+	var cashuToken string
+
+	// Try to parse as JSON (Nostr event format)
 	var event nostr.Event
 	err = json.Unmarshal(body, &event)
-	if err != nil {
-		mainLogger.WithError(err).Error("Error parsing nostr event")
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
-			fmt.Sprintf("Error parsing nostr event: %v", err), "")
-		return
+
+	if err == nil && event.Kind == 21000 {
+		// It's a valid Nostr event (signature validation is now optional)
+		mainLogger.WithFields(logrus.Fields{
+			"event_id":   event.ID,
+			"created_at": event.CreatedAt,
+			"kind":       event.Kind,
+			"pubkey":     event.PubKey,
+		}).Info("Parsed nostr event (signature not validated)")
+
+		// Extract payment token from event
+		var paymentToken string
+		for _, tag := range event.Tags {
+			if len(tag) >= 2 && tag[0] == "payment" {
+				paymentToken = tag[1]
+				break
+			}
+		}
+
+		if paymentToken == "" {
+			mainLogger.Error("No payment tag found in event")
+			sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
+				"No payment tag found in event", macAddress)
+			return
+		}
+
+		cashuToken = paymentToken
+	} else {
+		// Treat as plain Cashu token string
+		mainLogger.Info("Treating request as plain Cashu token string")
+		cashuToken = strings.TrimSpace(bodyStr)
 	}
 
-	// Verify the event signature
-	ok, err := event.CheckSignature()
-	if err != nil || !ok {
-		mainLogger.WithError(err).Error("Invalid signature for nostr event")
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
-			fmt.Sprintf("Invalid signature for nostr event"), event.PubKey)
-		return
-	}
-
-	mainLogger.WithFields(logrus.Fields{
-		"event_id":   event.ID,
-		"created_at": event.CreatedAt,
-		"kind":       event.Kind,
-		"pubkey":     event.PubKey,
-	}).Info("Parsed nostr event")
-
-	// Validate that this is a payment event (kind 21000)
-	if event.Kind != 21000 {
-		mainLogger.WithField("kind", event.Kind).Error("Invalid event kind, expected 21000")
-		sendNoticeResponse(w, merchantInstance, http.StatusBadRequest, "error", "invalid-event",
-			fmt.Sprintf("Invalid event kind: %d, expected 21000", event.Kind), event.PubKey)
-		return
-	}
-
-	// Process payment and get session event
-	responseEvent, err := merchantInstance.PurchaseSession(event)
+	// Process payment with cashu token and MAC address
+	responseEvent, err := merchantInstance.PurchaseSession(cashuToken, macAddress)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
@@ -327,7 +341,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Payment processing failed")
 		sendNoticeResponse(w, merchantInstance, http.StatusInternalServerError, "error", "internal-error",
-			fmt.Sprintf("Internal error during payment processing: %v", err), event.PubKey)
+			fmt.Sprintf("Internal error during payment processing: %v", err), macAddress)
 		return
 	}
 
