@@ -16,25 +16,36 @@ var (
 	// BuildTime is the build timestamp
 	BuildTime = "unknown"
 
+	// OpenWrtVersion is the OpenWrt version
+	OpenWrtVersion = "unknown"
+
 	// GoVersion is the Go version used to build
 	GoVersion = runtime.Version()
 )
 
 // GetVersionInfo returns a formatted version string
 func GetVersionInfo() string {
-	if Version == "dev" {
-		return fmt.Sprintf("TollGate %s (commit: %s, built: %s, go: %s)",
-			Version, GitCommit, BuildTime, GoVersion)
-	}
 	return fmt.Sprintf("TollGate %s", Version)
 }
 
 // GetFullVersionInfo returns detailed version information as a map
 func GetFullVersionInfo() map[string]string {
 	return map[string]string{
-		"version":    Version,
-		"commit":     GitCommit,
-		"build_time": BuildTime,
-		"go_version": GoVersion,
+		"version":         Version,
+		"commit":          GitCommit,
+		"build_time":      BuildTime,
+		"go_version":      GoVersion,
+		"openwrt_version": OpenWrtVersion,
 	}
+}
+
+// GetFormattedVersionInfo returns a formatted multi-line version string
+func GetFormattedVersionInfo() string {
+	return fmt.Sprintf(`TollGate Version
+version: %s
+commit: %s
+build_time: %s
+go_version: %s
+openwrt_version: %s`,
+		Version, GitCommit, BuildTime, GoVersion, OpenWrtVersion)
 }

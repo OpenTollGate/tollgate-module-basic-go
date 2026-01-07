@@ -441,11 +441,9 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 
 // handleVersionCommand returns version information
 func (s *CLIServer) handleVersionCommand() CLIResponse {
-	versionInfo := GetFullVersionInfo()
 	return CLIResponse{
 		Success:   true,
-		Message:   GetVersionInfo(),
-		Data:      versionInfo,
+		Message:   GetFormattedVersionInfo(),
 		Timestamp: time.Now(),
 	}
 }

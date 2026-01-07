@@ -56,14 +56,17 @@ endef
 define Build/Compile
 	# Set build variables
 	$(eval BUILD_TIME=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC'))
-	$(eval GIT_COMMIT=$(shell cd $(PKG_BUILD_DIR) && git rev-parse --short HEAD 2>/dev/null || echo "unknown"))
+	# Extract commit from version string (e.g., "fix-branch.74.e9f593d" -> "e9f593d")
+	$(eval GIT_COMMIT=$(shell echo "$(PKG_VERSION)" | grep -oE '[a-f0-9]{7}$$' || echo "unknown"))
+	$(eval OPENWRT_VER=$(shell cat $(TOPDIR)/version.buildinfo 2>/dev/null | head -n1 || echo "unknown"))
 	$(eval VERSION_LDFLAGS=-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$(PKG_VERSION)' \
 		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$(GIT_COMMIT)' \
-		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$(BUILD_TIME)')
+		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$(BUILD_TIME)' \
+		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.OpenWrtVersion=$(OPENWRT_VER)')
 	
 	cd $(PKG_BUILD_DIR) && \
 	echo "DEBUG: GOARCH=$(GOARCH) GOMIPS=$(GOMIPS)" && \
-	echo "DEBUG: Version=$(PKG_VERSION) Commit=$(GIT_COMMIT) BuildTime=$(BUILD_TIME)" && \
+	echo "DEBUG: Version=$(PKG_VERSION) Commit=$(GIT_COMMIT) BuildTime=$(BUILD_TIME) OpenWrt=$(OPENWRT_VER)" && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
