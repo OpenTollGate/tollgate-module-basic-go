@@ -44,6 +44,7 @@ type MerchantInterface interface {
 	// New session management methods
 	GetSession(macAddress string) (*CustomerSession, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
+	GetUsage(macAddress string) (string, error)
 	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
 }
@@ -103,6 +104,39 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 	}, nil
+}
+
+// GetUsage returns the current usage in format "[usage]/[allotment]"
+// Returns "-1" if no session exists
+// Returns error for actual errors (caller should return 500)
+func (m *Merchant) GetUsage(macAddress string) (string, error) {
+	// Get session for this MAC
+	session, err := m.GetSession(macAddress)
+	if err != nil {
+		return "-1/-1", nil
+	}
+
+	var usageStr string
+	switch session.Metric {
+	case "bytes":
+		// Get data usage since baseline
+		usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+		if err != nil {
+			return "", fmt.Errorf("error getting data usage: %w", err)
+		}
+		usageStr = fmt.Sprintf("%d/%d", usage, session.Allotment)
+
+	case "milliseconds":
+		// Calculate time usage in milliseconds
+		elapsed := time.Now().Unix() - session.StartTime
+		elapsedMs := uint64(elapsed * 1000)
+		usageStr = fmt.Sprintf("%d/%d", elapsedMs, session.Allotment)
+
+	default:
+		return "", fmt.Errorf("unknown session metric: %s", session.Metric)
+	}
+
+	return usageStr, nil
 }
 
 // StartDataUsageMonitoring starts a background routine to monitor data usage for active sessions

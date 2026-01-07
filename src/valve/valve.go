@@ -19,10 +19,16 @@ var (
 	gatesMutex = &sync.Mutex{}
 )
 
+// ndsctlMutex ensures only one ndsctl command runs at a time
+var ndsctlMutex = &sync.Mutex{}
+
 // authorizeMAC authorizes a MAC address using ndsctl
 func authorizeMAC(macAddress string) error {
+	ndsctlMutex.Lock()
 	cmd := exec.Command("ndsctl", "auth", macAddress)
 	output, err := cmd.Output()
+	ndsctlMutex.Unlock()
+
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
@@ -40,8 +46,11 @@ func authorizeMAC(macAddress string) error {
 
 // deauthorizeMAC deauthorizes a MAC address using ndsctl
 func deauthorizeMAC(macAddress string) error {
+	ndsctlMutex.Lock()
 	cmd := exec.Command("ndsctl", "deauth", macAddress)
 	output, err := cmd.Output()
+	ndsctlMutex.Unlock()
+
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
@@ -202,9 +211,14 @@ type ClientStats struct {
 // GetClientStats retrieves the current data usage statistics for a MAC address from ndsctl
 // Returns downloaded and uploaded in bytes (converted from kilobytes)
 // Returns error if client not found or command fails
+// This function is thread-safe and serializes ndsctl calls
 func GetClientStats(macAddress string) (downloaded uint64, uploaded uint64, err error) {
+	// Serialize ndsctl calls to prevent concurrent execution issues
+	ndsctlMutex.Lock()
 	cmd := exec.Command("ndsctl", "json", macAddress)
 	output, err := cmd.Output()
+	ndsctlMutex.Unlock() // Unlock immediately after command completes
+
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
