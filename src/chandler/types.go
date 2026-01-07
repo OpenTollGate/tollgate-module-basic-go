@@ -3,6 +3,7 @@ package chandler
 import (
 	"sync"
 	"time"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -92,9 +93,6 @@ type ChandlerInterface interface {
 	PauseSession(pubkey string) error
 	ResumeSession(pubkey string) error
 	TerminateSession(pubkey string) error
-
-	// StartSession is called by the merchant to start a session after a successful payment
-	StartSession(macAddress string) error
 }
 
 // UsageTrackerInterface defines the interface for usage tracking

@@ -16,6 +16,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -254,26 +255,35 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	// Notify the chandler to start the session
-	// The chandler is now responsible for opening the gate and managing the session lifecycle.
-	// We need to cast the chandler back to its specific type to call the method.
-	type ChandlerInterface interface {
-		StartSession(macAddress string) error
-	}
-
-	if chandler, ok := m.chandler.(ChandlerInterface); ok {
-		err = chandler.StartSession(macAddress)
+	// Open the gate based on session type
+	switch session.Metric {
+	case "milliseconds":
+		// Time-based session: open gate until end timestamp
+		endTimestamp := session.StartTime + int64(session.Allotment/1000)
+		err = valve.OpenGateUntil(macAddress, endTimestamp)
 		if err != nil {
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-start-failed",
-				fmt.Sprintf("Failed to start session: %v", err), macAddress)
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
+				fmt.Sprintf("Failed to open gate: %v", err), macAddress)
 			if noticeErr != nil {
-				return nil, fmt.Errorf("failed to start session and failed to create notice: %w", noticeErr)
+				return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
 			}
 			return noticeEvent, nil
 		}
-	} else {
-		// This should not happen if the setup in main.go is correct
-		return nil, fmt.Errorf("chandler is not set or does not implement the required interface")
+	case "bytes":
+		// Data-based session: open gate indefinitely with baseline tracking
+		err = valve.OpenGate(macAddress)
+		if err != nil {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
+				fmt.Sprintf("Failed to open gate: %v", err), macAddress)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
+		}
+		// The valve module automatically sets the data baseline
+		// The merchant will need to periodically check usage and close the gate when allotment is reached
+	default:
+		return nil, fmt.Errorf("unsupported metric: %s", session.Metric)
 	}
 
 	// Create a success session event (using MAC address as identifier in logs)

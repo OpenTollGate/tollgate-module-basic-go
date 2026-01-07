@@ -1,6 +1,7 @@
 package valve
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -129,6 +130,7 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 
 // OpenGate authorizes a MAC address without a timer.
 // It's used for data-based sessions that are closed by a tracker.
+// It captures the current data usage as a baseline for tracking.
 func OpenGate(macAddress string) error {
 	gatesMutex.Lock()
 	defer gatesMutex.Unlock()
@@ -144,6 +146,15 @@ func OpenGate(macAddress string) error {
 	err := authorizeMAC(macAddress)
 	if err != nil {
 		return err
+	}
+
+	// Set data baseline for tracking
+	err = SetDataBaseline(macAddress)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Warn("Failed to set data baseline, continuing anyway")
 	}
 
 	// Store a nil timer to indicate an indefinite gate
@@ -166,7 +177,81 @@ func CloseGate(macAddress string) error {
 		return err
 	}
 
-	// Clean up from active gates map
+	// Clean up from active gates map and data baseline
 	delete(openGates, macAddress)
+	ClearDataBaseline(macAddress)
 	return nil
+}
+
+// ClientStats represents the statistics for a single client from ndsctl
+type ClientStats struct {
+	ID           int     `json:"id"`
+	IP           string  `json:"ip"`
+	MAC          string  `json:"mac"`
+	Added        int64   `json:"added"`
+	Active       int64   `json:"active"`
+	Duration     int64   `json:"duration"`
+	Token        string  `json:"token"`
+	State        string  `json:"state"`
+	Downloaded   uint64  `json:"downloaded"` // in kilobytes
+	AvgDownSpeed float64 `json:"avg_down_speed"`
+	Uploaded     uint64  `json:"uploaded"` // in kilobytes
+	AvgUpSpeed   float64 `json:"avg_up_speed"`
+}
+
+// GetClientStats retrieves the current data usage statistics for a MAC address from ndsctl
+// Returns downloaded and uploaded in bytes (converted from kilobytes)
+// Returns error if client not found or command fails
+func GetClientStats(macAddress string) (downloaded uint64, uploaded uint64, err error) {
+	cmd := exec.Command("ndsctl", "json", macAddress)
+	output, err := cmd.Output()
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Error("Error executing ndsctl json")
+		return 0, 0, fmt.Errorf("failed to execute ndsctl json for MAC %s: %w", macAddress, err)
+	}
+
+	// Check for empty response (client not found)
+	trimmed := string(output)
+	if trimmed == "{}" || trimmed == "{}\n" {
+		return 0, 0, fmt.Errorf("client with MAC %s not found in ndsctl", macAddress)
+	}
+
+	var stats ClientStats
+	err = json.Unmarshal(output, &stats)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+			"output":      string(output),
+		}).Error("Error parsing ndsctl json output")
+		return 0, 0, fmt.Errorf("failed to parse ndsctl json for MAC %s: %w", macAddress, err)
+	}
+
+	// Convert from kilobytes to bytes
+	downloadedBytes := stats.Downloaded * 1024
+	uploadedBytes := stats.Uploaded * 1024
+
+	logger.WithFields(logrus.Fields{
+		"mac_address":      macAddress,
+		"downloaded_kb":    stats.Downloaded,
+		"uploaded_kb":      stats.Uploaded,
+		"downloaded_bytes": downloadedBytes,
+		"uploaded_bytes":   uploadedBytes,
+		"state":            stats.State,
+	}).Debug("Retrieved client stats from ndsctl")
+
+	return downloadedBytes, uploadedBytes, nil
+}
+
+// GetClientUsage returns the total data usage (downloaded + uploaded) for a MAC address
+// This is a convenience function that calls GetClientStats
+func GetClientUsage(macAddress string) (totalBytes uint64, err error) {
+	downloaded, uploaded, err := GetClientStats(macAddress)
+	if err != nil {
+		return 0, err
+	}
+	return downloaded + uploaded, nil
 }

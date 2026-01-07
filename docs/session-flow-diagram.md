@@ -1,10 +1,10 @@
 # Session Purchase Flow Diagram
 
-This document illustrates the incorrect and correct flows for handling a data-based session purchase.
+This document illustrates the evolution of data-based session handling, from the flawed approach to the correct implementation.
 
-## Current Flawed Flow
+## Original Flawed Flow (Fixed)
 
-The current implementation has the `Merchant` module directly calling the `Valve` to open the gate for a fixed 24-hour period when it sees a data-based (`bytes`) metric. It completely ignores the calculated data allotment for the purpose of gate control.
+The original implementation had the `Merchant` opening the gate for a fixed 24-hour period for data-based sessions, completely ignoring the data allotment.
 
 ```mermaid
 sequenceDiagram
@@ -24,36 +24,79 @@ sequenceDiagram
     Server-->>Client: Session Event
 ```
 
-## Corrected Flow
+**Problem**: Data allotment was calculated but never enforced.
 
-The correct implementation involves the `Merchant` notifying the `Chandler` after a successful payment. The `Chandler` is responsible for creating the correct session tracker (`DataUsageTracker`), opening the gate indefinitely, and then closing the gate only when the data allotment is consumed.
+## Second Attempt (Also Flawed)
+
+The second approach tried to fix this by using interface-level data tracking via `/proc/net/dev`.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Merchant
+    participant Chandler
+    participant DataUsageTracker
+    participant Valve
+
+    Client->>Merchant: Payment
+    Merchant->>Chandler: StartSession(mac)
+    Chandler->>DataUsageTracker: NewDataUsageTracker(lan_interface)
+    Chandler->>Valve: OpenGate(mac)
+    DataUsageTracker->>DataUsageTracker: monitor() /proc/net/dev
+    Note over DataUsageTracker: Tracks ENTIRE interface<br/>not individual customer!
+    DataUsageTracker->>Valve: CloseGate(mac)
+```
+
+**Problems**:
+1. Tracked entire interface (`br-lan`) instead of individual customer
+2. Multiple customers on same interface caused incorrect measurements
+3. Unnecessary dependency: Merchant → Chandler
+
+## Current Correct Implementation
+
+The correct implementation uses per-customer tracking via `ndsctl` and proper separation of concerns.
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Server (main.go)
     participant Merchant
-    participant Chandler
-    participant DataUsageTracker
     participant Valve
+    participant ndsctl
 
     Client->>Server: POST / (Payment Event)
     Server->>Merchant: PurchaseSession(event)
     Merchant->>Merchant: calculateAllotment() -> 682MB
-    Merchant->>Merchant: AddAllotment()
-    Merchant->>Chandler: StartSession(mac)
-    Chandler->>Merchant: GetSession(mac)
-    Merchant-->>Chandler: sessionData (682MB)
-    Chandler->>DataUsageTracker: NewDataUsageTracker(lan_interface)
-    Chandler->>Valve: OpenGate(mac)
-    Chandler->>DataUsageTracker: Start(682MB)
-    DataUsageTracker->>DataUsageTracker: monitor() /proc/net/dev
-    Note over DataUsageTracker: When allotment is used...
-    DataUsageTracker->>Chandler: done signal
-    Chandler->>Valve: CloseGate(mac)
-    Chandler-->>Merchant: 
+    Merchant->>Merchant: AddAllotment(mac, "bytes", 682MB)
+    
+    Merchant->>Valve: OpenGate(mac)
+    Valve->>ndsctl: json <mac>
+    ndsctl-->>Valve: {downloaded: X, uploaded: Y}
+    Valve->>Valve: Store baseline (X, Y)
+    Valve-->>Merchant: Success
+    
     Merchant-->>Server: Session Event
     Server-->>Client: Session Event
+    
+    Note over Merchant: Periodically check usage
+    loop Every N seconds
+        Merchant->>Valve: GetDataUsageSinceBaseline(mac)
+        Valve->>ndsctl: json <mac>
+        ndsctl-->>Valve: {downloaded: X', uploaded: Y'}
+        Valve->>Valve: Calculate: (X'-X) + (Y'-Y)
+        Valve-->>Merchant: usage bytes
+        
+        alt usage >= 682MB
+            Merchant->>Valve: CloseGate(mac)
+            Valve->>Valve: ClearDataBaseline(mac)
+        end
+    end
 ```
 
-The core problem is that the `Merchant` is performing session management tasks that belong to the `Chandler`. I will now prepare the fix to correct this architectural flaw.
+**Key Improvements**:
+1. **Per-customer tracking**: Uses `ndsctl json <mac>` for accurate individual customer data
+2. **Baseline tracking**: Captures initial usage when gate opens, only counts new usage
+3. **Proper separation**: Merchant handles session logic, Valve handles gate control
+4. **No Chandler dependency**: Merchant works independently for downstream customers
+
+This architecture ensures accurate data tracking and proper enforcement of data-based session limits.
