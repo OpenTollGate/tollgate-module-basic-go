@@ -107,8 +107,8 @@ func init() {
 	if err2 != nil {
 		mainLogger.WithError(err2).Fatal("Failed to create merchant")
 	}
-
 	merchantInstance.StartPayoutRoutine()
+	merchantInstance.StartDataUsageMonitoring()
 
 	// Initialize CLI server
 	initCLIServer()

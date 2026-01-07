@@ -39,6 +39,7 @@ type MerchantInterface interface {
 	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
+	StartDataUsageMonitoring()
 	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
 	// New session management methods
 	GetSession(macAddress string) (*CustomerSession, error)
@@ -102,6 +103,70 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 	}, nil
+}
+
+// StartDataUsageMonitoring starts a background routine to monitor data usage for active sessions
+func (m *Merchant) StartDataUsageMonitoring() {
+	log.Printf("Starting data usage monitoring routine")
+
+	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			m.checkDataUsage()
+		}
+	}()
+}
+
+// checkDataUsage checks all active data-based sessions and closes gates when allotment is reached
+func (m *Merchant) checkDataUsage() {
+	m.sessionMu.RLock()
+	sessions := make(map[string]*CustomerSession)
+	for mac, session := range m.customerSessions {
+		if session.Metric == "bytes" {
+			sessions[mac] = session
+		}
+	}
+	m.sessionMu.RUnlock()
+
+	for mac, session := range sessions {
+		// Check if baseline exists (gate is open)
+		if !valve.HasDataBaseline(mac) {
+			continue
+		}
+
+		// Get current usage
+		usage, err := valve.GetDataUsageSinceBaseline(mac)
+		if err != nil {
+			log.Printf("Error getting data usage for %s: %v", mac, err)
+			continue
+		}
+
+		// Check if allotment is reached
+		if usage >= session.Allotment {
+			log.Printf("Data allotment reached for %s: %s / %s",
+				mac,
+				utils.BytesToHumanReadable(usage),
+				utils.BytesToHumanReadable(session.Allotment))
+
+			// Close the gate
+			err = valve.CloseGate(mac)
+			if err != nil {
+				log.Printf("Error closing gate for %s: %v", mac, err)
+			} else {
+				log.Printf("Successfully closed gate for %s", mac)
+			}
+		} else {
+			// Log progress periodically (every ~10 checks = 20 seconds)
+			if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB
+				log.Printf("Data usage for %s: %s / %s (%.1f%%)",
+					mac,
+					utils.BytesToHumanReadable(usage),
+					utils.BytesToHumanReadable(session.Allotment),
+					float64(usage)/float64(session.Allotment)*100)
+			}
+		}
+	}
 }
 
 func (m *Merchant) StartPayoutRoutine() {
