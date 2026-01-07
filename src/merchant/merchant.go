@@ -361,18 +361,24 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			return noticeEvent, nil
 		}
 	case "bytes":
-		// Data-based session: open gate indefinitely with baseline tracking
-		err = valve.OpenGate(macAddress)
-		if err != nil {
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
-				fmt.Sprintf("Failed to open gate: %v", err), macAddress)
-			if noticeErr != nil {
-				return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
+		// Data-based session: only open gate if baseline doesn't exist (new session)
+		// For session extensions, the gate is already open and baseline should not be reset
+		if !valve.HasDataBaseline(macAddress) {
+			err = valve.OpenGate(macAddress)
+			if err != nil {
+				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
+					fmt.Sprintf("Failed to open gate: %v", err), macAddress)
+				if noticeErr != nil {
+					return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
+				}
+				return noticeEvent, nil
 			}
-			return noticeEvent, nil
+			// The valve module automatically sets the data baseline
+			log.Printf("Opened gate for new data session: %s", macAddress)
+		} else {
+			log.Printf("Gate already open for %s, extending allotment without resetting baseline", macAddress)
 		}
-		// The valve module automatically sets the data baseline
-		// The merchant will need to periodically check usage and close the gate when allotment is reached
+		// The merchant will periodically check usage and close the gate when allotment is reached
 	default:
 		return nil, fmt.Errorf("unsupported metric: %s", session.Metric)
 	}
