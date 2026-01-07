@@ -35,7 +35,7 @@ type MerchantInterface interface {
 	GetAcceptedMints() []config_manager.MintConfig
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
-	PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, error)
+	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
 	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
@@ -184,34 +184,12 @@ type PurchaseSessionResult struct {
 	Description string
 }
 
-// PurchaseSession processes a payment event and returns either a session event or a notice event
-func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, error) {
-	// Extract payment token from payment event
-	paymentToken, err := m.extractPaymentToken(paymentEvent)
-	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-payment-token",
-			fmt.Sprintf("Failed to extract payment token: %v", err), paymentEvent.PubKey)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to extract payment token and failed to create notice: %w", noticeErr)
-		}
-		return noticeEvent, nil
-	}
-
-	// Extract device identifier from payment event
-	deviceIdentifier, err := m.extractDeviceIdentifier(paymentEvent)
-	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-device-identifier",
-			fmt.Sprintf("Failed to extract device identifier: %v", err), paymentEvent.PubKey)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to extract device identifier and failed to create notice: %w", noticeErr)
-		}
-		return noticeEvent, nil
-	}
-
+// PurchaseSession processes a payment with cashu token and MAC address, returns either a session event or a notice event
+func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
 	// Validate MAC address
-	if !utils.ValidateMACAddress(deviceIdentifier) {
+	if !utils.ValidateMACAddress(macAddress) {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-mac-address",
-			fmt.Sprintf("Invalid MAC address: %s", deviceIdentifier), paymentEvent.PubKey)
+			fmt.Sprintf("Invalid MAC address: %s", macAddress), macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("invalid MAC address and failed to create notice: %w", noticeErr)
 		}
@@ -219,10 +197,10 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	}
 
 	// Process payment
-	paymentCashuToken, err := cashu.DecodeToken(paymentToken)
+	paymentCashuToken, err := cashu.DecodeToken(cashuToken)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
-			fmt.Sprintf("Invalid cashu token: %v", err), paymentEvent.PubKey)
+			fmt.Sprintf("Invalid cashu token: %v", err), macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("invalid cashu token and failed to create notice: %w", noticeErr)
 		}
@@ -243,7 +221,7 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
 		}
 
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, paymentEvent.PubKey)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("payment processing failed and failed to create notice: %w", noticeErr)
 		}
@@ -257,22 +235,19 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "allotment-calculation-failed",
-			fmt.Sprintf("Failed to calculate allotment: %v", err), paymentEvent.PubKey)
+			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to calculate allotment and failed to create notice: %w", noticeErr)
 		}
 		return noticeEvent, nil
 	}
 
-	// Use MAC-address based session management
-	macAddress := deviceIdentifier
-
 	// Add allotment to session (creates new session if doesn't exist)
 	metric := m.config.Metric
 	session, err := m.AddAllotment(macAddress, metric, allotment)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
-			fmt.Sprintf("Failed to manage session: %v", err), paymentEvent.PubKey)
+			fmt.Sprintf("Failed to manage session: %v", err), macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
@@ -285,11 +260,12 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 	type ChandlerInterface interface {
 		StartSession(macAddress string) error
 	}
+
 	if chandler, ok := m.chandler.(ChandlerInterface); ok {
 		err = chandler.StartSession(macAddress)
 		if err != nil {
 			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-start-failed",
-				fmt.Sprintf("Failed to start session: %v", err), paymentEvent.PubKey)
+				fmt.Sprintf("Failed to start session: %v", err), macAddress)
 			if noticeErr != nil {
 				return nil, fmt.Errorf("failed to start session and failed to create notice: %w", noticeErr)
 			}
@@ -300,8 +276,8 @@ func (m *Merchant) PurchaseSession(paymentEvent nostr.Event) (*nostr.Event, erro
 		return nil, fmt.Errorf("chandler is not set or does not implement the required interface")
 	}
 
-	// Create a success notice event
-	sessionEvent, err := m.createSessionEvent(session, paymentEvent.PubKey)
+	// Create a success session event (using MAC address as identifier in logs)
+	sessionEvent, err := m.createSessionEvent(session, macAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session event: %w", err)
 	}
