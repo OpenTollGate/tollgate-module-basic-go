@@ -126,3 +126,47 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 
 	return nil
 }
+
+// OpenGate authorizes a MAC address without a timer.
+// It's used for data-based sessions that are closed by a tracker.
+func OpenGate(macAddress string) error {
+	gatesMutex.Lock()
+	defer gatesMutex.Unlock()
+
+	// If there's an existing timer, stop it.
+	if existingTimer, exists := openGates[macAddress]; exists {
+		if existingTimer != nil {
+			existingTimer.Stop()
+		}
+		logger.WithField("mac_address", macAddress).Info("Replacing existing timed gate with indefinite data-based gate.")
+	}
+
+	err := authorizeMAC(macAddress)
+	if err != nil {
+		return err
+	}
+
+	// Store a nil timer to indicate an indefinite gate
+	openGates[macAddress] = nil
+	return nil
+}
+
+// CloseGate deauthorizes a MAC address and removes it from the active gates.
+func CloseGate(macAddress string) error {
+	gatesMutex.Lock()
+	defer gatesMutex.Unlock()
+
+	if _, exists := openGates[macAddress]; !exists {
+		logger.WithField("mac_address", macAddress).Warn("Attempted to close a gate that was not open.")
+		// still attempt to deauth, in case the state is out of sync
+	}
+
+	err := deauthorizeMAC(macAddress)
+	if err != nil {
+		return err
+	}
+
+	// Clean up from active gates map
+	delete(openGates, macAddress)
+	return nil
+}

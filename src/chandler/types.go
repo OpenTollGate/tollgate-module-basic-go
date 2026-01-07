@@ -92,6 +92,9 @@ type ChandlerInterface interface {
 	PauseSession(pubkey string) error
 	ResumeSession(pubkey string) error
 	TerminateSession(pubkey string) error
+
+	// StartSession is called by the merchant to start a session after a successful payment
+	StartSession(macAddress string) error
 }
 
 // UsageTrackerInterface defines the interface for usage tracking

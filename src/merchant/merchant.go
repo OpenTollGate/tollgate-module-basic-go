@@ -16,7 +16,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -45,6 +44,8 @@ type MerchantInterface interface {
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
+	// SetChandler sets the chandler instance for the merchant
+	SetChandler(chandler interface{})
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -53,6 +54,7 @@ type Merchant struct {
 	configManager *config_manager.ConfigManager
 	tollwallet    tollwallet.TollWallet
 	advertisement string
+	chandler      interface{} // Use interface{} to avoid import cycle
 	// In-memory session store
 	customerSessions map[string]*CustomerSession
 	sessionMu        sync.RWMutex
@@ -102,6 +104,11 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 	}, nil
+}
+
+// SetChandler sets the chandler instance for the merchant
+func (m *Merchant) SetChandler(chandler interface{}) {
+	m.chandler = chandler
 }
 
 func (m *Merchant) StartPayoutRoutine() {
@@ -236,7 +243,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 
 	// Add allotment to session (creates new session if doesn't exist)
-	metric := "milliseconds" // Use milliseconds as default metric
+	metric := m.config.Metric
 	session, err := m.AddAllotment(macAddress, metric, allotment)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
@@ -247,24 +254,26 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	// Calculate end timestamp based on session allotment
-	var endTimestamp int64
-	if session.Metric == "milliseconds" {
-		endTimestamp = session.StartTime + int64(session.Allotment/1000)
-	} else {
-		// For other metrics, set to 24h from now
-		endTimestamp = time.Now().Unix() + (24 * 60 * 60) // 24 hours from now
+	// Notify the chandler to start the session
+	// The chandler is now responsible for opening the gate and managing the session lifecycle.
+	// We need to cast the chandler back to its specific type to call the method.
+	type ChandlerInterface interface {
+		StartSession(macAddress string) error
 	}
 
-	// Open gate until the calculated end time
-	err = valve.OpenGateUntil(macAddress, endTimestamp)
-	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-opening-failed",
-			fmt.Sprintf("Failed to open gate for session: %v", err), macAddress)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to open gate for session and failed to create notice: %w", noticeErr)
+	if chandler, ok := m.chandler.(ChandlerInterface); ok {
+		err = chandler.StartSession(macAddress)
+		if err != nil {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-start-failed",
+				fmt.Sprintf("Failed to start session: %v", err), macAddress)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("failed to start session and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
 		}
-		return noticeEvent, nil
+	} else {
+		// This should not happen if the setup in main.go is correct
+		return nil, fmt.Errorf("chandler is not set or does not implement the required interface")
 	}
 
 	// Create a success session event (using MAC address as identifier in logs)
@@ -376,8 +385,8 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 	switch m.config.Metric {
 	case "milliseconds":
 		return m.calculateAllotmentMs(steps, mintConfig)
-	// case "bytes":
-	//     return m.calculateAllotmentBytes(steps, mintConfig)
+	case "bytes":
+		return m.calculateAllotmentBytes(steps, mintConfig)
 	default:
 		return 0, fmt.Errorf("unsupported metric: %s", m.config.Metric)
 	}
@@ -394,35 +403,16 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 	return totalMs, nil
 }
 
-// calculateAllotmentBytes calculates allotment in bytes from payment amount using mint-specific pricing
-// func (m *Merchant) calculateAllotmentBytes(amountSats uint64, mintURL string) (uint64, error) {
-//     // Find the mint configuration for this mint
-//     var mintConfig *MintConfig
-//     for _, mint := range m.config.AcceptedMints {
-//         if mint.URL == mintURL {
-//             mintConfig = &mint
-//             break
-//         }
-//     }
-//
-//     if mintConfig == nil {
-//         return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
-//     }
-//
-//     // Calculate steps from payment amount using mint-specific pricing
-//     allottedSteps := amountSats / mintConfig.PricePerStep
-//     if allottedSteps < 1 {
-//         allottedSteps = 1 // Minimum 1 step
-//     }
-//
-//     // Convert steps to bytes using configured step size
-//     totalBytes := allottedSteps * m.config.StepSize
-//
-//     log.Printf("Calculated %d steps (%d bytes) from %d sats at %d sats per step",
-//         allottedSteps, totalBytes, amountSats, mintConfig.PricePerStep)
-//
-//     return totalBytes, nil
-// }
+// calculateAllotmentBytes calculates allotment in bytes from steps
+func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+	// Convert steps to bytes using configured step size
+	totalBytes := steps * m.config.StepSize
+
+	log.Printf("Converting %d steps to %d bytes using step size %d",
+		steps, totalBytes, m.config.StepSize)
+
+	return totalBytes, nil
+}
 
 // getLatestSession queries the local relay pool for the most recent session by customer pubkey
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
