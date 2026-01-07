@@ -150,7 +150,6 @@ func initCrowsnest() {
 		mainLogger.WithError(err).Fatal("Failed to create chandler instance")
 	}
 	crowsnestInstance.SetChandler(chandlerInstance)
-	merchantInstance.SetChandler(chandlerInstance)
 
 	go func() {
 		err := crowsnestInstance.Start()

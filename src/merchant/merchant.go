@@ -45,8 +45,6 @@ type MerchantInterface interface {
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
-	// SetChandler sets the chandler instance for the merchant
-	SetChandler(chandler interface{})
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -55,7 +53,6 @@ type Merchant struct {
 	configManager *config_manager.ConfigManager
 	tollwallet    tollwallet.TollWallet
 	advertisement string
-	chandler      interface{} // Use interface{} to avoid import cycle
 	// In-memory session store
 	customerSessions map[string]*CustomerSession
 	sessionMu        sync.RWMutex
@@ -105,11 +102,6 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 	}, nil
-}
-
-// SetChandler sets the chandler instance for the merchant
-func (m *Merchant) SetChandler(chandler interface{}) {
-	m.chandler = chandler
 }
 
 func (m *Merchant) StartPayoutRoutine() {
