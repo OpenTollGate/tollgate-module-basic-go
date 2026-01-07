@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"runtime"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -425,7 +424,7 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 
 	status := ServiceStatus{
 		Running:   true,
-		Version:   "v0.0.4-dev [hardcoded]", // TODO: Get from build info
+		Version:   GetVersionInfo(),
 		Uptime:    uptime.String(),
 		ConfigOK:  s.configManager != nil,
 		WalletOK:  s.merchant != nil,
@@ -442,14 +441,11 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 
 // handleVersionCommand returns version information
 func (s *CLIServer) handleVersionCommand() CLIResponse {
+	versionInfo := GetFullVersionInfo()
 	return CLIResponse{
-		Success: true,
-		Message: "TollGate Core v0.0.4-dev [hardcoded]",
-		Data: map[string]interface{}{
-			"version":    "v0.0.4-dev [hardcoded]",
-			"go_version": runtime.Version(),
-			"build_time": "development",
-		},
+		Success:   true,
+		Message:   GetVersionInfo(),
+		Data:      versionInfo,
 		Timestamp: time.Now(),
 	}
 }
