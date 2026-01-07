@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"runtime"
+	"strings"
 )
 
 // Build information. These variables are set via -ldflags at build time.
@@ -16,12 +18,32 @@ var (
 	// BuildTime is the build timestamp
 	BuildTime = "unknown"
 
-	// OpenWrtVersion is the OpenWrt version
-	OpenWrtVersion = "unknown"
-
 	// GoVersion is the Go version used to build
 	GoVersion = runtime.Version()
 )
+
+// getOpenWrtVersion reads the OpenWrt version from /etc/openwrt_release
+func getOpenWrtVersion() string {
+	data, err := os.ReadFile("/etc/openwrt_release")
+	if err != nil {
+		return "unknown"
+	}
+
+	// Parse the file to extract DISTRIB_DESCRIPTION
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "DISTRIB_DESCRIPTION=") {
+			// Extract value between quotes
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				value := strings.Trim(parts[1], "'\"")
+				return value
+			}
+		}
+	}
+
+	return "unknown"
+}
 
 // GetVersionInfo returns a formatted version string
 func GetVersionInfo() string {
@@ -35,7 +57,7 @@ func GetFullVersionInfo() map[string]string {
 		"commit":          GitCommit,
 		"build_time":      BuildTime,
 		"go_version":      GoVersion,
-		"openwrt_version": OpenWrtVersion,
+		"openwrt_version": getOpenWrtVersion(),
 	}
 }
 
@@ -47,5 +69,5 @@ commit: %s
 build_time: %s
 go_version: %s
 openwrt_version: %s`,
-		Version, GitCommit, BuildTime, GoVersion, OpenWrtVersion)
+		Version, GitCommit, BuildTime, GoVersion, getOpenWrtVersion())
 }
