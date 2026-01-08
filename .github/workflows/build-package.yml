@@ -293,10 +293,9 @@ jobs:
           echo "Artifacts in ./github-artifacts:"
           ls -lh ./github-artifacts/*.ipk 2>/dev/null || echo "  (none)"
           
-          # Update zapstore.yaml with version
-          cat >> zapstore.yaml << EOF
-          version: ${{ needs.determine-versioning.outputs.package_version }}
-          EOF
+          # Update zapstore.yaml with version (ensure newline before version)
+          echo "" >> zapstore.yaml
+          echo "version: ${{ needs.determine-versioning.outputs.package_version }}" >> zapstore.yaml
           
           echo ""
           echo "=== Updated zapstore.yaml ==="
