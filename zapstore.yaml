@@ -10,5 +10,3 @@ license: GPLv3
 tags: openwrt networking bitcoin cashu nostr mesh-network
 blossom_servers:
   - https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com
-assets:
-  - publish-artifacts/.*.ipk
