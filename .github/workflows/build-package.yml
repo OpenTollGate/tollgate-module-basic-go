@@ -275,24 +275,24 @@ jobs:
       - name: Prepare artifacts and update zapstore.yaml
         shell: bash
         run: |
-          # Create both directories
-          mkdir -p /tmp/tollgate-artifacts
-          mkdir -p ./github-artifacts-flat
+          # Create unified artifacts directory
+          mkdir -p ./publish-artifacts
           
-          # In GitHub Actions, flatten downloaded artifacts
-          if [ "$ACT" != "true" ]; then
+          if [ "$ACT" = "true" ]; then
+            # In ACT, copy from mounted volume
+            echo "Copying artifacts from /tmp/tollgate-artifacts..."
+            cp /tmp/tollgate-artifacts/*.ipk ./publish-artifacts/ 2>/dev/null || echo "No artifacts in /tmp/tollgate-artifacts"
+          else
+            # In GitHub Actions, flatten downloaded artifacts
             echo "Flattening GitHub artifacts..."
-            # Find all .ipk files in subdirectories and move to flat directory
-            find ./github-artifacts -type f -name "*.ipk" -exec mv {} ./github-artifacts-flat/ \;
+            find ./github-artifacts -type f -name "*.ipk" -exec cp {} ./publish-artifacts/ \;
             echo "Flattening complete"
           fi
           
-          # List artifacts from both locations
-          echo "Artifacts in /tmp/tollgate-artifacts:"
-          ls -lh /tmp/tollgate-artifacts/*.ipk 2>/dev/null || echo "  (none)"
+          # List artifacts in unified directory
           echo ""
-          echo "Artifacts in ./github-artifacts-flat:"
-          ls -lh ./github-artifacts-flat/*.ipk 2>/dev/null || echo "  (none)"
+          echo "Artifacts in ./publish-artifacts:"
+          ls -lh ./publish-artifacts/*.ipk 2>/dev/null || echo "  (none)"
           
           # Update zapstore.yaml with version (ensure newline before version)
           echo "" >> zapstore.yaml
