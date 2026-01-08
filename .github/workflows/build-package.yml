@@ -314,8 +314,13 @@ jobs:
           echo "Looking for .ipk files:"
           find . -name "*.ipk" -type f
           echo ""
-          echo "Checking /tmp/tollgate-artifacts:"
-          ls -la /tmp/tollgate-artifacts/ 2>/dev/null || echo "Directory not found or empty"
+          echo "Checking publish-artifacts directory:"
+          if [ -d "./publish-artifacts" ]; then
+            echo "Contents of ./publish-artifacts:"
+            ls -laR ./publish-artifacts/
+          else
+            echo "Directory ./publish-artifacts not found"
+          fi
 
       - name: Publish to Zapstore
         shell: bash
