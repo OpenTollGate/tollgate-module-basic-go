@@ -289,6 +289,20 @@ jobs:
             echo "Flattening complete"
           fi
           
+          # Rename files to replace dots with underscores (except .ipk extension)
+          echo "Renaming files to be regex-friendly..."
+          for ipk in ./publish-artifacts/*.ipk; do
+            if [ -f "$ipk" ]; then
+              filename=$(basename "$ipk")
+              # Replace dots with underscores, except for the .ipk extension
+              newname=$(echo "$filename" | sed 's/\.ipk$/TMPEXT/' | sed 's/\./_/g' | sed 's/TMPEXT/.ipk/')
+              if [ "$filename" != "$newname" ]; then
+                mv "$ipk" "./publish-artifacts/$newname"
+                echo "  Renamed: $filename -> $newname"
+              fi
+            fi
+          done
+          
           # List artifacts in unified directory
           echo ""
           echo "Artifacts in ./publish-artifacts:"
@@ -299,11 +313,11 @@ jobs:
           echo "version: ${{ needs.determine-versioning.outputs.package_version }}" >> zapstore.yaml
           echo "assets:" >> zapstore.yaml
           
-          # Add each .ipk file as an asset entry (without ./ prefix)
+          # Add each .ipk file as an asset entry
           for ipk in ./publish-artifacts/*.ipk; do
             if [ -f "$ipk" ]; then
-              # Remove ./ prefix for Zapstore compatibility
-              echo "  - ${ipk#./}" >> zapstore.yaml
+              filename=$(basename "$ipk")
+              echo "  - publish-artifacts/$filename" >> zapstore.yaml
             fi
           done
           
