@@ -277,21 +277,22 @@ jobs:
         run: |
           # Create both directories
           mkdir -p /tmp/tollgate-artifacts
-          mkdir -p ./github-artifacts
+          mkdir -p ./github-artifacts-flat
           
           # In GitHub Actions, flatten downloaded artifacts
           if [ "$ACT" != "true" ]; then
-            find ./github-artifacts -name "*.ipk" -exec cp {} ./github-artifacts/ \; 2>/dev/null || true
-            # Remove subdirectories after flattening
-            find ./github-artifacts -type d -mindepth 1 -exec rm -rf {} + 2>/dev/null || true
+            echo "Flattening GitHub artifacts..."
+            # Find all .ipk files in subdirectories and move to flat directory
+            find ./github-artifacts -type f -name "*.ipk" -exec mv {} ./github-artifacts-flat/ \;
+            echo "Flattening complete"
           fi
           
           # List artifacts from both locations
           echo "Artifacts in /tmp/tollgate-artifacts:"
           ls -lh /tmp/tollgate-artifacts/*.ipk 2>/dev/null || echo "  (none)"
           echo ""
-          echo "Artifacts in ./github-artifacts:"
-          ls -lh ./github-artifacts/*.ipk 2>/dev/null || echo "  (none)"
+          echo "Artifacts in ./github-artifacts-flat:"
+          ls -lh ./github-artifacts-flat/*.ipk 2>/dev/null || echo "  (none)"
           
           # Update zapstore.yaml with version (ensure newline before version)
           echo "" >> zapstore.yaml

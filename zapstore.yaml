@@ -12,4 +12,4 @@ blossom_servers:
   - https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com
 assets:
   - /tmp/tollgate-artifacts/.*\.ipk
-  - ./github-artifacts/.*\.ipk
+  - ./github-artifacts-flat/.*\.ipk
