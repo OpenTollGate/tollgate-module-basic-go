@@ -303,6 +303,20 @@ jobs:
           cat zapstore.yaml
           echo "============================="
 
+      - name: Debug - Check current directory and files
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo ""
+          echo "Directory listing:"
+          ls -la
+          echo ""
+          echo "Looking for .ipk files:"
+          find . -name "*.ipk" -type f
+          echo ""
+          echo "Checking /tmp/tollgate-artifacts:"
+          ls -la /tmp/tollgate-artifacts/ 2>/dev/null || echo "Directory not found or empty"
+
       - name: Publish to Zapstore
         shell: bash
         env:
