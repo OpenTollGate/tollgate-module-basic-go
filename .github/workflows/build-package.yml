@@ -299,10 +299,11 @@ jobs:
           echo "version: ${{ needs.determine-versioning.outputs.package_version }}" >> zapstore.yaml
           echo "assets:" >> zapstore.yaml
           
-          # Add each .ipk file as an asset entry
+          # Add each .ipk file as an asset entry (without ./ prefix)
           for ipk in ./publish-artifacts/*.ipk; do
             if [ -f "$ipk" ]; then
-              echo "  - $ipk" >> zapstore.yaml
+              # Remove ./ prefix for Zapstore compatibility
+              echo "  - ${ipk#./}" >> zapstore.yaml
             fi
           done
           
