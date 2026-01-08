@@ -1,0 +1,15 @@
+identifier: wrt.package.tollgate
+name: TollGate WRT
+summary: OpenWRT package for TollGate mesh network gateway
+description: |
+  TollGate WRT enables your OpenWRT router to participate in the TollGate mesh network,
+  allowing you to share your internet connection and earn sats, or connect to other
+  TollGate nodes and pay for internet access with Cashu e-cash payments.
+homepage: https://tollgate.me
+license: GPLv3
+tags: openwrt networking bitcoin cashu nostr mesh-network
+blossom_servers:
+  - https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com
+assets:
+  - /tmp/tollgate-artifacts/.*\.ipk
+  - ./github-artifacts/.*\.ipk

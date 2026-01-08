@@ -27,116 +27,17 @@ jobs:
           {
             "include": [
               {
-                "architecture": "aarch64_cortex-a53",
-                "goarch": "arm64",
-                "sdk": "mediatek-filogic",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "aarch64_cortex-a53",
-                "goarch": "arm64",
-                "sdk": "mediatek-filogic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "aarch64_cortex-a72",
-                "goarch": "arm64",
-                "sdk": "bcm27xx-bcm2711",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "aarch64_cortex-a72",
-                "goarch": "arm64",
-                "sdk": "bcm27xx-bcm2711",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
                 "architecture": "arm_cortex-a7",
                 "goarch": "arm",
                 "goarm": "7",
                 "sdk": "bcm27xx-bcm2709",
                 "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "arm_cortex-a7",
-                "goarch": "arm",
-                "goarm": "7",
-                "sdk": "bcm27xx-bcm2709",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "mipsel_24kc",
-                "goarch": "mipsle",
-                "gomips": "softfloat",
-                "sdk": "ramips-mt7621",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "mipsel_24kc",
-                "goarch": "mipsle",
-                "gomips": "softfloat",
-                "sdk": "ramips-mt7621",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-fast"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-best"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-brute"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
               }
             ]
           }
           EOF
 
-          # TODO: AMD64 build currently fails with the following error:
-          # Error: Architecture 'amd64' not supported by the SDK 'x86-generic-24.10.1'.
-          # This will be re-enabled after fixing SDK compatibility issues.
-          # {
-          #   "architecture": "amd64",
-          #   "goarch": "amd64",
-          #   "sdk": "x86-generic",
-          #   "openwrt_version": "24.10.1"
-          # },
-          
           # Create a properly escaped JSON for GitHub output
-          # We need to use jq to compact the JSON and properly escape it
           echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
 
   determine-versioning:
@@ -307,8 +208,115 @@ jobs:
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
 
+  publish-zapstore:
+    needs: [determine-versioning, build-package]
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:latest
+      options: --user root
+      volumes:
+        - /tmp/tollgate-artifacts:/tmp/tollgate-artifacts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install required tools
+        run: |
+          apt-get update
+          apt-get install -y curl libsqlite3-dev
+
+      - name: Install Zapstore CLI
+        shell: bash
+        run: |
+          # Detect architecture
+          ARCH=$(uname -m)
+          
+          case "$ARCH" in
+            x86_64)
+              ZAPSTORE_URL="https://cdn.zapstore.dev/6e2c7cf6da53c3f1a78b523a6aacd6316dce3d74ace6f859c2676729ee439990"
+              EXPECTED_HASH="6e2c7cf6da53c3f1a78b523a6aacd6316dce3d74ace6f859c2676729ee439990"
+              ;;
+            aarch64)
+              ZAPSTORE_URL="https://cdn.zapstore.dev/26ee91aa165695b6d5e81a56c0e095ef681d30843c3fa5a9177edca436b1730d"
+              EXPECTED_HASH="26ee91aa165695b6d5e81a56c0e095ef681d30843c3fa5a9177edca436b1730d"
+              ;;
+            *)
+              echo "❌ Unsupported architecture: $ARCH"
+              exit 1
+              ;;
+          esac
+          
+          echo "Downloading Zapstore CLI for $ARCH..."
+          curl -sL "$ZAPSTORE_URL" -o /usr/local/bin/zapstore
+          
+          # Verify hash
+          ACTUAL_HASH=$(sha256sum /usr/local/bin/zapstore | cut -d' ' -f1)
+          
+          if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+            echo "❌ Hash mismatch! Expected: $EXPECTED_HASH, Got: $ACTUAL_HASH"
+            exit 1
+          fi
+          
+          chmod +x /usr/local/bin/zapstore
+          
+          # Verify installation
+          if zapstore --version; then
+            echo "✅ Zapstore CLI installed successfully"
+          else
+            echo "❌ Zapstore CLI installation failed"
+            exit 1
+          fi
+
+      - name: Download all artifacts from GitHub
+        if: ${{ env.ACT != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          path: ./github-artifacts
+
+      - name: Prepare artifacts and update zapstore.yaml
+        shell: bash
+        run: |
+          # Create both directories
+          mkdir -p /tmp/tollgate-artifacts
+          mkdir -p ./github-artifacts
+          
+          # In GitHub Actions, flatten downloaded artifacts
+          if [ "$ACT" != "true" ]; then
+            find ./github-artifacts -name "*.ipk" -exec cp {} ./github-artifacts/ \; 2>/dev/null || true
+            # Remove subdirectories after flattening
+            find ./github-artifacts -type d -mindepth 1 -exec rm -rf {} + 2>/dev/null || true
+          fi
+          
+          # List artifacts from both locations
+          echo "Artifacts in /tmp/tollgate-artifacts:"
+          ls -lh /tmp/tollgate-artifacts/*.ipk 2>/dev/null || echo "  (none)"
+          echo ""
+          echo "Artifacts in ./github-artifacts:"
+          ls -lh ./github-artifacts/*.ipk 2>/dev/null || echo "  (none)"
+          
+          # Update zapstore.yaml with version
+          cat >> zapstore.yaml << EOF
+          version: ${{ needs.determine-versioning.outputs.package_version }}
+          EOF
+          
+          echo ""
+          echo "=== Updated zapstore.yaml ==="
+          cat zapstore.yaml
+          echo "============================="
+
+      - name: Publish to Zapstore
+        shell: bash
+        env:
+          SIGN_WITH: ${{ secrets.NSEC_HEX }}
+        run: |
+          set -e
+          
+          echo "Publishing to Zapstore..."
+          zapstore publish --indexer-mode --overwrite-release
+          
+          echo "✅ Published to Zapstore successfully"
+
   publish-metadata:
-    needs: [determine-versioning, build-package, define-matrix]
+    needs: [determine-versioning, build-package, define-matrix, publish-zapstore]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
