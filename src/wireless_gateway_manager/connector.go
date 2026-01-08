@@ -267,7 +267,7 @@ func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 		if strings.HasSuffix(line, ".mode='sta'") {
 			section := strings.TrimSuffix(line, ".mode='sta'")
 			staInterfaces = append(staInterfaces, section)
-			
+
 			// Check if we have our specific TollGate interfaces
 			if strings.HasSuffix(section, ".tollgate_sta_2g") {
 				tollgateSTA2GFound = true
@@ -358,37 +358,37 @@ func (c *Connector) createTollgateSTAInterface(interfaceName, device string) err
 		"interface": interfaceName,
 		"device":    device,
 	}).Info("Creating new TollGate STA interface")
-	
+
 	// Create the interface section
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+"=wifi-iface"); err != nil {
 		return err
 	}
-	
+
 	// Set the device
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".device="+device); err != nil {
 		return err
 	}
-	
+
 	// Set mode to sta
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".mode=sta"); err != nil {
 		return err
 	}
-	
+
 	// Set network to wwan
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".network=wwan"); err != nil {
 		return err
 	}
-	
-	// Disable by default
-	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".disabled=1"); err != nil {
+
+	// Enable by default so it can be used for scanning
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".disabled=0"); err != nil {
 		return err
 	}
-	
+
 	// Commit the changes
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -462,7 +462,7 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.network=wwan"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=1"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=0"); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
@@ -470,8 +470,6 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	}
 	return c.reloadWifi()
 }
-
-
 
 // UpdateLocalAPSSID updates the local AP's SSID to advertise the current price.
 func (c *Connector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
@@ -653,33 +651,33 @@ func stripPricingFromSSID(ssid string) string {
 // Disconnect disconnects from the current network.
 func (c *Connector) Disconnect() error {
 	logger.Info("Disconnecting from current network")
-	
+
 	// Find the currently active STA interface
 	activeInterface, err := c.getActiveSTAInterface()
 	if err != nil {
 		return fmt.Errorf("failed to get active STA interface: %w", err)
 	}
-	
+
 	if activeInterface == "" {
 		logger.Info("No active STA interface found, nothing to disconnect")
 		return nil
 	}
-	
+
 	// Disable the active interface
 	if _, err := c.ExecuteUCI("set", activeInterface+".disabled=1"); err != nil {
 		return fmt.Errorf("failed to disable interface %s: %w", activeInterface, err)
 	}
-	
+
 	// Commit the changes
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return fmt.Errorf("failed to commit wireless config: %w", err)
 	}
-	
+
 	// Reload wifi to apply changes
 	if err := c.reloadWifi(); err != nil {
 		return fmt.Errorf("failed to reload wifi: %w", err)
 	}
-	
+
 	logger.WithField("interface", activeInterface).Info("Successfully disconnected from network")
 	return nil
 }
@@ -688,12 +686,12 @@ func (c *Connector) Disconnect() error {
 // This is a simple implementation that just reloads the wifi.
 func (c *Connector) Reconnect() error {
 	logger.Info("Reconnecting to network")
-	
+
 	// Reload wifi to apply any pending changes or reconnect
 	if err := c.reloadWifi(); err != nil {
 		return fmt.Errorf("failed to reload wifi: %w", err)
 	}
-	
+
 	logger.Info("Reconnect command issued")
 	return nil
 }
@@ -722,7 +720,7 @@ func (c *Connector) getActiveSTAInterface() (string, error) {
 			}
 		}
 	}
-	
+
 	return "", nil // No active STA interface found
 }
 
@@ -732,12 +730,12 @@ func determineBandFromSSID(ssid string) string {
 	if strings.Contains(ssid, "2.4GHz") || strings.Contains(ssid, "2G") {
 		return "2g"
 	}
-	
+
 	// If the SSID contains "5GHz" or "5G", assume it's a 5GHz network
 	if strings.Contains(ssid, "5GHz") || strings.Contains(ssid, "5G") {
 		return "5g"
 	}
-	
+
 	// Default to empty string if we can't determine the band
 	return ""
 }

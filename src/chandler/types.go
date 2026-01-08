@@ -40,9 +40,9 @@ type ChandlerSession struct {
 	TotalAllotment uint64       // Total allotment purchased
 
 	// Usage tracking
-	UsageTracker      UsageTrackerInterface // Active usage tracker
-	RenewalThresholds []float64             // Renewal thresholds (e.g., 0.8)
-	LastRenewalAt     time.Time             // Last renewal timestamp
+	UsageTracker  UsageTrackerInterface // Active usage tracker
+	RenewalOffset uint64                // Renewal offset from allotment (e.g., 5000 bytes before limit)
+	LastRenewalAt time.Time             // Last renewal timestamp
 
 	// Session metadata
 	CreatedAt     time.Time     // Session creation time
@@ -109,8 +109,8 @@ type UsageTrackerInterface interface {
 	// Update usage amount (for external updates)
 	UpdateUsage(amount uint64) error
 
-	// Set renewal thresholds
-	SetRenewalThresholds(thresholds []float64) error
+	// Set renewal offset
+	SetRenewalOffset(offset uint64) error
 
 	// sessionChanged is called when the session is updated
 	SessionChanged(session *ChandlerSession) error
@@ -122,8 +122,8 @@ type TimeUsageTracker struct {
 	chandler         ChandlerInterface
 	startTime        time.Time
 	pausedTime       time.Duration
-	thresholds       []float64
-	timers           []*time.Timer
+	renewalOffset    uint64
+	timer            *time.Timer
 	done             chan bool
 	totalAllotment   uint64
 	currentIncrement uint64
@@ -132,18 +132,24 @@ type TimeUsageTracker struct {
 
 // DataUsageTracker tracks data-based usage
 type DataUsageTracker struct {
-	upstreamPubkey   string
-	chandler         ChandlerInterface
-	interfaceName    string
-	startBytes       uint64
-	currentBytes     uint64
-	thresholds       []float64
-	triggered        map[float64]bool
-	ticker           *time.Ticker
-	done             chan bool
-	totalAllotment   uint64
-	currentIncrement uint64
-	mu               sync.RWMutex
+	upstreamPubkey    string
+	chandler          ChandlerInterface
+	interfaceName     string
+	startBytes        uint64
+	currentBytes      uint64
+	renewalOffset     uint64
+	renewalInProgress bool
+	ticker            *time.Ticker
+	done              chan bool
+	totalAllotment    uint64
+	currentIncrement  uint64
+	mu                sync.RWMutex
+
+	// Upstream polling fields
+	upstreamIP        string
+	upstreamUsage     uint64
+	upstreamAllotment uint64
+	lastInfoLog       time.Time
 }
 
 // ChandlerError represents errors specific to the chandler module

@@ -3,13 +3,15 @@ package chandler
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
+	"github.com/sirupsen/logrus"
 )
 
 // NewDataUsageTracker creates a new data-based usage tracker
@@ -27,8 +29,9 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 
 	d.upstreamPubkey = session.UpstreamTollgate.Advertisement.PubKey
 	d.chandler = chandler
+	d.upstreamIP = session.UpstreamTollgate.GatewayIP
 
-	// Get initial byte count for the interface
+	// Get initial byte count for the interface (for local tracking)
 	initialBytes, err := getInterfaceBytes(d.interfaceName)
 	if err != nil {
 		return err
@@ -38,21 +41,22 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	d.currentBytes = initialBytes
 	d.totalAllotment = session.TotalAllotment
 	d.currentIncrement = session.TotalAllotment
-	d.triggered = make(map[float64]bool) // Initialize triggered map
+	d.renewalInProgress = false
+	d.lastInfoLog = time.Now()
 
-	// Start monitoring with 5-second precision for data usage
-	// Data usage needs polling since we can't predict when network traffic occurs
-	d.ticker = time.NewTicker(500 * time.Millisecond)
+	// Poll upstream every 1 second
+	d.ticker = time.NewTicker(1 * time.Second)
 
 	go d.monitor()
 
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey": d.upstreamPubkey,
+		"upstream_ip":     d.upstreamIP,
 		"interface":       d.interfaceName,
 		"start_bytes":     utils.BytesToHumanReadable(d.startBytes),
 		"total_allotment": utils.BytesToHumanReadable(d.totalAllotment),
-		"thresholds":      d.thresholds,
-	}).Info("Data usage tracker started")
+		"renewal_offset":  utils.BytesToHumanReadable(d.renewalOffset),
+	}).Info("Data usage tracker started with upstream polling")
 
 	return nil
 }
@@ -100,13 +104,12 @@ func (d *DataUsageTracker) UpdateUsage(amount uint64) error {
 	return nil
 }
 
-// SetRenewalThresholds sets the thresholds for renewal callbacks
-func (d *DataUsageTracker) SetRenewalThresholds(thresholds []float64) error {
+// SetRenewalOffset sets the offset for renewal callbacks
+func (d *DataUsageTracker) SetRenewalOffset(offset uint64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.thresholds = make([]float64, len(thresholds))
-	copy(d.thresholds, thresholds)
+	d.renewalOffset = offset
 
 	return nil
 }
@@ -121,8 +124,8 @@ func (d *DataUsageTracker) SessionChanged(session *ChandlerSession) error {
 	d.totalAllotment = session.TotalAllotment
 	d.currentIncrement = d.totalAllotment - previousTotalAllotment
 
-	// Reset triggered thresholds for the new increment
-	d.triggered = make(map[float64]bool)
+	// Reset renewal trigger for the new increment
+	d.renewalInProgress = false
 
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey":          d.upstreamPubkey,
@@ -141,8 +144,14 @@ func (d *DataUsageTracker) monitor() {
 		case <-d.done:
 			return
 		case <-d.ticker.C:
+			// Update local measurements (for reference only)
 			d.updateCurrentBytes()
-			d.checkThresholds(d.triggered)
+
+			// Poll upstream for actual usage
+			d.pollUpstreamUsage()
+
+			// Check if renewal is needed based on upstream data
+			d.checkRenewalOffset()
 		}
 	}
 }
@@ -163,49 +172,173 @@ func (d *DataUsageTracker) updateCurrentBytes() {
 	d.mu.Unlock()
 }
 
-// checkThresholds checks if any renewal thresholds have been reached
-func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
+// pollUpstreamUsage polls the upstream gateway's /usage API
+func (d *DataUsageTracker) pollUpstreamUsage() {
 	d.mu.RLock()
-	currentUsage := d.GetCurrentUsage()
-	totalAllotment := d.totalAllotment
+	upstreamIP := d.upstreamIP
 	upstreamPubkey := d.upstreamPubkey
-	thresholds := d.thresholds
 	d.mu.RUnlock()
 
-	if d.currentIncrement == 0 {
+	url := fmt.Sprintf("http://%s:2121/usage", upstreamIP)
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"upstream_ip": upstreamIP,
+			"error":       err,
+		}).Debug("Failed to poll upstream usage API")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.WithFields(logrus.Fields{
+			"upstream_ip": upstreamIP,
+			"status_code": resp.StatusCode,
+		}).Debug("Upstream usage API returned non-OK status")
 		return
 	}
 
-	usageInCurrentIncrement := currentUsage - (totalAllotment - d.currentIncrement)
-	if usageInCurrentIncrement < 0 {
-		usageInCurrentIncrement = 0
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"upstream_ip": upstreamIP,
+			"error":       err,
+		}).Debug("Failed to read upstream usage response")
+		return
 	}
 
-	usagePercent := float64(usageInCurrentIncrement) / float64(d.currentIncrement)
+	// Parse plaintext response in format "usage/allotment"
+	bodyStr := strings.TrimSpace(string(body))
+	parts := strings.Split(bodyStr, "/")
+	if len(parts) != 2 {
+		logrus.WithFields(logrus.Fields{
+			"upstream_ip": upstreamIP,
+			"body":        bodyStr,
+		}).Debug("Invalid upstream usage response format (expected usage/allotment)")
+		return
+	}
 
-	for _, threshold := range thresholds {
-		if usagePercent >= threshold && !d.triggered[threshold] {
-			d.triggered[threshold] = true
+	usage, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"upstream_ip": upstreamIP,
+			"error":       err,
+			"body":        bodyStr,
+		}).Debug("Failed to parse usage value")
+		return
+	}
 
-			logrus.WithFields(logrus.Fields{
-				"upstream_pubkey": upstreamPubkey,
-				"threshold":       threshold,
-				"usage_percent":   usagePercent * 100,
-				"current_usage":   utils.BytesToHumanReadable(currentUsage),
-				"total_allotment": utils.BytesToHumanReadable(totalAllotment),
-			}).Info("Data usage threshold reached, triggering renewal")
+	allotment, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"upstream_ip": upstreamIP,
+			"error":       err,
+			"body":        bodyStr,
+		}).Debug("Failed to parse allotment value")
+		return
+	}
 
-			// Call the chandler's renewal handler
-			go func(pubkey string, usage uint64) {
-				err := d.chandler.HandleUpcomingRenewal(pubkey, usage)
-				if err != nil {
-					logrus.WithFields(logrus.Fields{
-						"upstream_pubkey": pubkey,
-						"error":           err,
-					}).Error("Failed to handle upcoming renewal")
-				}
-			}(upstreamPubkey, currentUsage)
-		}
+	// Check if session has ended (indicated by -1/-1)
+	if usage == -1 && allotment == -1 {
+		logrus.WithFields(logrus.Fields{
+			"upstream_pubkey": upstreamPubkey,
+			"upstream_ip":     upstreamIP,
+		}).Info("Session ended (upstream returned -1/-1), triggering new session")
+
+		// Trigger a new session by calling renewal handler
+		go func() {
+			err := d.chandler.HandleUpcomingRenewal(upstreamPubkey, 0)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"upstream_pubkey": upstreamPubkey,
+					"error":           err,
+				}).Error("Failed to handle session end renewal")
+			}
+		}()
+		return
+	}
+
+	d.mu.Lock()
+	d.upstreamUsage = uint64(usage)
+	d.upstreamAllotment = uint64(allotment)
+
+	// Calculate remaining
+	remaining := uint64(0)
+	if d.upstreamAllotment > d.upstreamUsage {
+		remaining = d.upstreamAllotment - d.upstreamUsage
+	}
+
+	// Log at DEBUG level every second
+	logrus.WithFields(logrus.Fields{
+		"upstream_pubkey": upstreamPubkey,
+		"usage":           fmt.Sprintf("%s/%s (%s left)", utils.BytesToHumanReadable(d.upstreamUsage), utils.BytesToHumanReadable(d.upstreamAllotment), utils.BytesToHumanReadable(remaining)),
+	}).Debug("Upstream usage polled")
+
+	// Log at INFO level every 10 seconds
+	now := time.Now()
+	if now.Sub(d.lastInfoLog) >= 10*time.Second {
+		d.lastInfoLog = now
+		d.mu.Unlock()
+
+		logrus.WithFields(logrus.Fields{
+			"upstream_pubkey": upstreamPubkey,
+			"usage":           fmt.Sprintf("%s/%s (%s left)", utils.BytesToHumanReadable(d.upstreamUsage), utils.BytesToHumanReadable(d.upstreamAllotment), utils.BytesToHumanReadable(remaining)),
+		}).Info("Upstream usage status")
+		return
+	}
+	d.mu.Unlock()
+}
+
+// checkRenewalOffset checks if renewal is needed based on upstream usage
+func (d *DataUsageTracker) checkRenewalOffset() {
+	d.mu.RLock()
+	upstreamUsage := d.upstreamUsage
+	upstreamAllotment := d.upstreamAllotment
+	renewalOffset := d.renewalOffset
+	renewalInProgress := d.renewalInProgress
+	upstreamPubkey := d.upstreamPubkey
+	d.mu.RUnlock()
+
+	// Skip if no upstream data yet or renewal already in progress
+	if upstreamAllotment == 0 || renewalInProgress {
+		return
+	}
+
+	// Calculate remaining allotment
+	remaining := uint64(0)
+	if upstreamAllotment > upstreamUsage {
+		remaining = upstreamAllotment - upstreamUsage
+	}
+
+	// Trigger renewal if remaining is less than or equal to offset
+	if remaining <= renewalOffset {
+		d.mu.Lock()
+		d.renewalInProgress = true
+		d.mu.Unlock()
+
+		logrus.WithFields(logrus.Fields{
+			"upstream_pubkey": upstreamPubkey,
+			"remaining":       utils.BytesToHumanReadable(remaining),
+			"renewal_offset":  utils.BytesToHumanReadable(renewalOffset),
+			"usage":           utils.BytesToHumanReadable(upstreamUsage),
+			"allotment":       utils.BytesToHumanReadable(upstreamAllotment),
+		}).Info("Renewal offset reached, triggering renewal")
+
+		// Call the chandler's renewal handler
+		go func(pubkey string, usage uint64) {
+			err := d.chandler.HandleUpcomingRenewal(pubkey, usage)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"upstream_pubkey": pubkey,
+					"error":           err,
+				}).Error("Failed to handle upcoming renewal")
+			}
+		}(upstreamPubkey, upstreamUsage)
 	}
 }
 

@@ -84,9 +84,10 @@ type TrustConfig struct {
 
 // SessionConfig holds session management configuration
 type SessionConfig struct {
-	DefaultRenewalThresholds               []float64 `json:"default_renewal_thresholds"`                // [0.8]
-	PreferredSessionIncrementsMilliseconds uint64    `json:"preferred_session_increments_milliseconds"` // Preferred increment for time sessions
-	PreferredSessionIncrementsBytes        uint64    `json:"preferred_session_increments_bytes"`        // Preferred increment for data sessions
+	PreferredSessionIncrementsMilliseconds uint64 `json:"preferred_session_increments_milliseconds"` // Preferred increment for time sessions
+	PreferredSessionIncrementsBytes        uint64 `json:"preferred_session_increments_bytes"`        // Preferred increment for data sessions
+	MillisecondRenewalOffset               uint64 `json:"millisecond_renewal_offset"`                // Milliseconds before expiry to trigger renewal (e.g., 5000 = 5 seconds)
+	BytesRenewalOffset                     uint64 `json:"bytes_renewal_offset"`                      // Bytes before limit to trigger renewal (e.g., 5242880 = 5 MB)
 }
 
 // UsageTrackingConfig holds usage tracking configuration
@@ -188,9 +189,10 @@ func NewDefaultConfig() *Config {
 				Blocklist:     []string{},
 			},
 			Sessions: SessionConfig{
-				DefaultRenewalThresholds:               []float64{0.8},
-				PreferredSessionIncrementsMilliseconds: 20000,   // 1 minute
-				PreferredSessionIncrementsBytes:        1048576, // 1 MB
+				PreferredSessionIncrementsMilliseconds: 60000,    // 1 minute
+				PreferredSessionIncrementsBytes:        22020096, // 21 MB
+				MillisecondRenewalOffset:               5000,     // 5 seconds before expiry
+				BytesRenewalOffset:                     5242880,  // 5 MB before limit
 			},
 			UsageTracking: UsageTrackingConfig{
 				DataMonitoringInterval: 500 * time.Millisecond,

@@ -214,6 +214,15 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		return err
 	}
 
+	// Get renewal offset from config based on metric
+	var renewalOffset uint64
+	switch adInfo.Metric {
+	case "milliseconds":
+		renewalOffset = config.Chandler.Sessions.MillisecondRenewalOffset
+	case "bytes":
+		renewalOffset = config.Chandler.Sessions.BytesRenewalOffset
+	}
+
 	// Create session first
 	session := &ChandlerSession{
 		UpstreamTollgate:   upstream,
@@ -222,7 +231,7 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		AdvertisementInfo:  adInfo,
 		SelectedPricing:    selectedPricing,
 		TotalAllotment:     proposal.EstimatedAllotment,
-		RenewalThresholds:  config.Chandler.Sessions.DefaultRenewalThresholds,
+		RenewalOffset:      renewalOffset,
 		CreatedAt:          time.Now(),
 		LastPaymentAt:      time.Now(),
 		TotalSpent:         proposal.Steps * selectedPricing.PricePerStep,
@@ -689,22 +698,22 @@ func (c *Chandler) createUsageTracker(session *ChandlerSession) error {
 	}
 
 	logger.WithFields(logrus.Fields{
-		"upstream_pubkey":    session.UpstreamTollgate.Advertisement.PubKey,
-		"tracker_type":       trackerType,
-		"metric":             session.AdvertisementInfo.Metric,
-		"interface":          session.UpstreamTollgate.InterfaceName,
-		"total_allotment":    session.TotalAllotment,
-		"renewal_thresholds": session.RenewalThresholds,
+		"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
+		"tracker_type":    trackerType,
+		"metric":          session.AdvertisementInfo.Metric,
+		"interface":       session.UpstreamTollgate.InterfaceName,
+		"total_allotment": session.TotalAllotment,
+		"renewal_offset":  session.RenewalOffset,
 	}).Info("🔍 Creating usage tracker for session monitoring")
 
-	// Set renewal thresholds
-	err := tracker.SetRenewalThresholds(session.RenewalThresholds)
+	// Set renewal offset
+	err := tracker.SetRenewalOffset(session.RenewalOffset)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"upstream_pubkey": session.UpstreamTollgate.Advertisement.PubKey,
 			"error":           err,
-		}).Error("Failed to set renewal thresholds")
-		return fmt.Errorf("failed to set renewal thresholds: %w", err)
+		}).Error("Failed to set renewal offset")
+		return fmt.Errorf("failed to set renewal offset: %w", err)
 	}
 
 	// Start tracking
