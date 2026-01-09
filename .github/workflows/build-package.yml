@@ -289,17 +289,16 @@ jobs:
             echo "Flattening complete"
           fi
           
-          # Rename files to replace dots with underscores (except .ipk extension)
-          echo "Renaming files to be regex-friendly..."
+          # Rename files to simple sequential names
+          echo "Renaming files to simple names..."
+          index=0
           for ipk in ./publish-artifacts/*.ipk; do
             if [ -f "$ipk" ]; then
               filename=$(basename "$ipk")
-              # Replace dots with underscores, except for the .ipk extension
-              newname=$(echo "$filename" | sed 's/\.ipk$/TMPEXT/' | sed 's/\./_/g' | sed 's/TMPEXT/.ipk/')
-              if [ "$filename" != "$newname" ]; then
-                mv "$ipk" "./publish-artifacts/$newname"
-                echo "  Renamed: $filename -> $newname"
-              fi
+              newname="tollgate-wrt-${index}.ipk"
+              mv "$ipk" "./publish-artifacts/$newname"
+              echo "  Renamed: $filename -> $newname"
+              index=$((index + 1))
             fi
           done
           
@@ -352,8 +351,14 @@ jobs:
         run: |
           set -e
           
-          echo "Publishing to Zapstore..."
-          zapstore publish --indexer-mode --overwrite-release
+          echo "Current working directory:"
+          pwd
+          echo ""
+          echo "zapstore.yaml location:"
+          ls -la zapstore.yaml
+          echo ""
+          echo "Publishing to Zapstore with explicit config path..."
+          zapstore publish -c zapstore.yaml --indexer-mode --overwrite-release
           
           echo "✅ Published to Zapstore successfully"
 
