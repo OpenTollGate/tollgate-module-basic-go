@@ -33,6 +33,7 @@ type CustomerSession struct {
 type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
 	CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+	DrainMint(mintURL string) (string, uint64, error)
 	GetAcceptedMints() []config_manager.MintConfig
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
@@ -891,6 +892,47 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 		len(tokenString), tokenString[:min(50, len(tokenString))])
 
 	return tokenString, nil
+}
+
+// DrainMint drains all available balance from a specific mint
+// This method is designed for wallet draining and does NOT include fees
+// to avoid insufficient funds errors when extracting all available balance
+func (m *Merchant) DrainMint(mintURL string) (string, uint64, error) {
+	// Check balance before attempting to drain
+	balance := m.tollwallet.GetBalanceByMint(mintURL)
+
+	log.Printf("Draining mint: mintURL=%s, balance=%d", mintURL, balance)
+
+	if balance == 0 {
+		return "", 0, fmt.Errorf("no balance available for mint %s", mintURL)
+	}
+
+	// Use the tollwallet's Drain method which doesn't include fees
+	token, actualAmount, err := m.tollwallet.Drain(mintURL)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to drain mint: %w", err)
+	}
+
+	// Validate token has proofs
+	if token == nil {
+		return "", 0, fmt.Errorf("drain returned nil token")
+	}
+
+	// Serialize token to string
+	tokenString, err := token.Serialize()
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to serialize drain token: %w", err)
+	}
+
+	// Validate serialized token is not empty
+	if tokenString == "" {
+		return "", 0, fmt.Errorf("drain token serialization returned empty string")
+	}
+
+	log.Printf("Successfully drained mint %s: amount=%d, token_length=%d",
+		mintURL, actualAmount, len(tokenString))
+
+	return tokenString, actualAmount, nil
 }
 
 // CreatePaymentTokenWithOverpayment creates a payment token with overpayment capability

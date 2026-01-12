@@ -240,7 +240,7 @@ func (s *CLIServer) handleCashuDrain() CLIResponse {
 	var tokens []CashuToken
 	var totalDrained uint64
 
-	// For each mint, check balance and create token if balance > 0
+	// For each mint, check balance and drain if balance > 0
 	for _, mint := range acceptedMints {
 		balance := s.merchant.GetBalanceByMint(mint.URL)
 
@@ -249,29 +249,30 @@ func (s *CLIServer) handleCashuDrain() CLIResponse {
 			continue
 		}
 
-		// Create payment token for the full balance
-		tokenString, err := s.merchant.CreatePaymentToken(mint.URL, balance)
+		// Use DrainMint instead of CreatePaymentToken to avoid fee-related issues
+		// DrainMint extracts all available balance without trying to add fees
+		tokenString, actualAmount, err := s.merchant.DrainMint(mint.URL)
 		if err != nil {
 			cliLogger.WithFields(logrus.Fields{
 				"mint":    mint.URL,
 				"balance": balance,
 				"error":   err,
-			}).Error("Failed to create payment token")
+			}).Error("Failed to drain mint")
 
 			return CLIResponse{
 				Success:   false,
-				Error:     fmt.Sprintf("Failed to create token for mint %s: %v", mint.URL, err),
+				Error:     fmt.Sprintf("Failed to drain mint %s: %v", mint.URL, err),
 				Timestamp: time.Now(),
 			}
 		}
 
 		tokens = append(tokens, CashuToken{
 			MintURL: mint.URL,
-			Balance: balance,
+			Balance: actualAmount,
 			Token:   tokenString,
 		})
 
-		totalDrained += balance
+		totalDrained += actualAmount
 
 		cliLogger.WithFields(logrus.Fields{
 			"mint":    mint.URL,

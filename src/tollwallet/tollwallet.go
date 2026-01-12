@@ -111,6 +111,55 @@ func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cash
 	return token, nil
 }
 
+// Drain creates a token containing all available balance for a specific mint
+// This is used for draining the wallet and does NOT include fees in the amount
+// since we want to extract all available funds without triggering swaps
+func (w *TollWallet) Drain(mintUrl string) (cashu.Token, uint64, error) {
+	log.Printf("TollWallet.Drain: attempting to drain all funds from mint %s", mintUrl)
+
+	// Get the current balance for this mint
+	balance := w.GetBalanceByMint(mintUrl)
+	if balance == 0 {
+		log.Printf("TollWallet.Drain: no balance to drain from mint %s", mintUrl)
+		return nil, 0, fmt.Errorf("no balance available for mint %s", mintUrl)
+	}
+
+	log.Printf("TollWallet.Drain: draining %d sats from mint %s (includeFees=false)", balance, mintUrl)
+
+	// Use Send with includeFees=false to avoid trying to add fees to the amount
+	// This ensures we only send what's available without triggering insufficient funds errors
+	proofs, err := w.wallet.Send(balance, mintUrl, false)
+	if err != nil {
+		log.Printf("TollWallet.Drain: wallet.Send failed: %v", err)
+		return nil, 0, fmt.Errorf("Failed to drain %d from %s: %w", balance, mintUrl, err)
+	}
+
+	log.Printf("TollWallet.Drain: received %d proofs from wallet.Send", len(proofs))
+
+	// Validate proofs array is not empty
+	if len(proofs) == 0 {
+		log.Printf("TollWallet.Drain: ERROR - received empty proofs array from wallet.Send")
+		return nil, 0, fmt.Errorf("wallet.Send returned empty proofs array for %d sats from %s", balance, mintUrl)
+	}
+
+	// Log proof details for debugging
+	totalProofAmount := uint64(0)
+	for i, proof := range proofs {
+		totalProofAmount += proof.Amount
+		log.Printf("TollWallet.Drain: proof[%d]: amount=%d, secret=%s...", i, proof.Amount, proof.Secret[:min(10, len(proof.Secret))])
+	}
+	log.Printf("TollWallet.Drain: total proof amount=%d (balance was=%d)", totalProofAmount, balance)
+
+	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true)
+	if err != nil {
+		log.Printf("TollWallet.Drain: NewTokenV4 failed: %v", err)
+		return nil, 0, fmt.Errorf("Failed to create token: %w", err)
+	}
+
+	log.Printf("TollWallet.Drain: successfully created drain token with %d sats", totalProofAmount)
+	return token, totalProofAmount, nil
+}
+
 // SendWithOverpayment sends tokens with overpayment capability using gonuts SendWithOptions
 func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, MaxOverpaymentAbsolute uint64) (string, error) {
 	// Set up send options with overpayment capability
