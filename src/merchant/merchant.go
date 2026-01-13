@@ -37,6 +37,7 @@ type MerchantInterface interface {
 	GetAcceptedMints() []config_manager.MintConfig
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
+	GetAllMintBalances() map[string]uint64
 	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
@@ -958,6 +959,11 @@ func (m *Merchant) GetBalance() uint64 {
 // GetBalanceByMint returns the balance for a specific mint
 func (m *Merchant) GetBalanceByMint(mintURL string) uint64 {
 	return m.tollwallet.GetBalanceByMint(mintURL)
+}
+
+// GetAllMintBalances returns a map of all mints and their balances in the wallet
+func (m *Merchant) GetAllMintBalances() map[string]uint64 {
+	return m.tollwallet.GetAllMintBalances()
 }
 
 // GetSession retrieves a customer session by MAC address

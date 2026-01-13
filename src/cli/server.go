@@ -201,7 +201,7 @@ func (s *CLIServer) handleWalletDrain(drainArgs []string, flags map[string]strin
 	drainType := drainArgs[0]
 	switch drainType {
 	case "cashu":
-		return s.handleCashuDrain()
+		return s.handleCashuDrain(flags)
 	case "lightning":
 		return CLIResponse{
 			Success:   false,
@@ -218,7 +218,7 @@ func (s *CLIServer) handleWalletDrain(drainArgs []string, flags map[string]strin
 }
 
 // handleCashuDrain drains all wallet balances to Cashu tokens for each mint
-func (s *CLIServer) handleCashuDrain() CLIResponse {
+func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 	if s.merchant == nil {
 		return CLIResponse{
 			Success:   false,
@@ -227,12 +227,13 @@ func (s *CLIServer) handleCashuDrain() CLIResponse {
 		}
 	}
 
-	// Get accepted mints from merchant
-	acceptedMints := s.merchant.GetAcceptedMints()
-	if len(acceptedMints) == 0 {
+	// Get ALL mints from the wallet (not just configured accepted mints)
+	// This ensures we can drain funds even from mints that are no longer configured
+	allMintBalances := s.merchant.GetAllMintBalances()
+	if len(allMintBalances) == 0 {
 		return CLIResponse{
 			Success:   false,
-			Error:     "No accepted mints configured",
+			Error:     "No mints found in wallet",
 			Timestamp: time.Now(),
 		}
 	}
@@ -240,34 +241,33 @@ func (s *CLIServer) handleCashuDrain() CLIResponse {
 	var tokens []CashuToken
 	var totalDrained uint64
 
-	// For each mint, check balance and drain if balance > 0
-	for _, mint := range acceptedMints {
-		balance := s.merchant.GetBalanceByMint(mint.URL)
+	// For each mint in the wallet, drain if balance > 0
+	for mintURL, balance := range allMintBalances {
 
 		if balance == 0 {
-			cliLogger.WithField("mint", mint.URL).Debug("Skipping mint with zero balance")
+			cliLogger.WithField("mint", mintURL).Debug("Skipping mint with zero balance")
 			continue
 		}
 
 		// Use DrainMint instead of CreatePaymentToken to avoid fee-related issues
 		// DrainMint extracts all available balance without trying to add fees
-		tokenString, actualAmount, err := s.merchant.DrainMint(mint.URL)
+		tokenString, actualAmount, err := s.merchant.DrainMint(mintURL)
 		if err != nil {
 			cliLogger.WithFields(logrus.Fields{
-				"mint":    mint.URL,
+				"mint":    mintURL,
 				"balance": balance,
 				"error":   err,
 			}).Error("Failed to drain mint")
 
 			return CLIResponse{
 				Success:   false,
-				Error:     fmt.Sprintf("Failed to drain mint %s: %v", mint.URL, err),
+				Error:     fmt.Sprintf("Failed to drain mint %s: %v", mintURL, err),
 				Timestamp: time.Now(),
 			}
 		}
 
 		tokens = append(tokens, CashuToken{
-			MintURL: mint.URL,
+			MintURL: mintURL,
 			Balance: actualAmount,
 			Token:   tokenString,
 		})
@@ -275,8 +275,8 @@ func (s *CLIServer) handleCashuDrain() CLIResponse {
 		totalDrained += actualAmount
 
 		cliLogger.WithFields(logrus.Fields{
-			"mint":    mint.URL,
-			"balance": balance,
+			"mint":    mintURL,
+			"balance": actualAmount,
 		}).Info("Created drain token")
 	}
 
@@ -297,6 +297,20 @@ func (s *CLIServer) handleCashuDrain() CLIResponse {
 		Success: true,
 		Tokens:  tokens,
 		Total:   totalDrained,
+	}
+
+	// Include filename in result if requested - client will handle saving
+	if filename, ok := flags["save_to_file"]; ok && filename != "" {
+		return CLIResponse{
+			Success: true,
+			Message: fmt.Sprintf("Successfully drained %d sats from %d mints", totalDrained, len(tokens)),
+			Data: map[string]interface{}{
+				"tokens":       tokens,
+				"total_sats":   totalDrained,
+				"save_to_file": filename,
+			},
+			Timestamp: time.Now(),
+		}
 	}
 
 	return CLIResponse{
@@ -343,24 +357,25 @@ func (s *CLIServer) handleWalletInfo() CLIResponse {
 	// Get total wallet balance from merchant
 	totalBalance := s.merchant.GetBalance()
 
-	// Get accepted mints for additional context
-	acceptedMints := s.merchant.GetAcceptedMints()
+	// Get ALL mints from the wallet (not just configured accepted mints)
+	// This shows all mints that have funds, even if they're no longer configured
+	allMintBalances := s.merchant.GetAllMintBalances()
 
-	// Build detailed info including per-mint balances
-	mintBalances := make(map[string]uint64)
-	for _, mint := range acceptedMints {
-		balance := s.merchant.GetBalanceByMint(mint.URL)
+	// Filter to only show mints with non-zero balances
+	// Convert to map[string]interface{} for proper JSON serialization
+	mintBalances := make(map[string]interface{})
+	for mintURL, balance := range allMintBalances {
 		if balance > 0 {
-			mintBalances[mint.URL] = balance
+			mintBalances[mintURL] = balance
 		}
 	}
 
 	return CLIResponse{
 		Success: true,
-		Message: fmt.Sprintf("Wallet info - Total: %d sats across %d mints", totalBalance, len(acceptedMints)),
+		Message: fmt.Sprintf("Wallet info - Total: %d sats across %d mints", totalBalance, len(mintBalances)),
 		Data: map[string]interface{}{
 			"total_balance": totalBalance,
-			"mint_count":    len(acceptedMints),
+			"mint_count":    len(mintBalances),
 			"mint_balances": mintBalances,
 		},
 		Timestamp: time.Now(),

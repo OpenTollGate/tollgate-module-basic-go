@@ -225,6 +225,11 @@ func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
 	return 0
 }
 
+// GetAllMintBalances returns a map of all mints and their balances in the wallet
+func (w *TollWallet) GetAllMintBalances() map[string]uint64 {
+	return w.wallet.GetBalanceByMints()
+}
+
 // MeltToLightning melts a token to a lightning invoice using LNURL
 // It attempts to melt for the target amount, reducing by 5% each time if fees are too high
 func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
