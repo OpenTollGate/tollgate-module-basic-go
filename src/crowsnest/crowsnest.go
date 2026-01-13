@@ -77,8 +77,9 @@ func (cs *crowsnest) Start() error {
 	}
 
 	cs.running = true
-	cs.wg.Add(1)
+	cs.wg.Add(2) // One for event loop, one for periodic check
 	go cs.eventLoop()
+	go cs.periodicUpstreamCheck()
 
 	// Perform initial interface scan to auto-connect after startup/reboot
 	go cs.performInitialInterfaceScan()
@@ -379,4 +380,106 @@ func (cs *crowsnest) performInitialInterfaceScan() {
 	}
 
 	logger.Info("Initial interface scan completed")
+}
+
+// periodicUpstreamCheck periodically checks for upstream TollGates on connected interfaces
+func (cs *crowsnest) periodicUpstreamCheck() {
+	defer cs.wg.Done()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	logger.Info("Starting periodic upstream TollGate check")
+
+	for {
+		select {
+		case <-ticker.C:
+			cs.checkConnectedInterfaces()
+		case <-cs.stopChan:
+			logger.Info("Periodic upstream check stopping")
+			return
+		}
+	}
+}
+
+// checkConnectedInterfaces checks all connected interfaces for upstream TollGates
+func (cs *crowsnest) checkConnectedInterfaces() {
+	// Skip if no chandler is set
+	if cs.chandler == nil {
+		return
+	}
+
+	// Check if we already have active sessions
+	activeSessions := cs.chandler.GetActiveSessions()
+	if len(activeSessions) > 0 {
+		// Already have active session(s), skip check
+		return
+	}
+
+	// Get current network interfaces
+	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()
+	if err != nil {
+		logger.WithError(err).Debug("Error getting current interfaces during periodic check")
+		return
+	}
+
+	// Check each interface that is up and has IP addresses
+	for _, iface := range interfaces {
+		if !iface.IsUp || len(iface.IPAddresses) == 0 {
+			continue
+		}
+
+		// Get gateway for this interface
+		gatewayIP := cs.networkMonitor.GetGatewayForInterface(iface.Name)
+		if gatewayIP == "" {
+			continue
+		}
+
+		// Try to discover TollGate on this gateway
+		// Use a short timeout context for the probe
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+
+		data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, iface.Name, gatewayIP)
+		cancel()
+
+		if err != nil {
+			// Not a TollGate or error probing, continue to next interface
+			continue
+		}
+
+		// Validate the advertisement
+		event, err := tollgate_protocol.ValidateAdvertisementFromBytes(data)
+		if err != nil {
+			// Invalid advertisement, continue to next interface
+			continue
+		}
+
+		logger.WithFields(logrus.Fields{
+			"interface":  iface.Name,
+			"gateway":    gatewayIP,
+			"public_key": event.PubKey,
+		}).Info("Periodic check discovered upstream TollGate")
+
+		// Create UpstreamTollgate object
+		upstream := &chandler.UpstreamTollgate{
+			InterfaceName: iface.Name,
+			MacAddress:    iface.MacAddress,
+			GatewayIP:     gatewayIP,
+			Advertisement: event,
+			DiscoveredAt:  time.Now(),
+		}
+
+		// Hand off to chandler
+		err = cs.chandler.HandleUpstreamTollgate(upstream)
+		if err != nil {
+			logger.WithError(err).Warn("Error handing off upstream TollGate to chandler from periodic check")
+		} else {
+			logger.WithFields(logrus.Fields{
+				"interface": iface.Name,
+				"gateway":   gatewayIP,
+			}).Info("Successfully initiated session with upstream TollGate from periodic check")
+			// Successfully created a session, no need to check other interfaces
+			return
+		}
+	}
 }
