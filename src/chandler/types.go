@@ -167,10 +167,12 @@ type DataUsageTracker struct {
 	mu                sync.RWMutex
 
 	// Upstream polling fields
-	upstreamIP        string
-	upstreamUsage     uint64
-	upstreamAllotment uint64
-	lastInfoLog       time.Time
+	upstreamIP         string
+	upstreamUsage      uint64
+	upstreamAllotment  uint64
+	lastInfoLog        time.Time
+	sessionEnded       bool      // Tracks if session has ended (-1/-1)
+	lastRenewalAttempt time.Time // Prevents renewal storm
 }
 
 // ChandlerError represents errors specific to the chandler module

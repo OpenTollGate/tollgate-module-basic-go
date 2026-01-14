@@ -192,6 +192,12 @@ func (m *Merchant) checkDataUsage() {
 			} else {
 				log.Printf("Successfully closed gate for %s", mac)
 			}
+
+			// Remove the session from the map so GetUsage returns -1/-1
+			m.sessionMu.Lock()
+			delete(m.customerSessions, mac)
+			m.sessionMu.Unlock()
+			log.Printf("Removed expired session for %s", mac)
 		} else {
 			// Log progress periodically (every ~10 checks = 20 seconds)
 			if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB

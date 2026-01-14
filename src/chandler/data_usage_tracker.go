@@ -246,23 +246,50 @@ func (d *DataUsageTracker) pollUpstreamUsage() {
 
 	// Check if session has ended (indicated by -1/-1)
 	if usage == -1 && allotment == -1 {
+		d.mu.Lock()
+		wasSessionEnded := d.sessionEnded
+		timeSinceLastRenewal := time.Since(d.lastRenewalAttempt)
+
+		if !wasSessionEnded {
+			d.sessionEnded = true
+			logrus.WithFields(logrus.Fields{
+				"upstream_pubkey": upstreamPubkey,
+				"upstream_ip":     upstreamIP,
+			}).Info("Session ended (upstream returned -1/-1), will attempt renewal")
+		}
+		d.mu.Unlock()
+
+		// Trigger renewal, but throttle to once every 5 seconds to prevent storm
+		if timeSinceLastRenewal >= 5*time.Second {
+			d.mu.Lock()
+			d.lastRenewalAttempt = time.Now()
+			d.mu.Unlock()
+
+			go func() {
+				err := d.chandler.HandleUpcomingRenewal(upstreamPubkey, 0)
+				if err != nil {
+					logrus.WithFields(logrus.Fields{
+						"upstream_pubkey": upstreamPubkey,
+						"error":           err,
+					}).Error("Failed to handle session end renewal")
+				}
+			}()
+		}
+		return
+	}
+
+	// Session is back online (was -1/-1, now has valid values)
+	d.mu.Lock()
+	if d.sessionEnded {
+		d.sessionEnded = false
 		logrus.WithFields(logrus.Fields{
 			"upstream_pubkey": upstreamPubkey,
 			"upstream_ip":     upstreamIP,
-		}).Info("Session ended (upstream returned -1/-1), triggering new session")
-
-		// Trigger a new session by calling renewal handler
-		go func() {
-			err := d.chandler.HandleUpcomingRenewal(upstreamPubkey, 0)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"upstream_pubkey": upstreamPubkey,
-					"error":           err,
-				}).Error("Failed to handle session end renewal")
-			}
-		}()
-		return
+			"usage":           usage,
+			"allotment":       allotment,
+		}).Info("Session recovered, resuming tracking")
 	}
+	d.mu.Unlock()
 
 	d.mu.Lock()
 	d.upstreamUsage = uint64(usage)

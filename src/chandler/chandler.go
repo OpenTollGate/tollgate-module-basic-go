@@ -433,6 +433,7 @@ func (c *Chandler) HandleDisconnect(interfaceName string) error {
 }
 
 // HandleUpcomingRenewal handles renewal threshold callbacks from usage trackers
+// This is now a thin wrapper around attemptPurchase for unified logic
 func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uint64) error {
 	c.mu.RLock()
 	session, exists := c.sessions[upstreamPubkey]
@@ -451,90 +452,8 @@ func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uin
 	// Check if advertisement has changed
 	c.checkAdvertisementChanges(session)
 
-	// Create renewal proposal
-	config := c.configManager.GetConfig()
-	steps := config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds / session.AdvertisementInfo.StepSize
-	if session.AdvertisementInfo.Metric == "bytes" {
-		steps = config.Chandler.Sessions.PreferredSessionIncrementsBytes / session.AdvertisementInfo.StepSize
-	}
-
-	proposal := &PaymentProposal{
-		UpstreamPubkey:     upstreamPubkey,
-		Steps:              steps,
-		PricingOption:      session.SelectedPricing,
-		Reason:             "renewal",
-		EstimatedAllotment: CalculateAllotment(steps, session.AdvertisementInfo.StepSize),
-	}
-
-	// Validate budget for renewal
-	err := ValidateBudgetConstraints(
-		proposal,
-		config.Chandler.MaxPricePerMillisecond,
-		config.Chandler.MaxPricePerByte,
-		session.AdvertisementInfo.Metric,
-		session.AdvertisementInfo.StepSize,
-	)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": upstreamPubkey,
-			"error":           err,
-		}).Warn("Renewal budget constraints not met, pausing session")
-
-		session.mu.Lock()
-		session.Status = SessionPaused
-		session.UsageTracker.Stop()
-		session.mu.Unlock()
-
-		return err
-	}
-
-	// Send renewal payment
-	sessionEvent, err := c.createAndSendPayment(session, proposal)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": upstreamPubkey,
-			"error":           err,
-		}).Error("Failed to send renewal payment")
-		return err
-	}
-
-	// Extract new allotment from session event response
-	newAllotment, err := c.extractAllotment(sessionEvent)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"upstream_pubkey": upstreamPubkey,
-			"error":           err,
-		}).Error("Failed to extract allotment from session event")
-		return err
-	}
-
-	// Update session
-	session.mu.Lock()
-	session.TotalAllotment = newAllotment
-	session.LastRenewalAt = time.Now()
-	session.LastPaymentAt = time.Now()
-	session.TotalSpent += proposal.Steps * proposal.PricingOption.PricePerStep
-	session.PaymentCount++
-
-	if session.UsageTracker != nil {
-		err := session.UsageTracker.SessionChanged(session)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"upstream_pubkey": upstreamPubkey,
-				"error":           err,
-			}).Error("Failed to update usage tracker with session changes")
-		}
-	}
-	session.mu.Unlock()
-
-	logger.WithFields(logrus.Fields{
-		"upstream_pubkey": upstreamPubkey,
-		"new_allotment":   newAllotment,
-		"current_usage":   currentUsage,
-		"total_spent":     session.TotalSpent,
-	}).Info("Session renewed successfully")
-
-	return nil
+	// Use unified purchase logic for renewal
+	return c.attemptPurchase(session.UpstreamTollgate.GatewayIP, "renewal")
 }
 
 // GetActiveSessions returns all currently active sessions
