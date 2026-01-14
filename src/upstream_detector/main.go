@@ -69,8 +69,9 @@ func (ud *upstreamDetector) Start() error {
 	}
 
 	ud.running = true
-	ud.wg.Add(1) // Event loop only
+	ud.wg.Add(2) // Event loop + periodic check
 	go ud.eventLoop()
+	go ud.periodicGatewayCheck()
 
 	// Perform initial interface scan to report existing gateways
 	go ud.performInitialInterfaceScan()
@@ -262,6 +263,59 @@ func (ud *upstreamDetector) eventTypeToString(eventType EventType) string {
 		return "AddressDeleted"
 	default:
 		return fmt.Sprintf("Unknown(%d)", eventType)
+	}
+}
+
+// periodicGatewayCheck periodically checks for gateways on connected interfaces
+func (ud *upstreamDetector) periodicGatewayCheck() {
+	defer ud.wg.Done()
+
+	// Check every 30 seconds for gateways that may have become available
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	logger.Info("Starting periodic gateway check (every 30s)")
+
+	for {
+		select {
+		case <-ud.stopChan:
+			logger.Info("Periodic gateway check stopping")
+			return
+
+		case <-ticker.C:
+			ud.checkInterfacesForGateways()
+		}
+	}
+}
+
+// checkInterfacesForGateways checks all interfaces for gateways and reports them
+func (ud *upstreamDetector) checkInterfacesForGateways() {
+	// Get current network interfaces
+	interfaces, err := ud.networkMonitor.GetCurrentInterfaces()
+	if err != nil {
+		logger.WithError(err).Debug("Error getting current interfaces during periodic check")
+		return
+	}
+
+	// Check each interface that is up and has IP addresses
+	for _, iface := range interfaces {
+		if !iface.IsUp || len(iface.IPAddresses) == 0 {
+			continue
+		}
+
+		// Get gateway for this interface
+		gatewayIP := ud.networkMonitor.GetGatewayForInterface(iface.Name)
+		if gatewayIP == "" {
+			continue
+		}
+
+		// Report gateway to chandler (it will handle deduplication via knownGateways)
+		logger.WithFields(logrus.Fields{
+			"interface": iface.Name,
+			"gateway":   gatewayIP,
+		}).Debug("Periodic check: Found gateway - reporting to chandler")
+
+		ud.reportGatewayToChandler(iface.Name, iface.MacAddress, gatewayIP)
 	}
 }
 

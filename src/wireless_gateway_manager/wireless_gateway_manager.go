@@ -84,15 +84,6 @@ func (gm *GatewayManager) ScanWirelessNetworks(ctx context.Context) {
 
 	// Log all scanned SSIDs for debugging
 	logger.WithField("total_networks", len(networks)).Debug("Scanned networks before filtering")
-	for i, network := range networks {
-		logger.WithFields(logrus.Fields{
-			"index":      i,
-			"ssid":       network.SSID,
-			"bssid":      network.BSSID,
-			"encryption": network.Encryption,
-			"signal":     network.Signal,
-		}).Debug("Scanned network")
-	}
 
 	// Filter networks to only include those with SSIDs starting with "TollGate-"
 	var tollgateNetworks []NetworkInfo

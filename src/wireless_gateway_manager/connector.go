@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"os/exec"
@@ -45,7 +46,10 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure the selected STA interface
+	// Configure the selected STA interface to use wwan network
+	if _, err := c.ExecuteUCI("set", staInterface+".network=wwan"); err != nil {
+		return err
+	}
 	if _, err := c.ExecuteUCI("set", staInterface+".ssid="+gateway.SSID); err != nil {
 		return err
 	}
@@ -91,6 +95,36 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	// Reload wifi to apply changes
 	if err := c.reloadWifi(); err != nil {
 		return err
+	}
+
+	// Wait a moment for the interface to come up
+	time.Sleep(2 * time.Second)
+
+	// Get the actual device name from wireless status and set it on wwan network
+	deviceName, err := c.getDeviceNameForInterface(staInterface)
+	if err != nil {
+		logger.WithError(err).Warn("Failed to get device name for wwan, network may not come up properly")
+	} else {
+		logger.WithFields(logrus.Fields{
+			"interface": staInterface,
+			"device":    deviceName,
+		}).Info("Setting wwan network device")
+
+		if _, err := c.ExecuteUCI("set", "network.wwan.device="+deviceName); err != nil {
+			logger.WithError(err).Warn("Failed to set wwan device")
+		} else {
+			if _, err := c.ExecuteUCI("commit", "network"); err != nil {
+				logger.WithError(err).Warn("Failed to commit network config")
+			} else {
+				// Bring up the wwan interface
+				cmd := exec.Command("ifup", "wwan")
+				if err := cmd.Run(); err != nil {
+					logger.WithError(err).Warn("Failed to bring up wwan interface")
+				} else {
+					logger.Info("Successfully brought up wwan interface")
+				}
+			}
+		}
 	}
 
 	logger.WithField("ssid", gateway.SSID).Info("Successfully configured connection for gateway")
@@ -738,6 +772,74 @@ func determineBandFromSSID(ssid string) string {
 
 	// Default to empty string if we can't determine the band
 	return ""
+}
+
+// getDeviceNameForInterface gets the actual device name (ifname) for a wireless interface section
+// by querying the wireless status via ubus
+func (c *Connector) getDeviceNameForInterface(interfaceSection string) (string, error) {
+	// Extract just the section name from "wireless.tollgate_sta_2g" -> "tollgate_sta_2g"
+	parts := strings.Split(interfaceSection, ".")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid interface section format: %s", interfaceSection)
+	}
+	sectionName := parts[len(parts)-1]
+
+	// Call ubus to get wireless status
+	cmd := exec.Command("ubus", "call", "network.wireless", "status")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to get wireless status: %w, stderr: %s", err, stderr.String())
+	}
+
+	// Parse the JSON output
+	var status map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		return "", fmt.Errorf("failed to parse wireless status JSON: %w", err)
+	}
+
+	// Search through all radios for our interface section
+	for radioName, radioData := range status {
+		radioMap, ok := radioData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		interfaces, ok := radioMap["interfaces"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, iface := range interfaces {
+			ifaceMap, ok := iface.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			section, ok := ifaceMap["section"].(string)
+			if !ok || section != sectionName {
+				continue
+			}
+
+			// Found our interface! Get the ifname
+			ifname, ok := ifaceMap["ifname"].(string)
+			if !ok {
+				return "", fmt.Errorf("interface %s found but has no ifname", sectionName)
+			}
+
+			logger.WithFields(logrus.Fields{
+				"section": sectionName,
+				"radio":   radioName,
+				"ifname":  ifname,
+			}).Debug("Found device name for interface")
+
+			return ifname, nil
+		}
+	}
+
+	return "", fmt.Errorf("interface section %s not found in wireless status", sectionName)
 }
 
 // Ensure Connector implements ConnectorInterface

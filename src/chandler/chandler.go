@@ -329,15 +329,35 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 
 // HandleGatewayConnected is called when upstream_detector discovers a gateway
 func (c *Chandler) HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error {
-	logger.WithFields(logrus.Fields{
-		"interface": interfaceName,
-		"mac":       macAddress,
-		"gateway":   gatewayIP,
-	}).Info("🔍 GATEWAY CONNECTED: Checking for TollGate and session")
-
 	c.mu.Lock()
-	// Track this gateway
-	if _, exists := c.knownGateways[gatewayIP]; !exists {
+
+	// Check if we already know about this gateway
+	gateway, exists := c.knownGateways[gatewayIP]
+	if exists {
+		// Check if we already have an active session
+		existingSession := c.getSessionByGatewayIP(gatewayIP)
+		if existingSession != nil {
+			logger.WithFields(logrus.Fields{
+				"gateway":   gatewayIP,
+				"interface": interfaceName,
+			}).Debug("Gateway already known with active session - skipping")
+			c.mu.Unlock()
+			return nil
+		}
+
+		// Gateway known but no session - check if we recently tried
+		if time.Since(gateway.LastChecked) < 30*time.Second {
+			logger.WithFields(logrus.Fields{
+				"gateway":      gatewayIP,
+				"last_checked": gateway.LastChecked,
+			}).Debug("Gateway recently checked - skipping duplicate attempt")
+			c.mu.Unlock()
+			return nil
+		}
+	}
+
+	// New gateway or needs re-check
+	if !exists {
 		c.knownGateways[gatewayIP] = &KnownGateway{
 			InterfaceName: interfaceName,
 			MacAddress:    macAddress,
@@ -348,13 +368,15 @@ func (c *Chandler) HandleGatewayConnected(interfaceName, macAddress, gatewayIP s
 			"gateway":   gatewayIP,
 			"interface": interfaceName,
 		}).Info("📝 Added gateway to known gateways list")
-	} else {
-		logger.WithFields(logrus.Fields{
-			"gateway":   gatewayIP,
-			"interface": interfaceName,
-		}).Debug("Gateway already in known gateways list")
 	}
+
 	c.mu.Unlock()
+
+	logger.WithFields(logrus.Fields{
+		"interface": interfaceName,
+		"mac":       macAddress,
+		"gateway":   gatewayIP,
+	}).Info("🔍 GATEWAY CONNECTED: Checking for TollGate and session")
 
 	// Attempt to create session with this gateway
 	logger.WithFields(logrus.Fields{
@@ -539,6 +561,19 @@ func (c *Chandler) GetSessionByPubkey(pubkey string) (*ChandlerSession, error) {
 		return nil, fmt.Errorf("session not found for pubkey: %s", pubkey)
 	}
 	return session, nil
+}
+
+// getSessionByGatewayIP finds an active session for a given gateway IP
+// Note: This is called with lock already held by caller
+func (c *Chandler) getSessionByGatewayIP(gatewayIP string) *ChandlerSession {
+	for _, session := range c.sessions {
+		if session.UpstreamTollgate != nil &&
+			session.UpstreamTollgate.GatewayIP == gatewayIP &&
+			session.Status == SessionActive {
+			return session
+		}
+	}
+	return nil
 }
 
 // PauseSession pauses a session
@@ -961,7 +996,28 @@ func (c *Chandler) attemptPurchase(gatewayIP string, reason string) error {
 		return err
 	}
 
-	// Step 2: Check :2121/usage for session recovery
+	// Step 2: Check if we already have an active session for this gateway
+	c.mu.RLock()
+	existingSession := c.getSessionByGatewayIP(gatewayIP)
+	c.mu.RUnlock()
+
+	if existingSession != nil {
+		pubkey := "unknown"
+		if existingSession.Advertisement != nil {
+			pubkey = existingSession.Advertisement.PubKey
+		}
+		logger.WithFields(logrus.Fields{
+			"gateway": gatewayIP,
+			"pubkey":  pubkey,
+		}).Debug("Active session already exists for this gateway, skipping purchase")
+		c.mu.Lock()
+		gateway.LastCheckError = nil
+		gateway.LastChecked = time.Now()
+		c.mu.Unlock()
+		return nil
+	}
+
+	// Step 3: Check :2121/usage for session recovery
 	usage, allotment, err := c.checkUpstreamUsage(gatewayIP)
 	if err == nil && usage != -1 && allotment != -1 {
 		logger.WithFields(logrus.Fields{
@@ -972,7 +1028,7 @@ func (c *Chandler) attemptPurchase(gatewayIP string, reason string) error {
 		return c.recoverSession(gateway, event, usage, allotment)
 	}
 
-	// Step 3: Check trust policy
+	// Step 4: Check trust policy
 	config := c.configManager.GetConfig()
 	err = ValidateTrustPolicy(
 		event.PubKey,
@@ -993,7 +1049,7 @@ func (c *Chandler) attemptPurchase(gatewayIP string, reason string) error {
 		return err
 	}
 
-	// Step 4: Create UpstreamTollgate object and use existing HandleUpstreamTollgate logic
+	// Step 5: Create UpstreamTollgate object and use existing HandleUpstreamTollgate logic
 	upstream := &UpstreamTollgate{
 		InterfaceName:  gateway.InterfaceName,
 		MacAddressSelf: gateway.MacAddress,
