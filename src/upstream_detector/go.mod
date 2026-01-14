@@ -1,4 +1,4 @@
-module github.com/OpenTollGate/tollgate-module-basic-go/src/crowsnest
+module github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector
 
 go 1.24.2
 

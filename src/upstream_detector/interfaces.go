@@ -1,4 +1,4 @@
-package crowsnest
+package upstream_detector
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 )
 
-// Crowsnest defines the main interface for the crowsnest module
-type Crowsnest interface {
+// UpstreamDetector defines the main interface for the upstream_detector module
+type UpstreamDetector interface {
 	Start() error
 	Stop() error
 	SetChandler(chandler chandler.ChandlerInterface)

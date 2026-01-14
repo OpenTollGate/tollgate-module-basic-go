@@ -9,18 +9,18 @@ import (
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
-	ConfigVersion string              `json:"config_version"`
-	LogLevel      string              `json:"log_level"`
-	AcceptedMints []MintConfig        `json:"accepted_mints"`
-	ProfitShare   []ProfitShareConfig `json:"profit_share"`
-	StepSize      uint64              `json:"step_size"`
-	Margin        float64             `json:"margin,omitempty"`
-	Metric        string              `json:"metric"`
-	Relays        []string            `json:"relays"`
-	ShowSetup     bool                `json:"show_setup"`
-	ResellerMode  bool                `json:"reseller_mode"`
-	Crowsnest     CrowsnestConfig     `json:"crowsnest"`
-	Chandler      ChandlerConfig      `json:"chandler"`
+	ConfigVersion    string                 `json:"config_version"`
+	LogLevel         string                 `json:"log_level"`
+	AcceptedMints    []MintConfig           `json:"accepted_mints"`
+	ProfitShare      []ProfitShareConfig    `json:"profit_share"`
+	StepSize         uint64                 `json:"step_size"`
+	Margin           float64                `json:"margin,omitempty"`
+	Metric           string                 `json:"metric"`
+	Relays           []string               `json:"relays"`
+	ShowSetup        bool                   `json:"show_setup"`
+	ResellerMode     bool                   `json:"reseller_mode"`
+	UpstreamDetector UpstreamDetectorConfig `json:"upstream_detector"`
+	Chandler         ChandlerConfig         `json:"chandler"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -41,8 +41,8 @@ type ProfitShareConfig struct {
 	Identity string  `json:"identity"`
 }
 
-// CrowsnestConfig holds configuration for the crowsnest module
-type CrowsnestConfig struct {
+// UpstreamDetectorConfig holds configuration for the upstream_detector module
+type UpstreamDetectorConfig struct {
 	// Probing settings
 	ProbeTimeout    time.Duration `json:"probe_timeout"`
 	ProbeRetryCount int           `json:"probe_retry_count"`
@@ -171,7 +171,7 @@ func NewDefaultConfig() *Config {
 		},
 		ShowSetup:    true,
 		ResellerMode: false,
-		Crowsnest: CrowsnestConfig{
+		UpstreamDetector: UpstreamDetectorConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
 			ProbeRetryDelay:       2 * time.Second,

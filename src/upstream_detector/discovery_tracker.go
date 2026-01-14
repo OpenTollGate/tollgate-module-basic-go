@@ -1,4 +1,4 @@
-package crowsnest
+package upstream_detector
 
 import (
 	"sync"
@@ -9,13 +9,13 @@ import (
 
 // simpleDiscoveryTracker implements basic deduplication with timestamps and results
 type simpleDiscoveryTracker struct {
-	config       *config_manager.CrowsnestConfig
+	config       *config_manager.UpstreamDetectorConfig
 	lastAttempts map[string]DiscoveryAttempt
 	mu           sync.RWMutex
 }
 
 // NewDiscoveryTracker creates a new simple discovery tracker
-func NewDiscoveryTracker(config *config_manager.CrowsnestConfig) DiscoveryTracker {
+func NewDiscoveryTracker(config *config_manager.UpstreamDetectorConfig) DiscoveryTracker {
 	return &simpleDiscoveryTracker{
 		config:       config,
 		lastAttempts: make(map[string]DiscoveryAttempt),

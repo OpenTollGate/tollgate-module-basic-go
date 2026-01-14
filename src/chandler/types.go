@@ -76,7 +76,7 @@ type PaymentProposal struct {
 
 // ChandlerInterface defines the interface for the chandler module
 type ChandlerInterface interface {
-	// HandleUpstreamTollgate is called when Crowsnest discovers a new upstream TollGate
+	// HandleUpstreamTollgate is called when UpstreamDetector discovers a new upstream TollGate
 	HandleUpstreamTollgate(upstream *UpstreamTollgate) error
 
 	// HandleDisconnect is called when a network interface goes down

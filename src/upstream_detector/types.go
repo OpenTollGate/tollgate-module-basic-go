@@ -1,4 +1,4 @@
-package crowsnest
+package upstream_detector
 
 import (
 	"time"

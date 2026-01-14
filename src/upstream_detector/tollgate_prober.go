@@ -1,4 +1,4 @@
-package crowsnest
+package upstream_detector
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 
 // tollGateProber implements the TollGateProber interface
 type tollGateProber struct {
-	config *config_manager.CrowsnestConfig
+	config *config_manager.UpstreamDetectorConfig
 	client *http.Client
 
 	// Track active probes for cancellation
@@ -23,7 +23,7 @@ type tollGateProber struct {
 }
 
 // NewTollGateProber creates a new TollGate prober
-func NewTollGateProber(config *config_manager.CrowsnestConfig) TollGateProber {
+func NewTollGateProber(config *config_manager.UpstreamDetectorConfig) TollGateProber {
 	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: config.ProbeTimeout,
@@ -141,7 +141,7 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 	}
 
 	// Set appropriate headers
-	req.Header.Set("User-Agent", "TollGate-Crowsnest/1.0")
+	req.Header.Set("User-Agent", "TollGate-Upstream-Detector/1.0")
 	req.Header.Set("Accept", "application/json")
 
 	// Perform request

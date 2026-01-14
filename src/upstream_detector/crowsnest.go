@@ -1,4 +1,4 @@
-package crowsnest
+package upstream_detector
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// crowsnest implements the Crowsnest interface
-type crowsnest struct {
-	config           *config_manager.CrowsnestConfig
+// upstreamDetector implements the UpstreamDetector interface
+type upstreamDetector struct {
+	config           *config_manager.UpstreamDetectorConfig
 	configManager    *config_manager.ConfigManager
 	networkMonitor   NetworkMonitor
 	tollGateProber   TollGateProber
@@ -28,8 +28,8 @@ type crowsnest struct {
 	mu       sync.RWMutex
 }
 
-// NewCrowsnest creates a new crowsnest instance
-func NewCrowsnest(configManager *config_manager.ConfigManager) (Crowsnest, error) {
+// NewUpstreamDetector creates a new upstream detector instance
+func NewUpstreamDetector(configManager *config_manager.ConfigManager) (UpstreamDetector, error) {
 	if configManager == nil {
 		return nil, fmt.Errorf("config manager is required")
 	}
@@ -40,14 +40,14 @@ func NewCrowsnest(configManager *config_manager.ConfigManager) (Crowsnest, error
 		return nil, fmt.Errorf("failed to get main configuration")
 	}
 
-	config := &mainConfig.Crowsnest
+	config := &mainConfig.UpstreamDetector
 
 	// Create components
 	networkMonitor := NewNetworkMonitor(config)
 	tollGateProber := NewTollGateProber(config)
 	discoveryTracker := NewDiscoveryTracker(config)
 
-	cs := &crowsnest{
+	ud := &upstreamDetector{
 		config:           config,
 		configManager:    configManager,
 		networkMonitor:   networkMonitor,
@@ -56,117 +56,117 @@ func NewCrowsnest(configManager *config_manager.ConfigManager) (Crowsnest, error
 		stopChan:         make(chan struct{}),
 	}
 
-	return cs, nil
+	return ud, nil
 }
 
 // Start begins monitoring network changes and discovering TollGates
-func (cs *crowsnest) Start() error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+func (ud *upstreamDetector) Start() error {
+	ud.mu.Lock()
+	defer ud.mu.Unlock()
 
-	if cs.running {
-		return fmt.Errorf("crowsnest is already running")
+	if ud.running {
+		return fmt.Errorf("upstream detector is already running")
 	}
 
-	logger.Info("Starting Crowsnest network monitoring and TollGate discovery")
+	logger.Info("Starting UpstreamDetector network monitoring and TollGate discovery")
 
 	// Start network monitor
-	err := cs.networkMonitor.Start()
+	err := ud.networkMonitor.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start network monitor: %w", err)
 	}
 
-	cs.running = true
-	cs.wg.Add(2) // One for event loop, one for periodic check
-	go cs.eventLoop()
-	go cs.periodicUpstreamCheck()
+	ud.running = true
+	ud.wg.Add(2) // One for event loop, one for periodic check
+	go ud.eventLoop()
+	go ud.periodicUpstreamCheck()
 
 	// Perform initial interface scan to auto-connect after startup/reboot
-	go cs.performInitialInterfaceScan()
+	go ud.performInitialInterfaceScan()
 
-	logger.Info("Crowsnest started successfully")
+	logger.Info("UpstreamDetector started successfully")
 	return nil
 }
 
 // Stop stops the crowsnest monitoring
-func (cs *crowsnest) Stop() error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+func (ud *upstreamDetector) Stop() error {
+	ud.mu.Lock()
+	defer ud.mu.Unlock()
 
-	if !cs.running {
+	if !ud.running {
 		return nil
 	}
 
-	logger.Info("Stopping Crowsnest")
+	logger.Info("Stopping UpstreamDetector")
 
 	// Stop network monitor
-	err := cs.networkMonitor.Stop()
+	err := ud.networkMonitor.Stop()
 	if err != nil {
 		logger.WithError(err).Error("Error stopping network monitor")
 	}
 
 	// Stop event loop
-	close(cs.stopChan)
-	cs.running = false
-	cs.wg.Wait()
+	close(ud.stopChan)
+	ud.running = false
+	ud.wg.Wait()
 
 	// Cleanup discovery tracker
-	cs.discoveryTracker.Cleanup()
+	ud.discoveryTracker.Cleanup()
 
-	logger.Info("Crowsnest stopped successfully")
+	logger.Info("UpstreamDetector stopped successfully")
 	return nil
 }
 
 // SetChandler sets the chandler for upstream TollGate management
-func (cs *crowsnest) SetChandler(chandler chandler.ChandlerInterface) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+func (ud *upstreamDetector) SetChandler(chandler chandler.ChandlerInterface) {
+	ud.mu.Lock()
+	defer ud.mu.Unlock()
 
-	cs.chandler = chandler
-	logger.Info("Chandler set for Crowsnest")
+	ud.chandler = chandler
+	logger.Info("Chandler set for UpstreamDetector")
 }
 
 // eventLoop is the main event processing loop
-func (cs *crowsnest) eventLoop() {
-	defer cs.wg.Done()
+func (ud *upstreamDetector) eventLoop() {
+	defer ud.wg.Done()
 
-	logger.Info("Crowsnest event loop started")
+	logger.Info("UpstreamDetector event loop started")
 
 	for {
 		select {
-		case <-cs.stopChan:
-			logger.Info("Crowsnest event loop stopping")
+		case <-ud.stopChan:
+			logger.Info("UpstreamDetector event loop stopping")
 			return
 
-		case event := <-cs.networkMonitor.Events():
-			cs.handleNetworkEvent(event)
+		case event := <-ud.networkMonitor.Events():
+			ud.handleNetworkEvent(event)
 		}
 	}
 }
 
 // handleNetworkEvent processes a network event
-func (cs *crowsnest) handleNetworkEvent(event NetworkEvent) {
+func (ud *upstreamDetector) handleNetworkEvent(event NetworkEvent) {
 	logger.WithFields(logrus.Fields{
-		"event_type": cs.eventTypeToString(event.Type),
+		"event_type": ud.eventTypeToString(event.Type),
 		"interface":  event.InterfaceName,
 	}).Debug("Processing network event")
 
 	switch event.Type {
 	case EventInterfaceUp:
-		cs.handleInterfaceUp(event)
+		ud.handleInterfaceUp(event)
 	case EventInterfaceDown:
-		cs.handleInterfaceDown(event)
+		ud.handleInterfaceDown(event)
 	case EventAddressAdded:
-		cs.handleAddressAdded(event)
+		ud.handleAddressAdded(event)
 	case EventAddressDeleted:
-		cs.handleAddressDeleted(event)
+		ud.handleAddressDeleted(event)
 	default:
 		logger.WithField("event_type", event.Type).Warn("Unhandled network event type")
 	}
 }
 
 // handleInterfaceUp handles interface up events
-func (cs *crowsnest) handleInterfaceUp(event NetworkEvent) {
+func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
 	if event.GatewayIP == "" {
 		logger.WithField("interface", event.InterfaceName).Debug("Interface is up but no gateway found")
 		return
@@ -178,23 +178,23 @@ func (cs *crowsnest) handleInterfaceUp(event NetworkEvent) {
 	}).Debug("Interface is up with gateway - attempting TollGate discovery")
 
 	// Attempt TollGate discovery asynchronously
-	go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+	go ud.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 }
 
 // handleInterfaceDown handles interface down events
-func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
+func (ud *upstreamDetector) handleInterfaceDown(event NetworkEvent) {
 	logger.WithField("interface", event.InterfaceName).Info("Interface is down - cleaning up and notifying chandler")
 
 	// Cancel any active probes for this interface
-	cs.tollGateProber.CancelProbesForInterface(event.InterfaceName)
+	ud.tollGateProber.CancelProbesForInterface(event.InterfaceName)
 
 	// Clear discovery attempts for this interface (including successful ones)
 	// This allows re-discovery when the interface comes back up
-	cs.discoveryTracker.ClearInterface(event.InterfaceName)
+	ud.discoveryTracker.ClearInterface(event.InterfaceName)
 
 	// Notify chandler of disconnect
-	if cs.chandler != nil {
-		err := cs.chandler.HandleDisconnect(event.InterfaceName)
+	if ud.chandler != nil {
+		err := ud.chandler.HandleDisconnect(event.InterfaceName)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"interface": event.InterfaceName,
@@ -207,19 +207,19 @@ func (cs *crowsnest) handleInterfaceDown(event NetworkEvent) {
 }
 
 // handleAddressAdded handles address added events
-func (cs *crowsnest) handleAddressAdded(event NetworkEvent) {
+func (ud *upstreamDetector) handleAddressAdded(event NetworkEvent) {
 	// For address changes, we might want to re-check the gateway
 	if event.GatewayIP != "" {
 		logger.WithFields(logrus.Fields{
 			"interface": event.InterfaceName,
 			"gateway":   event.GatewayIP,
 		}).Debug("Address added to interface with gateway - checking for TollGate")
-		go cs.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+		go ud.attemptTollGateDiscovery(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 	}
 }
 
 // handleAddressDeleted handles address deleted events
-func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
+func (ud *upstreamDetector) handleAddressDeleted(event NetworkEvent) {
 	logger.WithField("interface", event.InterfaceName).Debug("Address deleted from interface - checking for TollGate disconnection")
 
 	// When an address is deleted, this might indicate a disconnection
@@ -227,14 +227,14 @@ func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
 	// and treat address deletion as a potential disconnection
 
 	// Cancel any active probes for this interface
-	cs.tollGateProber.CancelProbesForInterface(event.InterfaceName)
+	ud.tollGateProber.CancelProbesForInterface(event.InterfaceName)
 
 	// Clear discovery attempts for this interface to allow re-discovery
-	cs.discoveryTracker.ClearInterface(event.InterfaceName)
+	ud.discoveryTracker.ClearInterface(event.InterfaceName)
 
 	// Notify chandler of potential disconnect
-	if cs.chandler != nil {
-		err := cs.chandler.HandleDisconnect(event.InterfaceName)
+	if ud.chandler != nil {
+		err := ud.chandler.HandleDisconnect(event.InterfaceName)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"interface": event.InterfaceName,
@@ -245,9 +245,9 @@ func (cs *crowsnest) handleAddressDeleted(event NetworkEvent) {
 }
 
 // attemptTollGateDiscovery attempts to discover a TollGate on the given gateway
-func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
+func (ud *upstreamDetector) attemptTollGateDiscovery(interfaceName, macAddress, gatewayIP string) {
 	// Check if we should attempt discovery (prevents concurrent attempts)
-	if !cs.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
+	if !ud.discoveryTracker.ShouldAttemptDiscovery(interfaceName, gatewayIP) {
 		logger.WithFields(logrus.Fields{
 			"interface": interfaceName,
 			"gateway":   gatewayIP,
@@ -256,10 +256,10 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 	}
 
 	// Record the discovery attempt as pending immediately to prevent concurrent attempts
-	cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultPending)
+	ud.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultPending)
 
 	// Create a context for this discovery attempt
-	ctx, cancel := context.WithTimeout(context.Background(), cs.config.DiscoveryTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ud.config.DiscoveryTimeout)
 	defer cancel()
 
 	// Probe the gateway with context
@@ -268,13 +268,13 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 		"interface": interfaceName,
 	}).Debug("Probing gateway for TollGate advertisement")
 
-	data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, interfaceName, gatewayIP)
+	data, err := ud.tollGateProber.ProbeGatewayWithContext(ctx, interfaceName, gatewayIP)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"gateway": gatewayIP,
 			"error":   err,
 		}).Error("Failed to probe gateway")
-		cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultError)
+		ud.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultError)
 		return
 	}
 
@@ -285,7 +285,7 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 			"gateway": gatewayIP,
 			"error":   err,
 		}).Warn("Invalid TollGate advertisement from gateway")
-		cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultValidationFailed)
+		ud.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultValidationFailed)
 		return
 	}
 
@@ -304,11 +304,11 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 	}
 
 	// Record successful discovery
-	cs.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultSuccess)
+	ud.discoveryTracker.RecordDiscovery(interfaceName, gatewayIP, DiscoveryResultSuccess)
 
 	// Hand off to chandler
-	if cs.chandler != nil {
-		err = cs.chandler.HandleUpstreamTollgate(upstream)
+	if ud.chandler != nil {
+		err = ud.chandler.HandleUpstreamTollgate(upstream)
 		if err != nil {
 			logger.WithError(err).Error("Error handing off upstream TollGate to chandler")
 		} else {
@@ -326,7 +326,7 @@ func (cs *crowsnest) attemptTollGateDiscovery(interfaceName, macAddress, gateway
 }
 
 // eventTypeToString converts event type to string for logging
-func (cs *crowsnest) eventTypeToString(eventType EventType) string {
+func (ud *upstreamDetector) eventTypeToString(eventType EventType) string {
 	switch eventType {
 	case EventInterfaceUp:
 		return "InterfaceUp"
@@ -344,14 +344,14 @@ func (cs *crowsnest) eventTypeToString(eventType EventType) string {
 }
 
 // performInitialInterfaceScan scans existing network interfaces on startup
-func (cs *crowsnest) performInitialInterfaceScan() {
+func (ud *upstreamDetector) performInitialInterfaceScan() {
 	// Small delay to allow the system to fully initialize
 	time.Sleep(2 * time.Second)
 
 	logger.Info("Performing initial interface scan for TollGate auto-discovery")
 
 	// Get current network interfaces
-	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()
+	interfaces, err := ud.networkMonitor.GetCurrentInterfaces()
 	if err != nil {
 		logger.WithError(err).Error("Error getting current interfaces during startup scan")
 		return
@@ -364,7 +364,7 @@ func (cs *crowsnest) performInitialInterfaceScan() {
 		}
 
 		// Get gateway for this interface
-		gatewayIP := cs.networkMonitor.GetGatewayForInterface(iface.Name)
+		gatewayIP := ud.networkMonitor.GetGatewayForInterface(iface.Name)
 		if gatewayIP == "" {
 			logger.WithField("interface", iface.Name).Debug("Startup scan: Interface is up but no gateway found")
 			continue
@@ -376,15 +376,15 @@ func (cs *crowsnest) performInitialInterfaceScan() {
 		}).Info("Startup scan: Found interface with gateway - attempting TollGate discovery")
 
 		// Attempt TollGate discovery asynchronously
-		go cs.attemptTollGateDiscovery(iface.Name, iface.MacAddress, gatewayIP)
+		go ud.attemptTollGateDiscovery(iface.Name, iface.MacAddress, gatewayIP)
 	}
 
 	logger.Info("Initial interface scan completed")
 }
 
 // periodicUpstreamCheck periodically checks for upstream TollGates on connected interfaces
-func (cs *crowsnest) periodicUpstreamCheck() {
-	defer cs.wg.Done()
+func (ud *upstreamDetector) periodicUpstreamCheck() {
+	defer ud.wg.Done()
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -394,8 +394,8 @@ func (cs *crowsnest) periodicUpstreamCheck() {
 	for {
 		select {
 		case <-ticker.C:
-			cs.checkConnectedInterfaces()
-		case <-cs.stopChan:
+			ud.checkConnectedInterfaces()
+		case <-ud.stopChan:
 			logger.Info("Periodic upstream check stopping")
 			return
 		}
@@ -403,21 +403,21 @@ func (cs *crowsnest) periodicUpstreamCheck() {
 }
 
 // checkConnectedInterfaces checks all connected interfaces for upstream TollGates
-func (cs *crowsnest) checkConnectedInterfaces() {
+func (ud *upstreamDetector) checkConnectedInterfaces() {
 	// Skip if no chandler is set
-	if cs.chandler == nil {
+	if ud.chandler == nil {
 		return
 	}
 
 	// Check if we already have active sessions
-	activeSessions := cs.chandler.GetActiveSessions()
+	activeSessions := ud.chandler.GetActiveSessions()
 	if len(activeSessions) > 0 {
 		// Already have active session(s), skip check
 		return
 	}
 
 	// Get current network interfaces
-	interfaces, err := cs.networkMonitor.GetCurrentInterfaces()
+	interfaces, err := ud.networkMonitor.GetCurrentInterfaces()
 	if err != nil {
 		logger.WithError(err).Debug("Error getting current interfaces during periodic check")
 		return
@@ -430,7 +430,7 @@ func (cs *crowsnest) checkConnectedInterfaces() {
 		}
 
 		// Get gateway for this interface
-		gatewayIP := cs.networkMonitor.GetGatewayForInterface(iface.Name)
+		gatewayIP := ud.networkMonitor.GetGatewayForInterface(iface.Name)
 		if gatewayIP == "" {
 			continue
 		}
@@ -439,7 +439,7 @@ func (cs *crowsnest) checkConnectedInterfaces() {
 		// Use a short timeout context for the probe
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 
-		data, err := cs.tollGateProber.ProbeGatewayWithContext(ctx, iface.Name, gatewayIP)
+		data, err := ud.tollGateProber.ProbeGatewayWithContext(ctx, iface.Name, gatewayIP)
 		cancel()
 
 		if err != nil {
@@ -470,7 +470,7 @@ func (cs *crowsnest) checkConnectedInterfaces() {
 		}
 
 		// Hand off to chandler
-		err = cs.chandler.HandleUpstreamTollgate(upstream)
+		err = ud.chandler.HandleUpstreamTollgate(upstream)
 		if err != nil {
 			logger.WithError(err).Warn("Error handing off upstream TollGate to chandler from periodic check")
 		} else {

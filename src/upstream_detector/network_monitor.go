@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package crowsnest
+package upstream_detector
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 
 // networkMonitor implements the NetworkMonitor interface using event-driven netlink subscriptions
 type networkMonitor struct {
-	config        *config_manager.CrowsnestConfig
+	config        *config_manager.UpstreamDetectorConfig
 	events        chan NetworkEvent
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
@@ -27,7 +27,7 @@ type networkMonitor struct {
 }
 
 // NewNetworkMonitor creates a new event-driven network monitor
-func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
+func NewNetworkMonitor(config *config_manager.UpstreamDetectorConfig) NetworkMonitor {
 	return &networkMonitor{
 		config:        config,
 		events:        make(chan NetworkEvent, 100),

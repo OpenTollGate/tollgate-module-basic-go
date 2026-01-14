@@ -1,7 +1,7 @@
 //go:build !linux
 // +build !linux
 
-package crowsnest
+package upstream_detector
 
 import (
 	"fmt"
@@ -12,14 +12,14 @@ import (
 
 // stubNetworkMonitor is a stub implementation for non-Linux systems
 type stubNetworkMonitor struct {
-	config   *config_manager.CrowsnestConfig
+	config   *config_manager.UpstreamDetectorConfig
 	events   chan NetworkEvent
 	stopChan chan struct{}
 	running  bool
 }
 
 // NewNetworkMonitor creates a stub network monitor for non-Linux systems
-func NewNetworkMonitor(config *config_manager.CrowsnestConfig) NetworkMonitor {
+func NewNetworkMonitor(config *config_manager.UpstreamDetectorConfig) NetworkMonitor {
 	logger.Warn("Using stub network monitor - netlink functionality only available on Linux")
 	return &stubNetworkMonitor{
 		config:   config,
