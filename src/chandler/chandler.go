@@ -2,6 +2,7 @@ package chandler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,10 +23,14 @@ var logger = logrus.WithField("module", "chandler")
 
 // Chandler is the main implementation of ChandlerInterface
 type Chandler struct {
-	configManager *config_manager.ConfigManager
-	merchant      merchant.MerchantInterface
-	sessions      map[string]*ChandlerSession // keyed by upstream pubkey
-	mu            sync.RWMutex
+	configManager  *config_manager.ConfigManager
+	merchant       merchant.MerchantInterface
+	sessions       map[string]*ChandlerSession // keyed by upstream pubkey
+	tollGateProber TollGateProber
+	knownGateways  map[string]*KnownGateway // keyed by gateway IP
+	mu             sync.RWMutex
+	stopPolling    chan struct{}
+	pollingWg      sync.WaitGroup
 }
 
 // NewChandler creates a new chandler instance
@@ -35,13 +40,23 @@ func NewChandler(configManager *config_manager.ConfigManager, merchantImpl merch
 		return nil, fmt.Errorf("config is nil")
 	}
 
+	// Create TollGateProber
+	tollGateProber := NewTollGateProber(&config.UpstreamDetector)
+
 	chandler := &Chandler{
-		configManager: configManager,
-		merchant:      merchantImpl,
-		sessions:      make(map[string]*ChandlerSession),
+		configManager:  configManager,
+		merchant:       merchantImpl,
+		sessions:       make(map[string]*ChandlerSession),
+		tollGateProber: tollGateProber,
+		knownGateways:  make(map[string]*KnownGateway),
+		stopPolling:    make(chan struct{}),
 	}
 
-	logger.Info("Chandler initialized successfully")
+	// Start advertisement polling
+	chandler.pollingWg.Add(1)
+	go chandler.pollGateways()
+
+	logger.Info("Chandler initialized successfully with TollGateProber and gateway polling")
 	return chandler, nil
 }
 
@@ -51,7 +66,7 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 		"upstream_pubkey": upstream.Advertisement.PubKey,
 		"interface":       upstream.InterfaceName,
 		"gateway":         upstream.GatewayIP,
-		"mac_address":     upstream.MacAddress,
+		"mac_address":     upstream.MacAddressSelf,
 		"discovered_at":   upstream.DiscoveredAt.Format(time.RFC3339),
 	}).Info("🔗 CONNECTED: Processing upstream TollGate connection")
 
@@ -312,6 +327,44 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 	return nil
 }
 
+// HandleGatewayConnected is called when upstream_detector discovers a gateway
+func (c *Chandler) HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error {
+	logger.WithFields(logrus.Fields{
+		"interface": interfaceName,
+		"mac":       macAddress,
+		"gateway":   gatewayIP,
+	}).Info("🔍 GATEWAY CONNECTED: Checking for TollGate and session")
+
+	c.mu.Lock()
+	// Track this gateway
+	if _, exists := c.knownGateways[gatewayIP]; !exists {
+		c.knownGateways[gatewayIP] = &KnownGateway{
+			InterfaceName: interfaceName,
+			MacAddress:    macAddress,
+			GatewayIP:     gatewayIP,
+			LastChecked:   time.Now(),
+		}
+		logger.WithFields(logrus.Fields{
+			"gateway":   gatewayIP,
+			"interface": interfaceName,
+		}).Info("📝 Added gateway to known gateways list")
+	} else {
+		logger.WithFields(logrus.Fields{
+			"gateway":   gatewayIP,
+			"interface": interfaceName,
+		}).Debug("Gateway already in known gateways list")
+	}
+	c.mu.Unlock()
+
+	// Attempt to create session with this gateway
+	logger.WithFields(logrus.Fields{
+		"gateway": gatewayIP,
+		"reason":  "initial",
+	}).Info("🚀 Attempting to create session with gateway")
+
+	return c.attemptPurchase(gatewayIP, "initial")
+}
+
 // HandleDisconnect handles network interface disconnection
 func (c *Chandler) HandleDisconnect(interfaceName string) error {
 	c.mu.Lock()
@@ -567,8 +620,8 @@ func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *Paym
 	customerPrivateKey := session.CustomerPrivateKey
 	customerPublicKey, _ := nostr.GetPublicKey(customerPrivateKey)
 
-	// Get MAC address from session's upstream tollgate object
-	macAddress := session.UpstreamTollgate.MacAddress
+	// Get our own MAC address (the interface we're connecting through)
+	macAddressSelf := session.UpstreamTollgate.MacAddressSelf
 
 	// Create payment event
 	paymentEvent := nostr.Event{
@@ -577,7 +630,7 @@ func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *Paym
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
 			{"p", proposal.UpstreamPubkey},
-			{"device-identifier", "mac", macAddress},
+			{"device-identifier", "mac", macAddressSelf},
 			{"payment", paymentToken},
 		},
 		Content: "",
@@ -807,4 +860,254 @@ func (c *Chandler) selectCompatiblePricingOption(upstreamOptions []tollgate_prot
 	}).Debug("Selected compatible pricing option")
 
 	return best, nil
+}
+
+// getUpstreamAdvertisement fetches and validates the TollGate advertisement from a gateway
+func (c *Chandler) getUpstreamAdvertisement(gatewayIP, interfaceName string) (*nostr.Event, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Probe :2121/ for advertisement
+	data, err := c.tollGateProber.ProbeGatewayWithContext(ctx, interfaceName, gatewayIP)
+	if err != nil {
+		return nil, fmt.Errorf("probe failed: %w", err)
+	}
+
+	// Validate advertisement
+	event, err := tollgate_protocol.ValidateAdvertisementFromBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("invalid advertisement: %w", err)
+	}
+
+	return event, nil
+}
+
+// checkUpstreamUsage checks if a session already exists on the upstream
+func (c *Chandler) checkUpstreamUsage(gatewayIP string) (usage int64, allotment int64, err error) {
+	url := fmt.Sprintf("http://%s:2121/usage", gatewayIP)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return -1, -1, err
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return -1, -1, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return -1, -1, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return -1, -1, err
+	}
+
+	// Parse "usage/allotment" format
+	parts := bytes.Split(body, []byte("/"))
+	if len(parts) != 2 {
+		return -1, -1, fmt.Errorf("invalid usage format: %s", string(body))
+	}
+
+	usage, err = strconv.ParseInt(string(bytes.TrimSpace(parts[0])), 10, 64)
+	if err != nil {
+		return -1, -1, fmt.Errorf("failed to parse usage: %w", err)
+	}
+
+	allotment, err = strconv.ParseInt(string(bytes.TrimSpace(parts[1])), 10, 64)
+	if err != nil {
+		return -1, -1, fmt.Errorf("failed to parse allotment: %w", err)
+	}
+
+	return usage, allotment, nil
+}
+
+// attemptPurchase attempts to create a session with a gateway
+// This unified method handles initial purchase, renewal, and retry scenarios
+func (c *Chandler) attemptPurchase(gatewayIP string, reason string) error {
+	c.mu.RLock()
+	gateway, exists := c.knownGateways[gatewayIP]
+	c.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("gateway %s not in known gateways", gatewayIP)
+	}
+
+	logger.WithFields(logrus.Fields{
+		"gateway": gatewayIP,
+		"reason":  reason,
+	}).Debug("Attempting purchase from gateway")
+
+	// Step 1: Get advertisement (determines if this is a TollGate)
+	event, err := c.getUpstreamAdvertisement(gatewayIP, gateway.InterfaceName)
+	if err != nil {
+		c.mu.Lock()
+		gateway.LastCheckError = fmt.Errorf("not a TollGate: %w", err)
+		gateway.LastChecked = time.Now()
+		c.mu.Unlock()
+		logger.WithFields(logrus.Fields{
+			"gateway": gatewayIP,
+			"error":   err,
+		}).Debug("Failed to get TollGate advertisement")
+		return err
+	}
+
+	// Step 2: Check :2121/usage for session recovery
+	usage, allotment, err := c.checkUpstreamUsage(gatewayIP)
+	if err == nil && usage != -1 && allotment != -1 {
+		logger.WithFields(logrus.Fields{
+			"gateway":   gatewayIP,
+			"usage":     usage,
+			"allotment": allotment,
+		}).Info("Existing session found on upstream, recovering")
+		return c.recoverSession(gateway, event, usage, allotment)
+	}
+
+	// Step 3: Check trust policy
+	config := c.configManager.GetConfig()
+	err = ValidateTrustPolicy(
+		event.PubKey,
+		config.Chandler.Trust.Allowlist,
+		config.Chandler.Trust.Blocklist,
+		config.Chandler.Trust.DefaultPolicy,
+	)
+	if err != nil {
+		c.mu.Lock()
+		gateway.LastCheckError = fmt.Errorf("trust policy failed: %w", err)
+		gateway.LastChecked = time.Now()
+		c.mu.Unlock()
+		logger.WithFields(logrus.Fields{
+			"gateway": gatewayIP,
+			"pubkey":  event.PubKey,
+			"error":   err,
+		}).Debug("Trust policy validation failed")
+		return err
+	}
+
+	// Step 4: Create UpstreamTollgate object and use existing HandleUpstreamTollgate logic
+	upstream := &UpstreamTollgate{
+		InterfaceName:  gateway.InterfaceName,
+		MacAddressSelf: gateway.MacAddress,
+		GatewayIP:      gatewayIP,
+		Advertisement:  event,
+		DiscoveredAt:   time.Now(),
+	}
+
+	// Use existing session creation logic
+	err = c.HandleUpstreamTollgate(upstream)
+
+	c.mu.Lock()
+	if err != nil {
+		gateway.LastCheckError = err
+	} else {
+		gateway.LastCheckError = nil
+	}
+	gateway.LastChecked = time.Now()
+	c.mu.Unlock()
+
+	return err
+}
+
+// recoverSession recovers an existing session from upstream
+func (c *Chandler) recoverSession(gateway *KnownGateway, advertisement *nostr.Event, usage, allotment int64) error {
+	logger.WithFields(logrus.Fields{
+		"gateway":   gateway.GatewayIP,
+		"usage":     usage,
+		"allotment": allotment,
+	}).Info("Recovering existing session from upstream")
+
+	// TODO: Implement full session recovery
+	// For now, just log that we should recover
+	// This would involve:
+	// 1. Fetching the advertisement
+	// 2. Creating a ChandlerSession object
+	// 3. Creating a usage tracker
+	// 4. Starting monitoring
+
+	return fmt.Errorf("session recovery not yet implemented")
+}
+
+// pollGateways periodically checks all known gateways
+func (c *Chandler) pollGateways() {
+	defer c.pollingWg.Done()
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	logger.Info("Starting gateway polling (60s interval)")
+
+	for {
+		select {
+		case <-ticker.C:
+			c.checkAllGateways()
+		case <-c.stopPolling:
+			logger.Info("Gateway polling stopped")
+			return
+		}
+	}
+}
+
+// checkAllGateways checks all known gateways for sessions
+func (c *Chandler) checkAllGateways() {
+	c.mu.RLock()
+	gateways := make([]*KnownGateway, 0, len(c.knownGateways))
+	for _, gw := range c.knownGateways {
+		gateways = append(gateways, gw)
+	}
+	c.mu.RUnlock()
+
+	for _, gateway := range gateways {
+		// Check if we already have an active session for this gateway
+		c.mu.RLock()
+		hasSession := false
+		for _, session := range c.sessions {
+			if session.UpstreamTollgate.GatewayIP == gateway.GatewayIP && session.Status == SessionActive {
+				hasSession = true
+				break
+			}
+		}
+		c.mu.RUnlock()
+
+		if hasSession {
+			logger.WithField("gateway", gateway.GatewayIP).Debug("Gateway already has active session, skipping")
+			continue
+		}
+
+		// Attempt purchase (includes all validations)
+		err := c.attemptPurchase(gateway.GatewayIP, "poll")
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"gateway": gateway.GatewayIP,
+				"error":   err,
+			}).Debug("Gateway not suitable this cycle, will retry next cycle")
+		}
+	}
+}
+
+// Stop stops the chandler and cleans up resources
+func (c *Chandler) Stop() error {
+	logger.Info("Stopping Chandler")
+
+	// Stop polling
+	close(c.stopPolling)
+	c.pollingWg.Wait()
+
+	// Stop all usage trackers
+	c.mu.Lock()
+	for _, session := range c.sessions {
+		if session.UsageTracker != nil {
+			session.UsageTracker.Stop()
+		}
+	}
+	c.mu.Unlock()
+
+	logger.Info("Chandler stopped successfully")
+	return nil
 }

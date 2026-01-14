@@ -1,4 +1,4 @@
-package upstream_detector
+package chandler
 
 import (
 	"context"

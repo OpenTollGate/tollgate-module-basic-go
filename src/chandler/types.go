@@ -1,6 +1,7 @@
 package chandler
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -11,15 +12,24 @@ import (
 // UpstreamTollgate represents a discovered upstream TollGate
 type UpstreamTollgate struct {
 	// Network interface information
-	InterfaceName string // e.g., "eth0", "wlan0"
-	MacAddress    string // MAC address of local interface
-	GatewayIP     string // IP address of the upstream gateway
+	InterfaceName  string // e.g., "eth0", "wlan0"
+	MacAddressSelf string // MAC address of our own interface
+	GatewayIP      string // IP address of the upstream gateway
 
 	// TollGate advertisement information
 	Advertisement *nostr.Event // Complete TollGate advertisement event (kind 10021)
 
 	// Discovery metadata
 	DiscoveredAt time.Time // When this TollGate was discovered
+}
+
+// KnownGateway tracks a gateway we've discovered
+type KnownGateway struct {
+	InterfaceName  string
+	MacAddress     string
+	GatewayIP      string
+	LastChecked    time.Time
+	LastCheckError error
 }
 
 // ChandlerSession represents an active session with an upstream TollGate
@@ -76,7 +86,11 @@ type PaymentProposal struct {
 
 // ChandlerInterface defines the interface for the chandler module
 type ChandlerInterface interface {
+	// HandleGatewayConnected is called when UpstreamDetector discovers a gateway
+	HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error
+
 	// HandleUpstreamTollgate is called when UpstreamDetector discovers a new upstream TollGate
+	// DEPRECATED: Will be removed after refactoring is complete
 	HandleUpstreamTollgate(upstream *UpstreamTollgate) error
 
 	// HandleDisconnect is called when a network interface goes down
@@ -114,6 +128,13 @@ type UsageTrackerInterface interface {
 
 	// sessionChanged is called when the session is updated
 	SessionChanged(session *ChandlerSession) error
+}
+
+// TollGateProber defines the interface for probing TollGate advertisements
+type TollGateProber interface {
+	ProbeGatewayWithContext(ctx context.Context, interfaceName, gatewayIP string) ([]byte, error)
+	CancelProbesForInterface(interfaceName string)
+	TriggerCaptivePortalSession(ctx context.Context, gatewayIP string) error
 }
 
 // TimeUsageTracker tracks time-based usage
