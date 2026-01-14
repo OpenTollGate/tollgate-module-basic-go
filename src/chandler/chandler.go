@@ -1021,17 +1021,104 @@ func (c *Chandler) recoverSession(gateway *KnownGateway, advertisement *nostr.Ev
 		"gateway":   gateway.GatewayIP,
 		"usage":     usage,
 		"allotment": allotment,
-	}).Info("Recovering existing session from upstream")
+		"pubkey":    advertisement.PubKey,
+	}).Info("♻️ RECOVERING: Existing session found on upstream")
 
-	// TODO: Implement full session recovery
-	// For now, just log that we should recover
-	// This would involve:
-	// 1. Fetching the advertisement
-	// 2. Creating a ChandlerSession object
-	// 3. Creating a usage tracker
-	// 4. Starting monitoring
+	// Extract advertisement information
+	adInfo, err := tollgate_protocol.ExtractAdvertisementInfo(advertisement)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": gateway.GatewayIP,
+			"error":   err,
+		}).Error("Failed to extract advertisement info during recovery")
+		return err
+	}
 
-	return fmt.Errorf("session recovery not yet implemented")
+	// Find compatible pricing option (we don't know which one was used originally)
+	selectedPricing, err := c.selectCompatiblePricingOption(adInfo.PricingOptions)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": gateway.GatewayIP,
+			"error":   err,
+		}).Error("No compatible pricing options during recovery")
+		return err
+	}
+
+	// Get renewal offset from config based on metric
+	config := c.configManager.GetConfig()
+	var renewalOffset uint64
+	switch adInfo.Metric {
+	case "milliseconds":
+		renewalOffset = config.Chandler.Sessions.MillisecondRenewalOffset
+	case "bytes":
+		renewalOffset = config.Chandler.Sessions.BytesRenewalOffset
+	}
+
+	// Generate a new customer private key for this recovered session
+	// Note: We don't have the original customer key, so we generate a new one
+	// This is fine because the upstream identifies us by MAC address
+	customerPrivateKey := nostr.GeneratePrivateKey()
+	customerPublicKey, err := nostr.GetPublicKey(customerPrivateKey)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": gateway.GatewayIP,
+			"error":   err,
+		}).Error("Failed to derive customer public key during recovery")
+		return err
+	}
+
+	// Create UpstreamTollgate object for the session
+	upstream := &UpstreamTollgate{
+		InterfaceName:  gateway.InterfaceName,
+		MacAddressSelf: gateway.MacAddress,
+		GatewayIP:      gateway.GatewayIP,
+		Advertisement:  advertisement,
+		DiscoveredAt:   time.Now(),
+	}
+
+	// Create session object (without payment since session already exists)
+	session := &ChandlerSession{
+		UpstreamTollgate:   upstream,
+		CustomerPrivateKey: customerPrivateKey,
+		Advertisement:      advertisement,
+		AdvertisementInfo:  adInfo,
+		SelectedPricing:    selectedPricing,
+		TotalAllotment:     uint64(allotment),
+		RenewalOffset:      renewalOffset,
+		CreatedAt:          time.Now(), // We don't know original creation time
+		LastPaymentAt:      time.Now(), // Assume recent payment
+		TotalSpent:         0,          // We don't know how much was spent
+		PaymentCount:       0,          // We don't know payment count
+		Status:             SessionActive,
+		SessionEvent:       nil, // We don't have the original session event
+	}
+
+	// Create and start usage tracker
+	err = c.createUsageTracker(session)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": gateway.GatewayIP,
+			"error":   err,
+		}).Error("Failed to create usage tracker during recovery")
+		return err
+	}
+
+	// Store session
+	c.mu.Lock()
+	c.sessions[advertisement.PubKey] = session
+	c.mu.Unlock()
+
+	logger.WithFields(logrus.Fields{
+		"upstream_pubkey": advertisement.PubKey,
+		"customer_pubkey": customerPublicKey,
+		"allotment":       allotment,
+		"current_usage":   usage,
+		"remaining":       allotment - usage,
+		"metric":          adInfo.Metric,
+		"interface":       gateway.InterfaceName,
+	}).Info("✅ RECOVERED: Session recovered successfully from upstream")
+
+	return nil
 }
 
 // pollGateways periodically checks all known gateways

@@ -287,9 +287,9 @@ func (d *DataUsageTracker) pollUpstreamUsage() {
 		d.mu.Unlock()
 
 		logrus.WithFields(logrus.Fields{
-			"upstream_pubkey": upstreamPubkey,
-			"usage":           fmt.Sprintf("%s/%s (%s left)", utils.BytesToHumanReadable(d.upstreamUsage), utils.BytesToHumanReadable(d.upstreamAllotment), utils.BytesToHumanReadable(remaining)),
-		}).Info("Upstream usage status")
+			"usage":       fmt.Sprintf("%s/%s (%s left)", utils.BytesToHumanReadable(d.upstreamUsage), utils.BytesToHumanReadable(d.upstreamAllotment), utils.BytesToHumanReadable(remaining)),
+			"upstream_ip": upstreamIP,
+		}).Info("Upstream session usage:")
 		return
 	}
 	d.mu.Unlock()
