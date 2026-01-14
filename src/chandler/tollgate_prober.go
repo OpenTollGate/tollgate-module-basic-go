@@ -62,7 +62,10 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 	}()
 
 	url := fmt.Sprintf("http://%s:2121/", gatewayIP)
-	logger.WithField("gateway", gatewayIP).Info("Probing gateway for TollGate advertisement (with context)")
+	logger.WithFields(logrus.Fields{
+		"gateway": gatewayIP,
+		"url":     url,
+	}).Debug("Checking if gateway is a TollGate")
 
 	var lastErr error
 
@@ -78,8 +81,9 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 		if attempt > 0 {
 			logger.WithFields(logrus.Fields{
 				"gateway": gatewayIP,
-				"attempt": attempt,
-			}).Debug("Retry attempt for gateway")
+				"attempt": attempt + 1,
+				"total":   tp.config.ProbeRetryCount,
+			}).Info("🔄 Retrying tollgate probe (may not be a TollGate)")
 
 			// Wait with context awareness
 			select {
@@ -91,7 +95,9 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 
 		data, err := tp.performRequestWithContext(ctx, url)
 		if err == nil {
-			logger.WithField("gateway", gatewayIP).Info("Successfully received response from gateway")
+			logger.WithFields(logrus.Fields{
+				"gateway": gatewayIP,
+			}).Info("✅ Gateway responded - validating TollGate advertisement")
 
 			// TEMPORARY WORKAROUND: Trigger captive portal session after successful probe
 			// This ensures ndsctl creates a client session for our device
@@ -109,15 +115,26 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 		}
 
 		lastErr = err
-		logger.WithFields(logrus.Fields{
-			"gateway": gatewayIP,
-			"attempt": attempt + 1,
-			"error":   err,
-		}).Warn("Probe attempt failed for gateway")
+
+		// Friendly message on each failed attempt
+		if attempt < tp.config.ProbeRetryCount-1 {
+			logger.WithFields(logrus.Fields{
+				"gateway": gatewayIP,
+				"attempt": attempt + 1,
+				"total":   tp.config.ProbeRetryCount,
+				"error":   err,
+			}).Info("⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable")
+		}
 	}
 
-	return nil, fmt.Errorf("failed to probe gateway %s after %d attempts: %w",
-		gatewayIP, tp.config.ProbeRetryCount, lastErr)
+	// Final message after all attempts failed
+	logger.WithFields(logrus.Fields{
+		"gateway":  gatewayIP,
+		"attempts": tp.config.ProbeRetryCount,
+	}).Info("ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)")
+
+	return nil, fmt.Errorf("gateway not responding as TollGate after %d attempts: %w",
+		tp.config.ProbeRetryCount, lastErr)
 }
 
 // CancelProbesForInterface cancels any active probes for the specified interface
