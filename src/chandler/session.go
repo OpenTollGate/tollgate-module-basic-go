@@ -41,6 +41,11 @@ type UpstreamSession struct {
 	UsageTracker *UpstreamUsageTracker
 	trackerMu    sync.Mutex // Protects tracker creation/stopping
 
+	// Payment state
+	paymentMu          sync.Mutex // Protects payment operations
+	paymentInProgress  bool       // True when payment is being sent
+	lastPaymentAttempt time.Time  // Last time we attempted payment
+
 	// Dependencies
 	configManager *config_manager.ConfigManager
 	merchant      merchant.MerchantInterface
@@ -171,6 +176,30 @@ func (s *UpstreamSession) StopUsageTracker() {
 // HandleRenewal is called by the tracker when renewal is needed
 // This handles both initial payment (-1/-1) and actual renewals
 func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
+	// Acquire payment mutex to prevent concurrent payments
+	s.paymentMu.Lock()
+	defer s.paymentMu.Unlock()
+
+	// Throttle payment attempts (minimum 5 seconds between attempts)
+	// Check this FIRST, before checking paymentInProgress
+	if time.Since(s.lastPaymentAttempt) < 5*time.Second {
+		return nil
+	}
+
+	// Check if payment already in progress
+	if s.paymentInProgress {
+		// Update lastPaymentAttempt to continue throttling
+		s.lastPaymentAttempt = time.Now()
+		return nil
+	}
+
+	// Mark payment as in progress
+	s.paymentInProgress = true
+	s.lastPaymentAttempt = time.Now()
+	defer func() {
+		s.paymentInProgress = false
+	}()
+
 	logger.WithFields(logrus.Fields{
 		"gateway":       s.GatewayIP,
 		"current_usage": currentUsage,
@@ -180,6 +209,10 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	// Re-evaluate pricing options (they may have changed)
 	selectedPricing, err := selectCompatiblePricing(s.AdvertisementInfo.PricingOptions, s.merchant)
 	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": s.GatewayIP,
+			"error":   err,
+		}).Error("❌ No compatible pricing found")
 		return fmt.Errorf("no compatible pricing: %w", err)
 	}
 	s.SelectedPricing = selectedPricing
@@ -263,6 +296,10 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": s.GatewayIP,
+			"error":   err,
+		}).Error("❌ HTTP POST failed")
 		// Try to recover the token
 		s.recoverToken(token, err)
 		return 0, fmt.Errorf("failed to send payment: %w", err)

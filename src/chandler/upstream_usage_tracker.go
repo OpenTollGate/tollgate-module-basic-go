@@ -15,25 +15,22 @@ import (
 
 // UpstreamUsageTracker polls the upstream gateway for usage information
 // and triggers renewal when needed
+// NOTE: Payment throttling and state is now handled in UpstreamSession.HandleRenewal()
 type UpstreamUsageTracker struct {
 	gatewayIP       string
 	renewalOffset   uint64
 	renewalCallback func(gatewayIP string, currentUsage uint64) error
 
-	// State
+	// State (protected by mu)
 	totalAllotment uint64
 	lastUsage      uint64
 	lastAllotment  uint64
 	pollCount      int // Track poll count for periodic info logging
+	mu             sync.RWMutex
 
 	// Control
 	ticker *time.Ticker
 	done   chan struct{}
-	mu     sync.RWMutex
-
-	// Renewal throttling
-	lastRenewalAttempt time.Time
-	renewalInProgress  bool
 }
 
 // NewUpstreamUsageTracker creates a new upstream usage tracker
@@ -147,29 +144,26 @@ func (u *UpstreamUsageTracker) poll() {
 
 	// Detect session state changes
 	if allotment == 0 && previousAllotment > 0 {
-		// Session expired - reset to allow new payment
+		// Session expired
 		logrus.WithFields(logrus.Fields{
 			"gateway":            u.gatewayIP,
 			"previous_allotment": previousAllotment,
-		}).Info("⚠️  Session expired, resetting for new payment")
+		}).Info("⚠️  Session expired")
 		u.totalAllotment = 0
-		u.renewalInProgress = false
 	} else if allotment > 0 && previousAllotment == 0 {
 		// New session created after expiration
 		logrus.WithFields(logrus.Fields{
 			"gateway":       u.gatewayIP,
 			"new_allotment": allotment,
-		}).Info("✅ New session created after expiration")
+		}).Info("✅ New session created")
 		u.totalAllotment = allotment
-		u.renewalInProgress = false
 	} else if allotment > previousAllotment {
-		// Allotment increased (renewal)
+		// Allotment increased (renewal completed)
 		logrus.WithFields(logrus.Fields{
 			"gateway":       u.gatewayIP,
 			"new_allotment": allotment,
 		}).Info("📈 Allotment increased (renewal completed)")
 		u.totalAllotment = allotment
-		u.renewalInProgress = false
 	}
 	u.mu.Unlock()
 
@@ -218,39 +212,28 @@ func (u *UpstreamUsageTracker) fetchUpstreamUsage() (usage, allotment uint64, er
 }
 
 // checkRenewal checks if renewal is needed and triggers it
+// NOTE: Throttling and state management now handled in UpstreamSession.HandleRenewal()
 func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-
 	// If no session exists (0/0), trigger initial payment
 	if usage == 0 && allotment == 0 {
-		// Throttle renewal attempts (minimum 5 seconds between attempts)
-		if time.Since(u.lastRenewalAttempt) < 5*time.Second {
-			return
-		}
-
-		if u.renewalInProgress {
-			return
-		}
-
 		logrus.WithField("gateway", u.gatewayIP).Info("💳 No session exists, triggering initial payment")
-		u.lastRenewalAttempt = time.Now()
-		u.renewalInProgress = true
 
-		// Trigger renewal (which will create initial session)
+		// Trigger payment in goroutine (non-blocking)
 		go func() {
-			err := u.renewalCallback(u.gatewayIP, 0)
-			if err != nil {
+			defer func() {
+				if r := recover(); r != nil {
+					logrus.WithFields(logrus.Fields{
+						"gateway": u.gatewayIP,
+						"panic":   r,
+					}).Error("🚨 PANIC in payment goroutine!")
+				}
+			}()
+
+			if err := u.renewalCallback(u.gatewayIP, 0); err != nil {
 				logrus.WithFields(logrus.Fields{
 					"gateway": u.gatewayIP,
 					"error":   err,
 				}).Error("❌ Initial payment failed")
-				u.mu.Lock()
-				u.renewalInProgress = false
-				u.mu.Unlock()
-			} else {
-				logrus.WithField("gateway", u.gatewayIP).Info("✅ Initial payment callback completed")
-				// Note: renewalInProgress will be reset when allotment changes (detected in poll())
 			}
 		}()
 		return
@@ -260,15 +243,6 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 	if allotment > 0 {
 		remaining := int64(allotment) - int64(usage)
 		if remaining <= int64(u.renewalOffset) {
-			// Throttle renewal attempts
-			if time.Since(u.lastRenewalAttempt) < 5*time.Second {
-				return
-			}
-
-			if u.renewalInProgress {
-				return
-			}
-
 			logrus.WithFields(logrus.Fields{
 				"gateway":   u.gatewayIP,
 				"usage":     usage,
@@ -276,19 +250,22 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 				"remaining": remaining,
 			}).Info("💳 Renewal threshold reached, triggering renewal")
 
-			u.lastRenewalAttempt = time.Now()
-			u.renewalInProgress = true
-
-			// Trigger renewal
+			// Trigger renewal in goroutine (non-blocking)
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logrus.WithFields(logrus.Fields{
+							"gateway": u.gatewayIP,
+							"panic":   r,
+						}).Error("🚨 PANIC in renewal goroutine!")
+					}
+				}()
+
 				if err := u.renewalCallback(u.gatewayIP, usage); err != nil {
 					logrus.WithFields(logrus.Fields{
 						"gateway": u.gatewayIP,
 						"error":   err,
-					}).Error("Renewal failed")
-					u.mu.Lock()
-					u.renewalInProgress = false
-					u.mu.Unlock()
+					}).Error("❌ Renewal failed")
 				}
 			}()
 		}
