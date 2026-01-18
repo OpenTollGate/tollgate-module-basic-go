@@ -54,19 +54,28 @@ define Build/Configure
 endef
 
 define Build/Compile
+	# Set build variables
+	$(eval BUILD_TIME=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC'))
+	# Extract commit from version string (e.g., "fix-branch.74.e9f593d" -> "e9f593d")
+	$(eval GIT_COMMIT=$(shell echo "$(PKG_VERSION)" | grep -oE '[a-f0-9]{7}$$' || echo "unknown"))
+	$(eval VERSION_LDFLAGS=-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$(PKG_VERSION)' \
+		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$(GIT_COMMIT)' \
+		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$(BUILD_TIME)')
+	
 	cd $(PKG_BUILD_DIR) && \
 	echo "DEBUG: GOARCH=$(GOARCH) GOMIPS=$(GOMIPS)" && \
+	echo "DEBUG: Version=$(PKG_VERSION) Commit=$(GIT_COMMIT) BuildTime=$(BUILD_TIME)" && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w" main.go
+	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w $(VERSION_LDFLAGS)" main.go
 	
 	# Build CLI tool
 	cd $(PKG_BUILD_DIR)/src/cmd/tollgate-cli && \
 	env GOOS=linux \
 	GOARCH=$(GOARCH) \
 	GOMIPS=$(GOMIPS) \
-	go build -o tollgate -trimpath -ldflags="-s -w"
+	go build -o tollgate -trimpath -ldflags="-s -w $(VERSION_LDFLAGS)"
 
 	# Compress binaries with UPX if USE_UPX is enabled
 	@if [ "$(USE_UPX)" = "1" ]; then \

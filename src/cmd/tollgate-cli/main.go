@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -202,13 +203,55 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+var startCmd = &cobra.Command{
+	Use:   "start",
+	Short: "Start TollGate services",
+	Long:  "Start NoDogSplash and TollGate services",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return executeServiceCommand("start")
+	},
+}
+
+var stopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Stop TollGate services",
+	Long:  "Stop NoDogSplash and TollGate services",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return executeServiceCommand("stop")
+	},
+}
+
+var restartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Restart TollGate services",
+	Long:  "Restart NoDogSplash and TollGate services",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return executeServiceCommand("restart")
+	},
+}
+
+var logsCmd = &cobra.Command{
+	Use:   "logs",
+	Short: "Show TollGate logs",
+	Long:  "Display TollGate service logs from logread",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tail, _ := cmd.Flags().GetInt("tail")
+		follow, _ := cmd.Flags().GetBool("follow")
+		return executeLogsCommand(tail, follow)
+	},
+}
+
 func init() {
+	// Add flags to logs command
+	logsCmd.Flags().IntP("tail", "n", 0, "Number of lines to show from the end (0 = all)")
+	logsCmd.Flags().BoolP("follow", "f", false, "Follow log output (like tail -f)")
+
 	// Build command tree
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
 	networkCmd.AddCommand(privateCmd)
-	rootCmd.AddCommand(walletCmd, networkCmd, statusCmd, versionCmd)
+	rootCmd.AddCommand(walletCmd, networkCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd)
 }
 
 func main() {
@@ -280,6 +323,95 @@ func sendCommand(msg CLIMessage) (*CLIResponse, error) {
 	}
 
 	return &response, nil
+}
+
+// executeServiceCommand executes service control commands directly via init scripts
+func executeServiceCommand(action string) error {
+	var cmds []struct {
+		name string
+		cmd  *exec.Cmd
+	}
+
+	switch action {
+	case "start":
+		cmds = []struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			{"NoDogSplash", exec.Command("/etc/init.d/nodogsplash", "start")},
+			{"TollGate", exec.Command("/etc/init.d/tollgate-wrt", "start")},
+		}
+	case "stop":
+		cmds = []struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			{"TollGate", exec.Command("/etc/init.d/tollgate-wrt", "stop")},
+			{"NoDogSplash", exec.Command("/etc/init.d/nodogsplash", "stop")},
+		}
+	case "restart":
+		cmds = []struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			{"NoDogSplash", exec.Command("/etc/init.d/nodogsplash", "restart")},
+			{"TollGate", exec.Command("/etc/init.d/tollgate-wrt", "restart")},
+		}
+	default:
+		return fmt.Errorf("unknown service action: %s", action)
+	}
+
+	// Execute commands in sequence
+	for _, c := range cmds {
+		fmt.Printf("Executing: %s %s...\n", c.name, action)
+		output, err := c.cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to %s %s: %v\n", action, c.name, err)
+			if len(output) > 0 {
+				fmt.Fprintf(os.Stderr, "Output: %s\n", string(output))
+			}
+			return fmt.Errorf("failed to %s %s", action, c.name)
+		}
+		if len(output) > 0 {
+			fmt.Printf("%s\n", string(output))
+		}
+	}
+
+	fmt.Printf("Successfully %sed services\n", action)
+	return nil
+}
+
+// executeLogsCommand executes logread directly to show TollGate logs
+func executeLogsCommand(tail int, follow bool) error {
+	args := []string{"-e", "tollgate"}
+
+	// Add follow flag if specified
+	if follow {
+		args = append(args, "-f")
+	}
+
+	// Add tail flag if specified
+	if tail > 0 {
+		args = append(args, "-l", fmt.Sprintf("%d", tail))
+	}
+
+	cmd := exec.Command("logread", args...)
+
+	// If following, connect stdout/stderr directly for real-time output
+	if follow {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	// Otherwise, capture and print output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to read logs: %v", err)
+	}
+
+	fmt.Print(string(output))
+	return nil
 }
 
 func displayResponse(response *CLIResponse) {

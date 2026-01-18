@@ -160,9 +160,9 @@ func NewDefaultConfig() *Config {
 				Identity: "developer",
 			},
 		},
-		StepSize: 600000,
+		StepSize: 22020096, // 21 MiB
 		Margin:   0.1,
-		Metric:   "milliseconds",
+		Metric:   "bytes",
 		Relays: []string{
 			"wss://relay.damus.io",
 			"wss://nos.lol",

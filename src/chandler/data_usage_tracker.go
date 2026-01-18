@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 )
 
 // NewDataUsageTracker creates a new data-based usage tracker
@@ -28,7 +29,7 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	d.chandler = chandler
 
 	// Get initial byte count for the interface
-	initialBytes, err := d.getInterfaceBytes()
+	initialBytes, err := getInterfaceBytes(d.interfaceName)
 	if err != nil {
 		return err
 	}
@@ -48,8 +49,8 @@ func (d *DataUsageTracker) Start(session *ChandlerSession, chandler ChandlerInte
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey": d.upstreamPubkey,
 		"interface":       d.interfaceName,
-		"start_bytes":     d.startBytes,
-		"total_allotment": d.totalAllotment,
+		"start_bytes":     utils.BytesToHumanReadable(d.startBytes),
+		"total_allotment": utils.BytesToHumanReadable(d.totalAllotment),
 		"thresholds":      d.thresholds,
 	}).Info("Data usage tracker started")
 
@@ -72,7 +73,7 @@ func (d *DataUsageTracker) Stop() error {
 
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey": d.upstreamPubkey,
-		"total_usage":     d.GetCurrentUsage(),
+		"total_usage":     utils.BytesToHumanReadable(d.GetCurrentUsage()),
 	}).Info("Data usage tracker stopped")
 
 	return nil
@@ -125,9 +126,9 @@ func (d *DataUsageTracker) SessionChanged(session *ChandlerSession) error {
 
 	logrus.WithFields(logrus.Fields{
 		"upstream_pubkey":          d.upstreamPubkey,
-		"previous_total_allotment": previousTotalAllotment,
-		"new_total_allotment":      d.totalAllotment,
-		"current_increment":        d.currentIncrement,
+		"previous_total_allotment": utils.BytesToHumanReadable(previousTotalAllotment),
+		"new_total_allotment":      utils.BytesToHumanReadable(d.totalAllotment),
+		"current_increment":        utils.BytesToHumanReadable(d.currentIncrement),
 	}).Info("Session changed, updating data usage tracker")
 
 	return nil
@@ -148,7 +149,7 @@ func (d *DataUsageTracker) monitor() {
 
 // updateCurrentBytes updates the current byte count from the interface
 func (d *DataUsageTracker) updateCurrentBytes() {
-	bytes, err := d.getInterfaceBytes()
+	bytes, err := getInterfaceBytes(d.interfaceName)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"interface": d.interfaceName,
@@ -190,8 +191,8 @@ func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 				"upstream_pubkey": upstreamPubkey,
 				"threshold":       threshold,
 				"usage_percent":   usagePercent * 100,
-				"current_usage":   currentUsage,
-				"total_allotment": totalAllotment,
+				"current_usage":   utils.BytesToHumanReadable(currentUsage),
+				"total_allotment": utils.BytesToHumanReadable(totalAllotment),
 			}).Info("Data usage threshold reached, triggering renewal")
 
 			// Call the chandler's renewal handler
@@ -210,7 +211,7 @@ func (d *DataUsageTracker) checkThresholds(triggered map[float64]bool) {
 
 // getInterfaceBytes reads the current byte count for the interface from /proc/net/dev
 // This function is designed to work on both 32-bit and 64-bit systems
-func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
+func getInterfaceBytes(interfaceName string) (uint64, error) {
 	file, err := os.Open("/proc/net/dev")
 	if err != nil {
 		return 0, fmt.Errorf("failed to open /proc/net/dev: %w", err)
@@ -234,15 +235,15 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 			continue
 		}
 
-		interfaceName := strings.TrimSpace(line[:colonIndex])
-		if interfaceName != d.interfaceName {
+		iface := strings.TrimSpace(line[:colonIndex])
+		if iface != interfaceName {
 			continue
 		}
 
 		// Parse the statistics after the colon
 		stats := strings.Fields(line[colonIndex+1:])
 		if len(stats) < 16 {
-			return 0, fmt.Errorf("insufficient statistics for interface %s", d.interfaceName)
+			return 0, fmt.Errorf("insufficient statistics for interface %s", interfaceName)
 		}
 
 		// /proc/net/dev format:
@@ -252,23 +253,23 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 		// Get RX bytes (index 0) and TX bytes (index 8)
 		rxBytes, err := parseUint64Safe(stats[0])
 		if err != nil {
-			return 0, fmt.Errorf("failed to parse RX bytes for %s: %w", d.interfaceName, err)
+			return 0, fmt.Errorf("failed to parse RX bytes for %s: %w", interfaceName, err)
 		}
 
 		txBytes, err := parseUint64Safe(stats[8])
 		if err != nil {
-			return 0, fmt.Errorf("failed to parse TX bytes for %s: %w", d.interfaceName, err)
+			return 0, fmt.Errorf("failed to parse TX bytes for %s: %w", interfaceName, err)
 		}
 
 		// Return total bytes (RX + TX)
 		totalBytes := rxBytes + txBytes
 
 		logrus.WithFields(logrus.Fields{
-			"interface":   d.interfaceName,
-			"rx_bytes":    rxBytes,
-			"tx_bytes":    txBytes,
-			"total_bytes": totalBytes,
-		}).Debug("Updated interface byte counts")
+			"interface": interfaceName,
+			"rx":        utils.BytesToHumanReadable(rxBytes),
+			"tx":        utils.BytesToHumanReadable(txBytes),
+			"total":     utils.BytesToHumanReadable(totalBytes),
+		}).Debug("Summing RX and TX bytes for total usage")
 
 		return totalBytes, nil
 	}
@@ -277,7 +278,7 @@ func (d *DataUsageTracker) getInterfaceBytes() (uint64, error) {
 		return 0, fmt.Errorf("error reading /proc/net/dev: %w", err)
 	}
 
-	return 0, fmt.Errorf("interface %s not found in /proc/net/dev", d.interfaceName)
+	return 0, fmt.Errorf("interface %s not found in /proc/net/dev", interfaceName)
 }
 
 // parseUint64Safe safely parses a uint64 from string, handling 32-bit system limitations

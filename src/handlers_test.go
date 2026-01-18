@@ -1,10 +1,9 @@
-package main_test
+package main
 
 import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/OpenTollGate/tollgate-module-basic-go" // Import the main package
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -95,7 +94,7 @@ func TestEventValidation(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(main.HandleRootPost)
+			handler := http.HandlerFunc(HandleRootPost)
 			handler.ServeHTTP(rr, req)
 
 			if status := rr.Code; status != tt.expectedStatus {
@@ -130,7 +129,7 @@ func TestEventSignatureValidation(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(main.HandleRootPost)
+	handler := http.HandlerFunc(HandleRootPost)
 	handler.ServeHTTP(rr, req)
 
 	// Should return BadRequest due to invalid signature
@@ -244,7 +243,7 @@ func TestMACAddressValidation(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(main.HandleRootPost)
+			handler := http.HandlerFunc(HandleRootPost)
 			handler.ServeHTTP(rr, req)
 
 			// All should return BadRequest since we don't have merchant setup,
