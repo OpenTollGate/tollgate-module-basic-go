@@ -1,8 +1,8 @@
 {
   "assets": {
     "js": [
-      "assets/browser-ponyfill-CBt3zOsl.js",
-      "assets/index-O5oIQeNS.js",
+      "assets/browser-ponyfill-D705Nwom.js",
+      "assets/index-C89KGXD5.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js"
     ],
     "css": [
@@ -15,7 +15,9 @@
     "locales": [
       "locales/en.json"
     ],
-    "html": [],
+    "html": [
+      "404.html"
+    ],
     "manifest": [
       "manifest.json"
     ]

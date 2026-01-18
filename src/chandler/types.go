@@ -3,6 +3,7 @@ package chandler
 import (
 	"sync"
 	"time"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 )

@@ -39,10 +39,12 @@ type MerchantInterface interface {
 	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
+	StartDataUsageMonitoring()
 	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
 	// New session management methods
 	GetSession(macAddress string) (*CustomerSession, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
+	GetUsage(macAddress string) (string, error)
 	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
 }
@@ -102,6 +104,103 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 	}, nil
+}
+
+// GetUsage returns the current usage in format "[usage]/[allotment]"
+// Returns "-1" if no session exists
+// Returns error for actual errors (caller should return 500)
+func (m *Merchant) GetUsage(macAddress string) (string, error) {
+	// Get session for this MAC
+	session, err := m.GetSession(macAddress)
+	if err != nil {
+		return "-1/-1", nil
+	}
+
+	var usageStr string
+	switch session.Metric {
+	case "bytes":
+		// Get data usage since baseline
+		usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+		if err != nil {
+			return "", fmt.Errorf("error getting data usage: %w", err)
+		}
+		usageStr = fmt.Sprintf("%d/%d", usage, session.Allotment)
+
+	case "milliseconds":
+		// Calculate time usage in milliseconds
+		elapsed := time.Now().Unix() - session.StartTime
+		elapsedMs := uint64(elapsed * 1000)
+		usageStr = fmt.Sprintf("%d/%d", elapsedMs, session.Allotment)
+
+	default:
+		return "", fmt.Errorf("unknown session metric: %s", session.Metric)
+	}
+
+	return usageStr, nil
+}
+
+// StartDataUsageMonitoring starts a background routine to monitor data usage for active sessions
+func (m *Merchant) StartDataUsageMonitoring() {
+	log.Printf("Starting data usage monitoring routine")
+
+	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			m.checkDataUsage()
+		}
+	}()
+}
+
+// checkDataUsage checks all active data-based sessions and closes gates when allotment is reached
+func (m *Merchant) checkDataUsage() {
+	m.sessionMu.RLock()
+	sessions := make(map[string]*CustomerSession)
+	for mac, session := range m.customerSessions {
+		if session.Metric == "bytes" {
+			sessions[mac] = session
+		}
+	}
+	m.sessionMu.RUnlock()
+
+	for mac, session := range sessions {
+		// Check if baseline exists (gate is open)
+		if !valve.HasDataBaseline(mac) {
+			continue
+		}
+
+		// Get current usage
+		usage, err := valve.GetDataUsageSinceBaseline(mac)
+		if err != nil {
+			log.Printf("Error getting data usage for %s: %v", mac, err)
+			continue
+		}
+
+		// Check if allotment is reached
+		if usage >= session.Allotment {
+			log.Printf("Data allotment reached for %s: %s / %s",
+				mac,
+				utils.BytesToHumanReadable(usage),
+				utils.BytesToHumanReadable(session.Allotment))
+
+			// Close the gate
+			err = valve.CloseGate(mac)
+			if err != nil {
+				log.Printf("Error closing gate for %s: %v", mac, err)
+			} else {
+				log.Printf("Successfully closed gate for %s", mac)
+			}
+		} else {
+			// Log progress periodically (every ~10 checks = 20 seconds)
+			if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB
+				log.Printf("Data usage for %s: %s / %s (%.1f%%)",
+					mac,
+					utils.BytesToHumanReadable(usage),
+					utils.BytesToHumanReadable(session.Allotment),
+					float64(usage)/float64(session.Allotment)*100)
+			}
+		}
+	}
 }
 
 func (m *Merchant) StartPayoutRoutine() {
@@ -236,7 +335,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 
 	// Add allotment to session (creates new session if doesn't exist)
-	metric := "milliseconds" // Use milliseconds as default metric
+	metric := m.config.Metric
 	session, err := m.AddAllotment(macAddress, metric, allotment)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
@@ -247,24 +346,41 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	// Calculate end timestamp based on session allotment
-	var endTimestamp int64
-	if session.Metric == "milliseconds" {
-		endTimestamp = session.StartTime + int64(session.Allotment/1000)
-	} else {
-		// For other metrics, set to 24h from now
-		endTimestamp = time.Now().Unix() + (24 * 60 * 60) // 24 hours from now
-	}
-
-	// Open gate until the calculated end time
-	err = valve.OpenGateUntil(macAddress, endTimestamp)
-	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-opening-failed",
-			fmt.Sprintf("Failed to open gate for session: %v", err), macAddress)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to open gate for session and failed to create notice: %w", noticeErr)
+	// Open the gate based on session type
+	switch session.Metric {
+	case "milliseconds":
+		// Time-based session: open gate until end timestamp
+		endTimestamp := session.StartTime + int64(session.Allotment/1000)
+		err = valve.OpenGateUntil(macAddress, endTimestamp)
+		if err != nil {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
+				fmt.Sprintf("Failed to open gate: %v", err), macAddress)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
 		}
-		return noticeEvent, nil
+	case "bytes":
+		// Data-based session: only open gate if baseline doesn't exist (new session)
+		// For session extensions, the gate is already open and baseline should not be reset
+		if !valve.HasDataBaseline(macAddress) {
+			err = valve.OpenGate(macAddress)
+			if err != nil {
+				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
+					fmt.Sprintf("Failed to open gate: %v", err), macAddress)
+				if noticeErr != nil {
+					return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
+				}
+				return noticeEvent, nil
+			}
+			// The valve module automatically sets the data baseline
+			log.Printf("Opened gate for new data session: %s", macAddress)
+		} else {
+			log.Printf("Gate already open for %s, extending allotment without resetting baseline", macAddress)
+		}
+		// The merchant will periodically check usage and close the gate when allotment is reached
+	default:
+		return nil, fmt.Errorf("unsupported metric: %s", session.Metric)
 	}
 
 	// Create a success session event (using MAC address as identifier in logs)
@@ -376,8 +492,8 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 	switch m.config.Metric {
 	case "milliseconds":
 		return m.calculateAllotmentMs(steps, mintConfig)
-	// case "bytes":
-	//     return m.calculateAllotmentBytes(steps, mintConfig)
+	case "bytes":
+		return m.calculateAllotmentBytes(steps, mintConfig)
 	default:
 		return 0, fmt.Errorf("unsupported metric: %s", m.config.Metric)
 	}
@@ -394,35 +510,16 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 	return totalMs, nil
 }
 
-// calculateAllotmentBytes calculates allotment in bytes from payment amount using mint-specific pricing
-// func (m *Merchant) calculateAllotmentBytes(amountSats uint64, mintURL string) (uint64, error) {
-//     // Find the mint configuration for this mint
-//     var mintConfig *MintConfig
-//     for _, mint := range m.config.AcceptedMints {
-//         if mint.URL == mintURL {
-//             mintConfig = &mint
-//             break
-//         }
-//     }
-//
-//     if mintConfig == nil {
-//         return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
-//     }
-//
-//     // Calculate steps from payment amount using mint-specific pricing
-//     allottedSteps := amountSats / mintConfig.PricePerStep
-//     if allottedSteps < 1 {
-//         allottedSteps = 1 // Minimum 1 step
-//     }
-//
-//     // Convert steps to bytes using configured step size
-//     totalBytes := allottedSteps * m.config.StepSize
-//
-//     log.Printf("Calculated %d steps (%d bytes) from %d sats at %d sats per step",
-//         allottedSteps, totalBytes, amountSats, mintConfig.PricePerStep)
-//
-//     return totalBytes, nil
-// }
+// calculateAllotmentBytes calculates allotment in bytes from steps
+func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+	// Convert steps to bytes using configured step size
+	totalBytes := steps * m.config.StepSize
+
+	log.Printf("Converting %d steps to %d bytes using step size %d",
+		steps, totalBytes, m.config.StepSize)
+
+	return totalBytes, nil
+}
 
 // getLatestSession queries the local relay pool for the most recent session by customer pubkey
 func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
