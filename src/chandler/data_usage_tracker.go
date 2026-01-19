@@ -12,6 +12,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/sirupsen/logrus"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 )
 
 // NewDataUsageTracker creates a new data-based usage tracker
