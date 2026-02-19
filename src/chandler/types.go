@@ -89,24 +89,14 @@ type ChandlerInterface interface {
 	// HandleGatewayConnected is called when UpstreamDetector discovers a gateway
 	HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error
 
-	// HandleUpstreamTollgate is called when UpstreamDetector discovers a new upstream TollGate
-	// DEPRECATED: Will be removed after refactoring is complete
-	HandleUpstreamTollgate(upstream *UpstreamTollgate) error
-
 	// HandleDisconnect is called when a network interface goes down
 	HandleDisconnect(interfaceName string) error
 
-	// HandleUpcomingRenewal is called by UsageTracker when renewal threshold reached
-	HandleUpcomingRenewal(upstreamPubkey string, currentUsage uint64) error
-
 	// Management methods
-	GetActiveSessions() map[string]*ChandlerSession
-	GetSessionByPubkey(pubkey string) (*ChandlerSession, error)
+	GetActiveSessions() map[string]*UpstreamSession
 
 	// Control methods
-	PauseSession(pubkey string) error
-	ResumeSession(pubkey string) error
-	TerminateSession(pubkey string) error
+	Stop() error
 }
 
 // UsageTrackerInterface defines the interface for usage tracking
