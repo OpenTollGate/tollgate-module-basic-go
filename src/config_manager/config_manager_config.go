@@ -127,7 +127,7 @@ func SaveConfig(filePath string, config *Config) error {
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
 	return &Config{
-		ConfigVersion: "v0.0.6",
+		ConfigVersion: "v0.0.7",
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
@@ -190,9 +190,9 @@ func NewDefaultConfig() *Config {
 			},
 			Sessions: SessionConfig{
 				PreferredSessionIncrementsMilliseconds: 60000,    // 1 minute
-				PreferredSessionIncrementsBytes:        22020096, // 21 MB
-				MillisecondRenewalOffset:               5000,     // 5 seconds before expiry
-				BytesRenewalOffset:                     5242880,  // 5 MB before limit
+				PreferredSessionIncrementsBytes:        44040192, // 42 MB
+				MillisecondRenewalOffset:               10000,    // 10 seconds before expiry
+				BytesRenewalOffset:                     31457280, // 30 MB before limit
 			},
 			UsageTracking: UsageTrackingConfig{
 				DataMonitoringInterval: 500 * time.Millisecond,
