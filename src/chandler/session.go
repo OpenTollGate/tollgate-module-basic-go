@@ -62,22 +62,30 @@ func NewUpstreamSession(
 	configManager *config_manager.ConfigManager,
 	merchantImpl merchant.MerchantInterface,
 ) (*UpstreamSession, error) {
-	// Select compatible pricing option
-	selectedPricing, err := selectCompatiblePricing(adInfo.PricingOptions, merchantImpl)
-	if err != nil {
-		return nil, fmt.Errorf("no compatible pricing: %w", err)
-	}
-
-	// Get renewal offset from config based on metric
+	// Get config for initial pricing selection
 	config := configManager.GetConfig()
+	var preferredAllotment uint64
 	var renewalOffset uint64
 	switch adInfo.Metric {
 	case "milliseconds":
+		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds
 		renewalOffset = config.Chandler.Sessions.MillisecondRenewalOffset
 	case "bytes":
+		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
 		renewalOffset = config.Chandler.Sessions.BytesRenewalOffset
 	default:
 		return nil, fmt.Errorf("unsupported metric: %s", adInfo.Metric)
+	}
+
+	// Select compatible pricing option with sufficient funds
+	selectedPricing, err := selectCompatiblePricingWithFunds(
+		adInfo.PricingOptions,
+		merchantImpl,
+		preferredAllotment,
+		adInfo.StepSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("no compatible pricing with funds: %w", err)
 	}
 
 	session := &UpstreamSession{
@@ -206,17 +214,6 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 		"allotment":     s.TotalAllotment,
 	}).Info("💳 Processing payment request (initial or renewal)")
 
-	// Re-evaluate pricing options (they may have changed)
-	selectedPricing, err := selectCompatiblePricing(s.AdvertisementInfo.PricingOptions, s.merchant)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"gateway": s.GatewayIP,
-			"error":   err,
-		}).Error("❌ No compatible pricing found")
-		return fmt.Errorf("no compatible pricing: %w", err)
-	}
-	s.SelectedPricing = selectedPricing
-
 	// Calculate steps based on preferred increments
 	config := s.configManager.GetConfig()
 	var preferredAllotment uint64
@@ -226,6 +223,22 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	case "bytes":
 		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
 	}
+
+	// Select pricing option with sufficient funds for our desired payment
+	selectedPricing, err := selectCompatiblePricingWithFunds(
+		s.AdvertisementInfo.PricingOptions,
+		s.merchant,
+		preferredAllotment,
+		s.AdvertisementInfo.StepSize,
+	)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"gateway": s.GatewayIP,
+			"error":   err,
+		}).Error("❌ No compatible pricing with sufficient funds found")
+		return fmt.Errorf("no compatible pricing with funds: %w", err)
+	}
+	s.SelectedPricing = selectedPricing
 
 	steps := preferredAllotment / s.AdvertisementInfo.StepSize
 	if steps < selectedPricing.MinSteps {
@@ -379,23 +392,51 @@ func (s *UpstreamSession) Stop() {
 	s.StopUsageTracker()
 }
 
-// selectCompatiblePricing finds a pricing option that matches our available mints
-func selectCompatiblePricing(options []tollgate_protocol.PricingOption, merchantImpl merchant.MerchantInterface) (*tollgate_protocol.PricingOption, error) {
+// selectCompatiblePricingWithFunds finds a pricing option that matches our available mints
+// and has sufficient balance to make the desired payment
+func selectCompatiblePricingWithFunds(
+	options []tollgate_protocol.PricingOption,
+	merchantImpl merchant.MerchantInterface,
+	preferredAllotment uint64,
+	stepSize uint64,
+) (*tollgate_protocol.PricingOption, error) {
 	ourMints := merchantImpl.GetAcceptedMints()
 
 	for _, option := range options {
 		for _, ourMint := range ourMints {
 			if option.MintURL == ourMint.URL {
+				balance := merchantImpl.GetBalanceByMint(option.MintURL)
+
+				// Calculate required payment for preferred allotment
+				steps := preferredAllotment / stepSize
+				if steps < option.MinSteps {
+					steps = option.MinSteps
+				}
+				if steps == 0 {
+					steps = 1
+				}
+				requiredAmount := steps * option.PricePerStep
+
+				if balance >= requiredAmount {
+					logger.WithFields(logrus.Fields{
+						"mint":            option.MintURL,
+						"price_per_step":  option.PricePerStep,
+						"balance":         balance,
+						"required_amount": requiredAmount,
+					}).Info("✅ Selected compatible pricing with sufficient balance")
+					return &option, nil
+				}
+
 				logger.WithFields(logrus.Fields{
-					"mint":           option.MintURL,
-					"price_per_step": option.PricePerStep,
-				}).Debug("Selected compatible pricing")
-				return &option, nil
+					"mint":            option.MintURL,
+					"balance":         balance,
+					"required_amount": requiredAmount,
+				}).Debug("⚠️  Mint has insufficient balance, trying next option")
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("no compatible mints found")
+	return nil, fmt.Errorf("no compatible mints with sufficient funds found")
 }
 
 // GetIdentifier returns the session identifier (gateway IP)

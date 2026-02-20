@@ -22,11 +22,12 @@ type UpstreamUsageTracker struct {
 	renewalCallback func(gatewayIP string, currentUsage uint64) error
 
 	// State (protected by mu)
-	totalAllotment uint64
-	lastUsage      uint64
-	lastAllotment  uint64
-	pollCount      int // Track poll count for periodic info logging
-	mu             sync.RWMutex
+	totalAllotment     uint64
+	lastUsage          uint64
+	lastAllotment      uint64
+	pollCount          int       // Track poll count for periodic info logging
+	lastPaymentTrigger time.Time // Track when we last triggered a payment
+	mu                 sync.RWMutex
 
 	// Control
 	ticker *time.Ticker
@@ -212,10 +213,22 @@ func (u *UpstreamUsageTracker) fetchUpstreamUsage() (usage, allotment uint64, er
 }
 
 // checkRenewal checks if renewal is needed and triggers it
-// NOTE: Throttling and state management now handled in UpstreamSession.HandleRenewal()
+// Includes tracker-level throttling to prevent multiple concurrent payment attempts
 func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
+	u.mu.Lock()
+	// Throttle at tracker level: don't trigger if we triggered recently (within 10 seconds)
+	if time.Since(u.lastPaymentTrigger) < 10*time.Second {
+		u.mu.Unlock()
+		return
+	}
+	u.mu.Unlock()
+
 	// If no session exists (0/0), trigger initial payment
 	if usage == 0 && allotment == 0 {
+		u.mu.Lock()
+		u.lastPaymentTrigger = time.Now()
+		u.mu.Unlock()
+
 		logrus.WithField("gateway", u.gatewayIP).Info("💳 No session exists, triggering initial payment")
 
 		// Trigger payment in goroutine (non-blocking)
@@ -243,6 +256,10 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 	if allotment > 0 {
 		remaining := int64(allotment) - int64(usage)
 		if remaining <= int64(u.renewalOffset) {
+			u.mu.Lock()
+			u.lastPaymentTrigger = time.Now()
+			u.mu.Unlock()
+
 			logrus.WithFields(logrus.Fields{
 				"gateway":   u.gatewayIP,
 				"usage":     usage,
