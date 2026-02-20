@@ -519,7 +519,7 @@ jobs:
   trigger-build-os:
     name: Trigger new build TollGate OS
     runs-on: ubuntu-latest
-    needs: publish-metadata
+    needs: [determine-versioning, publish-metadata]
     steps:
     - name: Trigger OS Workflow
       if: ${{ env.ACT != 'true' }}
@@ -527,5 +527,9 @@ jobs:
       with:
         token: ${{ secrets.REPO_ACCESS_TOKEN }}
         repository: OpenTollGate/tollgate-os
-        event-type: update-release-json
+        event-type: build-os
+        client-payload: |-
+          {
+            "override_tollgate_wrt_version": "${{ needs.determine-versioning.outputs.package_version }}"
+          }
 
