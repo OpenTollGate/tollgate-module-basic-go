@@ -1,14 +1,14 @@
 package upstream_detector
 
 import (
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 )
 
 // UpstreamDetector defines the main interface for the upstream_detector module
 type UpstreamDetector interface {
 	Start() error
 	Stop() error
-	SetChandler(chandler chandler.ChandlerInterface)
+	SetUpstreamSessionManager(usm upstream_session_manager.UpstreamSessionManagerInterface)
 }
 
 // NetworkMonitor defines the interface for network monitoring

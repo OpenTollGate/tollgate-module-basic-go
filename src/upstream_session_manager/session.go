@@ -1,4 +1,4 @@
-package chandler
+package upstream_session_manager
 
 import (
 	"bytes"
@@ -51,9 +51,10 @@ type UpstreamSession struct {
 	merchant      merchant.MerchantInterface
 }
 
-// NewUpstreamSession creates a new upstream session and starts tracking
-// The tracker will automatically trigger initial payment when it sees -1/-1
-// Session handles pricing selection and renewal offset determination
+// NewUpstreamSession creates a new upstream session and starts tracking.
+// It first checks if the upstream already has an active session (recovery case).
+// If an existing session is found, tracking starts immediately without a funds check.
+// If no session exists, the tracker will trigger payment via HandleRenewal (which checks funds).
 func NewUpstreamSession(
 	gatewayIP string,
 	interfaceName string,
@@ -62,41 +63,61 @@ func NewUpstreamSession(
 	configManager *config_manager.ConfigManager,
 	merchantImpl merchant.MerchantInterface,
 ) (*UpstreamSession, error) {
-	// Get config for initial pricing selection
+	// Get config for renewal offsets
 	config := configManager.GetConfig()
-	var preferredAllotment uint64
 	var renewalOffset uint64
 	switch adInfo.Metric {
 	case "milliseconds":
-		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds
-		renewalOffset = config.Chandler.Sessions.MillisecondRenewalOffset
+		renewalOffset = config.UpstreamSessionManager.Sessions.MillisecondRenewalOffset
 	case "bytes":
-		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
-		renewalOffset = config.Chandler.Sessions.BytesRenewalOffset
+		renewalOffset = config.UpstreamSessionManager.Sessions.BytesRenewalOffset
 	default:
 		return nil, fmt.Errorf("unsupported metric: %s", adInfo.Metric)
 	}
 
-	// Select compatible pricing option with sufficient funds
-	selectedPricing, err := selectCompatiblePricingWithFunds(
-		adInfo.PricingOptions,
-		merchantImpl,
-		preferredAllotment,
-		adInfo.StepSize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("no compatible pricing with funds: %w", err)
+	// Check if upstream already has an active session (e.g. after restart/reconnect).
+	// If so, we skip the funds check and just resume tracking.
+	// If not (usage == 0 && allotment == 0), the tracker will trigger HandleRenewal
+	// which performs the funds check before attempting payment.
+	existingUsage, existingAllotment, probeErr := fetchUsageFromGateway(gatewayIP)
+	hasExistingSession := probeErr == nil && existingAllotment > 0
+
+	if hasExistingSession {
+		logger.WithFields(logrus.Fields{
+			"gateway":   gatewayIP,
+			"usage":     existingUsage,
+			"allotment": existingAllotment,
+		}).Info("♻️  Existing upstream session detected - resuming tracking without new payment")
+	} else {
+		// No existing session: verify we have funds before creating the session object,
+		// so we fail fast with a clear error rather than creating a tracker that will
+		// immediately fail to pay.
+		var preferredAllotment uint64
+		switch adInfo.Metric {
+		case "milliseconds":
+			preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsMilliseconds
+		case "bytes":
+			preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsBytes
+		}
+		if _, err := selectCompatiblePricingWithFunds(
+			adInfo.PricingOptions,
+			merchantImpl,
+			preferredAllotment,
+			adInfo.StepSize,
+		); err != nil {
+			return nil, fmt.Errorf("no compatible pricing with funds: %w", err)
+		}
 	}
 
 	session := &UpstreamSession{
 		GatewayIP:         gatewayIP,
 		Advertisement:     advertisement,
 		AdvertisementInfo: adInfo,
-		SelectedPricing:   selectedPricing,
-		TotalAllotment:    0, // Will be set by first payment
+		SelectedPricing:   nil, // Will be set by HandleRenewal before each payment
+		TotalAllotment:    0,   // Will be set by first payment or tracker
 		RenewalOffset:     renewalOffset,
 		CreatedAt:         time.Now(),
-		LastPaymentAt:     time.Time{}, // Not paid yet
+		LastPaymentAt:     time.Time{},
 		TotalSpent:        0,
 		PaymentCount:      0,
 		Status:            SessionActive,
@@ -105,17 +126,27 @@ func NewUpstreamSession(
 		merchant:          merchantImpl,
 	}
 
-	// Start tracker immediately - it will handle initial payment via renewal
+	// Start tracker - it will handle initial payment if needed (usage == 0/0),
+	// or just monitor if an existing session was found.
 	if err := session.StartUsageTracker(interfaceName); err != nil {
 		return nil, fmt.Errorf("failed to start usage tracker: %w", err)
 	}
 
 	logger.WithFields(logrus.Fields{
-		"gateway": gatewayIP,
-		"metric":  adInfo.Metric,
+		"gateway":              gatewayIP,
+		"metric":               adInfo.Metric,
+		"has_existing_session": hasExistingSession,
 	}).Info("✅ NEW SESSION: Created and started tracking")
 
 	return session, nil
+}
+
+// fetchUsageFromGateway fetches the current usage/allotment from the upstream gateway.
+// Returns (0, 0, nil) when the upstream reports -1/-1 (no active session).
+func fetchUsageFromGateway(gatewayIP string) (usage, allotment uint64, err error) {
+	// Reuse the same logic as UpstreamUsageTracker.fetchUpstreamUsage
+	tmp := &UpstreamUsageTracker{gatewayIP: gatewayIP}
+	return tmp.fetchUpstreamUsage()
 }
 
 // StartUsageTracker creates and starts the usage tracker for this session
@@ -219,9 +250,9 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	var preferredAllotment uint64
 	switch s.AdvertisementInfo.Metric {
 	case "milliseconds":
-		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsMilliseconds
+		preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsMilliseconds
 	case "bytes":
-		preferredAllotment = config.Chandler.Sessions.PreferredSessionIncrementsBytes
+		preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsBytes
 	}
 
 	// Select pricing option with sufficient funds for our desired payment

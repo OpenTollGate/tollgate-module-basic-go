@@ -9,18 +9,18 @@ import (
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
-	ConfigVersion    string                 `json:"config_version"`
-	LogLevel         string                 `json:"log_level"`
-	AcceptedMints    []MintConfig           `json:"accepted_mints"`
-	ProfitShare      []ProfitShareConfig    `json:"profit_share"`
-	StepSize         uint64                 `json:"step_size"`
-	Margin           float64                `json:"margin,omitempty"`
-	Metric           string                 `json:"metric"`
-	Relays           []string               `json:"relays"`
-	ShowSetup        bool                   `json:"show_setup"`
-	ResellerMode     bool                   `json:"reseller_mode"`
-	UpstreamDetector UpstreamDetectorConfig `json:"upstream_detector"`
-	Chandler         ChandlerConfig         `json:"chandler"`
+	ConfigVersion          string                       `json:"config_version"`
+	LogLevel               string                       `json:"log_level"`
+	AcceptedMints          []MintConfig                 `json:"accepted_mints"`
+	ProfitShare            []ProfitShareConfig          `json:"profit_share"`
+	StepSize               uint64                       `json:"step_size"`
+	Margin                 float64                      `json:"margin,omitempty"`
+	Metric                 string                       `json:"metric"`
+	Relays                 []string                     `json:"relays"`
+	ShowSetup              bool                         `json:"show_setup"`
+	ResellerMode           bool                         `json:"reseller_mode"`
+	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
+	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -59,8 +59,8 @@ type UpstreamDetectorConfig struct {
 	DiscoveryTimeout time.Duration `json:"discovery_timeout"`
 }
 
-// ChandlerConfig holds configuration for the chandler module
-type ChandlerConfig struct {
+// UpstreamSessionManagerConfig holds configuration for the upstream_session_manager module
+type UpstreamSessionManagerConfig struct {
 	// Simple budget settings
 	MaxPricePerMillisecond float64 `json:"max_price_per_millisecond"` // Max sats per ms (can be fractional)
 	MaxPricePerByte        float64 `json:"max_price_per_byte"`        // Max sats per byte (can be fractional)
@@ -127,7 +127,7 @@ func SaveConfig(filePath string, config *Config) error {
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
 	return &Config{
-		ConfigVersion: "v0.0.6",
+		ConfigVersion: "v0.0.7",
 		LogLevel:      "info",
 		AcceptedMints: []MintConfig{
 			{
@@ -180,7 +180,7 @@ func NewDefaultConfig() *Config {
 			OnlyInterfaces:        []string{},
 			DiscoveryTimeout:      300 * time.Second,
 		},
-		Chandler: ChandlerConfig{
+		UpstreamSessionManager: UpstreamSessionManagerConfig{
 			MaxPricePerMillisecond: 0.002777777778,   // 10k sats/hr
 			MaxPricePerByte:        0.00003725782414, // 5k sats/gbit
 			Trust: TrustConfig{
@@ -189,10 +189,10 @@ func NewDefaultConfig() *Config {
 				Blocklist:     []string{},
 			},
 			Sessions: SessionConfig{
-				PreferredSessionIncrementsMilliseconds: 60000,    // 1 minute
-				PreferredSessionIncrementsBytes:        44040192, // 42 MB
-				MillisecondRenewalOffset:               10000,    // 10 seconds before expiry
-				BytesRenewalOffset:                     31457280, // 30 MB before limit
+				PreferredSessionIncrementsMilliseconds: 60000,     // 1 minute
+				PreferredSessionIncrementsBytes:        131100000, // 1000 MB
+				MillisecondRenewalOffset:               10000,     // 10 seconds before expiry
+				BytesRenewalOffset:                     131100000, // 1000 MB before limit
 			},
 			UsageTracking: UsageTrackingConfig{
 				DataMonitoringInterval: 500 * time.Millisecond,

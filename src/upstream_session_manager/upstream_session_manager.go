@@ -1,4 +1,4 @@
-package chandler
+package upstream_session_manager
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 // Module-level logger with pre-configured module field
-var logger = logrus.WithField("module", "chandler")
+var logger = logrus.WithField("module", "upstream_session_manager")
 
 // Gateway represents a discovered gateway with optional session
 type Gateway struct {
@@ -24,8 +24,8 @@ type Gateway struct {
 	mu            sync.RWMutex
 }
 
-// Chandler manages upstream TollGate sessions
-type Chandler struct {
+// UpstreamSessionManager manages upstream TollGate sessions
+type UpstreamSessionManager struct {
 	configManager  *config_manager.ConfigManager
 	merchant       merchant.MerchantInterface
 	gateways       map[string]*Gateway // keyed by gateway IP
@@ -33,8 +33,8 @@ type Chandler struct {
 	mu             sync.RWMutex
 }
 
-// NewChandler creates a new chandler instance
-func NewChandler(configManager *config_manager.ConfigManager, merchantImpl merchant.MerchantInterface) (ChandlerInterface, error) {
+// NewUpstreamSessionManager creates a new upstream_session_manager instance
+func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantImpl merchant.MerchantInterface) (UpstreamSessionManagerInterface, error) {
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -43,19 +43,19 @@ func NewChandler(configManager *config_manager.ConfigManager, merchantImpl merch
 	// Create TollGateProber
 	tollGateProber := NewTollGateProber(&config.UpstreamDetector)
 
-	chandler := &Chandler{
+	usm := &UpstreamSessionManager{
 		configManager:  configManager,
 		merchant:       merchantImpl,
 		gateways:       make(map[string]*Gateway),
 		tollGateProber: tollGateProber,
 	}
 
-	logger.Info("Chandler initialized successfully")
-	return chandler, nil
+	logger.Info("UpstreamSessionManager initialized successfully")
+	return usm, nil
 }
 
 // HandleGatewayConnected is called when upstream_detector discovers a gateway
-func (c *Chandler) HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error {
+func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error {
 	c.mu.Lock()
 
 	// Get or create gateway entry
@@ -139,7 +139,7 @@ func (c *Chandler) HandleGatewayConnected(interfaceName, macAddress, gatewayIP s
 }
 
 // HandleDisconnect handles network interface disconnection
-func (c *Chandler) HandleDisconnect(interfaceName string) error {
+func (c *UpstreamSessionManager) HandleDisconnect(interfaceName string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -172,7 +172,7 @@ func (c *Chandler) HandleDisconnect(interfaceName string) error {
 }
 
 // GetActiveSessions returns all currently active sessions
-func (c *Chandler) GetActiveSessions() map[string]*UpstreamSession {
+func (c *UpstreamSessionManager) GetActiveSessions() map[string]*UpstreamSession {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -186,7 +186,7 @@ func (c *Chandler) GetActiveSessions() map[string]*UpstreamSession {
 }
 
 // getUpstreamAdvertisement fetches and validates the TollGate advertisement from a gateway
-func (c *Chandler) getUpstreamAdvertisement(gatewayIP, interfaceName string) (*nostr.Event, error) {
+func (c *UpstreamSessionManager) getUpstreamAdvertisement(gatewayIP, interfaceName string) (*nostr.Event, error) {
 	ctx := context.Background()
 
 	// Probe gateway
@@ -204,9 +204,9 @@ func (c *Chandler) getUpstreamAdvertisement(gatewayIP, interfaceName string) (*n
 	return event, nil
 }
 
-// Stop stops the chandler and cleans up resources
-func (c *Chandler) Stop() error {
-	logger.Info("Stopping Chandler")
+// Stop stops the upstream_session_manager and cleans up resources
+func (c *UpstreamSessionManager) Stop() error {
+	logger.Info("Stopping UpstreamSessionManager")
 
 	// Stop all sessions
 	c.mu.Lock()
@@ -218,6 +218,6 @@ func (c *Chandler) Stop() error {
 	c.gateways = make(map[string]*Gateway)
 	c.mu.Unlock()
 
-	logger.Info("Chandler stopped")
+	logger.Info("UpstreamSessionManager stopped")
 	return nil
 }

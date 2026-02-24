@@ -12,8 +12,8 @@ This document describes how a TollGate device discovers, connects to, and mainta
 |-----------|----------------------|---------------|
 | **wireless_gateway_manager** | WiFi network scanning and connection | Scans for and connects to upstream TollGate WiFi networks (reseller mode) |
 | **crowsnest** | Network change detection and TollGate discovery | Detects new network connections and probes gateways for TollGate advertisements |
-| **chandler** | Upstream session management | Creates and maintains payment sessions with upstream TollGates |
-| **merchant** | Wallet and payment provider | Provides wallet functionality for chandler to make upstream payments |
+| **upstream_session_manager** | Upstream session management | Creates and maintains payment sessions with upstream TollGates |
+| **merchant** | Wallet and payment provider | Provides wallet functionality for upstream_session_manager to make upstream payments |
 
 ### Component Interaction Map
 
@@ -21,7 +21,7 @@ This document describes how a TollGate device discovers, connects to, and mainta
 graph TB
     WGM[wireless_gateway_manager]
     CS[crowsnest]
-    CH[chandler]
+    CH[upstream_session_manager]
     MR[merchant]
     NL[Netlink Events]
     GW[Upstream Gateway]
@@ -52,7 +52,7 @@ sequenceDiagram
     participant OS as Operating System
     participant CS as crowsnest
     participant GW as Upstream Gateway
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant MR as merchant
     
     Note over WGM: Reseller Mode Enabled
@@ -100,7 +100,7 @@ sequenceDiagram
     participant OS as Operating System
     participant CS as crowsnest
     participant GW as Upstream Gateway
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant MR as merchant
     
     Cable->>OS: Physical connection
@@ -130,7 +130,7 @@ sequenceDiagram
 sequenceDiagram
     participant UT as UsageTracker
     participant GW as Upstream Gateway
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant MR as merchant
     
     Note over UT: Monitoring usage (every 1s for data)
@@ -188,7 +188,7 @@ sequenceDiagram
 7. Validates advertisement signature and structure
 8. Creates `UpstreamTollgate` object
 9. Records discovery as "success"
-10. Calls `chandler.HandleUpstreamTollgate()`
+10. Calls `upstream_session_manager.HandleGatewayConnected()`
 
 **State Changes**:
 - Discovery attempt recorded in tracker
@@ -196,7 +196,7 @@ sequenceDiagram
 
 ### 3. Session Creation
 
-**Trigger**: `chandler.HandleUpstreamTollgate()` called by crowsnest
+**Trigger**: `upstream_session_manager.HandleGatewayConnected()` called by crowsnest
 
 **Flow**:
 1. Extract advertisement information (metric, step_size, pricing options)
@@ -216,7 +216,7 @@ sequenceDiagram
 15. Store session in active sessions map
 
 **State Changes**:
-- New session created in chandler
+- New session created in upstream_session_manager
 - Usage tracker started
 - Merchant wallet balance decreased
 - Session stored with status "Active"
@@ -228,7 +228,7 @@ sequenceDiagram
 **Flow**:
 1. Usage tracker monitors current usage
 2. When usage >= (total_allotment - renewal_offset), trigger renewal
-3. `chandler.HandleUpcomingRenewal()` called
+3. `upstream_session_manager.HandleRenewal()` called
 4. Check if advertisement has changed (log warning if so)
 5. Create renewal payment proposal
 6. Validate budget constraints
@@ -255,8 +255,8 @@ sequenceDiagram
 1. `crowsnest` receives interface down event
 2. Cancels any active probes for the interface
 3. Clears discovery tracker for the interface
-4. Calls `chandler.HandleDisconnect(interfaceName)`
-5. Chandler finds all sessions on that interface
+4. Calls `upstream_session_manager.HandleDisconnect(interfaceName)`
+5. UpstreamSessionManager finds all sessions on that interface
 6. Stops usage trackers for those sessions
 7. Marks sessions as "Expired"
 8. Removes sessions from active sessions map
@@ -271,7 +271,7 @@ sequenceDiagram
 
 ### Issue 1: Connected but No Session Created
 
-**Scenario**: Device connects to upstream WiFi but chandler fails to create session
+**Scenario**: Device connects to upstream WiFi but upstream_session_manager fails to create session
 
 **Possible Causes**:
 - Trust policy rejection (pubkey not in allowlist)
@@ -288,10 +288,10 @@ sequenceDiagram
 
 **Detection**:
 - Check logs for "Trust policy validation failed" or "Budget constraints not met"
-- Interface is up but no active session in chandler
+- Interface is up but no active session in upstream_session_manager
 
 **Potential Fix Areas**:
-- Add retry mechanism in chandler with exponential backoff
+- Add retry mechanism in upstream_session_manager with exponential backoff
 - Implement session creation monitoring
 - Add health check that verifies session exists for connected interfaces
 
@@ -391,23 +391,23 @@ sequenceDiagram
 - Add session health monitoring
 - Implement automatic cleanup of expired sessions
 
-### Issue 6: Race Condition: Merchant Payout vs Chandler Payment
+### Issue 6: Race Condition: Merchant Payout vs UpstreamSessionManager Payment
 
-**Scenario**: Merchant payout routine drains wallet while chandler tries to pay upstream
+**Scenario**: Merchant payout routine drains wallet while upstream_session_manager tries to pay upstream
 
 **Possible Causes**:
 - Payout routine runs every 1 minute
-- No coordination between merchant payout and chandler payments
+- No coordination between merchant payout and upstream_session_manager payments
 - Balance check happens before payment creation
 
 **Current Behavior**:
-- Chandler checks balance
+- UpstreamSessionManager checks balance
 - Merchant payout drains wallet
-- Chandler payment creation fails
+- UpstreamSessionManager payment creation fails
 - Session creation/renewal fails
 
 **Detection**:
-- "Insufficient funds" error in chandler
+- "Insufficient funds" error in upstream_session_manager
 - Merchant payout logs show successful payout
 - Timing correlation between payout and payment failure
 
@@ -424,11 +424,11 @@ sequenceDiagram
 - System reboot or TollGate restart
 - Interface already connected to upstream TollGate
 - May have active session on upstream (from before restart)
-- Chandler has no persistent session storage
+- UpstreamSessionManager has no persistent session storage
 
 **Current Behavior**:
 - Crowsnest discovers upstream via initial scan
-- Chandler creates NEW session (new payment)
+- UpstreamSessionManager creates NEW session (new payment)
 - If old session existed on upstream, it's abandoned (wasted payment)
 - No session recovery mechanism
 
@@ -442,7 +442,7 @@ curl http://[gateway_ip]:2121/usage
 # Returns: "1234567/10485760" (session exists!)
 # OR: "-1/-1" (no session)
 
-# But chandler creates new session anyway
+# But upstream_session_manager creates new session anyway
 ```
 
 **Potential Fix Areas**:
@@ -453,7 +453,7 @@ curl http://[gateway_ip]:2121/usage
 
 ### Issue 8: Advertisement Changes Not Detected
 
-**Scenario**: Upstream changes advertisement (pricing, terms) but chandler uses stale data
+**Scenario**: Upstream changes advertisement (pricing, terms) but upstream_session_manager uses stale data
 
 **Possible Causes**:
 - Advertisement fetched once at discovery
@@ -464,7 +464,7 @@ curl http://[gateway_ip]:2121/usage
 **Current Behavior**:
 - Advertisement stored at discovery time
 - Used for all renewal decisions
-- If upstream changes, chandler unaware
+- If upstream changes, upstream_session_manager unaware
 - May cause renewal failures
 
 **Detection**:
@@ -496,19 +496,19 @@ curl http://[gateway_ip]:2121/  # Current
 |------|-----|--------|---------|
 | wireless_gateway_manager | (none) | - | Operates independently, triggers netlink events |
 | netlink | crowsnest | Events channel | Network state changes |
-| crowsnest | chandler | `HandleUpstreamTollgate()` | New upstream discovered |
-| crowsnest | chandler | `HandleDisconnect()` | Interface disconnected |
-| chandler | merchant | `CreatePaymentToken()` | Request payment token |
-| chandler | merchant | `GetBalanceByMint()` | Check available balance |
-| usage_tracker | chandler | `HandleUpcomingRenewal()` | Renewal threshold reached |
-| chandler | usage_tracker | `SessionChanged()` | Session allotment updated |
+| crowsnest | upstream_session_manager | `HandleUpstreamTollgate()` | New upstream discovered |
+| crowsnest | upstream_session_manager | `HandleDisconnect()` | Interface disconnected |
+| upstream_session_manager | merchant | `CreatePaymentToken()` | Request payment token |
+| upstream_session_manager | merchant | `GetBalanceByMint()` | Check available balance |
+| usage_tracker | upstream_session_manager | `HandleUpcomingRenewal()` | Renewal threshold reached |
+| upstream_session_manager | usage_tracker | `SessionChanged()` | Session allotment updated |
 
 ### Critical Handoff Points
 
 1. **WiFi Connection → Netlink Event**: Wireless manager connects, must trigger netlink
 2. **Netlink Event → Crowsnest Detection**: Event must be received and processed
-3. **Crowsnest Discovery → Chandler Handoff**: Advertisement must be valid and handed off
-4. **Chandler → Merchant Payment**: Balance must be available and token created
+3. **Crowsnest Discovery → UpstreamSessionManager Handoff**: Advertisement must be valid and handed off
+4. **UpstreamSessionManager → Merchant Payment**: Balance must be available and token created
 5. **Payment → Session Creation**: Upstream must accept payment and return session
 6. **Session → Usage Tracking**: Tracker must start and monitor correctly
 7. **Usage Threshold → Renewal**: Renewal must trigger before exhaustion
@@ -517,7 +517,7 @@ curl http://[gateway_ip]:2121/  # Current
 
 - **[wireless_gateway_manager.md](wireless_gateway_manager.md)**: Detailed WiFi scanning, gateway selection, and connection logic
 - **[crowsnest.md](crowsnest.md)**: Network monitoring, TollGate discovery, and advertisement validation
-- **[chandler.md](chandler.md)**: Session management, payment creation, and renewal logic
+- **[upstream_session_manager.md](upstream_session_manager.md)**: Session management, payment creation, and renewal logic
 - **[merchant.md](merchant.md)**: Wallet management and payment token creation for upstream payments
 
 ---
@@ -543,33 +543,33 @@ crowsnest.eventLoop()
       → crowsnest.attemptTollGateDiscovery()
         → crowsnest.tollGateProber.ProbeGatewayWithContext()
         → tollgate_protocol.ValidateAdvertisementFromBytes()
-        → chandler.HandleUpstreamTollgate()
+        → upstream_session_manager.HandleGatewayConnected()
 ```
 
 #### Session Creation Path
 ```
-chandler.HandleUpstreamTollgate()
+upstream_session_manager.HandleGatewayConnected()
   → tollgate_protocol.ExtractAdvertisementInfo()
-  → chandler.ValidateTrustPolicy()
-  → chandler.selectCompatiblePricingOption()
+  → upstream_session_manager.ValidateTrustPolicy()
+  → upstream_session_manager.selectCompatiblePricingOption()
   → merchant.GetBalanceByMint()
-  → chandler.createAndSendPayment()
+  → upstream_session_manager.createAndSendPayment()
     → merchant.CreatePaymentToken()
-    → chandler.createPaymentEvent()
+    → upstream_session_manager.createPaymentEvent()
     → HTTP POST to upstream:2121
-  → chandler.extractAllotment()
-  → chandler.createUsageTracker()
+  → upstream_session_manager.extractAllotment()
+  → upstream_session_manager.createUsageTracker()
 ```
 
 #### Renewal Path
 ```
 usage_tracker.checkUsage() [periodic]
-  → chandler.HandleUpcomingRenewal()
-    → chandler.ValidateBudgetConstraints()
-    → chandler.createAndSendPayment()
+  → upstream_session_manager.HandleRenewal()
+    → upstream_session_manager.ValidateBudgetConstraints()
+    → upstream_session_manager.createAndSendPayment()
       → merchant.CreatePaymentToken()
       → HTTP POST to upstream:2121
-    → chandler.extractAllotment()
+    → upstream_session_manager.extractAllotment()
     → usage_tracker.SessionChanged()
 ```
 
@@ -586,9 +586,9 @@ type UpstreamTollgate struct {
 }
 ```
 
-#### ChandlerSession
+#### UpstreamSession
 ```go
-type ChandlerSession struct {
+type UpstreamSession struct {
     UpstreamTollgate   *UpstreamTollgate
     CustomerPrivateKey string
     Advertisement      *nostr.Event

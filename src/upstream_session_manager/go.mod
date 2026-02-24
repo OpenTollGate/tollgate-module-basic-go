@@ -1,4 +1,4 @@
-module github.com/OpenTollGate/tollgate-module-basic-go/src/chandler
+module github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager
 
 go 1.24.2
 
@@ -8,6 +8,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/nbd-wtf/go-nostr v0.51.10
 	github.com/sirupsen/logrus v1.9.3
 )
@@ -17,6 +18,8 @@ replace github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol =
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ../merchant
+
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect

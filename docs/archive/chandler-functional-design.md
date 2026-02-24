@@ -1,12 +1,12 @@
-# Chandler Module - Functional Design Document
+# UpstreamSessionManager Module - Functional Design Document
 
 ## Overview
 
-The Chandler module is responsible for managing upstream TollGate connections on behalf of our TollGate device. It acts as the financial and session management layer that makes decisions about connecting to and paying for upstream TollGate services. The Chandler receives signals from the Crowsnest module about discovered upstream TollGates and manages the entire lifecycle of upstream connections including budget decisions, payments, session management, and usage tracking.
+The UpstreamSessionManager module is responsible for managing upstream TollGate connections on behalf of our TollGate device. It acts as the financial and session management layer that makes decisions about connecting to and paying for upstream TollGate services. The UpstreamSessionManager receives signals from the upstream_detector module about discovered upstream TollGates and manages the entire lifecycle of upstream connections including budget decisions, payments, session management, and usage tracking.
 
 ## Responsibilities
 
-- Receive upstream TollGate discovery signals from Crowsnest
+- Receive upstream TollGate discovery signals from upstream_detector
 - Make financial decisions about connecting to upstream TollGates
 - Manage budget and spending limits for upstream connections
 - Create and manage payment sessions with upstream TollGates
@@ -40,9 +40,9 @@ The Chandler module is responsible for managing upstream TollGate connections on
 
 ## Data Structures
 
-### ChandlerSession
+### UpstreamSession
 ```go
-type ChandlerSession struct {
+type UpstreamSession struct {
     // Upstream TollGate identification
     UpstreamPubkey    string             // TollGate pubkey (primary key)
     InterfaceName     string             // Network interface name
@@ -94,7 +94,7 @@ const (
 ```go
 type UsageTrackerInterface interface {
     // Start monitoring usage for the given session
-    Start(session *ChandlerSession, chandler ChandlerInterface) error
+    Start(session *UpstreamSession, chandler UpstreamSessionManagerInterface) error
     
     // Stop monitoring and cleanup
     Stop() error
@@ -113,8 +113,8 @@ type UsageTrackerInterface interface {
 ### TimeUsageTracker
 ```go
 type TimeUsageTracker struct {
-    session       *ChandlerSession
-    chandler      ChandlerInterface
+    session       *UpstreamSession
+    chandler      UpstreamSessionManagerInterface
     startTime     time.Time
     pausedTime    time.Duration
     thresholds    []float64
@@ -127,8 +127,8 @@ type TimeUsageTracker struct {
 ### DataUsageTracker
 ```go
 type DataUsageTracker struct {
-    session       *ChandlerSession
-    chandler      ChandlerInterface
+    session       *UpstreamSession
+    chandler      UpstreamSessionManagerInterface
     interfaceName string
     startBytes    uint64
     currentBytes  uint64
@@ -152,9 +152,9 @@ type PaymentProposal struct {
 
 ## Core Interfaces
 
-### Enhanced ChandlerInterface
+### Enhanced UpstreamSessionManagerInterface
 ```go
-type ChandlerInterface interface {
+type UpstreamSessionManagerInterface interface {
     // Called by Crowsnest when upstream TollGate discovered
     HandleUpstreamTollgate(upstream *UpstreamTollgate) error
     
@@ -165,8 +165,8 @@ type ChandlerInterface interface {
     HandleUpcomingRenewal(upstreamPubkey string, currentUsage uint64) error
     
     // Management methods
-    GetActiveSessions() map[string]*ChandlerSession
-    GetSessionByPubkey(pubkey string) (*ChandlerSession, error)
+    GetActiveSessions() map[string]*UpstreamSession
+    GetSessionByPubkey(pubkey string) (*UpstreamSession, error)
     GetBudgetStatus() *BudgetStatus
     
     // Control methods
@@ -303,7 +303,7 @@ graph TD
 ### Error Handling Strategy
 
 ```go
-type ChandlerError struct {
+type UpstreamSessionManagerError struct {
     Type        ErrorType
     Code        string
     Message     string
@@ -446,14 +446,14 @@ type DataTrackerConfig struct {
 
 ```go
 // In main.go or init function
-func initChandler() {
-    chandlerInstance, err := chandler.NewChandler(configManager)
+func initUpstreamSessionManager() {
+    usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager)
     if err != nil {
         log.Fatalf("Failed to create chandler instance: %v", err)
     }
     
     // Set chandler for crowsnest
-    crowsnestInstance.SetChandler(chandlerInstance)
+    upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
     
     log.Println("Chandler module initialized and ready to manage upstream connections")
 }
@@ -471,7 +471,7 @@ func initChandler() {
 ### Payment Event Creation
 
 ```go
-func (c *Chandler) createPaymentEvent(proposal *PaymentProposal, macAddressSelf string) (*nostr.Event, error) {
+func (c *UpstreamSessionManager) createPaymentEvent(proposal *PaymentProposal, macAddressSelf string) (*nostr.Event, error) {
     // Get customer identity (could be random for privacy)
     customerIdentity := c.getCustomerIdentity()
     
@@ -509,7 +509,7 @@ func (c *Chandler) createPaymentEvent(proposal *PaymentProposal, macAddressSelf 
 ### Advertisement Comparison
 
 ```go
-func (c *Chandler) checkAdvertisementChanges(session *ChandlerSession, newAd *nostr.Event) {
+func (c *UpstreamSessionManager) checkAdvertisementChanges(session *UpstreamSession, newAd *nostr.Event) {
     if session.Advertisement == nil {
         return // First advertisement
     }
@@ -666,8 +666,8 @@ func (c *Chandler) checkAdvertisementChanges(session *ChandlerSession, newAd *no
 
 ## Conclusion
 
-The Chandler module provides intelligent upstream connection management for TollGate devices, handling the complete lifecycle from discovery to session management. By separating financial decision-making from network discovery, it creates a clean separation of concerns while enabling sophisticated payment and usage tracking capabilities.
+The UpstreamSessionManager module provides intelligent upstream connection management for TollGate devices, handling the complete lifecycle from discovery to session management. By separating financial decision-making from network discovery, it creates a clean separation of concerns while enabling sophisticated payment and usage tracking capabilities.
 
 The design emphasizes simplicity in budget management while providing the flexibility needed for various upstream pricing models and usage patterns. The usage tracking system enables efficient automatic renewals while maintaining transparency in spending and usage.
 
-This design provides a solid foundation for implementing the Chandler module while maintaining consistency with the existing TollGate architecture and design principles. The focus on security, reliability, and maintainability ensures that the module can handle real-world upstream connection scenarios effectively.
+This design provides a solid foundation for implementing the UpstreamSessionManager module while maintaining consistency with the existing TollGate architecture and design principles. The focus on security, reliability, and maintainability ensures that the module can handle real-world upstream connection scenarios effectively.

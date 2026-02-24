@@ -3,7 +3,7 @@ module github.com/OpenTollGate/tollgate-module-basic-go
 go 1.24.2
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
@@ -18,7 +18,7 @@ require (
 )
 
 replace (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler => ./chandler
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager => ./upstream_session_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor

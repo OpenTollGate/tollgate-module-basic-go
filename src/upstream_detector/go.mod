@@ -5,7 +5,7 @@ go 1.24.2
 toolchain go1.24.5
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/chandler v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0-00010101000000-000000000000
 	github.com/vishvananda/netlink v1.3.1
@@ -45,4 +45,4 @@ replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => .
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol => ../tollgate_protocol
 
-replace github.com/OpenTollGate/tollgate-module-basic-go/src/chandler => ../chandler
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager => ../upstream_session_manager

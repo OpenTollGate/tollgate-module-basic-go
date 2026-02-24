@@ -5,17 +5,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/sirupsen/logrus"
 )
 
 // upstreamDetector implements the UpstreamDetector interface
 type upstreamDetector struct {
-	config         *config_manager.UpstreamDetectorConfig
-	configManager  *config_manager.ConfigManager
-	networkMonitor NetworkMonitor
-	chandler       chandler.ChandlerInterface
+	config                 *config_manager.UpstreamDetectorConfig
+	configManager          *config_manager.ConfigManager
+	networkMonitor         NetworkMonitor
+	upstreamSessionManager upstream_session_manager.UpstreamSessionManagerInterface
 
 	// Control channels
 	stopChan chan struct{}
@@ -106,13 +106,13 @@ func (ud *upstreamDetector) Stop() error {
 	return nil
 }
 
-// SetChandler sets the chandler for upstream TollGate management
-func (ud *upstreamDetector) SetChandler(chandler chandler.ChandlerInterface) {
+// SetUpstreamSessionManager sets the upstream session manager for upstream TollGate management
+func (ud *upstreamDetector) SetUpstreamSessionManager(usm upstream_session_manager.UpstreamSessionManagerInterface) {
 	ud.mu.Lock()
 	defer ud.mu.Unlock()
 
-	ud.chandler = chandler
-	logger.Info("Chandler set for UpstreamDetector")
+	ud.upstreamSessionManager = usm
+	logger.Info("UpstreamSessionManager set for UpstreamDetector")
 }
 
 // eventLoop is the main event processing loop
@@ -164,65 +164,65 @@ func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
 	logger.WithFields(logrus.Fields{
 		"interface": event.InterfaceName,
 		"gateway":   event.GatewayIP,
-	}).Info("Interface is up with gateway - notifying chandler")
+	}).Info("Interface is up with gateway - notifying upstream session manager")
 
-	// Report gateway to chandler
-	ud.reportGatewayToChandler(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+	// Report gateway to upstream session manager
+	ud.reportGatewayToUSM(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 }
 
 // handleInterfaceDown handles interface down events
 func (ud *upstreamDetector) handleInterfaceDown(event NetworkEvent) {
-	logger.WithField("interface", event.InterfaceName).Info("Interface is down - notifying chandler")
+	logger.WithField("interface", event.InterfaceName).Info("Interface is down - notifying upstream session manager")
 
-	// Notify chandler of disconnect
-	if ud.chandler != nil {
-		err := ud.chandler.HandleDisconnect(event.InterfaceName)
+	// Notify upstream session manager of disconnect
+	if ud.upstreamSessionManager != nil {
+		err := ud.upstreamSessionManager.HandleDisconnect(event.InterfaceName)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"interface": event.InterfaceName,
 				"error":     err,
-			}).Error("Error notifying chandler of disconnect")
+			}).Error("Error notifying upstream session manager of disconnect")
 		}
 	} else {
-		logger.WithField("interface", event.InterfaceName).Debug("No chandler set - cannot notify of disconnect")
+		logger.WithField("interface", event.InterfaceName).Debug("No upstream session manager set - cannot notify of disconnect")
 	}
 }
 
 // handleAddressAdded handles address added events
 func (ud *upstreamDetector) handleAddressAdded(event NetworkEvent) {
-	// For address changes, report the gateway to chandler
+	// For address changes, report the gateway to upstream session manager
 	if event.GatewayIP != "" {
 		logger.WithFields(logrus.Fields{
 			"interface": event.InterfaceName,
 			"gateway":   event.GatewayIP,
-		}).Debug("Address added to interface with gateway - notifying chandler")
-		ud.reportGatewayToChandler(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
+		}).Debug("Address added to interface with gateway - notifying upstream session manager")
+		ud.reportGatewayToUSM(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
 	}
 }
 
 // handleAddressDeleted handles address deleted events
 func (ud *upstreamDetector) handleAddressDeleted(event NetworkEvent) {
-	logger.WithField("interface", event.InterfaceName).Debug("Address deleted from interface - notifying chandler of potential disconnection")
+	logger.WithField("interface", event.InterfaceName).Debug("Address deleted from interface - notifying upstream session manager of potential disconnection")
 
-	// Notify chandler of potential disconnect
-	if ud.chandler != nil {
-		err := ud.chandler.HandleDisconnect(event.InterfaceName)
+	// Notify upstream session manager of potential disconnect
+	if ud.upstreamSessionManager != nil {
+		err := ud.upstreamSessionManager.HandleDisconnect(event.InterfaceName)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"interface": event.InterfaceName,
 				"error":     err,
-			}).Error("Error notifying chandler of disconnect")
+			}).Error("Error notifying upstream session manager of disconnect")
 		}
 	}
 }
 
-// reportGatewayToChandler reports a discovered gateway to chandler
-func (ud *upstreamDetector) reportGatewayToChandler(interfaceName, macAddress, gatewayIP string) {
-	if ud.chandler == nil {
+// reportGatewayToUSM reports a discovered gateway to the upstream session manager
+func (ud *upstreamDetector) reportGatewayToUSM(interfaceName, macAddress, gatewayIP string) {
+	if ud.upstreamSessionManager == nil {
 		logger.WithFields(logrus.Fields{
 			"interface": interfaceName,
 			"gateway":   gatewayIP,
-		}).Warn("⚠️ No chandler set - cannot report gateway")
+		}).Warn("⚠️ No upstream session manager set - cannot report gateway")
 		return
 	}
 
@@ -230,21 +230,21 @@ func (ud *upstreamDetector) reportGatewayToChandler(interfaceName, macAddress, g
 		"interface": interfaceName,
 		"gateway":   gatewayIP,
 		"mac":       macAddress,
-	}).Info("📡 Reporting gateway to chandler")
+	}).Info("📡 Reporting gateway to upstream session manager")
 
-	// Report gateway to chandler - chandler will handle all TollGate logic
-	err := ud.chandler.HandleGatewayConnected(interfaceName, macAddress, gatewayIP)
+	// Report gateway to upstream session manager - it will handle all TollGate logic
+	err := ud.upstreamSessionManager.HandleGatewayConnected(interfaceName, macAddress, gatewayIP)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"interface": interfaceName,
 			"gateway":   gatewayIP,
 			"error":     err,
-		}).Debug("Chandler reported error for gateway (will retry via polling)")
+		}).Debug("Upstream session manager reported error for gateway (will retry via polling)")
 	} else {
 		logger.WithFields(logrus.Fields{
 			"interface": interfaceName,
 			"gateway":   gatewayIP,
-		}).Info("✅ Successfully reported gateway to chandler")
+		}).Info("✅ Successfully reported gateway to upstream session manager")
 	}
 }
 
@@ -309,13 +309,13 @@ func (ud *upstreamDetector) checkInterfacesForGateways() {
 			continue
 		}
 
-		// Report gateway to chandler (it will handle deduplication via knownGateways)
+		// Report gateway to upstream session manager (it will handle deduplication via knownGateways)
 		logger.WithFields(logrus.Fields{
 			"interface": iface.Name,
 			"gateway":   gatewayIP,
-		}).Debug("Periodic check: Found gateway - reporting to chandler")
+		}).Debug("Periodic check: Found gateway - reporting to upstream session manager")
 
-		ud.reportGatewayToChandler(iface.Name, iface.MacAddress, gatewayIP)
+		ud.reportGatewayToUSM(iface.Name, iface.MacAddress, gatewayIP)
 	}
 }
 
@@ -349,10 +349,10 @@ func (ud *upstreamDetector) performInitialInterfaceScan() {
 		logger.WithFields(logrus.Fields{
 			"interface": iface.Name,
 			"gateway":   gatewayIP,
-		}).Info("Startup scan: Found interface with gateway - reporting to chandler")
+		}).Info("Startup scan: Found interface with gateway - reporting to upstream session manager")
 
-		// Report gateway to chandler
-		ud.reportGatewayToChandler(iface.Name, iface.MacAddress, gatewayIP)
+		// Report gateway to upstream session manager
+		ud.reportGatewayToUSM(iface.Name, iface.MacAddress, gatewayIP)
 	}
 
 	logger.Info("Initial interface scan completed")

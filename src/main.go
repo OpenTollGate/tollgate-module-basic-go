@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/chandler"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -144,12 +144,12 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream detector instance")
 	}
 
-	// Create and set chandler instance
-	chandlerInstance, err := chandler.NewChandler(configManager, merchantInstance)
+	// Create and set upstream session manager instance
+	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantInstance)
 	if err != nil {
-		mainLogger.WithError(err).Fatal("Failed to create chandler instance")
+		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
-	upstreamDetectorInstance.SetChandler(chandlerInstance)
+	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
 
 	go func() {
 		err := upstreamDetectorInstance.Start()
@@ -158,7 +158,7 @@ func initUpstreamDetector() {
 		}
 	}()
 
-	mainLogger.Info("UpstreamDetector module initialized with chandler and monitoring network changes")
+	mainLogger.Info("UpstreamDetector module initialized with upstream session manager and monitoring network changes")
 }
 
 func initCLIServer() {

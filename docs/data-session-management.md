@@ -184,9 +184,9 @@ The architecture maintains clear separation:
 
 - **Merchant**: Business logic (sessions, payments, monitoring)
 - **Valve**: Gate control and data tracking
-- **Chandler**: Pricing and session calculations (no gate control)
+- **UpstreamSessionManager**: Pricing and session calculations (no gate control)
 
-The Merchant works independently for downstream customers without requiring Chandler dependencies.
+The Merchant works independently for downstream customers without requiring UpstreamSessionManager dependencies.
 
 ## Key Benefits
 

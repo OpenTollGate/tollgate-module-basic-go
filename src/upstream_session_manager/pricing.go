@@ -1,4 +1,4 @@
-package chandler
+package upstream_session_manager
 
 import (
 	"fmt"
@@ -42,7 +42,7 @@ func SelectBestPricingOption(options []tollgate_protocol.PricingOption, preferre
 // ValidateBudgetConstraints checks if a payment proposal is within budget
 func ValidateBudgetConstraints(proposal *PaymentProposal, maxPricePerMs, maxPricePerByte float64, metric string, stepSize uint64) error {
 	if proposal == nil || proposal.PricingOption == nil {
-		return &ChandlerError{
+		return &UpstreamSessionManagerError{
 			Type:    ErrorTypeBudget,
 			Code:    "invalid-proposal",
 			Message: "proposal or pricing option is nil",
@@ -64,7 +64,7 @@ func ValidateBudgetConstraints(proposal *PaymentProposal, maxPricePerMs, maxPric
 		maxPrice = maxPricePerByte
 		unitName = "byte"
 	default:
-		return &ChandlerError{
+		return &UpstreamSessionManagerError{
 			Type:    ErrorTypeBudget,
 			Code:    "unsupported-metric",
 			Message: "unsupported metric: " + metric,
@@ -72,7 +72,7 @@ func ValidateBudgetConstraints(proposal *PaymentProposal, maxPricePerMs, maxPric
 	}
 
 	if pricePerUnit > maxPrice {
-		return &ChandlerError{
+		return &UpstreamSessionManagerError{
 			Type:    ErrorTypeBudget,
 			Code:    "price-too-high",
 			Message: fmt.Sprintf("price per %s %.6f exceeds maximum %.6f (price per step: %.6f, step size: %d)", unitName, pricePerUnit, maxPrice, pricePerStep, stepSize),
@@ -113,7 +113,7 @@ func ValidateTrustPolicy(pubkey string, allowlist, blocklist []string, defaultPo
 	// Check blocklist first
 	for _, blocked := range blocklist {
 		if pubkey == blocked {
-			return &ChandlerError{
+			return &UpstreamSessionManagerError{
 				Type:           ErrorTypeTrust,
 				Code:           "pubkey-blocked",
 				Message:        "pubkey is in blocklist",
@@ -129,7 +129,7 @@ func ValidateTrustPolicy(pubkey string, allowlist, blocklist []string, defaultPo
 				return nil // Found in allowlist
 			}
 		}
-		return &ChandlerError{
+		return &UpstreamSessionManagerError{
 			Type:           ErrorTypeTrust,
 			Code:           "pubkey-not-allowed",
 			Message:        "pubkey not in allowlist",
@@ -142,14 +142,14 @@ func ValidateTrustPolicy(pubkey string, allowlist, blocklist []string, defaultPo
 	case "trust_all":
 		return nil
 	case "trust_none":
-		return &ChandlerError{
+		return &UpstreamSessionManagerError{
 			Type:           ErrorTypeTrust,
 			Code:           "default-policy-deny",
 			Message:        "default policy is trust_none",
 			UpstreamPubkey: pubkey,
 		}
 	default:
-		return &ChandlerError{
+		return &UpstreamSessionManagerError{
 			Type:           ErrorTypeTrust,
 			Code:           "invalid-default-policy",
 			Message:        "unknown default policy: " + defaultPolicy,

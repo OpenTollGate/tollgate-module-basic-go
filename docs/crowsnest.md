@@ -2,15 +2,15 @@
 
 ## Overview
 
-The `crowsnest` module is responsible for monitoring network interface changes and discovering upstream TollGate devices. It acts as the bridge between network connectivity (managed by [`wireless_gateway_manager`](wireless_gateway_manager.md) or physical connections) and session management (handled by [`chandler`](chandler.md)).
+The `crowsnest` module is responsible for monitoring network interface changes and discovering upstream TollGate devices. It acts as the bridge between network connectivity (managed by [`wireless_gateway_manager`](wireless_gateway_manager.md) or physical connections) and session management (handled by [`upstream_session_manager`](upstream_session_manager.md)).
 
 **Key Responsibilities**:
 - Monitor network interface state changes via netlink
 - Detect new network connections (WiFi and wired)
 - Probe gateways for TollGate advertisements
 - Validate TollGate advertisements
-- Hand off validated upstream TollGates to chandler
-- Notify chandler of disconnections
+- Hand off validated upstream TollGates to upstream_session_manager
+- Notify upstream_session_manager of disconnections
 
 ## Component Architecture
 
@@ -26,7 +26,7 @@ graph TB
     subgraph External
         NL[Netlink Socket]
         GW[Gateway :2121]
-        CH[Chandler]
+        CH[UpstreamSessionManager]
     end
     
     NL -->|Interface events| NM
@@ -107,21 +107,21 @@ graph TB
 **Purpose**: Continuously check for upstream TollGates when no active sessions exist
 
 **Flow**:
-1. Check if chandler is set
-2. Get active sessions from chandler
+1. Check if upstream_session_manager is set
+2. Get active sessions from upstream_session_manager
 3. If active sessions exist, skip check (already connected)
 4. If no active sessions:
    - Get all current network interfaces
    - For each up interface with IP and gateway:
      - Probe gateway with short timeout (2 seconds)
      - Validate advertisement if received
-     - Hand off to chandler if valid
+     - Hand off to upstream_session_manager if valid
      - Stop checking after first successful session creation
 
 **Rationale**: Provides recovery mechanism if initial discovery failed or session expired
 
 **State Changes**:
-- May create new session via chandler
+- May create new session via upstream_session_manager
 - Stops checking once session created
 
 **Key Limitation**: Only runs when NO active sessions exist
@@ -148,16 +148,16 @@ graph TB
 7. If valid:
    - Create UpstreamTollgate object
    - Record discovery as "success"
-   - Hand off to chandler
+   - Hand off to upstream_session_manager
 8. If invalid or error:
    - Record appropriate failure reason
    - Log error
-   - Do not hand off to chandler
+   - Do not hand off to upstream_session_manager
 
 **State Changes**:
 - Discovery tracker updated with attempt and result
 - UpstreamTollgate object created on success
-- Chandler notified on success
+- UpstreamSessionManager notified on success
 
 **Timeout Handling**:
 - Discovery timeout configurable (default: 300s)
@@ -189,7 +189,7 @@ ShouldAttemptDiscovery(interface, gateway):
 - Tracker cleaned up on interface down
 - Old entries expire after timeout period
 
-### 6. Handoff to Chandler
+### 6. Handoff to UpstreamSessionManager
 
 **Trigger**: Valid TollGate advertisement discovered
 
@@ -202,9 +202,9 @@ ShouldAttemptDiscovery(interface, gateway):
    - Gateway IP
    - Advertisement event
    - Discovery timestamp
-2. Call `chandler.HandleUpstreamTollgate(upstream)`
+2. Call `upstream_session_manager.HandleGatewayConnected(upstream)`
 3. Log success or error
-4. Chandler takes over session management
+4. UpstreamSessionManager takes over session management
 
 **Data Passed**:
 ```go
@@ -218,31 +218,31 @@ type UpstreamTollgate struct {
 ```
 
 **Error Handling**:
-- If chandler returns error, log but don't retry
+- If upstream_session_manager returns error, log but don't retry
 - Discovery marked as successful regardless (advertisement was valid)
-- Chandler responsible for session creation retry logic
+- UpstreamSessionManager responsible for session creation retry logic
 
 ### 7. Disconnection Handling
 
 **Trigger**: InterfaceDown or AddressDeleted netlink event
 
-**Purpose**: Clean up state and notify chandler of lost connectivity
+**Purpose**: Clean up state and notify upstream_session_manager of lost connectivity
 
 **Flow**:
 1. Receive interface down or address deleted event
 2. Cancel any active probes for this interface
 3. Clear discovery tracker for this interface (allows re-discovery)
-4. Call `chandler.HandleDisconnect(interfaceName)`
-5. Chandler cleans up sessions on that interface
+4. Call `upstream_session_manager.HandleDisconnect(interfaceName)`
+5. UpstreamSessionManager cleans up sessions on that interface
 
 **State Changes**:
 - Active probes cancelled
 - Discovery tracker cleared for interface
-- Chandler sessions terminated
+- UpstreamSessionManager sessions terminated
 
 **Rationale**: 
 - Clearing tracker allows re-discovery when interface comes back up
-- Chandler needs notification to stop usage tracking and clean up
+- UpstreamSessionManager needs notification to stop usage tracking and clean up
 
 ## Sequence Diagrams
 
@@ -258,7 +258,7 @@ sequenceDiagram
     participant TP as TollGateProber
     participant GW as Gateway :2121
     participant VP as ValidateProtocol
-    participant CH as Chandler
+    participant CH as UpstreamSessionManager
     
     Cable->>NL: Physical connection
     NL->>NM: Interface event
@@ -302,7 +302,7 @@ sequenceDiagram
     participant DT as DiscoveryTracker
     participant TP as TollGateProber
     participant GW as Gateway :2121
-    participant CH as Chandler
+    participant CH as UpstreamSessionManager
     
     WGM->>WGM: Connect to TollGate WiFi
     WGM->>NL: Trigger interface change
@@ -340,7 +340,7 @@ sequenceDiagram
 sequenceDiagram
     participant Timer as 5s Timer
     participant CS as Crowsnest
-    participant CH as Chandler
+    participant CH as UpstreamSessionManager
     participant NM as NetworkMonitor
     participant TP as TollGateProber
     participant GW as Gateway
@@ -384,7 +384,7 @@ sequenceDiagram
     participant CS as Crowsnest
     participant TP as TollGateProber
     participant DT as DiscoveryTracker
-    participant CH as Chandler
+    participant CH as UpstreamSessionManager
     
     NL->>NM: InterfaceDown event
     NM->>CS: NetworkEvent{InterfaceDown, wlan0}
@@ -407,7 +407,7 @@ sequenceDiagram
 
 ## Events Sent to Other Components
 
-### To Chandler
+### To UpstreamSessionManager
 
 | Event | Trigger | Data Passed | Purpose |
 |-------|---------|-------------|---------|
@@ -548,7 +548,7 @@ ping 10.0.0.1  # Success
 **Recommended Fix**:
 ```go
 // In periodicUpstreamCheck()
-activeSessions := cs.chandler.GetActiveSessions()
+activeSessions := cs.upstreamSessionManager.GetActiveSessions()
 hasActiveSession := false
 for _, session := range activeSessions {
     if session.Status == SessionActive {
@@ -627,19 +627,19 @@ curl http://10.0.0.1:2121/ | jq .
 4. Add validation bypass for testing
 5. Implement advertisement health check
 
-### Issue 6: Chandler Handoff Failure
+### Issue 6: UpstreamSessionManager Handoff Failure
 
-**Scenario**: Advertisement valid but chandler rejects it
+**Scenario**: Advertisement valid but upstream_session_manager rejects it
 
 **Root Cause**:
 - Trust policy rejection
 - Budget constraints
 - Insufficient balance
-- Chandler internal error
+- UpstreamSessionManager internal error
 
 **Current Behavior**:
 - Discovery marked as "success" (advertisement was valid)
-- Chandler returns error
+- UpstreamSessionManager returns error
 - Error logged but no retry
 - No session created
 - Discovery tracker prevents retry
@@ -649,8 +649,8 @@ curl http://10.0.0.1:2121/ | jq .
 # Check crowsnest logs
 logread | grep "Successfully handed off"  # Not present
 
-# Check chandler logs
-logread | grep chandler | grep -i error
+# Check upstream_session_manager logs
+logread | grep upstream_session_manager | grep -i error
 
 # Discovery tracker shows success
 # But no active session
@@ -658,7 +658,7 @@ logread | grep chandler | grep -i error
 
 **Potential Fixes**:
 1. Distinguish between discovery success and session creation success
-2. Add retry mechanism in chandler
+2. Add retry mechanism in upstream_session_manager
 3. Implement session creation monitoring
 4. Add health check for session creation
 5. Separate discovery tracking from session tracking
@@ -711,7 +711,7 @@ logread | grep chandler | grep -i error
 **Current Behavior**:
 - Initial scan discovers interface and gateway
 - Probes gateway, gets advertisement
-- Chandler creates NEW session (new payment)
+- UpstreamSessionManager creates NEW session (new payment)
 - If old session existed, it's abandoned (wasted payment)
 - If old session didn't exist, correct behavior
 
@@ -726,7 +726,7 @@ curl http://[gateway_ip]:2121/usage
 # Returns: "1234567/10485760" (session exists)
 # OR: "-1/-1" (no session)
 
-# But crowsnest/chandler doesn't check this before creating new session
+# But crowsnest/upstream_session_manager doesn't check this before creating new session
 ```
 
 **Impact**:
@@ -738,7 +738,7 @@ curl http://[gateway_ip]:2121/usage
 **Potential Fixes**:
 1. **Check `:2121/usage` before creating session**:
 ```go
-// In chandler.HandleUpstreamTollgate()
+// In upstream_session_manager.HandleGatewayConnected()
 // Before creating payment, check if session exists
 resp, err := http.Get(fmt.Sprintf("http://%s:2121/usage", upstream.GatewayIP))
 if err == nil {
@@ -775,21 +775,21 @@ if err == nil {
 
 ### Issue 9: Advertisement Changes Not Detected
 
-**Scenario**: Upstream changes advertisement (pricing, terms) but chandler uses stale data
+**Scenario**: Upstream changes advertisement (pricing, terms) but upstream_session_manager uses stale data
 
 **Root Cause**:
 - Advertisement fetched once during discovery
 - Stored in session object
 - Never refreshed during session lifetime
 - Upstream may change pricing, mints, or terms
-- Chandler uses old advertisement for renewals
+- UpstreamSessionManager uses old advertisement for renewals
 
 **Current Behavior**:
 - Advertisement fetched at discovery time
-- Stored in `ChandlerSession.Advertisement`
+- Stored in `UpstreamSession.Advertisement`
 - Used for all renewal decisions
 - If upstream changes advertisement:
-  - Chandler logs warning during renewal
+  - UpstreamSessionManager logs warning during renewal
   - Continues with old pricing
   - May cause renewal failure if incompatible
 
@@ -812,8 +812,8 @@ curl http://[gateway_ip]:2121/  # Current advertisement
 **Potential Fixes**:
 1. **Periodic advertisement polling**:
 ```go
-// In chandler or usage tracker
-func (c *Chandler) pollAdvertisement(session *ChandlerSession) {
+// In upstream_session_manager or usage tracker
+func (c *UpstreamSessionManager) pollAdvertisement(session *UpstreamSession) {
     ticker := time.NewTicker(60 * time.Second)
     for range ticker.C {
         // Fetch fresh advertisement
@@ -848,7 +848,7 @@ func (c *Chandler) pollAdvertisement(session *ChandlerSession) {
 
 3. **Advertisement change notifications**:
    - Upstream could provide change notification mechanism
-   - Chandler subscribes to changes
+   - UpstreamSessionManager subscribes to changes
    - Proactive update on change
 
 **Recommended Approach**:
@@ -882,7 +882,7 @@ wireless_gateway_manager connects to WiFi
 
 **Issue**: If netlink events missed, discovery doesn't happen
 
-### Relationship with Chandler
+### Relationship with UpstreamSessionManager
 
 **Connection**: Direct function calls
 
@@ -890,18 +890,18 @@ wireless_gateway_manager connects to WiFi
 ```
 crowsnest discovers TollGate
   → crowsnest.HandleUpstreamTollgate()
-    → chandler.HandleUpstreamTollgate()
+    → upstream_session_manager.HandleGatewayConnected()
       → Session creation begins
 
 crowsnest detects disconnect
   → crowsnest.HandleDisconnect()
-    → chandler.HandleDisconnect()
+    → upstream_session_manager.HandleDisconnect()
       → Session cleanup
 ```
 
-**Dependency**: Crowsnest must have chandler set before handoff
+**Dependency**: Crowsnest must have upstream_session_manager set before handoff
 
-**Error Handling**: Chandler errors logged but not retried
+**Error Handling**: UpstreamSessionManager errors logged but not retried
 
 ## Configuration
 
@@ -987,7 +987,7 @@ attemptTollGateDiscovery()
   → tollGateProber.ProbeGatewayWithContext()
   → tollgate_protocol.ValidateAdvertisementFromBytes()
   → discoveryTracker.RecordDiscovery(success/error)
-  → chandler.HandleUpstreamTollgate()
+  → upstream_session_manager.HandleGatewayConnected()
 ```
 
 **Key Operations**:
@@ -997,7 +997,7 @@ attemptTollGateDiscovery()
 4. Validate response
 5. Create UpstreamTollgate
 6. Record result
-7. Hand off to chandler
+7. Hand off to upstream_session_manager
 
 #### periodicUpstreamCheck()
 ```go
@@ -1009,7 +1009,7 @@ func (cs *crowsnest) periodicUpstreamCheck()
 **Runs**: Every 5 seconds in goroutine
 
 **Operations**:
-1. Check if chandler set
+1. Check if upstream_session_manager set
 2. Get active sessions
 3. If no sessions, scan interfaces
 4. Probe each gateway

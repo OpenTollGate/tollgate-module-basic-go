@@ -1,11 +1,11 @@
-# Chandler - Session Management & Upstream Payments
+# UpstreamSessionManager - Session Management & Upstream Payments
 
 ## Overview
 
-The `chandler` module manages upstream TollGate sessions on behalf of the local TollGate device. It acts as the financial decision-maker and session manager for upstream connections, handling payment creation, session tracking, and automatic renewals.
+The `upstream_session_manager` module manages upstream TollGate sessions on behalf of the local TollGate device. It acts as the financial decision-maker and session manager for upstream connections, handling payment creation, session tracking, and automatic renewals.
 
 **Key Responsibilities**:
-- Receive upstream TollGate discoveries from [`crowsnest`](crowsnest.md)
+- Receive upstream TollGate discoveries from [`upstream_detector`](crowsnest.md)
 - Make financial decisions (trust, budget, pricing)
 - Create payment sessions with upstream TollGates
 - Track usage and trigger automatic renewals
@@ -16,15 +16,15 @@ The `chandler` module manages upstream TollGate sessions on behalf of the local 
 
 ```mermaid
 graph TB
-    subgraph chandler
-        CH[Chandler Core]
+    subgraph upstream_session_manager
+        CH[UpstreamSessionManager Core]
         SM[Session Manager]
         PD[Payment Decision Engine]
         UT[Usage Trackers]
     end
     
     subgraph External
-        CS[crowsnest]
+        CS[upstream_detector]
         MR[merchant]
         GW[Upstream Gateway]
         CFG[ConfigManager]
@@ -53,12 +53,12 @@ graph TB
 
 ### 1. Upstream TollGate Discovery Handling
 
-**Trigger**: `crowsnest.HandleUpstreamTollgate()` called with discovered upstream
+**Trigger**: `upstream_detector.HandleGatewayConnected()` called with discovered upstream
 
 **Purpose**: Evaluate upstream TollGate and decide whether to create session
 
 **Flow**:
-1. Receive UpstreamTollgate object from crowsnest
+1. Receive UpstreamTollgate object from upstream_detector
 2. Extract advertisement information:
    - Metric (milliseconds or bytes)
    - Step size
@@ -88,7 +88,7 @@ graph TB
 13. Store session in active sessions map
 
 **State Changes**:
-- New ChandlerSession created
+- New UpstreamSession created
 - Session stored with status "Active"
 - Usage tracker started
 - Merchant wallet balance decreased
@@ -150,7 +150,7 @@ graph TB
 2. Calculate end time: `start + (allotment / 1000)` seconds
 3. Set timer for renewal trigger
 4. Renewal triggers at: `end_time - (renewal_offset / 1000)` seconds
-5. When timer fires, call `chandler.HandleUpcomingRenewal()`
+5. When timer fires, call `upstream_session_manager.HandleRenewal()`
 
 #### Data-Based Tracking (bytes)
 1. Poll upstream gateway for usage information every 1 second
@@ -213,12 +213,12 @@ graph TB
 
 ### 5. Session Disconnection
 
-**Trigger**: `crowsnest.HandleDisconnect()` called for interface
+**Trigger**: `upstream_detector.HandleDisconnect()` called for interface
 
 **Purpose**: Clean up sessions when network connection lost
 
 **Flow**:
-1. Receive interface name from crowsnest
+1. Receive interface name from upstream_detector
 2. Find all sessions on that interface
 3. For each session:
    - Stop usage tracker
@@ -303,14 +303,14 @@ For bytes metric:
 
 ```mermaid
 sequenceDiagram
-    participant CS as crowsnest
-    participant CH as chandler
+    participant CS as upstream_detector
+    participant CH as upstream_session_manager
     participant CFG as ConfigManager
     participant MR as merchant
     participant GW as Upstream Gateway
     participant UT as UsageTracker
     
-    CS->>CH: HandleUpstreamTollgate(upstream)
+    CS->>CH: HandleGatewayConnected(upstream)
     CH->>CH: Extract advertisement info
     
     CH->>CFG: Get trust policy
@@ -359,7 +359,7 @@ sequenceDiagram
     CH->>CH: Validate session event
     CH->>CH: Extract allotment
     
-    CH->>CH: Create ChandlerSession
+    CH->>CH: Create UpstreamSession
     CH->>UT: Create usage tracker
     UT->>UT: Start monitoring
     CH->>CH: Store session (Active)
@@ -374,7 +374,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant UT as UsageTracker
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant CFG as ConfigManager
     participant MR as merchant
     participant GW as Upstream Gateway
@@ -424,8 +424,8 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant CS as crowsnest
-    participant CH as chandler
+    participant CS as upstream_detector
+    participant CH as upstream_session_manager
     participant UT as UsageTracker
     participant SM as SessionsMap
     
@@ -464,7 +464,7 @@ sequenceDiagram
 
 | Event | Trigger | Data | Purpose |
 |-------|---------|------|---------|
-| `Start()` | Session created | session, chandler | Begin usage monitoring |
+| `Start()` | Session created | session, upstream_session_manager | Begin usage monitoring |
 | `SessionChanged()` | Session renewed | updated session | Update tracking limits |
 | `Stop()` | Session paused/expired | - | Stop monitoring |
 
@@ -485,13 +485,13 @@ sequenceDiagram
 
 ### Issue 1: Session Creation Failure with No Retry
 
-**Scenario**: Chandler rejects upstream due to temporary condition (insufficient balance, budget)
+**Scenario**: UpstreamSessionManager rejects upstream due to temporary condition (insufficient balance, budget)
 
 **Root Cause**:
 - Balance temporarily low (payout routine running)
 - Budget constraints temporarily exceeded
 - Network error during payment
-- No retry mechanism in chandler
+- No retry mechanism in upstream_session_manager
 - Crowsnest marks discovery as "success" (advertisement was valid)
 
 **Current Behavior**:
@@ -507,8 +507,8 @@ sequenceDiagram
 # Check crowsnest logs
 logread | grep "Successfully handed off"  # Present
 
-# Check chandler logs
-logread | grep chandler | grep -i error
+# Check upstream_session_manager logs
+logread | grep upstream_session_manager | grep -i error
 # Shows: "Insufficient funds" or "Budget constraints not met"
 
 # Check sessions
@@ -519,7 +519,7 @@ ip link show wlan0  # UP
 ```
 
 **Potential Fixes**:
-1. Implement retry mechanism in chandler with exponential backoff
+1. Implement retry mechanism in upstream_session_manager with exponential backoff
 2. Add session creation monitoring
 3. Separate discovery success from session creation success
 4. Add manual retry trigger
@@ -527,8 +527,8 @@ ip link show wlan0  # UP
 
 **Recommended Fix**:
 ```go
-// Add retry logic in chandler
-func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
+// Add retry logic in upstream_session_manager
+func (c *UpstreamSessionManager) HandleGatewayConnected(upstream *UpstreamTollgate) error {
     maxRetries := 3
     for attempt := 0; attempt < maxRetries; attempt++ {
         err := c.createSession(upstream)
@@ -547,30 +547,30 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 
 ### Issue 2: Race Condition with Merchant Payout
 
-**Scenario**: Merchant payout drains wallet while chandler tries to create payment
+**Scenario**: Merchant payout drains wallet while upstream_session_manager tries to create payment
 
 **Root Cause**:
 - Merchant payout runs every 1 minute
-- Chandler checks balance before payment
+- UpstreamSessionManager checks balance before payment
 - Payout happens between check and payment creation
 - No locking or coordination
 - Payment creation fails with "insufficient funds"
 
 **Current Behavior**:
-- Chandler: `GetBalanceByMint()` returns sufficient balance
+- UpstreamSessionManager: `GetBalanceByMint()` returns sufficient balance
 - Merchant: Payout drains wallet
-- Chandler: `CreatePaymentToken()` fails
+- UpstreamSessionManager: `CreatePaymentToken()` fails
 - Session creation fails
 - No retry
 
 **Detection**:
 ```bash
 # Check timing in logs
-logread | grep -E "(chandler|merchant)" | grep -E "(balance|payout)"
+logread | grep -E "(upstream_session_manager|merchant)" | grep -E "(balance|payout)"
 
-# Chandler shows balance check succeeded
+# UpstreamSessionManager shows balance check succeeded
 # Merchant shows payout completed
-# Chandler shows payment creation failed
+# UpstreamSessionManager shows payment creation failed
 # Timestamps show payout between check and payment
 ```
 
@@ -590,8 +590,8 @@ func (m *Merchant) GetAvailableBalance(mintURL string) uint64 {
     return total - reserved
 }
 
-// In chandler, reserve funds before payment
-func (c *Chandler) createPayment() error {
+// In upstream_session_manager, reserve funds before payment
+func (c *UpstreamSessionManager) createPayment() error {
     amount := calculateAmount()
     c.merchant.ReserveFunds(mintURL, amount)
     defer c.merchant.ReleaseFunds(mintURL, amount)
@@ -645,7 +645,7 @@ renewal_thresholds: [0.5, 0.8, 0.9]
 // In usage tracker
 for _, threshold := range thresholds {
     if usage >= allotment * threshold {
-        err := chandler.HandleUpcomingRenewal()
+        err := upstream_session_manager.HandleRenewal()
         if err == nil {
             break // Success, stop trying
         }
@@ -661,13 +661,13 @@ for _, threshold := range thresholds {
 **Root Cause**:
 - Upstream updates advertisement
 - Pricing changes
-- Chandler detects change during renewal
+- UpstreamSessionManager detects change during renewal
 - Logs warning but continues with old pricing
 - May cause renewal failure if pricing incompatible
 
 **Current Behavior**:
 - Renewal triggered
-- Chandler checks advertisement
+- UpstreamSessionManager checks advertisement
 - Detects change (logs warning)
 - Continues with stored pricing option
 - May fail if pricing no longer valid
@@ -758,7 +758,7 @@ tollgate-cli network status  # Shows multiple sessions
 **Recommended Fix**:
 ```go
 // In HandleUpstreamTollgate
-func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
+func (c *UpstreamSessionManager) HandleGatewayConnected(upstream *UpstreamTollgate) error {
     // Check for existing session on this interface
     c.mu.Lock()
     for pubkey, session := range c.sessions {
@@ -782,13 +782,13 @@ func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error {
 - Interface already connected to upstream TollGate
 - May have active session on upstream (from before restart)
 - May have no session (session expired)
-- Chandler has no persistent session storage
+- UpstreamSessionManager has no persistent session storage
 - No way to know session state without checking
 
 **Current Behavior**:
 - Crowsnest discovers upstream (initial scan or periodic check)
-- Hands off to chandler
-- Chandler creates NEW session (new payment)
+- Hands off to upstream_session_manager
+- UpstreamSessionManager creates NEW session (new payment)
 - If old session existed on upstream, it's abandoned (wasted payment)
 - If old session didn't exist, correct behavior
 
@@ -803,7 +803,7 @@ curl http://[gateway_ip]:2121/usage
 # Returns: "1234567/10485760" (session exists!)
 # OR: "-1/-1" (no session)
 
-# But chandler creates new session anyway
+# But upstream_session_manager creates new session anyway
 logread | grep "Session created successfully"
 ```
 
@@ -816,9 +816,9 @@ logread | grep "Session created successfully"
 **Potential Fixes**:
 1. **Check `:2121/usage` before creating session**:
 ```go
-// In chandler.HandleUpstreamTollgate()
+// In upstream_session_manager.HandleGatewayConnected()
 // Before creating payment, check if session exists
-func (c *Chandler) checkExistingSession(upstream *UpstreamTollgate) (*ChandlerSession, error) {
+func (c *UpstreamSessionManager) checkExistingSession(upstream *UpstreamTollgate) (*UpstreamSession, error) {
     url := fmt.Sprintf("http://%s:2121/usage", upstream.GatewayIP)
     resp, err := http.Get(url)
     if err != nil {
@@ -835,7 +835,7 @@ func (c *Chandler) checkExistingSession(upstream *UpstreamTollgate) (*ChandlerSe
         allotment, _ := strconv.ParseUint(parts[1], 10, 64)
         
         // Create session object from existing session
-        session := &ChandlerSession{
+        session := &UpstreamSession{
             UpstreamTollgate: upstream,
             TotalAllotment:   allotment,
             Status:           SessionActive,
@@ -869,21 +869,21 @@ func (c *Chandler) checkExistingSession(upstream *UpstreamTollgate) (*ChandlerSe
 
 ### Issue 9: Advertisement Changes Not Detected During Session
 
-**Scenario**: Upstream changes advertisement (pricing, terms) but chandler uses stale data
+**Scenario**: Upstream changes advertisement but upstream_session_manager uses stale data
 
 **Root Cause**:
 - Advertisement fetched once during discovery
 - Stored in session object
 - Never refreshed during session lifetime
 - Upstream may change pricing, mints, or terms
-- Chandler uses old advertisement for renewals
+- UpstreamSessionManager uses old advertisement for renewals
 
 **Current Behavior**:
 - Advertisement fetched at discovery time
-- Stored in `ChandlerSession.Advertisement`
+- Stored in `UpstreamSession.Advertisement`
 - Used for all renewal decisions
 - If upstream changes advertisement:
-  - Chandler logs warning during renewal
+  - UpstreamSessionManager logs warning during renewal
   - Continues with old pricing
   - May cause renewal failure if incompatible
 
@@ -907,8 +907,8 @@ curl http://[gateway_ip]:2121/  # Current advertisement
 **Potential Fixes**:
 1. **Periodic advertisement polling** (Recommended):
 ```go
-// In chandler or as part of usage tracker
-func (c *Chandler) pollAdvertisement(session *ChandlerSession) {
+// In upstream_session_manager or as part of usage tracker
+func (c *UpstreamSessionManager) pollAdvertisement(session *UpstreamSession) {
     ticker := time.NewTicker(60 * time.Second)
     defer ticker.Stop()
     
@@ -1022,15 +1022,15 @@ logread | grep "Periodic check discovered"  # None
 **Flow**:
 ```
 crowsnest discovers TollGate
-  → chandler.HandleUpstreamTollgate()
+  → upstream_session_manager.HandleGatewayConnected()
     → Session creation
 
 crowsnest detects disconnect
-  → chandler.HandleDisconnect()
+  → upstream_session_manager.HandleDisconnect()
     → Session cleanup
 ```
 
-**Dependency**: Chandler must be set in crowsnest before handoff
+**Dependency**: UpstreamSessionManager must be set in upstream_detector before handoff
 
 ### Relationship with Merchant
 
@@ -1038,16 +1038,16 @@ crowsnest detects disconnect
 
 **Flow**:
 ```
-chandler needs payment
+upstream_session_manager needs payment
   → merchant.CreatePaymentToken()
     → Cashu token returned
 
-chandler checks balance
+upstream_session_manager checks balance
   → merchant.GetBalanceByMint()
     → Balance returned
 ```
 
-**Dependency**: Merchant must be initialized before chandler
+**Dependency**: Merchant must be initialized before upstream_session_manager
 
 ### Relationship with Usage Trackers
 
@@ -1055,28 +1055,28 @@ chandler checks balance
 
 **Flow**:
 ```
-chandler creates session
-  → chandler.createUsageTracker()
+upstream_session_manager creates session
+  → upstream_session_manager.createUsageTracker()
     → tracker.Start()
 
 tracker detects threshold
-  → chandler.HandleUpcomingRenewal()
+  → upstream_session_manager.HandleRenewal()
     → Renewal process
 
-chandler renews session
+upstream_session_manager renews session
   → tracker.SessionChanged()
     → Update tracking
 ```
 
-**Dependency**: Trackers depend on chandler for renewal
+**Dependency**: Trackers depend on upstream_session_manager for renewal
 
 ## Configuration
 
-### Chandler Config
+### UpstreamSessionManager Config
 
 ```json
 {
-  "chandler": {
+  "upstream_session_manager": {
     "max_price_per_millisecond": 0.002777777778,
     "max_price_per_byte": 0.00003725782414,
     "trust": {
@@ -1108,7 +1108,7 @@ chandler renews session
 
 #### HandleUpstreamTollgate()
 ```go
-func (c *Chandler) HandleUpstreamTollgate(upstream *UpstreamTollgate) error
+func (c *UpstreamSessionManager) HandleGatewayConnected(upstream *UpstreamTollgate) error
 ```
 
 **Purpose**: Main session creation logic
@@ -1132,7 +1132,7 @@ HandleUpstreamTollgate()
 
 #### HandleUpcomingRenewal()
 ```go
-func (c *Chandler) HandleUpcomingRenewal(upstreamPubkey string, currentUsage uint64) error
+func (c *UpstreamSessionManager) HandleRenewal(upstreamPubkey string, currentUsage uint64) error
 ```
 
 **Purpose**: Process renewal request from usage tracker
@@ -1152,7 +1152,7 @@ HandleUpcomingRenewal()
 
 #### createAndSendPayment()
 ```go
-func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *PaymentProposal) (*nostr.Event, error)
+func (c *UpstreamSessionManager) createAndSendPayment(session *UpstreamSession, proposal *PaymentProposal) (*nostr.Event, error)
 ```
 
 **Purpose**: Create payment event and send to upstream
@@ -1169,9 +1169,9 @@ func (c *Chandler) createAndSendPayment(session *ChandlerSession, proposal *Paym
 
 ### Data Structures
 
-#### ChandlerSession
+#### UpstreamSession
 ```go
-type ChandlerSession struct {
+type UpstreamSession struct {
     UpstreamTollgate   *UpstreamTollgate
     CustomerPrivateKey string
     Advertisement      *nostr.Event

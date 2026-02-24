@@ -1,4 +1,4 @@
-package chandler
+package upstream_session_manager
 
 import (
 	"fmt"

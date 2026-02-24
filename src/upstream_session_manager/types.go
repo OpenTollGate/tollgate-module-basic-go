@@ -1,4 +1,4 @@
-package chandler
+package upstream_session_manager
 
 import (
 	"context"
@@ -32,8 +32,8 @@ type KnownGateway struct {
 	LastCheckError error
 }
 
-// ChandlerSession represents an active session with an upstream TollGate
-type ChandlerSession struct {
+// UpstreamSessionManagerSession represents an active session with an upstream TollGate
+type UpstreamSessionManagerSession struct {
 	// Original upstream tollgate object (contains all network info)
 	UpstreamTollgate *UpstreamTollgate // Original upstream tollgate discovery object
 
@@ -84,8 +84,8 @@ type PaymentProposal struct {
 	EstimatedAllotment uint64                           // Expected allotment
 }
 
-// ChandlerInterface defines the interface for the chandler module
-type ChandlerInterface interface {
+// UpstreamSessionManagerInterface defines the interface for the upstream_session_manager module
+type UpstreamSessionManagerInterface interface {
 	// HandleGatewayConnected is called when UpstreamDetector discovers a gateway
 	HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error
 
@@ -102,7 +102,7 @@ type ChandlerInterface interface {
 // UsageTrackerInterface defines the interface for usage tracking
 type UsageTrackerInterface interface {
 	// Start monitoring usage for the given session
-	Start(session *ChandlerSession, chandler ChandlerInterface) error
+	Start(session *UpstreamSessionManagerSession, usm UpstreamSessionManagerInterface) error
 
 	// Stop monitoring and cleanup
 	Stop() error
@@ -117,7 +117,7 @@ type UsageTrackerInterface interface {
 	SetRenewalOffset(offset uint64) error
 
 	// sessionChanged is called when the session is updated
-	SessionChanged(session *ChandlerSession) error
+	SessionChanged(session *UpstreamSessionManagerSession) error
 }
 
 // TollGateProber defines the interface for probing TollGate advertisements
@@ -130,7 +130,7 @@ type TollGateProber interface {
 // TimeUsageTracker tracks time-based usage
 type TimeUsageTracker struct {
 	upstreamPubkey   string
-	chandler         ChandlerInterface
+	usm              UpstreamSessionManagerInterface
 	startTime        time.Time
 	pausedTime       time.Duration
 	renewalOffset    uint64
@@ -144,7 +144,7 @@ type TimeUsageTracker struct {
 // DataUsageTracker tracks data-based usage
 type DataUsageTracker struct {
 	upstreamPubkey    string
-	chandler          ChandlerInterface
+	usm               UpstreamSessionManagerInterface
 	interfaceName     string
 	startBytes        uint64
 	currentBytes      uint64
@@ -165,8 +165,8 @@ type DataUsageTracker struct {
 	lastRenewalAttempt time.Time // Prevents renewal storm
 }
 
-// ChandlerError represents errors specific to the chandler module
-type ChandlerError struct {
+// UpstreamSessionManagerError represents errors specific to the upstream_session_manager module
+type UpstreamSessionManagerError struct {
 	Type           ErrorType
 	Code           string
 	Message        string
@@ -175,7 +175,7 @@ type ChandlerError struct {
 	Context        map[string]interface{}
 }
 
-// ErrorType represents the type of chandler error
+// ErrorType represents the type of upstream_session_manager error
 type ErrorType int
 
 const (
@@ -187,7 +187,7 @@ const (
 	ErrorTypeUsageTracking
 )
 
-func (e *ChandlerError) Error() string {
+func (e *UpstreamSessionManagerError) Error() string {
 	if e.Cause != nil {
 		return e.Message + ": " + e.Cause.Error()
 	}

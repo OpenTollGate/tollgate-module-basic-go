@@ -341,7 +341,7 @@ iwinfo wlan0 info  # Shows connected to TollGate-X-Y
 # Check crowsnest logs
 logread | grep crowsnest  # No "TollGate advertisement found" message
 
-# Check chandler sessions
+# Check upstream_session_manager sessions
 tollgate-cli network status  # No active upstream session
 ```
 
@@ -491,7 +491,7 @@ wireless_gateway_manager connects to WiFi
   → Triggers netlink InterfaceUp event
     → crowsnest detects event
       → crowsnest probes gateway
-        → crowsnest hands off to chandler
+        → crowsnest hands off to upstream_session_manager
 ```
 
 **Gap**: No direct communication, relies on system events

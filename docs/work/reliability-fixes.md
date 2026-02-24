@@ -25,7 +25,7 @@ This document outlines architectural improvements and bug fixes to address relia
 **Files to Update**:
 - `src/crowsnest/*.go` → `src/upstream_detector/*.go`
 - `src/main.go` (imports and initialization)
-- `src/chandler/chandler.go` (imports)
+- `src/upstream_session_manager/upstream_session_manager.go` (imports)
 - `go.mod` files
 - Configuration files
 - All documentation
@@ -49,14 +49,14 @@ This document outlines architectural improvements and bug fixes to address relia
 }
 ```
 
-### 2. Move Advertisement Detection from `upstream_detector` to `chandler`
+### 2. Move Advertisement Detection from `upstream_detector` to `upstream_session_manager`
 
 **Rationale**:
 - Cleaner separation of concerns
 - `upstream_detector` becomes purely network event reporter
-- `chandler` owns all upstream connection decisions
-- Enables better retry logic in chandler
-- Supports advertisement polling naturally in chandler
+- `upstream_session_manager` owns all upstream connection decisions
+- Enables better retry logic in upstream_session_manager
+- Supports advertisement polling naturally in upstream_session_manager
 - Simplifies session recovery (check usage + fetch ad in one place)
 
 **Current Flow**:
@@ -65,9 +65,9 @@ upstream_detector:
   1. Detect network event
   2. Probe gateway :2121/
   3. Validate advertisement
-  4. Call chandler.HandleUpstreamTollgate(upstream)
+  4. Call upstream_session_manager.HandleGatewayConnected(upstream)
 
-chandler:
+upstream_session_manager:
   5. Receive validated upstream
   6. Make session decisions
   7. Create payment
@@ -106,7 +106,7 @@ upstream_session_manager:
 - Simplify to just gateway IP detection and reporting
 - New interface: `upstream_session_manager.HandleGatewayDiscovered(interfaceName, macAddress, gatewayIP string)`
 
-#### In `upstream_session_manager` (renamed from chandler):
+#### In `upstream_session_manager`:
 - Add `TollGateProber` component (move from upstream_detector)
 - Add advertisement validation logic
 - Add `HandleGatewayDiscovered()` method (main entry point)
@@ -156,7 +156,7 @@ func (u *UpstreamSessionManager) pollGateways() {
 - Automatic retry for all failure conditions (trust, budget, balance, etc.)
 - No permanent rejection of gateways
 
-### 3. Rename `chandler` → `upstream_session_manager`
+### 3. ~~Rename `chandler` → `upstream_session_manager`~~ ✅ DONE
 
 **Rationale**:
 - More descriptive name indicating purpose
@@ -174,7 +174,7 @@ func (u *UpstreamSessionManager) pollGateways() {
 - Update CLI commands if any
 
 **Files to Update**:
-- `src/chandler/*.go` → `src/upstream_session_manager/*.go`
+- `src/upstream_session_manager/*.go` ✅
 - `src/main.go` (imports and initialization)
 - `src/upstream_detector/*.go` (imports and interface)
 - `go.mod` files
@@ -183,8 +183,8 @@ func (u *UpstreamSessionManager) pollGateways() {
 **Interface Rename**:
 ```go
 // Before
-type ChandlerInterface interface { ... }
-type ChandlerSession struct { ... }
+type UpstreamSessionManagerInterface interface { ... }
+type UpstreamSession struct { ... }
 
 // After
 type UpstreamSessionManagerInterface interface { ... }
@@ -245,13 +245,13 @@ if err := validateBudget(); err != nil {
 3. **Update Periodic Check Logic**:
 ```go
 // Current
-activeSessions := cs.chandler.GetActiveSessions()
+activeSessions := cs.upstreamSessionManager.GetActiveSessions()
 if len(activeSessions) > 0 {
     return // Includes paused sessions
 }
 
 // New (already correct if we remove paused)
-activeSessions := cs.chandler.GetActiveSessions()
+activeSessions := cs.upstreamSessionManager.GetActiveSessions()
 if len(activeSessions) > 0 {
     return // Only active sessions
 }
@@ -322,7 +322,7 @@ func (u *UpstreamSessionManager) attemptPurchase(gateway *KnownGateway, reason s
 
 **Phase 1: Naming Refactors** (Low Risk)
 1. Rename `crowsnest` → `upstream_detector`
-2. Rename `chandler` → `upstream_session_manager`
+2. ~~Rename `chandler` → `upstream_session_manager`~~ ✅ DONE
 3. Update all references and documentation
 
 **Phase 2: Session State Simplification** (Medium Risk)
@@ -360,7 +360,7 @@ func (u *UpstreamSessionManager) attemptPurchase(gateway *KnownGateway, reason s
 - **500 Internal Server Error**: Server error processing payment
 
 **Documentation Update Needed**:
-- Update chandler.md to show HTTP 400 for rejections
+- Update upstream_session_manager.md to show HTTP 400 for rejections
 - Update sequence diagrams showing payment rejection
 
 ### Session Recovery on Startup
@@ -443,7 +443,7 @@ func (u *UpstreamSessionManager) pollKnownGateways() {
 - Restart TollGate
 - Verify session recovered (not double payment)
 - Change upstream advertisement
-- Verify chandler detects change
+- Verify upstream_session_manager detects change
 
 ## Rollback Plan
 

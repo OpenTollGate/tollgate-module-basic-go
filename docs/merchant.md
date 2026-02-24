@@ -2,14 +2,14 @@
 
 ## Overview
 
-The `merchant` module serves as the wallet provider for the [`chandler`](chandler.md) module when making upstream payments. While its primary purpose is managing downstream customer payments and sessions, this document focuses on its role in supporting upstream TollGate connections.
+The `merchant` module serves as the wallet provider for the [`upstream_session_manager`](upstream_session_manager.md) module when making upstream payments. While its primary purpose is managing downstream customer payments and sessions, this document focuses on its role in supporting upstream TollGate connections.
 
 **Key Responsibilities (Upstream Context)**:
-- Provide wallet functionality for chandler
+- Provide wallet functionality for upstream_session_manager
 - Create Cashu payment tokens for upstream payments
 - Manage wallet balance across multiple mints
 - Handle automatic payouts to configured recipients
-- Coordinate wallet operations with chandler's payment needs
+- Coordinate wallet operations with upstream_session_manager's payment needs
 
 ## Component Architecture
 
@@ -22,7 +22,7 @@ graph TB
     end
     
     subgraph External
-        CH[chandler]
+        CH[upstream_session_manager]
         CFG[ConfigManager]
         MINT[Cashu Mints]
         LN[Lightning Network]
@@ -44,9 +44,9 @@ graph TB
 
 ## Behavioral Flow Descriptions
 
-### 1. Payment Token Creation for Chandler
+### 1. Payment Token Creation for UpstreamSessionManager
 
-**Trigger**: `chandler.CreatePaymentToken()` called during session creation or renewal
+**Trigger**: `upstream_session_manager.CreatePaymentToken()` called during session creation or renewal
 
 **Purpose**: Generate Cashu token for upstream payment
 
@@ -58,7 +58,7 @@ graph TB
    - Select proofs totaling requested amount
    - May include overpayment if exact amount unavailable
    - Create token string
-5. Return token to chandler
+5. Return token to upstream_session_manager
 6. Wallet balance decreased by token amount
 
 **State Changes**:
@@ -73,12 +73,12 @@ graph TB
 
 ### 2. Balance Checking
 
-**Trigger**: Chandler checks balance before payment
+**Trigger**: UpstreamSessionManager checks balance before payment
 
 **Purpose**: Verify sufficient funds available
 
 **Flow**:
-1. Receive mint URL from chandler
+1. Receive mint URL from upstream_session_manager
 2. Query tollwallet for balance at that mint
 3. Return current balance
 4. No state changes (read-only)
@@ -112,7 +112,7 @@ graph TB
 - Tokens melted to Lightning
 - Funds sent to recipients
 
-**Coordination Issue**: Runs independently of chandler payment needs
+**Coordination Issue**: Runs independently of upstream_session_manager payment needs
 
 ### 4. Wallet Funding (Receiving Tokens)
 
@@ -140,7 +140,7 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant MR as merchant
     participant TW as TollWallet
     participant MINT as Cashu Mint
@@ -167,7 +167,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant MR as merchant
     participant TW as TollWallet
     
@@ -222,7 +222,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant CH as chandler
+    participant CH as upstream_session_manager
     participant MR as merchant
     participant TW as TollWallet
     participant PO as Payout Routine
@@ -253,7 +253,7 @@ sequenceDiagram
 
 ## Events Sent to Other Components
 
-### To Chandler (via function returns)
+### To UpstreamSessionManager (via function returns)
 
 | Event | Trigger | Data | Purpose |
 |-------|---------|------|---------|
@@ -261,7 +261,7 @@ sequenceDiagram
 | Balance returned | `GetBalanceByMint()` | Balance amount | Inform available funds |
 | Error returned | Insufficient funds | Error message | Indicate payment impossible |
 
-### From Chandler
+### From UpstreamSessionManager
 
 | Event | Trigger | Data | Purpose |
 |-------|---------|------|---------|
@@ -272,19 +272,19 @@ sequenceDiagram
 
 ### Issue 1: Race Condition Between Payout and Payment
 
-**Scenario**: Payout routine drains wallet while chandler is creating payment
+**Scenario**: Payout routine drains wallet while upstream_session_manager is creating payment
 
 **Root Cause**:
 - Payout runs every 1 minute independently
-- Chandler checks balance, then creates payment
+- UpstreamSessionManager checks balance, then creates payment
 - Payout happens between check and creation
 - No locking or coordination mechanism
 - No fund reservation system
 
 **Current Behavior**:
-- Chandler: Balance check shows sufficient funds
+- UpstreamSessionManager: Balance check shows sufficient funds
 - Payout: Drains wallet to minimum balance
-- Chandler: Payment creation fails
+- UpstreamSessionManager: Payment creation fails
 - Session creation fails
 - No retry mechanism
 
@@ -297,12 +297,12 @@ sequenceDiagram
 **Detection**:
 ```bash
 # Check logs for timing
-logread | grep -E "(chandler|merchant)" | grep -E "(balance|payout)"
+logread | grep -E "(upstream_session_manager|merchant)" | grep -E "(balance|payout)"
 
 # Look for pattern:
-# 1. Chandler balance check: 10000 sats
+# 1. UpstreamSessionManager balance check: 10000 sats
 # 2. Merchant payout: 9000 sats
-# 3. Chandler payment creation: Error insufficient funds
+# 3. UpstreamSessionManager payment creation: Error insufficient funds
 ```
 
 **Potential Fixes**:
@@ -350,8 +350,8 @@ func (m *Merchant) processPayout(...) {
 ```go
 // Check for active sessions before payout
 func (m *Merchant) processPayout(mintConfig) {
-    // Check if chandler has active sessions needing this mint
-    if m.chandler.HasActiveSessionsForMint(mintConfig.URL) {
+    // Check if upstream_session_manager has active sessions needing this mint
+    if m.upstream_session_manager.HasActiveSessionsForMint(mintConfig.URL) {
         // Skip payout or reduce amount
         return
     }
@@ -383,7 +383,7 @@ func (m *Merchant) CreatePaymentToken(...) {
 **Root Cause**:
 - Upstream requires minimum purchase (e.g., 1000 sats)
 - Wallet has 500 sats
-- Chandler checks balance, sees insufficient
+- UpstreamSessionManager checks balance, sees insufficient
 - Session creation fails
 - No notification or alert
 
@@ -396,7 +396,7 @@ func (m *Merchant) CreatePaymentToken(...) {
 
 **Detection**:
 ```bash
-# Check chandler logs
+# Check upstream_session_manager logs
 logread | grep "Insufficient funds for minimum purchase"
 
 # Shows:
@@ -529,22 +529,22 @@ logread | grep "Error during payout"
 
 ## Integration with Other Components
 
-### Relationship with Chandler
+### Relationship with UpstreamSessionManager
 
 **Connection**: Direct function calls (wallet provider)
 
 **Flow**:
 ```
-chandler needs payment
+upstream_session_manager needs payment
   → merchant.CreatePaymentToken()
     → Token created and returned
 
-chandler checks balance
+upstream_session_manager checks balance
   → merchant.GetBalanceByMint()
     → Balance returned
 ```
 
-**Dependency**: Merchant must be initialized before chandler
+**Dependency**: Merchant must be initialized before upstream_session_manager
 
 **Critical Path**: Payment token creation is blocking operation
 
