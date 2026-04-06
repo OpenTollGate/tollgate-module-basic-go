@@ -58,7 +58,8 @@ func SetDataBaseline(macAddress string) error {
 
 // GetDataUsageSinceBaseline returns the data usage since the baseline was set
 // Returns the usage in bytes (downloaded + uploaded since baseline)
-// Returns error if no baseline exists or if client stats cannot be retrieved
+// Returns error if no baseline exists
+// If client stats cannot be retrieved (client not in ndsctl yet), returns 0 usage
 func GetDataUsageSinceBaseline(macAddress string) (usageBytes uint64, err error) {
 	dataBaselinesMutex.RLock()
 	baseline, exists := dataBaselines[macAddress]
@@ -71,7 +72,13 @@ func GetDataUsageSinceBaseline(macAddress string) (usageBytes uint64, err error)
 	// Get current stats
 	currentDownloaded, currentUploaded, err := GetClientStats(macAddress)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get current stats: %w", err)
+		// Client might not be in ndsctl yet (just authorized)
+		// Return 0 usage instead of error - this is expected during session startup
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Debug("Client not in ndsctl yet, returning 0 usage")
+		return 0, nil
 	}
 
 	// Calculate usage since baseline
