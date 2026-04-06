@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"os/exec"
@@ -45,7 +46,10 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		return err
 	}
 
-	// Configure the selected STA interface
+	// Configure the selected STA interface to use wwan network
+	if _, err := c.ExecuteUCI("set", staInterface+".network=wwan"); err != nil {
+		return err
+	}
 	if _, err := c.ExecuteUCI("set", staInterface+".ssid="+gateway.SSID); err != nil {
 		return err
 	}
@@ -91,6 +95,36 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 	// Reload wifi to apply changes
 	if err := c.reloadWifi(); err != nil {
 		return err
+	}
+
+	// Wait a moment for the interface to come up
+	time.Sleep(2 * time.Second)
+
+	// Get the actual device name from wireless status and set it on wwan network
+	deviceName, err := c.getDeviceNameForInterface(staInterface)
+	if err != nil {
+		logger.WithError(err).Warn("Failed to get device name for wwan, network may not come up properly")
+	} else {
+		logger.WithFields(logrus.Fields{
+			"interface": staInterface,
+			"device":    deviceName,
+		}).Info("Setting wwan network device")
+
+		if _, err := c.ExecuteUCI("set", "network.wwan.device="+deviceName); err != nil {
+			logger.WithError(err).Warn("Failed to set wwan device")
+		} else {
+			if _, err := c.ExecuteUCI("commit", "network"); err != nil {
+				logger.WithError(err).Warn("Failed to commit network config")
+			} else {
+				// Bring up the wwan interface
+				cmd := exec.Command("ifup", "wwan")
+				if err := cmd.Run(); err != nil {
+					logger.WithError(err).Warn("Failed to bring up wwan interface")
+				} else {
+					logger.Info("Successfully brought up wwan interface")
+				}
+			}
+		}
 	}
 
 	logger.WithField("ssid", gateway.SSID).Info("Successfully configured connection for gateway")
@@ -267,7 +301,7 @@ func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 		if strings.HasSuffix(line, ".mode='sta'") {
 			section := strings.TrimSuffix(line, ".mode='sta'")
 			staInterfaces = append(staInterfaces, section)
-			
+
 			// Check if we have our specific TollGate interfaces
 			if strings.HasSuffix(section, ".tollgate_sta_2g") {
 				tollgateSTA2GFound = true
@@ -358,37 +392,37 @@ func (c *Connector) createTollgateSTAInterface(interfaceName, device string) err
 		"interface": interfaceName,
 		"device":    device,
 	}).Info("Creating new TollGate STA interface")
-	
+
 	// Create the interface section
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+"=wifi-iface"); err != nil {
 		return err
 	}
-	
+
 	// Set the device
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".device="+device); err != nil {
 		return err
 	}
-	
+
 	// Set mode to sta
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".mode=sta"); err != nil {
 		return err
 	}
-	
+
 	// Set network to wwan
 	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".network=wwan"); err != nil {
 		return err
 	}
-	
-	// Disable by default
-	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".disabled=1"); err != nil {
+
+	// Enable by default so it can be used for scanning
+	if _, err := c.ExecuteUCI("set", "wireless."+interfaceName+".disabled=0"); err != nil {
 		return err
 	}
-	
+
 	// Commit the changes
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -462,7 +496,7 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.network=wwan"); err != nil {
 		return err
 	}
-	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=1"); err != nil {
+	if _, err := c.ExecuteUCI("set", "wireless.tollgate_sta.disabled=0"); err != nil {
 		return err
 	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
@@ -470,8 +504,6 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	}
 	return c.reloadWifi()
 }
-
-
 
 // UpdateLocalAPSSID updates the local AP's SSID to advertise the current price.
 func (c *Connector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
@@ -653,33 +685,33 @@ func stripPricingFromSSID(ssid string) string {
 // Disconnect disconnects from the current network.
 func (c *Connector) Disconnect() error {
 	logger.Info("Disconnecting from current network")
-	
+
 	// Find the currently active STA interface
 	activeInterface, err := c.getActiveSTAInterface()
 	if err != nil {
 		return fmt.Errorf("failed to get active STA interface: %w", err)
 	}
-	
+
 	if activeInterface == "" {
 		logger.Info("No active STA interface found, nothing to disconnect")
 		return nil
 	}
-	
+
 	// Disable the active interface
 	if _, err := c.ExecuteUCI("set", activeInterface+".disabled=1"); err != nil {
 		return fmt.Errorf("failed to disable interface %s: %w", activeInterface, err)
 	}
-	
+
 	// Commit the changes
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return fmt.Errorf("failed to commit wireless config: %w", err)
 	}
-	
+
 	// Reload wifi to apply changes
 	if err := c.reloadWifi(); err != nil {
 		return fmt.Errorf("failed to reload wifi: %w", err)
 	}
-	
+
 	logger.WithField("interface", activeInterface).Info("Successfully disconnected from network")
 	return nil
 }
@@ -688,12 +720,12 @@ func (c *Connector) Disconnect() error {
 // This is a simple implementation that just reloads the wifi.
 func (c *Connector) Reconnect() error {
 	logger.Info("Reconnecting to network")
-	
+
 	// Reload wifi to apply any pending changes or reconnect
 	if err := c.reloadWifi(); err != nil {
 		return fmt.Errorf("failed to reload wifi: %w", err)
 	}
-	
+
 	logger.Info("Reconnect command issued")
 	return nil
 }
@@ -722,7 +754,7 @@ func (c *Connector) getActiveSTAInterface() (string, error) {
 			}
 		}
 	}
-	
+
 	return "", nil // No active STA interface found
 }
 
@@ -732,14 +764,82 @@ func determineBandFromSSID(ssid string) string {
 	if strings.Contains(ssid, "2.4GHz") || strings.Contains(ssid, "2G") {
 		return "2g"
 	}
-	
+
 	// If the SSID contains "5GHz" or "5G", assume it's a 5GHz network
 	if strings.Contains(ssid, "5GHz") || strings.Contains(ssid, "5G") {
 		return "5g"
 	}
-	
+
 	// Default to empty string if we can't determine the band
 	return ""
+}
+
+// getDeviceNameForInterface gets the actual device name (ifname) for a wireless interface section
+// by querying the wireless status via ubus
+func (c *Connector) getDeviceNameForInterface(interfaceSection string) (string, error) {
+	// Extract just the section name from "wireless.tollgate_sta_2g" -> "tollgate_sta_2g"
+	parts := strings.Split(interfaceSection, ".")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid interface section format: %s", interfaceSection)
+	}
+	sectionName := parts[len(parts)-1]
+
+	// Call ubus to get wireless status
+	cmd := exec.Command("ubus", "call", "network.wireless", "status")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to get wireless status: %w, stderr: %s", err, stderr.String())
+	}
+
+	// Parse the JSON output
+	var status map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		return "", fmt.Errorf("failed to parse wireless status JSON: %w", err)
+	}
+
+	// Search through all radios for our interface section
+	for radioName, radioData := range status {
+		radioMap, ok := radioData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		interfaces, ok := radioMap["interfaces"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, iface := range interfaces {
+			ifaceMap, ok := iface.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			section, ok := ifaceMap["section"].(string)
+			if !ok || section != sectionName {
+				continue
+			}
+
+			// Found our interface! Get the ifname
+			ifname, ok := ifaceMap["ifname"].(string)
+			if !ok {
+				return "", fmt.Errorf("interface %s found but has no ifname", sectionName)
+			}
+
+			logger.WithFields(logrus.Fields{
+				"section": sectionName,
+				"radio":   radioName,
+				"ifname":  ifname,
+			}).Debug("Found device name for interface")
+
+			return ifname, nil
+		}
+	}
+
+	return "", fmt.Errorf("interface section %s not found in wireless status", sectionName)
 }
 
 // Ensure Connector implements ConnectorInterface

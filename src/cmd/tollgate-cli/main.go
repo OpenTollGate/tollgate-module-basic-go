@@ -80,7 +80,25 @@ var drainCashuCmd = &cobra.Command{
 	Short: "Drain wallet to Cashu tokens",
 	Long:  "Create Cashu tokens for each mint containing all available balance",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return sendCommandAndDisplay("wallet", []string{"drain", "cashu"}, nil)
+		// Show warning and get confirmation
+		fmt.Println("\n⚠️  WARNING: Draining the wallet will remove ALL funds from the wallet!")
+		fmt.Println("The funds will be converted to Cashu tokens that will be saved to a file.")
+		fmt.Println("Once drained, the tokens are OUT of the wallet and must be stored securely.")
+
+		if !askConfirmation("\nAre you sure you want to drain the wallet?") {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+
+		// Generate filename with timestamp
+		filename := fmt.Sprintf("wallet_drain_%s.txt", time.Now().Format("2006-01-02_15-04-05"))
+
+		flags := map[string]string{
+			"save_to_file": filename,
+		}
+
+		fmt.Printf("\nTokens will be saved to: %s\n\n", filename)
+		return sendCommandAndDisplay("wallet", []string{"drain", "cashu"}, flags)
 	},
 }
 
@@ -481,12 +499,29 @@ func displayWalletDrainResult(data map[string]interface{}) {
 		fmt.Printf("Total drained: %.0f sats\n\n", total)
 	}
 
+	// Check if we need to save to file
+	var filename string
+	if saveToFile, ok := data["save_to_file"].(string); ok && saveToFile != "" {
+		filename = saveToFile
+	}
+
 	if tokensData, ok := data["tokens"].([]interface{}); ok {
 		if len(tokensData) == 0 {
 			fmt.Println("No tokens created (all balances are zero)")
 			return
 		}
 
+		// If filename is specified, save to file
+		if filename != "" {
+			err := saveTokensToFile(filename, tokensData, data)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving tokens to file: %v\n", err)
+			} else {
+				fmt.Printf("✓ Tokens saved to: %s\n\n", filename)
+			}
+		}
+
+		// Display tokens
 		for i, tokenData := range tokensData {
 			if tokenMap, ok := tokenData.(map[string]interface{}); ok {
 				fmt.Printf("Token %d:\n", i+1)
@@ -504,6 +539,65 @@ func displayWalletDrainResult(data map[string]interface{}) {
 			}
 		}
 	}
+}
+
+// saveTokensToFile saves the drained tokens to a file in the current directory
+func saveTokensToFile(filename string, tokensData []interface{}, data map[string]interface{}) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	// Write header
+	_, err = file.WriteString("# TollGate Wallet Drain\n")
+	if err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+	_, err = file.WriteString(fmt.Sprintf("# Date: %s\n", time.Now().Format("2006-01-02 15:04:05")))
+	if err != nil {
+		return fmt.Errorf("failed to write date: %w", err)
+	}
+
+	if total, ok := data["total_sats"].(float64); ok {
+		_, err = file.WriteString(fmt.Sprintf("# Total: %.0f sats across %d tokens\n\n", total, len(tokensData)))
+		if err != nil {
+			return fmt.Errorf("failed to write total: %w", err)
+		}
+	}
+
+	// Write each token
+	for i, tokenData := range tokensData {
+		if tokenMap, ok := tokenData.(map[string]interface{}); ok {
+			_, err = file.WriteString(fmt.Sprintf("## Token %d\n", i+1))
+			if err != nil {
+				return fmt.Errorf("failed to write token header: %w", err)
+			}
+
+			if mintURL, ok := tokenMap["mint_url"].(string); ok {
+				_, err = file.WriteString(fmt.Sprintf("Mint: %s\n", mintURL))
+				if err != nil {
+					return fmt.Errorf("failed to write mint URL: %w", err)
+				}
+			}
+
+			if balance, ok := tokenMap["balance_sats"].(float64); ok {
+				_, err = file.WriteString(fmt.Sprintf("Balance: %.0f sats\n", balance))
+				if err != nil {
+					return fmt.Errorf("failed to write balance: %w", err)
+				}
+			}
+
+			if token, ok := tokenMap["token"].(string); ok {
+				_, err = file.WriteString(fmt.Sprintf("Token: %s\n\n", token))
+				if err != nil {
+					return fmt.Errorf("failed to write token: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func displayMap(m map[string]interface{}, prefix string) {
