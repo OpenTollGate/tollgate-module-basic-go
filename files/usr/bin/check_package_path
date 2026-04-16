@@ -4,9 +4,17 @@ config_path="/etc/tollgate/install.json"
 update_path=$(jq -r '.package_path // ""' "$config_path")
 
 if [ -n "$update_path" ] && [ -f "$update_path" ]; then
-    opkg install "$update_path"
-    if [ $? -eq 0 ]; then
-        jq '.update_path = null' "$config_path" > /tmp/config.json
-        mv /tmp/config.json "$config_path"
-    fi
+	if command -v apk >/dev/null 2>&1; then
+		apk add --allow-untrusted "$update_path"
+	elif command -v opkg >/dev/null 2>&1; then
+		opkg install "$update_path"
+	else
+		echo "No supported package manager found" >&2
+		exit 1
+	fi
+
+	if [ $? -eq 0 ]; then
+		jq '.update_path = null' "$config_path" > /tmp/config.json
+		mv /tmp/config.json "$config_path"
+	fi
 fi
