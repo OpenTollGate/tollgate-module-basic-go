@@ -98,6 +98,10 @@
   "LN001_message": "Could not parse TollGate access options.",
   "LN002_label": "Not enough funds",
   "LN002_message": "The specified amount does not provide enough funds for the selected mint.",
+  "LN003_label": "Invoice request failed",
+  "LN003_message": "Server error. Please reload the page and try again.",
+  "LN004_label": "Payment check failed",
+  "LN004_message": "Could not verify the Lightning payment yet. Please try again.",
 
   "CB001_label": "No permission",
   "CB001_message": "Permission to read from the clipboard was denied. Please allow clipboard access or paste manually.",
