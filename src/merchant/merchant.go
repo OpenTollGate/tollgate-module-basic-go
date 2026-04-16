@@ -34,6 +34,8 @@ type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
 	CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
 	DrainMint(mintURL string) (string, uint64, error)
+	RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error)
+	GetLightningInvoiceStatus(quoteID string) (*LightningQuoteStatus, error)
 	GetAcceptedMints() []config_manager.MintConfig
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
@@ -60,6 +62,8 @@ type Merchant struct {
 	// In-memory session store
 	customerSessions map[string]*CustomerSession
 	sessionMu        sync.RWMutex
+	lightningQuotes  map[string]*lightningQuoteRecord
+	lightningQuoteMu sync.RWMutex
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -105,6 +109,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		tollwallet:       *tollwallet,
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
+		lightningQuotes:  make(map[string]*lightningQuoteRecord),
 	}, nil
 }
 
@@ -330,65 +335,15 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("Amount after swap: %d", amountAfterSwap)
 
-	// Calculate allotment using the configured metric and mint-specific pricing
 	mintURL := paymentCashuToken.Mint()
-	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
-	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "allotment-calculation-failed",
-			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to calculate allotment and failed to create notice: %w", noticeErr)
-		}
-		return noticeEvent, nil
-	}
-
-	// Add allotment to session (creates new session if doesn't exist)
-	metric := m.config.Metric
-	session, err := m.AddAllotment(macAddress, metric, allotment)
+	session, _, err := m.grantAccessForAmount(macAddress, amountAfterSwap, mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
-			fmt.Sprintf("Failed to manage session: %v", err), macAddress)
+			fmt.Sprintf("Failed to grant access: %v", err), macAddress)
 		if noticeErr != nil {
-			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
+			return nil, fmt.Errorf("failed to grant access and failed to create notice: %w", noticeErr)
 		}
 		return noticeEvent, nil
-	}
-
-	// Open the gate based on session type
-	switch session.Metric {
-	case "milliseconds":
-		// Time-based session: open gate until end timestamp
-		endTimestamp := session.StartTime + int64(session.Allotment/1000)
-		err = valve.OpenGateUntil(macAddress, endTimestamp)
-		if err != nil {
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
-				fmt.Sprintf("Failed to open gate: %v", err), macAddress)
-			if noticeErr != nil {
-				return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
-			}
-			return noticeEvent, nil
-		}
-	case "bytes":
-		// Data-based session: only open gate if baseline doesn't exist (new session)
-		// For session extensions, the gate is already open and baseline should not be reset
-		if !valve.HasDataBaseline(macAddress) {
-			err = valve.OpenGate(macAddress)
-			if err != nil {
-				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
-					fmt.Sprintf("Failed to open gate: %v", err), macAddress)
-				if noticeErr != nil {
-					return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
-				}
-				return noticeEvent, nil
-			}
-			// The valve module automatically sets the data baseline
-			log.Printf("Opened gate for new data session: %s", macAddress)
-		} else {
-			log.Printf("Gate already open for %s, extending allotment without resetting baseline", macAddress)
-		}
-		// The merchant will periodically check usage and close the gate when allotment is reached
-	default:
-		return nil, fmt.Errorf("unsupported metric: %s", session.Metric)
 	}
 
 	// Create a success session event (using MAC address as identifier in logs)

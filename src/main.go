@@ -334,6 +334,126 @@ func HandleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type lightningInvoiceRequest struct {
+	Amount  uint64 `json:"amount"`
+	MintURL string `json:"mint_url"`
+	Mint    string `json:"mint"`
+}
+
+type lightningInvoiceResponse struct {
+	Status        int    `json:"status"`
+	Quote         string `json:"quote"`
+	Invoice       string `json:"invoice,omitempty"`
+	MintURL       string `json:"mint_url"`
+	Amount        uint64 `json:"amount"`
+	Expiry        uint64 `json:"expiry,omitempty"`
+	State         string `json:"state"`
+	AccessGranted bool   `json:"access_granted"`
+	Allotment     uint64 `json:"allotment,omitempty"`
+	Metric        string `json:"metric,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+func HandleLightningInvoice(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		handleLightningInvoicePost(w, r)
+	case http.MethodGet:
+		handleLightningInvoiceGet(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
+	var req lightningInvoiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "invalid request body"})
+		return
+	}
+
+	mintURL := strings.TrimSpace(req.MintURL)
+	if mintURL == "" {
+		mintURL = strings.TrimSpace(req.Mint)
+	}
+	if req.Amount == 0 || mintURL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "amount and mint_url are required"})
+		return
+	}
+
+	ip := getIP(r)
+	macAddress, err := getMacAddress(ip)
+	if err != nil {
+		mainLogger.WithError(err).Error("Error getting MAC address for lightning invoice")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to resolve device MAC address"})
+		return
+	}
+
+	invoice, err := merchantInstance.RequestLightningInvoice(macAddress, mintURL, req.Amount)
+	if err != nil {
+		mainLogger.WithError(err).Warn("Failed to create lightning invoice")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(lightningInvoiceResponse{
+		Status:        1,
+		Quote:         invoice.QuoteID,
+		Invoice:       invoice.Invoice,
+		MintURL:       invoice.MintURL,
+		Amount:        invoice.Amount,
+		Expiry:        invoice.Expiry,
+		State:         invoice.State,
+		AccessGranted: false,
+	})
+}
+
+func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
+	quoteID := strings.TrimSpace(r.URL.Query().Get("quote"))
+	if quoteID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "quote is required"})
+		return
+	}
+
+	status, err := merchantInstance.GetLightningInvoiceStatus(quoteID)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			statusCode = http.StatusNotFound
+		}
+		mainLogger.WithError(err).Warn("Failed to fetch lightning invoice status")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(lightningInvoiceResponse{
+		Status:        1,
+		Quote:         status.QuoteID,
+		MintURL:       status.MintURL,
+		Amount:        status.Amount,
+		State:         status.State,
+		AccessGranted: status.AccessGranted,
+		Allotment:     status.Allotment,
+		Metric:        status.Metric,
+	})
+}
+
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate Core")
@@ -350,6 +470,11 @@ func main() {
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /whoami endpoint")
 		CorsMiddleware(handler)(w, r)
+	})
+
+	http.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /ln-invoice endpoint")
+		CorsMiddleware(HandleLightningInvoice)(w, r)
 	})
 
 	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
