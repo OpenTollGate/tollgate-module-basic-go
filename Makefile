@@ -1,4 +1,5 @@
 PKG_MAKEFILE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+TOLLGATE_LOCAL_SOURCE_ENABLED:=$(if $(filter 1 y yes true,$(strip $(TOLLGATE_LOCAL_SOURCE))),1,)
 
 include $(TOPDIR)/rules.mk
 
@@ -35,7 +36,10 @@ TOLLGATE_GO_BUILD_ENV+=GOMIPS=$(TOLLGATE_GOMIPS)
 endif
 
 # Place conditional checks EARLY - before variables that depend on them
-ifneq ($(TOPDIR),)
+ifeq ($(TOLLGATE_LOCAL_SOURCE_ENABLED),1)
+	# SDK build context using the mounted local working tree.
+	PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
+else ifneq ($(TOPDIR),)
 	# Feed-specific settings (auto-clone from git)
 	PKG_SOURCE_PROTO:=git
 	PKG_SOURCE_URL:=$(TOLLGATE_PKG_SOURCE_URL)
@@ -135,9 +139,20 @@ exit 0
 endef
 
 define Build/Prepare
-	$(call Build/Prepare/Default)
-	echo "DEBUG: Contents of go.mod after prepare:"
-	cat $(PKG_BUILD_DIR)/go.mod
+	$(if $(filter 1,$(TOLLGATE_LOCAL_SOURCE_ENABLED)), \
+		rm -rf $(PKG_BUILD_DIR) && \
+		mkdir -p $(PKG_BUILD_DIR) && \
+		(cd $(PKG_MAKEFILE_DIR) && tar \
+			--exclude='./.git' \
+			--exclude='./build_dir' \
+			--exclude='./staging_dir' \
+			--exclude='./tmp' \
+			--exclude='./dl' \
+			--exclude='./bin' \
+			-cf - .) | (cd $(PKG_BUILD_DIR) && tar -xf -), \
+		$(call Build/Prepare/Default))
+	echo "DEBUG: Contents of src/go.mod after prepare:"
+	cat $(PKG_BUILD_DIR)/src/go.mod
 endef
 
 define Build/Configure
@@ -147,16 +162,16 @@ define Build/Compile
 	# Set build variables
 	$(eval BUILD_TIME=$(shell date -u '+%Y-%m-%d %H:%M:%S UTC'))
 	# Prefer the original version string for binary metadata, even if apk packaging needs a sanitized package version.
-	$(eval GIT_COMMIT=$(shell printf '%s\n' "$(TOLLGATE_DISPLAY_VERSION)" | grep -oE '[a-f0-9]{7}$$' || printf '%s\n' "$(PKG_SOURCE_VERSION)" | grep -oE '^[a-f0-9]{7}' || echo "unknown"))
+	$(eval GIT_COMMIT=$(shell printf '%s\n' "$(TOLLGATE_DISPLAY_VERSION)" | grep -oE '[a-f0-9]{7}$$' || printf '%s\n' "$(PKG_SOURCE_VERSION)" | grep -oE '^[a-f0-9]{7}' || git -C "$(PKG_MAKEFILE_DIR)" rev-parse --short HEAD 2>/dev/null || echo "unknown"))
 	$(eval VERSION_LDFLAGS=-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$(TOLLGATE_DISPLAY_VERSION)' \
 		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$(GIT_COMMIT)' \
 		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$(BUILD_TIME)')
 	
-	cd $(PKG_BUILD_DIR) && \
+	cd $(PKG_BUILD_DIR)/src && \
 	echo "DEBUG: TargetArch=$(ARCH) PackageArch=$(ARCH_PACKAGES) GoArch=$(TOLLGATE_GOARCH) GoMips=$(TOLLGATE_GOMIPS)" && \
 	echo "DEBUG: PackageVersion=$(PKG_VERSION) DisplayVersion=$(TOLLGATE_DISPLAY_VERSION) Commit=$(GIT_COMMIT) BuildTime=$(BUILD_TIME)" && \
 	env $(TOLLGATE_GO_BUILD_ENV) \
-	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w $(VERSION_LDFLAGS)" main.go
+	go build -o ../$(PKG_NAME) -trimpath -ldflags="-s -w $(VERSION_LDFLAGS)" main.go
 	
 	# Build CLI tool
 	cd $(PKG_BUILD_DIR)/src/cmd/tollgate-cli && \
