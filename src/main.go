@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -354,6 +355,96 @@ type lightningInvoiceResponse struct {
 	Error         string `json:"error,omitempty"`
 }
 
+type balanceResponse struct {
+	Status        int    `json:"status"`
+	SessionActive bool   `json:"session_active"`
+	Metric        string `json:"metric,omitempty"`
+	Usage         uint64 `json:"usage"`
+	Allotment     uint64 `json:"allotment"`
+	Remaining     uint64 `json:"remaining"`
+	StartTime     int64  `json:"start_time,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+func parseUsageString(usage string) (uint64, uint64, error) {
+	parts := strings.Split(strings.TrimSpace(usage), "/")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid usage format: %s", usage)
+	}
+
+	used, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid usage value: %w", err)
+	}
+
+	allotment, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid allotment value: %w", err)
+	}
+
+	return used, allotment, nil
+}
+
+func HandleBalance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	ip := getIP(r)
+	macAddress, err := getMacAddress(ip)
+	if err != nil {
+		mainLogger.WithError(err).Error("Error getting MAC address for /balance")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: "failed to resolve device MAC address"})
+		return
+	}
+
+	session, err := merchantInstance.GetSession(macAddress)
+	if err != nil || session == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		return
+	}
+
+	usage, err := merchantInstance.GetUsage(macAddress)
+	if err != nil {
+		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).Error("Error getting balance usage")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: err.Error()})
+		return
+	}
+
+	used, allotment, err := parseUsageString(usage)
+	if err != nil {
+		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "usage": usage, "error": err}).Error("Error parsing usage string")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: err.Error()})
+		return
+	}
+
+	remaining := uint64(0)
+	if allotment > used {
+		remaining = allotment - used
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(balanceResponse{
+		Status:        1,
+		SessionActive: true,
+		Metric:        session.Metric,
+		Usage:         used,
+		Allotment:     allotment,
+		Remaining:     remaining,
+		StartTime:     session.StartTime,
+	})
+}
+
 func HandleLightningInvoice(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -504,6 +595,11 @@ func main() {
 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, usageStr)
+	})
+
+	http.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /balance endpoint")
+		CorsMiddleware(HandleBalance)(w, r)
 	})
 
 	mainLogger.Info("Starting HTTP server on all interfaces...")
