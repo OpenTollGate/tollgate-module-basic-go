@@ -6,14 +6,16 @@ update_path=$(jq -r '.package_path // ""' "$config_path")
 if [ -n "$update_path" ] && [ -f "$update_path" ]; then
 	if command -v apk >/dev/null 2>&1; then
 		apk add --allow-untrusted "$update_path"
+		rc=$?
 	elif command -v opkg >/dev/null 2>&1; then
 		opkg install "$update_path"
+		rc=$?
 	else
 		echo "No supported package manager found" >&2
 		exit 1
 	fi
 
-	if [ $? -eq 0 ]; then
+	if [ "$rc" -eq 0 ]; then
 		jq '.update_path = null' "$config_path" > /tmp/config.json
 		mv /tmp/config.json "$config_path"
 	fi
