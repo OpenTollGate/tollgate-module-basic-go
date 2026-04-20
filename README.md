@@ -22,7 +22,10 @@ automatically.
   authorizes MACs
 
 Wire protocol docs are under
-[reference-material/protocol/](reference-material/protocol/).
+[docs/protocol/](docs/protocol/). The pre-built captive-portal site
+that ships in [files/tollgate-captive-portal-site/](files/tollgate-captive-portal-site/)
+is generated from
+[OpenTollGate/tollgate-captive-portal-site](https://github.com/OpenTollGate/tollgate-captive-portal-site).
 
 ## Feature highlights
 
@@ -32,8 +35,6 @@ Wire protocol docs are under
 - Upstream autopay — a TollGate can detect an upstream TollGate and
   purchase access on your behalf while reselling to its own customers
   (reseller mode).
-- Auto-update (Janitor) over Nostr, with architecture-specific packages.
-- Optional "bragging" announcements of sales on Nostr relays.
 - Per-mint pricing, trust allow/blocklists, configurable session
   increments and renewal thresholds.
 
@@ -46,14 +47,12 @@ Source lives under [src/](src/). Go tooling runs from there
 |---|---|
 | [merchant](src/merchant/) | Prices advertisements, validates incoming Cashu payments, and hands off started sessions to the session manager. Also drives Lightning payouts. See [docs/merchant.md](docs/merchant.md). |
 | [upstream_session_manager](src/upstream_session_manager/) | Owns the customer session lifecycle on this router — creates usage trackers (time or bytes), instructs the Valve when to open/close, handles renewal near limit. Formerly the `chandler` package. See [docs/upstream_session_manager.md](docs/upstream_session_manager.md). |
-| [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. See [docs/crowsnest.md](docs/crowsnest.md) and [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md). |
+| [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. The cross-component flow is documented under "Cross-component flow" in [docs/upstream_session_manager.md](docs/upstream_session_manager.md). |
 | [wireless_gateway_manager](src/wireless_gateway_manager/) | Wi-Fi gateway selection, connection/reconnection, scanning, reseller-mode network orchestration. See [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md). |
 | [valve](src/valve/) | Thin wrapper over `ndsctl` that opens/closes gates and authorizes/deauthorizes MACs. |
-| [janitor](src/janitor/) | Listens on Nostr for update events, downloads and verifies architecture-matched packages. |
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [relay](src/relay/) | Embedded Nostr relay for local pub/sub. |
 | [cli](src/cli/) | `tollgate` CLI for `status`, `start`/`stop`/`restart`, `logs`, `version`. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
@@ -73,8 +72,8 @@ opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
 
 For local packaging experiments there is a developer helper
-[build-sdk-apk.sh](build-sdk-apk.sh) that wraps the `openwrt/sdk` Docker
-image.
+[scripts/build-sdk-apk.sh](scripts/build-sdk-apk.sh) that wraps the
+`openwrt/sdk` Docker image.
 
 ## Configuration
 
@@ -88,11 +87,6 @@ The current schema version is **`v0.0.7`**. An abridged example:
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
-  "relays": [
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://nostr.mom"
-  ],
   "show_setup": true,
   "reseller_mode": false,
   "accepted_mints": [
@@ -188,18 +182,9 @@ See [tests/README.md](tests/README.md) for how to wire up the test fleet.
 Design and protocol docs live under [docs/](docs/):
 
 - [docs/merchant.md](docs/merchant.md)
-- [docs/upstream_session_manager.md](docs/upstream_session_manager.md)
-- [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md)
+- [docs/upstream_session_manager.md](docs/upstream_session_manager.md) — module internals + end-to-end cross-component flow
 - [docs/data-session-management.md](docs/data-session-management.md)
 - [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
-- [docs/crowsnest.md](docs/crowsnest.md)
-
-Module-level HLDDs/LLDDs (where they exist) sit next to their code:
-[src/janitor/HLDD.md](src/janitor/HLDD.md),
-[src/config_manager/HLDD.md](src/config_manager/HLDD.md),
-[src/config_manager/LLDD.md](src/config_manager/LLDD.md).
-
-Work-in-progress notes are under [docs/work/](docs/work/).
 
 ## License
 

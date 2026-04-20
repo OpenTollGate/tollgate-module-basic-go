@@ -149,13 +149,6 @@ uci_safe_set firewall tollgate_in proto 'tcp'
 uci_safe_set firewall tollgate_in dest_port '2121'
 uci_safe_set firewall tollgate_in target 'ACCEPT'
 
-uci set firewall.relay_in='rule'
-uci_safe_set firewall relay_in name 'Allow-Relay-In'
-uci_safe_set firewall relay_in src 'lan'
-uci_safe_set firewall relay_in proto 'tcp'
-uci_safe_set firewall relay_in dest_port '4242'
-uci_safe_set firewall relay_in target 'ACCEPT'
-
 uci set firewall.private_zone='zone'
 uci_safe_set firewall private_zone name 'private'
 uci_safe_set firewall private_zone network 'private'

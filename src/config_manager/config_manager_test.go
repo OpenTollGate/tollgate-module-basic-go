@@ -1,29 +1,11 @@
 package config_manager
 
 import (
-	"bytes"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/nbd-wtf/go-nostr"
 )
-
-// Helper functions for comparison
-
-func compareStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
 
 func compareMintConfigs(a, b []MintConfig) bool {
 	if len(a) != len(b) {
@@ -82,7 +64,6 @@ func TestConfigManager(t *testing.T) {
 		},
 		Metric:    "milliseconds",
 		StepSize:  120000,
-		Relays:    []string{"test_relay"},
 		ShowSetup: true,
 	}
 	err = SaveConfig(configFilePath, newConfig)
@@ -98,7 +79,6 @@ func TestConfigManager(t *testing.T) {
 	if !compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
 		loadedConfig.Metric != "milliseconds" ||
 		loadedConfig.StepSize != 120000 ||
-		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		loadedConfig.ShowSetup != newConfig.ShowSetup {
 		t.Errorf("Loaded config does not match saved config")
 	}
@@ -129,42 +109,4 @@ func TestConfigManager(t *testing.T) {
 	if !reflect.DeepEqual(loadedInstallConfig, newInstallConfig) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
-}
-
-func TestGeneratePrivateKey(t *testing.T) {
-	// No file paths are directly used or created by generatePrivateKey,
-	// so no temporary directory setup is needed here.
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr) // Defer resetting output to ensure it happens even if test fails
-
-	privateKey, err := generatePrivateKey()
-	if err != nil {
-		t.Errorf("generatePrivateKey returned error: %v", err)
-	}
-	if privateKey == "" {
-		t.Errorf("generatePrivateKey returned empty private key")
-	}
-	// Note: The original test checked for "Failed to publish event to relay"
-	// but setUsername is now a no-op that logs "setUsername is deprecated".
-	// This test should probably be updated or removed depending on future plans for generatePrivateKey.
-}
-
-func TestSetUsername(t *testing.T) {
-	tempDir := t.TempDir()
-	configFilePath := filepath.Join(tempDir, "test_config.json")
-	installFilePath := filepath.Join(tempDir, "test_install.json")
-	identitiesFilePath := filepath.Join(tempDir, "test_identities.json")
-
-	cm, err := NewConfigManager(configFilePath, installFilePath, identitiesFilePath)
-	if err != nil {
-		t.Fatalf("Failed to create ConfigManager: %v", err)
-	}
-
-	privateKey := nostr.GeneratePrivateKey()
-	err = cm.setUsername(privateKey, "test_c03rad0r")
-	if err != nil {
-		t.Errorf("setUsername returned error: %v", err)
-	}
-	// Additional checks can be added here to verify the username is set correctly on relays
 }

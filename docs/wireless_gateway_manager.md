@@ -7,7 +7,7 @@ The `wireless_gateway_manager` module manages WiFi network operations for TollGa
 1. **Upstream Gateway Management**: Scanning for, selecting, and connecting to upstream TollGate WiFi networks
 2. **Local AP Management**: Updating the local Access Point SSID to advertise pricing based on upstream costs
 
-This module operates independently from other components, triggering network state changes that are detected by [`crowsnest`](crowsnest.md) through netlink events.
+This module operates independently from other components, triggering network state changes that are detected by [`upstream_detector`](../src/upstream_detector/) through netlink events.
 
 ## Component Architecture
 
@@ -303,9 +303,9 @@ The wireless_gateway_manager doesn't directly call other TollGate modules, but t
 
 | Event | Trigger | Detected By | Purpose |
 |-------|---------|-------------|---------|
-| InterfaceDown | WiFi disconnect during reconnection | crowsnest | Cleanup old connection |
-| InterfaceUp | WiFi connection established | crowsnest | Trigger TollGate discovery |
-| AddressAdded | DHCP assigns IP address | crowsnest | Confirm connectivity |
+| InterfaceDown | WiFi disconnect during reconnection | upstream_detector | Cleanup old connection |
+| InterfaceUp | WiFi connection established | upstream_detector | Trigger TollGate discovery |
+| AddressAdded | DHCP assigns IP address | upstream_detector | Confirm connectivity |
 
 ### Configuration Updates
 
@@ -316,15 +316,15 @@ The wireless_gateway_manager doesn't directly call other TollGate modules, but t
 
 ## Edge Cases & State Issues
 
-### Issue 1: Scan Triggers Connection but Crowsnest Misses Event
+### Issue 1: Scan Triggers Connection but upstream_detector Misses Event
 
-**Scenario**: Wireless manager connects to new gateway but crowsnest doesn't detect it
+**Scenario**: Wireless manager connects to new gateway but upstream_detector doesn't detect it
 
 **Root Cause**:
 - WiFi connection happens via UCI/wifi reload
 - If interface was already "up", may not trigger InterfaceUp event
 - Only AddressAdded event might fire
-- Crowsnest might miss or delay processing the event
+- upstream_detector might miss or delay processing the event
 
 **Current Behavior**:
 - Wireless manager successfully connected
@@ -338,8 +338,8 @@ The wireless_gateway_manager doesn't directly call other TollGate modules, but t
 # Check WiFi connection
 iwinfo wlan0 info  # Shows connected to TollGate-X-Y
 
-# Check crowsnest logs
-logread | grep crowsnest  # No "TollGate advertisement found" message
+# Check upstream_detector logs
+logread | grep upstream_detector  # No "TollGate advertisement found" message
 
 # Check upstream_session_manager sessions
 tollgate-cli network status  # No active upstream session
@@ -348,8 +348,8 @@ tollgate-cli network status  # No active upstream session
 **Potential Fixes**:
 1. Add explicit discovery trigger after wireless connection
 2. Implement connection state change monitoring beyond interface up/down
-3. Add forced re-scan in crowsnest after wireless changes
-4. Wireless manager could directly notify crowsnest (breaks independence)
+3. Add forced re-scan in upstream_detector after wireless changes
+4. Wireless manager could directly notify upstream_detector (breaks independence)
 
 ### Issue 2: Rapid Gateway Switching
 
@@ -481,7 +481,7 @@ tollgate-cli network status  # No active upstream session
 
 ## Integration with Other Components
 
-### Relationship with Crowsnest
+### Relationship with upstream_detector
 
 **Connection**: Indirect via netlink events
 
@@ -489,9 +489,9 @@ tollgate-cli network status  # No active upstream session
 ```
 wireless_gateway_manager connects to WiFi
   → Triggers netlink InterfaceUp event
-    → crowsnest detects event
-      → crowsnest probes gateway
-        → crowsnest hands off to upstream_session_manager
+    → upstream_detector detects event
+      → upstream_detector probes gateway
+        → upstream_detector hands off to upstream_session_manager
 ```
 
 **Gap**: No direct communication, relies on system events

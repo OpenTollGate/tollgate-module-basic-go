@@ -7,7 +7,7 @@ TOLLGATE_PKG_SOURCE_URL?=https://github.com/OpenTollGate/tollgate-module-basic-g
 TOLLGATE_DISPLAY_VERSION:=$(if $(strip $(PACKAGE_VERSION)),$(PACKAGE_VERSION),0.0.0)
 
 ifeq ($(CONFIG_USE_APK),y)
-PKG_VERSION:=$(shell sh "$(PKG_MAKEFILE_DIR)normalize-apk-version.sh" "$(TOLLGATE_DISPLAY_VERSION)")
+PKG_VERSION:=$(shell sh "$(PKG_MAKEFILE_DIR)scripts/normalize-apk-version.sh" "$(TOLLGATE_DISPLAY_VERSION)")
 else
 PKG_VERSION:=$(TOLLGATE_DISPLAY_VERSION)
 endif
@@ -46,7 +46,7 @@ else
 	PKG_BUILD_DIR:=$(CURDIR)
 endif
 
-PKG_MAINTAINER:=Your Name <your@email.com>
+PKG_MAINTAINER:=TollGate <tollgate@tollgate.me>
 PKG_LICENSE:=CC0-1.0
 PKG_LICENSE_FILES:=LICENSE
 
@@ -190,11 +190,6 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99a-tollgate-setup $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99b-tollgate-setup-private-ssid $(1)/etc/uci-defaults/
 
-	# UCI defaults for config migration (runs before 99-tollgate-setup)
-	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration $(1)/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration $(1)/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration
-	
 	# UCI defaults for random LAN IP
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
@@ -213,7 +208,6 @@ define Package/$(PKG_NAME)/install
 	
 	# Create required directories
 	$(INSTALL_DIR) $(1)/etc/tollgate
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/known_networks.json $(1)/etc/tollgate/
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 	
 	# TollGate captive portal site files (will be symlinked by nodogsplash)
@@ -246,8 +240,6 @@ FILES_$(PKG_NAME) += \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/99a-tollgate-setup \
 	/etc/uci-defaults/99b-tollgate-setup-private-ssid \
-	/etc/uci-defaults/98-tollgate-config-migration-v0.0.1-to-v0.0.2-migration \
-	/etc/uci-defaults/99-tollgate-config-migration-v0.0.2-to-v0.0.3-migration \
 	/etc/uci-defaults/95-random-lan-ip \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/tollgate/tollgate-captive-portal-site/* \

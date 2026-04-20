@@ -10,6 +10,9 @@ TOLLGATE_PKG_SOURCE_URL="${TOLLGATE_PKG_SOURCE_URL:-}"
 
 mkdir -p "$ARTIFACT_DIR"
 
+# Anchor to repo root so the docker mount is correct regardless of CWD.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 printf 'Using SDK_TAG=%s\n' "$SDK_TAG"
 printf 'Using PACKAGE_VERSION=%s\n' "$PACKAGE_VERSION"
 if [ -n "$TOLLGATE_PKG_SOURCE_URL" ]; then
@@ -17,7 +20,7 @@ if [ -n "$TOLLGATE_PKG_SOURCE_URL" ]; then
 fi
 
 docker run --rm -u root \
-    -v "$PWD":/builder/package/tollgate-wrt \
+    -v "$REPO_ROOT":/builder/package/tollgate-wrt \
     -v "$ARTIFACT_DIR":/artifacts \
     -e PACKAGE_VERSION="$PACKAGE_VERSION" \
     -e TOLLGATE_PKG_SOURCE_URL="$TOLLGATE_PKG_SOURCE_URL" \
