@@ -22,7 +22,10 @@ automatically.
   authorizes MACs
 
 Wire protocol docs are under
-[docs/protocol/](docs/protocol/).
+[docs/protocol/](docs/protocol/). The pre-built captive-portal site
+that ships in [files/tollgate-captive-portal-site/](files/tollgate-captive-portal-site/)
+is generated from
+[OpenTollGate/tollgate-captive-portal-site](https://github.com/OpenTollGate/tollgate-captive-portal-site).
 
 ## Feature highlights
 
