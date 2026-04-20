@@ -3,6 +3,7 @@ name: Build and Publish
 on:
   workflow_dispatch:
   push:
+  pull_request:
 
 ## Add global env vars and matrix configuration for the whole workflow
 env:
