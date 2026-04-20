@@ -22,7 +22,7 @@ automatically.
   authorizes MACs
 
 Wire protocol docs are under
-[reference-material/protocol/](reference-material/protocol/).
+[docs/protocol/](docs/protocol/).
 
 ## Feature highlights
 
