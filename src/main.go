@@ -15,7 +15,6 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/janitor"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/relay"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
@@ -113,24 +112,11 @@ func init() {
 	// Initialize CLI server
 	initCLIServer()
 
-	// Initialize janitor module
-	// initJanitor()
-
 	// Initialize private relay
 	initPrivateRelay()
 
 	// Initialize upstream detector module
 	initUpstreamDetector()
-}
-
-func initJanitor() {
-	janitorInstance, err := janitor.NewJanitor(configManager)
-	if err != nil {
-		mainLogger.WithError(err).Fatal("Failed to create janitor instance")
-	}
-
-	go janitorInstance.ListenForNIP94Events()
-	mainLogger.Info("Janitor module initialized and listening for NIP-94 events")
 }
 
 func initPrivateRelay() {
