@@ -11,7 +11,7 @@ This document describes how a TollGate device discovers, connects to, and mainta
 | Component | Primary Responsibility | Upstream Role |
 |-----------|----------------------|---------------|
 | **wireless_gateway_manager** | WiFi network scanning and connection | Scans for and connects to upstream TollGate WiFi networks (reseller mode) |
-| **crowsnest** | Network change detection and TollGate discovery | Detects new network connections and probes gateways for TollGate advertisements |
+| **upstream_detector** | Network change detection and TollGate discovery | Detects new network connections and probes gateways for TollGate advertisements |
 | **upstream_session_manager** | Upstream session management | Creates and maintains payment sessions with upstream TollGates |
 | **merchant** | Wallet and payment provider | Provides wallet functionality for upstream_session_manager to make upstream payments |
 
@@ -20,7 +20,7 @@ This document describes how a TollGate device discovers, connects to, and mainta
 ```mermaid
 graph TB
     WGM[wireless_gateway_manager]
-    CS[crowsnest]
+    CS[upstream_detector]
     CH[upstream_session_manager]
     MR[merchant]
     NL[Netlink Events]
@@ -50,7 +50,7 @@ graph TB
 sequenceDiagram
     participant WGM as wireless_gateway_manager
     participant OS as Operating System
-    participant CS as crowsnest
+    participant CS as upstream_detector
     participant GW as Upstream Gateway
     participant CH as upstream_session_manager
     participant MR as merchant
@@ -98,7 +98,7 @@ sequenceDiagram
 sequenceDiagram
     participant Cable as Ethernet Cable
     participant OS as Operating System
-    participant CS as crowsnest
+    participant CS as upstream_detector
     participant GW as Upstream Gateway
     participant CH as upstream_session_manager
     participant MR as merchant
@@ -179,7 +179,7 @@ sequenceDiagram
 **Trigger**: Netlink interface events (InterfaceUp, AddressAdded)
 
 **Flow**:
-1. `crowsnest` receives netlink event for interface state change
+1. `upstream_detector` receives netlink event for interface state change
 2. Extracts interface information (name, MAC, IP addresses)
 3. Determines gateway IP for the interface
 4. Checks `discoveryTracker` to prevent duplicate attempts
@@ -196,7 +196,7 @@ sequenceDiagram
 
 ### 3. Session Creation
 
-**Trigger**: `upstream_session_manager.HandleGatewayConnected()` called by crowsnest
+**Trigger**: `upstream_session_manager.HandleGatewayConnected()` called by upstream_detector
 
 **Flow**:
 1. Extract advertisement information (metric, step_size, pricing options)
@@ -252,7 +252,7 @@ sequenceDiagram
 **Trigger**: Netlink InterfaceDown or AddressDeleted event
 
 **Flow**:
-1. `crowsnest` receives interface down event
+1. `upstream_detector` receives interface down event
 2. Cancels any active probes for the interface
 3. Clears discovery tracker for the interface
 4. Calls `upstream_session_manager.HandleDisconnect(interfaceName)`
@@ -318,9 +318,9 @@ sequenceDiagram
 - Clear error discoveries after timeout period
 - Add manual retry trigger
 
-### Issue 3: Wireless Manager and Crowsnest Coordination
+### Issue 3: Wireless Manager and upstream_detector Coordination
 
-**Scenario**: Wireless manager connects to new gateway but crowsnest doesn't detect it
+**Scenario**: Wireless manager connects to new gateway but upstream_detector doesn't detect it
 
 **Possible Causes**:
 - Netlink events not fired
@@ -335,7 +335,7 @@ sequenceDiagram
 
 **Detection**:
 - WiFi connected to TollGate network
-- No crowsnest discovery logs
+- No upstream_detector discovery logs
 - No active session
 
 **Potential Fix Areas**:
@@ -427,7 +427,7 @@ sequenceDiagram
 - UpstreamSessionManager has no persistent session storage
 
 **Current Behavior**:
-- Crowsnest discovers upstream via initial scan
+- upstream_detector discovers upstream via initial scan
 - UpstreamSessionManager creates NEW session (new payment)
 - If old session existed on upstream, it's abandoned (wasted payment)
 - No session recovery mechanism
@@ -495,9 +495,9 @@ curl http://[gateway_ip]:2121/  # Current
 | From | To | Method | Purpose |
 |------|-----|--------|---------|
 | wireless_gateway_manager | (none) | - | Operates independently, triggers netlink events |
-| netlink | crowsnest | Events channel | Network state changes |
-| crowsnest | upstream_session_manager | `HandleUpstreamTollgate()` | New upstream discovered |
-| crowsnest | upstream_session_manager | `HandleDisconnect()` | Interface disconnected |
+| netlink | upstream_detector | Events channel | Network state changes |
+| upstream_detector | upstream_session_manager | `HandleUpstreamTollgate()` | New upstream discovered |
+| upstream_detector | upstream_session_manager | `HandleDisconnect()` | Interface disconnected |
 | upstream_session_manager | merchant | `CreatePaymentToken()` | Request payment token |
 | upstream_session_manager | merchant | `GetBalanceByMint()` | Check available balance |
 | usage_tracker | upstream_session_manager | `HandleUpcomingRenewal()` | Renewal threshold reached |
@@ -506,8 +506,8 @@ curl http://[gateway_ip]:2121/  # Current
 ### Critical Handoff Points
 
 1. **WiFi Connection → Netlink Event**: Wireless manager connects, must trigger netlink
-2. **Netlink Event → Crowsnest Detection**: Event must be received and processed
-3. **Crowsnest Discovery → UpstreamSessionManager Handoff**: Advertisement must be valid and handed off
+2. **Netlink Event → upstream_detector Detection**: Event must be received and processed
+3. **upstream_detector Discovery → UpstreamSessionManager Handoff**: Advertisement must be valid and handed off
 4. **UpstreamSessionManager → Merchant Payment**: Balance must be available and token created
 5. **Payment → Session Creation**: Upstream must accept payment and return session
 6. **Session → Usage Tracking**: Tracker must start and monitor correctly
@@ -516,7 +516,7 @@ curl http://[gateway_ip]:2121/  # Current
 ## References to Other Documents
 
 - **[wireless_gateway_manager.md](wireless_gateway_manager.md)**: Detailed WiFi scanning, gateway selection, and connection logic
-- **[crowsnest.md](crowsnest.md)**: Network monitoring, TollGate discovery, and advertisement validation
+- **[../src/upstream_detector/](../src/upstream_detector/)**: Network monitoring, TollGate discovery, and advertisement validation
 - **[upstream_session_manager.md](upstream_session_manager.md)**: Session management, payment creation, and renewal logic
 - **[merchant.md](merchant.md)**: Wallet management and payment token creation for upstream payments
 
@@ -537,11 +537,11 @@ wireless_gateway_manager.ScanWirelessNetworks()
 
 #### Discovery Path
 ```
-crowsnest.eventLoop()
-  → crowsnest.handleNetworkEvent()
-    → crowsnest.handleInterfaceUp()
-      → crowsnest.attemptTollGateDiscovery()
-        → crowsnest.tollGateProber.ProbeGatewayWithContext()
+upstream_detector.eventLoop()
+  → upstream_detector.handleNetworkEvent()
+    → upstream_detector.handleInterfaceUp()
+      → upstream_detector.attemptTollGateDiscovery()
+        → upstream_detector.tollGateProber.ProbeGatewayWithContext()
         → tollgate_protocol.ValidateAdvertisementFromBytes()
         → upstream_session_manager.HandleGatewayConnected()
 ```

@@ -5,7 +5,7 @@
 The `upstream_session_manager` module manages upstream TollGate sessions on behalf of the local TollGate device. It acts as the financial decision-maker and session manager for upstream connections, handling payment creation, session tracking, and automatic renewals.
 
 **Key Responsibilities**:
-- Receive upstream TollGate discoveries from [`upstream_detector`](crowsnest.md)
+- Receive upstream TollGate discoveries from [`upstream_detector`](../src/upstream_detector/)
 - Make financial decisions (trust, budget, pricing)
 - Create payment sessions with upstream TollGates
 - Track usage and trigger automatic renewals
@@ -474,7 +474,7 @@ sequenceDiagram
 |-------|---------|------|---------|
 | `HandleUpcomingRenewal()` | Threshold reached | pubkey, current usage | Trigger renewal |
 
-### From Crowsnest
+### From upstream_detector
 
 | Event | Trigger | Data | Purpose |
 |-------|---------|------|---------|
@@ -492,7 +492,7 @@ sequenceDiagram
 - Budget constraints temporarily exceeded
 - Network error during payment
 - No retry mechanism in upstream_session_manager
-- Crowsnest marks discovery as "success" (advertisement was valid)
+- upstream_detector marks discovery as "success" (advertisement was valid)
 
 **Current Behavior**:
 - Discovery successful (advertisement valid)
@@ -504,7 +504,7 @@ sequenceDiagram
 
 **Detection**:
 ```bash
-# Check crowsnest logs
+# Check upstream_detector logs
 logread | grep "Successfully handed off"  # Present
 
 # Check upstream_session_manager logs
@@ -786,7 +786,7 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(upstream *UpstreamTollga
 - No way to know session state without checking
 
 **Current Behavior**:
-- Crowsnest discovers upstream (initial scan or periodic check)
+- upstream_detector discovers upstream (initial scan or periodic check)
 - Hands off to upstream_session_manager
 - UpstreamSessionManager creates NEW session (new payment)
 - If old session existed on upstream, it's abandoned (wasted payment)
@@ -1015,17 +1015,17 @@ logread | grep "Periodic check discovered"  # None
 
 ## Integration with Other Components
 
-### Relationship with Crowsnest
+### Relationship with upstream_detector
 
 **Connection**: Direct function calls
 
 **Flow**:
 ```
-crowsnest discovers TollGate
+upstream_detector discovers TollGate
   → upstream_session_manager.HandleGatewayConnected()
     → Session creation
 
-crowsnest detects disconnect
+upstream_detector detects disconnect
   → upstream_session_manager.HandleDisconnect()
     → Session cleanup
 ```
