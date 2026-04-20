@@ -194,11 +194,6 @@ Design and protocol docs live under [docs/](docs/):
 - [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
 - [docs/crowsnest.md](docs/crowsnest.md)
 
-Module-level HLDDs/LLDDs (where they exist) sit next to their code:
-[src/janitor/HLDD.md](src/janitor/HLDD.md),
-[src/config_manager/HLDD.md](src/config_manager/HLDD.md),
-[src/config_manager/LLDD.md](src/config_manager/LLDD.md).
-
 Work-in-progress notes are under [docs/work/](docs/work/).
 
 ## License
