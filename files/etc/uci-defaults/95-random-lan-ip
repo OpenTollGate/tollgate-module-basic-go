@@ -2,14 +2,11 @@
 # TollGate - Generate random LAN IP address on first boot
 
 FLAG_FILE="/etc/config/95-random-lan-ip.done"
-REBOOT_NEEDED=0
 
 # Check if the script has already been executed
 if [ -f "$FLAG_FILE" ]; then
     echo "95-random-lan-ip already executed. Exiting."
     exit 0
-else
-    REBOOT_NEEDED=1
 fi
 
 # Check current LAN IP address
@@ -20,7 +17,6 @@ if [ "$CURRENT_IP" != "192.168.1.1" ]; then
     echo "IP is already randomized to $CURRENT_IP. Exiting."
     # Create flag file even if IP is already randomized, to prevent future runs
     touch "$FLAG_FILE"
-    REBOOT_NEEDED=0 # No reboot needed if IP was already randomized
     exit 0
 fi
 
@@ -55,34 +51,37 @@ uci_safe_set() {
     uci set "$config.$section.$option=$value" >/dev/null 2>&1
 }
 
-# Initialize random seed
-RANDOM=$$$(date +%s)
+# Read an unsigned integer from /dev/urandom. $$ + date-based $RANDOM is
+# nearly identical across devices on first boot (no RTC, no NTP), so we
+# draw entropy from the kernel pool instead.
+rand_u16() {
+    hexdump -n 2 -e '"%u"' /dev/urandom
+}
 
 # Randomly select one of the three private IP ranges:
 # 1: 10.0.0.0/8
 # 2: 172.16.0.0/12
 # 3: 192.168.0.0/16
-RANGE_SELECT=$((RANDOM % 3 + 1))
+RANGE_SELECT=$(( $(rand_u16) % 3 + 1 ))
 
 case $RANGE_SELECT in
     1)
         # 10.0.0.0/8 range
         OCTET1=10
-        # Ensure we actually use the random values
-        OCTET2=$((1 + RANDOM % 254))  # 1-254
-        OCTET3=$((1 + RANDOM % 254))  # 1-254
+        OCTET2=$(( $(rand_u16) % 254 + 1 ))  # 1-254
+        OCTET3=$(( $(rand_u16) % 254 + 1 ))  # 1-254
         ;;
     2)
         # 172.16.0.0/12 range (172.16.x.x - 172.31.x.x)
         OCTET1=172
-        OCTET2=$((RANDOM % 16 + 16))  # 16-31
-        OCTET3=$((RANDOM % 256))
+        OCTET2=$(( $(rand_u16) % 16 + 16 ))  # 16-31
+        OCTET3=$(( $(rand_u16) % 256 ))
         ;;
     3)
         # 192.168.0.0/16 range
         OCTET1=192
         OCTET2=168
-        OCTET3=$((RANDOM % 256))
+        OCTET3=$(( $(rand_u16) % 256 ))
         ;;
 esac
 
@@ -90,7 +89,7 @@ esac
 if [ $OCTET1 -eq 192 ] && [ $OCTET2 -eq 168 ]; then
     # Avoid common values like 0, 1, 100
     while [ $OCTET3 -eq 0 ] || [ $OCTET3 -eq 1 ] || [ $OCTET3 -eq 100 ]; do
-        OCTET3=$((RANDOM % 256))
+        OCTET3=$(( $(rand_u16) % 256 ))
     done
 fi
 
@@ -134,6 +133,7 @@ uci_safe_set network lan broadcast "$BROADCAST"
 # Create flag file to indicate script has been executed
 touch "$FLAG_FILE"
 
-if [ "$REBOOT_NEEDED" -eq 1 ]; then
-    (sleep 5 && reboot) &
-fi
+# No reboot needed: the committed LAN IP is picked up by the
+# `service network reload` at the end of 99b-tollgate-setup-private-ssid.
+# A reboot here previously raced with 99a/99b, killing them mid-run and
+# forcing them to re-execute on the next boot.

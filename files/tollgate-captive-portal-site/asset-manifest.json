@@ -16,7 +16,7 @@
       "locales/en.json"
     ],
     "html": [
-      "404.html"
+      "index.html"
     ],
     "manifest": [
       "manifest.json"
