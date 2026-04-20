@@ -38,16 +38,27 @@ if [ -f "$FLAG_FILE" ]; then
     exit 0
 fi
 
-# Function to check internet connectivity
+# Check WAN status via ubus first (fast, no network I/O). If WAN reports up
+# with a default route, that's proof of L3 reachability — no need to ping
+# 8.8.8.8, which costs 1-5s per attempt and fails when ICMP is blocked.
 check_connectivity() {
-    ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1
-    return $?
+    local logical="${INTERFACE:-wan}"
+    ubus call "network.interface.$logical" status 2>/dev/null | \
+        grep -q '"up": true' || return 1
+    ubus call "network.interface.$logical" status 2>/dev/null | \
+        grep -q '"route"' || return 1
+    return 0
 }
 
-# Wait a bit for the interface to be fully configured
-sleep 5
+# Short poll loop instead of a blanket 5s sleep: as soon as the interface
+# is ready we restart; otherwise we give it up to ~5s before giving up.
+i=0
+while [ $i -lt 5 ]; do
+    check_connectivity && break
+    sleep 1
+    i=$((i + 1))
+done
 
-# Check for connectivity
 if check_connectivity; then
     # Restart the tollgate-wrt service
     /etc/init.d/tollgate-wrt restart

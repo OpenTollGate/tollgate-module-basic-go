@@ -185,17 +185,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
 	
-	# UCI defaults for configuration
+	# UCI defaults (run lexically on first boot)
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99a-tollgate-setup $(1)/etc/uci-defaults/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99b-tollgate-setup-private-ssid $(1)/etc/uci-defaults/
-
-	# UCI defaults for random LAN IP
-	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
-	
-	# UCI defaults for captive portal symlink
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 
 
 	# Keep only TollGate-specific configs
@@ -238,10 +232,9 @@ FILES_$(PKG_NAME) += \
 	/etc/modt/* \
 	/etc/profile \
 	/usr/local/bin/first-login-setup \
-	/etc/uci-defaults/99a-tollgate-setup \
-	/etc/uci-defaults/99b-tollgate-setup-private-ssid \
-	/etc/uci-defaults/95-random-lan-ip \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
+	/etc/uci-defaults/95-random-lan-ip \
+	/etc/uci-defaults/99-tollgate-setup \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \

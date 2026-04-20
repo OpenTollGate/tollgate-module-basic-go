@@ -21,8 +21,8 @@ else
     ln -sf /etc/tollgate/tollgate-captive-portal-site /etc/nodogsplash/htdocs
 fi
 
-# Restart nodogsplash to apply changes
-/etc/init.d/nodogsplash restart 2>/dev/null || true
+# No service restart here: uci-defaults runs before procd starts services,
+# so nodogsplash will pick up the symlink on its first start.
 echo "TollGate NoDogSplash symlink setup completed"
 
 exit 0

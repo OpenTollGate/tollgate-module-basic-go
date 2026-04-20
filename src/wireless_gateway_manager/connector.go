@@ -24,10 +24,8 @@ func (c *Connector) Connect(gateway Gateway, password string) error {
 		"encryption": gateway.Encryption,
 	}).Info("Attempting to connect to gateway")
 
-	// Find an available STA interface to use for the connection
-	// Determine the band from the gateway's SSID
-	band := determineBandFromSSID(gateway.SSID)
-	staInterface, err := c.findAvailableSTAInterface(band)
+	// Find an available STA interface to use for the connection.
+	staInterface, err := c.findAvailableSTAInterface("")
 	if err != nil {
 		return fmt.Errorf("failed to find an available STA interface: %w", err)
 	}
@@ -562,20 +560,17 @@ func (c *Connector) ensureAPInterfacesExist() error {
 	var created bool
 	var baseSSIDName string
 
-	// First, try to find an existing AP to get the base SSID name
+	// Reuse any existing "TollGate-XXXX" SSID already on a radio.
 	for _, radio := range []string{"default_radio0", "default_radio1"} {
 		ssid, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
-		if err == nil {
-			ssid = strings.TrimSpace(ssid)
-			if strings.HasPrefix(ssid, "TollGate-") {
-				parts := strings.Split(ssid, "-")
-				// Extracts "TollGate-XXXX" from "TollGate-XXXX-2.4GHz" or "TollGate-XXXX-5GHz-1"
-				if len(parts) >= 2 {
-					baseSSIDName = strings.Join(parts[0:2], "-") // "TollGate-XXXX"
-					logger.WithField("base_name", baseSSIDName).Info("Found existing AP with base name")
-					break
-				}
-			}
+		if err != nil {
+			continue
+		}
+		ssid = strings.TrimSpace(ssid)
+		if strings.HasPrefix(ssid, "TollGate-") {
+			baseSSIDName = ssid
+			logger.WithField("base_name", baseSSIDName).Info("Found existing AP with base name")
+			break
 		}
 	}
 
@@ -625,12 +620,9 @@ func (c *Connector) ensureAPInterfacesExist() error {
 			return err
 		}
 
-		band := "2.4GHz"
-		if device == "radio1" {
-			band = "5GHz"
-		}
-		defaultSSID := fmt.Sprintf("%s-%s", baseSSIDName, band)
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+defaultSSID); err != nil {
+		// Both radios broadcast the same SSID so clients see one network and
+		// band-steer. Previously we appended "-2.4GHz" / "-5GHz" here.
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+baseSSIDName); err != nil {
 			return err
 		}
 		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".encryption=none"); err != nil {
@@ -756,22 +748,6 @@ func (c *Connector) getActiveSTAInterface() (string, error) {
 	}
 
 	return "", nil // No active STA interface found
-}
-
-// determineBandFromSSID attempts to determine the band (2g or 5g) from the SSID
-func determineBandFromSSID(ssid string) string {
-	// If the SSID contains "2.4GHz" or "2G", assume it's a 2.4GHz network
-	if strings.Contains(ssid, "2.4GHz") || strings.Contains(ssid, "2G") {
-		return "2g"
-	}
-
-	// If the SSID contains "5GHz" or "5G", assume it's a 5GHz network
-	if strings.Contains(ssid, "5GHz") || strings.Contains(ssid, "5G") {
-		return "5g"
-	}
-
-	// Default to empty string if we can't determine the band
-	return ""
 }
 
 // getDeviceNameForInterface gets the actual device name (ifname) for a wireless interface section
