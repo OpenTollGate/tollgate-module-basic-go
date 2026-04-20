@@ -46,7 +46,7 @@ Source lives under [src/](src/). Go tooling runs from there
 |---|---|
 | [merchant](src/merchant/) | Prices advertisements, validates incoming Cashu payments, and hands off started sessions to the session manager. Also drives Lightning payouts. See [docs/merchant.md](docs/merchant.md). |
 | [upstream_session_manager](src/upstream_session_manager/) | Owns the customer session lifecycle on this router — creates usage trackers (time or bytes), instructs the Valve when to open/close, handles renewal near limit. Formerly the `chandler` package. See [docs/upstream_session_manager.md](docs/upstream_session_manager.md). |
-| [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. See [docs/crowsnest.md](docs/crowsnest.md) and [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md). |
+| [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. See [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md). |
 | [wireless_gateway_manager](src/wireless_gateway_manager/) | Wi-Fi gateway selection, connection/reconnection, scanning, reseller-mode network orchestration. See [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md). |
 | [valve](src/valve/) | Thin wrapper over `ndsctl` that opens/closes gates and authorizes/deauthorizes MACs. |
 | [janitor](src/janitor/) | Listens on Nostr for update events, downloads and verifies architecture-matched packages. |
@@ -192,9 +192,6 @@ Design and protocol docs live under [docs/](docs/):
 - [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md)
 - [docs/data-session-management.md](docs/data-session-management.md)
 - [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
-- [docs/crowsnest.md](docs/crowsnest.md)
-
-Work-in-progress notes are under [docs/work/](docs/work/).
 
 ## License
 
