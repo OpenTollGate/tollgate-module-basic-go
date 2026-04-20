@@ -569,7 +569,9 @@ func (c *Connector) ensureAPInterfacesExist() error {
 			ssid = strings.TrimSpace(ssid)
 			if strings.HasPrefix(ssid, "TollGate-") {
 				parts := strings.Split(ssid, "-")
-				// Extracts "TollGate-XXXX" from "TollGate-XXXX-2.4GHz" or "TollGate-XXXX-5GHz-1"
+				// Extract "TollGate-XXXX" from the SSID. Current AP naming is
+				// just "TollGate-XXXX"; legacy firmware used "TollGate-XXXX-2.4GHz"
+				// or "TollGate-XXXX-5GHz-N", so we keep only the first two parts.
 				if len(parts) >= 2 {
 					baseSSIDName = strings.Join(parts[0:2], "-") // "TollGate-XXXX"
 					logger.WithField("base_name", baseSSIDName).Info("Found existing AP with base name")
@@ -625,12 +627,9 @@ func (c *Connector) ensureAPInterfacesExist() error {
 			return err
 		}
 
-		band := "2.4GHz"
-		if device == "radio1" {
-			band = "5GHz"
-		}
-		defaultSSID := fmt.Sprintf("%s-%s", baseSSIDName, band)
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+defaultSSID); err != nil {
+		// Both radios broadcast the same SSID so clients see one network and
+		// band-steer. Previously we appended "-2.4GHz" / "-5GHz" here.
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+baseSSIDName); err != nil {
 			return err
 		}
 		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".encryption=none"); err != nil {
