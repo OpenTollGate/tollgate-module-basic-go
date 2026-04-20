@@ -219,6 +219,13 @@ jobs:
         with:
           path: ${{ env.PACKAGE_NAME }}/
           fetch-depth: 0
+          # On pull_request, actions/checkout defaults to a synthetic merge
+          # commit that only exists on the runner. PKG_SOURCE_VERSION in the
+          # package Makefile captures that SHA via `git rev-parse HEAD` and
+          # the SDK then tries to clone it from the upstream repo — which
+          # 404s. Pin to the PR head SHA, which is fetchable upstream via
+          # refs/pull/<N>/head. Falls back to github.sha on push events.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Initialize
         run: |
