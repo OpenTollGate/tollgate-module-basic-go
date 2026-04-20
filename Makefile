@@ -208,7 +208,6 @@ define Package/$(PKG_NAME)/install
 	
 	# Create required directories
 	$(INSTALL_DIR) $(1)/etc/tollgate
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/etc/tollgate/known_networks.json $(1)/etc/tollgate/
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 	
 	# TollGate captive portal site files (will be symlinked by nodogsplash)
