@@ -1,0 +1,68 @@
+#!/bin/sh
+
+# After a fresh flash the router's clock is set to the firmware build date
+# (by sysfixtime) and stays there until NTP syncs. The wallet can't validate
+# Cashu tokens against a clock that's weeks behind real time, so tollgate-wrt
+# fails to start. We force a blocking NTP sync here, before 95-tollgate-restart
+# runs, so the service comes up with a sane clock on the first WAN ifup.
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+WAN_DEVICE=$(uci -q get network.wan.device)
+if [ -n "$WAN_DEVICE" ] && [ "$DEVICE" = "$WAN_DEVICE" ]; then
+    :
+elif [ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wwan" ]; then
+    :
+else
+    exit 0
+fi
+
+FLAG_FILE="/tmp/tollgate_timesync_done"
+[ -f "$FLAG_FILE" ] && exit 0
+
+# OpenWrt's sysfixtime sets the clock to the newest mtime in /etc at boot,
+# which on a fresh flash is effectively the firmware build date. If the
+# current time is still within ~24h of that build date, NTP hasn't synced
+# yet and the clock is untrustworthy for Cashu token validation.
+#
+# /rom is the read-only squashfs; its files carry the build mtime even after
+# overlay writes change /etc timestamps. Fall back to /etc/banner if /rom
+# isn't present (e.g. in non-squashfs builds).
+BUILD_REF=/rom/etc/banner
+[ -e "$BUILD_REF" ] || BUILD_REF=/etc/banner
+
+NOW=$(date +%s)
+BUILD_TS=$(date -r "$BUILD_REF" +%s 2>/dev/null)
+
+if [ -n "$BUILD_TS" ] && [ "$NOW" -gt $((BUILD_TS + 86400)) ]; then
+    # Clock is at least a day past the build date — sysntpd (or a prior run)
+    # has already moved it forward. No need to force a sync.
+    touch "$FLAG_FILE"
+    exit 0
+fi
+
+# Pull configured NTP servers from UCI, fall back to pool.ntp.org.
+SERVERS=$(uci -q get system.ntp.server | tr ' ' '\n' | grep -v '^$')
+[ -z "$SERVERS" ] && SERVERS="0.openwrt.pool.ntp.org 1.openwrt.pool.ntp.org"
+
+NTP_ARGS=""
+for s in $SERVERS; do
+    NTP_ARGS="$NTP_ARGS -p $s"
+done
+
+# -q: exit after setting the clock; -n: don't daemonize.
+# Give it up to ~15s across 3 attempts — after that give up and let the
+# background sysntpd keep trying so we don't block the hotplug pipeline.
+i=0
+while [ $i -lt 3 ]; do
+    if ntpd -q -n -N $NTP_ARGS >/dev/null 2>&1; then
+        logger "tollgate-timesync: clock synced to $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        touch "$FLAG_FILE"
+        exit 0
+    fi
+    i=$((i + 1))
+    sleep 1
+done
+
+logger "tollgate-timesync: NTP sync failed after 3 attempts; leaving sysntpd to retry"
+exit 0
