@@ -12,6 +12,157 @@ The `upstream_session_manager` module manages upstream TollGate sessions on beha
 - Manage session lifecycle (active, paused, expired)
 - Coordinate with [`merchant`](merchant.md) for wallet operations
 
+## Cross-component flow
+
+This section gives the end-to-end picture of how an upstream connection
+travels across `wireless_gateway_manager`, `upstream_detector`,
+`upstream_session_manager`, and `merchant`. The rest of the document
+zooms into `upstream_session_manager`'s internals.
+
+### Component responsibilities
+
+| Component | Primary responsibility | Upstream role |
+|---|---|---|
+| **wireless_gateway_manager** | WiFi network scanning and connection | Scans for and connects to upstream TollGate WiFi networks (reseller mode) |
+| **upstream_detector** | Network change detection and TollGate discovery | Detects new network connections and probes gateways for TollGate advertisements |
+| **upstream_session_manager** | Upstream session management | Creates and maintains payment sessions with upstream TollGates |
+| **merchant** | Wallet and payment provider | Provides wallet functionality for upstream_session_manager to make upstream payments |
+
+### Component interaction map
+
+```mermaid
+graph TB
+    WGM[wireless_gateway_manager]
+    CS[upstream_detector]
+    CH[upstream_session_manager]
+    MR[merchant]
+    NL[Netlink Events]
+    GW[Upstream Gateway]
+
+    WGM -->|Connects to WiFi| GW
+    GW -->|Triggers| NL
+    NL -->|Interface events| CS
+    CS -->|Probes :2121| GW
+    GW -->|Advertisement| CS
+    CS -->|HandleUpstreamTollgate| CH
+    CH -->|CreatePaymentToken| MR
+    CH -->|POST payment| GW
+    GW -->|Session event| CH
+
+    style WGM fill:#e1f5ff
+    style CS fill:#fff4e1
+    style CH fill:#ffe1f5
+    style MR fill:#e1ffe1
+```
+
+### Sequence: WiFi connection to session creation
+
+```mermaid
+sequenceDiagram
+    participant WGM as wireless_gateway_manager
+    participant OS as Operating System
+    participant CS as upstream_detector
+    participant GW as Upstream Gateway
+    participant CH as upstream_session_manager
+    participant MR as merchant
+
+    Note over WGM: Reseller Mode Enabled
+    WGM->>WGM: Periodic scan (30s)
+    WGM->>WGM: Scan WiFi networks
+    WGM->>WGM: Filter "TollGate-*" SSIDs
+    WGM->>WGM: Score & rank gateways
+
+    alt Not connected to top-3 gateway
+        WGM->>GW: Connect to best gateway
+        GW-->>WGM: Connection established
+        WGM->>WGM: Update local AP SSID pricing
+    end
+
+    Note over OS: Interface state change
+    OS->>CS: InterfaceUp event (netlink)
+    CS->>CS: Extract gateway IP
+    CS->>GW: HTTP GET :2121/
+    GW-->>CS: Advertisement (kind 10021)
+    CS->>CS: Validate advertisement
+
+    CS->>CH: HandleUpstreamTollgate()
+
+    Note over CH: Session Creation
+    CH->>CH: Check trust policy
+    CH->>CH: Select pricing option
+    CH->>CH: Calculate payment steps
+    CH->>MR: CreatePaymentToken()
+    MR-->>CH: Cashu token
+    CH->>CH: Create payment event (kind 21000)
+    CH->>GW: POST payment to :2121/
+    GW-->>CH: Session event (kind 1022)
+    CH->>CH: Extract allotment
+    CH->>CH: Create usage tracker
+    CH->>CH: Start monitoring
+
+    Note over CH: Session Active
+```
+
+### Sequence: wired connection to session creation
+
+```mermaid
+sequenceDiagram
+    participant Cable as Ethernet Cable
+    participant OS as Operating System
+    participant CS as upstream_detector
+    participant GW as Upstream Gateway
+    participant CH as upstream_session_manager
+    participant MR as merchant
+
+    Cable->>OS: Physical connection
+    OS->>CS: InterfaceUp event (eth0, netlink)
+    CS->>CS: Extract gateway IP
+    CS->>GW: HTTP GET :2121/
+    GW-->>CS: Advertisement (kind 10021)
+    CS->>CS: Validate advertisement
+
+    CS->>CH: HandleUpstreamTollgate()
+
+    Note over CH: Session Creation (same as WiFi)
+    CH->>CH: Check trust policy
+    CH->>CH: Select pricing option
+    CH->>MR: CreatePaymentToken()
+    MR-->>CH: Cashu token
+    CH->>GW: POST payment to :2121/
+    GW-->>CH: Session event (kind 1022)
+    CH->>CH: Start usage tracker
+```
+
+### Sequence: automatic session renewal
+
+```mermaid
+sequenceDiagram
+    participant UT as UsageTracker
+    participant GW as Upstream Gateway
+    participant CH as upstream_session_manager
+    participant MR as merchant
+
+    Note over UT: Monitoring usage (every 1s for data)
+    UT->>GW: GET :2121/usage
+    GW-->>UT: "usage/allotment"
+    UT->>UT: Parse response
+    UT->>UT: Calculate remaining
+
+    alt Remaining <= RenewalOffset
+        UT->>CH: HandleUpcomingRenewal()
+        CH->>CH: Check budget constraints
+        CH->>CH: Create renewal proposal
+        CH->>MR: CreatePaymentToken()
+        MR-->>CH: Cashu token
+        CH->>CH: Create payment event
+        CH->>GW: POST renewal payment
+        GW-->>CH: Updated session event
+        CH->>CH: Extract new allotment
+        CH->>UT: SessionChanged()
+        UT->>UT: Update tracking with new allotment
+    end
+```
+
 ## Component Architecture
 
 ```mermaid
