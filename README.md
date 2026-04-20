@@ -32,8 +32,6 @@ Wire protocol docs are under
 - Upstream autopay — a TollGate can detect an upstream TollGate and
   purchase access on your behalf while reselling to its own customers
   (reseller mode).
-- Auto-update (Janitor) over Nostr, with architecture-specific packages.
-- Optional "bragging" announcements of sales on Nostr relays.
 - Per-mint pricing, trust allow/blocklists, configurable session
   increments and renewal thresholds.
 
@@ -49,11 +47,9 @@ Source lives under [src/](src/). Go tooling runs from there
 | [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. See [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md). |
 | [wireless_gateway_manager](src/wireless_gateway_manager/) | Wi-Fi gateway selection, connection/reconnection, scanning, reseller-mode network orchestration. See [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md). |
 | [valve](src/valve/) | Thin wrapper over `ndsctl` that opens/closes gates and authorizes/deauthorizes MACs. |
-| [janitor](src/janitor/) | Listens on Nostr for update events, downloads and verifies architecture-matched packages. |
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [relay](src/relay/) | Embedded Nostr relay for local pub/sub. |
 | [cli](src/cli/) | `tollgate` CLI for `status`, `start`/`stop`/`restart`, `logs`, `version`. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
