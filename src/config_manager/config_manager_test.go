@@ -110,3 +110,72 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
+
+func TestValidateProfitShare(t *testing.T) {
+	tests := []struct {
+		name    string
+		shares  []ProfitShareConfig
+		wantErr bool
+	}{
+		{
+			name:    "default config sums to 1",
+			shares:  NewDefaultConfig().ProfitShare,
+			wantErr: false,
+		},
+		{
+			name: "single share of 1.0",
+			shares: []ProfitShareConfig{
+				{Factor: 1.0, Identity: "owner"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "sum below 1",
+			shares: []ProfitShareConfig{
+				{Factor: 0.5, Identity: "owner"},
+				{Factor: 0.4, Identity: "developer"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "sum above 1",
+			shares: []ProfitShareConfig{
+				{Factor: 0.6, Identity: "owner"},
+				{Factor: 0.6, Identity: "developer"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative factor",
+			shares: []ProfitShareConfig{
+				{Factor: 1.2, Identity: "owner"},
+				{Factor: -0.2, Identity: "developer"},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "empty list",
+			shares:  []ProfitShareConfig{},
+			wantErr: true,
+		},
+		{
+			name: "within epsilon of 1",
+			shares: []ProfitShareConfig{
+				{Factor: 1.0 / 3, Identity: "a"},
+				{Factor: 1.0 / 3, Identity: "b"},
+				{Factor: 1.0 / 3, Identity: "c"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Config{ProfitShare: tt.shares}
+			err := c.ValidateProfitShare()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateProfitShare() err = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}

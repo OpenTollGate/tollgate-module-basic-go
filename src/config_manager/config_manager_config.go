@@ -2,10 +2,16 @@ package config_manager
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"math"
 	"os"
 	"time"
 )
+
+// profitShareSumTolerance is the maximum allowed deviation of the sum of
+// profit-share factors from 1.0 — JSON round-trip can perturb floats slightly.
+const profitShareSumTolerance = 1e-6
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
@@ -92,6 +98,27 @@ type SessionConfig struct {
 // UsageTrackingConfig holds usage tracking configuration
 type UsageTrackingConfig struct {
 	DataMonitoringInterval time.Duration `json:"data_monitoring_interval"` // How often to check data usage
+}
+
+// ValidateProfitShare returns an error if the profit-share factors do not sum
+// to 1 (within profitShareSumTolerance), or if any factor is negative. An
+// empty profit-share list is treated as invalid because payouts would be
+// silently dropped.
+func (c *Config) ValidateProfitShare() error {
+	if len(c.ProfitShare) == 0 {
+		return fmt.Errorf("profit_share is empty: at least one entry required")
+	}
+	var sum float64
+	for i, ps := range c.ProfitShare {
+		if ps.Factor < 0 {
+			return fmt.Errorf("profit_share[%d] (%q) has negative factor %v", i, ps.Identity, ps.Factor)
+		}
+		sum += ps.Factor
+	}
+	if math.Abs(sum-1.0) > profitShareSumTolerance {
+		return fmt.Errorf("profit_share factors must sum to 1.0, got %v", sum)
+	}
+	return nil
 }
 
 // LoadConfig loads and parses config.json.
@@ -209,11 +236,18 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 
 	// File exists, attempt to unmarshal
 	var config Config
-	if err := json.Unmarshal(data, &config); err != nil || config.ConfigVersion != defaultConfig.ConfigVersion {
-		// Unmarshal failed or version mismatch, trigger backup and recreate
+	unmarshalErr := json.Unmarshal(data, &config)
+	profitShareErr := error(nil)
+	if unmarshalErr == nil {
+		profitShareErr = config.ValidateProfitShare()
+	}
+	if unmarshalErr != nil || config.ConfigVersion != defaultConfig.ConfigVersion || profitShareErr != nil {
+		if profitShareErr != nil {
+			log.Printf("Invalid config profit_share, backing up and recreating: %v", profitShareErr)
+		}
+		// Unmarshal failed, version mismatch, or invalid profit share: backup and recreate
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
-			// Depending on desired behavior, we might return an error or proceed with default
 			return nil, backupErr
 		}
 		// Save new default config
