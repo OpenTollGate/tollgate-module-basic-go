@@ -16,7 +16,6 @@ type Config struct {
 	StepSize               uint64                       `json:"step_size"`
 	Margin                 float64                      `json:"margin,omitempty"`
 	Metric                 string                       `json:"metric"`
-	Relays                 []string                     `json:"relays"`
 	ShowSetup              bool                         `json:"show_setup"`
 	ResellerMode           bool                         `json:"reseller_mode"`
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
@@ -161,14 +160,9 @@ func NewDefaultConfig() *Config {
 				Identity: "developer",
 			},
 		},
-		StepSize: 22020096, // 21 MiB
-		Margin:   0.1,
-		Metric:   "bytes",
-		Relays: []string{
-			"wss://relay.damus.io",
-			"wss://nos.lol",
-			"wss://nostr.mom",
-		},
+		StepSize:     22020096, // 21 MiB
+		Margin:       0.1,
+		Metric:       "bytes",
 		ShowSetup:    true,
 		ResellerMode: false,
 		UpstreamDetector: UpstreamDetectorConfig{

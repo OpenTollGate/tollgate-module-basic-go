@@ -71,7 +71,9 @@ SSH_OPTS="-o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=
 EXECUTABLE_NAME=tollgate-wrt
 EXECUTABLE_PATH="/usr/bin/$EXECUTABLE_NAME"
 
-cd src
+# Anchor to repo root so the script works regardless of CWD.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT/src"
 
 # Build main service
 echo "Building TollGate service..."

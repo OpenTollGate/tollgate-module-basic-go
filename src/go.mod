@@ -3,31 +3,25 @@ module github.com/OpenTollGate/tollgate-module-basic-go
 go 1.24.2
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
-	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
-	github.com/OpenTollGate/tollgate-module-basic-go/src/relay v0.0.0-00010101000000-000000000000
-	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0-00010101000000-000000000000
-	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/sirupsen/logrus v1.9.3
 )
 
 replace (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager => ./upstream_session_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
-	github.com/OpenTollGate/tollgate-module-basic-go/src/janitor => ./janitor
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
-	github.com/OpenTollGate/tollgate-module-basic-go/src/relay => ./relay
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol => ./tollgate_protocol
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector => ./upstream_detector
+	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager => ./upstream_session_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager => ./wireless_gateway_manager
@@ -37,15 +31,15 @@ require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0 // indirect
+	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0 // indirect
 	github.com/Origami74/gonuts-tollgate v0.6.1 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
-	github.com/andybalholm/brotli v1.1.1 // indirect
-	github.com/bep/debounce v1.2.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
+	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
@@ -69,14 +63,10 @@ require (
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/decred/dcrd/lru v1.1.3 // indirect
-	github.com/fasthttp/websocket v1.5.12 // indirect
-	github.com/fiatjaf/eventstore v0.16.2 // indirect
-	github.com/fiatjaf/khatru v0.18.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
-	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
@@ -105,8 +95,6 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
-	github.com/rs/cors v1.11.1 // indirect
-	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
@@ -115,8 +103,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
-	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.59.0 // indirect
 	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -126,6 +112,8 @@ require (
 	go.etcd.io/etcd/raft/v3 v3.5.16 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.30.0 // indirect
+	go.opentelemetry.io/otel/metric v1.32.0 // indirect
+	go.opentelemetry.io/otel/trace v1.32.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.3.1 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
