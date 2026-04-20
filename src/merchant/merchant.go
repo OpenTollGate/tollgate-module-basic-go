@@ -674,32 +674,6 @@ func (m *Merchant) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 	return 0, fmt.Errorf("no allotment tag found in session event")
 }
 
-// publishPublic publishes a nostr event to public relay pools
-func (m *Merchant) publishPublic(event *nostr.Event) error {
-	log.Printf("Publishing event kind=%d id=%s to public pools", event.Kind, event.ID)
-
-	config := m.configManager.GetConfig()
-	if config == nil {
-		return fmt.Errorf("main config is nil")
-	}
-	for _, relayURL := range config.Relays {
-		relay, err := m.configManager.GetPublicPool().EnsureRelay(relayURL)
-		if err != nil {
-			log.Printf("Failed to connect to public relay %s: %v", relayURL, err)
-			continue
-		}
-
-		err = relay.Publish(m.configManager.GetPublicPool().Context, *event)
-		if err != nil {
-			log.Printf("Failed to publish event to public relay %s: %v", relayURL, err)
-		} else {
-			log.Printf("Successfully published event %s to public relay %s", event.ID, relayURL)
-		}
-	}
-
-	return nil
-}
-
 // CreateNoticeEvent creates a notice event for error communication
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
 	identities := m.configManager.GetIdentities()

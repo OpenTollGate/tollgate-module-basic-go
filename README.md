@@ -87,11 +87,6 @@ The current schema version is **`v0.0.7`**. An abridged example:
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
-  "relays": [
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://nostr.mom"
-  ],
   "show_setup": true,
   "reseller_mode": false,
   "accepted_mints": [
