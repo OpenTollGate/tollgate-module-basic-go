@@ -46,7 +46,7 @@ else
 	PKG_BUILD_DIR:=$(CURDIR)
 endif
 
-PKG_MAINTAINER:=Your Name <your@email.com>
+PKG_MAINTAINER:=TollGate <tollgate@tollgate.me>
 PKG_LICENSE:=CC0-1.0
 PKG_LICENSE_FILES:=LICENSE
 
