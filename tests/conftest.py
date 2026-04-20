@@ -113,41 +113,8 @@ def find_tollgate_networks():
                     tollgate_networks.append(ssid)
                     break  # Found a match for this ssid, check next one.
         
-        # Deduplicate networks by removing frequency suffixes (2.4GHz, 5GHz)
-        # Group networks by their base name and only keep one per group
-        deduplicated_networks = []
-        network_groups = {}
-        
-        for ssid in tollgate_networks:
-            # Remove frequency suffix to get base name
-            base_name = ssid
-            if ssid.endswith("-2.4GHz"):
-                base_name = ssid[:-7]  # Remove "-2.4GHz"
-            elif ssid.endswith("-5GHz"):
-                base_name = ssid[:-5]  # Remove "-5GHz" (5 characters)
-                
-            # Group networks by base name
-            if base_name not in network_groups:
-                network_groups[base_name] = []
-            network_groups[base_name].append(ssid)
-        
-        # For each group, select one network (prefer 5GHz over 2.4GHz if available)
-        for base_name, networks in network_groups.items():
-            # Prefer 5GHz networks over 2.4GHz
-            preferred_network = None
-            for network in networks:
-                if network.endswith("-5GHz"):
-                    preferred_network = network
-                    break  # Prefer 5GHz, so we can stop looking
-            
-            # If no 5GHz network found, use the first available network
-            if preferred_network is None:
-                preferred_network = networks[0]
-                
-            deduplicated_networks.append(preferred_network)
-        
-        deduplicated_networks.sort()
-        return deduplicated_networks
+        # Both radios broadcast the same SSID; dedupe identical entries.
+        return sorted(set(tollgate_networks))
         
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to scan for networks: {e}")
