@@ -529,108 +529,6 @@ func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_mana
 	return totalBytes, nil
 }
 
-// getLatestSession queries the local relay pool for the most recent session by customer pubkey
-func (m *Merchant) getLatestSession(customerPubkey string) (*nostr.Event, error) {
-	log.Printf("Querying for existing session for customer %s", customerPubkey)
-
-	identities := m.configManager.GetIdentities()
-	if identities == nil {
-		return nil, fmt.Errorf("identities config is nil")
-	}
-	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
-	if err != nil {
-		return nil, fmt.Errorf("merchant identity not found: %w", err)
-	}
-	// Get the public key from the private key
-	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
-	if err != nil {
-		log.Printf("Error getting public key from private key: %v", err)
-		return nil, err
-	}
-
-	// Create filter to find session events for this customer created by this tollgate
-	filters := []nostr.Filter{
-		{
-			Kinds:   []int{1022},              // Session events
-			Authors: []string{tollgatePubkey}, // Only sessions created by this tollgate
-			Tags: map[string][]string{
-				"p": {customerPubkey}, // Customer pubkey tag
-			},
-			Limit: 50, // Get recent sessions to find the latest one
-		},
-	}
-
-	log.Printf("DEBUG: Querying with filter - Kinds: %v, Authors: %v, Tags: %v",
-		filters[0].Kinds, filters[0].Authors, filters[0].Tags)
-
-	// Query the local relay pool
-	events, err := m.configManager.GetLocalPoolEvents(filters)
-	if err != nil {
-		log.Printf("Error querying local pool for sessions: %v", err)
-		return nil, err
-	}
-
-	log.Printf("DEBUG: Found %d events from local pool", len(events))
-	for i, event := range events {
-		log.Printf("DEBUG: Event %d - ID: %s, Kind: %d, Author: %s, CreatedAt: %d",
-			i, event.ID, event.Kind, event.PubKey, event.CreatedAt)
-	}
-
-	if len(events) == 0 {
-		log.Printf("No existing sessions found for customer %s", customerPubkey)
-		return nil, nil
-	}
-
-	// Find the most recent session event
-	var latestSession *nostr.Event
-	for _, event := range events {
-		if latestSession == nil || event.CreatedAt > latestSession.CreatedAt {
-			latestSession = event
-		}
-	}
-
-	if latestSession != nil {
-		log.Printf("Found latest session for customer %s: event ID %s, created at %d",
-			customerPubkey, latestSession.ID, latestSession.CreatedAt)
-
-		// Check if the session is still active (hasn't expired)
-		if m.isSessionActive(latestSession) {
-			return latestSession, nil
-		} else {
-			log.Printf("Latest session for customer %s has expired", customerPubkey)
-			return nil, nil
-		}
-	}
-
-	return nil, nil
-}
-
-// isSessionActive checks if a session event is still active (not expired)
-func (m *Merchant) isSessionActive(sessionEvent *nostr.Event) bool {
-	// Extract allotment from session
-	allotmentMs, err := m.extractAllotment(sessionEvent)
-	if err != nil {
-		log.Printf("Failed to extract allotment from session: %v", err)
-		return false
-	}
-
-	// Calculate session expiration time
-	sessionCreatedAt := time.Unix(int64(sessionEvent.CreatedAt), 0)
-	sessionExpiresAt := sessionCreatedAt.Add(time.Duration(allotmentMs) * time.Millisecond)
-
-	// Check if session is still active
-	isActive := time.Now().Before(sessionExpiresAt)
-
-	if isActive {
-		timeLeft := time.Until(sessionExpiresAt)
-		log.Printf("Session is active, %v remaining", timeLeft)
-	} else {
-		timeExpired := time.Since(sessionExpiresAt)
-		log.Printf("Session expired %v ago", timeExpired)
-	}
-
-	return isActive
-}
 
 // createSessionEvent creates a session event from the MAC-address based session
 func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey string) (*nostr.Event, error) {
@@ -774,20 +672,6 @@ func (m *Merchant) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 		}
 	}
 	return 0, fmt.Errorf("no allotment tag found in session event")
-}
-
-// publishLocal publishes a nostr event to the local relay pool
-func (m *Merchant) publishLocal(event *nostr.Event) error {
-	log.Printf("Publishing event kind=%d id=%s to local pool", event.Kind, event.ID)
-
-	err := m.configManager.PublishToLocalPool(*event)
-	if err != nil {
-		log.Printf("Failed to publish event to local pool: %v", err)
-		return err
-	}
-
-	log.Printf("Successfully published event %s to local pool", event.ID)
-	return nil
 }
 
 // publishPublic publishes a nostr event to public relay pools

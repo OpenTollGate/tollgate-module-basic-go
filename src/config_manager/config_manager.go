@@ -89,7 +89,6 @@ type ConfigManager struct {
 	installConfig      *InstallConfig
 	identitiesConfig   *IdentitiesConfig
 	PublicPool         *nostr.SimplePool
-	LocalPool          *nostr.SimplePool
 }
 
 // NewConfigManager creates a new ConfigManager instance and loads/ensures default configurations.
@@ -109,14 +108,12 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 	}
 
 	publicPool := nostr.NewSimplePool(context.Background())
-	localPool := nostr.NewSimplePool(context.Background())
 
 	cm := &ConfigManager{
 		ConfigFilePath:     configPath,
 		InstallFilePath:    installPath,
 		IdentitiesFilePath: identitiesPath,
 		PublicPool:         publicPool,
-		LocalPool:          localPool,
 	}
 
 	var err error
@@ -354,87 +351,3 @@ func (cm *ConfigManager) GetPublicPool() *nostr.SimplePool {
 	return cm.PublicPool
 }
 
-// GetLocalPool returns the local pool that connects to the local relay
-func (cm *ConfigManager) GetLocalPool() *nostr.SimplePool {
-	return cm.LocalPool
-}
-
-// PublishToLocalPool publishes an event to the local relay pool
-func (cm *ConfigManager) PublishToLocalPool(event nostr.Event) error {
-	localRelayURL := "ws://localhost:4242"
-
-	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
-	if err != nil {
-		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
-		return err
-	}
-
-	err = relay.Publish(context.Background(), event)
-	if err != nil {
-		log.Printf("Failed to publish event to local relay %s: %v", localRelayURL, err)
-		return err
-	}
-
-	log.Printf("Successfully published event %s to local relay", event.ID)
-	return nil
-}
-
-// QueryLocalPool queries events from the local relay pool
-func (cm *ConfigManager) QueryLocalPool(filters []nostr.Filter) (chan *nostr.Event, error) {
-	localRelayURL := "ws://localhost:4242"
-
-	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
-	if err != nil {
-		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
-		return nil, err
-	}
-
-	sub, err := relay.Subscribe(context.Background(), filters)
-	if err != nil {
-		log.Printf("Failed to subscribe to local relay %s: %v", localRelayURL, err)
-		return nil, err
-	}
-
-	log.Printf("Successfully subscribed to local relay for %d filters", len(filters))
-	return sub.Events, nil
-}
-
-// GetLocalPoolEvents retrieves all events from the local pool matching filters
-func (cm *ConfigManager) GetLocalPoolEvents(filters []nostr.Filter) ([]*nostr.Event, error) {
-	localRelayURL := "ws://localhost:4242"
-
-	relay, err := cm.LocalPool.EnsureRelay(localRelayURL)
-	if err != nil {
-		log.Printf("Failed to connect to local relay %s: %v", localRelayURL, err)
-		return nil, err
-	}
-
-	sub, err := relay.Subscribe(context.Background(), filters)
-	if err != nil {
-		log.Printf("Failed to subscribe to local relay %s: %v", localRelayURL, err)
-		return nil, err
-	}
-
-	var events []*nostr.Event
-	timeout := time.NewTimer(5 * time.Second) // Fallback timeout in case EOSE is never received
-	defer timeout.Stop()
-
-	for {
-		select {
-		case event, ok := <-sub.Events:
-			if !ok {
-				// Channel closed, return what we have
-				return events, nil
-			}
-			events = append(events, event)
-		case <-sub.EndOfStoredEvents:
-			// End of stored events received, return immediately
-			log.Printf("EOSE received, returning %d events", len(events))
-			return events, nil
-		case <-timeout.C:
-			// Fallback timeout in case EOSE is never received
-			log.Printf("Timeout waiting for EOSE, returning %d events", len(events))
-			return events, nil
-		}
-	}
-}
