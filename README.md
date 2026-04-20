@@ -73,8 +73,8 @@ opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
 
 For local packaging experiments there is a developer helper
-[build-sdk-apk.sh](build-sdk-apk.sh) that wraps the `openwrt/sdk` Docker
-image.
+[scripts/build-sdk-apk.sh](scripts/build-sdk-apk.sh) that wraps the
+`openwrt/sdk` Docker image.
 
 ## Configuration
 

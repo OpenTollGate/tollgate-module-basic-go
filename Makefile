@@ -7,7 +7,7 @@ TOLLGATE_PKG_SOURCE_URL?=https://github.com/OpenTollGate/tollgate-module-basic-g
 TOLLGATE_DISPLAY_VERSION:=$(if $(strip $(PACKAGE_VERSION)),$(PACKAGE_VERSION),0.0.0)
 
 ifeq ($(CONFIG_USE_APK),y)
-PKG_VERSION:=$(shell sh "$(PKG_MAKEFILE_DIR)normalize-apk-version.sh" "$(TOLLGATE_DISPLAY_VERSION)")
+PKG_VERSION:=$(shell sh "$(PKG_MAKEFILE_DIR)scripts/normalize-apk-version.sh" "$(TOLLGATE_DISPLAY_VERSION)")
 else
 PKG_VERSION:=$(TOLLGATE_DISPLAY_VERSION)
 endif
