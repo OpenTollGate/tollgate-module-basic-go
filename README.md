@@ -1,147 +1,206 @@
-# TollGate - OpenWRT Router Payment Gateway
+# TollGate — OpenWRT Router Payment Gateway
 
 ![tollgate-logo](docs/TollGate_Logo-C-black.png)
 
-TollGate transforms your OpenWRT router into a payment gateway for selling internet access using Cashu payments. This implementation follows the TollGate protocol, allowing users to pay for internet time using satoshis (sats).
+- Website: [tollgate.me](https://tollgate.me)
+- Release manager (firmware + package builds): [releases.tollgate.me](https://releases.tollgate.me)
 
-## Core Technologies
-- Cashu - [cashu.space](https://cashu.space)
-- Nostr - [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md)
-- Bitcoin Lightning
+TollGate turns an OpenWRT router into a Cashu-powered payment gateway for
+internet access. Customers pay in sats (time- or data-based); the router
+gates network access and sweeps balances to configured Lightning
+addresses. The same binary also acts as a *client* to upstream TollGates,
+so a router can buy internet from another TollGate and resell it
+automatically.
 
-## Features
+## Core technologies
 
-- **Base Implementation to Sell Sats**: Core functionality to accept payments for internet access
-- **Lightning Integration**: Get paid out automatically over Lightning to your configured address
-- **Auto-Update System**: Janitor module keeps your TollGate up-to-date with the latest features
-- **Cashu Token Support**: Accept Cashu tokens as payment method
-- **Configurable Pricing**: Set your own rates for internet access
-- **Profit Sharing**: Configure multiple Lightning addresses with different percentage splits
-- **Bragging**: Optionally post about purchases on Nostr relays
+- **Cashu** — ecash over mints ([cashu.space](https://cashu.space))
+- **Nostr** — identities, discovery, advertisements, payments
+  ([NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md))
+- **Bitcoin Lightning** — payout settlement
+- **NoDogSplash (ndsctl)** — the captive portal / gate that
+  authorizes MACs
+
+Wire protocol docs are under
+[reference-material/protocol/](reference-material/protocol/).
+
+## Feature highlights
+
+- Accept Cashu tokens for internet access, by time **or** by data.
+- Automatic Lightning payouts split across any number of profit-share
+  identities.
+- Upstream autopay — a TollGate can detect an upstream TollGate and
+  purchase access on your behalf while reselling to its own customers
+  (reseller mode).
+- Auto-update (Janitor) over Nostr, with architecture-specific packages.
+- Optional "bragging" announcements of sales on Nostr relays.
+- Per-mint pricing, trust allow/blocklists, configurable session
+  increments and renewal thresholds.
 
 ## Modules
 
-TollGate is built with a modular architecture, making it extensible and maintainable:
+Source lives under [src/](src/). Go tooling runs from there
+(`cd src && go build ./...`, `cd src && go test ./...`).
 
-### Merchant Module
+| Module | Role |
+|---|---|
+| [merchant](src/merchant/) | Prices advertisements, validates incoming Cashu payments, and hands off started sessions to the session manager. Also drives Lightning payouts. See [docs/merchant.md](docs/merchant.md). |
+| [upstream_session_manager](src/upstream_session_manager/) | Owns the customer session lifecycle on this router — creates usage trackers (time or bytes), instructs the Valve when to open/close, handles renewal near limit. Formerly the `chandler` package. See [docs/upstream_session_manager.md](docs/upstream_session_manager.md). |
+| [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. See [docs/crowsnest.md](docs/crowsnest.md) and [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md). |
+| [wireless_gateway_manager](src/wireless_gateway_manager/) | Wi-Fi gateway selection, connection/reconnection, scanning, reseller-mode network orchestration. See [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md). |
+| [valve](src/valve/) | Thin wrapper over `ndsctl` that opens/closes gates and authorizes/deauthorizes MACs. |
+| [janitor](src/janitor/) | Listens on Nostr for update events, downloads and verifies architecture-matched packages. |
+| [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
+| [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
+| [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
+| [relay](src/relay/) | Embedded Nostr relay for local pub/sub. |
+| [cli](src/cli/) | `tollgate` CLI for `status`, `start`/`stop`/`restart`, `logs`, `version`. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). |
+| [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
-The financial brain of TollGate. This module:
-- Handles payment processing
-- Manages pricing and conversions
-- Calculates internet time based on payment amount
-- Schedules and processes Lightning payouts
-- Creates network advertisements
+## Installation
 
-### Valve Module
+Build artifacts produced by the CI matrix in
+[.github/workflows/build-package.yml](.github/workflows/build-package.yml)
+target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.
 
-Controls access to your network. This module:
-- Opens and closes network access using ndsctl
-- Authorizes and deauthorizes MAC addresses
-- Manages access timers
+On OpenWrt 25.x:
+```sh
+apk add --allow-untrusted /tmp/tollgate-wrt-<version>.apk
+```
+On OpenWrt 24.10.x and earlier:
+```sh
+opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
+```
 
-### Janitor Module
-
-Keeps your TollGate up-to-date. This module:
-- Listens for update events via Nostr
-- Downloads and verifies updated packages
-- Handles architecture-specific updates
-
-### Bragging Module
-
-(Optional) Posts about successful payments. This module:
-- Announces payments on Nostr relays
-- Configurable fields to include (amount, duration, etc.)
-- Uses your TollGate's identity for signing
-
-### Other Supporting Modules
-
-- **Config Manager**: Handles configuration file operations
-- **Lightning**: Interfaces with Lightning Network for invoices
-- **TollWallet**: Manages Cashu token operations
-- **Utils**: Provides common utility functions
+For local packaging experiments there is a developer helper
+[build-sdk-apk.sh](build-sdk-apk.sh) that wraps the `openwrt/sdk` Docker
+image.
 
 ## Configuration
 
-Configure TollGate by editing the `/etc/tollgate/config.json` file:
+TollGate writes a default `/etc/tollgate/config.json` on first boot.
+The current schema version is **`v0.0.7`**. An abridged example:
 
 ```json
 {
-  "tollgate_private_key": "YOUR_PRIVATE_KEY",
+  "config_version": "v0.0.7",
+  "log_level": "info",
+  "metric": "bytes",
+  "step_size": 22020096,
+  "margin": 0.1,
+  "relays": [
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://nostr.mom"
+  ],
+  "show_setup": true,
+  "reseller_mode": false,
   "accepted_mints": [
     {
-      "url": "https://mint.example.com/Bitcoin",
-      "min_balance": 100,
+      "url": "https://mint.coinos.io",
+      "min_balance": 64,
       "balance_tolerance_percent": 10,
-      "payout_interval_seconds": 3600,
-      "min_payout_amount": 1000
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sats",
+      "purchase_min_steps": 0
     }
   ],
   "profit_share": [
-    {
-      "factor": 0.79,
-      "lightning_address": "your-address@lightning.provider"
-    },
-    {
-      "factor": 0.21,
-      "lightning_address": "tollgate@minibits.cash"
-    }
+    { "factor": 0.79, "identity": "owner" },
+    { "factor": 0.21, "identity": "developer" }
   ],
-  "price_per_minute": 1,
-  "bragging": {
-    "enabled": true,
-    "fields": ["amount", "duration"]
+  "upstream_detector": {
+    "probe_timeout": "10s",
+    "probe_retry_count": 3,
+    "probe_retry_delay": "2s",
+    "require_valid_signature": true,
+    "ignore_interfaces": ["lo", "docker0", "br-lan", "hostap0"],
+    "only_interfaces": [],
+    "discovery_timeout": "300s"
+  },
+  "upstream_session_manager": {
+    "max_price_per_millisecond": 0.002777777778,
+    "max_price_per_byte": 0.00003725782414,
+    "trust": {
+      "default_policy": "trust_all",
+      "allowlist": [],
+      "blocklist": []
+    },
+    "sessions": {
+      "preferred_session_increments_milliseconds": 60000,
+      "preferred_session_increments_bytes": 131100000,
+      "millisecond_renewal_offset": 10000,
+      "bytes_renewal_offset": 131100000
+    },
+    "usage_tracking": {
+      "data_monitoring_interval": "500ms"
+    }
   }
 }
 ```
 
-**Important configuration fields:**
-- `tollgate_private_key`: Used for signing Nostr events
-- `accepted_mints`: List of Cashu mints you accept tokens from
-- `profit_share`: Configure Lightning addresses for payouts and their percentages
-- `price_per_minute`: Base rate for internet access
-- `bragging`: Enable/disable payment announcements
+Key fields:
+
+- **`metric`** — `"bytes"` sells data, `"milliseconds"` sells time. `step_size` is the unit.
+- **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout.
+- **`profit_share[*]`** — each entry references an `identity` that maps to an entry in `/etc/tollgate/identities.json`; `factor` values should sum to 1.0.
+- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers.
+- **`upstream_detector`** / **`upstream_session_manager`** — control the *client* side (buying from an upstream).
+
+`ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces
+are probed. `ignore_interfaces` typically needs to list any wireless
+interfaces *the router itself serves on* to prevent self-probing.
 
 ## Testing
 
-To run the tests for the project, navigate to the `src` directory and execute the following command:
+Unit tests, from the [src/](src/) directory:
 
-```bash
-go clean -testcache && TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.r6VVmTRFcp go fmt . && TOLLGATE_TEST_CONFIG_DIR=/tmp/tmp.EolGeeKwH3 go test .
+```sh
+cd src && go test ./...
 ```
 
-This command will format the Go code and then run all tests within the `src` module.
+A single package:
 
-### Pytest Integration Tests
+```sh
+cd src && go test ./upstream_session_manager/...
+```
 
-The project includes several pytest integration tests for end-to-end testing of TollGate functionality:
+End-to-end tests live in [tests/](tests/) and use pytest against real
+router hardware:
 
-#### test_teardown.py
-- **Purpose**: Installs a new firmware image on all TollGate routers
-- **When to use**: When you need to flash new firmware on the routers, typically after making changes to the router software or when setting up new hardware
+| File | Purpose |
+|---|---|
+| [tests/test_copy_images.py](tests/test_copy_images.py) | Transfer firmware to target routers. |
+| [tests/test_install_images.py](tests/test_install_images.py) | Flash firmware (destructive). |
+| [tests/test_install_packages.py](tests/test_install_packages.py) | Install the `tollgate-wrt` package on a running router. |
+| [tests/test_network_configuration.py](tests/test_network_configuration.py) | Verify upstream gateway connectivity. |
+| [tests/test_ecash_payment.py](tests/test_ecash_payment.py) | End-to-end buy-internet flow. |
+| [tests/test_ecash_functionality.py](tests/test_ecash_functionality.py) | Wallet-level Cashu operations. |
+| [tests/test_data_measurement.py](tests/test_data_measurement.py) | Byte accounting across a data-metered session. |
+| [tests/test_teardown.py](tests/test_teardown.py) | Reset routers between runs. |
 
-#### test_network_configuration.py
-- **Purpose**: Connects routers to a gateway and configures network settings
-- **When to use**: To establish network connectivity between routers and verify gateway connections
-
-#### test_ecash_payment.py
-- **Purpose**: Confirms that you can actually purchase internet access from TollGate captive portals using e-cash payments
-- **When to use**: To verify the complete payment flow, from connecting to a TollGate network to successfully purchasing internet access
+See [tests/README.md](tests/README.md) for how to wire up the test fleet.
 
 ## Documentation
 
-For more detailed information about TollGate modules and usage:
+Design and protocol docs live under [docs/](docs/):
 
-- Main project
-	- [HLDD](src/HLDD.md)
-	- [LLDD](src/LLDD.md)
-- Configuration Manager
-	- [HLDD](src/config_manager/HLDD.md)
-	- [LLDD](src/config_manager/LLDD.md)
-- Janitor
-	- [HLDD](src/janitor/HLDD.md)
-	- [LLDD](src/janitor/LLDD.md)
+- [docs/merchant.md](docs/merchant.md)
+- [docs/upstream_session_manager.md](docs/upstream_session_manager.md)
+- [docs/upstream-gateway-flow.md](docs/upstream-gateway-flow.md)
+- [docs/data-session-management.md](docs/data-session-management.md)
+- [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
+- [docs/crowsnest.md](docs/crowsnest.md)
 
-You can find the [Module Integration Guide](src/integrating_modules.md) here.
+Module-level HLDDs/LLDDs (where they exist) sit next to their code:
+[src/janitor/HLDD.md](src/janitor/HLDD.md),
+[src/config_manager/HLDD.md](src/config_manager/HLDD.md),
+[src/config_manager/LLDD.md](src/config_manager/LLDD.md).
+
+Work-in-progress notes are under [docs/work/](docs/work/).
+
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+GPL-3.0 — see [LICENSE](LICENSE).
