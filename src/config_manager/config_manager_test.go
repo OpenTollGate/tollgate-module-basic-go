@@ -1,29 +1,11 @@
 package config_manager
 
 import (
-	"bytes"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/nbd-wtf/go-nostr"
 )
-
-// Helper functions for comparison
-
-func compareStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
 
 func compareMintConfigs(a, b []MintConfig) bool {
 	if len(a) != len(b) {
@@ -82,7 +64,6 @@ func TestConfigManager(t *testing.T) {
 		},
 		Metric:    "milliseconds",
 		StepSize:  120000,
-		Relays:    []string{"test_relay"},
 		ShowSetup: true,
 	}
 	err = SaveConfig(configFilePath, newConfig)
@@ -98,7 +79,6 @@ func TestConfigManager(t *testing.T) {
 	if !compareMintConfigs(loadedConfig.AcceptedMints, newConfig.AcceptedMints) ||
 		loadedConfig.Metric != "milliseconds" ||
 		loadedConfig.StepSize != 120000 ||
-		!compareStringSlices(loadedConfig.Relays, newConfig.Relays) ||
 		loadedConfig.ShowSetup != newConfig.ShowSetup {
 		t.Errorf("Loaded config does not match saved config")
 	}
@@ -130,4 +110,3 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
-
