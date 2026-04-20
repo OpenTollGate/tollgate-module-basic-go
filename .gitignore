@@ -21,3 +21,9 @@ tests/29f40cf7360f57702a3ff76d739269bf604e3f32-fixsimplify-reseller-mode_cant-re
 tests/__pycache__/
 tests/eccf3ecef01541de35494f12463b16d74ed131ca-mint-not-accepted/
 100mb.bin
+
+# AI Agents
+.claude/
+AGENTS.md
+CLAUDE.md
+agents/
