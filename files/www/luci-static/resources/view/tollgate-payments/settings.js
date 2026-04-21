@@ -44,6 +44,7 @@ return view.extend({
 			'<button id="tab_dashboard" class="cbi-button cbi-button-action" type="button">Dashboard</button>',
 			'<button id="tab_network" class="cbi-button" type="button">Network</button>',
 			'<button id="tab_config" class="cbi-button" type="button">Configuration</button>',
+			'<button id="tab_identities" class="cbi-button" type="button">Identities</button>',
 			'</div>',
 
 			/* ── Dashboard tab ── */
@@ -154,7 +155,7 @@ return view.extend({
 
 			'<div class="cbi-section"><h3>Accepted mints</h3><div id="mints"></div><div class="tg-actions"><button id="add_mint" class="cbi-button cbi-button-add" type="button">Add mint</button></div></div>',
 
-			'<div class="cbi-section"><h3>Profit share</h3><div id="shares"></div><div class="tg-actions"><button id="add_share" class="cbi-button cbi-button-add" type="button">Add share</button><span>Total: <strong id="share_total">0%</strong></span></div></div>',
+			'<div class="cbi-section"><h3>Profit share</h3><datalist id="identity_datalist"></datalist><div id="shares"></div><div class="tg-actions"><button id="add_share" class="cbi-button cbi-button-add" type="button">Add share</button><span>Total: <strong id="share_total">0%</strong></span></div></div>',
 
 			'<div class="cbi-section"><h3>Relays</h3><div class="tg-section-node"><textarea id="relays" rows="5"></textarea></div></div>',
 
@@ -190,6 +191,35 @@ return view.extend({
 
 			'</div>',
 
+			/* ── Identities tab ── */
+			'<div id="pane_identities" class="tg-pane">',
+
+			'<div class="cbi-section">',
+			'<h3>Owned identities</h3>',
+			'<div class="cbi-section-descr">These identities are managed by the system. Private keys are not exposed.</div>',
+			'<table class="table">',
+			'<thead><tr><th>Name</th></tr></thead>',
+			'<tbody id="owned_identities_rows"><tr><td class="tg-muted">Loading…</td></tr></tbody>',
+			'</table>',
+			'</div>',
+
+			'<div class="cbi-section">',
+			'<h3>Public identities</h3>',
+			'<div class="cbi-section-descr">Identities used for profit sharing and payouts.</div>',
+			'<div id="public_identities"></div>',
+			'<div class="tg-actions"><button id="btn_add_ident" class="cbi-button cbi-button-add" type="button">Add identity</button></div>',
+			'</div>',
+
+			'<div class="cbi-section">',
+			'<h3>Actions</h3>',
+			'<div class="tg-actions">',
+			'<button id="btn_save_identities" class="cbi-button cbi-button-save" type="button">Save identities</button>',
+			'<span id="ident_save_status" class="tg-muted"></span>',
+			'</div>',
+			'</div>',
+
+			'</div>',
+
 			'<div class="cbi-section">',
 			'<h3>Messages</h3>',
 			'<pre id="validation_box" class="tg-section-node" style="min-height:3rem;font-size:13px"></pre>',
@@ -198,7 +228,7 @@ return view.extend({
 		].join('');
 
 		var API = '/cgi-bin/tollgate-api';
-		var state = { cfg: {}, logTimer: null, activeTab: 'dashboard', netPwVisible: false, netPw: '', dashTimer: null };
+		var state = { cfg: {}, identities: {}, logTimer: null, activeTab: 'dashboard', netPwVisible: false, netPw: '', dashTimer: null };
 
 		function q(sel) { return root.querySelector(sel); }
 		function qa(sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
@@ -272,11 +302,30 @@ return view.extend({
 			'<label>Purchase min steps</label><input class="mint-purchase-min-steps" type="number" value="' + html(m.purchase_min_steps || 0) + '">' +
 			'</div><div class="tg-actions"><button class="cbi-button cbi-button-remove remove-mint" type="button">Remove</button></div></div>';
 		}
-		function shareCard(s, idx) {
+		function shareCard(s, idx, identitiesData) {
 			s = s || {};
 			var pct = (typeof s.factor === 'number') ? (s.factor * 100) : 0;
+			var identName = s.identity || '';
+			var linked = null;
+			var linkHint = '';
+			var datalistId = 'identity_datalist';
+
+			if (identitiesData && identName) {
+				var pubIds = Array.isArray(identitiesData.public_identities) ? identitiesData.public_identities : [];
+				for (var i = 0; i < pubIds.length; i++) {
+					if (pubIds[i].name === identName) { linked = pubIds[i]; break; }
+				}
+				if (linked) {
+					var pkHint = linked.pubkey ? (linked.pubkey.substring(0, 8) + '…') : 'no pubkey';
+					var laHint = linked.lightning_address || 'no lightning';
+					linkHint = '<div class="tg-muted" style="font-size:12px;margin-top:2px">↳ ' + html(pkHint) + ' · ' + html(laHint) + '</div>';
+				} else {
+					linkHint = '<div class="tg-err" style="font-size:12px;margin-top:2px">⚠ Identity not found</div>';
+				}
+			}
+
 			return '<div class="cbi-section-node share-card tg-section-node"><h4>Share #' + (idx + 1) + '</h4><div class="tg-form-grid">' +
-			'<label>Identity</label><input class="share-identity" value="' + html(s.identity || '') + '">' +
+			'<label>Identity</label><div><input class="share-identity" value="' + html(identName) + '" list="' + datalistId + '">' + linkHint + '</div>' +
 			'<label>Percent</label><input class="share-percent" type="number" step="0.01" value="' + html(pct) + '">' +
 			'</div><div class="tg-actions"><button class="cbi-button cbi-button-remove remove-share" type="button">Remove</button></div></div>';
 		}
@@ -292,14 +341,79 @@ return view.extend({
 			list.forEach(function(m, idx){ wrap.insertAdjacentHTML('beforeend', mintCard(m, idx)); });
 			qa('.remove-mint').forEach(function(btn){ btn.onclick = function(){ var card = btn.closest('.mint-card'); if (card) card.remove(); }; });
 		}
-		function renderShares(list) {
+		function renderShares(list, identitiesData) {
 			var wrap = must('#shares');
 			wrap.innerHTML = '';
 			if (!Array.isArray(list) || !list.length) list = [ {} ];
-			list.forEach(function(s, idx){ wrap.insertAdjacentHTML('beforeend', shareCard(s, idx)); });
+			list.forEach(function(s, idx){ wrap.insertAdjacentHTML('beforeend', shareCard(s, idx, identitiesData)); });
 			qa('.remove-share').forEach(function(btn){ btn.onclick = function(){ var card = btn.closest('.share-card'); if (card) card.remove(); updateShareTotal(); }; });
 			qa('.share-percent').forEach(function(el){ el.oninput = updateShareTotal; });
 			updateShareTotal();
+		}
+		function ownedIdentityRow(id) {
+			return '<tr><td>' + html(id.name || '') + '</td></tr>';
+		}
+		function publicIdentityCard(id, idx) {
+			var pubkeyDisplay = id.pubkey || '';
+			var isPlaceholder = pubkeyDisplay === '[on_setup]';
+			var pubkeyHint = isPlaceholder ? ' <span class="tg-muted">(pending setup)</span>' : '';
+			return '<div class="cbi-section-node ident-card tg-section-node"><h4>Identity #' + (idx + 1) + '</h4><div class="tg-form-grid">' +
+			'<label>Name</label><input class="ident-name" value="' + html(id.name || '') + '">' +
+			'<label>PubKey</label><input class="ident-pubkey" value="' + html(pubkeyDisplay) + '" style="font-family:monospace;font-size:12px">' + pubkeyHint +
+			'<label>Lightning Address</label><input class="ident-lightning" value="' + html(id.lightning_address || '') + '">' +
+			'</div><div class="tg-actions"><button class="cbi-button cbi-button-remove remove-ident" type="button">Remove</button></div></div>';
+		}
+		function renderIdentities(data) {
+			var owned = Array.isArray(data.owned_identities) ? data.owned_identities : [];
+			var public_ = Array.isArray(data.public_identities) ? data.public_identities : [];
+
+			var ownedWrap = must('#owned_identities_rows');
+			ownedWrap.innerHTML = '';
+			if (!owned.length) {
+				ownedWrap.innerHTML = '<tr><td class="tg-muted">No owned identities.</td></tr>';
+			} else {
+				owned.forEach(function(id) { ownedWrap.insertAdjacentHTML('beforeend', ownedIdentityRow(id)); });
+			}
+
+			var publicWrap = must('#public_identities');
+			publicWrap.innerHTML = '';
+			if (!public_.length) public_ = [{}];
+			public_.forEach(function(id, idx) { publicWrap.insertAdjacentHTML('beforeend', publicIdentityCard(id, idx)); });
+			qa('.remove-ident').forEach(function(btn) { btn.onclick = function() { var card = btn.closest('.ident-card'); if (card) card.remove(); }; });
+		}
+		function collectPublicIdentities() {
+			return qa('.ident-card').map(function(card) {
+				return {
+					name: card.querySelector('.ident-name').value.trim(),
+					pubkey: card.querySelector('.ident-pubkey').value.trim(),
+					lightning_address: card.querySelector('.ident-lightning').value.trim()
+				};
+			}).filter(function(id) { return id.name.length > 0; });
+		}
+		function doSaveIdentities() {
+			var identitiesObj = JSON.parse(JSON.stringify(state.identities || {}));
+			identitiesObj.public_identities = collectPublicIdentities();
+			if (!identitiesObj.config_version) identitiesObj.config_version = 'v0.0.1';
+			if (!identitiesObj.owned_identities) identitiesObj.owned_identities = [];
+			must('#ident_save_status').textContent = 'Saving…';
+			api('save_identities', JSON.stringify(identitiesObj)).then(function(res) {
+				if (res.ok) {
+					must('#ident_save_status').innerHTML = '<span class="tg-ok">Saved</span>';
+					refreshDashboard();
+				} else {
+					must('#ident_save_status').innerHTML = '<span class="tg-err">' + html(res.error || 'Error') + '</span>';
+				}
+			});
+		}
+		function updateIdentityDatalist(identitiesData) {
+			var dl = must('#identity_datalist');
+			var names = [];
+			if (identitiesData && Array.isArray(identitiesData.public_identities)) {
+				identitiesData.public_identities.forEach(function(id) {
+					if (id.name) names.push(id.name);
+				});
+			}
+			dl.innerHTML = names.map(function(n) { return '<option value="' + html(n) + '">'; }).join('');
 		}
 		function populateForm(cfg) {
 			cfg = cfg || {};
@@ -321,7 +435,7 @@ return view.extend({
 			must('#ignore_interfaces').value = (cfg.crowsnest.ignore_interfaces || []).join('\n');
 			must('#discovery_timeout_s').value = Math.round(num(cfg.crowsnest.discovery_timeout, 0) / 1000000000);
 			renderMints(cfg.accepted_mints);
-			renderShares(cfg.profit_share);
+			renderShares(cfg.profit_share, state.identities);
 			must('#raw_json').value = pretty(cfg);
 		}
 		function collectMints() {
@@ -428,6 +542,9 @@ return view.extend({
 			must('#wallet_balance').textContent = m ? m[1] + ' sats' : '—';
 
 			state.cfg = data.config || {};
+			state.identities = data.identities || {};
+			renderIdentities(state.identities);
+			updateIdentityDatalist(state.identities);
 			populateForm(state.cfg);
 			renderMintTable(state.cfg, walletInfoText);
 			renderLogs(data.logs || '');
@@ -569,7 +686,7 @@ return view.extend({
 		/* ── Tab switching ── */
 		function setActiveTab(name) {
 			state.activeTab = name;
-			['dashboard', 'network', 'config'].forEach(function(tab) {
+			['dashboard', 'network', 'config', 'identities'].forEach(function(tab) {
 				must('#pane_' + tab).classList.toggle('active', tab === name);
 				must('#tab_' + tab).className = tab === name ? 'cbi-button cbi-button-action' : 'cbi-button';
 			});
@@ -594,6 +711,7 @@ return view.extend({
 			must('#tab_dashboard').onclick = function() { setActiveTab('dashboard'); };
 			must('#tab_network').onclick = function() { setActiveTab('network'); };
 			must('#tab_config').onclick = function() { setActiveTab('config'); };
+			must('#tab_identities').onclick = function() { setActiveTab('identities'); };
 
 			must('#btn_fund').onclick = function() { doWalletFund(); };
 
@@ -605,7 +723,15 @@ return view.extend({
 			must('#btn_net_genpw').onclick = function() { doNetworkSetPassword(true); };
 
 			must('#add_mint').onclick = function() { var list = collectMints(); list.push({}); renderMints(list); };
-			must('#add_share').onclick = function() { var list = collectShares(); list.push({}); renderShares(list); };
+			must('#add_share').onclick = function() { var list = collectShares(); list.push({}); renderShares(list, state.identities); };
+			must('#btn_add_ident').onclick = function() {
+				var data = state.identities || {};
+				var list = Array.isArray(data.public_identities) ? collectPublicIdentities() : [];
+				list.push({});
+				data.public_identities = list;
+				renderIdentities(data);
+			};
+			must('#btn_save_identities').onclick = function() { doSaveIdentities(); };
 			must('#validate_form').onclick = function() {
 				try {
 					var obj = formToObject();

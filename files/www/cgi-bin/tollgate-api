@@ -3,6 +3,7 @@
 # Shell-based CGI backend (Lua not available on OpenWrt 24.10)
 
 CONFIG="/etc/tollgate/config.json"
+IDENTITIES="/etc/tollgate/identities.json"
 
 # ── helpers ──────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ case "$action" in
 
 read)
     cf=$(cat "$CONFIG" 2>/dev/null || echo "{}")
+    idf=$(cat "$IDENTITIES" 2>/dev/null || echo "{}")
     wl=$(run_cmd /usr/bin/tollgate wallet balance)
     wi=$(run_cmd /usr/bin/tollgate wallet info)
     vr=$(run_cmd /usr/bin/tollgate version)
@@ -71,7 +73,7 @@ read)
     lg=$(get_logs)
 
     json_header
-    printf '{"ok":true,"config":%s,"wallet":' "$cf"
+    printf '{"ok":true,"config":%s,"identities":%s,"wallet":' "$cf" "$idf"
     printf '%s\n' "$wl" | json_esc
     printf ',"wallet_info":'
     printf '%s\n' "$wi" | json_esc
@@ -355,6 +357,55 @@ network_set_password)
         printf '%s' "$result" | json_esc
         printf '}'
     fi
+    ;;
+
+read_identities)
+    idf=$(cat "$IDENTITIES" 2>/dev/null || echo "{}")
+    json_header
+    printf '{"ok":true,"identities":%s}' "$idf"
+    ;;
+
+save_identities)
+    json_header
+
+    # Validate JSON
+    if ! printf '%s' "$body" | jsonfilter -q -e '$' >/dev/null 2>&1; then
+        printf '{"ok":false,"error":"Invalid JSON."}'
+        exit 0
+    fi
+
+    # Check required fields
+    if ! printf '%s' "$body" | jsonfilter -q -e '$.public_identities' >/dev/null 2>&1; then
+        printf '{"ok":false,"error":"public_identities is required."}'
+        exit 0
+    fi
+
+    # Create timestamped backup
+    ts=$(date +%Y%m%d-%H%M%S)
+    bak="${IDENTITIES}.bak.${ts}"
+
+    if [ -f "$IDENTITIES" ]; then
+        cp "$IDENTITIES" "$bak" 2>/dev/null || {
+            printf '{"ok":false,"error":"Failed to create backup: %s"}' "$bak"
+            exit 0
+        }
+    fi
+
+    # Write atomically via temp file
+    tmp="${IDENTITIES}.tmp.$$"
+    printf '%s\n' "$body" > "$tmp" 2>/dev/null || {
+        rm -f "$tmp" 2>/dev/null
+        printf '{"ok":false,"error":"Failed to write temporary file."}'
+        exit 0
+    }
+
+    mv "$tmp" "$IDENTITIES" 2>/dev/null || {
+        rm -f "$tmp" 2>/dev/null
+        printf '{"ok":false,"error":"Failed to replace identities file."}'
+        exit 0
+    }
+
+    printf '{"ok":true,"message":"Saved identities.json","backup":"%s"}' "$bak"
     ;;
 
 *)
