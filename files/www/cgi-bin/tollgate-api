@@ -13,14 +13,13 @@ json_header() {
 # Escape stdin for JSON string embedding (awk-based)
 # Outputs a properly quoted JSON string: "escaped content"
 json_esc() {
-    awk '
+    tr -d '\000-\010\013\014\016-\037' | awk '
     BEGIN { ORS=""; printf "\"" }
     {
         gsub(/\\/, "\\\\")
         gsub(/"/, "\\\"")
         gsub(/\t/, "\\t")
         gsub(/\r/, "\\r")
-        gsub(/[\x00-\x1f]/, "")
     }
     NR > 1 { printf "\\n" }
     { printf "%s", $0 }
