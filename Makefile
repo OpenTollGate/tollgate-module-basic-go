@@ -212,6 +212,14 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/check_package_path $(1)/usr/bin/
 
+	# LuCI JSON-backed TollGate configuration PoC
+	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/luci/menu.d/luci-app-tollgate-payments.json $(1)/usr/share/luci/menu.d/
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/tollgate-payments
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/www/luci-static/resources/view/tollgate-payments/settings.js $(1)/www/luci-static/resources/view/tollgate-payments/
+	$(INSTALL_DIR) $(1)/www/cgi-bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/www/cgi-bin/tollgate-api $(1)/www/cgi-bin/
+
 	# Install cron table
 	$(INSTALL_DIR) $(1)/etc/crontabs
 	
@@ -236,6 +244,9 @@ FILES_$(PKG_NAME) += \
 	/etc/uci-defaults/95-random-lan-ip \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/tollgate/tollgate-captive-portal-site/* \
+	/usr/share/luci/menu.d/luci-app-tollgate-payments.json \
+	/www/luci-static/resources/view/tollgate-payments/settings.js \
+	/www/cgi-bin/tollgate-api \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart
