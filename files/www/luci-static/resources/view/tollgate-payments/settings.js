@@ -144,30 +144,46 @@ return view.extend({
 			'<div class="cbi-section">',
 			'<h3>General</h3>',
 			'<div class="tg-form-grid tg-section-node">',
+			'<label>Config version</label><input id="config_version" type="text">',
 			'<label>Log level</label><select id="log_level"><option value="debug">debug</option><option value="info">info</option><option value="warn">warn</option><option value="error">error</option></select>',
-			'<label>Show setup</label><input id="show_setup" type="checkbox">',
-			'<label>Reseller mode</label><input id="reseller_mode" type="checkbox">',
-			'<label>Metric</label><select id="metric"><option value="milliseconds">milliseconds</option><option value="bytes">bytes</option></select>',
 			'<label>Step size</label><input id="step_size" type="number">',
 			'<label>Margin</label><input id="margin" type="number" step="0.000001">',
+			'<label>Metric</label><select id="metric"><option value="milliseconds">milliseconds</option><option value="bytes">bytes</option></select>',
+			'<label>Show setup</label><input id="show_setup" type="checkbox">',
+			'<label>Reseller mode</label><input id="reseller_mode" type="checkbox">',
 			'</div>',
 			'</div>',
 
-			'<div class="cbi-section"><h3>Accepted mints</h3><div id="mints"></div><div class="tg-actions"><button id="add_mint" class="cbi-button cbi-button-add" type="button">Add mint</button></div></div>',
+			'<div class="cbi-section"><h3>Accepted mints</h3><div id="mints"></div><div class="tg-actions"><button id="add_mint" class="cbi-button cbi-button-add" type="button">Add Mint</button></div></div>',
 
-			'<div class="cbi-section"><h3>Profit share</h3><datalist id="identity_datalist"></datalist><div id="shares"></div><div class="tg-actions"><button id="add_share" class="cbi-button cbi-button-add" type="button">Add share</button><span>Total: <strong id="share_total">0%</strong></span></div></div>',
-
-			'<div class="cbi-section"><h3>Relays</h3><div class="tg-section-node"><textarea id="relays" rows="5"></textarea></div></div>',
+			'<div class="cbi-section"><h3>Profit share</h3><datalist id="identity_datalist"></datalist><div id="shares"></div><div class="tg-actions"><button id="add_share" class="cbi-button cbi-button-add" type="button">Add Share</button><span>Total: <strong id="share_total">0%</strong></span></div></div>',
 
 			'<div class="cbi-section">',
-			'<h3>Crowsnest</h3>',
+			'<h3>Upstream detector</h3>',
 			'<div class="tg-form-grid tg-section-node">',
 			'<label>Probe timeout (s)</label><input id="probe_timeout_s" type="number">',
 			'<label>Probe retry count</label><input id="probe_retry_count" type="number">',
 			'<label>Probe retry delay (s)</label><input id="probe_retry_delay_s" type="number">',
 			'<label>Require valid signature</label><input id="require_valid_signature" type="checkbox">',
-			'<label>Ignore interfaces</label><textarea id="ignore_interfaces" rows="4"></textarea>',
+			'<label>Ignore interfaces</label><textarea id="ignore_interfaces" rows="5"></textarea>',
+			'<label>Only interfaces</label><textarea id="only_interfaces" rows="5"></textarea>',
 			'<label>Discovery timeout (s)</label><input id="discovery_timeout_s" type="number">',
+			'</div>',
+			'</div>',
+
+			'<div class="cbi-section">',
+			'<h3>Upstream session manager</h3>',
+			'<div class="tg-form-grid tg-section-node">',
+			'<label>Max price per millisecond</label><input id="max_price_per_millisecond" type="number" step="0.000001">',
+			'<label>Max price per byte</label><input id="max_price_per_byte" type="number" step="0.000001">',
+			'<label>Default policy</label><select id="default_policy"><option value="trust_all">trust_all</option><option value="trust_none">trust_none</option></select>',
+			'<label>Allowlist</label><textarea id="allowlist" rows="5"></textarea>',
+			'<label>Blocklist</label><textarea id="blocklist" rows="5"></textarea>',
+			'<label>Preferred session increments milliseconds</label><input id="preferred_session_increments_milliseconds" type="number">',
+			'<label>Preferred session increments bytes</label><input id="preferred_session_increments_bytes" type="number">',
+			'<label>Millisecond renewal offset</label><input id="millisecond_renewal_offset" type="number">',
+			'<label>Bytes renewal offset</label><input id="bytes_renewal_offset" type="number">',
+			'<label>Data monitoring interval (s)</label><input id="data_monitoring_interval_s" type="number">',
 			'</div>',
 			'</div>',
 
@@ -190,6 +206,7 @@ return view.extend({
 			'</details>',
 
 			'</div>',
+
 
 			/* ── Identities tab ── */
 			'<div id="pane_identities" class="tg-pane">',
@@ -289,19 +306,20 @@ return view.extend({
 			box.textContent = text || 'No tollgate-wrt log entries.';
 			if (pinned) box.scrollTop = box.scrollHeight;
 		}
-		function mintCard(m, idx) {
-			m = m || {};
+		function mintCard(d, idx) {
+			d = d || {};
 			return '<div class="cbi-section-node mint-card tg-section-node"><h4>Mint #' + (idx + 1) + '</h4><div class="tg-form-grid">' +
-			'<label>Mint URL</label><input class="mint-url" value="' + html(m.url || '') + '">' +
-			'<label>Min balance</label><input class="mint-min-balance" type="number" value="' + html(m.min_balance || 64) + '">' +
-			'<label>Balance tolerance %</label><input class="mint-balance-tolerance" type="number" value="' + html(m.balance_tolerance_percent || 10) + '">' +
-			'<label>Payout interval seconds</label><input class="mint-payout-interval" type="number" value="' + html(m.payout_interval_seconds || 60) + '">' +
-			'<label>Min payout amount</label><input class="mint-min-payout" type="number" value="' + html(m.min_payout_amount || 128) + '">' +
-			'<label>Price per step</label><input class="mint-price-per-step" type="number" step="any" value="' + html(m.price_per_step || 1) + '">' +
-			'<label>Price unit</label><input class="mint-price-unit" value="' + html(m.price_unit || 'sats') + '">' +
-			'<label>Purchase min steps</label><input class="mint-purchase-min-steps" type="number" value="' + html(m.purchase_min_steps || 0) + '">' +
+			'<label>Url</label><input class="mint-url" value="' + html(d.url || '') + '">' +
+			'<label>Min balance</label><input class="mint-min_balance" type="number" value="' + html(d.min_balance || 64) + '">' +
+			'<label>Balance tolerance percent</label><input class="mint-balance_tolerance_percent" type="number" value="' + html(d.balance_tolerance_percent || 10) + '">' +
+			'<label>Payout interval seconds</label><input class="mint-payout_interval_seconds" type="number" value="' + html(d.payout_interval_seconds || 60) + '">' +
+			'<label>Min payout amount</label><input class="mint-min_payout_amount" type="number" value="' + html(d.min_payout_amount || 128) + '">' +
+			'<label>Price per step</label><input class="mint-price_per_step" type="number" value="' + html(d.price_per_step || 1) + '">' +
+			'<label>Price unit</label><input class="mint-price_unit" value="' + html(d.price_unit || '') + '">' +
+			'<label>Purchase min steps</label><input class="mint-purchase_min_steps" type="number" value="' + html(d.purchase_min_steps || 0) + '">' +
 			'</div><div class="tg-actions"><button class="cbi-button cbi-button-remove remove-mint" type="button">Remove</button></div></div>';
 		}
+
 		function shareCard(s, idx, identitiesData) {
 			s = s || {};
 			var pct = (typeof s.factor === 'number') ? (s.factor * 100) : 0;
@@ -329,30 +347,11 @@ return view.extend({
 			'<label>Percent</label><input class="share-percent" type="number" step="0.01" value="' + html(pct) + '">' +
 			'</div><div class="tg-actions"><button class="cbi-button cbi-button-remove remove-share" type="button">Remove</button></div></div>';
 		}
-		function updateShareTotal() {
-			var total = 0;
-			qa('.share-percent').forEach(function(el){ total += num(el.value, 0); });
-			must('#share_total').textContent = total.toFixed(2) + '%';
-		}
-		function renderMints(list) {
-			var wrap = must('#mints');
-			wrap.innerHTML = '';
-			if (!Array.isArray(list) || !list.length) list = [ {} ];
-			list.forEach(function(m, idx){ wrap.insertAdjacentHTML('beforeend', mintCard(m, idx)); });
-			qa('.remove-mint').forEach(function(btn){ btn.onclick = function(){ var card = btn.closest('.mint-card'); if (card) card.remove(); }; });
-		}
-		function renderShares(list, identitiesData) {
-			var wrap = must('#shares');
-			wrap.innerHTML = '';
-			if (!Array.isArray(list) || !list.length) list = [ {} ];
-			list.forEach(function(s, idx){ wrap.insertAdjacentHTML('beforeend', shareCard(s, idx, identitiesData)); });
-			qa('.remove-share').forEach(function(btn){ btn.onclick = function(){ var card = btn.closest('.share-card'); if (card) card.remove(); updateShareTotal(); }; });
-			qa('.share-percent').forEach(function(el){ el.oninput = updateShareTotal; });
-			updateShareTotal();
-		}
+
 		function ownedIdentityRow(id) {
 			return '<tr><td>' + html(id.name || '') + '</td></tr>';
 		}
+
 		function publicIdentityCard(id, idx) {
 			var pubkeyDisplay = id.pubkey || '';
 			var isPlaceholder = pubkeyDisplay === '[on_setup]';
@@ -363,6 +362,31 @@ return view.extend({
 			'<label>Lightning Address</label><input class="ident-lightning" value="' + html(id.lightning_address || '') + '">' +
 			'</div><div class="tg-actions"><button class="cbi-button cbi-button-remove remove-ident" type="button">Remove</button></div></div>';
 		}
+
+		function renderMints(list) {
+			var wrap = must('#mints');
+			wrap.innerHTML = '';
+			if (!Array.isArray(list) || !list.length) list = [ {} ];
+			list.forEach(function(m, idx){ wrap.insertAdjacentHTML('beforeend', mintCard(m, idx)); });
+			qa('.remove-mint').forEach(function(btn){ btn.onclick = function(){ var card = btn.closest('.mint-card'); if (card) card.remove(); }; });
+		}
+
+		function renderShares(list, identitiesData) {
+			var wrap = must('#shares');
+			wrap.innerHTML = '';
+			if (!Array.isArray(list) || !list.length) list = [ {} ];
+			list.forEach(function(s, idx){ wrap.insertAdjacentHTML('beforeend', shareCard(s, idx, identitiesData)); });
+			qa('.remove-share').forEach(function(btn){ btn.onclick = function(){ var card = btn.closest('.share-card'); if (card) card.remove(); updateShareTotal(); }; });
+			qa('.share-percent').forEach(function(el){ el.oninput = updateShareTotal; });
+			updateShareTotal();
+		}
+
+		function updateShareTotal() {
+			var total = 0;
+			qa('.share-percent').forEach(function(el){ total += num(el.value, 0); });
+			must('#share_total').textContent = total.toFixed(2) + '%';
+		}
+
 		function renderIdentities(data) {
 			var owned = Array.isArray(data.owned_identities) ? data.owned_identities : [];
 			var public_ = Array.isArray(data.public_identities) ? data.public_identities : [];
@@ -381,30 +405,7 @@ return view.extend({
 			public_.forEach(function(id, idx) { publicWrap.insertAdjacentHTML('beforeend', publicIdentityCard(id, idx)); });
 			qa('.remove-ident').forEach(function(btn) { btn.onclick = function() { var card = btn.closest('.ident-card'); if (card) card.remove(); }; });
 		}
-		function collectPublicIdentities() {
-			return qa('.ident-card').map(function(card) {
-				return {
-					name: card.querySelector('.ident-name').value.trim(),
-					pubkey: card.querySelector('.ident-pubkey').value.trim(),
-					lightning_address: card.querySelector('.ident-lightning').value.trim()
-				};
-			}).filter(function(id) { return id.name.length > 0; });
-		}
-		function doSaveIdentities() {
-			var identitiesObj = JSON.parse(JSON.stringify(state.identities || {}));
-			identitiesObj.public_identities = collectPublicIdentities();
-			if (!identitiesObj.config_version) identitiesObj.config_version = 'v0.0.1';
-			if (!identitiesObj.owned_identities) identitiesObj.owned_identities = [];
-			must('#ident_save_status').textContent = 'Saving…';
-			api('save_identities', JSON.stringify(identitiesObj)).then(function(res) {
-				if (res.ok) {
-					must('#ident_save_status').innerHTML = '<span class="tg-ok">Saved</span>';
-					refreshDashboard();
-				} else {
-					must('#ident_save_status').innerHTML = '<span class="tg-err">' + html(res.error || 'Error') + '</span>';
-				}
-			});
-		}
+
 		function updateIdentityDatalist(identitiesData) {
 			var dl = must('#identity_datalist');
 			var names = [];
@@ -415,78 +416,124 @@ return view.extend({
 			}
 			dl.innerHTML = names.map(function(n) { return '<option value="' + html(n) + '">'; }).join('');
 		}
-		function populateForm(cfg) {
-			cfg = cfg || {};
-			cfg.accepted_mints = Array.isArray(cfg.accepted_mints) ? cfg.accepted_mints : [];
-			cfg.profit_share = Array.isArray(cfg.profit_share) ? cfg.profit_share : [];
-			cfg.relays = Array.isArray(cfg.relays) ? cfg.relays : [];
-			cfg.crowsnest = cfg.crowsnest || {};
-			must('#log_level').value = cfg.log_level || 'info';
-			must('#show_setup').checked = !!cfg.show_setup;
-			must('#reseller_mode').checked = !!cfg.reseller_mode;
-			must('#metric').value = cfg.metric || 'milliseconds';
-			must('#step_size').value = cfg.step_size || 0;
-			must('#margin').value = cfg.margin || 0;
-			must('#relays').value = cfg.relays.join('\n');
-			must('#probe_timeout_s').value = Math.round(num(cfg.crowsnest.probe_timeout, 0) / 1000000000);
-			must('#probe_retry_count').value = num(cfg.crowsnest.probe_retry_count, 0);
-			must('#probe_retry_delay_s').value = Math.round(num(cfg.crowsnest.probe_retry_delay, 0) / 1000000000);
-			must('#require_valid_signature').checked = !!cfg.crowsnest.require_valid_signature;
-			must('#ignore_interfaces').value = (cfg.crowsnest.ignore_interfaces || []).join('\n');
-			must('#discovery_timeout_s').value = Math.round(num(cfg.crowsnest.discovery_timeout, 0) / 1000000000);
-			renderMints(cfg.accepted_mints);
-			renderShares(cfg.profit_share, state.identities);
-			must('#raw_json').value = pretty(cfg);
-		}
+
 		function collectMints() {
 			return qa('.mint-card').map(function(card){
 				return {
 					url: card.querySelector('.mint-url').value.trim(),
-					min_balance: num(card.querySelector('.mint-min-balance').value, 64),
-					balance_tolerance_percent: num(card.querySelector('.mint-balance-tolerance').value, 10),
-					payout_interval_seconds: num(card.querySelector('.mint-payout-interval').value, 60),
-					min_payout_amount: num(card.querySelector('.mint-min-payout').value, 128),
-					price_per_step: num(card.querySelector('.mint-price-per-step').value, 1),
-					price_unit: card.querySelector('.mint-price-unit').value.trim() || 'sats',
-					purchase_min_steps: num(card.querySelector('.mint-purchase-min-steps').value, 0)
+					min_balance: num(card.querySelector('.mint-min_balance').value, 64),
+					balance_tolerance_percent: num(card.querySelector('.mint-balance_tolerance_percent').value, 10),
+					payout_interval_seconds: num(card.querySelector('.mint-payout_interval_seconds').value, 60),
+					min_payout_amount: num(card.querySelector('.mint-min_payout_amount').value, 128),
+					price_per_step: num(card.querySelector('.mint-price_per_step').value, 1),
+					price_unit: card.querySelector('.mint-price_unit').value.trim(),
+					purchase_min_steps: num(card.querySelector('.mint-purchase_min_steps').value, 0),
 				};
 			}).filter(function(m){ return m.url.length > 0; });
 		}
+
 		function collectShares() {
 			return qa('.share-card').map(function(card){
 				var pct = num(card.querySelector('.share-percent').value, 0);
 				return { identity: card.querySelector('.share-identity').value.trim(), factor: Number((pct / 100).toFixed(8)) };
 			}).filter(function(s){ return s.identity.length > 0; });
 		}
+
+		function collectPublicIdentities() {
+			return qa('.ident-card').map(function(card) {
+				return {
+					name: card.querySelector('.ident-name').value.trim(),
+					pubkey: card.querySelector('.ident-pubkey').value.trim(),
+					lightning_address: card.querySelector('.ident-lightning').value.trim()
+				};
+			}).filter(function(id) { return id.name.length > 0; });
+		}
+
+		function populateForm(cfg) {
+			cfg = cfg || {};
+			cfg.accepted_mints = Array.isArray(cfg.accepted_mints) ? cfg.accepted_mints : [];
+			cfg.profit_share = Array.isArray(cfg.profit_share) ? cfg.profit_share : [];
+			cfg.upstream_detector = cfg.upstream_detector || {};
+			cfg.upstream_session_manager = cfg.upstream_session_manager || {};
+			cfg.upstream_session_manager.trust = cfg.upstream_session_manager.trust || {};
+			cfg.upstream_session_manager.sessions = cfg.upstream_session_manager.sessions || {};
+			cfg.upstream_session_manager.usage_tracking = cfg.upstream_session_manager.usage_tracking || {};
+			must('#config_version').value = cfg.config_version || '';
+			must('#log_level').value = cfg.log_level || 'debug';
+			must('#step_size').value = cfg.step_size || 0;
+			must('#margin').value = cfg.margin || 0;
+			must('#metric').value = cfg.metric || 'milliseconds';
+			must('#show_setup').checked = !!cfg.show_setup;
+			must('#reseller_mode').checked = !!cfg.reseller_mode;
+			must('#probe_timeout_s').value = Math.round(num(cfg.upstream_detector.probe_timeout, 0) / 1000000000);
+			must('#probe_retry_count').value = cfg.upstream_detector.probe_retry_count || 0;
+			must('#probe_retry_delay_s').value = Math.round(num(cfg.upstream_detector.probe_retry_delay, 0) / 1000000000);
+			must('#require_valid_signature').checked = !!cfg.upstream_detector.require_valid_signature;
+			must('#ignore_interfaces').value = (cfg.upstream_detector.ignore_interfaces || []).join('\n');
+			must('#only_interfaces').value = (cfg.upstream_detector.only_interfaces || []).join('\n');
+			must('#discovery_timeout_s').value = Math.round(num(cfg.upstream_detector.discovery_timeout, 0) / 1000000000);
+			must('#max_price_per_millisecond').value = cfg.upstream_session_manager.max_price_per_millisecond || 0;
+			must('#max_price_per_byte').value = cfg.upstream_session_manager.max_price_per_byte || 0;
+			must('#default_policy').value = cfg.upstream_session_manager.trust.default_policy || 'trust_all';
+			must('#allowlist').value = (cfg.upstream_session_manager.trust.allowlist || []).join('\n');
+			must('#blocklist').value = (cfg.upstream_session_manager.trust.blocklist || []).join('\n');
+			must('#preferred_session_increments_milliseconds').value = cfg.upstream_session_manager.sessions.preferred_session_increments_milliseconds || 0;
+			must('#preferred_session_increments_bytes').value = cfg.upstream_session_manager.sessions.preferred_session_increments_bytes || 0;
+			must('#millisecond_renewal_offset').value = cfg.upstream_session_manager.sessions.millisecond_renewal_offset || 0;
+			must('#bytes_renewal_offset').value = cfg.upstream_session_manager.sessions.bytes_renewal_offset || 0;
+			must('#data_monitoring_interval_s').value = Math.round(num(cfg.upstream_session_manager.usage_tracking.data_monitoring_interval, 0) / 1000000000);
+			renderMints(cfg.accepted_mints);
+			renderShares(cfg.profit_share, state.identities);
+			must('#raw_json').value = pretty(cfg);
+		}
+
 		function formToObject() {
 			var next = JSON.parse(JSON.stringify(state.cfg || {}));
-			next.crowsnest = next.crowsnest || {};
+			next.upstream_detector = next.upstream_detector || {};
+			next.upstream_session_manager = next.upstream_session_manager || {};
+			next.upstream_session_manager.trust = next.upstream_session_manager.trust || {};
+			next.upstream_session_manager.sessions = next.upstream_session_manager.sessions || {};
+			next.upstream_session_manager.usage_tracking = next.upstream_session_manager.usage_tracking || {};
+			next.config_version = must('#config_version').value;
 			next.log_level = must('#log_level').value;
-			next.show_setup = must('#show_setup').checked;
-			next.reseller_mode = must('#reseller_mode').checked;
-			next.metric = must('#metric').value;
 			next.step_size = num(must('#step_size').value, next.step_size || 0);
 			next.margin = Number(num(must('#margin').value, next.margin || 0).toFixed(8));
+			next.metric = must('#metric').value;
+			next.show_setup = must('#show_setup').checked;
+			next.reseller_mode = must('#reseller_mode').checked;
+			next.upstream_detector.probe_timeout = num(must('#probe_timeout_s').value, 0) * 1000000000;
+			next.upstream_detector.probe_retry_count = num(must('#probe_retry_count').value, next.upstream_detector.probe_retry_count || 0);
+			next.upstream_detector.probe_retry_delay = num(must('#probe_retry_delay_s').value, 0) * 1000000000;
+			next.upstream_detector.require_valid_signature = must('#require_valid_signature').checked;
+			next.upstream_detector.ignore_interfaces = lines(must('#ignore_interfaces').value);
+			next.upstream_detector.only_interfaces = lines(must('#only_interfaces').value);
+			next.upstream_detector.discovery_timeout = num(must('#discovery_timeout_s').value, 0) * 1000000000;
+			next.upstream_session_manager.max_price_per_millisecond = Number(num(must('#max_price_per_millisecond').value, next.upstream_session_manager.max_price_per_millisecond || 0).toFixed(8));
+			next.upstream_session_manager.max_price_per_byte = Number(num(must('#max_price_per_byte').value, next.upstream_session_manager.max_price_per_byte || 0).toFixed(8));
+			next.upstream_session_manager.trust.default_policy = must('#default_policy').value;
+			next.upstream_session_manager.trust.allowlist = lines(must('#allowlist').value);
+			next.upstream_session_manager.trust.blocklist = lines(must('#blocklist').value);
+			next.upstream_session_manager.sessions.preferred_session_increments_milliseconds = num(must('#preferred_session_increments_milliseconds').value, next.upstream_session_manager.sessions.preferred_session_increments_milliseconds || 0);
+			next.upstream_session_manager.sessions.preferred_session_increments_bytes = num(must('#preferred_session_increments_bytes').value, next.upstream_session_manager.sessions.preferred_session_increments_bytes || 0);
+			next.upstream_session_manager.sessions.millisecond_renewal_offset = num(must('#millisecond_renewal_offset').value, next.upstream_session_manager.sessions.millisecond_renewal_offset || 0);
+			next.upstream_session_manager.sessions.bytes_renewal_offset = num(must('#bytes_renewal_offset').value, next.upstream_session_manager.sessions.bytes_renewal_offset || 0);
+			next.upstream_session_manager.usage_tracking.data_monitoring_interval = num(must('#data_monitoring_interval_s').value, 0) * 1000000000;
 			next.accepted_mints = collectMints();
 			next.profit_share = collectShares();
-			next.relays = lines(must('#relays').value);
-			next.crowsnest.probe_timeout = num(must('#probe_timeout_s').value, 0) * 1000000000;
-			next.crowsnest.probe_retry_count = num(must('#probe_retry_count').value, 0);
-			next.crowsnest.probe_retry_delay = num(must('#probe_retry_delay_s').value, 0) * 1000000000;
-			next.crowsnest.require_valid_signature = must('#require_valid_signature').checked;
-			next.crowsnest.ignore_interfaces = lines(must('#ignore_interfaces').value);
-			next.crowsnest.discovery_timeout = num(must('#discovery_timeout_s').value, 0) * 1000000000;
 			return next;
 		}
+
 		function clientValidate(obj) {
 			var errs = [];
-			if (!obj.accepted_mints || !obj.accepted_mints.length) errs.push('At least one accepted mint is required.');
-			if (!obj.profit_share || !obj.profit_share.length) errs.push('At least one profit share row is required.');
+			if (!obj.accepted_mints || !obj.accepted_mints.length) errs.push('At least one accepted mints is required.');
+			if (!obj.profit_share || !obj.profit_share.length) errs.push('At least one profit share is required.');
 			var total = (obj.profit_share || []).reduce(function(acc, x){ return acc + Number(x.factor || 0); }, 0);
 			if (Math.abs(total - 1.0) > 0.001) errs.push('Profit share must total 100%.');
-			if (obj.metric !== 'milliseconds' && obj.metric !== 'bytes') errs.push('Metric must be milliseconds or bytes.');
+			if (obj.log_level !== 'debug' && obj.log_level !== 'info' && obj.log_level !== 'warn' && obj.log_level !== 'error') errs.push('Log level must be one of: debug, info, warn, error.');
+			if (obj.metric !== 'milliseconds' && obj.metric !== 'bytes') errs.push('Metric must be one of: milliseconds, bytes.');
 			return errs;
 		}
+
 		function api(action, body) {
 			var opts = { method: body == null ? 'GET' : 'POST' };
 			if (body != null) {
@@ -500,8 +547,6 @@ return view.extend({
 				return l.indexOf('Error:') === 0 || l.indexOf('Failed') >= 0 || l.indexOf('invalid') >= 0;
 			}).join(' ').replace(/Error:\s*/g, '').replace(/command failed/g, '').trim() || text;
 		}
-
-		/* ── Confirmation dialog ── */
 		function confirm(message, onConfirm) {
 			var overlay = document.createElement('div');
 			overlay.className = 'tg-confirm-overlay';
@@ -514,8 +559,6 @@ return view.extend({
 			overlay.querySelector('#tg_confirm_yes').onclick = function() { document.body.removeChild(overlay); onConfirm(); };
 			overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
 		}
-
-		/* ── Dashboard refresh ── */
 		function applyDashboard(data) {
 			var walletText = data.wallet || '';
 			var walletInfoText = data.wallet_info || '';
@@ -560,8 +603,6 @@ return view.extend({
 				must('#logs_poll_state').textContent = 'Updated ' + new Date().toLocaleTimeString();
 			});
 		}
-
-		/* ── Wallet fund ── */
 		function doWalletFund() {
 			var token = must('#fund_token').value.trim();
 			if (!token) { must('#fund_status').textContent = 'Paste a Cashu token first.'; return; }
@@ -581,8 +622,6 @@ return view.extend({
 				must('#fund_status').innerHTML = '<span class="tg-err">Request failed: ' + html(String(err)) + '</span>';
 			});
 		}
-
-		/* ── Network tab ── */
 		function renderNetworkStatus(data) {
 			must('#net_ssid').textContent = data.ssid || '—';
 			state.netPw = data.password || '';
@@ -660,8 +699,6 @@ return view.extend({
 				}
 			});
 		}
-
-		/* ── Config save/validate ── */
 		function validateText(text) {
 			return api('validate', text).then(function(res){
 				var lines = [res.ok ? 'Validation: OK' : 'Validation: FAILED'];
@@ -682,8 +719,21 @@ return view.extend({
 				setMsg(['Save FAILED', res.error || 'Unknown error']);
 			});
 		}
-
-		/* ── Tab switching ── */
+		function doSaveIdentities() {
+			var identitiesObj = JSON.parse(JSON.stringify(state.identities || {}));
+			identitiesObj.public_identities = collectPublicIdentities();
+			if (!identitiesObj.config_version) identitiesObj.config_version = 'v0.0.1';
+			if (!identitiesObj.owned_identities) identitiesObj.owned_identities = [];
+			must('#ident_save_status').textContent = 'Saving…';
+			api('save_identities', JSON.stringify(identitiesObj)).then(function(res) {
+				if (res.ok) {
+					must('#ident_save_status').innerHTML = '<span class="tg-ok">Saved</span>';
+					refreshDashboard();
+				} else {
+					must('#ident_save_status').innerHTML = '<span class="tg-err">' + html(res.error || 'Error') + '</span>';
+				}
+			});
+		}
 		function setActiveTab(name) {
 			state.activeTab = name;
 			['dashboard', 'network', 'config', 'identities'].forEach(function(tab) {
@@ -692,8 +742,6 @@ return view.extend({
 			});
 			if (name === 'network') refreshNetworkStatus();
 		}
-
-		/* ── Polling ── */
 		function startPolling() {
 			if (state.logTimer) return;
 			state.logTimer = window.setInterval(function() {
@@ -705,8 +753,6 @@ return view.extend({
 				if (state.activeTab === 'dashboard') refreshDashboard();
 			}, 30000);
 		}
-
-		/* ── Bind all handlers ── */
 		function bindHandlers() {
 			must('#tab_dashboard').onclick = function() { setActiveTab('dashboard'); };
 			must('#tab_network').onclick = function() { setActiveTab('network'); };
@@ -732,6 +778,7 @@ return view.extend({
 				renderIdentities(data);
 			};
 			must('#btn_save_identities').onclick = function() { doSaveIdentities(); };
+
 			must('#validate_form').onclick = function() {
 				try {
 					var obj = formToObject();

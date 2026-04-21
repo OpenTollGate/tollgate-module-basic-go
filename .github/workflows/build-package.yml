@@ -13,6 +13,19 @@ env:
 # Define the architecture matrix once for reuse across jobs
 # This allows us to maintain architecture configurations in one place
 jobs:
+  verify-generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Run generator
+        run: |
+          go run cmd/luci-gen/parser.go cmd/luci-gen/conventions.go cmd/luci-gen/js_generator.go cmd/luci-gen/cgi_generator.go cmd/luci-gen/main.go -path .
+      - name: Check for drift
+        run: git diff --exit-code
+
   define-matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -205,7 +218,7 @@ jobs:
           fi
 
   build-package:
-    needs: [determine-versioning, define-matrix]
+    needs: [determine-versioning, define-matrix, verify-generated]
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
