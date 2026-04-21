@@ -143,7 +143,7 @@ done
 echo "Restarting network..."
 /etc/init.d/network restart 2>/dev/null || true
 wait_for_iface br-lan
-wait_for_iface br-private
+wait_for_iface br-private || echo "Note: br-private not found — this is expected on devices without a private network configured."
 
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
