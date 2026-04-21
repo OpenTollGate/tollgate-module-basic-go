@@ -14,7 +14,7 @@ import sys
 
 # Configuration
 INTERFACES = ["enx00e04c683d2d", "enx00e04c6812d4"]  # List of interfaces to monitor
-ROUTER_PASSWORD = "c08r4d0r123"
+ROUTER_PASSWORD = "c03rad0r123"
 IMAGE_FILE = "78ccda8fdbd71df9143fb41aff75d2104fbb56313d2c1ba8ce56c8ab951e5d26.bin"
 
 
