@@ -3,6 +3,12 @@
 # services start. All UCI changes are committed in a single pass at the end;
 # no service restarts here (uci-defaults runs before procd brings services up).
 
+SETUP_FLAG="/etc/tollgate-setup-done"
+
+if [ -f "$SETUP_FLAG" ]; then
+    exit 0
+fi
+
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
@@ -62,12 +68,16 @@ setup_public_wifi() {
     # Same SSID on both radios so clients see one network and band-steer.
     if uci -q get wireless.default_radio0 >/dev/null; then
         uci set wireless.default_radio0.name='tollgate_2g_open'
+        uci set wireless.default_radio0.mode='ap'
+        uci set wireless.default_radio0.network='lan'
         uci set wireless.default_radio0.ssid="$GATEWAY_NAME"
         uci set wireless.default_radio0.encryption='none'
         uci set wireless.default_radio0.disabled='0'
     fi
     if uci -q get wireless.default_radio1 >/dev/null; then
         uci set wireless.default_radio1.name='tollgate_5g_open'
+        uci set wireless.default_radio1.mode='ap'
+        uci set wireless.default_radio1.network='lan'
         uci set wireless.default_radio1.ssid="$GATEWAY_NAME"
         uci set wireless.default_radio1.encryption='none'
         uci set wireless.default_radio1.disabled='0'
@@ -227,4 +237,5 @@ setup_private_network        # consumes RANDOM_SUFFIX
 commit_all
 
 log "TollGate setup completed"
+touch "$SETUP_FLAG"
 exit 0
