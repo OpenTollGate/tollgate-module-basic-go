@@ -178,7 +178,7 @@ get_current_signal() {
 
 is_sta_associated() {
 	local sta_iface="$1"
-	iwinfo "$sta_iface" info 2>/dev/null | grep -q "Associated with"
+	iwinfo "$sta_iface" info 2>/dev/null | grep -q "Access Point:\|Associated with"
 }
 
 find_strongest_candidate() {
