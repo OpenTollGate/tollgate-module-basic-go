@@ -213,6 +213,9 @@ define Package/$(PKG_NAME)/install
 	
 	# Install CLI tool in system PATH
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/cmd/tollgate-cli/tollgate $(1)/usr/bin/tollgate
+
+	# Install WiFi scanner/connect tool
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wifiscan.sh $(1)/usr/bin/wifiscan.sh
 	
 	# Init script
 	$(INSTALL_DIR) $(1)/etc/init.d
@@ -265,6 +268,7 @@ endef
 # Update FILES declaration to include NoDogSplash files
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-wrt \
+	/usr/bin/wifiscan.sh \
 	/usr/bin/upstream-daemon.sh \
 	/etc/init.d/tollgate-wrt \
 	/etc/init.d/tollgate-upstream \
