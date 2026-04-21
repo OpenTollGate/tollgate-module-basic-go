@@ -417,12 +417,78 @@ connect_ssid() {
 	rm -rf "$TMP_SCAN_DIR"
 }
 
+list_upstream() {
+	local iface found=0
+	printf "%-20s  %-10s  %-10s  %s\n" "SSID" "STATUS" "RADIO" "ENCRYPTION"
+	local i=55
+	while [ $i -gt 0 ]; do printf '-'; i=$((i - 1)); done
+	printf '\n'
+
+	for iface in $(uci show wireless 2>/dev/null | \
+		sed -n 's/wireless\.\([^.]*\)=wifi-iface/\1/p'); do
+		if [ "$(uci -q get wireless."$iface".mode)" != "sta" ]; then
+			continue
+		fi
+		local ssid disabled radio enc
+		ssid=$(uci -q get wireless."$iface".ssid)
+		disabled=$(uci -q get wireless."$iface".disabled)
+		radio=$(uci -q get wireless."$iface".device)
+		enc=$(uci -q get wireless."$iface".encryption)
+		[ -z "$ssid" ] && continue
+		found=$((found + 1))
+		if [ "$disabled" = "1" ]; then
+			printf "%-20s  %-10s  %-10s  %s\n" "$ssid" "disabled" "${radio:-?}" "${enc:-?}"
+		else
+			printf "%-20s  %-10s  %-10s  %s\n" "$ssid" "ACTIVE" "${radio:-?}" "${enc:-?}"
+		fi
+	done
+
+	printf "\n%d upstream STA(s) configured.\n" "$found"
+}
+
+remove_upstream() {
+	local target_ssid="$1"
+	[ -z "$target_ssid" ] && echo "[!] Usage: $0 remove-upstream <SSID>" && exit 1
+
+	local iface found=0
+	for iface in $(uci show wireless 2>/dev/null | \
+		sed -n 's/wireless\.\([^.]*\)=wifi-iface/\1/p'); do
+		if [ "$(uci -q get wireless."$iface".mode)" != "sta" ]; then
+			continue
+		fi
+		local ssid
+		ssid=$(uci -q get wireless."$iface".ssid)
+		if [ "$ssid" = "$target_ssid" ]; then
+			local disabled
+			disabled=$(uci -q get wireless."$iface".disabled)
+			if [ "$disabled" != "1" ]; then
+				echo "[!] Cannot remove active upstream '$target_ssid'. Switch first."
+				return 1
+			fi
+			uci delete wireless."$iface"
+			found=1
+			break
+		fi
+	done
+
+	if [ "$found" = "1" ]; then
+		uci commit wireless
+		wifi reload 2>/dev/null
+		echo "[+] Removed upstream '$target_ssid' from config."
+	else
+		echo "[!] No disabled upstream found with SSID '$target_ssid'."
+		return 1
+	fi
+}
+
 usage() {
 	printf "Usage: %s [command] [args]\n\n" "$0"
 	printf "Commands:\n"
 	printf "  (no args)              Scan and list available networks\n"
 	printf "  connect <SSID>         Connect to an SSID (prompts for passphrase)\n"
 	printf "  connect <SSID> <PASS>  Connect to an SSID with given passphrase\n"
+	printf "  list-upstream          List known upstream STA configurations\n"
+	printf "  remove-upstream <SSID> Remove a known upstream (must be disabled)\n"
 	printf "  help                   Show this help\n"
 }
 
@@ -431,6 +497,12 @@ main() {
 		connect)
 			[ -z "$2" ] && echo "[!] Usage: $0 connect <SSID> [PASSPHRASE]" && exit 1
 			connect_ssid "$2" "$3"
+			;;
+		list-upstream)
+			list_upstream
+			;;
+		remove-upstream)
+			remove_upstream "$2"
 			;;
 		help|--help|-h)
 			usage
