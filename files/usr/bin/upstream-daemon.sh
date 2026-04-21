@@ -136,27 +136,49 @@ get_sta_radio() {
 	uci -q get wireless."$1".device
 }
 
-get_current_signal() {
+find_sta_iface_for_radio() {
 	local radio="$1"
+	local radio_num
+	radio_num=$(echo "$radio" | sed 's/radio//')
+
+	local iface name
+	for iface in /sys/class/net/*; do
+		name=$(basename "$iface")
+		case "$name" in
+			*"sta"*)
+				local phy_num
+				phy_num=$(cat "$iface/phy80211/index" 2>/dev/null || readlink "$iface/device" 2>/dev/null | grep -o 'phy[0-9]*' | tr -d 'phy')
+				if [ "$phy_num" = "$radio_num" ]; then
+					echo "$name"
+					return 0
+				fi
+				;;
+		esac
+	done
+	return 1
+}
+
+get_current_signal() {
+	local sta_iface="$1"
 	local signal
 
-	signal=$(iwinfo "$radio" info 2>/dev/null | grep "Signal:" | head -1 | awk -F'[ /]' '{for(i=1;i<=NF;i++) if($i=="Signal:") {print $(i+1); break}}')
-	if [ -n "$signal" ]; then
-		echo "$signal" | grep -qE '^-?[0-9]+$' && echo "$signal" && return 0
-	fi
-
-	signal=$(iwinfo "$radio" assoclist 2>/dev/null | head -1 | grep -oE '\-[0-9]+')
+	signal=$(iwinfo "$sta_iface" assoclist 2>/dev/null | head -1 | grep -oE '\-[0-9]+')
 	if [ -n "$signal" ]; then
 		echo "$signal"
 		return 0
+	fi
+
+	signal=$(iwinfo "$sta_iface" info 2>/dev/null | grep "Signal:" | head -1 | awk -F'[ /]' '{for(i=1;i<=NF;i++) if($i=="Signal:") {print $(i+1); break}}')
+	if [ -n "$signal" ]; then
+		echo "$signal" | grep -qE '^-?[0-9]+$' && echo "$signal" && return 0
 	fi
 
 	return 1
 }
 
 is_sta_associated() {
-	local radio="$1"
-	iwinfo "$radio" info 2>/dev/null | grep -q "Associated with"
+	local sta_iface="$1"
+	iwinfo "$sta_iface" info 2>/dev/null | grep -q "Associated with"
 }
 
 find_strongest_candidate() {
@@ -326,8 +348,9 @@ main() {
 			active_radio=$(get_sta_radio "$active_iface")
 			active_ssid=$(get_sta_ssid "$active_iface")
 			if [ -n "$active_radio" ]; then
-				if is_sta_associated "$active_radio"; then
-					current_signal=$(get_current_signal "$active_radio")
+				active_sta_dev=$(find_sta_iface_for_radio "$active_radio")
+				if [ -n "$active_sta_dev" ] && is_sta_associated "$active_sta_dev"; then
+					current_signal=$(get_current_signal "$active_sta_dev")
 				fi
 			fi
 		fi
