@@ -157,7 +157,7 @@ setup_private_network() {
         private_octet3=$((octet3 + 1))
     fi
     private_ip="${octet1}.${octet2}.${private_octet3}.1"
-    private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
+    private_ssid="c03rad0r-${RANDOM_SUFFIX}"
 
     # Memorable password: 3 words + 2-digit number. Single /dev/urandom read,
     # awk picks words — avoids forking per word.
