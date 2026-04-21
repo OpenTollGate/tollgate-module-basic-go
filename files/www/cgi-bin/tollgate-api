@@ -20,6 +20,7 @@ json_esc() {
         gsub(/"/, "\\\"")
         gsub(/\t/, "\\t")
         gsub(/\r/, "\\r")
+        gsub(/[\x00-\x1f]/, "")
     }
     NR > 1 { printf "\\n" }
     { printf "%s", $0 }
