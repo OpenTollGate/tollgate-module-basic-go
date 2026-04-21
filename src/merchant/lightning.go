@@ -1,12 +1,18 @@
 package merchant
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
 )
+
+const lightningQuoteRetention = 24 * time.Hour
 
 type LightningInvoice struct {
 	QuoteID string
@@ -28,13 +34,112 @@ type LightningQuoteStatus struct {
 }
 
 type lightningQuoteRecord struct {
-	QuoteID        string
 	MacAddress     string
 	MintURL        string
 	Amount         uint64
 	Allotment      uint64
 	SessionGranted bool
 	Processing     bool
+	UpdatedAt      int64
+}
+
+func (m *Merchant) lightningQuoteStorePath() string {
+	if m.configManager == nil || m.configManager.ConfigFilePath == "" {
+		return ""
+	}
+
+	return filepath.Join(filepath.Dir(m.configManager.ConfigFilePath), "lightning_quotes.json")
+}
+
+func (m *Merchant) saveLightningQuotes() error {
+	m.lightningQuoteMu.Lock()
+	defer m.lightningQuoteMu.Unlock()
+
+	return m.saveLightningQuotesLocked()
+}
+
+func (m *Merchant) saveLightningQuotesLocked() error {
+	path := m.lightningQuoteStorePath()
+	if path == "" {
+		return nil
+	}
+
+	m.pruneLightningQuotesLocked(time.Now())
+
+	data, err := json.MarshalIndent(m.lightningQuotes, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal lightning quotes: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create lightning quote dir: %w", err)
+	}
+
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+		return fmt.Errorf("write lightning quotes temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace lightning quotes file: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Merchant) loadLightningQuotes() error {
+	path := m.lightningQuoteStorePath()
+	if path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read lightning quotes: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil
+	}
+
+	quotes := make(map[string]*lightningQuoteRecord)
+	if err := json.Unmarshal(data, &quotes); err != nil {
+		return fmt.Errorf("unmarshal lightning quotes: %w", err)
+	}
+
+	m.lightningQuoteMu.Lock()
+	m.lightningQuotes = quotes
+	m.pruneLightningQuotesLocked(time.Now())
+	if err := m.saveLightningQuotesLocked(); err != nil {
+		m.lightningQuoteMu.Unlock()
+		return err
+	}
+	m.lightningQuoteMu.Unlock()
+
+	return nil
+}
+
+func (m *Merchant) pruneLightningQuotesLocked(now time.Time) {
+	cutoff := now.Add(-lightningQuoteRetention).Unix()
+	for quoteID, record := range m.lightningQuotes {
+		if record == nil {
+			delete(m.lightningQuotes, quoteID)
+			continue
+		}
+
+		updatedAt := record.UpdatedAt
+		if updatedAt == 0 {
+			updatedAt = now.Unix()
+			record.UpdatedAt = updatedAt
+		}
+
+		if updatedAt < cutoff {
+			delete(m.lightningQuotes, quoteID)
+		}
+	}
 }
 
 func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
@@ -55,12 +160,16 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 
 	m.lightningQuoteMu.Lock()
 	m.lightningQuotes[quote.Quote] = &lightningQuoteRecord{
-		QuoteID:    quote.Quote,
 		MacAddress: macAddress,
 		MintURL:    mintURL,
 		Amount:     amount,
+		UpdatedAt:  time.Now().Unix(),
 	}
+	err = m.saveLightningQuotesLocked()
 	m.lightningQuoteMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 
 	return &LightningInvoice{
 		QuoteID: quote.Quote,
@@ -140,6 +249,12 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state nut04.Stat
 		return nil
 	}
 	record.Processing = true
+	record.UpdatedAt = time.Now().Unix()
+	if err := m.saveLightningQuotesLocked(); err != nil {
+		record.Processing = false
+		m.lightningQuoteMu.Unlock()
+		return err
+	}
 	recordCopy := *record
 	m.lightningQuoteMu.Unlock()
 
@@ -150,6 +265,8 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state nut04.Stat
 			m.lightningQuoteMu.Lock()
 			if record, ok := m.lightningQuotes[quoteID]; ok {
 				record.Processing = false
+				record.UpdatedAt = time.Now().Unix()
+				_ = m.saveLightningQuotesLocked()
 			}
 			m.lightningQuoteMu.Unlock()
 			return err
@@ -162,6 +279,8 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state nut04.Stat
 		m.lightningQuoteMu.Lock()
 		if record, ok := m.lightningQuotes[quoteID]; ok {
 			record.Processing = false
+			record.UpdatedAt = time.Now().Unix()
+			_ = m.saveLightningQuotesLocked()
 		}
 		m.lightningQuoteMu.Unlock()
 		return err
@@ -174,6 +293,11 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state nut04.Stat
 		record.Processing = false
 		record.SessionGranted = true
 		record.Allotment = allotment
+		record.UpdatedAt = time.Now().Unix()
+		if err := m.saveLightningQuotesLocked(); err != nil {
+			m.lightningQuoteMu.Unlock()
+			return err
+		}
 	}
 	m.lightningQuoteMu.Unlock()
 

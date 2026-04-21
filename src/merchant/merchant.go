@@ -103,14 +103,20 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	log.Printf("Advertisement: %s", advertisementStr)
 	log.Printf("=== Merchant ready ===")
 
-	return &Merchant{
+	merchant := &Merchant{
 		config:           config,
 		configManager:    configManager,
 		tollwallet:       *tollwallet,
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 		lightningQuotes:  make(map[string]*lightningQuoteRecord),
-	}, nil
+	}
+
+	if err := merchant.loadLightningQuotes(); err != nil {
+		log.Printf("Warning: failed to load persisted lightning quotes: %v", err)
+	}
+
+	return merchant, nil
 }
 
 // GetUsage returns the current usage in format "[usage]/[allotment]"
@@ -463,7 +469,7 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 }
 
 // calculateAllotmentMs calculates allotment in milliseconds from steps
-func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+func (m *Merchant) calculateAllotmentMs(steps uint64, _ *config_manager.MintConfig) (uint64, error) {
 	// Convert steps to milliseconds using configured step size
 	totalMs := steps * m.config.StepSize
 
@@ -474,7 +480,7 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 }
 
 // calculateAllotmentBytes calculates allotment in bytes from steps
-func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+func (m *Merchant) calculateAllotmentBytes(steps uint64, _ *config_manager.MintConfig) (uint64, error) {
 	// Convert steps to bytes using configured step size
 	totalBytes := steps * m.config.StepSize
 
@@ -483,7 +489,6 @@ func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_mana
 
 	return totalBytes, nil
 }
-
 
 // createSessionEvent creates a session event from the MAC-address based session
 func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey string) (*nostr.Event, error) {
@@ -788,11 +793,25 @@ func (m *Merchant) GetAllMintBalances() map[string]uint64 {
 // GetSession retrieves a customer session by MAC address
 func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 	m.sessionMu.RLock()
-	defer m.sessionMu.RUnlock()
-
 	session, exists := m.customerSessions[macAddress]
+	m.sessionMu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("session not found for MAC address: %s", macAddress)
+	}
+
+	if session.Metric == "milliseconds" {
+		elapsedMs := uint64(time.Since(time.Unix(session.StartTime, 0)).Milliseconds())
+		if elapsedMs >= session.Allotment {
+			m.sessionMu.Lock()
+			if currentSession, exists := m.customerSessions[macAddress]; exists {
+				currentElapsedMs := uint64(time.Since(time.Unix(currentSession.StartTime, 0)).Milliseconds())
+				if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
+					delete(m.customerSessions, macAddress)
+				}
+			}
+			m.sessionMu.Unlock()
+			return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
+		}
 	}
 
 	return session, nil
