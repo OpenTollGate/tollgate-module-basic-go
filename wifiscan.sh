@@ -96,6 +96,19 @@ setup_wwan_firewall() {
 	return 0
 }
 
+disable_other_stas() {
+	local disabled_count=0
+	local iface
+	for iface in $(uci show wireless 2>/dev/null | \
+		sed -n 's/wireless\.\([^.]*\)=wifi-iface/\1/p'); do
+		if [ "$(uci -q get wireless."$iface".mode)" = "sta" ]; then
+			uci set wireless."$iface".disabled=1
+			disabled_count=$((disabled_count + 1))
+		fi
+	done
+	[ "$disabled_count" -gt 0 ] && echo "[*] Disabled $disabled_count old STA interface(s)."
+}
+
 scan_radio() {
 	local radio="$1"
 	local outfile="$TMP_SCAN_DIR/${radio}.raw"
@@ -350,6 +363,8 @@ connect_ssid() {
 
 	cp "$WIRELESS_CFG" "${WIRELESS_CFG}.bak.$(date +%Y%m%d%H%M%S)"
 
+	disable_other_stas
+
 	local iface="default_${radio}"
 	if ! uci -q get wireless."$iface" > /dev/null 2>&1; then
 		echo "[*] Creating new wireless interface for $radio."
@@ -360,6 +375,7 @@ connect_ssid() {
 	uci set wireless."$iface".device="$radio"
 	uci set wireless."$iface".network="wwan"
 	uci set wireless."$iface".mode="sta"
+	uci set wireless."$iface".disabled=0
 	uci set wireless."$iface".ssid="$target_ssid"
 	uci set wireless."$iface".encryption="$uci_enc"
 
