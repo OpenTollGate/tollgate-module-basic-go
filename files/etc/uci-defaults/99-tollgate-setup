@@ -59,29 +59,33 @@ setup_dns_dnsmasq() {
     uci set dhcp.@dnsmasq[0].expandhosts='1'
 }
 
+configure_radio_ap() {
+    local iface="$1" label="$2"
+    if ! uci -q get "wireless.$iface" >/dev/null; then
+        return
+    fi
+    local current_mode
+    current_mode=$(uci -q get "wireless.$iface".mode)
+    if [ "$current_mode" = "sta" ]; then
+        log "$iface is STA, preserving upstream connection"
+        return
+    fi
+    uci set "wireless.$iface".name="$label"
+    uci set "wireless.$iface".mode='ap'
+    uci set "wireless.$iface".network='lan'
+    uci set "wireless.$iface".ssid="$GATEWAY_NAME"
+    uci set "wireless.$iface".encryption='none'
+    uci set "wireless.$iface".disabled='0'
+}
+
 # Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
 setup_public_wifi() {
     RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
     GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
     log "Gateway name: ${GATEWAY_NAME}"
 
-    # Same SSID on both radios so clients see one network and band-steer.
-    if uci -q get wireless.default_radio0 >/dev/null; then
-        uci set wireless.default_radio0.name='tollgate_2g_open'
-        uci set wireless.default_radio0.mode='ap'
-        uci set wireless.default_radio0.network='lan'
-        uci set wireless.default_radio0.ssid="$GATEWAY_NAME"
-        uci set wireless.default_radio0.encryption='none'
-        uci set wireless.default_radio0.disabled='0'
-    fi
-    if uci -q get wireless.default_radio1 >/dev/null; then
-        uci set wireless.default_radio1.name='tollgate_5g_open'
-        uci set wireless.default_radio1.mode='ap'
-        uci set wireless.default_radio1.network='lan'
-        uci set wireless.default_radio1.ssid="$GATEWAY_NAME"
-        uci set wireless.default_radio1.encryption='none'
-        uci set wireless.default_radio1.disabled='0'
-    fi
+    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
+    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
     uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
     uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
 }
