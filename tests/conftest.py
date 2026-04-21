@@ -9,7 +9,7 @@ LOCAL_MINT_URL = "https://nofees.testnut.cashu.space"
 TOLLGATE_NETWORK_PREFIXES = ["TollGate-"]
 INTERFACE = "wlp59s0"  # This should be configurable
 BLOSSOM_URL = "https://blossom.swissdash.site/21d180236f012e5ece0e7881b3602779f14d6b1d8deaaf63914aa0f5b67d4bc3.ipk"
-ROUTER_PASSWORD = "c03rad0r123"
+ROUTER_PASSWORD = "c08r4d0r123"
 
 # Global variable to store router information
 router_info = {
