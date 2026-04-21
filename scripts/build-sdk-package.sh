@@ -21,7 +21,7 @@ PACKAGE_EXTENSION="$PACKAGE_FORMAT"
 if [ -z "$SDK_TAG" ]; then
     printf '%s\n' 'ERROR: SDK_TAG is required for local builds.' >&2
     printf '%s\n' 'Refusing to guess a default target because that can silently build the wrong architecture.' >&2
-    printf '%s\n' 'Example: SDK_TAG=mediatek-filogic-25.12.0-rc4 ./build-sdk-package.sh' >&2
+    printf '%s\n' 'Example: SDK_TAG=mediatek-filogic-25.12.0-rc4 ./scripts/build-sdk-package.sh' >&2
     exit 1
 fi
 
@@ -47,6 +47,9 @@ HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 mkdir -p "$ARTIFACT_DIR"
 mkdir -p "$HOST_ARTIFACT_PATH"
 
+# Anchor to repo root so the docker mount is correct regardless of CWD.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 printf 'Using SDK_TAG=%s\n' "$SDK_TAG"
 printf 'Using PACKAGE_FORMAT=%s\n' "$PACKAGE_FORMAT"
 printf 'Expected package arch=%s\n' "$EXPECTED_ARCH"
@@ -57,7 +60,7 @@ printf 'Build log path=%s\n' "$HOST_LOG_PATH"
 printf '%s\n' 'Local source mode is enabled; the Docker SDK will build from the current working tree.'
 
 if ! docker run --rm -i -u root \
-    -v "$PWD":/builder/package/tollgate-wrt \
+    -v "$REPO_ROOT":/builder/package/tollgate-wrt \
     -v "$ARTIFACT_DIR":/artifacts \
     -e SDK_TAG="$SDK_TAG" \
     -e PACKAGE_FORMAT="$PACKAGE_FORMAT" \
