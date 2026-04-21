@@ -244,6 +244,119 @@ save)
     printf '}'
     ;;
 
+wallet_fund)
+    json_header
+    token=$(printf '%s' "$body" | jsonfilter -q -e '$.token' 2>/dev/null) || true
+    if [ -z "$token" ]; then
+        printf '{"ok":false,"error":"Missing token field in request body."}'
+        exit 0
+    fi
+    result=$(printf '%s\n' "$token" | /usr/bin/tollgate wallet fund 2>&1 || true)
+    if echo "$result" | grep -qi "successfully funded"; then
+        amt=$(echo "$result" | sed -n 's/.*with \([0-9]*\) sats.*/\1/p')
+        printf '{"ok":true,"message":'
+        printf '%s' "$result" | json_esc
+        printf ',"amount_received":%s}' "${amt:-0}"
+    else
+        printf '{"ok":false,"error":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    fi
+    ;;
+
+network_status)
+    json_header
+    result=$(run_cmd /usr/bin/tollgate network private status)
+    ssid=$(echo "$result" | sed -n 's/^SSID: *\([^ ]*\)/\1/p')
+    pw=$(echo "$result" | sed -n 's/^Password: *\([^ ]*\)/\1/p')
+    en=$(echo "$result" | sed -n 's/^Status: *\(.*\)/\1/p')
+    if [ -n "$ssid" ]; then
+        printf '{"ok":true,"ssid":'
+        printf '%s' "$ssid" | json_esc
+        printf ',"password":'
+        printf '%s' "${pw:-}" | json_esc
+        printf ',"enabled":%s}' "$([ "$en" = "Enabled" ] && echo "true" || echo "false")"
+    else
+        printf '{"ok":false,"error":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    fi
+    ;;
+
+network_enable)
+    json_header
+    result=$(run_cmd /usr/bin/tollgate network private enable)
+    if echo "$result" | grep -q "successfully"; then
+        printf '{"ok":true,"message":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    else
+        printf '{"ok":false,"error":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    fi
+    ;;
+
+network_disable)
+    json_header
+    result=$(printf 'y\n' | /usr/bin/tollgate network private disable 2>&1 || true)
+    if echo "$result" | grep -q "successfully"; then
+        printf '{"ok":true,"message":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    else
+        printf '{"ok":false,"error":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    fi
+    ;;
+
+network_rename)
+    json_header
+    new_ssid=$(printf '%s' "$body" | jsonfilter -q -e '$.ssid' 2>/dev/null) || true
+    if [ -z "$new_ssid" ]; then
+        printf '{"ok":false,"error":"Missing ssid field in request body."}'
+        exit 0
+    fi
+    result=$(run_cmd /usr/bin/tollgate network private rename "$new_ssid")
+    if echo "$result" | grep -q "successfully"; then
+        printf '{"ok":true,"message":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    else
+        printf '{"ok":false,"error":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    fi
+    ;;
+
+network_set_password)
+    json_header
+    new_pw=$(printf '%s' "$body" | jsonfilter -q -e '$.password' 2>/dev/null) || true
+    if [ -z "$new_pw" ]; then
+        result=$(run_cmd /usr/bin/tollgate network private set-password)
+    else
+        result=$(run_cmd /usr/bin/tollgate network private set-password "$new_pw")
+    fi
+    if echo "$result" | grep -q "successfully"; then
+        gen_pw=$(echo "$result" | sed -n 's/.*password changed successfully//p')
+        printf '{"ok":true,"message":'
+        printf '%s' "$result" | json_esc
+        if [ -z "$new_pw" ] && echo "$result" | grep -q ":"; then
+            rand_pw=$(echo "$result" | grep -oE '[A-Z][a-z]+-[A-Z][a-z]+-[A-Z][a-z]+-[0-9]+' | head -1)
+            if [ -n "$rand_pw" ]; then
+                printf ',"new_password":'
+                printf '%s' "$rand_pw" | json_esc
+            fi
+        fi
+        printf '}'
+    else
+        printf '{"ok":false,"error":'
+        printf '%s' "$result" | json_esc
+        printf '}'
+    fi
+    ;;
+
 *)
     json_header
     printf '{"ok":false,"error":"Unknown action: %s"}' "${action:-none}"

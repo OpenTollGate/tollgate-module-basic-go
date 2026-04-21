@@ -26,6 +26,8 @@ return view.extend({
 			'<div class="cbi-map-descr">Live TollGate overview and direct editor for <code>/etc/tollgate/config.json</code>.</div>',
 			'<div class="tg-tabbar">',
 			'<button id="tab_overview" class="cbi-button cbi-button-action" type="button">Overview</button>',
+			'<button id="tab_wallet" class="cbi-button" type="button">Wallet</button>',
+			'<button id="tab_network" class="cbi-button" type="button">Network</button>',
 			'<button id="tab_form" class="cbi-button" type="button">Configuration</button>',
 			'<button id="tab_json" class="cbi-button" type="button">Raw JSON</button>',
 			'<button id="tab_logs" class="cbi-button" type="button">Logs</button>',
@@ -58,6 +60,54 @@ return view.extend({
 			'<pre id="raw_version"></pre>',
 			'<pre id="raw_status"></pre>',
 			'</details>',
+			'</div>',
+			'</div>',
+
+			'<div id="pane_wallet" class="tg-pane">',
+			'<div class="cbi-section">',
+			'<h3>Fund wallet</h3>',
+			'<div class="cbi-section-descr">Paste a Cashu token below to add funds to the TollGate wallet.</div>',
+			'<div class="tg-section-node"><textarea id="fund_token" rows="6" placeholder="Paste Cashu token here…" style="width:100%;font-family:monospace;word-break:break-all"></textarea></div>',
+			'<div class="tg-actions"><button id="btn_fund" class="cbi-button cbi-button-action" type="button">Fund wallet</button><span id="fund_status" class="tg-muted"></span></div>',
+			'</div>',
+			'<div class="cbi-section">',
+			'<h3>Wallet balances</h3>',
+			'<table class="table">',
+			'<thead><tr><th>Mint</th><th>Balance</th></tr></thead>',
+			'<tbody id="wallet_mint_rows2"><tr><td colspan="2">Loading…</td></tr></tbody>',
+			'</table>',
+			'<div class="tg-actions"><span id="wallet_total2" class="tg-muted"></span></div>',
+			'</div>',
+			'</div>',
+
+			'<div id="pane_network" class="tg-pane">',
+			'<div class="cbi-section">',
+			'<h3>Private WiFi network</h3>',
+			'<div class="cbi-section-descr">Manage the private WiFi network that authenticated devices connect to.</div>',
+			'<div class="tg-actions"><span id="net_status_label" class="tg-muted">Loading…</span></div>',
+			'<table class="table">',
+			'<tr><th>SSID</th><td id="net_ssid">—</td></tr>',
+			'<tr><th>Password</th><td id="net_password_cell"><span id="net_password_masked">••••••••</span><button id="btn_toggle_pw" class="cbi-button" type="button" style="margin-left:8px;padding:2px 10px;font-size:12px">Show</button></td></tr>',
+			'<tr><th>Status</th><td id="net_enabled_text">—</td></tr>',
+			'</table>',
+			'<div class="tg-actions">',
+			'<button id="btn_net_enable" class="cbi-button cbi-button-action" type="button">Enable</button>',
+			'<button id="btn_net_disable" class="cbi-button cbi-button-remove" type="button">Disable</button>',
+			'</div>',
+			'</div>',
+			'<div class="cbi-section">',
+			'<h3>Rename network</h3>',
+			'<div class="tg-form-grid tg-section-node">',
+			'<label>New SSID</label><input id="net_new_ssid" type="text" placeholder="Enter new network name">',
+			'</div>',
+			'<div class="tg-actions"><button id="btn_net_rename" class="cbi-button cbi-button-action" type="button">Rename</button><span id="net_rename_status" class="tg-muted"></span></div>',
+			'</div>',
+			'<div class="cbi-section">',
+			'<h3>Change password</h3>',
+			'<div class="tg-form-grid tg-section-node">',
+			'<label>New password</label><input id="net_new_password" type="text" placeholder="Leave empty to generate random">',
+			'</div>',
+			'<div class="tg-actions"><button id="btn_net_set_password" class="cbi-button cbi-button-action" type="button">Set password</button><button id="btn_net_gen_password" class="cbi-button cbi-button-add" type="button">Generate random</button><span id="net_pw_status" class="tg-muted"></span></div>',
 			'</div>',
 			'</div>',
 
@@ -116,7 +166,7 @@ return view.extend({
 		].join('');
 
 		var API = '/cgi-bin/tollgate-api';
-		var state = { cfg: {}, logTimer: null, activeTab: 'overview' };
+		var state = { cfg: {}, logTimer: null, activeTab: 'overview', netPwVisible: false, netPw: '' };
 
 		function q(sel) { return root.querySelector(sel); }
 		function qa(sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
@@ -355,11 +405,13 @@ return view.extend({
 		}
 		function setActiveTab(name) {
 			state.activeTab = name;
-			['overview', 'form', 'json', 'logs'].forEach(function(tab) {
+			['overview', 'wallet', 'network', 'form', 'json', 'logs'].forEach(function(tab) {
 				must('#pane_' + tab).classList.toggle('active', tab === name);
 				must('#tab_' + tab).className = tab === name ? 'cbi-button cbi-button-action' : 'cbi-button';
 			});
 			if (name === 'logs') refreshLogsOnly();
+			if (name === 'wallet') refreshWalletTab();
+			if (name === 'network') refreshNetworkStatus();
 		}
 		function validateText(text) {
 			return api('validate', text).then(function(res){
@@ -395,8 +447,130 @@ return view.extend({
 				setValidation(lines);
 			});
 		}
+		/* ── Wallet tab helpers ── */
+		function refreshWalletTab() {
+			api('read').then(function(data) {
+				var walletInfoText = data.wallet_info || '';
+				var info = parseWalletInfo(walletInfoText);
+				var tbody = must('#wallet_mint_rows2');
+				var keys = Object.keys(info.balances);
+				if (!keys.length) {
+					tbody.innerHTML = '<tr><td colspan="2">No wallet data.</td></tr>';
+				} else {
+					tbody.innerHTML = keys.map(function(url) {
+						return '<tr><td>' + html(url) + '</td><td>' + html(String(info.balances[url])) + ' sats</td></tr>';
+					}).join('');
+				}
+				must('#wallet_total2').textContent = 'Total: ' + info.total + ' sats across ' + keys.length + ' mint(s)';
+			});
+		}
+		function doWalletFund() {
+			var token = must('#fund_token').value.trim();
+			if (!token) {
+				must('#fund_status').textContent = 'Please paste a Cashu token first.';
+				return;
+			}
+			must('#fund_status').textContent = 'Funding…';
+			must('#btn_fund').disabled = true;
+			api('wallet_fund', JSON.stringify({ token: token })).then(function(res) {
+				must('#btn_fund').disabled = false;
+				if (res.ok) {
+					must('#fund_status').textContent = 'Success! ' + (res.message || '') + ' (Amount: ' + (res.amount_received || 0) + ' sats)';
+					must('#fund_token').value = '';
+					refreshWalletTab();
+				} else {
+					var err = (res.error || 'Unknown error').split('\n').filter(function(l) { return l.indexOf('Error:') === 0 || l.indexOf('Failed') >= 0; }).join(' ').replace(/Error:\s*/g, '').trim();
+					must('#fund_status').textContent = 'Failed: ' + (err || res.error || 'Unknown error');
+				}
+			}).catch(function(err) {
+				must('#btn_fund').disabled = false;
+				must('#fund_status').textContent = 'Request failed: ' + err;
+			});
+		}
+
+		/* ── Network tab helpers ── */
+		function renderNetworkStatus(data) {
+			must('#net_ssid').textContent = data.ssid || '—';
+			state.netPw = data.password || '';
+			updateNetPwDisplay();
+			var enabled = !!data.enabled;
+			must('#net_enabled_text').textContent = enabled ? 'Enabled' : 'Disabled';
+			must('#net_enabled_text').style.color = enabled ? '#5cb85c' : '#d9534f';
+			must('#net_status_label').textContent = 'Loaded ' + new Date().toLocaleTimeString();
+		}
+		function updateNetPwDisplay() {
+			var cell = must('#net_password_masked');
+			var btn = must('#btn_toggle_pw');
+			if (state.netPwVisible) {
+				cell.textContent = state.netPw || '(not set)';
+				btn.textContent = 'Hide';
+			} else {
+				cell.textContent = state.netPw ? '••••••••••' : '(not set)';
+				btn.textContent = 'Show';
+			}
+		}
+		function refreshNetworkStatus() {
+			must('#net_status_label').textContent = 'Loading…';
+			api('network_status').then(function(res) {
+				if (res.ok) {
+					renderNetworkStatus(res);
+				} else {
+					must('#net_status_label').textContent = 'Error: ' + (res.error || 'Unknown');
+				}
+			}).catch(function(err) {
+				must('#net_status_label').textContent = 'Failed: ' + err;
+			});
+		}
+		function doNetworkEnable() {
+			must('#net_status_label').textContent = 'Enabling…';
+			api('network_enable').then(function(res) {
+				must('#net_status_label').textContent = res.ok ? (res.message || 'Enabled') : ('Error: ' + (res.error || 'Unknown'));
+				refreshNetworkStatus();
+			});
+		}
+		function doNetworkDisable() {
+			must('#net_status_label').textContent = 'Disabling…';
+			api('network_disable').then(function(res) {
+				must('#net_status_label').textContent = res.ok ? (res.message || 'Disabled') : ('Error: ' + (res.error || 'Unknown'));
+				refreshNetworkStatus();
+			});
+		}
+		function doNetworkRename() {
+			var newSsid = must('#net_new_ssid').value.trim();
+			if (!newSsid) {
+				must('#net_rename_status').textContent = 'Please enter a new SSID.';
+				return;
+			}
+			must('#net_rename_status').textContent = 'Renaming…';
+			api('network_rename', JSON.stringify({ ssid: newSsid })).then(function(res) {
+				must('#net_rename_status').textContent = res.ok ? (res.message || 'Renamed') : ('Error: ' + (res.error || 'Unknown'));
+				if (res.ok) must('#net_new_ssid').value = '';
+				refreshNetworkStatus();
+			});
+		}
+		function doNetworkSetPassword(generate) {
+			var pw = generate ? '' : must('#net_new_password').value.trim();
+			if (!generate && pw.length > 0 && (pw.length < 8 || pw.length > 63)) {
+				must('#net_pw_status').textContent = 'Password must be 8-63 characters.';
+				return;
+			}
+			must('#net_pw_status').textContent = generate ? 'Generating…' : 'Setting…';
+			api('network_set_password', JSON.stringify({ password: pw })).then(function(res) {
+				if (res.ok) {
+					var msg = res.message || 'Password changed';
+					if (res.new_password) msg += ': ' + res.new_password;
+					must('#net_pw_status').textContent = msg;
+					if (generate && res.new_password) must('#net_new_password').value = res.new_password;
+					refreshNetworkStatus();
+				} else {
+					must('#net_pw_status').textContent = 'Error: ' + (res.error || 'Unknown');
+				}
+			});
+		}
 		function bindHandlers() {
 			must('#tab_overview').onclick = function() { setActiveTab('overview'); };
+			must('#tab_wallet').onclick = function() { setActiveTab('wallet'); };
+			must('#tab_network').onclick = function() { setActiveTab('network'); };
 			must('#tab_form').onclick = function() { setActiveTab('form'); };
 			must('#tab_json').onclick = function() { setActiveTab('json'); };
 			must('#tab_logs').onclick = function() { setActiveTab('logs'); };
@@ -438,6 +612,13 @@ return view.extend({
 			};
 			must('#validate_json').onclick = function() { validateText(must('#raw_json').value); };
 			must('#save_json').onclick = function() { saveText(must('#raw_json').value); };
+			must('#btn_fund').onclick = function() { doWalletFund(); };
+			must('#btn_toggle_pw').onclick = function() { state.netPwVisible = !state.netPwVisible; updateNetPwDisplay(); };
+			must('#btn_net_enable').onclick = function() { doNetworkEnable(); };
+			must('#btn_net_disable').onclick = function() { doNetworkDisable(); };
+			must('#btn_net_rename').onclick = function() { doNetworkRename(); };
+			must('#btn_net_set_password').onclick = function() { doNetworkSetPassword(false); };
+			must('#btn_net_gen_password').onclick = function() { doNetworkSetPassword(true); };
 		}
 
 		try {
