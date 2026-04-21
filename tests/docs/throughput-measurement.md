@@ -4,7 +4,7 @@ Previously I had issues with `ndsctl`, because it wasn't measuring the data cons
 Now I'm re-visiting this issue more than a year later to see if I can reproduce it. I established a fresh captive portal session and ran:
 
 ```
-c03rad0r@c03rad0r-ThinkPad-X280:~$ yes "this is a test to find out if the data measurement is working correctly on a tollgate" | pv | nc damus.io 443
+c08r4d0r@c08r4d0r-ThinkPad-X280:~$ yes "this is a test to find out if the data measurement is working correctly on a tollgate" | pv | nc damus.io 443
 HTTP/1.1 400 Bad Request
 Server: cloudflare
 Date: Mon, 15 Dec 2025 04:32:41 GMT

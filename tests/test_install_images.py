@@ -39,7 +39,7 @@ def test_reboot_routers(post_test_image_flasher, tollgate_networks):
     router_ssids = pytest.router_ssids
     
     # Reboot all routers
-    router_password = "c03rad0r123"
+    router_password = "c08r4d0r123"
     for i, router_ip in enumerate(router_ips):
         try:
             print(f"Rebooting router {router_ip}")
