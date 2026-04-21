@@ -162,7 +162,7 @@ get_current_signal() {
 	local sta_iface="$1"
 	local signal
 
-	signal=$(iwinfo "$sta_iface" assoclist 2>/dev/null | head -1 | grep -oE '\-[0-9]+')
+	signal=$(iwinfo "$sta_iface" assoclist 2>/dev/null | head -1 | awk '{print $3}')
 	if [ -n "$signal" ]; then
 		echo "$signal"
 		return 0
