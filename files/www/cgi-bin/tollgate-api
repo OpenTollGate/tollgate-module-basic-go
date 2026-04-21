@@ -1,0 +1,252 @@
+#!/bin/sh
+# /www/cgi-bin/tollgate-api - TollGate config API for LuCI PoC
+# Shell-based CGI backend (Lua not available on OpenWrt 24.10)
+
+CONFIG="/etc/tollgate/config.json"
+
+# ── helpers ──────────────────────────────────────────────
+
+json_header() {
+    printf "Content-Type: application/json\r\n\r\n"
+}
+
+# Escape stdin for JSON string embedding (awk-based)
+# Outputs a properly quoted JSON string: "escaped content"
+json_esc() {
+    awk '
+    BEGIN { ORS=""; printf "\"" }
+    {
+        gsub(/\\/, "\\\\")
+        gsub(/"/, "\\\"")
+        gsub(/\t/, "\\t")
+        gsub(/\r/, "\\r")
+    }
+    NR > 1 { printf "\\n" }
+    { printf "%s", $0 }
+    END { printf "\"" }
+    '
+}
+
+# Run a command, capture stdout+stderr
+run_cmd() {
+    "$@" 2>&1 || true
+}
+
+get_logs() {
+    logread 2>/dev/null | grep 'daemon.err tollgate-wrt' | tail -n 300 | sed -E 's/^.*tollgate-wrt\[[0-9]+\]: //' || true
+}
+
+# ── parse query string ───────────────────────────────────
+
+action=""
+qs="${QUERY_STRING:-}"
+old_ifs="$IFS"
+IFS="&"
+for p in $qs; do
+    k="${p%%=*}"
+    v="${p#*=}"
+    case "$k" in
+        action) action="$v" ;;
+    esac
+done
+IFS="$old_ifs"
+
+# ── read POST body ───────────────────────────────────────
+
+body=""
+if [ "${CONTENT_LENGTH:-0}" -gt 0 ] 2>/dev/null; then
+    body=$(dd bs=1 count="$CONTENT_LENGTH" 2>/dev/null)
+fi
+
+# ── dispatch ─────────────────────────────────────────────
+
+case "$action" in
+
+read)
+    cf=$(cat "$CONFIG" 2>/dev/null || echo "{}")
+    wl=$(run_cmd /usr/bin/tollgate wallet balance)
+    wi=$(run_cmd /usr/bin/tollgate wallet info)
+    vr=$(run_cmd /usr/bin/tollgate version)
+    st=$(run_cmd /usr/bin/tollgate status)
+    lg=$(get_logs)
+
+    json_header
+    printf '{"ok":true,"config":%s,"wallet":' "$cf"
+    printf '%s\n' "$wl" | json_esc
+    printf ',"wallet_info":'
+    printf '%s\n' "$wi" | json_esc
+    printf ',"version":'
+    printf '%s\n' "$vr" | json_esc
+    printf ',"status":'
+    printf '%s\n' "$st" | json_esc
+    printf ',"logs":'
+    printf '%s\n' "$lg" | json_esc
+    printf '}'
+    ;;
+
+logs)
+    lg=$(get_logs)
+    json_header
+    printf '{"ok":true,"logs":'
+    printf '%s\n' "$lg" | json_esc
+    printf '}'
+    ;;
+
+validate)
+    json_header
+
+    # Check valid JSON
+    if ! printf '%s' "$body" | jsonfilter -q -e '$' >/dev/null 2>&1; then
+        printf '{"ok":false,"errors":["Invalid JSON."],"warnings":[]}'
+        exit 0
+    fi
+
+    errs=""
+    warns=""
+
+    # accepted_mints
+    if ! printf '%s' "$body" | jsonfilter -q -e '$.accepted_mints' >/dev/null 2>&1; then
+        errs="${errs}accepted_mints is missing or not an array.
+"
+    fi
+
+    # profit_share
+    if ! printf '%s' "$body" | jsonfilter -q -e '$.profit_share' >/dev/null 2>&1; then
+        errs="${errs}profit_share is missing or not an array.
+"
+    fi
+
+    # metric
+    metric_val=""
+    metric_val=$(printf '%s' "$body" | jsonfilter -q -e '$.metric' 2>/dev/null) || true
+    if [ -z "$metric_val" ]; then
+        errs="${errs}metric is missing.
+"
+    elif [ "$metric_val" != "milliseconds" ] && [ "$metric_val" != "bytes" ]; then
+        errs="${errs}metric must be milliseconds or bytes.
+"
+    fi
+
+    # step_size
+    ss=$(printf '%s' "$body" | jsonfilter -q -e '$.step_size' 2>/dev/null) || true
+    if [ -z "$ss" ]; then
+        errs="${errs}step_size is missing.
+"
+    fi
+
+    # margin
+    mg=$(printf '%s' "$body" | jsonfilter -q -e '$.margin' 2>/dev/null) || true
+    if [ -z "$mg" ]; then
+        warns="${warns}margin is missing.
+"
+    fi
+
+    # crowsnest
+    if ! printf '%s' "$body" | jsonfilter -q -e '$.crowsnest' >/dev/null 2>&1; then
+        warns="${warns}crowsnest is missing or not an object.
+"
+    fi
+
+    # config_version
+    cv=$(printf '%s' "$body" | jsonfilter -q -e '$.config_version' 2>/dev/null) || true
+    if [ -z "$cv" ]; then
+        warns="${warns}config_version is missing.
+"
+    fi
+
+    if [ -z "$errs" ] && [ -z "$warns" ]; then
+        printf '{"ok":true,"errors":[],"warnings":[]}'
+    else
+        # Build JSON arrays for errors and warnings
+        earr=""
+        warr=""
+        old_ifs="$IFS"
+        IFS="
+"
+        for line in $errs; do
+            [ -n "$line" ] && earr="${earr}\"${line}\","
+        done
+        for line in $warns; do
+            [ -n "$line" ] && warr="${warr}\"${line}\","
+        done
+        IFS="$old_ifs"
+        earr=$(printf '%s' "$earr" | sed 's/,$//')
+        warr=$(printf '%s' "$warr" | sed 's/,$//')
+        printf '{"ok":%s,"errors":[%s],"warnings":[%s]}' \
+            $([ -z "$errs" ] && echo "true" || echo "false") \
+            "$earr" "$warr"
+    fi
+    ;;
+
+save)
+    json_header
+
+    # Validate JSON
+    if ! printf '%s' "$body" | jsonfilter -q -e '$' >/dev/null 2>&1; then
+        printf '{"ok":false,"error":"Invalid JSON.","errors":["Invalid JSON."],"warnings":[]}'
+        exit 0
+    fi
+
+    # Check required fields
+    save_errs=""
+    if ! printf '%s' "$body" | jsonfilter -q -e '$.accepted_mints' >/dev/null 2>&1; then
+        save_errs="${save_errs}accepted_mints is required.
+"
+    fi
+    if ! printf '%s' "$body" | jsonfilter -q -e '$.profit_share' >/dev/null 2>&1; then
+        save_errs="${save_errs}profit_share is required.
+"
+    fi
+
+    if [ -n "$save_errs" ]; then
+        earr=""
+        old_ifs="$IFS"
+        IFS="
+"
+        for line in $save_errs; do
+            [ -n "$line" ] && earr="${earr}\"${line}\","
+        done
+        IFS="$old_ifs"
+        earr=$(printf '%s' "$earr" | sed 's/,$//')
+        printf '{"ok":false,"error":"Validation failed.","errors":[%s],"warnings":[]}' "$earr"
+        exit 0
+    fi
+
+    # Create timestamped backup
+    ts=$(date +%Y%m%d-%H%M%S)
+    bak="${CONFIG}.bak.${ts}"
+
+    if [ -f "$CONFIG" ]; then
+        cp "$CONFIG" "$bak" 2>/dev/null || {
+            printf '{"ok":false,"error":"Failed to create backup: %s"}' "$bak"
+            exit 0
+        }
+    fi
+
+    # Write atomically via temp file
+    tmp="${CONFIG}.tmp.$$"
+    printf '%s\n' "$body" > "$tmp" 2>/dev/null || {
+        rm -f "$tmp" 2>/dev/null
+        printf '{"ok":false,"error":"Failed to write temporary file."}'
+        exit 0
+    }
+
+    mv "$tmp" "$CONFIG" 2>/dev/null || {
+        rm -f "$tmp" 2>/dev/null
+        printf '{"ok":false,"error":"Failed to replace config file."}'
+        exit 0
+    }
+
+    # Get post-save status
+    st=$(run_cmd /usr/bin/tollgate status)
+    printf '{"ok":true,"message":"Saved config.json","backup":"%s","status":' "$bak"
+    printf '%s\n' "$st" | json_esc
+    printf '}'
+    ;;
+
+*)
+    json_header
+    printf '{"ok":false,"error":"Unknown action: %s"}' "${action:-none}"
+    ;;
+
+esac
