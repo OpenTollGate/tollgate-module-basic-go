@@ -255,12 +255,19 @@ define Package/$(PKG_NAME)/install
 	# Install hotplug script for wan interface restart
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
+
+	# Install upstream WiFi daemon
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/bin/upstream-daemon.sh $(1)/usr/bin/
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/init.d/tollgate-upstream $(1)/etc/init.d/
 endef
 
 # Update FILES declaration to include NoDogSplash files
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-wrt \
+	/usr/bin/upstream-daemon.sh \
 	/etc/init.d/tollgate-wrt \
+	/etc/init.d/tollgate-upstream \
 	/etc/config/firewall-tollgate \
 	/etc/modt/* \
 	/etc/profile \
