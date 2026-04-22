@@ -46,25 +46,12 @@ jobs:
       - id: set-matrix
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # Temporarily reduced to a single cell while we verify the publish
+          # step fix. Restore the full matrix after the run is green.
           cat > matrix.json << 'EOF'
           {
             "include": [
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-fast" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-best" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-brute" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk" },
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-ultra-brute" }
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk" }
             ]
           }
           EOF
@@ -388,10 +375,13 @@ jobs:
             hash=$(printf '%s' "$entry" | jq -r '.hash')
             url=$(printf '%s' "$entry" | jq -r '.url')
 
-            # nak event (no relay args) prints the signed event to stdout,
-            # pretty-printed with newlines. Pipe through jq -c . to emit a
-            # single compact line so events.jsonl stays valid JSONL for
-            # the downstream 'nak event $RELAYS' stdin reader.
+            # nak detects a piped stdin and tries to parse it as events to
+            # sign. The 'while read ... done < manifest.jsonl' redirection
+            # makes our loop's stdin the manifest file, so without an
+            # explicit </dev/null nak would read manifest lines and fail
+            # with 'invalid event received from stdin'. Feed /dev/null so
+            # nak falls back to building the event purely from flags.
+            # Then jq -c collapses the pretty-printed output to one line.
             nak event --sec "$NSEC_HEX" -k 1063 \
               -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
               --tag url="$url" \
@@ -409,6 +399,7 @@ jobs:
               --tag n="$PACKAGE_NAME" \
               --tag compression="$compression" \
               --tag format="$fmt" \
+              < /dev/null \
               | jq -c . >> events.jsonl
           done < manifest.jsonl
 
