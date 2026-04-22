@@ -129,7 +129,6 @@ wait_for_iface() {
 # without requiring a reboot.  Each script self-guards with a flag file
 # so re-running is safe.
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
-              /etc/uci-defaults/95-random-lan-ip \
               /etc/uci-defaults/99-tollgate-setup; do
     if [ -x "$$script" ]; then
         echo "Running $$script ..."
@@ -221,7 +220,6 @@ define Package/$(PKG_NAME)/install
 	# UCI defaults (run lexically on first boot)
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/95-random-lan-ip $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 
 
@@ -266,7 +264,6 @@ FILES_$(PKG_NAME) += \
 	/etc/profile \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
-	/etc/uci-defaults/95-random-lan-ip \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
