@@ -276,122 +276,156 @@ jobs:
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
 
+  # Single-job batched publish: one container start, one nak install,
+  # one websocket connection per relay (not one per package). Fails fast
+  # if any Blossom upload fails after retries.
   publish-metadata:
     needs: [determine-versioning, package-binaries, define-package-matrix]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     container:
       image: ubuntu:latest
       options: --user root
-    strategy:
-      # publish_matrix is pre-filtered to format==ipk. apk publication
-      # to Blossom/nostr is intentionally deferred — see define-package-matrix.
-      matrix: ${{ fromJson(needs.define-package-matrix.outputs.publish_matrix) }}
+    env:
+      BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
+      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+      PUBLISH_MATRIX: ${{ needs.define-package-matrix.outputs.publish_matrix }}
+      PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+      RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
     steps:
-      - name: Initialize
-        run: |
-          COMPRESSION_SUFFIX=""
-          COMPRESSION_TYPE="none"
-          if [ -n "${{ matrix.compression }}" ]; then
-            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
-            COMPRESSION_TYPE="${{ matrix.compression }}"
-          fi
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.${{ matrix.format }}
-          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-          echo "COMPRESSION_SUFFIX=$COMPRESSION_SUFFIX" >> $GITHUB_ENV
-          echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
-
       - name: Install required tools
         run: |
           apt-get update
           apt-get install -y curl jq
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.PACKAGE_FILENAME }}
-          path: ./artifacts
-
-      - name: Get package size
-        run: |
-          PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
-          FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
-          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-
-      - name: Install nak
-        run: |
           curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
           chmod +x /usr/local/bin/nak
           nak --version
 
-      - name: Blossom upload
-        id: blossom_upload
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # publish_matrix is ipk-only, so artifacts downloaded here are
+          # the ipk set. apk artifacts (uploaded by package-binaries under
+          # a different name pattern) are intentionally excluded.
+          pattern: "${{ env.PACKAGE_NAME }}_*.ipk"
+          path: ./artifacts
+          merge-multiple: true
+
+      - name: Upload to Blossom (batched with retry + backoff)
+        id: blossom
         env:
-          BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
-          UPLOAD_RESPONSE=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "${{ env.PACKAGE_PATH }}" < /dev/null)
-          echo "$UPLOAD_RESPONSE"
-          FILE_HASH=$(echo "$UPLOAD_RESPONSE" | jq -r '.sha256')
-          if [ -z "$FILE_HASH" ] || [ "$FILE_HASH" = "null" ]; then
-            echo "Failed to extract hash" >&2; exit 1
-          fi
-          echo "url=$BLOSSOM_SERVER/$FILE_HASH" >> $GITHUB_OUTPUT
-          echo "hash=$FILE_HASH" >> $GITHUB_OUTPUT
+          set -euo pipefail
 
-      - name: Publish NIP-94 metadata
-        id: publish_package
+          upload_one() {
+            local file="$1"
+            local attempt=1 delay=2
+            while [ $attempt -le 3 ]; do
+              if resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1); then
+                local hash
+                hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+                if [ -n "$hash" ] && [ "$hash" != "null" ]; then
+                  printf '%s' "$hash"
+                  return 0
+                fi
+              fi
+              echo "  attempt ${attempt} failed for $(basename "$file"); retrying in ${delay}s..." >&2
+              echo "  response: $resp" >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
+          : > manifest.jsonl
+          failures=0
+          printf '%s\n' "$PUBLISH_MATRIX" | jq -c '.include[]' | while read -r cell; do
+            arch=$(printf '%s' "$cell" | jq -r '.architecture')
+            fmt=$(printf '%s' "$cell" | jq -r '.format')
+            compression=$(printf '%s' "$cell" | jq -r '.compression // empty')
+            suffix=""; [ -n "$compression" ] && suffix="-${compression}"
+            filename="${PACKAGE_NAME}_${PACKAGE_VERSION}_${arch}${suffix}.${fmt}"
+            file="./artifacts/${filename}"
+            if [ ! -f "$file" ]; then
+              echo "ERROR: expected artifact missing: $file" >&2
+              exit 1
+            fi
+
+            echo "Uploading $filename..."
+            if ! hash=$(upload_one "$file"); then
+              echo "ERROR: blossom upload failed for $filename after 3 attempts" >&2
+              exit 1
+            fi
+            compression_type="${compression:-none}"
+            # Blossom serves content by hash regardless of suffix, but
+            # downloaders (opkg/apk) use the URL extension to infer format —
+            # so we append .${fmt} to the URL.
+            jq -cn \
+              --arg filename "$filename" --arg arch "$arch" --arg fmt "$fmt" \
+              --arg compression "$compression_type" --arg hash "$hash" \
+              '{filename:$filename, architecture:$arch, format:$fmt, compression:$compression, hash:$hash, url:("'"$BLOSSOM_SERVER"'/" + $hash + "." + $fmt)}' \
+              >> manifest.jsonl
+            echo "  uploaded: $hash"
+          done
+
+          echo "---"
+          echo "Manifest:"
+          cat manifest.jsonl
+
+      - name: Build NIP-94 events
         env:
-          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
-          set -e
-          nak event --sec "$NSEC_HEX" -k 1063 \
-            -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
-            --tag url="${{ steps.blossom_upload.outputs.url }}" \
-            --tag m="application/octet-stream" \
-            --tag x="${{ steps.blossom_upload.outputs.hash }}" \
-            --tag ox="${{ steps.blossom_upload.outputs.hash }}" \
-            --tag filename="${{ env.PACKAGE_FILENAME }}" \
-            --tag architecture="${{ matrix.architecture }}" \
-            --tag A="${{ matrix.architecture }}" \
-            --tag version="${{ needs.determine-versioning.outputs.package_version }}" \
-            --tag v="${{ needs.determine-versioning.outputs.package_version }}" \
-            --tag release_channel="${{ needs.determine-versioning.outputs.release_channel }}" \
-            --tag c="${{ needs.determine-versioning.outputs.release_channel }}" \
-            --tag package_name="${{ env.PACKAGE_NAME }}" \
-            --tag n="${{ env.PACKAGE_NAME }}" \
-            --tag compression="${{ env.COMPRESSION_TYPE }}" \
-            --tag format="${{ matrix.format }}" \
-            > event.json 2> event.err
+          set -euo pipefail
+          : > events.jsonl
+          while read -r entry; do
+            filename=$(printf '%s' "$entry" | jq -r '.filename')
+            arch=$(printf '%s' "$entry" | jq -r '.architecture')
+            fmt=$(printf '%s' "$entry" | jq -r '.format')
+            compression=$(printf '%s' "$entry" | jq -r '.compression')
+            hash=$(printf '%s' "$entry" | jq -r '.hash')
+            url=$(printf '%s' "$entry" | jq -r '.url')
 
-          if [ ! -s event.json ]; then
-            cat event.err >&2
+            nak event --sec "$NSEC_HEX" -k 1063 \
+              -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
+              --tag url="$url" \
+              --tag m="application/octet-stream" \
+              --tag x="$hash" \
+              --tag ox="$hash" \
+              --tag filename="$filename" \
+              --tag architecture="$arch" \
+              --tag A="$arch" \
+              --tag version="$PACKAGE_VERSION" \
+              --tag v="$PACKAGE_VERSION" \
+              --tag release_channel="$RELEASE_CHANNEL" \
+              --tag c="$RELEASE_CHANNEL" \
+              --tag package_name="$PACKAGE_NAME" \
+              --tag n="$PACKAGE_NAME" \
+              --tag compression="$compression" \
+              --tag format="$fmt" \
+              >> events.jsonl
+          done < manifest.jsonl
+
+          event_count=$(wc -l < events.jsonl)
+          echo "Built $event_count NIP-94 events."
+          if [ "$event_count" -eq 0 ]; then
+            echo "ERROR: no events built" >&2
             exit 1
           fi
-          EVENT_ID=$(jq -r '.id' event.json)
-          cat event.json | nak event $RELAYS
-          echo "eventId=$EVENT_ID" >> $GITHUB_OUTPUT
 
-      - name: Verify event
-        env:
-          EVENT_ID: ${{ steps.publish_package.outputs.eventId }}
-          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+      - name: Publish events (one connection per relay)
         run: |
-          FOUND=0
-          for relay in $RELAYS; do
-            RESULT=$(nak req -i "$EVENT_ID" "$relay" 2>/dev/null || echo "")
-            [ -n "$RESULT" ] && { echo "Found on $relay"; FOUND=1; }
-          done
-          [ $FOUND -eq 0 ] && { echo "Event not found on any relay" >&2; exit 1; }
-          echo "Event verified."
+          set -euo pipefail
+          # nak event reads JSON events from stdin and publishes each to the
+          # given relays over a single websocket connection per relay.
+          cat events.jsonl | nak event $RELAYS
 
       - name: Build summary
         run: |
-          echo "${{ matrix.architecture }} (${{ matrix.format }}${{ env.COMPRESSION_SUFFIX }}):"
-          echo "  EventId: ${{ steps.publish_package.outputs.eventId }}"
-          echo "  URL:     ${{ steps.blossom_upload.outputs.url }}"
+          echo "Published $(wc -l < events.jsonl) NIP-94 events across $(echo $RELAYS | wc -w) relays."
+          jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.url)"' manifest.jsonl
 
   trigger-build-os:
     name: Trigger TollGate OS build
