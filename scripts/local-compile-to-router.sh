@@ -3,7 +3,7 @@
 # Exit on any error (including SSH timeouts)
 set -e
 
-# compile-to-router.sh - Build and deploy tollgate-wrt binary to OpenWrt router
+# local-compile-to-router.sh - Build and deploy tollgate-wrt binary to OpenWrt router
 #
 # PURPOSE:
 #   Development/debugging tool for quickly testing changes on a router.
@@ -16,7 +16,7 @@ set -e
 #   Designed for rapid iteration during development and debugging.
 #
 # USAGE:
-#   ./compile-to-router.sh [ROUTER_IP] [OPTIONS]
+#   ./local-compile-to-router.sh [ROUTER_IP] [OPTIONS]
 #
 # ARGUMENTS:
 #   ROUTER_IP (optional)    - IP address of the target router
@@ -31,10 +31,10 @@ set -e
 #                           - gl-ar300 (MIPS with soft float)
 #
 # EXAMPLES:
-#   ./compile-to-router.sh                                    # Deploy to 192.168.1.1 for gl-mt3000
-#   ./compile-to-router.sh 192.168.1.100                     # Deploy to custom IP for gl-mt3000
-#   ./compile-to-router.sh --device=gl-ar300                 # Deploy to 192.168.1.1 for gl-ar300
-#   ./compile-to-router.sh 192.168.1.100 --device=gl-ar300  # Custom IP and device
+#   ./local-compile-to-router.sh                                    # Deploy to 192.168.1.1 for gl-mt3000
+#   ./local-compile-to-router.sh 192.168.1.100                     # Deploy to custom IP for gl-mt3000
+#   ./local-compile-to-router.sh --device=gl-ar300                 # Deploy to 192.168.1.1 for gl-ar300
+#   ./local-compile-to-router.sh 192.168.1.100 --device=gl-ar300  # Custom IP and device
 #
 # REQUIREMENTS:
 #   - Go compiler installed and configured
