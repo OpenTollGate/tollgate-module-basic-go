@@ -1,0 +1,34 @@
+#!/bin/sh
+# /www/cgi-bin/tollgate-proxy - Proxy HTTPS requests to tollgate-wrt HTTP API
+# Avoids mixed-content blocking when captive portal is served over HTTPS
+#
+# This script is served by uhttpd via CGI. It forwards requests to
+# tollgate-wrt on localhost:2121, supporting both GET and POST methods.
+
+URI="${PATH_INFO:-/}"
+[ "$URI" = "/" ] && URI=""
+TARGET="http://127.0.0.1:2121${URI}"
+[ -n "$QUERY_STRING" ] && TARGET="${TARGET}?${QUERY_STRING}"
+
+printf "Status: 200\r\n"
+printf "Content-Type: application/json\r\n"
+printf "Access-Control-Allow-Origin: *\r\n"
+printf "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+printf "Access-Control-Allow-Headers: Content-Type\r\n"
+printf "\r\n"
+
+# Handle OPTIONS preflight (for CORS)
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+    exit 0
+fi
+
+# Handle POST: save body to temp file, forward with wget
+# Note: BusyBox wget does not support --post-data="@-" (stdin pipe)
+if [ "$REQUEST_METHOD" = "POST" ] && [ "${CONTENT_LENGTH:-0}" -gt 0 ] 2>/dev/null; then
+    TMPFILE=$(mktemp)
+    dd bs=1 count="$CONTENT_LENGTH" of="$TMPFILE" 2>/dev/null
+    wget -q -O - --header="Content-Type: application/json" --post-file="$TMPFILE" "$TARGET" 2>/dev/null
+    rm -f "$TMPFILE"
+else
+    wget -q -O - "$TARGET" 2>/dev/null
+fi
