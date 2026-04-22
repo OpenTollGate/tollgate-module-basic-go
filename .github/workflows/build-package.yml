@@ -63,17 +63,14 @@ jobs:
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-brute" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
 
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "25.12.0", "format": "apk" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-fast" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-best" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-brute" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-ultra-brute" }
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-ultra-brute" }
             ]
           }
           EOF
           # TODO: Once matching openwrt/sdk:*-25.12.0 tags exist for the other
-          # targets (mediatek-filogic, bcm27xx-bcm2711, bcm27xx-bcm2709,
-          # ramips-mt7621), extend the apk block to mirror the ipk coverage.
+          # targets (bcm27xx-bcm2711, bcm27xx-bcm2709, ramips-mt7621,
+          # ath79-generic), extend the apk block to mirror the ipk coverage.
           # TODO: AMD64 remains disabled — SDK arch 'amd64' vs 'x86-generic' mismatch.
           echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
           # publish_matrix: initial rollout publishes ipk only. apk artifacts
