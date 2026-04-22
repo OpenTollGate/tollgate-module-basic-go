@@ -388,6 +388,10 @@ jobs:
             hash=$(printf '%s' "$entry" | jq -r '.hash')
             url=$(printf '%s' "$entry" | jq -r '.url')
 
+            # nak event (no relay args) prints the signed event to stdout,
+            # pretty-printed with newlines. Pipe through jq -c . to emit a
+            # single compact line so events.jsonl stays valid JSONL for
+            # the downstream 'nak event $RELAYS' stdin reader.
             nak event --sec "$NSEC_HEX" -k 1063 \
               -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
               --tag url="$url" \
@@ -405,7 +409,7 @@ jobs:
               --tag n="$PACKAGE_NAME" \
               --tag compression="$compression" \
               --tag format="$fmt" \
-              >> events.jsonl
+              | jq -c . >> events.jsonl
           done < manifest.jsonl
 
           event_count=$(wc -l < events.jsonl)
