@@ -5,140 +5,78 @@ on:
   push:
   pull_request:
 
-## Add global env vars and matrix configuration for the whole workflow
 env:
   PACKAGE_NAME: "tollgate-wrt"
+  GO_VERSION: "1.24.2"
   DEBUG: "true"
 
-# Define the architecture matrix once for reuse across jobs
-# This allows us to maintain architecture configurations in one place
 jobs:
-  define-matrix:
+  # Unique Go build tuples. Each row produces one binary artifact that may
+  # be consumed by multiple package-matrix cells (e.g. aarch64_cortex-a53
+  # and aarch64_cortex-a72 share the same arm64 binary).
+  define-compile-matrix:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
         run: |
-          # Set GITHUB_OUTPUT to a temp file if not running in GitHub Actions
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          
-          # Create a human-readable matrix definition
           cat > matrix.json << 'EOF'
           {
             "include": [
-              {
-                "architecture": "aarch64_cortex-a53",
-                "goarch": "arm64",
-                "sdk": "mediatek-filogic",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "aarch64_cortex-a53",
-                "goarch": "arm64",
-                "sdk": "mediatek-filogic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "aarch64_cortex-a72",
-                "goarch": "arm64",
-                "sdk": "bcm27xx-bcm2711",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "aarch64_cortex-a72",
-                "goarch": "arm64",
-                "sdk": "bcm27xx-bcm2711",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "arm_cortex-a7",
-                "goarch": "arm",
-                "goarm": "7",
-                "sdk": "bcm27xx-bcm2709",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "arm_cortex-a7",
-                "goarch": "arm",
-                "goarm": "7",
-                "sdk": "bcm27xx-bcm2709",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "mipsel_24kc",
-                "goarch": "mipsle",
-                "gomips": "softfloat",
-                "sdk": "ramips-mt7621",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "mipsel_24kc",
-                "goarch": "mipsle",
-                "gomips": "softfloat",
-                "sdk": "ramips-mt7621",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-fast"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-best"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-brute"
-              },
-              {
-                "architecture": "mips_24kc",
-                "goarch": "mips",
-                "gomips": "softfloat",
-                "sdk": "ath79-generic",
-                "openwrt_version": "24.10.1",
-                "compression": "upx-ultra-brute"
-              }
+              { "compile_key": "arm64",           "goarch": "arm64" },
+              { "compile_key": "armv7",           "goarch": "arm",    "goarm": "7" },
+              { "compile_key": "mipsle-softfloat","goarch": "mipsle", "gomips": "softfloat" },
+              { "compile_key": "mips-softfloat",  "goarch": "mips",   "gomips": "softfloat" }
             ]
           }
           EOF
+          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
 
-          # TODO: AMD64 build currently fails with the following error:
-          # Error: Architecture 'amd64' not supported by the SDK 'x86-generic-24.10.1'.
-          # This will be re-enabled after fixing SDK compatibility issues.
-          # {
-          #   "architecture": "amd64",
-          #   "goarch": "amd64",
-          #   "sdk": "x86-generic",
-          #   "openwrt_version": "24.10.1"
-          # },
-          
-          # Create a properly escaped JSON for GitHub output
-          # We need to use jq to compact the JSON and properly escape it
-          echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
+  # Package matrix. Each cell declares which compile_key it consumes, which
+  # SDK image to run in, and the output package format (ipk for 24.10.x,
+  # apk for 25.12.x). Compression variants fan out here — not in compile.
+  define-package-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      publish_matrix: ${{ steps.set-matrix.outputs.publish_matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          cat > matrix.json << 'EOF'
+          {
+            "include": [
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-fast" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-best" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-brute" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-ultra-brute" }
+            ]
+          }
+          EOF
+          # TODO: Once matching openwrt/sdk:*-25.12.0 tags exist for the other
+          # targets (bcm27xx-bcm2711, bcm27xx-bcm2709, ramips-mt7621,
+          # ath79-generic), extend the apk block to mirror the ipk coverage.
+          # TODO: AMD64 remains disabled — SDK arch 'amd64' vs 'x86-generic' mismatch.
+          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
+          # publish_matrix: initial rollout publishes ipk only. apk artifacts
+          # are still built and uploaded to GH artifacts for verification,
+          # but not pushed to Blossom/nostr until distribution is wired up.
+          echo "publish_matrix=$(jq -c '{include: [.include[] | select(.format == "ipk")]}' matrix.json)" >> $GITHUB_OUTPUT
 
   determine-versioning:
     runs-on: ubuntu-latest
@@ -148,134 +86,161 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required for commit height
-          
+          fetch-depth: 0
+
       - id: commit-hash
         shell: bash
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          # Get short commit hash directly instead of using an action
-          SHORT_HASH=$(git rev-parse --short HEAD)
-          echo "short=$SHORT_HASH" >> $GITHUB_OUTPUT
+          echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set package_version variable
         id: determine-package-version
         shell: bash
         run: |
-          # Set GITHUB_OUTPUT to a temp file if not running in GitHub Actions
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          
           if [[ $GITHUB_REF == refs/tags/* ]]; then
-            # If this is a tag push, use the tag name (vX.X.X)
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
-            # If this is a branch push, use [branch].[height].[hash] format
-            # Sanitize branch name by replacing forward slashes with hyphens
             SANITIZED_BRANCH_NAME=$(echo "${GITHUB_REF_NAME}" | sed 's/\//-/g')
             COMMIT_HEIGHT=$(git rev-list --count HEAD)
             echo "package_version=${SANITIZED_BRANCH_NAME}.${COMMIT_HEIGHT}.${{ steps.commit-hash.outputs.short }}" >> $GITHUB_OUTPUT
           fi
-        
-      - name: Set version variable
+
+      - name: Set release channel
         id: determine-release-channel
         shell: bash
         run: |
-          # Set GITHUB_OUTPUT to a temp file if not running in GitHub Actions
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          
           if [[ $GITHUB_REF == refs/tags/* ]]; then
-            # Extract tag name from refs/tags/v1.2.3 format
             TAG_NAME=${GITHUB_REF#refs/tags/}
-            
-            if [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
-             # Strict check for v1.2.3-alpha4 format (alpha releases only)
-              echo "release_channel=alpha" >> $GITHUB_OUTPUT
-            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
-             # Strict check for v1.2.3-beta4 format (beta releases only)
-              echo "release_channel=beta" >> $GITHUB_OUTPUT
-            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              # Strict check for v1.2.3 format (stable releases only)
-              echo "release_channel=stable" >> $GITHUB_OUTPUT
-            else
-              # Tag exists but doesn't match expected patterns
-              echo "release_channel=dev" >> $GITHUB_OUTPUT
+            if   [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then echo "release_channel=alpha"  >> $GITHUB_OUTPUT
+            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta  ]]; then echo "release_channel=beta"   >> $GITHUB_OUTPUT
+            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+$      ]]; then echo "release_channel=stable" >> $GITHUB_OUTPUT
+            else                                                          echo "release_channel=dev"    >> $GITHUB_OUTPUT
             fi
           else
             echo "release_channel=dev" >> $GITHUB_OUTPUT
           fi
 
-  build-package:
-    needs: [determine-versioning, define-matrix]
+  # Native cross-compile of tollgate-wrt + tollgate CLI. One job per unique
+  # Go tuple. Produces a tarball consumed by every package-matrix cell that
+  # declares the same compile_key.
+  compile-binaries:
+    needs: [define-compile-matrix, determine-versioning]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.define-compile-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: src/go.sum
+
+      - name: Cross-compile binaries
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.goarch }}
+          GOARM:  ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
+          PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+        run: |
+          set -eu
+          mkdir -p bin
+          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          LDFLAGS="-s -w \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+
+          echo "Building service for GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS"
+          env GOOS=linux go build -C src -o "$GITHUB_WORKSPACE/bin/tollgate-wrt" -trimpath -ldflags="$LDFLAGS" main.go
+
+          echo "Building CLI..."
+          env GOOS=linux go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/tollgate" -trimpath -ldflags="$LDFLAGS"
+
+          ls -lh bin/
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.compile_key }}
+          path: bin/
+          retention-days: 5
+
+  # Package the prebuilt binaries inside an openwrt SDK container. No Go
+  # toolchain here — only staging, optional UPX, and the SDK's package
+  # layout/metadata step. Fans out per architecture + compression + format.
+  package-binaries:
+    needs: [define-package-matrix, determine-versioning, compile-binaries]
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
       options: --user root
-      volumes:
-        - /tmp/tollgate-artifacts:/artifacts
     strategy:
-      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
+      fail-fast: false
+      matrix: ${{ fromJson(needs.define-package-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
-          path: ${{ env.PACKAGE_NAME }}/
-          fetch-depth: 0
-          # On pull_request, actions/checkout defaults to a synthetic merge
-          # commit that only exists on the runner. PKG_SOURCE_VERSION in the
-          # package Makefile captures that SHA via `git rev-parse HEAD` and
-          # the SDK then tries to clone it from the upstream repo — which
-          # 404s. Pin to the PR head SHA, which is fetchable upstream via
-          # refs/pull/<N>/head. Falls back to github.sha on push events.
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: src-checkout
+          fetch-depth: 1
 
-      - name: Initialize
-        run: |
-          # Add compression suffix if using compression
-          if [ -n "${{ matrix.compression }}" ]; then
-            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
-          else
-            COMPRESSION_SUFFIX=""
-          fi
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
-          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-
-          # Move sources to sdk folder
-          mv ${{ env.PACKAGE_NAME }} /builder/package/${{ env.PACKAGE_NAME }}
-
-      - name: Install Golang
-        run: |
-          # Add golang-backports repository
-          echo "deb https://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
-          apt-get update
-          # Install Go from backports
-          apt-get install -y -t bookworm-backports golang-go
+      - name: Download prebuilt binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-${{ matrix.compile_key }}
+          path: bin/
 
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
         run: |
+          apt-get update
           apt-get install -y upx-ucl
+
+      - name: Stage SDK package tree
+        id: stage
+        run: |
+          set -eu
+          COMPRESSION_SUFFIX=""
+          [ -n "${{ matrix.compression }}" ] && COMPRESSION_SUFFIX="-${{ matrix.compression }}"
+          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.${{ matrix.format }}
+          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+          echo "COMPRESSION_SUFFIX=$COMPRESSION_SUFFIX" >> $GITHUB_ENV
+
+          STAGE=/builder/package/${PACKAGE_NAME}
+          mkdir -p "$STAGE"
+          cp -r src-checkout/packaging/. "$STAGE/"
+          cp src-checkout/LICENSE "$STAGE/LICENSE"
+          install -m 0755 bin/tollgate-wrt "$STAGE/tollgate-wrt"
+          install -m 0755 bin/tollgate     "$STAGE/tollgate"
+          ls -la "$STAGE"
 
       - name: Configure SDK
         run: |
           cd /builder
-          # Generate default configuration
           make defconfig
-          # Update configuration for our needs
-          echo "CONFIG_PACKAGE_${{ env.PACKAGE_NAME }}=y" >> .config
-          # Make dependencies available to opkg
-          echo "CONFIG_PACKAGE_nodogsplash=y" >> .config
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_jq=y" >> .config
+          {
+            echo "CONFIG_PACKAGE_${PACKAGE_NAME}=y"
+            echo "CONFIG_PACKAGE_nodogsplash=y"
+            echo "CONFIG_PACKAGE_luci=y"
+            echo "CONFIG_PACKAGE_jq=y"
+            if [ "${{ matrix.format }}" = "apk" ]; then
+              echo "CONFIG_USE_APK=y"
+            fi
+          } >> .config
+          make defconfig
 
-      - name: Compile Package
+      - name: Compile package
         shell: bash
         run: |
           cd /builder
-          # Only set GOMIPS for MIPS architectures (https://stackoverflow.com/q/55154143)
-          if [ "${{ matrix.goarch }}" = "mips" ] || [ "${{ matrix.goarch }}" = "mipsle" ]; then
-            export GOMIPS=softfloat
-          fi
-          
-          # Set UPX flags from compression type (e.g., upx-fast -> --fast)
           if [ -n "${{ matrix.compression }}" ]; then
             export USE_UPX=1
             COMP="${{ matrix.compression }}"
@@ -283,261 +248,204 @@ jobs:
           else
             export USE_UPX=0
           fi
-          
-          env GOARCH=${{ matrix.goarch }} \
-            GOMIPS=${{ matrix.gomips }} \
+          env \
             PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
             USE_UPX=$USE_UPX \
             UPX_FLAGS="$UPX_FLAGS" \
-            make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${{ env.PACKAGE_NAME }}/compile
+            make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
 
-      - name: List output package(s)
+      - name: Collect artifact
         run: |
-          find /builder/bin/packages -name "*.ipk" -type f
-          PACKAGE_PATH=$(find /builder/bin/packages -name "*.ipk" -type f | head -n1)
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.${{ matrix.format }}" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
-            echo "No .ipk package found"
+            echo "No .${{ matrix.format }} package found" >&2
+            find /builder/bin -maxdepth 5 -type f | head -50
             exit 1
           fi
           ls -lh "$PACKAGE_PATH"
-          # Copy to mounted volume that persists outside container
-          mkdir -p /artifacts
-          cp "$PACKAGE_PATH" "/artifacts/${{ env.PACKAGE_FILENAME }}"
-          # Also copy to GitHub workspace for artifact upload
           mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}"
+          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${PACKAGE_FILENAME}"
 
-      - name: GitHub Artifact upload
-        if: ${{ env.ACT != 'true' }}
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PACKAGE_FILENAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
           retention-days: 5
 
+  # Single-job batched publish: one container start, one nak install,
+  # one websocket connection per relay (not one per package). Fails fast
+  # if any Blossom upload fails after retries.
   publish-metadata:
-    needs: [determine-versioning, build-package, define-matrix]
+    needs: [determine-versioning, package-binaries, define-package-matrix]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     container:
       image: ubuntu:latest
       options: --user root
-      volumes:
-        - /tmp/tollgate-artifacts:/tmp/tollgate-artifacts
-    strategy:
-      matrix: ${{ fromJson(needs.define-matrix.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
+      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+      PUBLISH_MATRIX: ${{ needs.define-package-matrix.outputs.publish_matrix }}
+      PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+      RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
     steps:
-      - name: Initialize
-        run: |
-          if [ -n "${{ matrix.compression }}" ]; then
-            COMPRESSION_SUFFIX="-${{ matrix.compression }}"
-            COMPRESSION_TYPE="${{ matrix.compression }}"
-          else
-            COMPRESSION_SUFFIX=""
-            COMPRESSION_TYPE="none"
-          fi
-          PACKAGE_FILENAME=${{ env.PACKAGE_NAME }}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
-          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-          echo "COMPRESSION_TYPE=$COMPRESSION_TYPE" >> $GITHUB_ENV
-
       - name: Install required tools
         run: |
           apt-get update
           apt-get install -y curl jq
-
-      - name: Get artifact from volume (ACT) or download (GitHub)
-        shell: bash
-        run: |
-          mkdir -p ./artifacts
-          if [ "$ACT" = "true" ]; then
-            # In ACT, copy from mounted volume
-            cp /tmp/tollgate-artifacts/${{ env.PACKAGE_FILENAME }} ./artifacts/
-          fi
-
-      - name: Download artifact from GitHub
-        if: ${{ env.ACT != 'true' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.PACKAGE_FILENAME }}
-          path: ./artifacts
-
-      - name: Get package size
-        shell: bash
-        run: |
-          PACKAGE_PATH=$(find ./artifacts -name "${{ env.PACKAGE_FILENAME }}" -type f | head -n1)
-          FILE_SIZE=$(stat -c%s "$PACKAGE_PATH")
-          echo "PACKAGE_PATH=$PACKAGE_PATH" >> $GITHUB_ENV
-          echo "PACKAGE_SIZE=$FILE_SIZE" >> $GITHUB_ENV
-
-
-      - name: Install nak
-        shell: bash
-        run: |
-          echo "Downloading nak for linux-amd64..."
           curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
           chmod +x /usr/local/bin/nak
-          
-          # Verify installation
-          if nak --version; then
-            echo "✅ nak installed successfully"
-          else
-            echo "❌ nak installation failed"
-            exit 1
-          fi
+          nak --version
 
-      - name: Blossom Artifact upload using nak
-        id: blossom_upload
-        shell: bash
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # publish_matrix is ipk-only, so artifacts downloaded here are
+          # the ipk set. apk artifacts (uploaded by package-binaries under
+          # a different name pattern) are intentionally excluded.
+          pattern: "${{ env.PACKAGE_NAME }}_*.ipk"
+          path: ./artifacts
+          merge-multiple: true
+
+      - name: Upload to Blossom (batched with retry + backoff)
+        id: blossom
         env:
-          BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
-          # Upload file to Blossom using nak (redirect stdin from /dev/null to avoid pipe detection)
-          UPLOAD_RESPONSE=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "${{ env.PACKAGE_PATH }}" < /dev/null)
-          
-          echo "Upload response:"
-          echo "$UPLOAD_RESPONSE"
-          
-          # Extract sha256 hash from JSON response
-          FILE_HASH=$(echo "$UPLOAD_RESPONSE" | jq -r '.sha256')
-          
-          if [ -z "$FILE_HASH" ] || [ "$FILE_HASH" = "null" ]; then
-            echo "❌ Failed to extract hash from upload response"
-            exit 1
-          fi
-          
-          # Construct Blossom URL
-          BLOSSOM_URL="$BLOSSOM_SERVER/$FILE_HASH"
-          
-          echo "url=$BLOSSOM_URL" >> $GITHUB_OUTPUT
-          echo "hash=$FILE_HASH" >> $GITHUB_OUTPUT
-          echo "✅ Uploaded to Blossom: $BLOSSOM_URL"
+          set -euo pipefail
 
-      - name: Publish Package NIP-94 Metadata
-        id: publish_package
-        shell: bash
-        env:
-          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
-          NSEC_HEX: ${{ secrets.NSEC_HEX }}
-        run: |
-          set -e  # Exit on any error
-          
-          # Create NIP-94 event
-          echo "Creating NIP-94 event..."
-          nak event --sec "$NSEC_HEX" -k 1063 \
-            -c "TollGate Package: ${{ env.PACKAGE_NAME }} for ${{ matrix.architecture }}" \
-            --tag url="${{ steps.blossom_upload.outputs.url }}" \
-            --tag m="application/octet-stream" \
-            --tag x="${{ steps.blossom_upload.outputs.hash }}" \
-            --tag ox="${{ steps.blossom_upload.outputs.hash }}" \
-            --tag filename="${{ env.PACKAGE_FILENAME }}" \
-            --tag architecture="${{ matrix.architecture }}" \
-            --tag A="${{ matrix.architecture }}" \
-            --tag version="${{ needs.determine-versioning.outputs.package_version }}" \
-            --tag v="${{ needs.determine-versioning.outputs.package_version }}" \
-            --tag release_channel="${{ needs.determine-versioning.outputs.release_channel }}" \
-            --tag c="${{ needs.determine-versioning.outputs.release_channel }}" \
-            --tag package_name="${{ env.PACKAGE_NAME }}" \
-            --tag n="${{ env.PACKAGE_NAME }}" \
-            --tag compression="${{ env.COMPRESSION_TYPE }}" \
-            > event.json 2> event.err
-          
-          NAK_EXIT=$?
-          
-          echo "Event creation exit code: $NAK_EXIT"
-          echo "event.json size: $(wc -c < event.json 2>/dev/null || echo '0') bytes"
-          echo "event.err size: $(wc -c < event.err 2>/dev/null || echo '0') bytes"
-          
-          if [ -s event.err ]; then
-            echo "=== Event stderr ==="
-            cat event.err
-            echo "===================="
-          fi
-          
-          if [ $NAK_EXIT -ne 0 ]; then
-            echo "❌ Failed to create event (exit code: $NAK_EXIT)"
-            cat event.json 2>/dev/null || echo "No event.json created"
-            exit $NAK_EXIT
-          fi
-          
-          if [ ! -s event.json ]; then
-            echo "❌ event.json is empty"
-            exit 1
-          fi
-          
-          echo "=== Event JSON ==="
-          cat event.json
-          echo "=================="
-          
-          # Validate and extract event ID
-          EVENT_ID=$(jq -r '.id' event.json)
-          
-          if [ -z "$EVENT_ID" ] || [ "$EVENT_ID" = "null" ]; then
-            echo "❌ Failed to extract event ID"
-            exit 1
-          fi
-          
-          echo "Event created with ID: $EVENT_ID"
-          
-          # Step 2: Publish to relays
-          echo "Publishing to relays..."
-          cat event.json | nak event $RELAYS 2>&1
-          
-          echo "eventId=$EVENT_ID" >> $GITHUB_OUTPUT
-          echo "✅ Published NIP-94 event: $EVENT_ID"
+          upload_one() {
+            local file="$1"
+            local attempt=1 delay=2
+            while [ $attempt -le 3 ]; do
+              if resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1); then
+                local hash
+                hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+                if [ -n "$hash" ] && [ "$hash" != "null" ]; then
+                  printf '%s' "$hash"
+                  return 0
+                fi
+              fi
+              echo "  attempt ${attempt} failed for $(basename "$file"); retrying in ${delay}s..." >&2
+              echo "  response: $resp" >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
 
-      - name: Verify Package NIP-94 Event
-        id: verify_package
-        if: ${{ steps.publish_package.outputs.eventId != '' }}
-        env:
-          EVENT_ID: ${{ steps.publish_package.outputs.eventId }}
-          RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
-        run: |
-          echo "Verifying event $EVENT_ID on relays..."
-          FOUND=0
-          for relay in $RELAYS; do
-            echo "Checking $relay..."
-            RESULT=$(nak req -i "$EVENT_ID" "$relay" 2>/dev/null || echo "")
-            if [ -n "$RESULT" ]; then
-              echo "✅ Found on $relay"
-              FOUND=1
-            else
-              echo "⚠️  Not found on $relay"
+          : > manifest.jsonl
+          failures=0
+          printf '%s\n' "$PUBLISH_MATRIX" | jq -c '.include[]' | while read -r cell; do
+            arch=$(printf '%s' "$cell" | jq -r '.architecture')
+            fmt=$(printf '%s' "$cell" | jq -r '.format')
+            compression=$(printf '%s' "$cell" | jq -r '.compression // empty')
+            suffix=""; [ -n "$compression" ] && suffix="-${compression}"
+            filename="${PACKAGE_NAME}_${PACKAGE_VERSION}_${arch}${suffix}.${fmt}"
+            file="./artifacts/${filename}"
+            if [ ! -f "$file" ]; then
+              echo "ERROR: expected artifact missing: $file" >&2
+              exit 1
             fi
+
+            echo "Uploading $filename..."
+            if ! hash=$(upload_one "$file"); then
+              echo "ERROR: blossom upload failed for $filename after 3 attempts" >&2
+              exit 1
+            fi
+            compression_type="${compression:-none}"
+            # Blossom serves content by hash regardless of suffix, but
+            # downloaders (opkg/apk) use the URL extension to infer format —
+            # so we append .${fmt} to the URL.
+            jq -cn \
+              --arg filename "$filename" --arg arch "$arch" --arg fmt "$fmt" \
+              --arg compression "$compression_type" --arg hash "$hash" \
+              '{filename:$filename, architecture:$arch, format:$fmt, compression:$compression, hash:$hash, url:("'"$BLOSSOM_SERVER"'/" + $hash + "." + $fmt)}' \
+              >> manifest.jsonl
+            echo "  uploaded: $hash"
           done
-          
-          if [ $FOUND -eq 0 ]; then
-            echo "verification_failed=true" >> $GITHUB_OUTPUT
+
+          echo "---"
+          echo "Manifest:"
+          cat manifest.jsonl
+
+      - name: Build NIP-94 events
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+        run: |
+          set -euo pipefail
+          : > events.jsonl
+          while read -r entry; do
+            filename=$(printf '%s' "$entry" | jq -r '.filename')
+            arch=$(printf '%s' "$entry" | jq -r '.architecture')
+            fmt=$(printf '%s' "$entry" | jq -r '.format')
+            compression=$(printf '%s' "$entry" | jq -r '.compression')
+            hash=$(printf '%s' "$entry" | jq -r '.hash')
+            url=$(printf '%s' "$entry" | jq -r '.url')
+
+            # nak detects a piped stdin and tries to parse it as events to
+            # sign. The 'while read ... done < manifest.jsonl' redirection
+            # makes our loop's stdin the manifest file, so without an
+            # explicit </dev/null nak would read manifest lines and fail
+            # with 'invalid event received from stdin'. Feed /dev/null so
+            # nak falls back to building the event purely from flags.
+            # Then jq -c collapses the pretty-printed output to one line.
+            nak event --sec "$NSEC_HEX" -k 1063 \
+              -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
+              --tag url="$url" \
+              --tag m="application/octet-stream" \
+              --tag x="$hash" \
+              --tag ox="$hash" \
+              --tag filename="$filename" \
+              --tag architecture="$arch" \
+              --tag A="$arch" \
+              --tag version="$PACKAGE_VERSION" \
+              --tag v="$PACKAGE_VERSION" \
+              --tag release_channel="$RELEASE_CHANNEL" \
+              --tag c="$RELEASE_CHANNEL" \
+              --tag package_name="$PACKAGE_NAME" \
+              --tag n="$PACKAGE_NAME" \
+              --tag compression="$compression" \
+              --tag format="$fmt" \
+              < /dev/null \
+              | jq -c . >> events.jsonl
+          done < manifest.jsonl
+
+          event_count=$(wc -l < events.jsonl)
+          echo "Built $event_count NIP-94 events."
+          if [ "$event_count" -eq 0 ]; then
+            echo "ERROR: no events built" >&2
             exit 1
           fi
-          echo "✅ Event verified on at least one relay"
 
-      - name: Check Package Publication
-        if: steps.verify_package.outputs.verification_failed == 'true'
+      - name: Publish events (one connection per relay)
         run: |
-          echo "❌ Failed to verify package publication on relays"
-          exit 1
+          set -euo pipefail
+          # nak event reads JSON events from stdin and publishes each to the
+          # given relays over a single websocket connection per relay.
+          cat events.jsonl | nak event $RELAYS
 
-      - name: Build Summary
+      - name: Build summary
         run: |
-          echo "Build Summary for ${{ matrix.architecture }}:"
-          echo "✅ Package Release EventId: ${{ steps.publish_package.outputs.eventId }}"
-          echo "✅ Package URL: ${{ steps.blossom_upload.outputs.url }}"
+          echo "Published $(wc -l < events.jsonl) NIP-94 events across $(echo $RELAYS | wc -w) relays."
+          jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.url)"' manifest.jsonl
 
   trigger-build-os:
-    name: Trigger new build TollGate OS
+    name: Trigger TollGate OS build
     runs-on: ubuntu-latest
     needs: [determine-versioning, publish-metadata]
     steps:
-    - name: Trigger OS Workflow
-      if: ${{ env.ACT != 'true' }}
-      uses: peter-evans/repository-dispatch@v2
-      with:
-        token: ${{ secrets.REPO_ACCESS_TOKEN }}
-        repository: OpenTollGate/tollgate-os
-        event-type: build-os
-        client-payload: |-
-          {
-            "override_tollgate_wrt_version": "${{ needs.determine-versioning.outputs.package_version }}"
-          }
-
+      - uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: OpenTollGate/tollgate-os
+          event-type: build-os
+          client-payload: |-
+            {
+              "override_tollgate_wrt_version": "${{ needs.determine-versioning.outputs.package_version }}"
+            }
