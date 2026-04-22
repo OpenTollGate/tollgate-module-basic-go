@@ -46,12 +46,25 @@ jobs:
       - id: set-matrix
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          # Temporarily reduced to a single cell while we verify the publish
-          # step fix. Restore the full matrix after the run is green.
           cat > matrix.json << 'EOF'
           {
             "include": [
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk" }
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-fast" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-best" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-brute" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
+
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-ultra-brute" }
             ]
           }
           EOF
