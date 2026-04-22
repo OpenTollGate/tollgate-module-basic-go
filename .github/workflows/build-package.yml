@@ -2,6 +2,11 @@ name: Build and Publish
 
 on:
   workflow_dispatch:
+    inputs:
+      full_compression:
+        description: "Build all UPX compression variants (overrides the branch gate)"
+        type: boolean
+        default: false
   push:
   pull_request:
 
@@ -41,42 +46,67 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      publish_matrix: ${{ steps.set-matrix.outputs.publish_matrix }}
+      ipk_matrix: ${{ steps.set-matrix.outputs.ipk_matrix }}
+      apk_matrix: ${{ steps.set-matrix.outputs.apk_matrix }}
     steps:
       - id: set-matrix
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # One row per (arch, sdk, compression); set ipk/apk flags to
+          # declare which formats to produce for that row. Rows with both
+          # flags build both formats (currently only cortex-a53/mediatek-
+          # filogic has apk support).
           cat > matrix.json << 'EOF'
           {
             "include": [
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-fast" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-best" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-brute" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "openwrt_version": "24.10.1", "format": "ipk", "compression": "upx-ultra-brute" },
-
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk" },
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "openwrt_version": "25.12.0", "format": "apk", "compression": "upx-ultra-brute" }
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true  },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "compression": "upx-ultra-brute" },
+              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false },
+              { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
+              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "ipk": true, "apk": false },
+              { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
+              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "ipk": true, "apk": false },
+              { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-fast" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-brute" },
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" }
             ]
           }
           EOF
-          # TODO: Once matching openwrt/sdk:*-25.12.0 tags exist for the other
-          # targets (bcm27xx-bcm2711, bcm27xx-bcm2709, ramips-mt7621,
-          # ath79-generic), extend the apk block to mirror the ipk coverage.
+          # OpenWrt versions are pinned per format in the package jobs below:
+          # ipk -> 24.10.1, apk -> 25.12.0. Matrix entries stay version-free
+          # so the output filenames and NIP-94 tags don't carry what's really
+          # a build-time detail.
+          #
           # TODO: AMD64 remains disabled — SDK arch 'amd64' vs 'x86-generic' mismatch.
-          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
-          # publish_matrix: initial rollout publishes ipk only. apk artifacts
-          # are still built and uploaded to GH artifacts for verification,
-          # but not pushed to Blossom/nostr until distribution is wired up.
-          echo "publish_matrix=$(jq -c '{include: [.include[] | select(.format == "ipk")]}' matrix.json)" >> $GITHUB_OUTPUT
+
+          # Compression gate: UPX variants (esp. --brute, --ultra-brute) are
+          # expensive and only meaningful for shipped artifacts. Keep them
+          # on main, v* tags, and any pull_request run (so reviewers can
+          # inspect the final payload). Strip them on day-to-day branch
+          # pushes. A workflow_dispatch with full_compression=true forces
+          # them on regardless of ref. Uncompressed cells always run.
+          if [[ "${{ github.event.inputs.full_compression }}" == "true" ]]; then
+            echo "full_compression=true — keeping all variants."
+          elif [[ "$GITHUB_REF" != "refs/heads/main" \
+               && "$GITHUB_REF" != refs/tags/v* \
+               && "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "Non-release ref ($GITHUB_REF, event=$GITHUB_EVENT_NAME) — dropping compression variants."
+            jq -c '{include: [.include[] | select(has("compression") | not)]}' matrix.json > matrix.filtered.json
+            mv matrix.filtered.json matrix.json
+          fi
+
+          # matrix: flat (format-expanded) list consumed by publish-metadata,
+          # one row per (arch, compression, format). Derived from the
+          # flag-based source by cloning each ipk/apk row it applies to.
+          echo "matrix=$(jq -c '{include: [
+            (.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}),
+            (.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"})
+          ]}' matrix.json)" >> $GITHUB_OUTPUT
+          echo "ipk_matrix=$(jq -c '{include: [.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}]}' matrix.json)" >> $GITHUB_OUTPUT
+          echo "apk_matrix=$(jq -c '{include: [.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"}]}' matrix.json)" >> $GITHUB_OUTPUT
 
   determine-versioning:
     runs-on: ubuntu-latest
@@ -84,7 +114,7 @@ jobs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -132,11 +162,11 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.define-compile-matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -168,32 +198,118 @@ jobs:
           ls -lh bin/
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.compile_key }}
           path: bin/
           retention-days: 5
 
-  # Package the prebuilt binaries inside an openwrt SDK container. No Go
-  # toolchain here — only staging, optional UPX, and the SDK's package
-  # layout/metadata step. Fans out per architecture + compression + format.
-  package-binaries:
+  # Native ipk assembly on ubuntu-latest — no openwrt/sdk container.
+  # Uses packaging/build-ipk.sh (ar + tar) to wrap the prebuilt binary.
+  # Fans out per architecture + compression variant.
+  package-ipk:
+    needs: [define-package-matrix, determine-versioning, compile-binaries]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.define-package-matrix.outputs.ipk_matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Download prebuilt binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: binaries-${{ matrix.compile_key }}
+          path: bin/
+
+      - name: Install UPX
+        if: contains(matrix.compression, 'upx')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
+
+      - name: Build .ipk
+        run: |
+          set -euo pipefail
+          COMPRESSION_SUFFIX=""
+          [ -n "${{ matrix.compression }}" ] && COMPRESSION_SUFFIX="-${{ matrix.compression }}"
+          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
+          echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
+
+          # Assemble the payload tree mirroring what Package/install produced.
+          PAYLOAD=$(mktemp -d)
+          install -D -m 0755 bin/tollgate-wrt "$PAYLOAD/usr/bin/tollgate-wrt"
+          install -D -m 0755 bin/tollgate     "$PAYLOAD/usr/bin/tollgate"
+
+          install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                         "$PAYLOAD/etc/init.d/tollgate-wrt"
+          install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
+          install -D -m 0755 packaging/files/etc/uci-defaults/99-tollgate-setup              "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+          install -D -m 0644 packaging/files/etc/config/firewall-tollgate                    "$PAYLOAD/etc/config/firewall-tollgate"
+          install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                 "$PAYLOAD/usr/local/bin/first-login-setup"
+          install -D -m 0755 packaging/files/usr/bin/check_package_path                      "$PAYLOAD/usr/bin/check_package_path"
+          install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"
+          install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart         "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
+
+          mkdir -p \
+            "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site" \
+            "$PAYLOAD/etc/tollgate/ecash" \
+            "$PAYLOAD/etc/crontabs"
+          cp -r packaging/files/tollgate-captive-portal-site/. "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site/"
+          install -D -m 0644 LICENSE "$PAYLOAD/usr/share/doc/${PACKAGE_NAME}/LICENSE"
+
+          # Apply UPX on the staged binaries (before packing).
+          if [ -n "${{ matrix.compression }}" ]; then
+            COMP="${{ matrix.compression }}"
+            UPX_FLAGS="--${COMP#upx-}"
+            ls -lh "$PAYLOAD/usr/bin/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate"
+            upx $UPX_FLAGS "$PAYLOAD/usr/bin/tollgate-wrt"
+            upx $UPX_FLAGS "$PAYLOAD/usr/bin/tollgate"
+            ls -lh "$PAYLOAD/usr/bin/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate"
+          fi
+
+          mkdir -p artifacts
+          env \
+            PKG_NAME="$PACKAGE_NAME" \
+            PKG_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
+            ARCH="${{ matrix.architecture }}" \
+            MAINTAINER="TollGate <tollgate@tollgate.me>" \
+            LICENSE="CC0-1.0" \
+            DEPENDS="nodogsplash, luci, jq" \
+            PROVIDES="nodogsplash-files" \
+            REPLACES="nodogsplash, base-files" \
+            DESCRIPTION="TollGate Basic Module for OpenWrt" \
+            packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.PACKAGE_FILENAME }}
+          path: artifacts/${{ env.PACKAGE_FILENAME }}
+          retention-days: 5
+
+  # apk packaging still goes through the openwrt SDK container — the
+  # SDK-25.12 apk-tools binary produces the OpenWrt-specific apk format,
+  # and reimplementing that outside the SDK is out of scope for this PR.
+  package-apk:
     needs: [define-package-matrix, determine-versioning, compile-binaries]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
+      # apk is OpenWrt 25.12 only — pinned here, not in the matrix.
+      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0
       options: --user root
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.define-package-matrix.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.define-package-matrix.outputs.apk_matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: src-checkout
           fetch-depth: 1
 
       - name: Download prebuilt binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: binaries-${{ matrix.compile_key }}
           path: bin/
@@ -205,14 +321,12 @@ jobs:
           apt-get install -y upx-ucl
 
       - name: Stage SDK package tree
-        id: stage
         run: |
           set -eu
           COMPRESSION_SUFFIX=""
           [ -n "${{ matrix.compression }}" ] && COMPRESSION_SUFFIX="-${{ matrix.compression }}"
-          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.${{ matrix.format }}
+          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.apk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
-          echo "COMPRESSION_SUFFIX=$COMPRESSION_SUFFIX" >> $GITHUB_ENV
 
           STAGE=/builder/package/${PACKAGE_NAME}
           mkdir -p "$STAGE"
@@ -220,7 +334,6 @@ jobs:
           cp src-checkout/LICENSE "$STAGE/LICENSE"
           install -m 0755 bin/tollgate-wrt "$STAGE/tollgate-wrt"
           install -m 0755 bin/tollgate     "$STAGE/tollgate"
-          ls -la "$STAGE"
 
       - name: Configure SDK
         run: |
@@ -231,9 +344,7 @@ jobs:
             echo "CONFIG_PACKAGE_nodogsplash=y"
             echo "CONFIG_PACKAGE_luci=y"
             echo "CONFIG_PACKAGE_jq=y"
-            if [ "${{ matrix.format }}" = "apk" ]; then
-              echo "CONFIG_USE_APK=y"
-            fi
+            echo "CONFIG_USE_APK=y"
           } >> .config
           make defconfig
 
@@ -256,9 +367,9 @@ jobs:
 
       - name: Collect artifact
         run: |
-          PACKAGE_PATH=$(find /builder/bin/packages -name "*.${{ matrix.format }}" -type f | head -n1)
+          PACKAGE_PATH=$(find /builder/bin/packages -name "*.apk" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
-            echo "No .${{ matrix.format }} package found" >&2
+            echo "No .apk package found" >&2
             find /builder/bin -maxdepth 5 -type f | head -50
             exit 1
           fi
@@ -267,7 +378,7 @@ jobs:
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${PACKAGE_FILENAME}"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.PACKAGE_FILENAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
@@ -277,7 +388,7 @@ jobs:
   # one websocket connection per relay (not one per package). Fails fast
   # if any Blossom upload fails after retries.
   publish-metadata:
-    needs: [determine-versioning, package-binaries, define-package-matrix]
+    needs: [determine-versioning, package-ipk, package-apk, define-package-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
@@ -289,7 +400,7 @@ jobs:
     env:
       BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
       RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
-      PUBLISH_MATRIX: ${{ needs.define-package-matrix.outputs.publish_matrix }}
+      PUBLISH_MATRIX: ${{ needs.define-package-matrix.outputs.matrix }}
       PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
       RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
     steps:
@@ -302,12 +413,11 @@ jobs:
           nak --version
 
       - name: Download all package artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          # publish_matrix is ipk-only, so artifacts downloaded here are
-          # the ipk set. apk artifacts (uploaded by package-binaries under
-          # a different name pattern) are intentionally excluded.
-          pattern: "${{ env.PACKAGE_NAME }}_*.ipk"
+          # Matches both ipk and apk artifacts uploaded by package-ipk
+          # and package-apk.
+          pattern: "${{ env.PACKAGE_NAME }}_*"
           path: ./artifacts
           merge-multiple: true
 
@@ -402,13 +512,9 @@ jobs:
               --tag x="$hash" \
               --tag ox="$hash" \
               --tag filename="$filename" \
-              --tag architecture="$arch" \
               --tag A="$arch" \
-              --tag version="$PACKAGE_VERSION" \
               --tag v="$PACKAGE_VERSION" \
-              --tag release_channel="$RELEASE_CHANNEL" \
               --tag c="$RELEASE_CHANNEL" \
-              --tag package_name="$PACKAGE_NAME" \
               --tag n="$PACKAGE_NAME" \
               --tag compression="$compression" \
               --tag format="$fmt" \
@@ -440,7 +546,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [determine-versioning, publish-metadata]
     steps:
-      - uses: peter-evans/repository-dispatch@v2
+      - uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           repository: OpenTollGate/tollgate-os
