@@ -286,6 +286,9 @@ jobs:
     container:
       image: ubuntu:latest
       options: --user root
+    defaults:
+      run:
+        shell: bash
     env:
       BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
       RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
