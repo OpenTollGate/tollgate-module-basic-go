@@ -5,6 +5,8 @@ TMP_SCAN_DIR="/tmp/upstream-daemon"
 INTERVAL="${UPSTREAM_SCAN_INTERVAL:-300}"
 HYSTERESIS_DB="${UPSTREAM_HYSTERESIS_DB:-12}"
 SIGNAL_FLOOR="${UPSTREAM_SIGNAL_FLOOR:--85}"
+FAST_CHECK="${UPSTREAM_FAST_CHECK:-30}"
+LOST_THRESHOLD="${UPSTREAM_LOST_THRESHOLD:-2}"
 
 log() {
 	logger -t upstream-daemon "$1"
@@ -163,14 +165,15 @@ get_current_signal() {
 	local signal
 
 	signal=$(iwinfo "$sta_iface" assoclist 2>/dev/null | head -1 | awk '{print $2}')
-	if [ -n "$signal" ]; then
+	if [ -n "$signal" ] && echo "$signal" | grep -qE '^-?[0-9]+$'; then
 		echo "$signal"
 		return 0
 	fi
 
 	signal=$(iwinfo "$sta_iface" info 2>/dev/null | grep "Signal:" | head -1 | awk -F'[ /]' '{for(i=1;i<=NF;i++) if($i=="Signal:") {print $(i+1); break}}')
-	if [ -n "$signal" ]; then
-		echo "$signal" | grep -qE '^-?[0-9]+$' && echo "$signal" && return 0
+	if [ -n "$signal" ] && echo "$signal" | grep -qE '^-?[0-9]+$'; then
+		echo "$signal"
+		return 0
 	fi
 
 	return 1
@@ -289,8 +292,9 @@ switch_upstream() {
 	local active_iface="$1"
 	local cand_iface="$2"
 	local cand_ssid="$3"
+	local reason="$4"
 
-	log "Switching upstream: ${active_iface:-none} -> $cand_iface ($cand_ssid)"
+	log "Switching upstream ($reason): ${active_iface:-none} -> $cand_iface ($cand_ssid)"
 
 	if [ -n "$active_iface" ]; then
 		uci set wireless."$active_iface".disabled=1
@@ -328,19 +332,88 @@ switch_upstream() {
 	fi
 }
 
+check_connectivity() {
+	local sta_iface="$1"
+
+	iwinfo "$sta_iface" info 2>/dev/null | grep -q "Access Point:\|Associated with" || return 1
+
+	local gw
+	gw=$(ip route 2>/dev/null | grep default | head -1 | awk '{print $3}')
+	[ -z "$gw" ] && return 1
+
+	ping -c 1 -W 2 "$gw" >/dev/null 2>&1
+}
+
+run_scan_cycle() {
+	local active_iface="$1"
+	local active_ssid="$2"
+	local current_signal="$3"
+	local reason="$4"
+
+	if scan_all_radios; then
+		local candidate_line
+		candidate_line=$(find_strongest_candidate)
+
+		if [ -n "$candidate_line" ]; then
+			local cand_signal cand_radio cand_iface cand_ssid
+			cand_signal=$(echo "$candidate_line" | cut -f1)
+			cand_radio=$(echo "$candidate_line" | cut -f2)
+			cand_iface=$(echo "$candidate_line" | cut -f3)
+			cand_ssid=$(echo "$candidate_line" | cut -f4)
+
+			log "Best candidate: $cand_ssid ($cand_signal dBm)"
+
+			local should_switch=0
+
+			if [ -z "$active_iface" ]; then
+				should_switch=1
+				log "$reason: no active upstream, connecting"
+			elif [ -z "$current_signal" ]; then
+				should_switch=1
+				log "$reason: active upstream not associated"
+			elif [ "$current_signal" -lt "$SIGNAL_FLOOR" ]; then
+				should_switch=1
+				log "$reason: active signal ${current_signal}dBm below floor ${SIGNAL_FLOOR}dBm"
+			else
+				local diff
+				diff=$((cand_signal - current_signal))
+				if [ "$diff" -ge "$HYSTERESIS_DB" ]; then
+					should_switch=1
+					log "$reason: candidate +${diff}dB stronger"
+				fi
+			fi
+
+			if [ "$should_switch" = "1" ]; then
+				switch_upstream "$active_iface" "$cand_iface" "$cand_ssid" "$reason"
+			fi
+		else
+			log "$reason: no known upstream candidates available"
+		fi
+
+		rm -rf "$TMP_SCAN_DIR"
+	else
+		log "$reason: scan failed, retrying next cycle"
+	fi
+}
+
 main() {
-	log "Starting (interval=${INTERVAL}s, hysteresis=${HYSTERESIS_DB}dB, floor=${SIGNAL_FLOOR}dBm)"
+	log "Starting (interval=${INTERVAL}s, fast_check=${FAST_CHECK}s, lost_threshold=${LOST_THRESHOLD}, hysteresis=${HYSTERESIS_DB}dB, floor=${SIGNAL_FLOOR}dBm)"
 
 	ensure_radios_enabled
 	ensure_wwan_setup
 
 	sleep 10
 
+	scan_counter=0
+	lost_count=0
+	scan_cycles=$((INTERVAL / FAST_CHECK))
+
 	while true; do
 		ensure_radios_enabled
 
 		active_iface=$(get_active_sta)
 		active_radio=""
+		active_sta_dev=""
 		current_signal=""
 		active_ssid=""
 
@@ -349,57 +422,49 @@ main() {
 			active_ssid=$(get_sta_ssid "$active_iface")
 			if [ -n "$active_radio" ]; then
 				active_sta_dev=$(find_sta_iface_for_radio "$active_radio")
-				if [ -n "$active_sta_dev" ] && is_sta_associated "$active_sta_dev"; then
-					current_signal=$(get_current_signal "$active_sta_dev")
-				fi
 			fi
 		fi
 
-		log "Active: ${active_ssid:-none} signal=${current_signal:-N/A}dBm"
+		should_scan=0
+		reason="scheduled"
 
-		if scan_all_radios; then
-			candidate_line=$(find_strongest_candidate)
-
-			if [ -n "$candidate_line" ]; then
-				cand_signal=$(echo "$candidate_line" | cut -f1)
-				cand_radio=$(echo "$candidate_line" | cut -f2)
-				cand_iface=$(echo "$candidate_line" | cut -f3)
-				cand_ssid=$(echo "$candidate_line" | cut -f4)
-
-				log "Best candidate: $cand_ssid ($cand_signal dBm)"
-
-				should_switch=0
-
-				if [ -z "$active_iface" ]; then
-					should_switch=1
-					log "No active upstream, connecting"
-				elif [ -z "$current_signal" ]; then
-					should_switch=1
-					log "Active upstream not associated, reconnecting"
-				elif [ "$current_signal" -lt "$SIGNAL_FLOOR" ]; then
-					should_switch=1
-					log "Active signal ${current_signal}dBm below floor ${SIGNAL_FLOOR}dBm, reconnecting"
-				else
-					diff=$((cand_signal - current_signal))
-					if [ "$diff" -ge "$HYSTERESIS_DB" ]; then
-						should_switch=1
-						log "Candidate +${diff}dB stronger, switching"
-					fi
+		if [ -n "$active_sta_dev" ]; then
+			if check_connectivity "$active_sta_dev"; then
+				if [ "$lost_count" -gt 0 ]; then
+					log "Connectivity restored after $lost_count check(s)"
 				fi
-
-				if [ "$should_switch" = "1" ]; then
-					switch_upstream "$active_iface" "$cand_iface" "$cand_ssid"
+				lost_count=0
+				scan_counter=$((scan_counter + 1))
+				if [ "$scan_counter" -ge "$scan_cycles" ]; then
+					should_scan=1
+					reason="scheduled"
 				fi
 			else
-				log "No known upstream candidates found"
+				lost_count=$((lost_count + 1))
+				log "Connectivity lost ($lost_count/$LOST_THRESHOLD)"
+				if [ "$lost_count" -ge "$LOST_THRESHOLD" ]; then
+					should_scan=1
+					reason="emergency"
+				fi
 			fi
-
-			rm -rf "$TMP_SCAN_DIR"
 		else
-			log "Scan failed, retrying next cycle"
+			should_scan=1
+			reason="no-active-upstream"
 		fi
 
-		sleep "$INTERVAL"
+		if [ "$should_scan" = "1" ]; then
+			if [ -n "$active_sta_dev" ] && is_sta_associated "$active_sta_dev"; then
+				current_signal=$(get_current_signal "$active_sta_dev")
+			fi
+
+			log "Active: ${active_ssid:-none} signal=${current_signal:-N/A}dBm"
+
+			run_scan_cycle "$active_iface" "$active_ssid" "$current_signal" "$reason"
+			scan_counter=0
+			lost_count=0
+		fi
+
+		sleep "$FAST_CHECK"
 	done
 }
 
