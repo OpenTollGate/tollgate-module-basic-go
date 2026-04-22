@@ -11,7 +11,6 @@ else
 PKG_VERSION:=$(TOLLGATE_DISPLAY_VERSION)
 endif
 
-PKG_RELEASE:=1
 PKG_FLAGS:=overwrite
 
 # The Go binaries are built natively by CI and staged into $(PKG_MAKEFILE_DIR)
