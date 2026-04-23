@@ -81,9 +81,14 @@ done
 # 5. debian-binary
 printf '2.0\n' > "$WORK/debian-binary"
 
-# 6. ar-pack. debian-binary must appear first; opkg streams the ar.
+# 6. Wrap as gzipped tar — this is the OpenWrt opkg-build ipk format
+# (NOT the Debian ar format). opkg itself reads either, but the
+# OpenWrt-side tooling in the wild assumes tar.gz wrapping
+# (e.g. `tar -xzOf foo.ipk ./control.tar.gz`), so we have to match.
 rm -f "$OUTPUT"
-( cd "$WORK" && ar -r "$OUTPUT" debian-binary control.tar.gz data.tar.gz )
+( cd "$WORK" && \
+  "$TAR" --owner=0 --group=0 --numeric-owner \
+    -czf "$OUTPUT" ./debian-binary ./data.tar.gz ./control.tar.gz )
 
 size=$(wc -c < "$OUTPUT" | tr -d ' ')
 printf 'Built %s (%s bytes)\n' "$OUTPUT" "$size"
