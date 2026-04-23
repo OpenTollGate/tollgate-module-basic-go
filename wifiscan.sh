@@ -365,10 +365,23 @@ connect_ssid() {
 
 	disable_other_stas
 
-	echo "[*] Creating new wireless interface for $radio."
-	uci add wireless wifi-iface
-	local iface
-	iface=$(uci show wireless | grep "=wifi-iface" | tail -1 | sed 's/wireless\.//;s/=wifi-iface//')
+	local iface=""
+	for existing in $(uci show wireless 2>/dev/null | \
+		sed -n 's/wireless\.\([^.]*\)=wifi-iface/\1/p'); do
+		if [ "$(uci -q get wireless."$existing".mode)" = "sta" ] && \
+		   [ "$(uci -q get wireless."$existing".ssid)" = "$target_ssid" ] && \
+		   [ "$(uci -q get wireless."$existing".disabled)" = "1" ]; then
+			iface="$existing"
+			echo "[*] Reusing existing interface $iface for '$target_ssid'"
+			break
+		fi
+	done
+
+	if [ -z "$iface" ]; then
+		echo "[*] Creating new wireless interface for $radio."
+		uci add wireless wifi-iface
+		iface=$(uci show wireless | grep "=wifi-iface" | tail -1 | sed 's/wireless\.//;s/=wifi-iface//')
+	fi
 
 	uci set wireless."$iface".device="$radio"
 	uci set wireless."$iface".network="wwan"
