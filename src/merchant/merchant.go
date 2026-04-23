@@ -53,13 +53,13 @@ type MerchantInterface interface {
 
 // Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
-	config        *config_manager.Config
-	configManager *config_manager.ConfigManager
-	tollwallet    tollwallet.TollWallet
-	advertisement string
-	// In-memory session store
-	customerSessions map[string]*CustomerSession
-	sessionMu        sync.RWMutex
+	config            *config_manager.Config
+	configManager     *config_manager.ConfigManager
+	tollwallet        tollwallet.TollWallet
+	mintHealthTracker *MintHealthTracker
+	advertisement     string
+	customerSessions  map[string]*CustomerSession
+	sessionMu         sync.RWMutex
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -69,6 +69,10 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	if config == nil {
 		return nil, fmt.Errorf("main config is nil")
 	}
+
+	// Initialize mint health tracker and run initial probe
+	mintHealthTracker := NewMintHealthTracker(configManager)
+	mintHealthTracker.RunInitialProbe()
 
 	// Extract mint URLs from MintConfig
 	mintURLs := make([]string, len(config.AcceptedMints))
@@ -89,7 +93,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	balance := tollwallet.GetBalance()
 
 	// Set advertisement
-	advertisementStr, err := CreateAdvertisement(configManager)
+	advertisementStr, err := CreateAdvertisement(configManager, mintHealthTracker)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement: %w", err)
 	}
@@ -100,11 +104,12 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	log.Printf("=== Merchant ready ===")
 
 	return &Merchant{
-		config:           config,
-		configManager:    configManager,
-		tollwallet:       *tollwallet,
-		advertisement:    advertisementStr,
-		customerSessions: make(map[string]*CustomerSession),
+		config:            config,
+		configManager:     configManager,
+		tollwallet:        *tollwallet,
+		mintHealthTracker: mintHealthTracker,
+		advertisement:     advertisementStr,
+		customerSessions:  make(map[string]*CustomerSession),
 	}, nil
 }
 
@@ -214,17 +219,21 @@ func (m *Merchant) checkDataUsage() {
 func (m *Merchant) StartPayoutRoutine() {
 	log.Printf("Starting payout routine")
 
-	// Create timer for each mint
 	for _, mint := range m.config.AcceptedMints {
 		go func(mintConfig config_manager.MintConfig) {
 			ticker := time.NewTicker(1 * time.Minute)
 			defer ticker.Stop()
 
 			for range ticker.C {
+				if !m.mintHealthTracker.IsReachable(mintConfig.URL) {
+					continue
+				}
 				m.processPayout(mintConfig)
 			}
 		}(mint)
 	}
+
+	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
 }
@@ -272,9 +281,9 @@ func (m *Merchant) PayoutShare(mintConfig config_manager.MintConfig, aimedPaymen
 	maxCost := aimedPaymentAmount + tolerancePaymentAmount
 	meltErr := m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, lightningAddress)
 
-	// If melting fails try to return the money to the wallet
 	if meltErr != nil {
-		log.Printf("Error during payout for mint %s. Error melting to lightning. Skipping... %v", mintConfig.URL, meltErr)
+		log.Printf("Error during payout for mint %s. Error melting to lightning. Marking unreachable... %v", mintConfig.URL, meltErr)
+		m.mintHealthTracker.MarkUnreachable(mintConfig.URL)
 		return
 	}
 }
@@ -309,6 +318,12 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	amountAfterSwap, err := m.tollwallet.Receive(paymentCashuToken)
 	if err != nil {
+		mintURL := paymentCashuToken.Mint()
+
+		if !strings.Contains(err.Error(), "Token already spent") {
+			m.mintHealthTracker.MarkUnreachable(mintURL)
+		}
+
 		var errorCode string
 		var errorMessage string
 
@@ -404,11 +419,13 @@ func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
 
-func CreateAdvertisement(configManager *config_manager.ConfigManager) (string, error) {
+func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *MintHealthTracker) (string, error) {
 	config := configManager.GetConfig()
 	if config == nil {
 		return "", fmt.Errorf("main config is nil")
 	}
+
+	reachableMints := tracker.GetReachableMintConfigs()
 
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
@@ -420,8 +437,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager) (string, e
 		Content: "",
 	}
 
-	// Create a map of prices mints and their fees
-	for _, mintConfig := range config.AcceptedMints {
+	for _, mintConfig := range reachableMints {
 		advertisementEvent.Tags = append(advertisementEvent.Tags, nostr.Tag{
 			"price_per_step",
 			"cashu",
@@ -812,7 +828,7 @@ func (m *Merchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint
 
 // GetAcceptedMints returns the list of accepted mints from the configuration
 func (m *Merchant) GetAcceptedMints() []config_manager.MintConfig {
-	return m.config.AcceptedMints
+	return m.mintHealthTracker.GetReachableMintConfigs()
 }
 
 // GetBalance returns the total balance across all mints

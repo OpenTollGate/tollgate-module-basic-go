@@ -45,16 +45,24 @@ New file containing the `MintHealthTracker`:
 
 ```go
 type MintHealthTracker struct {
-    mu              sync.RWMutex
-    reachableMints  map[string]bool          // mint URL -> reachable
-    httpClient      *http.Client             // with ~5s timeout
-    configManager   *config_manager.ConfigManager
+    mu                    sync.RWMutex
+    reachableMints        map[string]bool          // mint URL -> currently reachable
+    consecutiveSuccesses  map[string]uint8         // mint URL -> consecutive successful probe count
+    httpClient            *http.Client             // with ~5s timeout
+    configManager         *config_manager.ConfigManager
+    recoveryThreshold     uint8                    // consecutive successes required to re-add (default: 3)
 }
 
 func NewMintHealthTracker(configManager *config_manager.ConfigManager) *MintHealthTracker
 
 // StartProactiveChecks runs a background goroutine that probes all
-// configured mints every 5 minutes via GET {mintURL}/v1/info
+// configured mints every 5 minutes via GET {mintURL}/v1/info.
+//
+// Proactive probe behavior:
+//   - Mint responds successfully → increment consecutiveSuccesses[url].
+//     If count >= recoveryThreshold and mint not in reachable set → add it.
+//   - Mint fails to respond → reset consecutiveSuccesses[url] to 0.
+//     If mint is in reachable set → remove it.
 func (t *MintHealthTracker) StartProactiveChecks()
 
 // IsReachable returns true if the mint is currently in the reachable set
@@ -65,6 +73,8 @@ func (t *MintHealthTracker) GetReachableMintConfigs() []config_manager.MintConfi
 
 // MarkUnreachable reactively removes a mint from the reachable set.
 // Called immediately when a mint operation fails.
+// Also resets consecutiveSuccesses[url] to 0 so the mint must pass
+// recoveryThreshold consecutive proactive probes before being re-added.
 func (t *MintHealthTracker) MarkUnreachable(mintURL string)
 
 // probeMint checks if a single mint responds to GET /v1/info
