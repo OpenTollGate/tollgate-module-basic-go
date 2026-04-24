@@ -30,8 +30,8 @@
 - [x] 2. Unreachable mint excluded from payouts
 - [x] 3. Service starts without error with 4 mints configured
 - [ ] 7. All mints down (no panic, no goroutine leak) - fails [fix plan here](https://github.com/OpenTollGate/tollgate-module-basic-go/blob/e8133bb09a1f528fbfcadec4d768500bc8bb0182/DEGRADED_MERCHANT_TASK.md)
-- [ ] 9. "Token already spent" does NOT mark unreachable
-- [ ] 11. Empty accepted_mints list
+- [x] 9. "Token already spent" does NOT mark unreachable
+- [ ] 11. Empty accepted_mints list - fails [fix plan here](https://github.com/OpenTollGate/tollgate-module-basic-go/blob/e8133bb09a1f528fbfcadec4d768500bc8bb0182/DEGRADED_MERCHANT_TASK.md)
 
 
 ### Involved Production Verification Tests
@@ -98,6 +98,7 @@ Run with: `cd src && go test ./merchant/ -run "Test" -v`
 | 1 | Reachable mint included in payouts | PASS | `mint.mountainlake.io`, `mint.coinos.io`, `mint.minibits.cash` appear in payout logs |
 | 2 | Unreachable mint excluded from payouts | PASS | `cf7cyp25976k.mints.orangesync.tech` absent from payout logs entirely |
 | 3 | Service starts without error with 4 mints configured | PASS | No crash, payouts running on 60-second interval |
+| 9 | "Token already spent" does NOT mark unreachable | PASS | Drained wallet, spent the e-cash, then used it to purchase internet. Zero "unreachable" or "spent" hits in logs. Payout at 12:49:37 confirms `minibits.cash` still reachable ~8 min after purchase attempt. |
 
 ---
 
@@ -124,6 +125,6 @@ Run with: `cd src && go test ./merchant/ -run "Test" -v`
 
 | # | Test | Steps | Expected Result | Status |
 |---|------|-------|-----------------|--------|
-| 11 | Empty accepted_mints list | 1. Set `"accepted_mints": []` in config. 2. Restart service. | No crash, no panic, payouts silently skip | TODO |
+| 11 | Empty accepted_mints list | 1. Set `"accepted_mints": []` in config. 2. Restart service. | No crash, no panic, payouts silently skip | FAIL — crash-loops with FATAL "No mints provided. Wallet requires at least 1 accepted mint, none were provided". Covered by degraded merchant fix. |
 | 12 | Mint returns 2xx with invalid JSON | 1. Point a mint URL to a server returning 200 with non-JSON body. | Treated as unreachable (response body parsing fails gracefully) | TODO |
 | 13 | Mint timeout (slow response) | 1. Point a mint URL to a server that hangs. 2. Verify timeout behavior. | Request times out, mint marked unreachable on that probe cycle | TODO |

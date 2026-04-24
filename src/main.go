@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
@@ -37,8 +38,19 @@ var (
 var gatewayManager *wireless_gateway_manager.GatewayManager
 
 var tollgateDetailsString string
-var merchantInstance merchant.MerchantInterface
+
+var (
+	merchantInstance   merchant.MerchantInterface
+	merchantInstanceMu sync.Mutex
+)
+
 var cliServer *cli.CLIServer
+
+func swapMerchant(newMerchant merchant.MerchantInterface) {
+	merchantInstanceMu.Lock()
+	defer merchantInstanceMu.Unlock()
+	merchantInstance = newMerchant
+}
 
 // getTollgatePaths returns the configuration file paths based on the environment.
 // If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
@@ -105,8 +117,14 @@ func init() {
 	if err2 != nil {
 		mainLogger.WithError(err2).Fatal("Failed to create merchant")
 	}
-	merchantInstance.StartPayoutRoutine()
-	merchantInstance.StartDataUsageMonitoring()
+
+	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
+		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		deg.OnUpgrade(func(full merchant.MerchantInterface) {
+			mainLogger.Info("Upgrading from degraded to full merchant")
+			swapMerchant(full)
+		})
+	}
 
 	// Initialize CLI server
 	initCLIServer()

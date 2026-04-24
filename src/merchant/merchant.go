@@ -70,13 +70,44 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		return nil, fmt.Errorf("main config is nil")
 	}
 
-	// Initialize mint health tracker and run initial probe
 	mintHealthTracker := NewMintHealthTracker(configManager)
 	mintHealthTracker.RunInitialProbe()
 
-	// Extract mint URLs from MintConfig
-	mintURLs := make([]string, len(config.AcceptedMints))
-	for i, mint := range config.AcceptedMints {
+	reachableMints := mintHealthTracker.GetReachableMintConfigs()
+	if len(reachableMints) == 0 {
+		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
+		deg := NewMerchantDegraded(configManager, mintHealthTracker)
+		mintHealthTracker.StartProactiveChecks()
+		mintHealthTracker.SetOnFirstReachable(func() {
+			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
+			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
+			if err != nil {
+				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
+				return
+			}
+			if deg.onUpgrade != nil {
+				deg.onUpgrade(fullMerchant)
+			}
+		})
+		return deg, nil
+	}
+
+	return newFullMerchant(configManager, mintHealthTracker)
+}
+
+func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker) (MerchantInterface, error) {
+	config := configManager.GetConfig()
+	if config == nil {
+		return nil, fmt.Errorf("main config is nil")
+	}
+
+	reachableMints := mintHealthTracker.GetReachableMintConfigs()
+	if len(reachableMints) == 0 {
+		return nil, fmt.Errorf("no reachable mints")
+	}
+
+	mintURLs := make([]string, len(reachableMints))
+	for i, mint := range reachableMints {
 		mintURLs[i] = mint.URL
 	}
 
@@ -85,14 +116,13 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tollwallet, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
+	tw, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
 	}
-	balance := tollwallet.GetBalance()
+	balance := tw.GetBalance()
 
-	// Set advertisement
 	advertisementStr, err := CreateAdvertisement(configManager, mintHealthTracker)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement: %w", err)
@@ -103,14 +133,19 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	log.Printf("Advertisement: %s", advertisementStr)
 	log.Printf("=== Merchant ready ===")
 
-	return &Merchant{
+	m := &Merchant{
 		config:            config,
 		configManager:     configManager,
-		tollwallet:        *tollwallet,
+		tollwallet:        *tw,
 		mintHealthTracker: mintHealthTracker,
 		advertisement:     advertisementStr,
 		customerSessions:  make(map[string]*CustomerSession),
-	}, nil
+	}
+
+	m.StartPayoutRoutine()
+	m.StartDataUsageMonitoring()
+
+	return m, nil
 }
 
 // GetUsage returns the current usage in format "[usage]/[allotment]"

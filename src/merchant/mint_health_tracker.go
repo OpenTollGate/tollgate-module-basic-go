@@ -26,6 +26,8 @@ type MintHealthTracker struct {
 	httpClient           *http.Client
 	configProvider       mintConfigProvider
 	recoveryThreshold    uint8
+	onFirstReachable     func()
+	hadReachableMint     bool
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
@@ -83,6 +85,13 @@ func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	t.consecutiveSuccesses[mintURL] = 0
 }
 
+func (t *MintHealthTracker) SetOnFirstReachable(callback func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onFirstReachable = callback
+	t.hadReachableMint = false
+}
+
 func (t *MintHealthTracker) RunInitialProbe() {
 	config := t.configProvider.GetConfig()
 	if config == nil {
@@ -101,6 +110,13 @@ func (t *MintHealthTracker) RunInitialProbe() {
 			t.consecutiveSuccesses[mint.URL] = 0
 		}
 	}
+
+	for _, mint := range config.AcceptedMints {
+		if t.reachableMints[mint.URL] {
+			t.hadReachableMint = true
+			break
+		}
+	}
 }
 
 func (t *MintHealthTracker) RunProactiveCheck() {
@@ -114,7 +130,6 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	}
 
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	for _, mint := range config.AcceptedMints {
 		if t.probeMint(mint.URL) {
@@ -128,6 +143,21 @@ func (t *MintHealthTracker) runProactiveCheck() {
 			t.reachableMints[mint.URL] = false
 		}
 	}
+
+	if !t.hadReachableMint && t.onFirstReachable != nil {
+		for _, mint := range config.AcceptedMints {
+			if t.reachableMints[mint.URL] {
+				t.hadReachableMint = true
+				cb := t.onFirstReachable
+				t.mu.Unlock()
+				go cb()
+				t.mu.Lock()
+				break
+			}
+		}
+	}
+
+	t.mu.Unlock()
 }
 
 func (t *MintHealthTracker) probeMint(mintURL string) bool {
