@@ -42,6 +42,7 @@
 - [ ] 10. Flaky mint stability (no flapping)
 - [ ] 12. Mint returns 2xx with invalid JSON
 - [ ] 13. Mint timeout (slow response)
+- [ ] 14. Offline kickstart with existing wallet balance
 
 ---
 
@@ -128,3 +129,9 @@ Run with: `cd src && go test ./merchant/ -run "Test" -v`
 | 11 | Empty accepted_mints list | 1. Set `"accepted_mints": []` in config. 2. Restart service. | No crash, no panic, payouts silently skip | FAIL — crash-loops with FATAL "No mints provided. Wallet requires at least 1 accepted mint, none were provided". Covered by degraded merchant fix. |
 | 12 | Mint returns 2xx with invalid JSON | 1. Point a mint URL to a server returning 200 with non-JSON body. | Treated as unreachable (response body parsing fails gracefully) | TODO |
 | 13 | Mint timeout (slow response) | 1. Point a mint URL to a server that hangs. 2. Verify timeout behavior. | Request times out, mint marked unreachable on that probe cycle | TODO |
+
+### Critical
+
+| # | Test | Steps | Expected Result | Status |
+|---|------|-------|-----------------|--------|
+| 14 | Offline kickstart with existing wallet balance | 1. Fund router wallet with e-cash while online. 2. Disconnect internet (block WAN). 3. Reboot router. 4. Place another TollGate router running as gateway nearby. 5. Verify customer router connects to upstream gateway via WiFi. 6. Verify customer router pays upstream gateway using existing wallet balance. 7. Verify customer router gets internet after payment. | Service starts without crash, router connects to upstream gateway at layer 2, payment succeeds using cached wallet balance, internet access established | FAIL — MerchantDegraded creates chicken-and-egg deadlock: no wallet loaded from disk, GetAcceptedMints() returns empty, USM fails with "no compatible mints with sufficient funds". Also: swapMerchant() doesn't update USM's stale merchant reference. See [KICKSTART_DEADLOCK.md](KICKSTART_DEADLOCK.md) and [STALE_MERCHANT_REFERENCE.md](STALE_MERCHANT_REFERENCE.md). |
