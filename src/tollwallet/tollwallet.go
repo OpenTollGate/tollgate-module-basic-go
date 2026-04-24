@@ -3,6 +3,7 @@ package tollwallet
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -212,9 +213,11 @@ func ParseToken(token string) (cashu.Token, error) {
 }
 
 // contains checks if a string exists in a slice of strings
+// Uses case-insensitive comparison since DNS hostnames are case-insensitive
+// and wallets may return mint URLs with different casing than config
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
-		if item == str {
+		if strings.EqualFold(item, str) {
 			return true
 		}
 	}
