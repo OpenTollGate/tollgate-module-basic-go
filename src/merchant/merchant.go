@@ -76,7 +76,8 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	reachableMints := mintHealthTracker.GetReachableMintConfigs()
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
-		deg := NewMerchantDegraded(configManager, mintHealthTracker)
+		walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
 		mintHealthTracker.StartProactiveChecks()
 		mintHealthTracker.SetOnFirstReachable(func() {
 			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")

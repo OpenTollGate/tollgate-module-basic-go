@@ -77,6 +77,14 @@ func (t *MintHealthTracker) GetReachableMintConfigs() []config_manager.MintConfi
 	return reachable
 }
 
+func (t *MintHealthTracker) GetAllConfiguredMintConfigs() []config_manager.MintConfig {
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return nil
+	}
+	return config.AcceptedMints
+}
+
 func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

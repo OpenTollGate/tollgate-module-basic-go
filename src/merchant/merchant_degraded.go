@@ -4,15 +4,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
 )
 
+type Wallet interface {
+	GetBalance() uint64
+	GetBalanceByMint(mintUrl string) uint64
+	GetAllMintBalances() map[string]uint64
+	SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+}
+
+type WalletFactory func(walletPath string, mintURLs []string) (Wallet, error)
+
 type MerchantDegraded struct {
 	configManager     *config_manager.ConfigManager
 	mintHealthTracker *MintHealthTracker
 	onUpgrade         func(MerchantInterface)
+	wallet            Wallet
+	walletLoaded      bool
+	walletPath        string
 }
 
 func NewMerchantDegraded(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker) *MerchantDegraded {
@@ -22,16 +36,54 @@ func NewMerchantDegraded(configManager *config_manager.ConfigManager, mintHealth
 	}
 }
 
+func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker, walletFactory WalletFactory, walletPath string) *MerchantDegraded {
+	deg := &MerchantDegraded{
+		configManager:     configManager,
+		mintHealthTracker: mintHealthTracker,
+		walletPath:        walletPath,
+	}
+
+	allMints := mintHealthTracker.GetAllConfiguredMintConfigs()
+	if len(allMints) == 0 {
+		log.Printf("Degraded mode: no configured mints, wallet not loaded")
+		return deg
+	}
+
+	mintURLs := make([]string, len(allMints))
+	for i, mint := range allMints {
+		mintURLs[i] = mint.URL
+	}
+
+	wallet, err := walletFactory(walletPath, mintURLs)
+	if err != nil {
+		log.Printf("Degraded mode: offline wallet load failed (first boot or no cached data): %v", err)
+		return deg
+	}
+
+	deg.wallet = wallet
+	deg.walletLoaded = true
+	balance := wallet.GetBalance()
+	log.Printf("Degraded mode: offline wallet loaded successfully, balance=%d sats", balance)
+
+	return deg
+}
+
 func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 	m.onUpgrade = callback
 }
 
 func (m *MerchantDegraded) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
-	return "", fmt.Errorf("wallet not initialized: no reachable mints")
+	if !m.walletLoaded {
+		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+	}
+	return "", fmt.Errorf("CreatePaymentToken not supported in degraded mode; use CreatePaymentTokenWithOverpayment")
 }
 
 func (m *MerchantDegraded) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
-	return "", fmt.Errorf("wallet not initialized: no reachable mints")
+	if !m.walletLoaded {
+		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+	}
+	return m.wallet.SendWithOverpayment(amount, mintURL, maxOverpaymentPercent, maxOverpaymentAbsolute)
 }
 
 func (m *MerchantDegraded) DrainMint(mintURL string) (string, uint64, error) {
@@ -39,19 +91,28 @@ func (m *MerchantDegraded) DrainMint(mintURL string) (string, uint64, error) {
 }
 
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig {
-	return m.mintHealthTracker.GetReachableMintConfigs()
+	return m.mintHealthTracker.GetAllConfiguredMintConfigs()
 }
 
 func (m *MerchantDegraded) GetBalance() uint64 {
-	return 0
+	if !m.walletLoaded {
+		return 0
+	}
+	return m.wallet.GetBalance()
 }
 
 func (m *MerchantDegraded) GetBalanceByMint(mintURL string) uint64 {
-	return 0
+	if !m.walletLoaded {
+		return 0
+	}
+	return m.wallet.GetBalanceByMint(mintURL)
 }
 
 func (m *MerchantDegraded) GetAllMintBalances() map[string]uint64 {
-	return make(map[string]uint64)
+	if !m.walletLoaded {
+		return make(map[string]uint64)
+	}
+	return m.wallet.GetAllMintBalances()
 }
 
 func (m *MerchantDegraded) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
@@ -131,4 +192,19 @@ func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
 
 func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
 	return 0, fmt.Errorf("wallet not initialized: no reachable mints")
+}
+
+func (m *MerchantDegraded) WalletLoaded() bool {
+	return m.walletLoaded
+}
+
+func DefaultWalletFactory(walletPath string, mintURLs []string) (Wallet, error) {
+	if err := os.MkdirAll(walletPath, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletPath, err)
+	}
+	return newTollWallet(walletPath, mintURLs)
+}
+
+func defaultWalletPath(configManager *config_manager.ConfigManager) string {
+	return filepath.Dir(configManager.ConfigFilePath)
 }

@@ -25,6 +25,29 @@
 - [x] 20. `TestEndToEnd_MintGoesDownThenRecoversWithInterruption`
 - [x] 21. `TestConcurrentAccess`
 
+### Degraded Merchant Automated Tests
+- [x] 22. `TestMerchantDegraded_CreatePaymentToken_ReturnsError`
+- [x] 23. `TestMerchantDegraded_CreatePaymentTokenWithOverpayment_ReturnsError`
+- [x] 24. `TestMerchantDegraded_DrainMint_ReturnsError`
+- [x] 25. `TestMerchantDegraded_GetBalance_ReturnsZero`
+- [x] 26. `TestMerchantDegraded_GetAcceptedMints_ReturnsEmpty`
+- [x] 27. `TestMerchantDegraded_PurchaseSession_ReturnsNoticeEvent`
+- [x] 28. `TestMerchantDegraded_GetAdvertisement_ReturnsNoticeJSON`
+- [x] 29. `TestMerchantDegraded_StartPayoutRoutine_NoPanic`
+- [x] 30. `TestMerchantDegraded_StartDataUsageMonitoring_NoPanic`
+- [x] 31. `TestMerchantDegraded_GetSession_ReturnsError`
+- [x] 32. `TestMerchantDegraded_AddAllotment_ReturnsError`
+- [x] 33. `TestMerchantDegraded_GetUsage_ReturnsDefault`
+- [x] 34. `TestMerchantDegraded_Fund_ReturnsError`
+- [x] 35. `TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity`
+- [x] 36. `TestMerchantDegraded_OnUpgrade_FiresCallback`
+- [x] 37. `TestMerchantDegraded_ImplementsMerchantInterface`
+- [x] 38. `TestOnFirstReachable_FiredOnce`
+- [x] 39. `TestOnFirstReachable_NotFiredIfInitiallyReachable`
+- [x] 40. `TestNew_ReturnsDegradedWhenNoMintsReachable`
+- [x] 41. `TestOnFirstReachable_SetCallbackResetsHadReachableMint`
+- [x] 42. `TestOnFirstReachable_FiredAfterSetOnFirstReachableReset`
+
 ### Easy Production Verification Tests
 - [x] 1. Reachable mint included in payouts
 - [x] 2. Unreachable mint excluded from payouts
@@ -48,9 +71,9 @@
 
 ## Automated Tests (passing)
 
-All tests in `src/merchant/mint_health_tracker_test.go` — **21 tests, all passing**.
+All tests in `src/merchant/mint_health_tracker_test.go` and `src/merchant/merchant_degraded_test.go` — **42 tests, all passing**.
 
-Run with: `cd src && go test ./merchant/ -run "Test" -v`
+Run with: `cd src/merchant && go test -v -count=1`
 
 ### Unit Tests
 
@@ -87,6 +110,37 @@ Run with: `cd src && go test ./merchant/ -run "Test" -v`
 | # | Test | What it verifies |
 |---|------|-----------------|
 | 21 | `TestConcurrentAccess` | 10 concurrent readers + 5 concurrent writers, no race conditions |
+
+### Degraded Merchant Unit Tests
+
+| # | Test | What it verifies |
+|---|------|-----------------|
+| 22 | `TestMerchantDegraded_CreatePaymentToken_ReturnsError` | Wallet-dependent methods return "wallet not initialized" error |
+| 23 | `TestMerchantDegraded_CreatePaymentTokenWithOverpayment_ReturnsError` | Overpayment variant returns error |
+| 24 | `TestMerchantDegraded_DrainMint_ReturnsError` | Drain returns error |
+| 25 | `TestMerchantDegraded_GetBalance_ReturnsZero` | All balance methods return 0/empty |
+| 26 | `TestMerchantDegraded_GetAcceptedMints_ReturnsEmpty` | Returns empty when no reachable mints |
+| 27 | `TestMerchantDegraded_PurchaseSession_ReturnsNoticeEvent` | Returns kind 21023 notice with code "service-unavailable" |
+| 28 | `TestMerchantDegraded_GetAdvertisement_ReturnsNoticeJSON` | Returns valid JSON with kind 21023 notice |
+| 29 | `TestMerchantDegraded_StartPayoutRoutine_NoPanic` | Logs warning, no panic |
+| 30 | `TestMerchantDegraded_StartDataUsageMonitoring_NoPanic` | Logs warning, no panic |
+| 31 | `TestMerchantDegraded_GetSession_ReturnsError` | Returns "wallet not initialized" error |
+| 32 | `TestMerchantDegraded_AddAllotment_ReturnsError` | Returns "wallet not initialized" error |
+| 33 | `TestMerchantDegraded_GetUsage_ReturnsDefault` | Returns "-1/-1" without error |
+| 34 | `TestMerchantDegraded_Fund_ReturnsError` | Returns "wallet not initialized" error |
+| 35 | `TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity` | Returns error when no merchant identity in config |
+| 36 | `TestMerchantDegraded_OnUpgrade_FiresCallback` | OnUpgrade callback fires when invoked |
+| 37 | `TestMerchantDegraded_ImplementsMerchantInterface` | Compile-time interface check |
+
+### onFirstReachable Callback Tests
+
+| # | Test | What it verifies |
+|---|------|-----------------|
+| 38 | `TestOnFirstReachable_FiredOnce` | Callback fires exactly once after 3 consecutive successful probes |
+| 39 | `TestOnFirstReachable_NotFiredIfInitiallyReachable` | Callback does NOT fire when mints were reachable at initial probe and callback was set before probe |
+| 40 | `TestNew_ReturnsDegradedWhenNoMintsReachable` | Tracker sets `hadReachableMint = false` when no mints reachable after initial probe |
+| 41 | `TestOnFirstReachable_SetCallbackResetsHadReachableMint` | `SetOnFirstReachable()` resets `hadReachableMint` to false |
+| 42 | `TestOnFirstReachable_FiredAfterSetOnFirstReachableReset` | Callback fires after reset + proactive check when mint is reachable |
 
 ---
 
