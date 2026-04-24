@@ -1,15 +1,26 @@
 # PR #99 — Remaining Work
 
-This PR prevents the tollgate-wrt service from crash-looping when all configured mints are unreachable. The degraded merchant implementation is complete and all 42 automated tests pass. Two bugs were discovered during review that must be fixed before the PR can be merged, and several production verification tests remain.
+This PR prevents the tollgate-wrt service from crash-looping when all configured mints are unreachable. The degraded merchant implementation is complete and all 80 automated tests pass across 3 packages (merchant, upstream_session_manager, cli). The two must-fix bugs from review have been resolved.
 
-## Must-Fix Bugs
+## Must-Fix Bugs — RESOLVED
 
-- **KICKSTART_DEADLOCK.md** — The degraded merchant creates a chicken-and-egg deadlock: it skips wallet initialization entirely, but the router needs its existing wallet balance to pay an upstream gateway for internet access. Without internet, mints never become reachable and the router is stuck forever. The fix requires loading the BoltDB wallet from disk in degraded mode using the gonuts fork's cached-keyset support, then allowing offline payment token creation for upstream gateway purchases.
-- **STALE_MERCHANT_REFERENCE.md** — `swapMerchant()` only updates the global `merchantInstance` variable. The `UpstreamSessionManager` and `CLIServer` capture the merchant interface at construction time and never see the upgrade from degraded to full. Either a `SetMerchant()` method, a shared indirection pointer, or a `merchantProvider` getter pattern is needed.
+- ~~**KICKSTART_DEADLOCK.md**~~ — **Fixed**. `MerchantDegraded` now loads the BoltDB wallet from disk in degraded mode using a `WalletFactory` for testability. `GetAcceptedMints()` returns all configured mints (not just reachable), breaking the chicken-and-egg deadlock. First boot (no wallet on disk) falls back to stubs gracefully. 18 new tests (43-60).
+- ~~**STALE_MERCHANT_REFERENCE.md**~~ — **Fixed**. Introduced `MerchantProvider` interface with `MutexMerchantProvider` (RWMutex-backed). USM and CLI server now receive `MerchantProvider` and resolve the current merchant via `GetMerchant()` at each call site. `swapMerchant()` calls `provider.SetMerchant()`. 20 new tests (61-80) across 3 packages.
+
+## Automated Test Summary
+
+| Package | Tests | Status |
+|---------|-------|--------|
+| `src/merchant` | 69 | All pass, `-race` clean |
+| `src/upstream_session_manager` | 7 | All pass, `-race` clean |
+| `src/cli` | 4 | All pass, `-race` clean |
+| **Total** | **80** | **All pass** |
 
 ## Production Verification Tests (on router)
 
-9 of 14 production tests are still TODO. Tests 7 and 11 are known failures covered by the degraded merchant fix. Test 14 (offline kickstart) is blocked by the kickstart deadlock bug above. See `MINT_TEST_PLAN.md` for the full list.
+9 of 14 original production tests are still TODO. Tests 7 and 11 should now pass (degraded mode handles all-mints-down and empty-mints). Tests 14-16 (kickstart + provider propagation) need manual verification on hardware.
+
+See `MINT_TEST_PLAN.md` for the full checklist including 11 manual edge cases.
 
 ## Other Open Items
 

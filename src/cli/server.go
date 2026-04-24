@@ -23,17 +23,17 @@ var cliLogger = logrus.WithField("module", "cli")
 // CLIServer handles Unix socket communication for CLI commands
 type CLIServer struct {
 	configManager *config_manager.ConfigManager
-	merchant      merchant.MerchantInterface
+	merchant      merchant.MerchantProvider
 	startTime     time.Time
 	listener      net.Listener
 	running       bool
 }
 
 // NewCLIServer creates a new CLI server instance
-func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface) *CLIServer {
+func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) *CLIServer {
 	return &CLIServer{
 		configManager: configManager,
-		merchant:      merchant,
+		merchant:      merchantProvider,
 		startTime:     time.Now(),
 	}
 }
@@ -219,7 +219,8 @@ func (s *CLIServer) handleWalletDrain(drainArgs []string, flags map[string]strin
 
 // handleCashuDrain drains all wallet balances to Cashu tokens for each mint
 func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
-	if s.merchant == nil {
+	m := s.merchant.GetMerchant()
+	if m == nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     "Merchant not available",
@@ -229,7 +230,7 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 
 	// Get ALL mints from the wallet (not just configured accepted mints)
 	// This ensures we can drain funds even from mints that are no longer configured
-	allMintBalances := s.merchant.GetAllMintBalances()
+	allMintBalances := m.GetAllMintBalances()
 	if len(allMintBalances) == 0 {
 		return CLIResponse{
 			Success:   false,
@@ -251,7 +252,7 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 
 		// Use DrainMint instead of CreatePaymentToken to avoid fee-related issues
 		// DrainMint extracts all available balance without trying to add fees
-		tokenString, actualAmount, err := s.merchant.DrainMint(mintURL)
+		tokenString, actualAmount, err := m.DrainMint(mintURL)
 		if err != nil {
 			cliLogger.WithFields(logrus.Fields{
 				"mint":    mintURL,
@@ -323,7 +324,8 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 
 // handleWalletBalance returns the current wallet balance
 func (s *CLIServer) handleWalletBalance() CLIResponse {
-	if s.merchant == nil {
+	m := s.merchant.GetMerchant()
+	if m == nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     "Merchant not available",
@@ -332,7 +334,7 @@ func (s *CLIServer) handleWalletBalance() CLIResponse {
 	}
 
 	// Get total wallet balance from merchant
-	totalBalance := s.merchant.GetBalance()
+	totalBalance := m.GetBalance()
 
 	return CLIResponse{
 		Success: true,
@@ -346,7 +348,8 @@ func (s *CLIServer) handleWalletBalance() CLIResponse {
 
 // handleWalletInfo returns detailed wallet information
 func (s *CLIServer) handleWalletInfo() CLIResponse {
-	if s.merchant == nil {
+	m := s.merchant.GetMerchant()
+	if m == nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     "Merchant not available",
@@ -355,11 +358,11 @@ func (s *CLIServer) handleWalletInfo() CLIResponse {
 	}
 
 	// Get total wallet balance from merchant
-	totalBalance := s.merchant.GetBalance()
+	totalBalance := m.GetBalance()
 
 	// Get ALL mints from the wallet (not just configured accepted mints)
 	// This shows all mints that have funds, even if they're no longer configured
-	allMintBalances := s.merchant.GetAllMintBalances()
+	allMintBalances := m.GetAllMintBalances()
 
 	// Filter to only show mints with non-zero balances
 	// Convert to map[string]interface{} for proper JSON serialization
@@ -401,7 +404,8 @@ func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string)
 		}
 	}
 
-	if s.merchant == nil {
+	m := s.merchant.GetMerchant()
+	if m == nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     "Merchant not available",
@@ -412,7 +416,7 @@ func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string)
 	// Fund the wallet using the merchant interface
 	cliLogger.WithField("token_length", len(cashuToken)).Debug("Attempting to fund wallet")
 
-	amountReceived, err := s.merchant.Fund(cashuToken)
+	amountReceived, err := m.Fund(cashuToken)
 	if err != nil {
 		cliLogger.WithError(err).Error("Failed to fund wallet via merchant")
 		return CLIResponse{
@@ -443,7 +447,7 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 		Version:   GetVersionInfo(),
 		Uptime:    uptime.String(),
 		ConfigOK:  s.configManager != nil,
-		WalletOK:  s.merchant != nil,
+		WalletOK:  s.merchant.GetMerchant() != nil,
 		NetworkOK: true, // TODO: Check actual network status
 	}
 
