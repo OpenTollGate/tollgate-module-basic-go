@@ -27,14 +27,14 @@ type Gateway struct {
 // UpstreamSessionManager manages upstream TollGate sessions
 type UpstreamSessionManager struct {
 	configManager  *config_manager.ConfigManager
-	merchant       merchant.MerchantInterface
+	merchant       merchant.MerchantProvider
 	gateways       map[string]*Gateway // keyed by gateway IP
 	tollGateProber TollGateProber
 	mu             sync.RWMutex
 }
 
 // NewUpstreamSessionManager creates a new upstream_session_manager instance
-func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantImpl merchant.MerchantInterface) (UpstreamSessionManagerInterface, error) {
+func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) (UpstreamSessionManagerInterface, error) {
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -45,7 +45,7 @@ func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merc
 
 	usm := &UpstreamSessionManager{
 		configManager:  configManager,
-		merchant:       merchantImpl,
+		merchant:       merchantProvider,
 		gateways:       make(map[string]*Gateway),
 		tollGateProber: tollGateProber,
 	}
