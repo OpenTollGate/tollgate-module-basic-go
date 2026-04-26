@@ -28,3 +28,5 @@ skills
 memory-global
 memory-project/
 reference/
+node_modules/
+.sisyphus/

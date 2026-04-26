@@ -47,7 +47,7 @@ type MerchantInterface interface {
 	GetSession(macAddress string) (*CustomerSession, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	GetUsage(macAddress string) (string, error)
-	// Wallet funding methods
+	RestoreSessions()
 	Fund(cashuToken string) (uint64, error)
 }
 
@@ -57,9 +57,64 @@ type Merchant struct {
 	configManager *config_manager.ConfigManager
 	tollwallet    tollwallet.TollWallet
 	advertisement string
-	// In-memory session store
 	customerSessions map[string]*CustomerSession
 	sessionMu        sync.RWMutex
+	sessionFile      string
+}
+
+const defaultSessionFile = "/etc/tollgate/sessions.json"
+
+func (m *Merchant) saveSessions() {
+	if m.sessionFile == "" {
+		return
+	}
+	data, err := json.Marshal(m.customerSessions)
+	if err != nil {
+		log.Printf("Error marshaling sessions: %v", err)
+		return
+	}
+	tmp := m.sessionFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		log.Printf("Error writing sessions: %v", err)
+		return
+	}
+	os.Rename(tmp, m.sessionFile)
+}
+
+func (m *Merchant) RestoreSessions() {
+	if m.sessionFile == "" {
+		return
+	}
+	data, err := os.ReadFile(m.sessionFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Error reading sessions file: %v", err)
+		}
+		return
+	}
+	var sessions map[string]*CustomerSession
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		log.Printf("Error parsing sessions file: %v", err)
+		return
+	}
+	now := time.Now().Unix()
+	for mac, session := range sessions {
+		if session.Metric == "milliseconds" {
+			endTime := session.StartTime + int64(session.Allotment/1000)
+			if endTime <= now {
+				log.Printf("Skipping expired time session for %s (ended %d s ago)", mac, now-endTime)
+				continue
+			}
+			valve.OpenGateUntil(mac, endTime)
+			m.customerSessions[mac] = session
+			log.Printf("Restored time session for %s (%d s remaining)", mac, endTime-now)
+		} else if session.Metric == "bytes" {
+			valve.OpenGate(mac)
+			m.customerSessions[mac] = session
+			log.Printf("Restored data session for %s (%d bytes)", mac, session.Allotment)
+		}
+	}
+	log.Printf("Restored %d sessions from %s", len(m.customerSessions), m.sessionFile)
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -105,6 +160,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		tollwallet:       *tollwallet,
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
+		sessionFile:      filepath.Join(filepath.Dir(configManager.ConfigFilePath), "sessions.json"),
 	}, nil
 }
 
@@ -193,9 +249,9 @@ func (m *Merchant) checkDataUsage() {
 				log.Printf("Successfully closed gate for %s", mac)
 			}
 
-			// Remove the session from the map so GetUsage returns -1/-1
 			m.sessionMu.Lock()
 			delete(m.customerSessions, mac)
+			m.saveSessions()
 			m.sessionMu.Unlock()
 			log.Printf("Removed expired session for %s", mac)
 		} else {
@@ -850,7 +906,6 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 
 	session, exists := m.customerSessions[macAddress]
 	if !exists {
-		// Create new session
 		session = &CustomerSession{
 			MacAddress: macAddress,
 			StartTime:  time.Now().Unix(),
@@ -859,11 +914,11 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 		}
 		m.customerSessions[macAddress] = session
 	} else {
-		// Add to existing session and reset start time to now
 		session.Allotment += amount
 		session.StartTime = time.Now().Unix()
 	}
 
+	m.saveSessions()
 	return session, nil
 }
 

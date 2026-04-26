@@ -1,14 +1,14 @@
 package main
 
 import (
-	"context" // Added for context.Background()
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net" // Added for net.Interfaces()
+	"net"
 	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -107,6 +107,7 @@ func init() {
 	}
 	merchantInstance.StartPayoutRoutine()
 	merchantInstance.StartDataUsageMonitoring()
+	merchantInstance.RestoreSessions()
 
 	// Initialize CLI server
 	initCLIServer()
@@ -151,16 +152,18 @@ func initCLIServer() {
 }
 
 func getMacAddress(ipAddress string) (string, error) {
-	cmdIn := `cat /tmp/dhcp.leases | cut -f 2,3,4 -s -d" " | grep -i ` + ipAddress + ` | cut -f 1 -s -d" "`
-	commandOutput, err := exec.Command("sh", "-c", cmdIn).Output()
-
-	var commandOutputString = string(commandOutput)
+	data, err := os.ReadFile("/tmp/dhcp.leases")
 	if err != nil {
-		fmt.Println(err, "Error when getting client's mac address. Command output: "+commandOutputString)
-		return "nil", err
+		return "", fmt.Errorf("reading dhcp leases: %w", err)
 	}
-
-	return strings.Trim(commandOutputString, "\n"), nil
+	ipLower := strings.ToLower(strings.TrimSpace(ipAddress))
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && strings.ToLower(fields[2]) == ipLower {
+			return strings.TrimSpace(fields[1]), nil
+		}
+	}
+	return "", fmt.Errorf("MAC not found for IP %s", ipAddress)
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
@@ -172,9 +175,16 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}).Debug("CORS middleware processing request")
 
 		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin, or specify domains like "https://yourdomain.com"
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		if origin == "" || isLocalOrigin(origin) {
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+		} else {
+			mainLogger.WithField("origin", origin).Debug("Blocked CORS request from non-local origin")
+		}
 
 		// Handle preflight OPTIONS requests
 		if r.Method == "OPTIONS" {
@@ -384,28 +394,21 @@ func main() {
 	mainLogger.Info("Starting HTTP server on all interfaces...")
 	server := &http.Server{
 		Addr: port,
-		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	mainLogger.Fatal(server.ListenAndServe())
-
 	go func() {
 		for {
 			if !isOnline() {
 				mainLogger.Info("Device is offline. Initiating gateway scan...")
-				// No need to assign the result of RunPeriodicScan, as it runs in a goroutine internally.
-				// We need to fetch the available gateways using GetAvailableGateways() instead.
 				availableGateways, err := gatewayManager.GetAvailableGateways()
 				if err != nil {
 					mainLogger.WithError(err).Error("Error getting available gateways")
-					continue
-				}
-				if len(availableGateways) > 0 {
+				} else if len(availableGateways) > 0 {
 					mainLogger.Info("Available gateways found. Attempting to connect...")
-					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "") // Correct usage of ConnectToGateway
+					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "")
 					if err != nil {
 						mainLogger.WithError(err).Error("Error connecting to gateway")
 					} else {
@@ -420,6 +423,10 @@ func main() {
 			time.Sleep(5 * time.Minute)
 		}
 	}()
+
+	if err := server.ListenAndServe(); err != nil {
+		mainLogger.Fatal(err)
+	}
 
 	fmt.Println("Shutting down Tollgate - Whoami")
 }
@@ -471,4 +478,21 @@ func getIP(r *http.Request) string {
 	}
 
 	return ip
+}
+
+func isLocalOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "127.0.0.1" || host == "localhost" ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "172.16.") ||
+		strings.HasPrefix(host, "172.17.") ||
+		strings.HasPrefix(host, "172.18.") ||
+		strings.HasPrefix(host, "172.19.") ||
+		strings.HasPrefix(host, "172.2") ||
+		strings.HasPrefix(host, "172.3")
 }
