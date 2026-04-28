@@ -402,20 +402,18 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := merchantInstance.GetSession(macAddress)
-	if err != nil || session == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
-		return
-	}
-
 	usage, err := merchantInstance.GetUsage(macAddress)
 	if err != nil {
 		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).Error("Error getting balance usage")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: err.Error()})
+		return
+	}
+	if usage == "-1/-1" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
 		return
 	}
 
@@ -425,6 +423,14 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: err.Error()})
+		return
+	}
+
+	session, err := merchantInstance.GetSession(macAddress)
+	if err != nil || session == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
 		return
 	}
 

@@ -103,14 +103,17 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	log.Printf("Advertisement: %s", advertisementStr)
 	log.Printf("=== Merchant ready ===")
 
-	return &Merchant{
+	merchant := &Merchant{
 		config:           config,
 		configManager:    configManager,
 		tollwallet:       *tollwallet,
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
 		lightningQuotes:  make(map[string]*lightningQuoteRecord),
-	}, nil
+	}
+	merchant.startLightningQuoteJanitor()
+
+	return merchant, nil
 }
 
 // GetUsage returns the current usage in format "[usage]/[allotment]"
@@ -347,53 +350,21 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	// Add allotment to session (creates new session if doesn't exist)
-	metric := m.config.Metric
-	session, err := m.AddAllotment(macAddress, metric, allotment)
+	// Add allotment to the session and only persist the update if gate access opens.
+	session, err := m.grantSessionAccess(macAddress, allotment)
 	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-management-failed",
-			fmt.Sprintf("Failed to manage session: %v", err), macAddress)
+		errorCode := "session-management-failed"
+		errorMessage := fmt.Sprintf("Failed to manage session: %v", err)
+		if strings.Contains(err.Error(), "failed to open gate:") {
+			errorCode = "gate-open-failed"
+			errorMessage = err.Error()
+		}
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode,
+			errorMessage, macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
 		return noticeEvent, nil
-	}
-
-	// Open the gate based on session type
-	switch session.Metric {
-	case "milliseconds":
-		// Time-based session: open gate until end timestamp
-		endTimestamp := session.StartTime + int64(session.Allotment/1000)
-		err = valve.OpenGateUntil(macAddress, endTimestamp)
-		if err != nil {
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
-				fmt.Sprintf("Failed to open gate: %v", err), macAddress)
-			if noticeErr != nil {
-				return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
-			}
-			return noticeEvent, nil
-		}
-	case "bytes":
-		// Data-based session: only open gate if baseline doesn't exist (new session)
-		// For session extensions, the gate is already open and baseline should not be reset
-		if !valve.HasDataBaseline(macAddress) {
-			err = valve.OpenGate(macAddress)
-			if err != nil {
-				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "gate-open-failed",
-					fmt.Sprintf("Failed to open gate: %v", err), macAddress)
-				if noticeErr != nil {
-					return nil, fmt.Errorf("failed to open gate and failed to create notice: %w", noticeErr)
-				}
-				return noticeEvent, nil
-			}
-			// The valve module automatically sets the data baseline
-			log.Printf("Opened gate for new data session: %s", macAddress)
-		} else {
-			log.Printf("Gate already open for %s, extending allotment without resetting baseline", macAddress)
-		}
-		// The merchant will periodically check usage and close the gate when allotment is reached
-	default:
-		return nil, fmt.Errorf("unsupported metric: %s", session.Metric)
 	}
 
 	// Create a success session event (using MAC address as identifier in logs)
@@ -533,7 +504,6 @@ func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_mana
 
 	return totalBytes, nil
 }
-
 
 // createSessionEvent creates a session event from the MAC-address based session
 func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey string) (*nostr.Event, error) {
@@ -838,14 +808,61 @@ func (m *Merchant) GetAllMintBalances() map[string]uint64 {
 // GetSession retrieves a customer session by MAC address
 func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 	m.sessionMu.RLock()
-	defer m.sessionMu.RUnlock()
-
 	session, exists := m.customerSessions[macAddress]
+	m.sessionMu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("session not found for MAC address: %s", macAddress)
 	}
 
+	if session.Metric == "milliseconds" {
+		elapsedMs := uint64(time.Since(time.Unix(session.StartTime, 0)).Milliseconds())
+		if elapsedMs >= session.Allotment {
+			m.sessionMu.Lock()
+			if currentSession, exists := m.customerSessions[macAddress]; exists {
+				currentElapsedMs := uint64(time.Since(time.Unix(currentSession.StartTime, 0)).Milliseconds())
+				if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
+					delete(m.customerSessions, macAddress)
+				}
+			}
+			m.sessionMu.Unlock()
+			return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
+		}
+	}
+
 	return session, nil
+}
+
+func cloneCustomerSession(session *CustomerSession) *CustomerSession {
+	if session == nil {
+		return nil
+	}
+
+	copy := *session
+	return &copy
+}
+
+func (m *Merchant) snapshotSession(macAddress string) (*CustomerSession, bool) {
+	m.sessionMu.RLock()
+	defer m.sessionMu.RUnlock()
+
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return nil, false
+	}
+
+	return cloneCustomerSession(session), true
+}
+
+func (m *Merchant) restoreSession(macAddress string, previousSession *CustomerSession, hadSession bool) {
+	m.sessionMu.Lock()
+	defer m.sessionMu.Unlock()
+
+	if hadSession {
+		m.customerSessions[macAddress] = cloneCustomerSession(previousSession)
+		return
+	}
+
+	delete(m.customerSessions, macAddress)
 }
 
 // AddAllotment adds allotment to a customer session, creating it if it doesn't exist
