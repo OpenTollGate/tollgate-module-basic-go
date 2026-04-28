@@ -13,14 +13,14 @@ const tokenRecoveryFile = "/etc/tollgate/tokens-to-recover.txt"
 
 // recoverFailedPaymentToken attempts to recover a failed payment token
 // First tries to receive it back via merchant.WalletReceive(), then saves to file as fallback
-func recoverFailedPaymentToken(merchantImpl merchant.MerchantInterface, token, mintURL string, paymentErr error) {
+func recoverFailedPaymentToken(merchant merchant.MerchantInterface, token, mintURL string, paymentErr error) {
 	logger.WithFields(logrus.Fields{
 		"mint":  mintURL,
 		"error": paymentErr,
 	}).Warn("Payment failed, attempting token recovery")
 
 	// Try to receive the token back into our wallet
-	_, err := merchantImpl.Fund(token)
+	_, err := merchant.Fund(token)
 	if err == nil {
 		logger.WithFields(logrus.Fields{
 			"mint": mintURL,
