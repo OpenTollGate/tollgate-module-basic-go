@@ -34,6 +34,8 @@ type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
 	CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
 	DrainMint(mintURL string) (string, uint64, error)
+	RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error)
+	GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error)
 	GetAcceptedMints() []config_manager.MintConfig
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
@@ -60,6 +62,8 @@ type Merchant struct {
 	// In-memory session store
 	customerSessions map[string]*CustomerSession
 	sessionMu        sync.RWMutex
+	lightningQuotes  map[string]*lightningQuoteRecord
+	lightningQuoteMu sync.RWMutex
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -105,6 +109,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		tollwallet:       *tollwallet,
 		advertisement:    advertisementStr,
 		customerSessions: make(map[string]*CustomerSession),
+		lightningQuotes:  make(map[string]*lightningQuoteRecord),
 	}, nil
 }
 
