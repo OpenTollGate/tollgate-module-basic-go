@@ -20,7 +20,7 @@
         r-smoke r-full r-status r-logs r-scan r-list r-connect \
         r-remove r-verify-uci r-wait-daemon r-test-cleanup \
         r-test-edge-cases r-test-reseller-guard r-push r-shell \
-        routers help
+        routers help test-config
 
 SSID   ?=
 PASS   ?=
@@ -318,6 +318,9 @@ routers: ## Show configured routers from routers.env
 	done
 	@echo ""
 	@echo "Active: $(CYAN)$(ROUTER)$(RESET)"
+
+test-config: ## Run static firewall config validation (no router needed)
+	@./tests/test_firewall_config.sh
 
 r-shell: ## [remote] Open an interactive SSH session on the router
 	@router_host=$$(grep -E "^ROUTER_$$(echo $(ROUTER) | tr '[:lower:]' '[:upper:]')_HOST=" routers.env | cut -d= -f2); \
