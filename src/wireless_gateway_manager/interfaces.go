@@ -20,11 +20,22 @@ type ConnectorInterface interface {
 	Reconnect() error
 	ExecuteUCI(args ...string) (string, error)
 	UpdateLocalAPSSID(pricePerStep, stepSize int) error
+	GetSTASections() ([]STASection, error)
+	GetActiveSTA() (*STASection, error)
+	FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error)
+	RemoveDisabledSTA(ssid string) error
+	SwitchUpstream(activeIface, candidateIface, candidateSSID string) error
+	EnsureWWANSetup() error
+	EnsureRadiosEnabled() error
 }
 
 // ScannerInterface defines the methods for network scanning operations.
 type ScannerInterface interface {
 	ScanWirelessNetworks() ([]NetworkInfo, error)
+	ScanAllRadios() ([]NetworkInfo, error)
+	GetRadios() ([]string, error)
+	DetectEncryption(encryptionStr string) string
+	FindBestRadioForSSID(ssid string, networks []NetworkInfo) (string, error)
 }
 
 // NetworkMonitorInterface defines the methods for network monitoring operations.

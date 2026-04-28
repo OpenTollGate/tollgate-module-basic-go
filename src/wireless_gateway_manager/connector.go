@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -820,3 +821,383 @@ func (c *Connector) getDeviceNameForInterface(interfaceSection string) (string, 
 
 // Ensure Connector implements ConnectorInterface
 var _ ConnectorInterface = (*Connector)(nil)
+
+func (c *Connector) GetSTASections() ([]STASection, error) {
+	output, err := c.ExecuteUCI("show", "wireless")
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	var sections []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "=wifi-iface") {
+			parts := strings.SplitN(line, ".", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			sectionPart := parts[1]
+			eqIdx := strings.Index(sectionPart, "=")
+			if eqIdx >= 0 {
+				sections = append(sections, sectionPart[:eqIdx])
+			}
+		}
+	}
+
+	var staSections []STASection
+	for _, section := range sections {
+		modeOutput, err := c.ExecuteUCI("get", "wireless."+section+".mode")
+		if err != nil || strings.TrimSpace(modeOutput) != "sta" {
+			continue
+		}
+
+		ssid, _ := c.ExecuteUCI("get", "wireless."+section+".ssid")
+		device, _ := c.ExecuteUCI("get", "wireless."+section+".device")
+		encryption, _ := c.ExecuteUCI("get", "wireless."+section+".encryption")
+		disabledOutput, _ := c.ExecuteUCI("get", "wireless."+section+".disabled")
+
+		staSections = append(staSections, STASection{
+			Name:       section,
+			SSID:       strings.TrimSpace(ssid),
+			Device:     strings.TrimSpace(device),
+			Encryption: strings.TrimSpace(encryption),
+			Disabled:   strings.TrimSpace(disabledOutput) == "1",
+		})
+	}
+
+	return staSections, nil
+}
+
+func (c *Connector) GetActiveSTA() (*STASection, error) {
+	sections, err := c.GetSTASections()
+	if err != nil {
+		return nil, err
+	}
+	for i := range sections {
+		if !sections[i].Disabled {
+			return &sections[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func sanitizeSSIDForUCI(ssid string) string {
+	sanitized := strings.ToLower(ssid)
+	sanitized = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, sanitized)
+	if len(sanitized) > 40 {
+		sanitized = sanitized[:40]
+	}
+	return "upstream_" + sanitized
+}
+
+func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error) {
+	sections, err := c.GetSTASections()
+	if err != nil {
+		return "", err
+	}
+
+	for _, section := range sections {
+		if section.SSID == ssid && section.Disabled {
+			logger.WithFields(logrus.Fields{
+				"interface": section.Name,
+				"ssid":      ssid,
+			}).Info("Reusing existing disabled STA interface")
+			return section.Name, nil
+		}
+	}
+
+	ifaceName := sanitizeSSIDForUCI(ssid)
+	logger.WithFields(logrus.Fields{
+		"interface": ifaceName,
+		"ssid":      ssid,
+	}).Info("Creating new named STA interface")
+
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+"=wifi-iface"); err != nil {
+		return "", fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceName, err)
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".mode=sta"); err != nil {
+		return "", err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".network=wwan"); err != nil {
+		return "", err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".ssid="+ssid); err != nil {
+		return "", err
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".encryption="+encryption); err != nil {
+		return "", err
+	}
+	if passphrase != "" {
+		if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".key="+passphrase); err != nil {
+			return "", err
+		}
+	} else {
+		c.ExecuteUCI("delete", "wireless."+ifaceName+".key")
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".disabled=1"); err != nil {
+		return "", err
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return "", err
+	}
+
+	return ifaceName, nil
+}
+
+func (c *Connector) RemoveDisabledSTA(ssid string) error {
+	sections, err := c.GetSTASections()
+	if err != nil {
+		return err
+	}
+
+	for _, section := range sections {
+		if section.SSID == ssid {
+			if !section.Disabled {
+				return fmt.Errorf("cannot remove active upstream '%s', switch first", ssid)
+			}
+			logger.WithFields(logrus.Fields{
+				"interface": section.Name,
+				"ssid":      ssid,
+			}).Info("Removing disabled upstream STA")
+			if _, err := c.ExecuteUCI("delete", "wireless."+section.Name); err != nil {
+				return fmt.Errorf("failed to delete STA section %s: %w", section.Name, err)
+			}
+			if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+				return err
+			}
+			if err := c.reloadWifi(); err != nil {
+				logger.WithError(err).Warn("Failed to reload wifi after removing upstream")
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no disabled upstream found with SSID '%s'", ssid)
+}
+
+func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
+	logger.WithFields(logrus.Fields{
+		"active":    activeIface,
+		"candidate": candidateIface,
+		"ssid":      candidateSSID,
+	}).Info("Switching upstream")
+
+	if activeIface != "" {
+		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=1"); err != nil {
+			return fmt.Errorf("failed to disable active upstream %s: %w", activeIface, err)
+		}
+	}
+
+	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=0"); err != nil {
+		return fmt.Errorf("failed to enable candidate upstream %s: %w", candidateIface, err)
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		return err
+	}
+	if err := c.reloadWifi(); err != nil {
+		return err
+	}
+
+	radioOutput, _ := c.ExecuteUCI("get", "wireless."+candidateIface+".device")
+	radio := strings.TrimSpace(radioOutput)
+	if radio == "" {
+		return fmt.Errorf("no radio found for interface %s", candidateIface)
+	}
+
+	staIface, err := c.waitForSTAIP(radio, 30*time.Second)
+	if err == nil && staIface != "" {
+		logger.WithFields(logrus.Fields{
+			"ssid":     candidateSSID,
+			"iface":    staIface,
+			"radio":    radio,
+		}).Info("Successfully switched upstream")
+
+		exec.Command("/etc/init.d/dnsmasq", "restart").Run()
+		exec.Command("/etc/init.d/firewall", "restart").Run()
+		return nil
+	}
+
+	logger.WithFields(logrus.Fields{
+		"ssid":      candidateSSID,
+		"candidate": candidateIface,
+	}).Warn("Timed out waiting for DHCP, reverting to previous upstream")
+
+	if activeIface != "" {
+		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=0"); err != nil {
+			logger.WithError(err).Error("Failed to re-enable previous upstream during fallback")
+		}
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=1"); err != nil {
+		logger.WithError(err).Error("Failed to disable candidate during fallback")
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		logger.WithError(err).Error("Failed to commit during fallback")
+	}
+	c.reloadWifi()
+
+	return fmt.Errorf("timed out waiting for DHCP on %s, reverted to previous upstream", candidateSSID)
+}
+
+func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, error) {
+	radioNum := strings.TrimPrefix(radio, "radio")
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir("/sys/class/net")
+		if err != nil {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		for _, entry := range entries {
+			name := entry.Name()
+			if !strings.Contains(name, "sta") && !strings.Contains(name, "wlan") {
+				continue
+			}
+
+			phyIdx, err := os.ReadFile("/sys/class/net/" + name + "/phy80211/index")
+			if err != nil {
+				continue
+			}
+			if strings.TrimSpace(string(phyIdx)) == radioNum {
+				cmd := exec.Command("ifconfig", name)
+				var out bytes.Buffer
+				cmd.Stdout = &out
+				if err := cmd.Run(); err != nil {
+					continue
+				}
+				for _, line := range strings.Split(out.String(), "\n") {
+					if strings.Contains(line, "inet addr:") {
+						parts := strings.SplitN(line, "inet addr:", 2)
+						if len(parts) == 2 {
+							ip := strings.SplitN(parts[1], " ", 2)[0]
+							if ip != "" {
+								return name, nil
+							}
+						}
+					}
+				}
+			}
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	return "", fmt.Errorf("timed out waiting for STA IP on radio %s", radio)
+}
+
+func (c *Connector) EnsureWWANSetup() error {
+	if _, err := c.ExecuteUCI("get", "network.wwan"); err != nil {
+		logger.Info("Creating network.wwan interface (DHCP)")
+		if _, err := c.ExecuteUCI("set", "network.wwan=interface"); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("set", "network.wwan.proto=dhcp"); err != nil {
+			return err
+		}
+		if _, err := c.ExecuteUCI("commit", "network"); err != nil {
+			return err
+		}
+		exec.Command("/etc/init.d/network", "reload").Run()
+	}
+
+	output, err := c.ExecuteUCI("show", "firewall")
+	if err != nil {
+		logger.WithError(err).Warn("Failed to query firewall config")
+		return nil
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	var wanZone string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "=zone") {
+			parts := strings.SplitN(line, ".", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			zonePart := parts[1]
+			eqIdx := strings.Index(zonePart, "=")
+			if eqIdx < 0 {
+				continue
+			}
+			zoneName := zonePart[:eqIdx]
+			nameOutput, _ := c.ExecuteUCI("get", "firewall."+zoneName+".name")
+			if strings.TrimSpace(nameOutput) == "wan" {
+				wanZone = zoneName
+				break
+			}
+		}
+	}
+
+	if wanZone != "" {
+		networks, _ := c.ExecuteUCI("get", "firewall."+wanZone+".network")
+		if !strings.Contains(networks, "wwan") {
+			logger.Info("Adding wwan to wan firewall zone")
+			if _, err := c.ExecuteUCI("add_list", "firewall."+wanZone+".network=wwan"); err != nil {
+				return err
+			}
+			if _, err := c.ExecuteUCI("commit", "firewall"); err != nil {
+				return err
+			}
+			exec.Command("/etc/init.d/firewall", "reload").Run()
+		}
+	}
+
+	return nil
+}
+
+func (c *Connector) EnsureRadiosEnabled() error {
+	radios, err := c.getRadiosFromConfig()
+	if err != nil {
+		return err
+	}
+
+	var changed bool
+	for _, radio := range radios {
+		disabled, _ := c.ExecuteUCI("get", "wireless."+radio+".disabled")
+		if strings.TrimSpace(disabled) == "1" {
+			logger.WithField("radio", radio).Info("Enabling disabled radio")
+			if _, err := c.ExecuteUCI("set", "wireless."+radio+".disabled=0"); err != nil {
+				return err
+			}
+			changed = true
+		}
+	}
+
+	if changed {
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			return err
+		}
+		exec.Command("wifi", "up").Run()
+		time.Sleep(5 * time.Second)
+	}
+
+	return nil
+}
+
+func (c *Connector) getRadiosFromConfig() ([]string, error) {
+	data, err := os.ReadFile("/etc/config/wireless")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read wireless config: %w", err)
+	}
+
+	var radios []string
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "config wifi-device") {
+			start := strings.Index(line, "'")
+			end := strings.LastIndex(line, "'")
+			if start >= 0 && end > start {
+				radios = append(radios, line[start+1:end])
+			}
+		}
+	}
+	return radios, nil
+}

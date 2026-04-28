@@ -8,6 +8,22 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
+type STASection struct {
+	Name       string
+	SSID       string
+	Device     string
+	Encryption string
+	Disabled   bool
+}
+
+type UpstreamManagerConfig struct {
+	ScanInterval  time.Duration
+	FastCheck     time.Duration
+	LostThreshold int
+	HysteresisDB  int
+	SignalFloor   int
+}
+
 // Constants for network monitoring
 const (
 	pingTarget           = "8.8.8.8"
@@ -31,7 +47,7 @@ type NetworkMonitor struct {
 
 // Scanner handles Wi-Fi network scanning.
 type Scanner struct {
-	connector *Connector
+	Connector *Connector
 }
 
 // NetworkInfo represents information about a Wi-Fi network.
@@ -43,6 +59,7 @@ type NetworkInfo struct {
 	PricePerStep int
 	StepSize     int
 	RawIEs       []byte
+	Radio        string
 }
 
 // VendorElementProcessor handles Bitcoin/Nostr related vendor elements.

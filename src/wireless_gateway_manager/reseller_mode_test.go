@@ -49,6 +49,44 @@ func (m *MockConnector) Reconnect() error {
 	return args.Error(0)
 }
 
+func (m *MockConnector) GetSTASections() ([]STASection, error) {
+	args := m.Called()
+	return args.Get(0).([]STASection), args.Error(1)
+}
+
+func (m *MockConnector) GetActiveSTA() (*STASection, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*STASection), args.Error(1)
+}
+
+func (m *MockConnector) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error) {
+	args := m.Called(ssid, passphrase, encryption)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockConnector) RemoveDisabledSTA(ssid string) error {
+	args := m.Called(ssid)
+	return args.Error(0)
+}
+
+func (m *MockConnector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
+	args := m.Called(activeIface, candidateIface, candidateSSID)
+	return args.Error(0)
+}
+
+func (m *MockConnector) EnsureWWANSetup() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockConnector) EnsureRadiosEnabled() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 // MockScanner is a mock implementation of the Scanner interface for testing
 type MockScanner struct {
 	mock.Mock
@@ -57,6 +95,26 @@ type MockScanner struct {
 func (m *MockScanner) ScanWirelessNetworks() ([]NetworkInfo, error) {
 	args := m.Called()
 	return args.Get(0).([]NetworkInfo), args.Error(1)
+}
+
+func (m *MockScanner) ScanAllRadios() ([]NetworkInfo, error) {
+	args := m.Called()
+	return args.Get(0).([]NetworkInfo), args.Error(1)
+}
+
+func (m *MockScanner) GetRadios() ([]string, error) {
+	args := m.Called()
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockScanner) DetectEncryption(encryptionStr string) string {
+	args := m.Called(encryptionStr)
+	return args.String(0)
+}
+
+func (m *MockScanner) FindBestRadioForSSID(ssid string, networks []NetworkInfo) (string, error) {
+	args := m.Called(ssid, networks)
+	return args.String(0), args.Error(1)
 }
 
 // MockVendorElementProcessor is a mock implementation of the VendorElementProcessor interface for testing

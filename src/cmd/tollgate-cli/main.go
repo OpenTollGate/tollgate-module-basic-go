@@ -248,6 +248,54 @@ var restartCmd = &cobra.Command{
 	},
 }
 
+var upstreamCmd = &cobra.Command{
+	Use:   "upstream",
+	Short: "Upstream WiFi management",
+	Long:  "Manage upstream WiFi connections - scan, connect, list, remove",
+}
+
+var upstreamScanCmd = &cobra.Command{
+	Use:   "scan",
+	Short: "Scan for available upstream WiFi networks",
+	Long:  "Scan all radios and display available WiFi networks",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"scan"}, nil)
+	},
+}
+
+var upstreamConnectCmd = &cobra.Command{
+	Use:   "connect <SSID> [passphrase]",
+	Short: "Connect to an upstream WiFi network",
+	Long:  "Connect to an upstream WiFi network. Disables the current upstream, preserving it as a known candidate.",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cmdArgs := []string{"connect", args[0]}
+		if len(args) > 1 {
+			cmdArgs = append(cmdArgs, args[1])
+		}
+		return sendCommandAndDisplay("upstream", cmdArgs, nil)
+	},
+}
+
+var upstreamListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List configured upstream STA interfaces",
+	Long:  "Show all configured upstream STA interfaces with active/disabled status",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"list-upstream"}, nil)
+	},
+}
+
+var upstreamRemoveCmd = &cobra.Command{
+	Use:   "remove <SSID>",
+	Short: "Remove a disabled upstream from config",
+	Long:  "Remove a disabled upstream STA interface from the wireless configuration. Active upstreams cannot be removed.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"remove-upstream", args[0]}, nil)
+	},
+}
+
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Show TollGate logs",
@@ -269,7 +317,8 @@ func init() {
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
 	networkCmd.AddCommand(privateCmd)
-	rootCmd.AddCommand(walletCmd, networkCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd)
+	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd)
+	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd)
 }
 
 func main() {
@@ -449,17 +498,33 @@ func displayResponse(response *CLIResponse) {
 func displayData(data interface{}) {
 	switch v := data.(type) {
 	case map[string]interface{}:
-		// Check if this is a WalletDrainResult
 		if _, ok := v["tokens"]; ok {
 			displayWalletDrainResult(v)
 		} else if _, ok := v["ssid"]; ok {
-			// This is PrivateNetworkInfo
 			displayPrivateNetworkInfo(v)
 		} else {
 			displayMap(v, "")
 		}
+	case []interface{}:
+		if len(v) > 0 {
+			if _, ok := v[0].(map[string]interface{}); ok {
+				if _, hasRadio := v[0].(map[string]interface{})["radio"]; hasRadio {
+					if _, hasStatus := v[0].(map[string]interface{})["status"]; hasStatus {
+						displayUpstreamSTAList(v)
+					} else {
+						displayUpstreamScanResults(v)
+					}
+				} else {
+					jsonData, err := json.MarshalIndent(data, "", "  ")
+					if err == nil {
+						fmt.Println(string(jsonData))
+					}
+				}
+			}
+		} else {
+			fmt.Println("No results")
+		}
 	default:
-		// Fallback to JSON pretty print
 		jsonData, err := json.MarshalIndent(data, "", "  ")
 		if err == nil {
 			fmt.Println(string(jsonData))
@@ -620,4 +685,65 @@ func displayMap(m map[string]interface{}, prefix string) {
 			}
 		}
 	}
+}
+
+func displayUpstreamScanResults(networks []interface{}) {
+	fmt.Println()
+	fmt.Printf("%-30s  %-8s  %-5s  %-20s  %s\n", "SSID", "Signal", "Ch", "Encryption", "Radio")
+	fmt.Println(strings.Repeat("-", 80))
+	for i, n := range networks {
+		if m, ok := n.(map[string]interface{}); ok {
+			ssid := ""
+			if s, ok := m["ssid"].(string); ok {
+				ssid = s
+			}
+			signal := ""
+			if s, ok := m["signal"].(float64); ok {
+				signal = fmt.Sprintf("%.0f dBm", s)
+			}
+			channel := ""
+			if s, ok := m["channel"].(string); ok {
+				channel = s
+			}
+			encryption := ""
+			if s, ok := m["encryption"].(string); ok {
+				encryption = s
+			}
+			radio := ""
+			if s, ok := m["radio"].(string); ok {
+				radio = s
+			}
+			fmt.Printf("%-30s  %-8s  %-5s  %-20s  %s\n", ssid, signal, channel, encryption, radio)
+			_ = i
+		}
+	}
+	fmt.Printf("\nTotal: %d network(s)\n", len(networks))
+}
+
+func displayUpstreamSTAList(stas []interface{}) {
+	fmt.Println()
+	fmt.Printf("%-20s  %-10s  %-10s  %s\n", "SSID", "STATUS", "RADIO", "ENCRYPTION")
+	fmt.Println(strings.Repeat("-", 55))
+	for _, s := range stas {
+		if m, ok := s.(map[string]interface{}); ok {
+			ssid := ""
+			if v, ok := m["ssid"].(string); ok {
+				ssid = v
+			}
+			status := ""
+			if v, ok := m["status"].(string); ok {
+				status = v
+			}
+			radio := ""
+			if v, ok := m["radio"].(string); ok {
+				radio = v
+			}
+			encryption := ""
+			if v, ok := m["encryption"].(string); ok {
+				encryption = v
+			}
+			fmt.Printf("%-20s  %-10s  %-10s  %s\n", ssid, status, radio, encryption)
+		}
+	}
+	fmt.Printf("\n%d upstream STA(s) configured.\n", len(stas))
 }

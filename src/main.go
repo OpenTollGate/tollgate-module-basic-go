@@ -21,6 +21,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
+
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 )
@@ -37,6 +38,7 @@ var (
 )
 
 var gatewayManager *wireless_gateway_manager.GatewayManager
+var upstreamManager *wireless_gateway_manager.UpstreamManager
 
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
@@ -115,6 +117,9 @@ func init() {
 
 	// Initialize upstream detector module
 	initUpstreamDetector()
+
+	// Initialize upstream WiFi manager
+	initUpstreamManager()
 }
 
 func initUpstreamDetector() {
@@ -123,7 +128,6 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream detector instance")
 	}
 
-	// Create and set upstream session manager instance
 	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantInstance)
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
@@ -140,8 +144,36 @@ func initUpstreamDetector() {
 	mainLogger.Info("UpstreamDetector module initialized with upstream session manager and monitoring network changes")
 }
 
+func initUpstreamManager() {
+	upstreamConfig := wireless_gateway_manager.DefaultUpstreamManagerConfig()
+
+	connector := &wireless_gateway_manager.Connector{}
+	scanner := &wireless_gateway_manager.Scanner{Connector: connector}
+	resellerChecker := &resellerModeAdapter{cm: configManager}
+
+	upstreamManager = wireless_gateway_manager.NewUpstreamManager(connector, scanner, resellerChecker, upstreamConfig)
+
+	go func() {
+		upstreamManager.Start(context.Background())
+	}()
+
+	mainLogger.Info("Upstream WiFi manager initialized")
+}
+
+type resellerModeAdapter struct {
+	cm *config_manager.ConfigManager
+}
+
+func (r *resellerModeAdapter) IsResellerModeActive() bool {
+	if r.cm == nil {
+		return false
+	}
+	cfg := r.cm.GetConfig()
+	return cfg != nil && cfg.ResellerMode
+}
+
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantInstance)
+	cliServer = cli.NewCLIServer(configManager, merchantInstance, gatewayManager)
 
 	err := cliServer.Start()
 	if err != nil {

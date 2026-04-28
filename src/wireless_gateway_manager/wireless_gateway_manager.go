@@ -17,7 +17,7 @@ import (
 // Init initializes the GatewayManager and starts its background scanning routine.
 func Init(ctx context.Context, configManager *config_manager.ConfigManager) (*GatewayManager, error) {
 	connector := &Connector{}
-	scanner := &Scanner{connector: connector}
+	scanner := &Scanner{Connector: connector}
 	vendorProcessor := &VendorElementProcessor{connector: connector}
 	networkMonitor := NewNetworkMonitor(connector)
 
@@ -271,6 +271,46 @@ func (gm *GatewayManager) SetLocalAPVendorElements(elements map[string]string) e
 // GetLocalAPVendorElements retrieves the currently configured vendor elements on the local AP.
 func (gm *GatewayManager) GetLocalAPVendorElements() (map[string]string, error) {
 	return gm.vendorProcessor.GetLocalAPVendorElements()
+}
+
+func (gm *GatewayManager) ScanAllRadios() ([]NetworkInfo, error) {
+	return gm.scanner.ScanAllRadios()
+}
+
+func (gm *GatewayManager) DetectEncryption(encryptionStr string) string {
+	return gm.scanner.DetectEncryption(encryptionStr)
+}
+
+func (gm *GatewayManager) FindBestRadioForSSID(ssid string, networks []NetworkInfo) (string, error) {
+	return gm.scanner.FindBestRadioForSSID(ssid, networks)
+}
+
+func (gm *GatewayManager) GetSTASections() ([]STASection, error) {
+	return gm.connector.GetSTASections()
+}
+
+func (gm *GatewayManager) GetActiveSTA() (*STASection, error) {
+	return gm.connector.GetActiveSTA()
+}
+
+func (gm *GatewayManager) EnsureRadiosEnabled() error {
+	return gm.connector.EnsureRadiosEnabled()
+}
+
+func (gm *GatewayManager) EnsureWWANSetup() error {
+	return gm.connector.EnsureWWANSetup()
+}
+
+func (gm *GatewayManager) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error) {
+	return gm.connector.FindOrCreateSTAForSSID(ssid, passphrase, encryption)
+}
+
+func (gm *GatewayManager) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
+	return gm.connector.SwitchUpstream(activeIface, candidateIface, candidateSSID)
+}
+
+func (gm *GatewayManager) RemoveDisabledSTA(ssid string) error {
+	return gm.connector.RemoveDisabledSTA(ssid)
 }
 
 func (gm *GatewayManager) updatePriceAndAPSSID() {
