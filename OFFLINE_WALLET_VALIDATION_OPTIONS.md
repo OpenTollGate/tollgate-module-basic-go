@@ -14,11 +14,23 @@ The automated test suite (80 tests) validates all logic paths using **mock walle
 
 ---
 
+## Keyset Compatibility Discovery
+
+During implementation, a critical compatibility issue was discovered:
+
+- **`testnut.cashu.space`** (Nutshell/0.20.0) uses the **new Cashu spec keyset ID format** (66 hex characters). This is incompatible with `gonuts-tollgate` v0.6.1, which derives keyset IDs using the **old format** (`"00" + SHA-256(public_keys)[:14]` = 16 hex chars). Any attempt to `AddMint` or `Receive` from this mint fails with: `Got invalid keyset. Derived id: '00...' but got '0188...'`.
+
+- **`nofee.testnut.cashu.space`** (Nutshell/0.18.2) uses the **old keyset ID format** (e.g., `"00b4cd27d8861a44"` — 16 hex chars). This is fully compatible with `gonuts-tollgate` v0.6.1. Additionally, it has **zero fees** (`input_fee_ppk: 0`) and **auto-pays all Lightning invoices** within ~2-3 seconds.
+
+This means the integration tests must use `nofee.testnut.cashu.space` exclusively. The `tg-mint-orchestrator` (see below) can be used as an alternative for self-hosted testing.
+
+---
+
 ## Options
 
 ### Option 1: Real-Wallet Go Integration Test
 
-Write a Go test in `src/merchant/` that uses the **real** `tollwallet.TollWallet` and real BoltDB, funded via a local reverse proxy to a Cashu test mint. The proxy is stopped to simulate "mint offline."
+Write a Go test in `src/merchant/` that uses the **real** `tollwallet.TollWallet` and real BoltDB, funded via a local reverse proxy to the compatible Cashu test mint. The proxy is stopped to simulate "mint offline."
 
 | Aspect | Detail |
 |--------|--------|
@@ -27,7 +39,7 @@ Write a Go test in `src/merchant/` that uses the **real** `tollwallet.TollWallet
 | **Effort** | Low-Medium (single Go test file + build tag) |
 | **Confidence** | High for the critical unknown; validates the exact code path the KICKSTART_DEADLOCK fix depends on |
 | **Run in CI** | Yes, with `//go:build integration` tag |
-| **Prerequisites** | `cdk-cli` installed (already provisioned by `tests/setup_cdk_testing.yml`), network access to `testnut.cashu.space` |
+| **Prerequisites** | Network access to `nofee.testnut.cashu.space` (uses gonuts native API — no external tools needed) |
 
 ### Option 2: Single Router + `local-compile-to-router.sh`
 
@@ -82,11 +94,28 @@ Write Ansible playbooks to automate router flashing, configuration, and test exe
 
 ---
 
+## Self-Hosted Mint Alternative: `tg-mint-orchestrator`
+
+The [`tg-mint-orchestrator`](https://github.com/TollGate/tg-mint-orchestrator) (at `/root/tg-mint-orchestrator`) is an Ansible playbook for deploying per-operator CDK Cashu mints on a VPS. It can be used as an alternative to the public test mint:
+
+- **Architecture**: Traefik reverse proxy + per-operator CDK mint containers with SQLite backend
+- **Lightning backend**: `fakewallet` mode for testing (quotes auto-fill, no real sats)
+- **Usage**: Deploy a mint with `./scripts/deploy-mint.sh <VPS_IP> <NPUB>`, then use the resulting mint URL in integration tests
+- **Advantages**: Full control over mint version (CDK, not Nutshell), no reliance on public infrastructure, compatible with both old and new keyset formats
+- **When to use**: If `nofee.testnut.cashu.space` is down or unreliable, or for CI environments that need deterministic mint behavior
+
+For most development, the public nofee test mint is sufficient. The orchestrator is recommended for:
+- CI pipelines requiring guaranteed uptime
+- Testing against specific CDK versions
+- Offline development environments
+
+---
+
 ## Why Option 1 Was Chosen
 
 1. **Targets the exact unknown.** The 80 mock tests already prove the logic is correct. The only gap is whether `gonuts-tollgate`'s `wallet.LoadWallet()` can load from an existing BoltDB when the mint is unreachable. Option 1 tests precisely this.
 
-2. **No hardware required.** Can be developed and run on any machine with Go + cdk-cli + internet. No routers to flash, no WiFi to configure.
+2. **No hardware required.** Can be developed and run on any machine with Go + internet. No routers to flash, no WiFi to configure.
 
 3. **Fast iteration.** A Go test runs in seconds. Router flashing takes minutes per cycle.
 
@@ -96,6 +125,40 @@ Write Ansible playbooks to automate router flashing, configuration, and test exe
 
 6. **STALE_MERCHANT_REFERENCE is already validated.** The 20 provider tests (61-80) with `-race` give high confidence for the concurrency/correctness of the MerchantProvider pattern. No additional testing needed for that fix.
 
+### Test Coverage
+
+The integration test suite covers these bootstrap edge cases:
+
+| Edge Case | Test | Expected Behavior |
+|-----------|------|-------------------|
+| First boot offline (no wallet, no internet) | `TestIntegration_FirstBootOffline` | `MerchantDegraded` created, `WalletLoaded() == false`, graceful degradation |
+| Offline boot with existing wallet | `TestIntegration_OfflineWalletReload` | `wallet.LoadWallet()` succeeds, balance/payment work |
+| Degraded merchant with offline wallet | `TestIntegration_DegradedMerchantOffline` | Full production code path through `DefaultWalletFactory` |
+| Recovery: mint comes back online | `TestIntegration_RecoveryAndUpgrade` | `onFirstReachable` callback fires, full merchant created, `MerchantProvider` swap works |
+
 ### Recommended Follow-Up
 
 After Option 1 passes, do Option 2 (single router smoke test) before merging to confirm no OpenWrt-specific surprises.
+
+## Findings from Integration Testing
+
+### KICKSTART_DEADLOCK: VALIDATED
+
+All tests pass. The gonuts-tollgate fork supports:
+- Offline `wallet.LoadWallet()` with existing BoltDB
+- Balance reporting from cached proofs
+- `SendWithOptions(AllowOverpayment=true)` creates tokens offline (`wasOffline=true`)
+- `tollwallet.TollWallet` wraps these operations correctly
+- `MerchantDegraded` loads wallet through `DefaultWalletFactory` production code path
+
+### BoltDB In-Process Locking: KNOWN ISSUE
+
+Gonuts' `storage.InitBolt()` passes `nil` options to `bolt.Open()`, resulting in infinite flock timeout (`Timeout: 0`). When the degraded merchant holds BoltDB open and the `onFirstReachable` callback tries `newFullMerchant()`, the second `bolt.Open()` blocks forever. This means the degraded → full merchant upgrade path hangs in production.
+
+**Impact**: After internet recovery, the `onFirstReachable` callback fires correctly, but `newFullMerchant` blocks on BoltDB. The degraded merchant continues to function (it has the DB open). The upgrade will only complete if the degraded merchant's DB handle is released (e.g., by process restart).
+
+**Fix needed in gonuts-tollgate**: Set `bolt.Options{Timeout: 5 * time.Second}` in `storage.InitBolt()` so the second `bolt.Open()` fails gracefully after timeout instead of blocking forever. The `onFirstReachable` callback can then retry or log the issue.
+
+### First Boot Offline: GRACEFUL DEGRADATION
+
+On first boot with no wallet DB and no internet, gonuts creates an empty wallet with 0 balance and continues in offline mode. `WalletLoaded()` returns `true` but all payment operations fail with "mint does not exist" or "insufficient funds". This is correct behavior — the degraded merchant degrades gracefully.
