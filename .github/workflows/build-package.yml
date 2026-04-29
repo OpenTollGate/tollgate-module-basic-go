@@ -259,6 +259,11 @@ jobs:
           cp -r packaging/files/tollgate-captive-portal-site/. "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site/"
           install -D -m 0644 LICENSE "$PAYLOAD/usr/share/doc/${PACKAGE_NAME}/LICENSE"
 
+          # Netbird zone: install sentinel for non-main builds only
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              touch "$PAYLOAD/etc/tollgate/netbird-zone-enabled"
+          fi
+
           # Apply UPX on the staged binaries (before packing).
           if [ -n "${{ matrix.compression }}" ]; then
             COMP="${{ matrix.compression }}"
@@ -334,6 +339,10 @@ jobs:
           cp src-checkout/LICENSE "$STAGE/LICENSE"
           install -m 0755 bin/tollgate-wrt "$STAGE/tollgate-wrt"
           install -m 0755 bin/tollgate     "$STAGE/tollgate"
+
+      - name: Gate netbird zone for main builds
+        if: github.ref == 'refs/heads/main'
+        run: rm -f /builder/package/${{ env.PACKAGE_NAME }}/files/etc/tollgate/netbird-zone-enabled
 
       - name: Configure SDK
         run: |

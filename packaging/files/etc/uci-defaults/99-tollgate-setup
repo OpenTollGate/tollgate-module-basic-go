@@ -221,6 +221,7 @@ setup_private_network() {
 }
 
 setup_netbird_zone() {
+    [ -f /etc/tollgate/netbird-zone-enabled ] || return
     uci -q get firewall.netbird_zone >/dev/null 2>&1 && return
     uci set firewall.netbird_zone='zone'
     uci set firewall.netbird_zone.name='netbird'

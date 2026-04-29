@@ -78,6 +78,7 @@ echo "--- setup_netbird_zone function exists ---"
 NETBIRD_FN=$(extract_function "setup_netbird_zone" "$SETUP_SCRIPT")
 if [ -n "$NETBIRD_FN" ]; then
     echo "[PASS] setup_netbird_zone function exists"
+    assert_contains "$NETBIRD_FN" "/etc/tollgate/netbird-zone-enabled" "setup_netbird_zone has sentinel file guard"
 else
     echo "[FAIL] setup_netbird_zone function not found"
     FAILURES=$((FAILURES + 1))

@@ -10,9 +10,9 @@
 bin/
 artifacts/
 vendor/
-tollgate
-tollgate-wrt
-tollgate-module-basic-go
+/tollgate
+/tollgate-wrt
+/tollgate-module-basic-go
 
 # Test artifacts
 **/tollwallet_db/*
