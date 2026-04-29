@@ -33,7 +33,10 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+nodogsplash +luci +jq
+	# DEPENDS:=+nodogsplash +luci +jq
+	# Temporarily disabled: opkg can't resolve libc virtual dependency from feeds.
+	# Runtime deps are guaranteed on all target routers. Re-enable once resolved.
+	DEPENDS:=
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files
@@ -167,6 +170,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
+	[ -f "$(PKG_MAKEFILE_DIR)files/etc/tollgate/netbird-zone-enabled" ] && $(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/etc/tollgate/netbird-zone-enabled $(1)/etc/tollgate/ || true
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 
 	$(INSTALL_DIR) $(1)/etc/tollgate/tollgate-captive-portal-site
@@ -195,7 +199,8 @@ FILES_$(PKG_NAME) += \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
-	/etc/hotplug.d/iface/95-tollgate-restart
+	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/tollgate/netbird-zone-enabled
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
