@@ -4,4 +4,3 @@ config rule
 	option proto 'tcp'
 	option dest_port '2121'
 	option target 'ACCEPT'
-

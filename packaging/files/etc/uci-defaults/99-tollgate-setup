@@ -1,0 +1,245 @@
+#!/bin/sh
+# TollGate first-boot configuration. Runs once from /etc/init.d/boot before
+# services start. All UCI changes are committed in a single pass at the end;
+# no service restarts here (uci-defaults runs before procd brings services up).
+
+SETUP_FLAG="/etc/tollgate-setup-done"
+
+if [ -f "$SETUP_FLAG" ]; then
+    exit 0
+fi
+
+LOGFILE=/tmp/tollgate-setup.log
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
+
+# -- setup steps ------------------------------------------------------------
+
+setup_firewall_include() {
+    # Pull in /etc/config/firewall-tollgate via a named include.
+    uci -q get firewall.tollgate_rules >/dev/null 2>&1 && return
+    uci add firewall include >/dev/null
+    uci set firewall.@include[-1].path='/etc/config/firewall-tollgate'
+    uci rename firewall.@include[-1]='tollgate_rules'
+}
+
+setup_uhttpd() {
+    uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
+    uci -q delete uhttpd.main.listen_http
+    uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
+    uci add_list uhttpd.main.listen_http='[::]:8080'
+    uci -q delete uhttpd.main.listen_https
+    uci add_list uhttpd.main.listen_https='0.0.0.0:443'
+    uci add_list uhttpd.main.listen_https='[::]:443'
+    uci set uhttpd.main.redirect_https='0'
+    uci set uhttpd.main.home='/www'
+    uci set uhttpd.main.rfc1918_filter='1'
+    uci set uhttpd.main.max_requests='3'
+    uci set uhttpd.main.max_connections='100'
+    uci set uhttpd.main.script_timeout='60'
+    uci set uhttpd.main.network_timeout='30'
+    uci set uhttpd.main.http_keepalive='20'
+    uci set uhttpd.main.tcp_keepalive='1'
+}
+
+setup_dns_dnsmasq() {
+    # Only override DNS if it's unset or pointing at localhost.
+    local current_dns
+    current_dns=$(uci -q get network.lan.dns)
+    if [ -z "$current_dns" ] || [ "$current_dns" = "127.0.0.1" ] || [ "$current_dns" = "::1" ]; then
+        uci -q delete network.lan.dns
+        uci add_list network.lan.dns='1.1.1.1'
+        uci add_list network.lan.dns='1.0.0.1'
+    fi
+    uci set network.lan.domain='lan'
+    uci set dhcp.@dnsmasq[0].domainneeded='1'
+    uci set dhcp.@dnsmasq[0].localise_queries='1'
+    uci set dhcp.@dnsmasq[0].rebind_protection='1'
+    uci set dhcp.@dnsmasq[0].local='/lan/'
+    uci set dhcp.@dnsmasq[0].domain='lan'
+    uci set dhcp.@dnsmasq[0].expandhosts='1'
+}
+
+configure_radio_ap() {
+    local iface="$1" label="$2"
+    if ! uci -q get "wireless.$iface" >/dev/null; then
+        return
+    fi
+    local current_mode
+    current_mode=$(uci -q get "wireless.$iface".mode)
+    if [ "$current_mode" = "sta" ]; then
+        log "$iface is STA, preserving upstream connection"
+        return
+    fi
+    uci set "wireless.$iface".name="$label"
+    uci set "wireless.$iface".mode='ap'
+    uci set "wireless.$iface".network='lan'
+    uci set "wireless.$iface".ssid="$GATEWAY_NAME"
+    uci set "wireless.$iface".encryption='none'
+    uci set "wireless.$iface".disabled='0'
+}
+
+# Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
+setup_public_wifi() {
+    RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
+    GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
+    log "Gateway name: ${GATEWAY_NAME}"
+
+    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
+    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
+    uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
+    uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+}
+
+setup_nodogsplash() {
+    [ -f /etc/config/nodogsplash ] || touch /etc/config/nodogsplash
+    if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
+        uci add nodogsplash nodogsplash >/dev/null
+    fi
+    uci set nodogsplash.@nodogsplash[0].enabled='1'
+    uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
+    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
+    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+}
+
+setup_tollgate_firewall_rules() {
+    # WAN→router: the TollGate protocol port.
+    if ! grep -q "port 2121" /etc/config/firewall-tollgate 2>/dev/null; then
+        uci add firewall rule >/dev/null
+        uci set firewall.@rule[-1].name='Allow-TollGate-Protocol'
+        uci set firewall.@rule[-1].src='wan'
+        uci set firewall.@rule[-1].proto='tcp'
+        uci set firewall.@rule[-1].dest_port='2121'
+        uci set firewall.@rule[-1].target='ACCEPT'
+    fi
+    # LAN→router: same port, for local clients.
+    uci set firewall.tollgate_in='rule'
+    uci set firewall.tollgate_in.name='Allow-TollGate-In'
+    uci set firewall.tollgate_in.src='lan'
+    uci set firewall.tollgate_in.proto='tcp'
+    uci set firewall.tollgate_in.dest_port='2121'
+    uci set firewall.tollgate_in.target='ACCEPT'
+}
+
+setup_profile_hook() {
+    grep -q "first-login-setup" /etc/profile && return
+    cat >> /etc/profile << 'EOF'
+
+# TollGate first login setup
+if [ ! -f /etc/first_login_done ] && [ -t 0 ] && [ -t 1 ]; then
+    /usr/local/bin/first-login-setup
+fi
+EOF
+}
+
+enable_modems() {
+    local section
+    for section in $(uci show network 2>/dev/null | awk -F'[.=]' '/^network\.modem_/ {print $2}' | sort -u); do
+        uci set "network.$section.disabled=0"
+    done
+}
+
+# Consumes RANDOM_SUFFIX; derives a private /24 adjacent to the LAN subnet.
+setup_private_network() {
+    local lan_ip octet1 octet2 octet3 private_octet3 private_ip private_ssid private_key
+
+    lan_ip=$(uci -q get network.lan.ipaddr)
+    if [ -z "$lan_ip" ]; then
+        log "ERROR: no network.lan.ipaddr; skipping private network"
+        return
+    fi
+    octet1=$(echo "$lan_ip" | cut -d. -f1)
+    octet2=$(echo "$lan_ip" | cut -d. -f2)
+    octet3=$(echo "$lan_ip" | cut -d. -f3)
+    if [ "$octet3" -eq 255 ]; then
+        private_octet3=$((octet3 - 1))
+    else
+        private_octet3=$((octet3 + 1))
+    fi
+    private_ip="${octet1}.${octet2}.${private_octet3}.1"
+    private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
+
+    # Memorable password: 3 words + 2-digit number. Single /dev/urandom read,
+    # awk picks words — avoids forking per word.
+    private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
+        BEGIN {
+            srand(seed);
+            n = split("Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu", w, " ");
+            printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
+        }')
+    log "Private SSID ${private_ssid}, IP ${private_ip}"
+
+    uci set network.private='interface'
+    uci set network.private.proto='static'
+    uci set network.private.device='br-private'
+    uci set network.private.ipaddr="$private_ip"
+    uci set network.private.netmask='255.255.255.0'
+
+    uci set network.private_bridge='device'
+    uci set network.private_bridge.type='bridge'
+    uci set network.private_bridge.name='br-private'
+
+    uci set dhcp.private='dhcp'
+    uci set dhcp.private.interface='private'
+    uci set dhcp.private.start='100'
+    uci set dhcp.private.limit='150'
+    uci set dhcp.private.leasetime='12h'
+
+    uci set wireless.private_radio0='wifi-iface'
+    uci set wireless.private_radio0.device='radio0'
+    uci set wireless.private_radio0.network='private'
+    uci set wireless.private_radio0.mode='ap'
+    uci set wireless.private_radio0.ssid="$private_ssid"
+    uci set wireless.private_radio0.encryption='psk2+ccmp'
+    uci set wireless.private_radio0.key="$private_key"
+    uci set wireless.private_radio0.disabled='0'
+
+    uci set wireless.private_radio1='wifi-iface'
+    uci set wireless.private_radio1.device='radio1'
+    uci set wireless.private_radio1.network='private'
+    uci set wireless.private_radio1.mode='ap'
+    uci set wireless.private_radio1.ssid="$private_ssid"
+    uci set wireless.private_radio1.encryption='psk2+ccmp'
+    uci set wireless.private_radio1.key="$private_key"
+    uci set wireless.private_radio1.disabled='0'
+
+    uci set firewall.private_zone='zone'
+    uci set firewall.private_zone.name='private'
+    uci set firewall.private_zone.network='private'
+    uci set firewall.private_zone.input='ACCEPT'
+    uci set firewall.private_zone.output='ACCEPT'
+    uci set firewall.private_zone.forward='ACCEPT'
+
+    uci set firewall.private_forwarding='forwarding'
+    uci set firewall.private_forwarding.src='private'
+    uci set firewall.private_forwarding.dest='wan'
+}
+
+commit_all() {
+    uci commit network
+    uci commit wireless
+    uci commit dhcp
+    uci commit firewall
+    uci commit uhttpd
+    uci commit nodogsplash
+}
+
+# -- driver -----------------------------------------------------------------
+
+: > "$LOGFILE"
+log "Starting TollGate configuration"
+
+setup_firewall_include
+setup_uhttpd
+setup_dns_dnsmasq
+setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
+setup_nodogsplash
+setup_tollgate_firewall_rules
+setup_profile_hook
+enable_modems
+setup_private_network        # consumes RANDOM_SUFFIX
+commit_all
+
+log "TollGate setup completed"
+touch "$SETUP_FLAG"
+exit 0
