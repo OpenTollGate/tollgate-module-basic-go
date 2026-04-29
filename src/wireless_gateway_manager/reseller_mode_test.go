@@ -62,8 +62,8 @@ func (m *MockConnector) GetActiveSTA() (*STASection, error) {
 	return args.Get(0).(*STASection), args.Error(1)
 }
 
-func (m *MockConnector) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error) {
-	args := m.Called(ssid, passphrase, encryption)
+func (m *MockConnector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio string) (string, error) {
+	args := m.Called(ssid, passphrase, encryption, radio)
 	return args.String(0), args.Error(1)
 }
 
@@ -75,6 +75,11 @@ func (m *MockConnector) RemoveDisabledSTA(ssid string) error {
 func (m *MockConnector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
 	args := m.Called(activeIface, candidateIface, candidateSSID)
 	return args.Error(0)
+}
+
+func (m *MockConnector) GetSTADevice(ifaceName string) (string, error) {
+	args := m.Called(ifaceName)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockConnector) EnsureWWANSetup() error {
@@ -114,6 +119,11 @@ func (m *MockScanner) DetectEncryption(encryptionStr string) string {
 
 func (m *MockScanner) FindBestRadioForSSID(ssid string, networks []NetworkInfo) (string, error) {
 	args := m.Called(ssid, networks)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockScanner) FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error) {
+	args := m.Called(ssid, avoidRadio, networks)
 	return args.String(0), args.Error(1)
 }
 

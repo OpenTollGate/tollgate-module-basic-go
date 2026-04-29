@@ -285,6 +285,10 @@ func (gm *GatewayManager) FindBestRadioForSSID(ssid string, networks []NetworkIn
 	return gm.scanner.FindBestRadioForSSID(ssid, networks)
 }
 
+func (gm *GatewayManager) FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error) {
+	return gm.scanner.FindAlternateRadioForSSID(ssid, avoidRadio, networks)
+}
+
 func (gm *GatewayManager) GetSTASections() ([]STASection, error) {
 	return gm.connector.GetSTASections()
 }
@@ -301,12 +305,16 @@ func (gm *GatewayManager) EnsureWWANSetup() error {
 	return gm.connector.EnsureWWANSetup()
 }
 
-func (gm *GatewayManager) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error) {
-	return gm.connector.FindOrCreateSTAForSSID(ssid, passphrase, encryption)
+func (gm *GatewayManager) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio string) (string, error) {
+	return gm.connector.FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio)
 }
 
 func (gm *GatewayManager) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
 	return gm.connector.SwitchUpstream(activeIface, candidateIface, candidateSSID)
+}
+
+func (gm *GatewayManager) GetSTADevice(ifaceName string) (string, error) {
+	return gm.connector.GetSTADevice(ifaceName)
 }
 
 func (gm *GatewayManager) RemoveDisabledSTA(ssid string) error {

@@ -222,6 +222,23 @@ func (c *Connector) reloadWifi() error {
 	return nil
 }
 
+func (c *Connector) reloadRadio(radio string) error {
+	cmd := exec.Command("wifi", "reload", radio)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		logger.WithFields(logrus.Fields{
+			"radio":  radio,
+			"error":  err,
+			"stderr": stderr.String(),
+		}).Error("Failed to reload radio")
+		return err
+	}
+
+	return nil
+}
+
 // verifyConnection checks if the device is connected to the specified SSID.
 func (c *Connector) verifyConnection(expectedSSID string) error {
 	logger.WithField("ssid", expectedSSID).Info("Verifying connection")
@@ -896,7 +913,7 @@ func sanitizeSSIDForUCI(ssid string) string {
 	return "upstream_" + sanitized
 }
 
-func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error) {
+func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio string) (string, error) {
 	sections, err := c.GetSTASections()
 	if err != nil {
 		return "", err
@@ -920,6 +937,9 @@ func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption string) 
 
 	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+"=wifi-iface"); err != nil {
 		return "", fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceName, err)
+	}
+	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".device="+radio); err != nil {
+		return "", fmt.Errorf("failed to set device for %s: %w", ifaceName, err)
 	}
 	if _, err := c.ExecuteUCI("set", "wireless."+ifaceName+".mode=sta"); err != nil {
 		return "", err
@@ -982,41 +1002,71 @@ func (c *Connector) RemoveDisabledSTA(ssid string) error {
 }
 
 func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
+	candidateRadio, _ := c.ExecuteUCI("get", "wireless."+candidateIface+".device")
+	candidateRadio = strings.TrimSpace(candidateRadio)
+	if candidateRadio == "" {
+		return fmt.Errorf("no radio found for interface %s", candidateIface)
+	}
+
+	activeRadio := ""
+	if activeIface != "" {
+		r, _ := c.ExecuteUCI("get", "wireless."+activeIface+".device")
+		activeRadio = strings.TrimSpace(r)
+	}
+
 	logger.WithFields(logrus.Fields{
-		"active":    activeIface,
-		"candidate": candidateIface,
-		"ssid":      candidateSSID,
+		"active":         activeIface,
+		"active_radio":   activeRadio,
+		"candidate":      candidateIface,
+		"candidate_radio": candidateRadio,
+		"ssid":           candidateSSID,
 	}).Info("Switching upstream")
 
-	if activeIface != "" {
+	crossRadio := activeRadio != "" && activeRadio != candidateRadio
+
+	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=0"); err != nil {
+		return fmt.Errorf("failed to enable candidate upstream %s: %w", candidateIface, err)
+	}
+
+	if !crossRadio && activeIface != "" {
 		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=1"); err != nil {
 			return fmt.Errorf("failed to disable active upstream %s: %w", activeIface, err)
 		}
 	}
 
-	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=0"); err != nil {
-		return fmt.Errorf("failed to enable candidate upstream %s: %w", candidateIface, err)
-	}
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
 		return err
 	}
-	if err := c.reloadWifi(); err != nil {
-		return err
+
+	if crossRadio {
+		if err := c.reloadRadio(candidateRadio); err != nil {
+			return err
+		}
+	} else {
+		if err := c.reloadWifi(); err != nil {
+			return err
+		}
 	}
 
-	radioOutput, _ := c.ExecuteUCI("get", "wireless."+candidateIface+".device")
-	radio := strings.TrimSpace(radioOutput)
-	if radio == "" {
-		return fmt.Errorf("no radio found for interface %s", candidateIface)
-	}
-
-	staIface, err := c.waitForSTAIP(radio, 30*time.Second)
+	staIface, err := c.waitForSTAIP(candidateRadio, 45*time.Second)
 	if err == nil && staIface != "" {
 		logger.WithFields(logrus.Fields{
-			"ssid":     candidateSSID,
-			"iface":    staIface,
-			"radio":    radio,
+			"ssid":  candidateSSID,
+			"iface": staIface,
+			"radio": candidateRadio,
 		}).Info("Successfully switched upstream")
+
+		if crossRadio && activeIface != "" {
+			if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=1"); err != nil {
+				logger.WithError(err).Warn("Failed to disable old upstream on other radio (non-fatal)")
+			}
+			if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+				logger.WithError(err).Warn("Failed to commit after disabling old upstream")
+			}
+			if err := c.reloadRadio(activeRadio); err != nil {
+				logger.WithError(err).Warn("Failed to reload old radio after disabling old upstream")
+			}
+		}
 
 		exec.Command("/etc/init.d/dnsmasq", "restart").Run()
 		exec.Command("/etc/init.d/firewall", "restart").Run()
@@ -1028,20 +1078,35 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		"candidate": candidateIface,
 	}).Warn("Timed out waiting for DHCP, reverting to previous upstream")
 
-	if activeIface != "" {
-		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=0"); err != nil {
-			logger.WithError(err).Error("Failed to re-enable previous upstream during fallback")
-		}
-	}
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=1"); err != nil {
 		logger.WithError(err).Error("Failed to disable candidate during fallback")
 	}
-	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-		logger.WithError(err).Error("Failed to commit during fallback")
+
+	if crossRadio {
+		if err := c.reloadRadio(candidateRadio); err != nil {
+			logger.WithError(err).Error("Failed to reload candidate radio during fallback")
+		}
+	} else {
+		if activeIface != "" {
+			if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=0"); err != nil {
+				logger.WithError(err).Error("Failed to re-enable previous upstream during fallback")
+			}
+		}
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			logger.WithError(err).Error("Failed to commit during fallback")
+		}
+		c.reloadWifi()
 	}
-	c.reloadWifi()
 
 	return fmt.Errorf("timed out waiting for DHCP on %s, reverted to previous upstream", candidateSSID)
+}
+
+func (c *Connector) GetSTADevice(ifaceName string) (string, error) {
+	output, err := c.ExecuteUCI("get", "wireless."+ifaceName+".device")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
 }
 
 func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, error) {
@@ -1066,22 +1131,8 @@ func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, e
 				continue
 			}
 			if strings.TrimSpace(string(phyIdx)) == radioNum {
-				cmd := exec.Command("ifconfig", name)
-				var out bytes.Buffer
-				cmd.Stdout = &out
-				if err := cmd.Run(); err != nil {
-					continue
-				}
-				for _, line := range strings.Split(out.String(), "\n") {
-					if strings.Contains(line, "inet addr:") {
-						parts := strings.SplitN(line, "inet addr:", 2)
-						if len(parts) == 2 {
-							ip := strings.SplitN(parts[1], " ", 2)[0]
-							if ip != "" {
-								return name, nil
-							}
-						}
-					}
+				if ip := c.getInterfaceIP(name); ip != "" {
+					return name, nil
 				}
 			}
 		}
@@ -1089,6 +1140,43 @@ func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, e
 	}
 
 	return "", fmt.Errorf("timed out waiting for STA IP on radio %s", radio)
+}
+
+func (c *Connector) getInterfaceIP(iface string) string {
+	cmd := exec.Command("ip", "-4", "addr", "show", iface, "-brief")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[1] == "inet" {
+			return fields[2]
+		}
+		if len(fields) >= 2 && strings.Contains(fields[1], "/") {
+			return fields[1]
+		}
+	}
+
+	cmd = exec.Command("ifconfig", iface)
+	out.Reset()
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "inet addr:") {
+			parts := strings.SplitN(line, "inet addr:", 2)
+			if len(parts) == 2 {
+				ip := strings.SplitN(parts[1], " ", 2)[0]
+				if ip != "" {
+					return ip
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (c *Connector) EnsureWWANSetup() error {

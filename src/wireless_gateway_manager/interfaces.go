@@ -22,9 +22,10 @@ type ConnectorInterface interface {
 	UpdateLocalAPSSID(pricePerStep, stepSize int) error
 	GetSTASections() ([]STASection, error)
 	GetActiveSTA() (*STASection, error)
-	FindOrCreateSTAForSSID(ssid, passphrase, encryption string) (string, error)
+	FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio string) (string, error)
 	RemoveDisabledSTA(ssid string) error
 	SwitchUpstream(activeIface, candidateIface, candidateSSID string) error
+	GetSTADevice(ifaceName string) (string, error)
 	EnsureWWANSetup() error
 	EnsureRadiosEnabled() error
 }
@@ -36,6 +37,7 @@ type ScannerInterface interface {
 	GetRadios() ([]string, error)
 	DetectEncryption(encryptionStr string) string
 	FindBestRadioForSSID(ssid string, networks []NetworkInfo) (string, error)
+	FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error)
 }
 
 // NetworkMonitorInterface defines the methods for network monitoring operations.

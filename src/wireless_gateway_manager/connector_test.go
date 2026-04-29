@@ -48,9 +48,9 @@ func TestConnector_GetActiveSTA_NoneActive(t *testing.T) {
 
 func TestConnector_FindOrCreateSTAForSSID_ReuseExisting(t *testing.T) {
 	m := &MockConnector{}
-	m.On("FindOrCreateSTAForSSID", "TestNet", "pass123", "psk2").Return("upstream_testnet", nil)
+	m.On("FindOrCreateSTAForSSID", "TestNet", "pass123", "psk2", "radio0").Return("upstream_testnet", nil)
 
-	iface, err := m.FindOrCreateSTAForSSID("TestNet", "pass123", "psk2")
+	iface, err := m.FindOrCreateSTAForSSID("TestNet", "pass123", "psk2", "radio0")
 	assert.NoError(t, err)
 	assert.Equal(t, "upstream_testnet", iface)
 	m.AssertExpectations(t)
@@ -58,9 +58,9 @@ func TestConnector_FindOrCreateSTAForSSID_ReuseExisting(t *testing.T) {
 
 func TestConnector_FindOrCreateSTAForSSID_CreateNew(t *testing.T) {
 	m := &MockConnector{}
-	m.On("FindOrCreateSTAForSSID", "NewNet", "pass456", "psk2").Return("upstream_newnet", nil)
+	m.On("FindOrCreateSTAForSSID", "NewNet", "pass456", "psk2", "radio1").Return("upstream_newnet", nil)
 
-	iface, err := m.FindOrCreateSTAForSSID("NewNet", "pass456", "psk2")
+	iface, err := m.FindOrCreateSTAForSSID("NewNet", "pass456", "psk2", "radio1")
 	assert.NoError(t, err)
 	assert.Equal(t, "upstream_newnet", iface)
 	m.AssertExpectations(t)

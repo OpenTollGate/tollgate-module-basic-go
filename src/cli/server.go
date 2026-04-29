@@ -594,12 +594,23 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	_, err = s.gatewayManager.FindBestRadioForSSID(ssid, networks)
+	bestRadio, err := s.gatewayManager.FindBestRadioForSSID(ssid, networks)
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("SSID '%s' not found in scan", ssid),
 			Timestamp: time.Now(),
+		}
+	}
+
+	activeSTA, _ := s.gatewayManager.GetActiveSTA()
+	if activeSTA != nil {
+		activeRadio, _ := s.gatewayManager.GetSTADevice(activeSTA.Name)
+		if activeRadio == bestRadio {
+			altRadio, altErr := s.gatewayManager.FindAlternateRadioForSSID(ssid, bestRadio, networks)
+			if altErr == nil {
+				bestRadio = altRadio
+			}
 		}
 	}
 
@@ -631,7 +642,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	ifaceName, err := s.gatewayManager.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc)
+	ifaceName, err := s.gatewayManager.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -640,7 +651,6 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	activeSTA, _ := s.gatewayManager.GetActiveSTA()
 	activeIface := ""
 	if activeSTA != nil {
 		activeIface = activeSTA.Name
