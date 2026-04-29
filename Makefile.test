@@ -14,6 +14,11 @@
 #   make -f Makefile.test r-smoke-offline ROUTER=alpha               # test degraded mode
 #   make -f Makefile.test r-smoke-recovery ROUTER=alpha              # test recovery
 #   make -f Makefile.test r-full ROUTER=alpha                        # full test suite
+#   make -f Makefile.test r-lock PHASE="description"                 # acquire router lock
+#   make -f Makefile.test r-unlock                                   # release router lock
+#
+# Router mutex: all r-* targets that modify router state check routers.lock
+# first. See docs/router-mutex.md for details.
 # ---------------------------------------------------------------------------
 
 .PHONY: status check-merchant check-degraded block-mint unblock-mint \
@@ -25,10 +30,12 @@
         r-test-offline-ops r-wait-recovery r-test-first-boot-offline \
         r-test-no-mints r-cleanup r-deploy r-logs r-shell \
         r-smoke-offline r-smoke-recovery r-full \
+        r-lock r-unlock force-unlock r-status-lock \
         routers help
 
 ROUTER ?= alpha
 MINT   ?= https://nofee.testnut.cashu.space
+PHASE  ?= unspecified
 
 BOLD   := \033[1m
 GREEN  := \033[32m
@@ -36,6 +43,8 @@ RED    := \033[31m
 YELLOW := \033[33m
 CYAN   := \033[36m
 RESET  := \033[0m
+
+ROUTER_LOCK := routers.lock
 
 # ---- Remote helper --------------------------------------------------------
 # Source routers.env, resolve ROUTER_<NAME>_HOST, build SSH command.
@@ -47,6 +56,25 @@ ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host
 define RESOLVE_ROUTER
 router_host=$$(grep -E "^ROUTER_$$(echo $(ROUTER) | tr '[:lower:]' '[:upper:]')_HOST=" routers.env | cut -d= -f2); \
 if [ -z "$$router_host" ]; then echo "$(RED)Unknown router '$(ROUTER)'. Check routers.env$(RESET)" >&2; exit 1; fi
+endef
+
+# ---- Router mutex ---------------------------------------------------------
+# File-based advisory lock to prevent collisions between LLM sessions.
+# See docs/router-mutex.md for usage guide.
+
+define CHECK_LOCK
+if [ -f "$(ROUTER_LOCK)" ]; then \
+	echo "$(RED)$(BOLD)Router is LOCKED by another session:$(RESET)"; \
+	echo ""; \
+	grep "^branch:" $(ROUTER_LOCK) | sed 's/^branch:/  Branch:/'; \
+	grep "^session:" $(ROUTER_LOCK) | sed 's/^session:/  Session:/'; \
+	grep "^phase:" $(ROUTER_LOCK) | sed 's/^phase:/  Phase:/'; \
+	grep "^timestamp:" $(ROUTER_LOCK) | sed 's/^timestamp:/  Since:/'; \
+	echo ""; \
+	echo "$(YELLOW)To check status: make -f Makefile.test r-status-lock$(RESET)"; \
+	echo "$(YELLOW)To force-release: make -f Makefile.test force-unlock$(RESET)"; \
+	exit 1; \
+fi
 endef
 
 # ===========================================================================
@@ -281,6 +309,71 @@ full: ## [local] Run the full test suite (~20 min)
 #  REMOTE TARGETS (run from dev machine via SSH)
 # ===========================================================================
 
+# --- Router mutex management ---
+
+r-lock: ## [remote] Acquire router lock (set PHASE="description")
+	@if [ -f "$(ROUTER_LOCK)" ]; then \
+		echo "$(RED)$(BOLD)Cannot acquire lock — routers are already locked:$(RESET)"; \
+		echo ""; \
+		grep "^branch:" $(ROUTER_LOCK) | sed 's/^branch:/  Branch:/'; \
+		grep "^phase:" $(ROUTER_LOCK) | sed 's/^phase:/  Phase:/'; \
+		grep "^timestamp:" $(ROUTER_LOCK) | sed 's/^timestamp:/  Since:/'; \
+		echo ""; \
+		echo "$(YELLOW)Use 'make -f Makefile.test force-unlock' to override (with caution).$(RESET)"; \
+		exit 1; \
+	fi; \
+	branch=$$(git branch --show-current 2>/dev/null || echo "unknown"); \
+	echo "locked: true" > $(ROUTER_LOCK); \
+	echo "branch: $$branch" >> $(ROUTER_LOCK); \
+	echo "session: $$USER@$$HOSTNAME" >> $(ROUTER_LOCK); \
+	echo "timestamp: $$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $(ROUTER_LOCK); \
+	echo "phase: $(PHASE)" >> $(ROUTER_LOCK); \
+	echo "$(GREEN)$(BOLD)Router lock acquired$(RESET)"; \
+	cat $(ROUTER_LOCK)
+
+r-unlock: ## [remote] Release router lock
+	@if [ ! -f "$(ROUTER_LOCK)" ]; then \
+		echo "$(YELLOW)No lock file found — already unlocked.$(RESET)"; \
+		exit 0; \
+	fi; \
+	echo "$(YELLOW)Releasing router lock...$(RESET)"; \
+	rm -f $(ROUTER_LOCK); \
+	echo "$(GREEN)Router lock released.$(RESET)"
+
+force-unlock: ## [remote] Force-release router lock (use with caution)
+	@if [ ! -f "$(ROUTER_LOCK)" ]; then \
+		echo "$(YELLOW)No lock file found — already unlocked.$(RESET)"; \
+		exit 0; \
+	fi; \
+	echo "$(RED)$(BOLD)WARNING: Force-releasing router lock!$(RESET)"; \
+	echo "$(RED)Previous holder:$(RESET)"; \
+	grep "^branch:" $(ROUTER_LOCK) | sed 's/^branch:/  Branch:/'; \
+	grep "^phase:" $(ROUTER_LOCK) | sed 's/^phase:/  Phase:/'; \
+	grep "^timestamp:" $(ROUTER_LOCK) | sed 's/^timestamp:/  Since:/'; \
+	rm -f $(ROUTER_LOCK); \
+	echo "$(GREEN)Lock force-released.$(RESET)"
+
+r-status-lock: ## [remote] Show current router lock status
+	@if [ ! -f "$(ROUTER_LOCK)" ]; then \
+		echo "$(GREEN)$(BOLD)Router lock: UNLOCKED$(RESET)"; \
+		echo "Routers are available for testing."; \
+	else \
+		echo "$(RED)$(BOLD)Router lock: LOCKED$(RESET)"; \
+		echo ""; \
+		cat $(ROUTER_LOCK) | sed 's/^locked:/  Status:/;s/^branch:/  Branch:/;s/^session:/  Session:/;s/^timestamp:/  Since:/;s/^phase:/  Phase:/'; \
+		echo ""; \
+		ts=$$(grep "^timestamp:" $(ROUTER_LOCK) | cut -d' ' -f2-); \
+		if [ -n "$$ts" ]; then \
+			age=$$(($$(date +%s) - $$(date -d "$$ts" +%s 2>/dev/null || echo 0))); \
+			if [ $$age -gt 7200 ]; then \
+				echo "$(YELLOW)WARNING: Lock is over 2 hours old — likely stale.$(RESET)"; \
+				echo "$(YELLOW)Consider: make -f Makefile.test force-unlock$(RESET)"; \
+			fi; \
+		fi; \
+	fi
+
+# --- Router info ---
+
 routers: ## Show configured routers from routers.env
 	@if [ ! -f routers.env ]; then echo "$(RED)routers.env not found. Run: cp routers.env.example routers.env$(RESET)"; exit 1; fi
 	@echo "$(BOLD)Configured Routers$(RESET)"
@@ -298,11 +391,13 @@ routers: ## Show configured routers from routers.env
 	@echo "Active: $(CYAN)$(ROUTER)$(RESET)"
 
 r-shell: ## [remote] Open an interactive SSH session on the router
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(GREEN)Connecting to $$router_host ($(ROUTER))...$(RESET)"; \
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host
 
 r-deploy: ## [remote] Cross-compile and deploy binaries to router
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Deploying to $(ROUTER) ($$router_host) ===$(RESET)"; \
 	./scripts/local-compile-to-router.sh $$router_host
@@ -327,6 +422,7 @@ r-check-degraded: ## [remote] Verify degraded merchant (offline boot)
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'logread -e tollgate | grep -q \"Starting in degraded mode\" && echo OK_DEGRADED || echo FAIL_NOT_DEGRADED; echo; logread -e tollgate | grep \"offline wallet\" | tail -1; echo; tollgate wallet balance; echo; tollgate status'"
 
 r-block-mint: ## [remote] Block mint IP via iptables
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Blocking Mint [$(ROUTER)] ===$(RESET)"; \
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
@@ -340,6 +436,7 @@ r-block-mint: ## [remote] Block mint IP via iptables
 		wget -q --timeout=5 -O- \"$(MINT)/v1/info\" > /dev/null 2>&1 && echo \"WARN: Mint still reachable\" || echo \"OK: Mint unreachable\"'"
 
 r-unblock-mint: ## [remote] Remove mint IP block
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Unblocking Mint [$(ROUTER)] ===$(RESET)"; \
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
@@ -352,6 +449,7 @@ r-unblock-mint: ## [remote] Remove mint IP block
 		wget -q --timeout=5 -O- \"$(MINT)/v1/info\" > /dev/null 2>&1 && echo \"OK: Mint reachable again\" || echo \"WARN: Mint still unreachable\"'"
 
 r-restart-service: ## [remote] Restart tollgate service
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Restarting Service [$(ROUTER)] ===$(RESET)"; \
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'/etc/init.d/tollgate-wrt restart && echo OK_RESTARTED || echo FAIL_RESTART'"; \
@@ -385,6 +483,7 @@ r-wait-recovery: ## [remote] Phase 5: Watch for recovery (up to 16 min)
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host "logread -e tollgate | grep -E 'Merchant ready|Upgrading from degraded|Failed to upgrade' | tail -3"
 
 r-test-first-boot-offline: ## [remote] Phase 6: First boot offline on fresh router
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Phase 6: First Boot Offline [$(ROUTER)] ===$(RESET)"; \
 	echo "$(YELLOW)Setting up unreachable mint config...$(RESET)"; \
@@ -409,6 +508,7 @@ r-test-first-boot-offline: ## [remote] Phase 6: First boot offline on fresh rout
 		mv /etc/tollgate/config.json.bak /etc/tollgate/config.json'"
 
 r-test-no-mints: ## [remote] Phase 7: No configured mints
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Phase 7: No Configured Mints [$(ROUTER)] ===$(RESET)"; \
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
@@ -425,6 +525,7 @@ r-test-no-mints: ## [remote] Phase 7: No configured mints
 		mv /etc/tollgate/config.json.bak2 /etc/tollgate/config.json'"
 
 r-cleanup: ## [remote] Phase 8: Remove blocks and restore
+	@$(CHECK_LOCK)
 	@$(RESOLVE_ROUTER); \
 	echo "$(BOLD)=== Phase 8: Cleanup [$(ROUTER)] ===$(RESET)"; \
 	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
