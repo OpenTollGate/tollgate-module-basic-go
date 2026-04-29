@@ -1038,17 +1038,11 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		return err
 	}
 
-	if crossRadio {
-		if err := c.reloadRadio(candidateRadio); err != nil {
-			return err
-		}
-	} else {
-		if err := c.reloadWifi(); err != nil {
-			return err
-		}
+	if err := c.reloadRadio(candidateRadio); err != nil {
+		return err
 	}
 
-	staIface, err := c.waitForSTAIP(candidateRadio, 45*time.Second)
+	staIface, err := c.waitForSTAIP(candidateRadio, 60*time.Second)
 	if err == nil && staIface != "" {
 		logger.WithFields(logrus.Fields{
 			"ssid":  candidateSSID,
@@ -1082,20 +1076,20 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		logger.WithError(err).Error("Failed to disable candidate during fallback")
 	}
 
-	if crossRadio {
-		if err := c.reloadRadio(candidateRadio); err != nil {
-			logger.WithError(err).Error("Failed to reload candidate radio during fallback")
+	if err := c.reloadRadio(candidateRadio); err != nil {
+		logger.WithError(err).Error("Failed to reload candidate radio during fallback")
+	}
+
+	if activeIface != "" {
+		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=0"); err != nil {
+			logger.WithError(err).Error("Failed to re-enable previous upstream during fallback")
 		}
-	} else {
-		if activeIface != "" {
-			if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=0"); err != nil {
-				logger.WithError(err).Error("Failed to re-enable previous upstream during fallback")
-			}
-		}
-		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-			logger.WithError(err).Error("Failed to commit during fallback")
-		}
-		c.reloadWifi()
+	}
+	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+		logger.WithError(err).Error("Failed to commit during fallback")
+	}
+	if err := c.reloadRadio(candidateRadio); err != nil {
+		logger.WithError(err).Error("Failed to reload radio during fallback")
 	}
 
 	return fmt.Errorf("timed out waiting for DHCP on %s, reverted to previous upstream", candidateSSID)
