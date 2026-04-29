@@ -22,6 +22,7 @@ type UpstreamManagerConfig struct {
 	LostThreshold int
 	HysteresisDB  int
 	SignalFloor   int
+	BlacklistTTL  time.Duration
 }
 
 // Constants for network monitoring

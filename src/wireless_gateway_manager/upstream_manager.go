@@ -31,6 +31,8 @@ type UpstreamManager struct {
 	stopChan   chan struct{}
 	pauseMu    sync.Mutex
 	pauseUntil time.Time
+	blacklist   map[string]time.Time
+	blacklistMu sync.Mutex
 }
 
 type ConfigReadResult struct {
@@ -44,6 +46,7 @@ func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 		LostThreshold: 2,
 		HysteresisDB:  12,
 		SignalFloor:   -85,
+		BlacklistTTL:  60 * time.Minute,
 	}
 }
 
@@ -63,12 +66,16 @@ func NewUpstreamManager(connector ConnectorInterface, scanner ScannerInterface, 
 	if config.SignalFloor == 0 {
 		config.SignalFloor = -85
 	}
+	if config.BlacklistTTL == 0 {
+		config.BlacklistTTL = 60 * time.Minute
+	}
 	return &UpstreamManager{
 		connector: connector,
 		scanner:   scanner,
 		reseller:  reseller,
 		config:    config,
 		stopChan:  make(chan struct{}),
+		blacklist: make(map[string]time.Time),
 	}
 }
 
@@ -195,6 +202,35 @@ func (um *UpstreamManager) isPaused() bool {
 	return paused
 }
 
+func (um *UpstreamManager) blacklistSSID(ssid string) {
+	um.blacklistMu.Lock()
+	um.blacklist[ssid] = time.Now()
+	um.blacklistMu.Unlock()
+	logger.WithField("ssid", ssid).Info("Blacklisted SSID (no internet)")
+}
+
+func (um *UpstreamManager) isBlacklisted(ssid string) bool {
+	um.blacklistMu.Lock()
+	t, exists := um.blacklist[ssid]
+	um.blacklistMu.Unlock()
+	if !exists {
+		return false
+	}
+	return time.Since(t) < um.config.BlacklistTTL
+}
+
+func (um *UpstreamManager) purgeBlacklist() {
+	um.blacklistMu.Lock()
+	now := time.Now()
+	for ssid, t := range um.blacklist {
+		if now.Sub(t) >= um.config.BlacklistTTL {
+			delete(um.blacklist, ssid)
+			logger.WithField("ssid", ssid).Debug("Purged expired blacklist entry")
+		}
+	}
+	um.blacklistMu.Unlock()
+}
+
 func (um *UpstreamManager) isResellerModeActive() bool {
 	if um.reseller == nil {
 		return false
@@ -203,6 +239,8 @@ func (um *UpstreamManager) isResellerModeActive() bool {
 }
 
 func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentSignal int, reason string, isReseller bool) {
+	um.purgeBlacklist()
+
 	networks, err := um.scanner.ScanAllRadios()
 	if err != nil {
 		logger.WithError(err).Warn("Scan failed, retrying next cycle")
@@ -248,6 +286,8 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 	if shouldSwitch {
 		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID); err != nil {
 			logger.WithError(err).Warn("Failed to switch upstream")
+		} else if strings.HasPrefix(reason, "emergency") && activeSSID != "" {
+			um.blacklistSSID(activeSSID)
 		}
 	}
 }
@@ -280,6 +320,9 @@ func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candida
 	for _, net := range networks {
 		ifaceName, ok := knownSSIDs[net.SSID]
 		if !ok {
+			continue
+		}
+		if um.isBlacklisted(net.SSID) {
 			continue
 		}
 		if best == nil || net.Signal > best.Signal {
@@ -316,6 +359,9 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 			continue
 		}
 		if net.SSID == activeSSID {
+			continue
+		}
+		if um.isBlacklisted(net.SSID) {
 			continue
 		}
 
@@ -364,12 +410,7 @@ func (um *UpstreamManager) checkConnectivity(staDevice string) bool {
 		return false
 	}
 
-	gw := um.getDefaultGateway()
-	if gw == "" {
-		return false
-	}
-
-	cmd := exec.Command("ping", "-c", "1", "-W", "2", gw)
+	cmd := exec.Command("ping", "-c", "1", "-W", "3", "9.9.9.9")
 	return cmd.Run() == nil
 }
 
@@ -435,23 +476,4 @@ func (um *UpstreamManager) getCurrentSignal(staDevice string) (int, error) {
 	return 0, fmt.Errorf("could not determine signal strength")
 }
 
-func (um *UpstreamManager) getDefaultGateway() string {
-	cmd := exec.Command("ip", "route")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if cmd.Run() != nil {
-		return ""
-	}
 
-	for _, line := range strings.Split(out.String(), "\n") {
-		if strings.HasPrefix(line, "default") {
-			fields := strings.Fields(line)
-			for i, f := range fields {
-				if f == "via" && i+1 < len(fields) {
-					return fields[i+1]
-				}
-			}
-		}
-	}
-	return ""
-}
