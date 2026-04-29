@@ -5,17 +5,3 @@ config rule
 	option dest_port '2121'
 	option target 'ACCEPT'
 
-config zone
-	option name 'netbird'
-	list device 'wt0'
-	option input 'ACCEPT'
-	option output 'ACCEPT'
-	option forward 'REJECT'
-
-config forwarding
-	option src 'netbird'
-	option dest 'lan'
-
-config forwarding
-	option src 'netbird'
-	option dest 'private'
