@@ -27,16 +27,18 @@ type CLIServer struct {
 	configManager   *config_manager.ConfigManager
 	merchant        merchant.MerchantInterface
 	gatewayManager  *wireless_gateway_manager.GatewayManager
+	upstreamManager *wireless_gateway_manager.UpstreamManager
 	startTime       time.Time
 	listener        net.Listener
 	running         bool
 }
 
-func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface, gatewayManager *wireless_gateway_manager.GatewayManager) *CLIServer {
+func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface, gatewayManager *wireless_gateway_manager.GatewayManager, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
-		configManager:  configManager,
-		merchant:       merchant,
-		gatewayManager: gatewayManager,
+		configManager:   configManager,
+		merchant:        merchant,
+		gatewayManager:  gatewayManager,
+		upstreamManager: upstreamManager,
 		startTime:      time.Now(),
 	}
 }
@@ -667,6 +669,10 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
+	if s.upstreamManager != nil {
+		s.upstreamManager.PauseConnectivityChecks(120 * time.Second)
+	}
+
 	return CLIResponse{
 		Success:   true,
 		Message:   fmt.Sprintf("Connected to '%s'", ssid),
@@ -775,6 +781,10 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	if err := s.gatewayManager.SwitchUpstream(activeIface, staIface, ssid); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
+	}
+
+	if s.upstreamManager != nil {
+		s.upstreamManager.PauseConnectivityChecks(120 * time.Second)
 	}
 
 	step++

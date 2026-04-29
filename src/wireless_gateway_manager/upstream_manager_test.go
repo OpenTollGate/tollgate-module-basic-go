@@ -51,7 +51,7 @@ func TestUpstreamManager_NewUpstreamManager_SetsDefaults(t *testing.T) {
 	assert.Equal(t, -85, um.config.SignalFloor)
 }
 
-func TestUpstreamManager_FindStrongestCandidate_NoKnownSSIDs(t *testing.T) {
+func TestUpstreamManager_FindKnownCandidates_NoKnownSSIDs(t *testing.T) {
 	connector := &MockConnector{}
 	scanner := &MockScanner{}
 	reseller := &MockResellerChecker{}
@@ -65,13 +65,13 @@ func TestUpstreamManager_FindStrongestCandidate_NoKnownSSIDs(t *testing.T) {
 		{SSID: "SomeNet", Signal: -50, Radio: "radio0"},
 	}
 
-	candidate, err := um.findStrongestCandidate(networks)
+	candidate, err := um.findCandidates(networks, false)
 	assert.Error(t, err)
 	assert.Nil(t, candidate)
 	connector.AssertExpectations(t)
 }
 
-func TestUpstreamManager_FindStrongestCandidate_WithKnownSSID(t *testing.T) {
+func TestUpstreamManager_FindKnownCandidates_WithKnownSSID(t *testing.T) {
 	connector := &MockConnector{}
 	scanner := &MockScanner{}
 	reseller := &MockResellerChecker{}
@@ -88,7 +88,7 @@ func TestUpstreamManager_FindStrongestCandidate_WithKnownSSID(t *testing.T) {
 		{SSID: "OtherNet", Signal: -50, Radio: "radio0"},
 	}
 
-	candidate, err := um.findStrongestCandidate(networks)
+	candidate, err := um.findCandidates(networks, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, candidate)
 	assert.Equal(t, "MyNet", candidate.SSID)
@@ -98,7 +98,7 @@ func TestUpstreamManager_FindStrongestCandidate_WithKnownSSID(t *testing.T) {
 	connector.AssertExpectations(t)
 }
 
-func TestUpstreamManager_FindStrongestCandidate_MultipleKnownSSIDs(t *testing.T) {
+func TestUpstreamManager_FindKnownCandidates_MultipleKnownSSIDs(t *testing.T) {
 	connector := &MockConnector{}
 	scanner := &MockScanner{}
 	reseller := &MockResellerChecker{}
@@ -116,7 +116,7 @@ func TestUpstreamManager_FindStrongestCandidate_MultipleKnownSSIDs(t *testing.T)
 		{SSID: "NetB", Signal: -40, Radio: "radio1"},
 	}
 
-	candidate, err := um.findStrongestCandidate(networks)
+	candidate, err := um.findCandidates(networks, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, candidate)
 	assert.Equal(t, "NetB", candidate.SSID)
@@ -175,7 +175,7 @@ func TestUpstreamManager_RunScanCycle_NoActiveUpstream(t *testing.T) {
 	}, nil)
 	connector.On("SwitchUpstream", "", "upstream_mynet", "MyNet").Return(nil)
 
-	um.runScanCycle("", "", 0, "no-active-upstream")
+	um.runScanCycle("", "", 0, "no-active-upstream", false)
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
@@ -196,7 +196,7 @@ func TestUpstreamManager_RunScanCycle_BelowHysteresis_NoSwitch(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 
-	um.runScanCycle("upstream_othernet", "OtherNet", -60, "scheduled")
+	um.runScanCycle("upstream_othernet", "OtherNet", -60, "scheduled", false)
 
 	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
 }
@@ -217,7 +217,7 @@ func TestUpstreamManager_RunScanCycle_AboveHysteresis_Switches(t *testing.T) {
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet").Return(nil)
 
-	um.runScanCycle("upstream_othernet", "OtherNet", -60, "scheduled")
+	um.runScanCycle("upstream_othernet", "OtherNet", -60, "scheduled", false)
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
@@ -239,7 +239,7 @@ func TestUpstreamManager_RunScanCycle_BelowSignalFloor(t *testing.T) {
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet").Return(nil)
 
-	um.runScanCycle("upstream_othernet", "OtherNet", -90, "scheduled")
+	um.runScanCycle("upstream_othernet", "OtherNet", -90, "scheduled", false)
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
@@ -255,7 +255,7 @@ func TestUpstreamManager_RunScanCycle_ScanFails(t *testing.T) {
 
 	scanner.On("ScanAllRadios").Return([]NetworkInfo{}, assert.AnError)
 
-	um.runScanCycle("", "", 0, "scheduled")
+	um.runScanCycle("", "", 0, "scheduled", false)
 
 	scanner.AssertExpectations(t)
 	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)

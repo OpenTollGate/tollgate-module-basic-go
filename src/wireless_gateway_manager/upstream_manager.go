@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -23,11 +24,13 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector ConnectorInterface
-	scanner   ScannerInterface
-	reseller  ResellerModeChecker
-	config    UpstreamManagerConfig
-	stopChan  chan struct{}
+	connector  ConnectorInterface
+	scanner    ScannerInterface
+	reseller   ResellerModeChecker
+	config     UpstreamManagerConfig
+	stopChan   chan struct{}
+	pauseMu    sync.Mutex
+	pauseUntil time.Time
 }
 
 type ConfigReadResult struct {
@@ -106,9 +109,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 			logger.WithError(err).Warn("Failed to ensure radios enabled")
 		}
 
-		if um.isResellerModeActive() {
-			continue
-		}
+		isReseller := um.isResellerModeActive()
 
 		activeSTA, err := um.connector.GetActiveSTA()
 		if err != nil {
@@ -140,9 +141,13 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 						shouldScan = true
 						reason = "scheduled"
 					}
-				} else {
-					lostCount++
-					logger.WithField("lost_count", lostCount).Info("Connectivity lost")
+			} else {
+				lostCount++
+				if um.isPaused() {
+					logger.Debug("Connectivity check paused after manual switch")
+					continue
+				}
+				logger.WithField("lost_count", lostCount).Info("Connectivity lost")
 					if lostCount >= um.config.LostThreshold {
 						shouldScan = true
 						reason = "emergency"
@@ -165,7 +170,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 				"reason":      reason,
 			}).Info("Running upstream scan cycle")
 
-			um.runScanCycle(activeIface, activeSSID, currentSignal, reason)
+			um.runScanCycle(activeIface, activeSSID, currentSignal, reason, isReseller)
 			scanCounter = 0
 			lostCount = 0
 		}
@@ -176,6 +181,20 @@ func (um *UpstreamManager) Stop() {
 	close(um.stopChan)
 }
 
+func (um *UpstreamManager) PauseConnectivityChecks(d time.Duration) {
+	um.pauseMu.Lock()
+	um.pauseUntil = time.Now().Add(d)
+	um.pauseMu.Unlock()
+	logger.WithField("duration", d).Info("Pausing connectivity checks")
+}
+
+func (um *UpstreamManager) isPaused() bool {
+	um.pauseMu.Lock()
+	paused := time.Now().Before(um.pauseUntil)
+	um.pauseMu.Unlock()
+	return paused
+}
+
 func (um *UpstreamManager) isResellerModeActive() bool {
 	if um.reseller == nil {
 		return false
@@ -183,14 +202,14 @@ func (um *UpstreamManager) isResellerModeActive() bool {
 	return um.reseller.IsResellerModeActive()
 }
 
-func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentSignal int, reason string) {
+func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentSignal int, reason string, isReseller bool) {
 	networks, err := um.scanner.ScanAllRadios()
 	if err != nil {
 		logger.WithError(err).Warn("Scan failed, retrying next cycle")
 		return
 	}
 
-	candidate, err := um.findStrongestCandidate(networks)
+	candidate, err := um.findCandidates(networks, isReseller)
 	if err != nil || candidate == nil {
 		logger.WithField("reason", reason).Info("No known upstream candidates available")
 		return
@@ -233,7 +252,14 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 	}
 }
 
-func (um *UpstreamManager) findStrongestCandidate(networks []NetworkInfo) (*Candidate, error) {
+func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool) (*Candidate, error) {
+	if isReseller {
+		return um.findResellerCandidates(networks)
+	}
+	return um.findKnownCandidates(networks)
+}
+
+func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candidate, error) {
 	sections, err := um.connector.GetSTASections()
 	if err != nil {
 		return nil, err
@@ -266,6 +292,70 @@ func (um *UpstreamManager) findStrongestCandidate(networks []NetworkInfo) (*Cand
 		}
 	}
 
+	return best, nil
+}
+
+func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Candidate, error) {
+	sections, _ := um.connector.GetSTASections()
+	existingSTAs := make(map[string]string)
+	activeSSID := ""
+	for _, section := range sections {
+		existingSTAs[section.SSID] = section.Name
+		if !section.Disabled {
+			activeSSID = section.SSID
+		}
+	}
+
+	var best *Candidate
+	for _, net := range networks {
+		if !strings.HasPrefix(net.SSID, "TollGate-") {
+			continue
+		}
+		enc := strings.ToLower(net.Encryption)
+		if enc != "" && enc != "none" && enc != "open" {
+			continue
+		}
+		if net.SSID == activeSSID {
+			continue
+		}
+
+		ifaceName, exists := existingSTAs[net.SSID]
+		if !exists {
+			radio, err := um.scanner.FindBestRadioForSSID(net.SSID, networks)
+			if err != nil {
+				logger.WithFields(logrus.Fields{
+					"ssid":  net.SSID,
+					"error": err,
+				}).Debug("No radio found for TollGate SSID")
+				continue
+			}
+			iface, err := um.connector.FindOrCreateSTAForSSID(net.SSID, "", "none", radio)
+			if err != nil {
+				logger.WithError(err).Warn("Failed to create STA for TollGate SSID")
+				continue
+			}
+			ifaceName = iface
+			logger.WithFields(logrus.Fields{
+				"ssid":   net.SSID,
+				"iface":  ifaceName,
+				"radio":  radio,
+				"signal": net.Signal,
+			}).Info("Created STA for TollGate candidate")
+		}
+
+		if best == nil || net.Signal > best.Signal {
+			best = &Candidate{
+				Signal:    net.Signal,
+				Radio:     net.Radio,
+				IfaceName: ifaceName,
+				SSID:      net.SSID,
+			}
+		}
+	}
+
+	if best == nil {
+		return nil, fmt.Errorf("no TollGate candidates found")
+	}
 	return best, nil
 }
 

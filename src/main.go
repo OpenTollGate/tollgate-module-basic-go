@@ -173,7 +173,7 @@ func (r *resellerModeAdapter) IsResellerModeActive() bool {
 }
 
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantInstance, gatewayManager)
+	cliServer = cli.NewCLIServer(configManager, merchantInstance, gatewayManager, upstreamManager)
 
 	err := cliServer.Start()
 	if err != nil {
