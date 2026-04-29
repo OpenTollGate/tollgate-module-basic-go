@@ -149,11 +149,10 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 						reason = "scheduled"
 					}
 			} else {
-				lostCount++
 				if um.isPaused() {
-					logger.Debug("Connectivity check paused after manual switch")
 					continue
 				}
+				lostCount++
 				logger.WithField("lost_count", lostCount).Info("Connectivity lost")
 					if lostCount >= um.config.LostThreshold {
 						shouldScan = true

@@ -1034,7 +1034,7 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		reloadDone <- c.reloadRadio(candidateRadio)
 	}()
 
-	staIface, err := c.waitForSTAIP(candidateRadio, 180*time.Second)
+	staIface, err := c.waitForSTAIP(candidateRadio, candidateSSID, 180*time.Second)
 	<-reloadDone
 
 	if err == nil && staIface != "" {
@@ -1080,7 +1080,7 @@ func (c *Connector) GetSTADevice(ifaceName string) (string, error) {
 	return strings.TrimSpace(output), nil
 }
 
-func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, error) {
+func (c *Connector) waitForSTAIP(radio string, targetSSID string, timeout time.Duration) (string, error) {
 	radioNum := strings.TrimPrefix(radio, "radio")
 	deadline := time.Now().Add(timeout)
 
@@ -1103,7 +1103,15 @@ func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, e
 			}
 			if strings.TrimSpace(string(phyIdx)) == radioNum {
 				if ip := c.getInterfaceIP(name); ip != "" {
-					return name, nil
+					if c.verifySTASSID(name, targetSSID) {
+						return name, nil
+					}
+					logger.WithFields(logrus.Fields{
+						"iface":   name,
+						"ip":      ip,
+						"expected_ssid": targetSSID,
+						"remaining": time.Until(deadline).Truncate(time.Second),
+					}).Debug("STA has IP but wrong SSID, still reconnecting")
 				}
 				logger.WithFields(logrus.Fields{
 					"iface": name,
@@ -1116,6 +1124,16 @@ func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, e
 	}
 
 	return "", fmt.Errorf("timed out waiting for STA IP on radio %s", radio)
+}
+
+func (c *Connector) verifySTASSID(iface, expectedSSID string) bool {
+	cmd := exec.Command("iwinfo", iface, "info")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if cmd.Run() != nil {
+		return false
+	}
+	return strings.Contains(out.String(), "ESSID: \""+expectedSSID+"\"")
 }
 
 func (c *Connector) getInterfaceIP(iface string) string {

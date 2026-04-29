@@ -124,9 +124,9 @@ Additional SSIDs available for testing:
 
 ### Phase 8: SSID Blacklist
 
-- [ ] Blacklist SSID on emergency switch (requires losing internet on connected upstream)
-- [ ] Blacklisted SSIDs skipped in candidate selection
-- [ ] Blacklist entries expire after 60 minutes
+- [x] Blacklist SSID on emergency switch — TollGate-1690 connected, auth timed out, daemon blacklisted after emergency switch back to c03rad0r2
+- [x] Blacklisted SSIDs skipped in candidate selection — scheduled scan cycle shows "No known upstream candidates available"
+- [ ] Blacklist entries expire after 60 minutes (not explicitly tested, would require waiting 60 min)
 - [x] `purgeBlacklist()` called at start of each scan cycle
 
 ### Phase 9: Reseller Mode Guard
@@ -145,6 +145,9 @@ Additional SSIDs available for testing:
 | 5 | DHCP timeout too short (30s → 45s → 60s) | Increased to 180s, async reload means polling starts immediately | Fixed |
 | 6 | Alternate radio hack forced weaker signal, caused DHCP timeouts | Removed `FindAlternateRadioForSSID` entirely, always use strongest signal | Fixed |
 | 7 | Cross-radio logic added complexity without preventing NetBird loss | Removed cross-radio branching, simplified to straight-line flow | Fixed |
+| 8 | `initUpstreamManager()` called AFTER `initCLIServer()` — CLIServer gets nil upstreamManager, `PauseConnectivityChecks` never called | Swapped init order: `initUpstreamManager()` before `initCLIServer()` | Fixed |
+| 9 | `waitForSTAIP` false positive — detects stale IP from previous connection before radio reload takes effect | Added `verifySTASSID()` to confirm `iwinfo` ESSID matches target before accepting IP | Fixed |
+| 10 | `lostCount++` before pause check — counts accumulate during 120s pause, triggering emergency scan when pause expires | Moved `lostCount++` after `isPaused()` check, `continue` before increment when paused | Fixed |
 
 ## Key Findings
 

@@ -112,14 +112,14 @@ func init() {
 	merchantInstance.StartPayoutRoutine()
 	merchantInstance.StartDataUsageMonitoring()
 
-	// Initialize CLI server
-	initCLIServer()
+	// Initialize upstream WiFi manager
+	initUpstreamManager()
 
 	// Initialize upstream detector module
 	initUpstreamDetector()
 
-	// Initialize upstream WiFi manager
-	initUpstreamManager()
+	// Initialize CLI server (must come after initUpstreamManager so CLIServer gets non-nil upstreamManager)
+	initCLIServer()
 }
 
 func initUpstreamDetector() {
