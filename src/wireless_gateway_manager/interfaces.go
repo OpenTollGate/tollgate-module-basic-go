@@ -37,7 +37,6 @@ type ScannerInterface interface {
 	GetRadios() ([]string, error)
 	DetectEncryption(encryptionStr string) string
 	FindBestRadioForSSID(ssid string, networks []NetworkInfo) (string, error)
-	FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error)
 }
 
 // NetworkMonitorInterface defines the methods for network monitoring operations.

@@ -401,18 +401,3 @@ func (s *Scanner) FindBestRadioForSSID(ssid string, networks []NetworkInfo) (str
 	return "", fmt.Errorf("SSID '%s' not found in scan results", ssid)
 }
 
-func (s *Scanner) FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error) {
-	var best *NetworkInfo
-	for i := range networks {
-		net := &networks[i]
-		if net.SSID == ssid && net.Radio != avoidRadio {
-			if best == nil || net.Signal > best.Signal {
-				best = net
-			}
-		}
-	}
-	if best != nil {
-		return best.Radio, nil
-	}
-	return "", fmt.Errorf("SSID '%s' not found on alternate radio", ssid)
-}

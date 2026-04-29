@@ -616,17 +616,6 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	activeSTA, _ := s.gatewayManager.GetActiveSTA()
-	if activeSTA != nil {
-		activeRadio, _ := s.gatewayManager.GetSTADevice(activeSTA.Name)
-		if activeRadio == bestRadio {
-			altRadio, altErr := s.gatewayManager.FindAlternateRadioForSSID(ssid, bestRadio, networks)
-			if altErr == nil {
-				bestRadio = altRadio
-			}
-		}
-	}
-
 	var encryptionStr string
 	for _, net := range networks {
 		if net.SSID == ssid {
@@ -665,6 +654,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	}
 
 	activeIface := ""
+	activeSTA, _ := s.gatewayManager.GetActiveSTA()
 	if activeSTA != nil {
 		activeIface = activeSTA.Name
 	}
@@ -730,25 +720,6 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 		}
 	}
 
-	activeSTA, _ := s.gatewayManager.GetActiveSTA()
-	if activeSTA != nil {
-		activeRadio, _ := s.gatewayManager.GetSTADevice(activeSTA.Name)
-		if activeRadio == bestRadio {
-			altRadio, altErr := s.gatewayManager.FindAlternateRadioForSSID(ssid, bestRadio, networks)
-			if altErr == nil {
-				s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps),
-					fmt.Sprintf("Using alternate radio %s (avoiding active STA on %s)", altRadio, bestRadio))
-				bestRadio = altRadio
-				for _, net := range networks {
-					if net.SSID == ssid && net.Radio == bestRadio {
-						signalStr = fmt.Sprintf(" (%d dBm on %s)", net.Signal, bestRadio)
-						break
-					}
-				}
-			}
-		}
-	}
-
 	var encryptionStr string
 	for _, net := range networks {
 		if net.SSID == ssid {
@@ -794,6 +765,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	}
 
 	activeIface := ""
+	activeSTA, _ := s.gatewayManager.GetActiveSTA()
 	if activeSTA != nil {
 		activeIface = activeSTA.Name
 	}

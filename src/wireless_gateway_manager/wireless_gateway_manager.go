@@ -285,9 +285,7 @@ func (gm *GatewayManager) FindBestRadioForSSID(ssid string, networks []NetworkIn
 	return gm.scanner.FindBestRadioForSSID(ssid, networks)
 }
 
-func (gm *GatewayManager) FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error) {
-	return gm.scanner.FindAlternateRadioForSSID(ssid, avoidRadio, networks)
-}
+
 
 func (gm *GatewayManager) GetSTASections() ([]STASection, error) {
 	return gm.connector.GetSTASections()

@@ -122,10 +122,7 @@ func (m *MockScanner) FindBestRadioForSSID(ssid string, networks []NetworkInfo) 
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockScanner) FindAlternateRadioForSSID(ssid, avoidRadio string, networks []NetworkInfo) (string, error) {
-	args := m.Called(ssid, avoidRadio, networks)
-	return args.String(0), args.Error(1)
-}
+
 
 // MockVendorElementProcessor is a mock implementation of the VendorElementProcessor interface for testing
 type MockVendorElementProcessor struct {
