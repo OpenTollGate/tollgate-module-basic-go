@@ -16,6 +16,7 @@ type CLIResponse struct {
 	Message   string      `json:"message,omitempty"`
 	Data      interface{} `json:"data,omitempty"`
 	Error     string      `json:"error,omitempty"`
+	Progress  string      `json:"progress,omitempty"`
 	Timestamp time.Time   `json:"timestamp"`
 }
 

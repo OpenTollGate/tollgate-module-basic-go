@@ -41,6 +41,7 @@ type CLIResponse struct {
 	Message   string      `json:"message,omitempty"`
 	Data      interface{} `json:"data,omitempty"`
 	Error     string      `json:"error,omitempty"`
+	Progress  string      `json:"progress,omitempty"`
 	Timestamp time.Time   `json:"timestamp"`
 }
 
@@ -273,7 +274,7 @@ var upstreamConnectCmd = &cobra.Command{
 		if len(args) > 1 {
 			cmdArgs = append(cmdArgs, args[1])
 		}
-		return sendCommandAndDisplay("upstream", cmdArgs, nil)
+		return sendCommandStreaming("upstream", cmdArgs, nil)
 	},
 }
 
@@ -390,6 +391,56 @@ func sendCommand(msg CLIMessage) (*CLIResponse, error) {
 	}
 
 	return &response, nil
+}
+
+func sendCommandStreaming(command string, args []string, flags map[string]string) error {
+	msg := CLIMessage{
+		Command:   command,
+		Args:      args,
+		Flags:     flags,
+		Timestamp: time.Now(),
+	}
+
+	conn, err := net.Dial("unix", SocketPath)
+	if err != nil {
+		return fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err)
+	}
+	defer conn.Close()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to encode message: %v", err)
+	}
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %v", err)
+	}
+	_, err = conn.Write([]byte("\n"))
+	if err != nil {
+		return fmt.Errorf("failed to send newline: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		var response CLIResponse
+		if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
+			continue
+		}
+
+		if response.Progress != "" {
+			fmt.Printf("  %s\n", response.Progress)
+			continue
+		}
+
+		displayResponse(&response)
+		if !response.Success {
+			return fmt.Errorf("command failed")
+		}
+		return nil
+	}
+
+	return fmt.Errorf("no response from service")
 }
 
 // executeServiceCommand executes service control commands directly via init scripts

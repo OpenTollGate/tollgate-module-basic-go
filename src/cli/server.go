@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -129,6 +130,11 @@ func (s *CLIServer) handleConnection(conn net.Conn) {
 	if err := json.Unmarshal(data, &msg); err != nil {
 		cliLogger.WithError(err).Error("Failed to unmarshal CLI message")
 		s.sendError(conn, fmt.Sprintf("Invalid JSON: %v", err))
+		return
+	}
+
+	if msg.Command == "upstream" && len(msg.Args) >= 2 && msg.Args[0] == "connect" {
+		s.handleUpstreamConnectStreaming(conn, msg)
 		return
 	}
 
@@ -480,6 +486,13 @@ func (s *CLIServer) sendResponse(conn net.Conn, response CLIResponse) {
 	conn.Write([]byte("\n"))
 }
 
+func (s *CLIServer) sendProgress(conn net.Conn, step, message string) {
+	s.sendResponse(conn, CLIResponse{
+		Progress:  step + " " + message,
+		Timestamp: time.Now(),
+	})
+}
+
 // sendError sends an error response to the client
 func (s *CLIServer) sendError(conn net.Conn, errorMsg string) {
 	response := CLIResponse{
@@ -669,6 +682,143 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		Message:   fmt.Sprintf("Connected to '%s'", ssid),
 		Timestamp: time.Now(),
 	}
+}
+
+func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage) {
+	connectArgs := msg.Args[1:]
+
+	if len(connectArgs) < 1 {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: "connect requires an SSID argument", Timestamp: time.Now()})
+		return
+	}
+
+	ssid := connectArgs[0]
+	var passphrase string
+	if len(connectArgs) > 1 {
+		passphrase = connectArgs[1]
+	}
+
+	totalSteps := 7
+	step := 0
+
+	step++
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Enabling radios...")
+	if err := s.gatewayManager.EnsureRadiosEnabled(); err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to enable radios: %v", err), Timestamp: time.Now()})
+		return
+	}
+
+	step++
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Scanning for '%s'...", ssid))
+	networks, err := s.gatewayManager.ScanAllRadios()
+	if err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to scan networks: %v", err), Timestamp: time.Now()})
+		return
+	}
+
+	bestRadio, err := s.gatewayManager.FindBestRadioForSSID(ssid, networks)
+	if err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("SSID '%s' not found in scan", ssid), Timestamp: time.Now()})
+		return
+	}
+
+	var signalStr string
+	for _, net := range networks {
+		if net.SSID == ssid && net.Radio == bestRadio {
+			signalStr = fmt.Sprintf(" (%d dBm on %s)", net.Signal, bestRadio)
+			break
+		}
+	}
+
+	activeSTA, _ := s.gatewayManager.GetActiveSTA()
+	if activeSTA != nil {
+		activeRadio, _ := s.gatewayManager.GetSTADevice(activeSTA.Name)
+		if activeRadio == bestRadio {
+			altRadio, altErr := s.gatewayManager.FindAlternateRadioForSSID(ssid, bestRadio, networks)
+			if altErr == nil {
+				s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps),
+					fmt.Sprintf("Using alternate radio %s (avoiding active STA on %s)", altRadio, bestRadio))
+				bestRadio = altRadio
+				for _, net := range networks {
+					if net.SSID == ssid && net.Radio == bestRadio {
+						signalStr = fmt.Sprintf(" (%d dBm on %s)", net.Signal, bestRadio)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	var encryptionStr string
+	for _, net := range networks {
+		if net.SSID == ssid {
+			encryptionStr = net.Encryption
+			break
+		}
+	}
+	uciEnc := s.gatewayManager.DetectEncryption(encryptionStr)
+
+	if uciEnc == "none" {
+		passphrase = ""
+	} else if passphrase == "" {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Passphrase required for encrypted network '%s'", ssid), Timestamp: time.Now()})
+		return
+	}
+
+	step++
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Found '%s'%s encryption=%s", ssid, signalStr, uciEnc))
+
+	step++
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Setting up wwan interface...")
+	if err := s.gatewayManager.EnsureWWANSetup(); err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to setup wwan: %v", err), Timestamp: time.Now()})
+		return
+	}
+
+	ifaceName := "upstream_" + strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, strings.ToLower(ssid))
+	if len(ifaceName) > 40 {
+		ifaceName = ifaceName[:40]
+	}
+
+	step++
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Creating STA %s on %s...", ifaceName, bestRadio))
+	staIface, err := s.gatewayManager.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
+	if err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to create STA interface: %v", err), Timestamp: time.Now()})
+		return
+	}
+
+	activeIface := ""
+	if activeSTA != nil {
+		activeIface = activeSTA.Name
+	}
+
+	crossInfo := ""
+	if activeIface != "" {
+		activeRadio, _ := s.gatewayManager.GetSTADevice(activeIface)
+		if activeRadio != "" && activeRadio != bestRadio {
+			crossInfo = fmt.Sprintf(" (cross-radio: %s -> %s)", activeRadio, bestRadio)
+		}
+	}
+
+	step++
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Switching upstream%s... waiting for DHCP", crossInfo))
+	if err := s.gatewayManager.SwitchUpstream(activeIface, staIface, ssid); err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
+		return
+	}
+
+	step++
+	s.sendResponse(conn, CLIResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("Connected to '%s' via %s%s", ssid, staIface, signalStr),
+		Timestamp: time.Now(),
+	})
 }
 
 func (s *CLIServer) handleUpstreamList() CLIResponse {
