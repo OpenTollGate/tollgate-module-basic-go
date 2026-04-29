@@ -1008,27 +1008,18 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		return fmt.Errorf("no radio found for interface %s", candidateIface)
 	}
 
-	activeRadio := ""
-	if activeIface != "" {
-		r, _ := c.ExecuteUCI("get", "wireless."+activeIface+".device")
-		activeRadio = strings.TrimSpace(r)
-	}
-
 	logger.WithFields(logrus.Fields{
-		"active":         activeIface,
-		"active_radio":   activeRadio,
-		"candidate":      candidateIface,
+		"active":          activeIface,
+		"candidate":       candidateIface,
 		"candidate_radio": candidateRadio,
-		"ssid":           candidateSSID,
+		"ssid":            candidateSSID,
 	}).Info("Switching upstream")
-
-	crossRadio := activeRadio != "" && activeRadio != candidateRadio
 
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=0"); err != nil {
 		return fmt.Errorf("failed to enable candidate upstream %s: %w", candidateIface, err)
 	}
 
-	if !crossRadio && activeIface != "" {
+	if activeIface != "" {
 		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=1"); err != nil {
 			return fmt.Errorf("failed to disable active upstream %s: %w", activeIface, err)
 		}
@@ -1044,25 +1035,14 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 	}()
 
 	staIface, err := c.waitForSTAIP(candidateRadio, 180*time.Second)
+	<-reloadDone
+
 	if err == nil && staIface != "" {
-		go func() { <-reloadDone }()
 		logger.WithFields(logrus.Fields{
 			"ssid":  candidateSSID,
 			"iface": staIface,
 			"radio": candidateRadio,
 		}).Info("Successfully switched upstream")
-
-		if crossRadio && activeIface != "" {
-			if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=1"); err != nil {
-				logger.WithError(err).Warn("Failed to disable old upstream on other radio (non-fatal)")
-			}
-			if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-				logger.WithError(err).Warn("Failed to commit after disabling old upstream")
-			}
-			if err := c.reloadRadio(activeRadio); err != nil {
-				logger.WithError(err).Warn("Failed to reload old radio after disabling old upstream")
-			}
-		}
 
 		exec.Command("/etc/init.d/dnsmasq", "restart").Run()
 		exec.Command("/etc/init.d/firewall", "restart").Run()
@@ -1074,16 +1054,9 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		"candidate": candidateIface,
 	}).Warn("Timed out waiting for DHCP, reverting to previous upstream")
 
-	<-reloadDone
-
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=1"); err != nil {
 		logger.WithError(err).Error("Failed to disable candidate during fallback")
 	}
-
-	if err := c.reloadRadio(candidateRadio); err != nil {
-		logger.WithError(err).Error("Failed to reload candidate radio during fallback")
-	}
-
 	if activeIface != "" {
 		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=0"); err != nil {
 			logger.WithError(err).Error("Failed to re-enable previous upstream during fallback")

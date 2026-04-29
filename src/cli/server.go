@@ -770,16 +770,8 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 		activeIface = activeSTA.Name
 	}
 
-	crossInfo := ""
-	if activeIface != "" {
-		activeRadio, _ := s.gatewayManager.GetSTADevice(activeIface)
-		if activeRadio != "" && activeRadio != bestRadio {
-			crossInfo = fmt.Sprintf(" (cross-radio: %s -> %s)", activeRadio, bestRadio)
-		}
-	}
-
 	step++
-	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Switching upstream%s... waiting for DHCP", crossInfo))
+	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Switching upstream... waiting for DHCP")
 	if err := s.gatewayManager.SwitchUpstream(activeIface, staIface, ssid); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
