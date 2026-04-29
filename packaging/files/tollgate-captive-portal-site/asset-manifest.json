@@ -1,11 +1,14 @@
 {
   "assets": {
     "js": [
-      "assets/browser-ponyfill-D705Nwom.js",
-      "assets/index-C89KGXD5.js",
+      "assets/balance-Dc5tzDEA.js",
+      "assets/browser-ponyfill-CaxIvSYp.js",
+      "assets/index-D4N0VKD5.js",
+      "assets/portal-DomINKD1.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js"
     ],
     "css": [
+      "assets/balance-5KSP87Gz.css",
       "assets/index-Di_2ftDS.css"
     ],
     "images": [
@@ -16,7 +19,8 @@
       "locales/en.json"
     ],
     "html": [
-      "index.html"
+      "balance.html",
+      "splash.html"
     ],
     "manifest": [
       "manifest.json"

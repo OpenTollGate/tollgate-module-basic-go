@@ -6,6 +6,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
 	"github.com/Origami74/gonuts-tollgate/wallet"
 )
 
@@ -192,6 +193,18 @@ func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverp
 		maxOverpaymentPercent, result.RequestedAmount, result.Overpayment)
 
 	return tokenString, nil
+}
+
+func (w *TollWallet) RequestMintQuote(amount uint64, mintURL string) (*nut04.PostMintQuoteBolt11Response, error) {
+	return w.wallet.RequestMint(amount, mintURL)
+}
+
+func (w *TollWallet) GetMintQuoteState(quoteID string) (*nut04.PostMintQuoteBolt11Response, error) {
+	return w.wallet.MintQuoteState(quoteID)
+}
+
+func (w *TollWallet) MintQuoteTokens(quoteID string) (uint64, error) {
+	return w.wallet.MintTokens(quoteID)
 }
 
 func ParseToken(token string) (cashu.Token, error) {
