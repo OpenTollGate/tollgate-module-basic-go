@@ -475,16 +475,16 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 
 	switch m.config.Metric {
 	case "milliseconds":
-		return m.calculateAllotmentMs(steps, mintConfig)
+		return m.calculateAllotmentMs(steps)
 	case "bytes":
-		return m.calculateAllotmentBytes(steps, mintConfig)
+		return m.calculateAllotmentBytes(steps)
 	default:
 		return 0, fmt.Errorf("unsupported metric: %s", m.config.Metric)
 	}
 }
 
 // calculateAllotmentMs calculates allotment in milliseconds from steps
-func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+func (m *Merchant) calculateAllotmentMs(steps uint64) (uint64, error) {
 	// Convert steps to milliseconds using configured step size
 	totalMs := steps * m.config.StepSize
 
@@ -495,7 +495,7 @@ func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager
 }
 
 // calculateAllotmentBytes calculates allotment in bytes from steps
-func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
+func (m *Merchant) calculateAllotmentBytes(steps uint64) (uint64, error) {
 	// Convert steps to bytes using configured step size
 	totalBytes := steps * m.config.StepSize
 

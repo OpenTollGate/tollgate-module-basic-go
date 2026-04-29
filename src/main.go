@@ -1,12 +1,12 @@
 package main
 
 import (
-	"context" // Added for context.Background()
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net" // Added for net.Interfaces()
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -630,8 +630,6 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	mainLogger.Fatal(server.ListenAndServe())
-
 	go func() {
 		for {
 			if !isOnline() {
@@ -661,7 +659,7 @@ func main() {
 		}
 	}()
 
-	fmt.Println("Shutting down Tollgate - Whoami")
+	mainLogger.Fatal(server.ListenAndServe())
 }
 
 // isOnline checks if the device has at least one active, non-loopback network interface with an IP address.

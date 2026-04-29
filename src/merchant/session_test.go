@@ -76,3 +76,44 @@ func TestGetSessionKeepsBytesSession(t *testing.T) {
 		t.Fatal("expected bytes session to be returned")
 	}
 }
+
+func TestAddAllotmentCreatesFreshSessionAfterExpiredSessionIsRead(t *testing.T) {
+	macAddress := "aa:bb:cc:dd:ee:ff"
+	oldStart := time.Now().Add(-3 * time.Second).Unix()
+	m := &Merchant{
+		customerSessions: map[string]*CustomerSession{
+			macAddress: {
+				MacAddress: macAddress,
+				StartTime:  oldStart,
+				Metric:     "milliseconds",
+				Allotment:  1000,
+			},
+		},
+	}
+
+	if _, err := m.GetSession(macAddress); err == nil {
+		t.Fatal("expected expired session lookup to fail")
+	}
+
+	const newAllotment uint64 = 2000
+	session, err := m.AddAllotment(macAddress, "milliseconds", newAllotment)
+	if err != nil {
+		t.Fatalf("expected new allotment to succeed, got %v", err)
+	}
+	if session == nil {
+		t.Fatal("expected session to be recreated")
+	}
+	if session.Allotment != newAllotment {
+		t.Fatalf("expected fresh session allotment %d, got %d", newAllotment, session.Allotment)
+	}
+	if session.StartTime <= oldStart {
+		t.Fatalf("expected refreshed start time after expired session removal, got %d <= %d", session.StartTime, oldStart)
+	}
+	storedSession, exists := m.customerSessions[macAddress]
+	if !exists {
+		t.Fatal("expected recreated session to be stored")
+	}
+	if storedSession.Allotment != newAllotment {
+		t.Fatalf("expected stored session allotment %d, got %d", newAllotment, storedSession.Allotment)
+	}
+}
