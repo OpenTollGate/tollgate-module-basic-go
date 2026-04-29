@@ -1038,12 +1038,14 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		return err
 	}
 
-	if err := c.reloadRadio(candidateRadio); err != nil {
-		return err
-	}
+	reloadDone := make(chan error, 1)
+	go func() {
+		reloadDone <- c.reloadRadio(candidateRadio)
+	}()
 
-	staIface, err := c.waitForSTAIP(candidateRadio, 60*time.Second)
+	staIface, err := c.waitForSTAIP(candidateRadio, 180*time.Second)
 	if err == nil && staIface != "" {
+		go func() { <-reloadDone }()
 		logger.WithFields(logrus.Fields{
 			"ssid":  candidateSSID,
 			"iface": staIface,
@@ -1071,6 +1073,8 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		"ssid":      candidateSSID,
 		"candidate": candidateIface,
 	}).Warn("Timed out waiting for DHCP, reverting to previous upstream")
+
+	<-reloadDone
 
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=1"); err != nil {
 		logger.WithError(err).Error("Failed to disable candidate during fallback")
@@ -1128,28 +1132,34 @@ func (c *Connector) waitForSTAIP(radio string, timeout time.Duration) (string, e
 				if ip := c.getInterfaceIP(name); ip != "" {
 					return name, nil
 				}
+				logger.WithFields(logrus.Fields{
+					"iface": name,
+					"radio": radio,
+					"remaining": time.Until(deadline).Truncate(time.Second),
+				}).Debug("STA interface found but no IP yet")
 			}
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 
 	return "", fmt.Errorf("timed out waiting for STA IP on radio %s", radio)
 }
 
 func (c *Connector) getInterfaceIP(iface string) string {
-	cmd := exec.Command("ip", "-4", "addr", "show", iface, "-brief")
+	cmd := exec.Command("ip", "-o", "-4", "addr", "show", "dev", iface)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(out.String(), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[1] == "inet" {
-			return fields[2]
-		}
-		if len(fields) >= 2 && strings.Contains(fields[1], "/") {
-			return fields[1]
+	if err := cmd.Run(); err == nil {
+		for _, line := range strings.Split(out.String(), "\n") {
+			fields := strings.Fields(line)
+			for i, f := range fields {
+				if f == "inet" && i+1 < len(fields) {
+					ip := strings.SplitN(fields[i+1], "/", 2)[0]
+					if ip != "" {
+						return ip
+					}
+				}
+			}
 		}
 	}
 
