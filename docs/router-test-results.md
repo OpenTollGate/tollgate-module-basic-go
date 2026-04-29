@@ -112,37 +112,27 @@ Additional SSIDs available for testing:
 
 - [x] Daemon runs scheduled scan cycles (observed at 5-minute interval on Router B)
 - [x] Daemon maintains stable connection — no spurious switching when connected to `c03rad0r2`
-- [x] Connectivity restored after brief loss — daemon detected lost_count=1 then restored
-- [ ] **Known issue**: Daemon undoes manual connect within 25-30s — see below
+- [x] Connectivity check pings 9.9.9.9 (external) — detects "has DHCP but no internet"
+- [x] Daemon scan cycle runs normally after manual connect (no crash, no spurious switch)
 
-### Phase 7: Reseller Mode Guard
+### Phase 7: Daemon Race Condition Fix
+
+- [x] Manual `tollgate upstream connect c03rad0r2` succeeds, daemon does NOT switch back
+- [x] `tollgate upstream list` shows c03rad0r2 as ACTIVE after 90+ seconds
+- [x] `PauseConnectivityChecks(120s)` logged after successful manual connect
+- [x] Daemon resumes normal scanning after pause expires
+
+### Phase 8: SSID Blacklist
+
+- [ ] Blacklist SSID on emergency switch (requires losing internet on connected upstream)
+- [ ] Blacklisted SSIDs skipped in candidate selection
+- [ ] Blacklist entries expire after 60 minutes
+- [x] `purgeBlacklist()` called at start of each scan cycle
+
+### Phase 9: Reseller Mode Guard
 
 - [ ] Reseller mode=false → upstream manager active (not explicitly tested with reseller_mode=true)
-
-### Not Yet Tested
-
-- [ ] Reseller mode=true blocks upstream operations
-- [ ] Daemon auto-switch: observe daemon automatically switching to stronger signal over time
-
-## Known Issue: Daemon vs Manual Connect Race
-
-When `tollgate upstream connect` succeeds, the daemon's connectivity check (every 30s) detects the brief radio reload disruption and triggers an emergency switch back to the previous STA. Timeline observed on both routers:
-
-```
-T+0s   - Manual connect succeeds (FRITZ!Box 7490 AS)
-T+25s  - Daemon detects connectivity lost (count 1)
-T+55s  - Daemon detects connectivity lost (count 2 = LostThreshold)
-T+58s  - Daemon switches back to c03rad0r (emergency scan)
-T+68s  - Daemon successfully switches back
-```
-
-The connect itself works perfectly — DHCP, IP, connectivity all succeed. The daemon just undoes it.
-
-**Mitigations** (not yet implemented):
-- Pause daemon scanning for N seconds after a manual connect
-- Increase `LostThreshold` from 2 to 3-4 (more tolerant of brief disruptions)
-- Add a grace period after connects where connectivity loss is ignored
-- Have the daemon update its internal active STA tracking to match the manual switch
+- [ ] Reseller mode=true → daemon scans for TollGate-* SSIDs, creates STAs on-the-fly
 
 ## Bugs Found and Fixed During Router Testing
 
@@ -164,25 +154,13 @@ The connect itself works perfectly — DHCP, IP, connectivity all succeed. The d
 - The actual reconfiguration (tear down interfaces, reconfigure, bring up, associate, DHCP) takes 60-120s
 - `waitForSTAIP` must run concurrently with the reload, not after it
 
-### Same-radio switching always disrupts NetBird
+### Same-radio switching disrupts NetBird
 
-When the active STA providing NetBird is on the same radio as the new STA:
-1. Old STA disabled, new STA enabled, UCI committed
-2. `wifi reload <radio>` triggers reconfiguration
-3. Radio0 interfaces torn down (including NetBird tunnel)
-4. New STA associates, gets DHCP
-5. NetBird tunnel eventually re-establishes through new upstream
+When the active STA providing NetBird is on the same radio as the new STA, `wifi reload <radio>` disrupts all interfaces on that radio for 30-120s. This is inherent to same-radio switching. Brief outage is unavoidable.
 
-This is inherent to same-radio switching. The brief outage (30-120s) is unavoidable.
+### Connectivity check: ping 9.9.9.9 vs gateway
 
-### Daemon vs manual connect race condition
-
-After a manual `tollgate upstream connect`, the daemon's 30-second connectivity check may detect the brief disruption from the radio reload and trigger an emergency scan. This can undo the manual switch within 60-90 seconds.
-
-Possible mitigations (not yet implemented):
-- Pause daemon scanning for N seconds after a manual connect
-- Increase `LostThreshold` or add a grace period after connects
-- Have the daemon respect the manual switch by updating its internal state
+Pinging the default gateway doesn't detect "has DHCP but no internet" (e.g., TollGates that block traffic until payment). Pinging `9.9.9.9` (external) detects this correctly.
 
 ### Encryption detection
 
