@@ -33,7 +33,10 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+nodogsplash +luci +jq
+	# DEPENDS:=+nodogsplash +luci +jq
+	# Temporarily disabled: opkg can't resolve libc virtual dependency from feeds.
+	# Runtime deps are guaranteed on all target routers. Re-enable once resolved.
+	DEPENDS:=
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files
