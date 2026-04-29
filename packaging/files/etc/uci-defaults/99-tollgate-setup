@@ -14,12 +14,17 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup steps ------------------------------------------------------------
 
+# NOTE (pre-existing bug fix, unrelated to netbird zone):
+# The firewall-tollgate include was removed because fw4's include mechanism
+# only supports shell scripts, not UCI config files. The previous code created
+# an include pointing to /etc/config/firewall-tollgate (a UCI config file),
+# which caused "You cannot use UCI in firewall includes!" on every firewall
+# restart. All firewall rules are managed via UCI commands in this script
+# (see setup_tollgate_firewall_rules, setup_private_network, setup_netbird_zone).
+# On existing routers, clean up the stale include manually:
+#   uci delete firewall.tollgate_rules && uci commit firewall && fw4 reload
 setup_firewall_include() {
-    # Pull in /etc/config/firewall-tollgate via a named include.
-    uci -q get firewall.tollgate_rules >/dev/null 2>&1 && return
-    uci add firewall include >/dev/null
-    uci set firewall.@include[-1].path='/etc/config/firewall-tollgate'
-    uci rename firewall.@include[-1]='tollgate_rules'
+    return
 }
 
 setup_uhttpd() {
@@ -215,6 +220,22 @@ setup_private_network() {
     uci set firewall.private_forwarding.dest='wan'
 }
 
+setup_netbird_zone() {
+    uci -q get firewall.netbird_zone >/dev/null 2>&1 && return
+    uci set firewall.netbird_zone='zone'
+    uci set firewall.netbird_zone.name='netbird'
+    uci add_list firewall.netbird_zone.device='wt0'
+    uci set firewall.netbird_zone.input='ACCEPT'
+    uci set firewall.netbird_zone.output='ACCEPT'
+    uci set firewall.netbird_zone.forward='REJECT'
+    uci set firewall.netbird_lan_fwd='forwarding'
+    uci set firewall.netbird_lan_fwd.src='netbird'
+    uci set firewall.netbird_lan_fwd.dest='lan'
+    uci set firewall.netbird_private_fwd='forwarding'
+    uci set firewall.netbird_private_fwd.src='netbird'
+    uci set firewall.netbird_private_fwd.dest='private'
+}
+
 commit_all() {
     uci commit network
     uci commit wireless
@@ -238,6 +259,7 @@ setup_tollgate_firewall_rules
 setup_profile_hook
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX
+setup_netbird_zone
 commit_all
 
 log "TollGate setup completed"
