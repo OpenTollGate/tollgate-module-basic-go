@@ -1,0 +1,501 @@
+# ---------------------------------------------------------------------------
+# Makefile.test — Router testing for degraded merchant mode
+#
+# Two modes:
+#   1. LOCAL  — run directly on the router (SSH into it first)
+#   2. REMOTE — run from your dev machine via SSH (requires routers.env)
+#
+# Setup for remote mode:
+#   cp routers.env.example routers.env   # then edit with real IPs
+#   ssh-copy-id root@<router-ip>         # SSH key auth, no passwords
+#
+# Quick reference:
+#   make -f Makefile.test r-deploy ROUTER=alpha                      # deploy binaries
+#   make -f Makefile.test r-smoke-offline ROUTER=alpha               # test degraded mode
+#   make -f Makefile.test r-smoke-recovery ROUTER=alpha              # test recovery
+#   make -f Makefile.test r-full ROUTER=alpha                        # full test suite
+# ---------------------------------------------------------------------------
+
+.PHONY: status check-merchant check-degraded block-mint unblock-mint \
+        restart-service record-baseline test-offline-ops \
+        wait-recovery test-first-boot-offline test-no-mints cleanup \
+        smoke-offline smoke-recovery full \
+        r-status r-check-merchant r-check-degraded r-block-mint \
+        r-unblock-mint r-restart-service r-record-baseline \
+        r-test-offline-ops r-wait-recovery r-test-first-boot-offline \
+        r-test-no-mints r-cleanup r-deploy r-logs r-shell \
+        r-smoke-offline r-smoke-recovery r-full \
+        routers help
+
+ROUTER ?= alpha
+MINT   ?= https://nofee.testnut.cashu.space
+
+BOLD   := \033[1m
+GREEN  := \033[32m
+RED    := \033[31m
+YELLOW := \033[33m
+CYAN   := \033[36m
+RESET  := \033[0m
+
+# ---- Remote helper --------------------------------------------------------
+# Source routers.env, resolve ROUTER_<NAME>_HOST, build SSH command.
+
+SSH = @router_host=$$(grep -E "^ROUTER_$$(echo $(ROUTER) | tr '[:lower:]' '[:upper:]')_HOST=" routers.env | cut -d= -f2); \
+if [ -z "$$router_host" ]; then echo "$(RED)Unknown router '$(ROUTER)'. Check routers.env$(RESET)" >&2; exit 1; fi; \
+ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host
+
+define RESOLVE_ROUTER
+router_host=$$(grep -E "^ROUTER_$$(echo $(ROUTER) | tr '[:lower:]' '[:upper:]')_HOST=" routers.env | cut -d= -f2); \
+if [ -z "$$router_host" ]; then echo "$(RED)Unknown router '$(ROUTER)'. Check routers.env$(RESET)" >&2; exit 1; fi
+endef
+
+# ===========================================================================
+#  LOCAL TARGETS (run on the router itself)
+# ===========================================================================
+
+help: ## Show this help
+	@echo "Degraded Merchant Mode — Router Testing"
+	@echo "========================================="
+	@echo ""
+	@echo "Usage (local):  make -f Makefile.test <target>"
+	@echo "Usage (remote): make -f Makefile.test r-<target> ROUTER=alpha"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-35s$(RESET) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Variables:"
+	@echo "  ROUTER  - router label from routers.env (default: alpha)"
+	@echo "  MINT    - mint URL to block/unblock (default: https://nofee.testnut.cashu.space)"
+
+status: ## [local] Phase 1: Verify service is running
+	@echo "$(BOLD)=== Phase 1: Service Status ===$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Service logs (last 20)...$(RESET)"
+	@logread -e tollgate | tail -20
+	@echo ""
+	@echo "$(YELLOW)CLI version...$(RESET)"
+	@tollgate version || echo "$(RED)CLI failed$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Service status...$(RESET)"
+	@tollgate status || echo "$(RED)Status failed$(RESET)"
+
+check-merchant: ## [local] Verify full merchant (online boot)
+	@echo "$(BOLD)=== Check: Full Merchant ===$(RESET)"
+	@logread -e tollgate | grep -q "Merchant ready" && \
+		echo "$(GREEN)OK: Merchant ready (full mode)$(RESET)" || \
+		echo "$(RED)FAIL: Merchant ready not found in logs$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Wallet balance...$(RESET)"
+	@tollgate wallet balance || echo "$(RED)Balance check failed$(RESET)"
+
+check-degraded: ## [local] Verify degraded merchant (offline boot)
+	@echo "$(BOLD)=== Check: Degraded Merchant ===$(RESET)"
+	@logread -e tollgate | grep -q "Starting in degraded mode" && \
+		echo "$(GREEN)OK: Degraded mode detected$(RESET)" || \
+		echo "$(RED)FAIL: Degraded mode not found in logs$(RESET)"
+	@echo ""
+	@logread -e tollgate | grep "offline wallet loaded" | tail -1
+	@echo ""
+	@echo "$(YELLOW)Wallet balance (offline)...$(RESET)"
+	@tollgate wallet balance || echo "$(RED)Balance check failed$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Service status (offline)...$(RESET)"
+	@tollgate status || echo "$(RED)Status failed$(RESET)"
+
+block-mint: ## [local] Block mint IP via iptables (simulate offline)
+	@mint_host=$$(echo "$(MINT)" | sed -E 's|https?://([^/:]+).*|\1|'); \
+	mint_ip=$$(nslookup $$mint_host 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $$2}' | head -1); \
+	if [ -z "$$mint_ip" ]; then \
+		echo "$(RED)Could not resolve $$mint_host$(RESET)"; exit 1; \
+	fi; \
+	echo "$(YELLOW)Blocking mint $$mint_host ($$mint_ip)...$(RESET)"; \
+	iptables -C OUTPUT -d $$mint_ip -j DROP 2>/dev/null && \
+		echo "$(GREEN)Already blocked$(RESET)" || \
+		(iptables -A OUTPUT -d $$mint_ip -j DROP && echo "$(GREEN)Blocked$$mint_ip$(RESET)"); \
+	echo ""; \
+	echo "$(YELLOW)Verifying block...$(RESET)"; \
+	wget -q --timeout=5 -O- "$(MINT)/v1/info" 2>&1 | head -1 || \
+		echo "$(GREEN)OK: Mint is unreachable (block working)$(RESET)"
+
+unblock-mint: ## [local] Remove mint IP block
+	@mint_host=$$(echo "$(MINT)" | sed -E 's|https?://([^/:]+).*|\1|'); \
+	mint_ip=$$(nslookup $$mint_host 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $$2}' | head -1); \
+	if [ -z "$$mint_ip" ]; then \
+		echo "$(RED)Could not resolve $$mint_host$(RESET)"; exit 1; \
+	fi; \
+	echo "$(YELLOW)Unblocking mint $$mint_host ($$mint_ip)...$(RESET)"; \
+	iptables -D OUTPUT -d $$mint_ip -j DROP 2>/dev/null && \
+		echo "$(GREEN)Unblocked$$mint_ip$(RESET)" || \
+		echo "$(YELLOW)No block found for $$mint_ip$(RESET)"; \
+	echo ""; \
+	echo "$(YELLOW)Verifying connectivity...$(RESET)"; \
+	sleep 1; \
+	wget -q --timeout=5 -O- "$(MINT)/v1/info" > /dev/null 2>&1 && \
+		echo "$(GREEN)OK: Mint is reachable again$(RESET)" || \
+		echo "$(RED)WARN: Mint still unreachable (DNS may cache)$(RESET)"
+
+restart-service: ## [local] Restart the tollgate service
+	@echo "$(YELLOW)Restarting tollgate-wrt...$(RESET)"
+	/etc/init.d/tollgate-wrt restart
+	@echo "$(GREEN)Service restarted$(RESET)"
+	@echo "$(YELLOW)Waiting 3s for startup...$(RESET)"
+	@sleep 3
+
+record-baseline: ## [local] Record current wallet balance as baseline
+	@echo "$(BOLD)=== Recording Baseline ===$(RESET)"
+	@balance=$$(tollgate wallet balance 2>/dev/null | grep -oE '[0-9]+' | head -1); \
+	if [ -z "$$balance" ]; then balance="unknown"; fi; \
+	echo "$$balance" > /tmp/tollgate-baseline.txt; \
+	echo "$(GREEN)Baseline balance: $$balance sats (saved to /tmp/tollgate-baseline.txt)$(RESET)"
+
+test-offline-ops: ## [local] Phase 4: Verify offline wallet operations
+	@echo "$(BOLD)=== Phase 4: Offline Operations ===$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)4.1 — Wallet balance (should work offline)...$(RESET)"
+	@tollgate wallet balance && echo "$(GREEN)  OK$(RESET)" || echo "$(RED)  FAIL$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)4.2 — Service status...$(RESET)"
+	@tollgate status && echo "$(GREEN)  OK$(RESET)" || echo "$(RED)  FAIL$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)4.3 — Service still running (no crash loop)...$(RESET)"
+	@sleep 2; logread -e tollgate | tail -3 | grep -q "panic\|fatal\" && \
+		echo "$(RED)  FAIL: crash detected$(RESET)" || echo "$(GREEN)  OK: no crashes$(RESET)"
+
+wait-recovery: ## [local] Phase 5: Watch logs for recovery (up to 16 min)
+	@echo "$(BOLD)=== Phase 5: Waiting for Recovery ===$(RESET)"
+	@echo "$(YELLOW)Watching for recovery logs (timeout 960s = 16 min)...$(RESET)"
+	@echo "$(YELLOW)The tracker checks every 5 min and needs 3 consecutive successes.$(RESET)"
+	@echo "$(YELLOW)Press Ctrl+C once you see 'Merchant ready' or 'Failed to upgrade'.$(RESET)"
+	@echo ""
+	@timeout 960 logread -e tollgate -f 2>/dev/null | grep --line-buffered -i "reachable\|upgrade\|degraded\|Merchant ready\|BoltDB\|Failed to upgrade" | head -10
+
+test-first-boot-offline: ## [local] Phase 6: First boot offline (no wallet DB)
+	@echo "$(BOLD)=== Phase 6: First Boot Offline ===$(RESET)"
+	@echo "$(YELLOW)This test must be run with an unreachable mint configured$(RESET)"
+	@echo "$(YELLOW)and no existing wallet.db. Expected: graceful degradation.$(RESET)"
+	@echo ""
+	@logread -e tollgate | grep -q "offline wallet load failed" && \
+		echo "$(GREEN)OK: Offline wallet load failed gracefully (first boot)$(RESET)" || \
+		echo "$(RED)FAIL: Expected 'offline wallet load failed' log$(RESET)"
+	@echo ""
+	@logread -e tollgate | grep -q "Starting in degraded mode" && \
+		echo "$(GREEN)OK: Degraded mode started$(RESET)" || \
+		echo "$(RED)FAIL: Degraded mode not detected$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Checking service is still running (no boot loop)...$(RESET)"
+	@tollgate status && echo "$(GREEN)  OK: service running$(RESET)" || echo "$(RED)  FAIL: service down$(RESET)"
+
+test-no-mints: ## [local] Phase 7: No configured mints
+	@echo "$(BOLD)=== Phase 7: No Configured Mints ===$(RESET)"
+	@logread -e tollgate | grep -q "no configured mints" && \
+		echo "$(GREEN)OK: 'no configured mints' log found$(RESET)" || \
+		echo "$(RED)FAIL: Expected 'no configured mints' log$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Checking service is still running...$(RESET)"
+	@tollgate status && echo "$(GREEN)  OK: service running$(RESET)" || echo "$(RED)  FAIL: service down$(RESET)"
+
+cleanup: ## [local] Phase 8: Remove iptables blocks and restore
+	@echo "$(BOLD)=== Phase 8: Cleanup ===$(RESET)"
+	@echo "$(YELLOW)Removing any mint blocks...$(RESET)"
+	@mint_host=$$(echo "$(MINT)" | sed -E 's|https?://([^/:]+).*|\1|'); \
+	mint_ip=$$(nslookup $$mint_host 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $$2}' | head -1); \
+	if [ -n "$$mint_ip" ]; then \
+		iptables -D OUTPUT -d $$mint_ip -j DROP 2>/dev/null && echo "$(GREEN)Removed block for $$mint_ip$(RESET)" || echo "$(YELLOW)No block found$(RESET)"; \
+	else \
+		echo "$(YELLOW)Could not resolve mint host for cleanup$(RESET)"; \
+	fi
+	@echo ""
+	@echo "$(YELLOW)Removing baseline file...$(RESET)"
+	@rm -f /tmp/tollgate-baseline.txt
+	@echo "$(GREEN)Cleanup complete$(RESET)"
+
+smoke-offline: ## [local] Quick offline test: block + restart + verify degraded
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(BOLD)  Offline Smoke Test (2 min)$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@echo "$(CYAN)1/4 — Recording baseline...$(RESET)"
+	@balance=$$(tollgate wallet balance 2>/dev/null | grep -oE '[0-9]+' | head -1); \
+	echo "  Baseline: $$balance sats"
+	@echo ""
+	@echo "$(CYAN)2/4 — Blocking mint and restarting...$(RESET)"
+	@$(MAKE) -f Makefile.test block-mint MINT="$(MINT)"
+	@$(MAKE) -f Makefile.test restart-service
+	@echo ""
+	@echo "$(CYAN)3/4 — Checking degraded mode...$(RESET)"
+	@logread -e tollgate | grep -q "Starting in degraded mode" && \
+		echo "$(GREEN)  OK: Degraded mode$(RESET)" || echo "$(RED)  FAIL: Not in degraded mode$(RESET)"
+	@logread -e tollgate | grep -q "offline wallet loaded successfully" && \
+		echo "$(GREEN)  OK: Wallet loaded offline$(RESET)" || echo "$(YELLOW)  WARN: Wallet not loaded (first boot?)$(RESET)"
+	@echo ""
+	@echo "$(CYAN)4/4 — Wallet balance (offline)...$(RESET)"
+	@tollgate wallet balance || echo "$(RED)  Balance check failed$(RESET)"
+	@echo ""
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(GREEN)$(BOLD)  Offline smoke test complete$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Restore: make -f Makefile.test unblock-mint MINT='$(MINT)' && make -f Makefile.test restart-service$(RESET)"
+
+smoke-recovery: ## [local] Quick recovery test: unblock + wait
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(BOLD)  Recovery Smoke Test (~15 min)$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@echo "$(CYAN)1/2 — Unblocking mint...$(RESET)"
+	@$(MAKE) -f Makefile.test unblock-mint MINT="$(MINT)"
+	@echo ""
+	@echo "$(CYAN)2/2 — Watching for recovery...$(RESET)"
+	@$(MAKE) -f Makefile.test wait-recovery
+
+full: ## [local] Run the full test suite (~20 min)
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(BOLD)  Degraded Merchant Full Test Suite$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@$(MAKE) -f Makefile.test status
+	@echo ""
+	@$(MAKE) -f Makefile.test check-merchant
+	@echo ""
+	@$(MAKE) -f Makefile.test record-baseline
+	@echo ""
+	@$(MAKE) -f Makefile.test block-mint MINT="$(MINT)"
+	@echo ""
+	@$(MAKE) -f Makefile.test restart-service
+	@echo ""
+	@$(MAKE) -f Makefile.test check-degraded
+	@echo ""
+	@$(MAKE) -f Makefile.test test-offline-ops
+	@echo ""
+	@$(MAKE) -f Makefile.test unblock-mint MINT="$(MINT)"
+	@echo ""
+	@$(MAKE) -f Makefile.test wait-recovery
+	@echo ""
+	@$(MAKE) -f Makefile.test cleanup
+	@echo ""
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(GREEN)$(BOLD)  Full test suite complete$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+
+# ===========================================================================
+#  REMOTE TARGETS (run from dev machine via SSH)
+# ===========================================================================
+
+routers: ## Show configured routers from routers.env
+	@if [ ! -f routers.env ]; then echo "$(RED)routers.env not found. Run: cp routers.env.example routers.env$(RESET)"; exit 1; fi
+	@echo "$(BOLD)Configured Routers$(RESET)"
+	@echo ""
+	@grep -E "^ROUTER_[A-Z]+_HOST=" routers.env | while IFS='=' read -r key host; do \
+		name=$$(echo "$$key" | sed 's/ROUTER_//;s/_HOST//'); \
+		label=$$(grep "^ROUTER_$${name}_LABEL=" routers.env | cut -d= -f2); \
+		if [ -n "$$label" ]; then \
+			printf "  $(CYAN)%-12s$(RESET) %s  (label: %s)\n" "$$name" "$$host" "$$label"; \
+		else \
+			printf "  $(CYAN)%-12s$(RESET) %s\n" "$$name" "$$host"; \
+		fi; \
+	done
+	@echo ""
+	@echo "Active: $(CYAN)$(ROUTER)$(RESET)"
+
+r-shell: ## [remote] Open an interactive SSH session on the router
+	@$(RESOLVE_ROUTER); \
+	echo "$(GREEN)Connecting to $$router_host ($(ROUTER))...$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host
+
+r-deploy: ## [remote] Cross-compile and deploy binaries to router
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Deploying to $(ROUTER) ($$router_host) ===$(RESET)"; \
+	./scripts/local-compile-to-router.sh $$router_host
+
+r-status: ## [remote] Phase 1: Check service status
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Phase 1: Service Status [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'echo \"--- Logs (last 20) ---\"; logread -e tollgate | tail -20; echo; echo \"--- Version ---\"; tollgate version; echo; echo \"--- Status ---\"; tollgate status'"
+
+r-logs: ## [remote] Tail tollgate logs (Ctrl+C to stop)
+	@$(RESOLVE_ROUTER); \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host "logread -e tollgate -f" | grep --line-buffered -i "merchant\|degraded\|reachable\|wallet\|upgrade\|BoltDB\|mint"
+
+r-check-merchant: ## [remote] Verify full merchant (online boot)
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Check: Full Merchant [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'logread -e tollgate | grep -q \"Merchant ready\" && echo OK_MERCHANT_READY || echo FAIL_NO_MERCHANT_READY; echo; tollgate wallet balance'"
+
+r-check-degraded: ## [remote] Verify degraded merchant (offline boot)
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Check: Degraded Merchant [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'logread -e tollgate | grep -q \"Starting in degraded mode\" && echo OK_DEGRADED || echo FAIL_NOT_DEGRADED; echo; logread -e tollgate | grep \"offline wallet\" | tail -1; echo; tollgate wallet balance; echo; tollgate status'"
+
+r-block-mint: ## [remote] Block mint IP via iptables
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Blocking Mint [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
+		mint_host=$$(echo \"$(MINT)\" | sed -E \"s|https?://([^/:]+).*|\\1|\"); \
+		mint_ip=$$(nslookup $$mint_host 2>/dev/null | grep -A1 \"Name:\" | grep \"Address:\" | awk \"{print \\$2}\" | head -1); \
+		if [ -z \"$$mint_ip\" ]; then echo \"FAIL: Cannot resolve $$mint_host\"; exit 1; fi; \
+		echo \"Blocking $$mint_host ($$mint_ip)...\"; \
+		iptables -C OUTPUT -d $$mint_ip -j DROP 2>/dev/null && echo \"Already blocked\" || \
+		(iptables -A OUTPUT -d $$mint_ip -j DROP && echo \"Blocked $$mint_ip\"); \
+		echo; echo \"Verifying block...\"; \
+		wget -q --timeout=5 -O- \"$(MINT)/v1/info\" > /dev/null 2>&1 && echo \"WARN: Mint still reachable\" || echo \"OK: Mint unreachable\"'"
+
+r-unblock-mint: ## [remote] Remove mint IP block
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Unblocking Mint [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
+		mint_host=$$(echo \"$(MINT)\" | sed -E \"s|https?://([^/:]+).*|\\1|\"); \
+		mint_ip=$$(nslookup $$mint_host 2>/dev/null | grep -A1 \"Name:\" | grep \"Address:\" | awk \"{print \\$2}\" | head -1); \
+		if [ -z \"$$mint_ip\" ]; then echo \"FAIL: Cannot resolve $$mint_host\"; exit 1; fi; \
+		echo \"Unblocking $$mint_host ($$mint_ip)...\"; \
+		iptables -D OUTPUT -d $$mint_ip -j DROP 2>/dev/null && echo \"Unblocked $$mint_ip\" || echo \"No block found\"; \
+		echo; sleep 1; \
+		wget -q --timeout=5 -O- \"$(MINT)/v1/info\" > /dev/null 2>&1 && echo \"OK: Mint reachable again\" || echo \"WARN: Mint still unreachable\"'"
+
+r-restart-service: ## [remote] Restart tollgate service
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Restarting Service [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'/etc/init.d/tollgate-wrt restart && echo OK_RESTARTED || echo FAIL_RESTART'"; \
+	echo "$(YELLOW)Waiting 3s for startup...$(RESET)"; \
+	sleep 3
+
+r-record-baseline: ## [remote] Record wallet balance as baseline
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Recording Baseline [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'tollgate wallet balance'" 2>/dev/null | tee /tmp/tollgate-baseline-$(ROUTER).txt; \
+	echo "$(GREEN)Saved to /tmp/tollgate-baseline-$(ROUTER).txt$(RESET)"
+
+r-test-offline-ops: ## [remote] Phase 4: Verify offline wallet operations
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Phase 4: Offline Ops [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
+		echo \"4.1 — Wallet balance:\"; tollgate wallet balance; echo; \
+		echo \"4.2 — Service status:\"; tollgate status; echo; \
+		echo \"4.3 — No crashes:\"; \
+		logread -e tollgate | tail -3 | grep -q \"panic\" && echo FAIL_CRASH || echo OK_NO_CRASH'"
+
+r-wait-recovery: ## [remote] Phase 5: Watch for recovery (up to 16 min)
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Phase 5: Waiting for Recovery [$(ROUTER)] ===$(RESET)"; \
+	echo "$(YELLOW)Tracker checks every 5 min, needs 3 consecutive successes (up to 15 min).$(RESET)"; \
+	echo "$(YELLOW)Press Ctrl+C once you see the result.$(RESET)"; \
+	echo ""; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host "timeout 960 logread -e tollgate -f" 2>/dev/null | grep --line-buffered -i "reachable\|upgrade\|degraded\|Merchant ready\|BoltDB\|Failed to upgrade" | head -10; \
+	echo ""; \
+	echo "$(YELLOW)Recovery watch ended. Checking final state...$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host "logread -e tollgate | grep -E 'Merchant ready|Upgrading from degraded|Failed to upgrade' | tail -3"
+
+r-test-first-boot-offline: ## [remote] Phase 6: First boot offline on fresh router
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Phase 6: First Boot Offline [$(ROUTER)] ===$(RESET)"; \
+	echo "$(YELLOW)Setting up unreachable mint config...$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
+		cp /etc/tollgate/config.json /etc/tollgate/config.json.bak; \
+		cat /etc/tollgate/config.json | \
+			jq \".accepted_mints = [{\\\"url\\\": \\\"http://192.0.2.1:12345\\\", \\\"price_per_step\\\": 1, \\\"price_unit\\\": \\\"sats\\\"}]\" > /tmp/config-offline.json; \
+		mv /tmp/config-offline.json /etc/tollgate/config.json; \
+		rm -f /etc/tollgate/ecash/wallet.db; \
+		echo \"Config set to unreachable mint, wallet.db removed\"; \
+		/etc/init.d/tollgate-wrt restart; \
+		sleep 5; \
+		echo; \
+		logread -e tollgate | grep -q \"offline wallet load failed\" && echo OK_GRACEFUL_DEGRADE || echo FAIL_NO_GRACEFUL; \
+		logread -e tollgate | grep -q \"Starting in degraded mode\" && echo OK_DEGRADED || echo FAIL_NOT_DEGRADED; \
+		echo; \
+		echo \"Checking no boot loop (waiting 10s)...\"; \
+		sleep 10; \
+		tollgate status > /dev/null 2>&1 && echo OK_SERVICE_UP || echo FAIL_SERVICE_DOWN; \
+		echo; \
+		echo \"Restoring original config...\"; \
+		mv /etc/tollgate/config.json.bak /etc/tollgate/config.json'"
+
+r-test-no-mints: ## [remote] Phase 7: No configured mints
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Phase 7: No Configured Mints [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
+		cp /etc/tollgate/config.json /etc/tollgate/config.json.bak2; \
+		cat /etc/tollgate/config.json | jq \".accepted_mints = []\" > /tmp/config-nomints.json; \
+		mv /tmp/config-nomints.json /etc/tollgate/config.json; \
+		/etc/init.d/tollgate-wrt restart; \
+		sleep 5; \
+		logread -e tollgate | grep -q \"no configured mints\" && echo OK_NO_MINTS || echo FAIL_NO_MINTS_LOG; \
+		echo \"Checking service up (10s)...\"; \
+		sleep 10; \
+		tollgate status > /dev/null 2>&1 && echo OK_SERVICE_UP || echo FAIL_SERVICE_DOWN; \
+		echo \"Restoring config...\"; \
+		mv /etc/tollgate/config.json.bak2 /etc/tollgate/config.json'"
+
+r-cleanup: ## [remote] Phase 8: Remove blocks and restore
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== Phase 8: Cleanup [$(ROUTER)] ===$(RESET)"; \
+	ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host sh -c "'\
+		mint_host=$$(echo \"$(MINT)\" | sed -E \"s|https?://([^/:]+).*|\\1|\"); \
+		mint_ip=$$(nslookup $$mint_host 2>/dev/null | grep -A1 \"Name:\" | grep \"Address:\" | awk \"{print \\$2}\" | head -1); \
+		if [ -n \"$$mint_ip\" ]; then \
+			iptables -D OUTPUT -d $$mint_ip -j DROP 2>/dev/null && echo \"Removed block for $$mint_ip\" || echo \"No block found\"; \
+		fi; \
+		rm -f /tmp/tollgate-baseline.txt; \
+		rm -f /etc/tollgate/config.json.bak /etc/tollgate/config.json.bak2 2>/dev/null; \
+		echo Cleanup done'"; \
+	rm -f /tmp/tollgate-baseline-$(ROUTER).txt; \
+	echo "$(GREEN)Local cleanup done$(RESET)"
+
+r-smoke-offline: ## [remote] Quick offline smoke: block + restart + verify degraded
+	@$(MAKE) -f Makefile.test r-record-baseline ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-block-mint ROUTER=$(ROUTER) MINT="$(MINT)"
+	@echo ""
+	@$(MAKE) -f Makefile.test r-restart-service ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-check-degraded ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-test-offline-ops ROUTER=$(ROUTER)
+	@echo ""
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(GREEN)$(BOLD)  Offline smoke test complete [$(ROUTER)]$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)To test recovery:$(RESET)"
+	@echo "  make -f Makefile.test r-smoke-recovery ROUTER=$(ROUTER)"
+	@echo ""
+	@echo "$(YELLOW)To restore immediately:$(RESET)"
+	@echo "  make -f Makefile.test r-cleanup ROUTER=$(ROUTER)"
+
+r-smoke-recovery: ## [remote] Quick recovery smoke: unblock + wait
+	@$(MAKE) -f Makefile.test r-unblock-mint ROUTER=$(ROUTER) MINT="$(MINT)"
+	@echo ""
+	@$(MAKE) -f Makefile.test r-wait-recovery ROUTER=$(ROUTER)
+
+r-full: ## [remote] Run the full test suite (~20 min)
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(BOLD)  Degraded Merchant Full Test Suite [$(ROUTER)]$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@$(MAKE) -f Makefile.test r-deploy ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-status ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-check-merchant ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-record-baseline ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-block-mint ROUTER=$(ROUTER) MINT="$(MINT)"
+	@echo ""
+	@$(MAKE) -f Makefile.test r-restart-service ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-check-degraded ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-test-offline-ops ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-unblock-mint ROUTER=$(ROUTER) MINT="$(MINT)"
+	@echo ""
+	@$(MAKE) -f Makefile.test r-wait-recovery ROUTER=$(ROUTER)
+	@echo ""
+	@$(MAKE) -f Makefile.test r-cleanup ROUTER=$(ROUTER)
+	@echo ""
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo "$(GREEN)$(BOLD)  Full test suite complete [$(ROUTER)]$(RESET)"
+	@echo "$(BOLD)=======================================$(RESET)"
+	@echo ""
+	@echo "$(YELLOW)Remaining manual steps (remote):$(RESET)"
+	@echo "  - Phase 6: make -f Makefile.test r-test-first-boot-offline ROUTER=beta"
+	@echo "  - Phase 7: make -f Makefile.test r-test-no-mints ROUTER=$(ROUTER)"
