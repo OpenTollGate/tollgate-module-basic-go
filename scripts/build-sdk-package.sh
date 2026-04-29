@@ -7,6 +7,9 @@ PACKAGE_FORMAT="${PACKAGE_FORMAT:-apk}"
 PACKAGE_VERSION="${PACKAGE_VERSION:-0.0.0-r0}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/tmp/tollgate-build-artifacts}"
 EXPECTED_ARCH="${EXPECTED_ARCH:-}"
+GOARCH="${GOARCH:-}"
+GOMIPS="${GOMIPS:-}"
+GOARM="${GOARM:-}"
 
 case "$PACKAGE_FORMAT" in
     apk|ipk) ;;
@@ -18,6 +21,46 @@ esac
 
 PACKAGE_EXTENSION="$PACKAGE_FORMAT"
 
+infer_target_settings() {
+    case "$SDK_TAG" in
+        mediatek-filogic-*)
+            : "${EXPECTED_ARCH:=aarch64_cortex-a53}"
+            : "${GOARCH:=arm64}"
+            ;;
+        ath79-generic-*)
+            : "${EXPECTED_ARCH:=mips_24kc}"
+            : "${GOARCH:=mips}"
+            : "${GOMIPS:=softfloat}"
+            ;;
+        ramips-mt7621-*)
+            : "${EXPECTED_ARCH:=mipsel_24kc}"
+            : "${GOARCH:=mipsle}"
+            : "${GOMIPS:=softfloat}"
+            ;;
+        bcm27xx-bcm2711-*)
+            : "${EXPECTED_ARCH:=aarch64_cortex-a72}"
+            : "${GOARCH:=arm64}"
+            ;;
+        bcm27xx-bcm2709-*)
+            : "${EXPECTED_ARCH:=arm_cortex-a7}"
+            : "${GOARCH:=arm}"
+            : "${GOARM:=7}"
+            ;;
+        *)
+            if [ -z "$EXPECTED_ARCH" ]; then
+                printf 'ERROR: Could not infer EXPECTED_ARCH from SDK_TAG=%s\n' "$SDK_TAG" >&2
+                printf '%s\n' 'Set EXPECTED_ARCH explicitly, e.g. EXPECTED_ARCH=aarch64_cortex-a53' >&2
+                exit 1
+            fi
+            if [ -z "$GOARCH" ]; then
+                printf 'ERROR: Could not infer GOARCH from SDK_TAG=%s\n' "$SDK_TAG" >&2
+                printf '%s\n' 'Set GOARCH explicitly for unknown SDK targets.' >&2
+                exit 1
+            fi
+            ;;
+    esac
+}
+
 if [ -z "$SDK_TAG" ]; then
     printf '%s\n' 'ERROR: SDK_TAG is required for local builds.' >&2
     printf '%s\n' 'Refusing to guess a default target because that can silently build the wrong architecture.' >&2
@@ -25,48 +68,55 @@ if [ -z "$SDK_TAG" ]; then
     exit 1
 fi
 
-if [ -z "$EXPECTED_ARCH" ]; then
-    case "$SDK_TAG" in
-        mediatek-filogic-*) EXPECTED_ARCH='aarch64_cortex-a53' ;;
-        ath79-generic-*) EXPECTED_ARCH='mips_24kc' ;;
-        ramips-mt7621-*) EXPECTED_ARCH='mipsel_24kc' ;;
-        bcm27xx-bcm2711-*) EXPECTED_ARCH='aarch64_cortex-a72' ;;
-        bcm27xx-bcm2709-*) EXPECTED_ARCH='arm_cortex-a7' ;;
-        *)
-            printf 'ERROR: Could not infer EXPECTED_ARCH from SDK_TAG=%s\n' "$SDK_TAG" >&2
-            printf '%s\n' 'Set EXPECTED_ARCH explicitly, e.g. EXPECTED_ARCH=aarch64_cortex-a53' >&2
-            exit 1
-            ;;
-    esac
-fi
+infer_target_settings
 
 ARTIFACT_SUBDIR="${ARTIFACT_SUBDIR:-${PACKAGE_FORMAT}-${SDK_TAG}}"
 HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
 HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 
-mkdir -p "$ARTIFACT_DIR"
-mkdir -p "$HOST_ARTIFACT_PATH"
-
-# Anchor to repo root so the docker mount is correct regardless of CWD.
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+STAGE_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGE_DIR"' EXIT
+
+mkdir -p "$ARTIFACT_DIR"
+rm -rf "$HOST_ARTIFACT_PATH"
+mkdir -p "$HOST_ARTIFACT_PATH"
 
 printf 'Using SDK_TAG=%s\n' "$SDK_TAG"
 printf 'Using PACKAGE_FORMAT=%s\n' "$PACKAGE_FORMAT"
 printf 'Expected package arch=%s\n' "$EXPECTED_ARCH"
 printf 'Using PACKAGE_VERSION=%s\n' "$PACKAGE_VERSION"
+printf 'Using GOARCH=%s GOMIPS=%s GOARM=%s\n' "$GOARCH" "$GOMIPS" "$GOARM"
 printf 'Using ARTIFACT_DIR=%s\n' "$ARTIFACT_DIR"
 printf 'Artifact subdirectory=%s\n' "$ARTIFACT_SUBDIR"
 printf 'Build log path=%s\n' "$HOST_LOG_PATH"
-printf '%s\n' 'Local source mode is enabled; the Docker SDK will build from the current working tree.'
+
+BUILD_TIME="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown\n')"
+LDFLAGS="-s -w -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+
+printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.'
+(
+    cd "$REPO_ROOT/src"
+    env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+        go build -o "$STAGE_DIR/tollgate-wrt" -trimpath -ldflags="$LDFLAGS" main.go
+)
+(
+    cd "$REPO_ROOT/src/cmd/tollgate-cli"
+    env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+        go build -o "$STAGE_DIR/tollgate" -trimpath -ldflags="$LDFLAGS"
+)
+
+cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
+cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
 
 if ! docker run --rm -i -u root \
-    -v "$REPO_ROOT":/builder/package/tollgate-wrt \
+    -v "$STAGE_DIR":/builder/package/tollgate-wrt \
     -v "$ARTIFACT_DIR":/artifacts \
     -e SDK_TAG="$SDK_TAG" \
     -e PACKAGE_FORMAT="$PACKAGE_FORMAT" \
     -e PACKAGE_EXTENSION="$PACKAGE_EXTENSION" \
     -e PACKAGE_VERSION="$PACKAGE_VERSION" \
-    -e TOLLGATE_LOCAL_SOURCE=1 \
     -e EXPECTED_ARCH="$EXPECTED_ARCH" \
     -e ARTIFACT_SUBDIR="$ARTIFACT_SUBDIR" \
     "openwrt/sdk:${SDK_TAG}" \
@@ -95,11 +145,7 @@ printf '[preflight] SDK_TAG=%s\n' "$SDK_TAG"
 printf '[preflight] PACKAGE_FORMAT=%s\n' "$PACKAGE_FORMAT"
 printf '[preflight] EXPECTED_ARCH=%s\n' "$EXPECTED_ARCH"
 printf '[preflight] PACKAGE_VERSION=%s\n' "$PACKAGE_VERSION"
-printf '%s\n' '[preflight] Building from mounted local source at /builder/package/tollgate-wrt'
-
-printf 'deb https://deb.debian.org/debian bookworm-backports main\n' > /etc/apt/sources.list.d/backports.list
-apt-get update
-apt-get install -y -t bookworm-backports golang-go
+printf '%s\n' '[preflight] Packaging staged recipe at /builder/package/tollgate-wrt'
 
 cd /builder
 make defconfig
@@ -114,7 +160,7 @@ make defconfig
 JOBS=$(nproc)
 printf '[preflight] Using parallel jobs=%s\n' "$JOBS"
 
-env PACKAGE_VERSION="$PACKAGE_VERSION" TOLLGATE_LOCAL_SOURCE="$TOLLGATE_LOCAL_SOURCE" make -j"$JOBS" V=s package/tollgate-wrt/compile
+env PACKAGE_VERSION="$PACKAGE_VERSION" make -j"$JOBS" V=s package/tollgate-wrt/compile
 
 if [ "$PACKAGE_FORMAT" = "ipk" ]; then
     test -d "/builder/bin/packages/$EXPECTED_ARCH"
