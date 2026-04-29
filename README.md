@@ -71,9 +71,10 @@ On OpenWrt 24.10.x and earlier:
 opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
 
-For local packaging experiments there is a developer helper
-[scripts/build-sdk-apk.sh](scripts/build-sdk-apk.sh) that wraps the
-`openwrt/sdk` Docker image.
+For local packaging experiments use
+[scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
+the target binaries locally, stages the canonical `packaging/` recipe into the
+OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
 
 ## Configuration
 
