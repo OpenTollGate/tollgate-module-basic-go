@@ -340,23 +340,20 @@ func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candida
 func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Candidate, error) {
 	sections, _ := um.connector.GetSTASections()
 	existingSTAs := make(map[string]string)
+	disabledSTAs := make(map[string]string)
 	activeSSID := ""
 	for _, section := range sections {
 		existingSTAs[section.SSID] = section.Name
-		if !section.Disabled {
+		if section.Disabled {
+			disabledSTAs[section.SSID] = section.Name
+		} else {
 			activeSSID = section.SSID
 		}
 	}
 
 	var best *Candidate
+
 	for _, net := range networks {
-		if !strings.HasPrefix(net.SSID, "TollGate-") {
-			continue
-		}
-		enc := strings.ToLower(net.Encryption)
-		if enc != "" && enc != "none" && enc != "open" {
-			continue
-		}
 		if net.SSID == activeSSID {
 			continue
 		}
@@ -364,28 +361,37 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 			continue
 		}
 
-		ifaceName, exists := existingSTAs[net.SSID]
-		if !exists {
-			radio, err := um.scanner.FindBestRadioForSSID(net.SSID, networks)
-			if err != nil {
+		ifaceName, isExisting := existingSTAs[net.SSID]
+
+		if strings.HasPrefix(net.SSID, "TollGate-") {
+			enc := strings.ToLower(net.Encryption)
+			if enc != "" && enc != "none" && enc != "open" {
+				continue
+			}
+			if !isExisting {
+				radio, err := um.scanner.FindBestRadioForSSID(net.SSID, networks)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"ssid":  net.SSID,
+						"error": err,
+					}).Debug("No radio found for TollGate SSID")
+					continue
+				}
+				iface, err := um.connector.FindOrCreateSTAForSSID(net.SSID, "", "none", radio)
+				if err != nil {
+					logger.WithError(err).Warn("Failed to create STA for TollGate SSID")
+					continue
+				}
+				ifaceName = iface
 				logger.WithFields(logrus.Fields{
-					"ssid":  net.SSID,
-					"error": err,
-				}).Debug("No radio found for TollGate SSID")
-				continue
+					"ssid":   net.SSID,
+					"iface":  ifaceName,
+					"radio":  radio,
+					"signal": net.Signal,
+				}).Info("Created STA for TollGate candidate")
 			}
-			iface, err := um.connector.FindOrCreateSTAForSSID(net.SSID, "", "none", radio)
-			if err != nil {
-				logger.WithError(err).Warn("Failed to create STA for TollGate SSID")
-				continue
-			}
-			ifaceName = iface
-			logger.WithFields(logrus.Fields{
-				"ssid":   net.SSID,
-				"iface":  ifaceName,
-				"radio":  radio,
-				"signal": net.Signal,
-			}).Info("Created STA for TollGate candidate")
+		} else if _, isDisabled := disabledSTAs[net.SSID]; !isDisabled {
+			continue
 		}
 
 		if best == nil || net.Signal > best.Signal {
@@ -399,7 +405,7 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 	}
 
 	if best == nil {
-		return nil, fmt.Errorf("no TollGate candidates found")
+		return nil, fmt.Errorf("no candidates found (TollGate or known fallback)")
 	}
 	return best, nil
 }

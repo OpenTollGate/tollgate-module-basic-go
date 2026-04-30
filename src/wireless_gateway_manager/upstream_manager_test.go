@@ -260,3 +260,57 @@ func TestUpstreamManager_RunScanCycle_ScanFails(t *testing.T) {
 	scanner.AssertExpectations(t)
 	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
 }
+
+func TestUpstreamManager_ResellerFallbackToDisabledSTA(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	um.blacklistSSID("TollGate-XYZ")
+
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
+		{Name: "upstream_tollgate_xyz", SSID: "TollGate-XYZ", Device: "radio0", Disabled: true},
+	}, nil)
+
+	networks := []NetworkInfo{
+		{SSID: "HomeWiFi", Signal: -45, Radio: "radio0"},
+		{SSID: "TollGate-XYZ", Signal: -30, Radio: "radio0"},
+	}
+
+	candidate, err := um.findCandidates(networks, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, candidate)
+	assert.Equal(t, "HomeWiFi", candidate.SSID)
+	assert.Equal(t, "upstream_homewifi", candidate.IfaceName)
+	connector.AssertExpectations(t)
+}
+
+func TestUpstreamManager_ResellerPrefersTollGateOverDisabledSTA(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
+		{Name: "upstream_tollgate_abc", SSID: "TollGate-ABC", Device: "radio0", Disabled: true},
+	}, nil)
+
+	networks := []NetworkInfo{
+		{SSID: "HomeWiFi", Signal: -50, Radio: "radio0"},
+		{SSID: "TollGate-ABC", Signal: -30, Radio: "radio0", Encryption: "none"},
+	}
+
+	candidate, err := um.findCandidates(networks, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, candidate)
+	assert.Equal(t, "TollGate-ABC", candidate.SSID)
+	assert.Equal(t, -30, candidate.Signal)
+	connector.AssertExpectations(t)
+}
