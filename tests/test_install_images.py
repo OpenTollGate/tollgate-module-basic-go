@@ -1,6 +1,9 @@
 import pytest
 import subprocess
 import time
+import os
+
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
 
 def wait_for_router_reboot(router_ip, router_ssid, timeout=300):
     """Wait for the router to come back online after reboot."""
@@ -39,7 +42,7 @@ def test_reboot_routers(post_test_image_flasher, tollgate_networks):
     router_ssids = pytest.router_ssids
     
     # Reboot all routers
-    router_password = "c03rad0r123"
+    router_password = ROUTER_PASSWORD
     for i, router_ip in enumerate(router_ips):
         try:
             print(f"Rebooting router {router_ip}")

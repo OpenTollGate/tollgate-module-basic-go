@@ -18,6 +18,7 @@ tollgate-module-basic-go
 **/tollwallet_db/*
 tests/*.bin
 tests/__pycache__/
+tests/.env
 
 # Router credentials (copy from routers.env.example)
 routers.env
