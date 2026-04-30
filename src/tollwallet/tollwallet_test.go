@@ -144,4 +144,18 @@ func TestContains(t *testing.T) {
 		result := contains(slice, "apple")
 		assert.False(t, result)
 	})
+
+	t.Run("Case insensitive match", func(t *testing.T) {
+		slice := []string{"https://testnut.cashu.exchange"}
+		assert.True(t, contains(slice, "https://Testnut.Cashu.Exchange"))
+		assert.True(t, contains(slice, "https://TESTNUT.CASHU.EXCHANGE"))
+		assert.True(t, contains(slice, "https://testnut.cashu.exchange"))
+	})
+
+	t.Run("Mint URL with different casing", func(t *testing.T) {
+		mints := []string{"https://mint1.example.com", "https://mint2.example.com"}
+		assert.True(t, contains(mints, "https://MINT1.EXAMPLE.COM"))
+		assert.True(t, contains(mints, "https://Mint2.Example.Com"))
+		assert.False(t, contains(mints, "https://mint3.example.com"))
+	})
 }

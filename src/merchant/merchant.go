@@ -2,6 +2,7 @@ package merchant
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -320,8 +321,8 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		var errorCode string
 		var errorMessage string
 
-		// Check for specific error types
-		if strings.Contains(err.Error(), "Token already spent") {
+		var cashuErr cashu.Error
+		if errors.As(err, &cashuErr) && cashuErr.Code == cashu.ProofAlreadyUsedErrCode {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
 		} else {
