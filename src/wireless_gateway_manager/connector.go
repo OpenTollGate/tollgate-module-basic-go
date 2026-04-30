@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -521,146 +520,6 @@ func (c *Connector) ensureSTAInterfaceExists() error {
 	return c.reloadWifi()
 }
 
-// UpdateLocalAPSSID updates the local AP's SSID to advertise the current price.
-func (c *Connector) UpdateLocalAPSSID(pricePerStep, stepSize int) error {
-	if err := c.ensureAPInterfacesExist(); err != nil {
-		logger.WithError(err).Error("Failed to ensure AP interfaces exist")
-		return err
-	}
-
-	radios := []string{"default_radio0", "default_radio1"}
-	var commitNeeded bool
-	for _, radio := range radios {
-		if _, err := c.ExecuteUCI("get", "wireless."+radio); err != nil {
-			logger.WithField("radio", radio).Info("AP interface not found, skipping SSID update")
-			continue
-		}
-
-		currentSSID, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
-		if err != nil {
-			logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Warn("Could not get current SSID")
-			continue
-		}
-		currentSSID = strings.TrimSpace(currentSSID)
-
-		// Strip existing pricing info to get the base SSID
-		baseSSID := stripPricingFromSSID(currentSSID)
-
-		newSSID := fmt.Sprintf("%s-%d-%d", baseSSID, pricePerStep, stepSize)
-		logger.WithFields(logrus.Fields{
-			"radio":    radio,
-			"new_ssid": newSSID,
-		}).Info("Updating local AP SSID with new pricing")
-
-		if currentSSID != newSSID {
-			if _, err := c.ExecuteUCI("set", "wireless."+radio+".ssid="+newSSID); err != nil {
-				logger.WithFields(logrus.Fields{"radio": radio, "error": err}).Error("Failed to set new SSID")
-				continue
-			}
-			commitNeeded = true
-		}
-	}
-
-	if commitNeeded {
-		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
-			return fmt.Errorf("failed to commit wireless config for AP SSID update: %w", err)
-		}
-		logger.Info("Reloading wifi to apply new AP SSID")
-		return c.reloadWifi()
-	}
-
-	return nil
-}
-
-// ensureAPInterfacesExist checks for and creates the default TollGate AP interfaces if they don't exist.
-func (c *Connector) ensureAPInterfacesExist() error {
-	logger.Info("Ensuring default AP interfaces exist")
-	var created bool
-	var baseSSIDName string
-
-	// Reuse any existing "TollGate-XXXX" SSID already on a radio.
-	for _, radio := range []string{"default_radio0", "default_radio1"} {
-		ssid, err := c.ExecuteUCI("get", "wireless."+radio+".ssid")
-		if err != nil {
-			continue
-		}
-		ssid = strings.TrimSpace(ssid)
-		if strings.HasPrefix(ssid, "TollGate-") {
-			baseSSIDName = ssid
-			logger.WithField("base_name", baseSSIDName).Info("Found existing AP with base name")
-			break
-		}
-	}
-
-	// If no base name was found, generate a new one
-	if baseSSIDName == "" {
-		randomSuffix, err := c.generateRandomSuffix(4)
-		if err != nil {
-			return fmt.Errorf("failed to generate random suffix for SSID: %w", err)
-		}
-		baseSSIDName = "TollGate-" + randomSuffix
-		logger.WithField("base_name", baseSSIDName).Info("No existing AP found, generated new base name")
-	}
-
-	radios := map[string]string{
-		"default_radio0": "radio0", // 2.4GHz AP iface
-		"default_radio1": "radio1", // 5GHz AP iface
-	}
-
-	for ifaceSection, device := range radios {
-		// Check if the physical radio device exists
-		if _, err := c.ExecuteUCI("get", "wireless."+device); err != nil {
-			logger.WithFields(logrus.Fields{
-				"device":            device,
-				"interface_section": ifaceSection,
-			}).Info("Physical radio device not found, cannot create AP interface")
-			continue
-		}
-
-		// Check if the AP interface section already exists
-		if _, err := c.ExecuteUCI("get", "wireless."+ifaceSection); err == nil {
-			logger.WithField("interface_section", ifaceSection).Info("AP interface already exists")
-			continue
-		}
-
-		// Interface doesn't exist, so create it based on defaults.
-		logger.WithField("interface_section", ifaceSection).Info("AP interface not found, creating with consistent naming")
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+"=wifi-iface"); err != nil {
-			return fmt.Errorf("failed to create wifi-iface section %s: %w", ifaceSection, err)
-		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".device="+device); err != nil {
-			return err
-		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".network=lan"); err != nil {
-			return err
-		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".mode=ap"); err != nil {
-			return err
-		}
-
-		// Both radios broadcast the same SSID so clients see one network and
-		// band-steer. Previously we appended "-2.4GHz" / "-5GHz" here.
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".ssid="+baseSSIDName); err != nil {
-			return err
-		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".encryption=none"); err != nil {
-			return err
-		}
-		if _, err := c.ExecuteUCI("set", "wireless."+ifaceSection+".disabled=0"); err != nil {
-			return err
-		}
-		created = true
-	}
-
-	if created {
-		logger.Info("Default AP interfaces were created/updated, committing changes")
-		_, err := c.ExecuteUCI("commit", "wireless")
-		return err
-	}
-
-	return nil
-}
-
 func (c *Connector) generateRandomSuffix(length int) (string, error) {
 	const chars = "0123456789"
 	result := make([]byte, length)
@@ -672,24 +531,6 @@ func (c *Connector) generateRandomSuffix(length int) (string, error) {
 		result[i] = chars[num.Int64()]
 	}
 	return string(result), nil
-}
-
-func stripPricingFromSSID(ssid string) string {
-	parts := strings.Split(ssid, "-")
-	if len(parts) < 4 { // Expects TollGate-<ID>-<price>-<step>
-		return ssid // Not a format we can parse, return original
-	}
-
-	// Check if the last two parts are numbers (price and step)
-	_, err1 := strconv.Atoi(parts[len(parts)-1])
-	_, err2 := strconv.Atoi(parts[len(parts)-2])
-
-	if err1 == nil && err2 == nil {
-		// Both are numbers, so strip them
-		return strings.Join(parts[:len(parts)-2], "-")
-	}
-
-	return ssid // Return original if parsing fails
 }
 
 // Disconnect disconnects from the current network.

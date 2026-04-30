@@ -2,7 +2,6 @@
 package wireless_gateway_manager
 
 import (
-	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -82,14 +81,10 @@ type Gateway struct {
 
 // GatewayManager orchestrates the gateway management operations.
 type GatewayManager struct {
-	scanner           ScannerInterface
-	connector         ConnectorInterface
-	vendorProcessor   VendorElementProcessorInterface
-	networkMonitor    NetworkMonitorInterface
-	configManager     *config_manager.ConfigManager
-	mu                sync.RWMutex
-	availableGateways map[string]Gateway
-	currentHopCount   int
-	scanInterval      time.Duration
-	stopChan          chan struct{}
+	scanner         ScannerInterface
+	connector       ConnectorInterface
+	vendorProcessor VendorElementProcessorInterface
+	networkMonitor  NetworkMonitorInterface
+	configManager   *config_manager.ConfigManager
+	stopChan        chan struct{}
 }

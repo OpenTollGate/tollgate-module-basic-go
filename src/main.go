@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net" // Added for net.Interfaces()
 	"net/http"
 	"os"
 	"os/exec"
@@ -663,80 +662,19 @@ func main() {
 	}
 
 	mainLogger.Fatal(server.ListenAndServe())
-
-	go func() {
-		for {
-			if !isOnline() {
-				mainLogger.Info("Device is offline. Initiating gateway scan...")
-				// No need to assign the result of RunPeriodicScan, as it runs in a goroutine internally.
-				// We need to fetch the available gateways using GetAvailableGateways() instead.
-				availableGateways, err := gatewayManager.GetAvailableGateways()
-				if err != nil {
-					mainLogger.WithError(err).Error("Error getting available gateways")
-					continue
-				}
-				if len(availableGateways) > 0 {
-					mainLogger.Info("Available gateways found. Attempting to connect...")
-					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "") // Correct usage of ConnectToGateway
-					if err != nil {
-						mainLogger.WithError(err).Error("Error connecting to gateway")
-					} else {
-						mainLogger.Info("Successfully connected to a TollGate gateway.")
-					}
-				} else {
-					mainLogger.Info("No suitable TollGate gateways found to connect to.")
-				}
-			} else {
-				mainLogger.Debug("Device is online. No action needed.")
-			}
-			time.Sleep(5 * time.Minute)
-		}
-	}()
-
-	fmt.Println("Shutting down Tollgate - Whoami")
-}
-
-// isOnline checks if the device has at least one active, non-loopback network interface with an IP address.
-func isOnline() bool {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		mainLogger.WithError(err).Error("Error getting network interfaces")
-		return false
-	}
-
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
-			// Interface is up and not a loopback interface
-			addrs, err := iface.Addrs()
-			if err != nil {
-				mainLogger.WithFields(logrus.Fields{
-					"interface": iface.Name,
-					"error":     err,
-				}).Error("Error getting addresses for interface")
-				continue
-			}
-			if len(addrs) > 0 {
-				return true // Found at least one active, non-loopback interface with an IP address
-			}
-		}
-	}
-	return false
 }
 
 func getIP(r *http.Request) string {
-	// Check if the IP is set in the X-Real-Ip header
 	ip := r.Header.Get("X-Real-Ip")
 	if ip != "" {
 		return ip
 	}
 
-	// Check if the IP is set in the X-Forwarded-For header
 	ips := r.Header.Get("X-Forwarded-For")
 	if ips != "" {
 		return strings.Split(ips, ",")[0]
 	}
 
-	// Fallback to the remote address, removing the port
 	ip = r.RemoteAddr
 	if colon := strings.LastIndex(ip, ":"); colon != -1 {
 		ip = ip[:colon]
