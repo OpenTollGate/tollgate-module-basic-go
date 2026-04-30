@@ -12,6 +12,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	tollGateEmergencyPenalty = 20
+	maxConsecutiveFailures   = 3
+	switchCooldown           = 10 * time.Minute
+	startupGracePeriod       = 90 * time.Second
+)
+
 type Candidate struct {
 	Signal    int
 	Radio     string
@@ -33,6 +40,9 @@ type UpstreamManager struct {
 	pauseUntil time.Time
 	blacklist   map[string]time.Time
 	blacklistMu sync.Mutex
+	failMu           sync.Mutex
+	consecutiveFails int
+	cooldownUntil    time.Time
 }
 
 type ConfigReadResult struct {
@@ -89,7 +99,8 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		logger.WithError(err).Warn("Failed to ensure wwan setup on startup")
 	}
 
-	time.Sleep(10 * time.Second)
+	startupGraceEnd := time.Now().Add(startupGracePeriod)
+	logger.WithField("grace_seconds", startupGracePeriod.Seconds()).Info("Startup grace period active")
 
 	scanCounter := 0
 	lostCount := 0
@@ -114,6 +125,12 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 
 		if err := um.connector.EnsureRadiosEnabled(); err != nil {
 			logger.WithError(err).Warn("Failed to ensure radios enabled")
+		}
+
+		inStartupGrace := time.Now().Before(startupGraceEnd)
+		if inStartupGrace {
+			logger.Debug("Skipping connectivity check during startup grace period")
+			continue
 		}
 
 		isReseller := um.isResellerModeActive()
@@ -201,6 +218,36 @@ func (um *UpstreamManager) isPaused() bool {
 	return paused
 }
 
+func (um *UpstreamManager) isInCooldown() bool {
+	um.failMu.Lock()
+	cooldown := time.Now().Before(um.cooldownUntil)
+	um.failMu.Unlock()
+	return cooldown
+}
+
+func (um *UpstreamManager) recordSwitchFailure() {
+	um.failMu.Lock()
+	um.consecutiveFails++
+	if um.consecutiveFails >= maxConsecutiveFailures {
+		um.cooldownUntil = time.Now().Add(switchCooldown)
+		logger.WithFields(logrus.Fields{
+			"failures":        um.consecutiveFails,
+			"cooldown_minutes": switchCooldown.Minutes(),
+		}).Warn("Circuit breaker triggered: entering cooldown")
+	}
+	um.failMu.Unlock()
+}
+
+func (um *UpstreamManager) resetSwitchFailures() {
+	um.failMu.Lock()
+	if um.consecutiveFails > 0 {
+		um.consecutiveFails = 0
+		um.cooldownUntil = time.Time{}
+		logger.Info("Switch failure counter reset")
+	}
+	um.failMu.Unlock()
+}
+
 func (um *UpstreamManager) blacklistSSID(ssid string) {
 	um.blacklistMu.Lock()
 	um.blacklist[ssid] = time.Now()
@@ -238,6 +285,11 @@ func (um *UpstreamManager) isResellerModeActive() bool {
 }
 
 func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentSignal int, reason string, isReseller bool) {
+	if um.isInCooldown() {
+		logger.WithField("reason", reason).Info("In cooldown period, skipping scan cycle")
+		return
+	}
+
 	um.purgeBlacklist()
 
 	networks, err := um.scanner.ScanAllRadios()
@@ -246,7 +298,9 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 		return
 	}
 
-	candidate, err := um.findCandidates(networks, isReseller)
+	isEmergency := reason == "emergency"
+
+	candidate, err := um.findCandidates(networks, isReseller, isEmergency)
 	if err != nil || candidate == nil {
 		logger.WithField("reason", reason).Info("No known upstream candidates available")
 		return
@@ -285,15 +339,19 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 	if shouldSwitch {
 		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID); err != nil {
 			logger.WithError(err).Warn("Failed to switch upstream")
-		} else if strings.HasPrefix(reason, "emergency") && activeSSID != "" {
-			um.blacklistSSID(activeSSID)
+			um.recordSwitchFailure()
+		} else {
+			um.resetSwitchFailures()
+			if isEmergency && activeSSID != "" {
+				um.blacklistSSID(activeSSID)
+			}
 		}
 	}
 }
 
-func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool) (*Candidate, error) {
+func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool, isEmergency bool) (*Candidate, error) {
 	if isReseller {
-		return um.findResellerCandidates(networks)
+		return um.findResellerCandidates(networks, isEmergency)
 	}
 	return um.findKnownCandidates(networks)
 }
@@ -337,7 +395,7 @@ func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candida
 	return best, nil
 }
 
-func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Candidate, error) {
+func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo, isEmergency bool) (*Candidate, error) {
 	sections, _ := um.connector.GetSTASections()
 	existingSTAs := make(map[string]string)
 	disabledSTAs := make(map[string]string)
@@ -351,7 +409,12 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 		}
 	}
 
-	var best *Candidate
+	type scoredCandidate struct {
+		candidate *Candidate
+		score     int
+	}
+
+	var best *scoredCandidate
 
 	for _, net := range networks {
 		if net.SSID == activeSSID {
@@ -363,7 +426,9 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 
 		ifaceName, isExisting := existingSTAs[net.SSID]
 
-		if strings.HasPrefix(net.SSID, "TollGate-") {
+		isTollGate := strings.HasPrefix(net.SSID, "TollGate-")
+
+		if isTollGate {
 			enc := strings.ToLower(net.Encryption)
 			if enc != "" && enc != "none" && enc != "open" {
 				continue
@@ -394,12 +459,25 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 			continue
 		}
 
-		if best == nil || net.Signal > best.Signal {
-			best = &Candidate{
-				Signal:    net.Signal,
-				Radio:     net.Radio,
-				IfaceName: ifaceName,
-				SSID:      net.SSID,
+		score := net.Signal
+		if isEmergency && isTollGate {
+			score -= tollGateEmergencyPenalty
+			logger.WithFields(logrus.Fields{
+				"ssid":     net.SSID,
+				"original": net.Signal,
+				"score":    score,
+			}).Debug("Penalizing TollGate during emergency scan")
+		}
+
+		if best == nil || score > best.score {
+			best = &scoredCandidate{
+				candidate: &Candidate{
+					Signal:    net.Signal,
+					Radio:     net.Radio,
+					IfaceName: ifaceName,
+					SSID:      net.SSID,
+				},
+				score: score,
 			}
 		}
 	}
@@ -407,7 +485,7 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo) (*Cand
 	if best == nil {
 		return nil, fmt.Errorf("no candidates found (TollGate or known fallback)")
 	}
-	return best, nil
+	return best.candidate, nil
 }
 
 func (um *UpstreamManager) checkConnectivity(staDevice string) bool {
@@ -480,5 +558,3 @@ func (um *UpstreamManager) getCurrentSignal(staDevice string) (int, error) {
 
 	return 0, fmt.Errorf("could not determine signal strength")
 }
-
-

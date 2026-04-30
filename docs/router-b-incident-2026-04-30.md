@@ -62,39 +62,41 @@ and restarting the tollgate service. The router required physical recovery.
 
 ### Three contributing bugs
 
-#### Bug 11: No startup grace period
+#### Bug 11: No startup grace period (FIXED)
 
 The daemon starts checking connectivity 30s after service start. During this
 time, `EnsureRadiosEnabled()` may have triggered a radio reconfiguration that
 disrupts the existing STA. The daemon interprets this as connectivity loss and
 triggers an emergency scan.
 
-**Fix**: Add a startup grace period (e.g., 60s or one full scan interval) where
-the daemon doesn't trigger emergency scans. During the grace period, it should
-only increment `lostCount` but not reach the threshold.
+**Fix applied**: 90-second startup grace period. During grace, the daemon skips
+all connectivity checks entirely, giving the radio time to fully reconfigure
+after `EnsureRadiosEnabled()`. Verified on Router B: daemon waited 90s, then
+started normal scanning without triggering emergency switches.
 
-#### Bug 12: Emergency scan prefers unknown TollGate over known fallback
+#### Bug 12: Emergency scan prefers unknown TollGate over known fallback (FIXED)
 
 When doing an emergency switch (current SSID has no internet), the daemon picks
 the strongest signal among all candidates. If a TollGate SSID has stronger signal
 than the known fallback, it picks the TollGate — even though we just learned that
 the current upstream has no internet and TollGates are likely in the same boat.
 
-**Fix**: During emergency scans in reseller mode, prefer non-TollGate fallback
-candidates (known STAs with internet history) over new TollGate candidates.
-Or: deprioritize TollGate SSIDs by a penalty factor (e.g., treat their signal as
-20 dB weaker than measured).
+**Fix applied**: During emergency scans in reseller mode, TollGate SSIDs receive
+a 20 dB signal penalty. A known fallback with -45 dBm will beat a TollGate at
+-30 dBm (penalized to -50). TollGate still wins if it's much stronger (e.g.,
+-20 dBm penalized to -40 vs fallback at -60). Unit tests verify both cases.
 
-#### Bug 13: Repeated switch failures create a radio disruption loop
+#### Bug 13: Repeated switch failures create a radio disruption loop (FIXED)
 
 If SwitchUpstream fails and falls back to the same non-internet upstream, the
 daemon's next cycle tries again. Each cycle disrupts the radio for 60-180s,
 preventing NetBird (or any stable connection) from re-establishing. There is no
 circuit breaker or maximum retry limit.
 
-**Fix**: Track consecutive switch failures. After N consecutive failures (e.g., 3),
-stop attempting switches for a cooldown period (e.g., 10 minutes) to allow the
-radio to stabilize and NetBird to reconnect.
+**Fix applied**: Consecutive switch failures are tracked. After 3 consecutive
+failures, a 10-minute cooldown is triggered during which all scan cycles are
+skipped. Failure counter resets on any successful switch. Unit tests verify
+cooldown triggers at 3 failures, blocks scan cycles, and resets on success.
 
 ## What Would Have Prevented This
 

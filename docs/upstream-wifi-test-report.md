@@ -52,7 +52,7 @@ main.go
 
 ## Unit Tests
 
-54 tests pass across 3 packages:
+51 tests pass across 3 packages:
 
 ```
 cd src && go test \
@@ -138,7 +138,7 @@ Deploy: `./scripts/local-compile-to-router.sh <IP>`
 | 6 | Daemon stable for 90+ seconds, no spurious switching | — | PASS |
 | 7 | Both routers online after wifi reload recovery | PASS | PASS |
 
-### Bugs found and fixed (10)
+### Bugs found and fixed (13)
 
 | # | Bug | Fix |
 |---|-----|-----|
@@ -152,6 +152,9 @@ Deploy: `./scripts/local-compile-to-router.sh <IP>`
 | 8 | `initUpstreamManager()` called after `initCLIServer()` — nil upstreamManager | Swapped init order |
 | 9 | `waitForSTAIP` false positive on stale IP | Added `verifySTASSID()` check |
 | 10 | `lostCount++` before pause check — counts accumulate during pause | Moved after `isPaused()` check |
+| 11 | No startup grace period — daemon checks connectivity 30s after start while radio still reconfiguring | 90s grace period, skips all connectivity checks during startup |
+| 12 | Emergency scan picks stronger-signal TollGate over known fallback even though TollGate likely has no internet | 20 dB signal penalty for TollGate SSIDs during emergency scans |
+| 13 | No circuit breaker — repeated switch failures loop continuously, disrupting radio | 3 consecutive failures triggers 10-minute cooldown; resets on success |
 
 ### Key hardware finding
 

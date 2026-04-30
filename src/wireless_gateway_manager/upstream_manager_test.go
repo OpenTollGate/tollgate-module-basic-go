@@ -1,6 +1,7 @@
 package wireless_gateway_manager
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -65,7 +66,7 @@ func TestUpstreamManager_FindKnownCandidates_NoKnownSSIDs(t *testing.T) {
 		{SSID: "SomeNet", Signal: -50, Radio: "radio0"},
 	}
 
-	candidate, err := um.findCandidates(networks, false)
+	candidate, err := um.findCandidates(networks, false, false)
 	assert.Error(t, err)
 	assert.Nil(t, candidate)
 	connector.AssertExpectations(t)
@@ -88,7 +89,7 @@ func TestUpstreamManager_FindKnownCandidates_WithKnownSSID(t *testing.T) {
 		{SSID: "OtherNet", Signal: -50, Radio: "radio0"},
 	}
 
-	candidate, err := um.findCandidates(networks, false)
+	candidate, err := um.findCandidates(networks, false, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, candidate)
 	assert.Equal(t, "MyNet", candidate.SSID)
@@ -116,7 +117,7 @@ func TestUpstreamManager_FindKnownCandidates_MultipleKnownSSIDs(t *testing.T) {
 		{SSID: "NetB", Signal: -40, Radio: "radio1"},
 	}
 
-	candidate, err := um.findCandidates(networks, false)
+	candidate, err := um.findCandidates(networks, false, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, candidate)
 	assert.Equal(t, "NetB", candidate.SSID)
@@ -281,7 +282,7 @@ func TestUpstreamManager_ResellerFallbackToDisabledSTA(t *testing.T) {
 		{SSID: "TollGate-XYZ", Signal: -30, Radio: "radio0"},
 	}
 
-	candidate, err := um.findCandidates(networks, true)
+	candidate, err := um.findCandidates(networks, true, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, candidate)
 	assert.Equal(t, "HomeWiFi", candidate.SSID)
@@ -307,10 +308,141 @@ func TestUpstreamManager_ResellerPrefersTollGateOverDisabledSTA(t *testing.T) {
 		{SSID: "TollGate-ABC", Signal: -30, Radio: "radio0", Encryption: "none"},
 	}
 
-	candidate, err := um.findCandidates(networks, true)
+	candidate, err := um.findCandidates(networks, true, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, candidate)
 	assert.Equal(t, "TollGate-ABC", candidate.SSID)
 	assert.Equal(t, -30, candidate.Signal)
 	connector.AssertExpectations(t)
+}
+
+func TestUpstreamManager_EmergencyScan_PrefersFallbackOverTollGate(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
+		{Name: "upstream_tollgate_abc", SSID: "TollGate-ABC", Device: "radio0", Disabled: true},
+	}, nil)
+
+	networks := []NetworkInfo{
+		{SSID: "HomeWiFi", Signal: -45, Radio: "radio0"},
+		{SSID: "TollGate-ABC", Signal: -30, Radio: "radio0", Encryption: "none"},
+	}
+
+	candidate, err := um.findCandidates(networks, true, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, candidate)
+	assert.Equal(t, "HomeWiFi", candidate.SSID, "During emergency, fallback should win over stronger TollGate (-45 actual vs -30-20=penalized -50)")
+	connector.AssertExpectations(t)
+}
+
+func TestUpstreamManager_EmergencyScan_TollGateWinsOnlyIfMuchStronger(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
+		{Name: "upstream_tollgate_abc", SSID: "TollGate-ABC", Device: "radio0", Disabled: true},
+	}, nil)
+
+	networks := []NetworkInfo{
+		{SSID: "HomeWiFi", Signal: -60, Radio: "radio0"},
+		{SSID: "TollGate-ABC", Signal: -20, Radio: "radio0", Encryption: "none"},
+	}
+
+	candidate, err := um.findCandidates(networks, true, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, candidate)
+	assert.Equal(t, "TollGate-ABC", candidate.SSID, "TollGate wins if penalized signal (-40) still beats fallback (-60)")
+	connector.AssertExpectations(t)
+}
+
+func TestUpstreamManager_CircuitBreaker_BlocksScanAfterFailures(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	um.recordSwitchFailure()
+	um.recordSwitchFailure()
+	assert.False(t, um.isInCooldown(), "Should not be in cooldown after 2 failures")
+
+	um.recordSwitchFailure()
+	assert.True(t, um.isInCooldown(), "Should be in cooldown after 3 failures")
+
+	um.resetSwitchFailures()
+	assert.False(t, um.isInCooldown(), "Should not be in cooldown after reset")
+}
+
+func TestUpstreamManager_CircuitBreaker_SkipsScanCycleWhenInCooldown(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	um.recordSwitchFailure()
+	um.recordSwitchFailure()
+	um.recordSwitchFailure()
+
+	um.runScanCycle("upstream_old", "OldNet", -60, "emergency", false)
+
+	scanner.AssertNotCalled(t, "ScanAllRadios")
+	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpstreamManager_CircuitBreaker_ResetOnSuccess(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	um.recordSwitchFailure()
+	um.recordSwitchFailure()
+	assert.Equal(t, 2, um.consecutiveFails)
+
+	um.resetSwitchFailures()
+	assert.Equal(t, 0, um.consecutiveFails)
+	assert.False(t, um.isInCooldown())
+}
+
+func TestUpstreamManager_SwitchFailure_CountsAndCooldowns(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "MyNet", Signal: -40, Radio: "radio0"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet").Return(fmt.Errorf("switch failed"))
+
+	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	assert.Equal(t, 1, um.consecutiveFails)
+
+	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	assert.Equal(t, 2, um.consecutiveFails)
+
+	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	assert.Equal(t, 3, um.consecutiveFails)
+	assert.True(t, um.isInCooldown())
 }
