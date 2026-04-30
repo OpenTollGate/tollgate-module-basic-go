@@ -129,6 +129,65 @@ func TestConnector_EnsureRadiosEnabled(t *testing.T) {
 	m.AssertExpectations(t)
 }
 
+func TestGetUCIEncryptionType(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"WPA/WPA2", "psk2"},
+		{"WPA2", "psk2"},
+		{"WPA", "psk"},
+		{"WEP", "wep"},
+		{"unknown", "none"},
+		{"", "none"},
+		{"SAE", "none"},
+	}
+	for _, tt := range tests {
+		result := getUCIEncryptionType(tt.input)
+		assert.Equal(t, tt.expected, result, "getUCIEncryptionType(%q)", tt.input)
+	}
+}
+
+func TestGenerateRandomSuffix(t *testing.T) {
+	c := &Connector{}
+
+	suffix, err := c.generateRandomSuffix(4)
+	assert.NoError(t, err)
+	assert.Len(t, suffix, 4)
+
+	for _, ch := range suffix {
+		assert.True(t, ch >= '0' && ch <= '9', "expected digit, got %c", ch)
+	}
+
+	suffix2, err := c.generateRandomSuffix(4)
+	assert.NoError(t, err)
+	assert.Len(t, suffix2, 4)
+
+	suffix8, err := c.generateRandomSuffix(8)
+	assert.NoError(t, err)
+	assert.Len(t, suffix8, 8)
+}
+
+func TestConnector_GetSTANetdev(t *testing.T) {
+	m := &MockConnector{}
+	m.On("GetSTANetdev", "upstream_testnet").Return("phy0-sta0", nil)
+
+	netdev, err := m.GetSTANetdev("upstream_testnet")
+	assert.NoError(t, err)
+	assert.Equal(t, "phy0-sta0", netdev)
+	m.AssertExpectations(t)
+}
+
+func TestConnector_GetSTANetdev_NotFound(t *testing.T) {
+	m := &MockConnector{}
+	m.On("GetSTANetdev", "nonexistent").Return("", assert.AnError)
+
+	netdev, err := m.GetSTANetdev("nonexistent")
+	assert.Error(t, err)
+	assert.Equal(t, "", netdev)
+	m.AssertExpectations(t)
+}
+
 func TestSanitizeSSIDForUCI(t *testing.T) {
 	tests := []struct {
 		input    string

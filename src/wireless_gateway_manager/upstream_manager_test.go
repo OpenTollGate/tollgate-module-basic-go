@@ -3,6 +3,7 @@ package wireless_gateway_manager
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -366,6 +367,100 @@ func TestUpstreamManager_EmergencyScan_TollGateWinsOnlyIfMuchStronger(t *testing
 	connector.AssertExpectations(t)
 }
 
+func TestUpstreamManager_PauseConnectivityChecks(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	assert.False(t, um.isPaused(), "should not be paused initially")
+
+	um.PauseConnectivityChecks(100 * time.Millisecond)
+	assert.True(t, um.isPaused(), "should be paused immediately after pause call")
+
+	time.Sleep(150 * time.Millisecond)
+	assert.False(t, um.isPaused(), "should not be paused after duration expires")
+}
+
+func TestUpstreamManager_Stop(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	select {
+	case <-um.stopChan:
+		t.Fatal("stopChan should be open initially")
+	default:
+	}
+
+	um.Stop()
+
+	select {
+	case <-um.stopChan:
+	default:
+		t.Fatal("stopChan should be closed after Stop()")
+	}
+}
+
+func TestUpstreamManager_BlacklistSSID(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	assert.False(t, um.isBlacklisted("TestNet"), "should not be blacklisted initially")
+
+	um.blacklistSSID("TestNet")
+	assert.True(t, um.isBlacklisted("TestNet"), "should be blacklisted after adding")
+	assert.False(t, um.isBlacklisted("OtherNet"), "other SSIDs should not be affected")
+}
+
+func TestUpstreamManager_BlacklistTTLExpiry(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.BlacklistTTL = 100 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	um.blacklistSSID("TestNet")
+	assert.True(t, um.isBlacklisted("TestNet"), "should be blacklisted immediately")
+
+	time.Sleep(150 * time.Millisecond)
+	assert.False(t, um.isBlacklisted("TestNet"), "should expire after TTL")
+}
+
+func TestUpstreamManager_PurgeBlacklist(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.BlacklistTTL = 100 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	um.blacklistSSID("OldNet")
+	um.blacklistSSID("RecentNet")
+
+	um.blacklistMu.Lock()
+	um.blacklist["OldNet"] = time.Now().Add(-200 * time.Millisecond)
+	um.blacklistMu.Unlock()
+
+	time.Sleep(10 * time.Millisecond)
+	um.purgeBlacklist()
+
+	assert.False(t, um.isBlacklisted("OldNet"), "expired entry should be purged")
+	assert.True(t, um.isBlacklisted("RecentNet"), "fresh entry should remain")
+}
+
 func TestUpstreamManager_CircuitBreaker_BlocksScanAfterFailures(t *testing.T) {
 	connector := &MockConnector{}
 	scanner := &MockScanner{}
@@ -445,4 +540,27 @@ func TestUpstreamManager_SwitchFailure_CountsAndCooldowns(t *testing.T) {
 	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
 	assert.Equal(t, 3, um.consecutiveFails)
 	assert.True(t, um.isInCooldown())
+}
+
+func TestUpstreamManager_PostSwitch_NoBlacklistWhenConnectivityOK(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "MyNet", Signal: -40, Radio: "radio0"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet").Return(nil)
+
+	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+
+	assert.False(t, um.isBlacklisted("MyNet"), "SSID should NOT be blacklisted when post-switch ping succeeds")
+	assert.True(t, um.isBlacklisted("OldNet"), "Old SSID should be blacklisted (emergency switch)")
+	connector.AssertExpectations(t)
 }

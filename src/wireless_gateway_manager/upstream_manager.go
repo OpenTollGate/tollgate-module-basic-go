@@ -148,13 +148,23 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 			shouldScan = true
 			reason = "no-active-upstream"
 		} else {
-			associated := um.isSTAAssociated(activeSTA.Device)
+			staNetdev := activeSTA.Device
+			if netdev, err := um.connector.GetSTANetdev(activeSTA.Name); err == nil && netdev != "" {
+				staNetdev = netdev
+			} else {
+				logger.WithFields(logrus.Fields{
+					"section": activeSTA.Name,
+					"error":   err,
+				}).Debug("Could not resolve STA netdev, falling back to radio name")
+			}
+
+			associated := um.isSTAAssociated(staNetdev)
 			if !associated {
 				shouldScan = true
 				reason = "not-associated"
 			} else {
-				currentSignal, _ = um.getCurrentSignal(activeSTA.Device)
-				connected := um.checkConnectivity(activeSTA.Device)
+				currentSignal, _ = um.getCurrentSignal(staNetdev)
+				connected := um.checkConnectivity(staNetdev)
 				if connected {
 					if lostCount > 0 {
 						logger.WithField("lost_count", lostCount).Info("Connectivity restored")
@@ -345,7 +355,19 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 			if isEmergency && activeSSID != "" {
 				um.blacklistSSID(activeSSID)
 			}
+			um.verifyPostSwitchConnectivity(candidate.SSID)
 		}
+	}
+}
+
+func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string) {
+	time.Sleep(5 * time.Second)
+	cmd := exec.Command("ping", "-c", "1", "-W", "5", "9.9.9.9")
+	if cmd.Run() != nil {
+		um.blacklistSSID(ssid)
+		logger.WithField("ssid", ssid).Warn("Blacklisted new upstream: no internet after switch")
+	} else {
+		logger.WithField("ssid", ssid).Info("Post-switch connectivity verified")
 	}
 }
 

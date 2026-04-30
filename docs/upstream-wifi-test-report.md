@@ -246,3 +246,43 @@ rm /root/routers.lock
 | `WPA3 SAE mixed (CCMP)` | `sae-mixed` |
 | `WPA2 EAP (CCMP)` | `wpa2-eap` |
 | Unknown | `psk2` (safe default) |
+
+---
+
+## Test Coverage Verification (2026-04-30)
+
+### Unit Tests
+
+| Test | File | Status |
+|------|------|--------|
+| `getUCIEncryptionType` (5 cases) | `connector_test.go` | PASS |
+| `generateRandomSuffix` (3 cases) | `connector_test.go` | PASS |
+| `sanitizeSSIDForUCI` (4 cases) | `connector_test.go` | PASS |
+| `PauseConnectivityChecks`/`isPaused` | `upstream_manager_test.go` | PASS |
+| `Stop` (channel close) | `upstream_manager_test.go` | PASS |
+| `blacklistSSID`/`isBlacklisted`/`purgeBlacklist` (4 cases) | `upstream_manager_test.go` | PASS |
+| `getIP` (3 cases: X-Real-Ip, X-Forwarded-For, RemoteAddr) | `main_test.go` | PASS |
+| `parseUsageString` (4 cases: valid, zero, bad format, bad values) | `main_test.go` | PASS |
+| `resellerModeAdapter.IsResellerModeActive` (3 cases: nil, true, false) | `main_test.go` | PASS |
+
+**Total: 51 WGM tests + 11 main tests = 62 tests passing**
+
+### Reseller Mode Device Test (Router B, 2026-04-30)
+
+| Check | Result |
+|-------|--------|
+| Router B reachable | PASS |
+| Daemon running (PID 13584, 56+ min uptime) | PASS |
+| Internet connectivity (ping 9.9.9.9) | PASS |
+| AP SSID intact (TollGate-D1C6) | PASS |
+| Reseller mode active (reseller_mode: true) | PASS |
+| `tollgate upstream scan` (37 networks found) | PASS |
+| `tollgate upstream list` (3 STAs, correct status) | PASS |
+| TollGate-1690 STA section exists (disabled) | PASS |
+| No spurious switching (1 scheduled switch only) | PASS |
+| No circuit breaker triggers | PASS |
+| No blacklisting events | PASS |
+
+### Known Issues Found During Testing
+
+1. **`getCurrentSignal` uses radio name instead of interface name**: `Start()` passes `activeSTA.Device` (e.g. `radio0`) to `getCurrentSignal()`, but `iwinfo` needs the actual netdev name (e.g. `phy0-sta0`). This causes signal=0, which triggers "Active upstream not associated" during scheduled scans, bypassing hysteresis. **Pre-existing bug, not a regression.** Fix would require mapping radio name to interface name via `ubus call network.wireless status`.

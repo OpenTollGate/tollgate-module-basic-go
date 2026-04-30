@@ -677,6 +677,10 @@ func (c *Connector) getDeviceNameForInterface(interfaceSection string) (string, 
 	return "", fmt.Errorf("interface section %s not found in wireless status", sectionName)
 }
 
+func (c *Connector) GetSTANetdev(sectionName string) (string, error) {
+	return c.getDeviceNameForInterface("wireless." + sectionName)
+}
+
 // Ensure Connector implements ConnectorInterface
 var _ ConnectorInterface = (*Connector)(nil)
 

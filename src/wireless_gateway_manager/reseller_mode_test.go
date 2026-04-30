@@ -85,6 +85,11 @@ func (m *MockConnector) EnsureRadiosEnabled() error {
 	return args.Error(0)
 }
 
+func (m *MockConnector) GetSTANetdev(sectionName string) (string, error) {
+	args := m.Called(sectionName)
+	return args.String(0), args.Error(1)
+}
+
 type MockScanner struct {
 	mock.Mock
 }
