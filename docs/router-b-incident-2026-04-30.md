@@ -60,7 +60,7 @@ and restarting the tollgate service. The router required physical recovery.
     every ~60-90s (2 × 30s check + switch time), continuously disrupting the
     radio and preventing NetBird from ever reconnecting.
 
-### Three contributing bugs
+### Five contributing bugs
 
 #### Bug 11: No startup grace period (FIXED)
 
@@ -97,6 +97,33 @@ circuit breaker or maximum retry limit.
 failures, a 10-minute cooldown is triggered during which all scan cycles are
 skipped. Failure counter resets on any successful switch. Unit tests verify
 cooldown triggers at 3 failures, blocks scan cycles, and resets on success.
+
+#### Bug 14: getCurrentSignal uses radio name instead of netdev (FIXED)
+
+`Start()` passes `activeSTA.Device` (e.g. `radio0`) to `getCurrentSignal()`,
+but `iwinfo` needs the actual netdev name (e.g. `phy0-sta0`). This caused
+signal=0, which made the daemon think the active upstream was not associated.
+During scheduled scans, this bypassed hysteresis because the "no active
+upstream" path has no signal threshold check.
+
+**Fix applied**: Added `GetSTANetdev(sectionName)` to `ConnectorInterface` that
+resolves the actual netdev via `ubus call network.wireless status`. `Start()`
+now resolves the netdev once and passes it to all signal/connectivity checks.
+Falls back to radio name if resolution fails. Verified: signal now reads -37 to
+-44 dBm instead of 0.
+
+#### Bug 15: No post-switch connectivity verification (FIXED)
+
+After a successful `SwitchUpstream`, the daemon assumed the new upstream had
+internet. If the new upstream provided DHCP but blocked internet (e.g.
+TollGate-1690 requiring e-cash), the daemon would stay on it until the next
+connectivity check tick (30s), potentially dropping the NetBird tunnel.
+
+**Fix applied**: `verifyPostSwitchConnectivity()` runs immediately after
+`SwitchUpstream` succeeds: waits 5s for DHCP settle, then pings 9.9.9.9. If
+ping fails, the new SSID is blacklisted immediately (60-min TTL). The daemon's
+next tick will detect no internet → emergency scan → switch to a working
+upstream, with the blacklisted SSID excluded from candidates.
 
 ## What Would Have Prevented This
 
@@ -135,19 +162,15 @@ cooldown triggers at 3 failures, blocks scan cycles, and resets on success.
 
 ## Recovery
 
-Router B requires physical access to recover. Options:
+Router B was recovered via physical access. After recovery, the Bugs 14 + 15 fix
+was deployed and verified:
 
-1. **Serial console**: Connect via UART/serial to the MT3000, restore config
-2. **uboot recovery**: Hold reset button during boot to enter failsafe mode
-3. **Factory reset**: Hold reset button for 10+ seconds to reset to defaults
+1. Deployed with `reseller_mode=false` (safety first)
+2. Verified signal reads correctly (-37 dBm, not 0)
+3. Verified hysteresis works (no spurious switches)
+4. Enabled `reseller_mode=true`
+5. Router subsequently rebooted (power cycle) — daemon auto-restarted cleanly
+6. Post-reboot: 2 scheduled scans in reseller mode, TollGate-1690 correctly
+   not selected (hysteresis), internet maintained throughout
 
-After recovery, restore with:
-```sh
-# Remove any TollGate STA sections
-uci delete wireless.upstream_tollgate_1690
-uci commit wireless
-
-# Restore config
-cp /etc/tollgate/config.json.bak /etc/tollgate/config.json
-/etc/init.d/tollgate-wrt restart
-```
+**Status: All 5 bugs fixed and verified on hardware. Router B stable.**

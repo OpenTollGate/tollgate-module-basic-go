@@ -52,17 +52,14 @@ main.go
 
 ## Unit Tests
 
-51 tests pass across 3 packages:
+66 tests pass (55 WGM + 11 main), `go vet` clean:
 
 ```
-cd src && go test \
-  github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager \
-  github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager \
-  github.com/OpenTollGate/tollgate-module-basic-go/src/merchant \
-  -v -count=1
+cd src && TOLLGATE_TEST_CONFIG_DIR=/tmp/tollgate-test-config go test -v -count=1 -timeout 120s .
+cd src/wireless_gateway_manager && TOLLGATE_TEST_CONFIG_DIR=/tmp/tollgate-test-config go test -v -count=1 -timeout 120s .
 ```
 
-### wireless_gateway_manager (43 tests)
+### wireless_gateway_manager (55 tests)
 
 | Test | Status |
 |------|--------|
@@ -78,6 +75,10 @@ cd src && go test \
 | TestConnector_SwitchUpstream_TimeoutFallback | PASS |
 | TestConnector_EnsureWWANSetup | PASS |
 | TestConnector_EnsureRadiosEnabled | PASS |
+| TestGetUCIEncryptionType | PASS |
+| TestGenerateRandomSuffix | PASS |
+| TestConnector_GetSTANetdev | PASS |
+| TestConnector_GetSTANetdev_NotFound | PASS |
 | TestSanitizeSSIDForUCI | PASS |
 | TestScanner_DetectEncryption | PASS |
 | TestScanner_ParseIwinfoOutput | PASS |
@@ -103,6 +104,18 @@ cd src && go test \
 | TestUpstreamManager_RunScanCycle_ScanFails | PASS |
 | TestUpstreamManager_ResellerFallbackToDisabledSTA | PASS |
 | TestUpstreamManager_ResellerPrefersTollGateOverDisabledSTA | PASS |
+| TestUpstreamManager_EmergencyScan_PrefersFallbackOverTollGate | PASS |
+| TestUpstreamManager_EmergencyScan_TollGateWinsOnlyIfMuchStronger | PASS |
+| TestUpstreamManager_PauseConnectivityChecks | PASS |
+| TestUpstreamManager_Stop | PASS |
+| TestUpstreamManager_BlacklistSSID | PASS |
+| TestUpstreamManager_BlacklistTTLExpiry | PASS |
+| TestUpstreamManager_PurgeBlacklist | PASS |
+| TestUpstreamManager_CircuitBreaker_BlocksScanAfterFailures | PASS |
+| TestUpstreamManager_CircuitBreaker_SkipsScanCycleWhenInCooldown | PASS |
+| TestUpstreamManager_CircuitBreaker_ResetOnSuccess | PASS |
+| TestUpstreamManager_SwitchFailure_CountsAndCooldowns | PASS |
+| TestUpstreamManager_PostSwitch_NoBlacklistWhenConnectivityOK | PASS |
 | TestResellerModeDisabled_GatewayManagerInit | PASS |
 | TestResellerModeEnabled_ScanAllRadios | PASS |
 | TestGatewayManagerInit | PASS |
@@ -138,7 +151,7 @@ Deploy: `./scripts/local-compile-to-router.sh <IP>`
 | 6 | Daemon stable for 90+ seconds, no spurious switching | — | PASS |
 | 7 | Both routers online after wifi reload recovery | PASS | PASS |
 
-### Bugs found and fixed (13)
+### Bugs found and fixed (15)
 
 | # | Bug | Fix |
 |---|-----|-----|
@@ -155,6 +168,8 @@ Deploy: `./scripts/local-compile-to-router.sh <IP>`
 | 11 | No startup grace period — daemon checks connectivity 30s after start while radio still reconfiguring | 90s grace period, skips all connectivity checks during startup |
 | 12 | Emergency scan picks stronger-signal TollGate over known fallback even though TollGate likely has no internet | 20 dB signal penalty for TollGate SSIDs during emergency scans |
 | 13 | No circuit breaker — repeated switch failures loop continuously, disrupting radio | 3 consecutive failures triggers 10-minute cooldown; resets on success |
+| 14 | `getCurrentSignal` receives radio name (`radio0`) instead of netdev (`phy0-sta0`), causing `iwinfo` to return signal=0 — hysteresis always triggers switch to strongest candidate | Added `GetSTANetdev()` to resolve netdev via `ubus call network.wireless status`; falls back to radio name if resolution fails |
+| 15 | No post-switch connectivity verification — daemon stays on non-internet upstream (e.g. TollGate providing DHCP but blocking without e-cash) | `verifyPostSwitchConnectivity()` waits 5s then pings 9.9.9.9; failure triggers immediate blacklist (60-min TTL) |
 
 ### Key hardware finding
 
@@ -265,7 +280,7 @@ rm /root/routers.lock
 | `parseUsageString` (4 cases: valid, zero, bad format, bad values) | `main_test.go` | PASS |
 | `resellerModeAdapter.IsResellerModeActive` (3 cases: nil, true, false) | `main_test.go` | PASS |
 
-**Total: 51 WGM tests + 11 main tests = 62 tests passing**
+**Total: 55 WGM tests + 11 main tests = 66 tests passing**
 
 ### Reseller Mode Device Test (Router B, 2026-04-30)
 
@@ -283,6 +298,38 @@ rm /root/routers.lock
 | No circuit breaker triggers | PASS |
 | No blacklisting events | PASS |
 
-### Known Issues Found During Testing
+### Post-Fix Device Verification (Router B, 2026-04-30)
 
-1. **`getCurrentSignal` uses radio name instead of interface name**: `Start()` passes `activeSTA.Device` (e.g. `radio0`) to `getCurrentSignal()`, but `iwinfo` needs the actual netdev name (e.g. `phy0-sta0`). This causes signal=0, which triggers "Active upstream not associated" during scheduled scans, bypassing hysteresis. **Pre-existing bug, not a regression.** Fix would require mapping radio name to interface name via `ubus call network.wireless status`.
+After fixing Bugs 14 + 15, deployed to Router B with `reseller_mode=false` for safety,
+then enabled `reseller_mode=true`. Router subsequently rebooted (power cycle).
+Daemon auto-restarted and passed all checks.
+
+#### Pre-reboot verification (PID 10330, started 10:27 UTC)
+
+| Scan | Time | Active | Signal | Best Candidate | Cand. Signal | Diff | Switch? |
+|------|------|--------|--------|----------------|-------------|------|---------|
+| 1 | 10:33:07 | c03rad0r | **-37** | c03rad0r2 | -40 | -3 dB | No |
+| 2 | 10:38:07 | c03rad0r | **-37** | c03rad0r2 | -41 | -4 dB | No |
+
+Signal correctly reads as -37 dBm (was 0 before Bug 14 fix). Hysteresis working.
+
+#### Post-reboot verification (PID 2554, started ~10:52 UTC)
+
+| Scan | Time | Active | Signal | Best Candidate | Cand. Signal | Diff | Switch? |
+|------|------|--------|--------|----------------|-------------|------|---------|
+| 1 | 10:57:35 | c03rad0r | **-44** | TollGate-1690 | -41 | +3 dB | No |
+| 2 | 11:02:35 | c03rad0r | **-44** | c03rad0r2 | -42 | +2 dB | No |
+
+Key observations:
+- **Signal fix (Bug 14) confirmed**: -44 dBm correctly read (not 0)
+- **Hysteresis prevents stranding**: TollGate-1690 at -41 dBm is only +3 dB stronger than active at -44 dBm, well below 12 dB threshold
+- **Reboot survival**: Daemon auto-started, kept c03rad0r as active upstream, internet maintained
+- **Reseller mode stable**: TollGate-1690 visible in scans but correctly not selected
+- **CLI working**: `tollgate upstream scan` (34 networks), `tollgate upstream list` (3 STAs), `tollgate status` all return correct data
+- **Internet**: ping 9.9.9.9 = 26-49 ms, NetBird tunnel stable throughout
+
+### Known Issues
+
+1. **Noisy UCI error logs**: `EnsureRadiosEnabled()` calls `uci get wireless.radio0.disabled` every 30s. If radio0 has no explicit `disabled` option (OpenWrt defaults to enabled), `ExecuteUCI` logs `ERROR: uci: Entry not found`. Functionally correct (treats missing as "not disabled"), but fills the log. **Low severity — cosmetic.**
+
+2. **`NetworkOK: true` hardcoded** in `cli/server.go:459` — TODO from before this PR. Low priority.
