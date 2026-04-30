@@ -18,6 +18,13 @@ tollgate-module-basic-go
 **/tollwallet_db/*
 tests/*.bin
 tests/__pycache__/
+tests/.env
+
+# Router credentials (copy from routers.env.example)
+routers.env
+
+# Router mutex (shared lock file at /root/routers.lock)
+routers.lock
 
 # AI tooling — shared skills are symlinked, local memory is per-repo
 .claude/
