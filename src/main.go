@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net" // Added for net.Interfaces()
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +20,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
+
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 )
@@ -37,6 +37,7 @@ var (
 )
 
 var gatewayManager *wireless_gateway_manager.GatewayManager
+var upstreamManager *wireless_gateway_manager.UpstreamManager
 
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
@@ -110,11 +111,14 @@ func init() {
 	merchantInstance.StartPayoutRoutine()
 	merchantInstance.StartDataUsageMonitoring()
 
-	// Initialize CLI server
-	initCLIServer()
+	// Initialize upstream WiFi manager
+	initUpstreamManager()
 
 	// Initialize upstream detector module
 	initUpstreamDetector()
+
+	// Initialize CLI server (must come after initUpstreamManager so CLIServer gets non-nil upstreamManager)
+	initCLIServer()
 }
 
 func initUpstreamDetector() {
@@ -123,7 +127,6 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream detector instance")
 	}
 
-	// Create and set upstream session manager instance
 	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantInstance)
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
@@ -140,8 +143,36 @@ func initUpstreamDetector() {
 	mainLogger.Info("UpstreamDetector module initialized with upstream session manager and monitoring network changes")
 }
 
+func initUpstreamManager() {
+	upstreamConfig := wireless_gateway_manager.DefaultUpstreamManagerConfig()
+
+	connector := &wireless_gateway_manager.Connector{}
+	scanner := &wireless_gateway_manager.Scanner{Connector: connector}
+	resellerChecker := &resellerModeAdapter{cm: configManager}
+
+	upstreamManager = wireless_gateway_manager.NewUpstreamManager(connector, scanner, resellerChecker, upstreamConfig)
+
+	go func() {
+		upstreamManager.Start(context.Background())
+	}()
+
+	mainLogger.Info("Upstream WiFi manager initialized")
+}
+
+type resellerModeAdapter struct {
+	cm *config_manager.ConfigManager
+}
+
+func (r *resellerModeAdapter) IsResellerModeActive() bool {
+	if r.cm == nil {
+		return false
+	}
+	cfg := r.cm.GetConfig()
+	return cfg != nil && cfg.ResellerMode
+}
+
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantInstance)
+	cliServer = cli.NewCLIServer(configManager, merchantInstance, gatewayManager, upstreamManager)
 
 	err := cliServer.Start()
 	if err != nil {
@@ -631,80 +662,19 @@ func main() {
 	}
 
 	mainLogger.Fatal(server.ListenAndServe())
-
-	go func() {
-		for {
-			if !isOnline() {
-				mainLogger.Info("Device is offline. Initiating gateway scan...")
-				// No need to assign the result of RunPeriodicScan, as it runs in a goroutine internally.
-				// We need to fetch the available gateways using GetAvailableGateways() instead.
-				availableGateways, err := gatewayManager.GetAvailableGateways()
-				if err != nil {
-					mainLogger.WithError(err).Error("Error getting available gateways")
-					continue
-				}
-				if len(availableGateways) > 0 {
-					mainLogger.Info("Available gateways found. Attempting to connect...")
-					err = gatewayManager.ConnectToGateway(availableGateways[0].BSSID, "") // Correct usage of ConnectToGateway
-					if err != nil {
-						mainLogger.WithError(err).Error("Error connecting to gateway")
-					} else {
-						mainLogger.Info("Successfully connected to a TollGate gateway.")
-					}
-				} else {
-					mainLogger.Info("No suitable TollGate gateways found to connect to.")
-				}
-			} else {
-				mainLogger.Debug("Device is online. No action needed.")
-			}
-			time.Sleep(5 * time.Minute)
-		}
-	}()
-
-	fmt.Println("Shutting down Tollgate - Whoami")
-}
-
-// isOnline checks if the device has at least one active, non-loopback network interface with an IP address.
-func isOnline() bool {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		mainLogger.WithError(err).Error("Error getting network interfaces")
-		return false
-	}
-
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
-			// Interface is up and not a loopback interface
-			addrs, err := iface.Addrs()
-			if err != nil {
-				mainLogger.WithFields(logrus.Fields{
-					"interface": iface.Name,
-					"error":     err,
-				}).Error("Error getting addresses for interface")
-				continue
-			}
-			if len(addrs) > 0 {
-				return true // Found at least one active, non-loopback interface with an IP address
-			}
-		}
-	}
-	return false
 }
 
 func getIP(r *http.Request) string {
-	// Check if the IP is set in the X-Real-Ip header
 	ip := r.Header.Get("X-Real-Ip")
 	if ip != "" {
 		return ip
 	}
 
-	// Check if the IP is set in the X-Forwarded-For header
 	ips := r.Header.Get("X-Forwarded-For")
 	if ips != "" {
 		return strings.Split(ips, ",")[0]
 	}
 
-	// Fallback to the remote address, removing the port
 	ip = r.RemoteAddr
 	if colon := strings.LastIndex(ip, ":"); colon != -1 {
 		ip = ip[:colon]
