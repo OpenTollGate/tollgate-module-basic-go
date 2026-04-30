@@ -153,6 +153,9 @@ func initCLIServer() {
 }
 
 func getMacAddress(ipAddress string) (string, error) {
+	if net.ParseIP(ipAddress) == nil {
+		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
+	}
 	cmdIn := `cat /tmp/dhcp.leases | cut -f 2,3,4 -s -d" " | grep -i ` + ipAddress + ` | cut -f 1 -s -d" "`
 	commandOutput, err := exec.Command("sh", "-c", cmdIn).Output()
 
@@ -691,24 +694,34 @@ func isOnline() bool {
 	return false
 }
 
+func isLocalRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
 func getIP(r *http.Request) string {
-	// Check if the IP is set in the X-Real-Ip header
-	ip := r.Header.Get("X-Real-Ip")
-	if ip != "" {
-		return ip
+	if isLocalRequest(r) {
+		ip := r.Header.Get("X-Real-Ip")
+		if ip != "" {
+			return strings.TrimSpace(ip)
+		}
+
+		ips := r.Header.Get("X-Forwarded-For")
+		if ips != "" {
+			return strings.TrimSpace(strings.Split(ips, ",")[0])
+		}
 	}
 
-	// Check if the IP is set in the X-Forwarded-For header
-	ips := r.Header.Get("X-Forwarded-For")
-	if ips != "" {
-		return strings.Split(ips, ",")[0]
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
 	}
-
-	// Fallback to the remote address, removing the port
-	ip = r.RemoteAddr
-	if colon := strings.LastIndex(ip, ":"); colon != -1 {
-		ip = ip[:colon]
-	}
-
-	return ip
+	return r.RemoteAddr
 }
