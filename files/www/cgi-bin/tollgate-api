@@ -2,6 +2,7 @@
 
 CONFIG="/etc/tollgate/config.json"
 IDENTITIES="/etc/tollgate/identities.json"
+SOCKET="/var/run/tollgate.sock"
 
 json_header() {
 	printf "Content-Type: application/json\r\n\r\n"
@@ -42,6 +43,28 @@ read_body() {
 
 validate_json_body() {
 	printf '%s' "$1" | jsonfilter -q -e '$' >/dev/null 2>&1
+}
+
+urldecode() {
+	printf '%s' "$1" | sed -e 's/+/ /g' -e 's/%\([0-9a-fA-F][0-9a-fA-F]\)/\\x\1/g' | xargs -0 printf '%s'
+}
+
+query_param() {
+	local name="$1"
+	local qs="${QUERY_STRING:-}"
+	local old_ifs="$IFS"
+	IFS="&"
+	for p in $qs; do
+		k="${p%%=*}"
+		v="${p#*=}"
+		if [ "$k" = "$name" ]; then
+			IFS="$old_ifs"
+			urldecode "$v"
+			return 0
+		fi
+	done
+	IFS="$old_ifs"
+	return 1
 }
 
 save_file() {
@@ -92,6 +115,26 @@ save_file() {
 	exit 0
 }
 
+socket_send() {
+	printf '%s\n' "$1" | nc -U "$SOCKET" 2>/dev/null
+}
+
+json_str_esc() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g'
+}
+
+build_socket_msg() {
+	_cmd="$1"
+	shift
+	_args_json=""
+	for _a in "$@"; do
+		_escaped=$(json_str_esc "$_a")
+		_args_json="${_args_json}\"${_escaped}\","
+	done
+	_args_json="${_args_json%,}"
+	printf '{"command":"%s","args":[%s],"timestamp":"%s"}' "$_cmd" "$_args_json" "$(date -Iseconds)"
+}
+
 action=""
 qs="${QUERY_STRING:-}"
 old_ifs="$IFS"
@@ -122,6 +165,126 @@ dashboard)
 	printf '%s\n' "$status" | json_esc
 	printf ',"logs":'
 	printf '%s\n' "$logs" | json_esc
+	printf '}'
+	;;
+
+wallet_info)
+	info=$(run_cmd /usr/bin/tollgate wallet info)
+	json_header
+	printf '{"ok":true,"info":'
+	printf '%s\n' "$info" | json_esc
+	printf '}'
+	;;
+
+wallet_fund)
+	token=$(printf '%s' "$body" | jsonfilter -e '$.token' 2>/dev/null)
+	if [ -z "$token" ]; then
+		json_header
+		printf '{"ok":false,"error":"Missing token field."}'
+		exit 0
+	fi
+	msg=$(build_socket_msg "wallet" "fund" "$token")
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+wallet_drain)
+	msg=$(build_socket_msg "wallet" "drain" "cashu")
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+wifi_status)
+	msg=$(build_socket_msg "network" "private" "status")
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+wifi_enable)
+	msg=$(build_socket_msg "network" "private" "enable")
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+wifi_disable)
+	msg=$(build_socket_msg "network" "private" "disable")
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+wifi_rename)
+	new_ssid=$(printf '%s' "$body" | jsonfilter -e '$.ssid' 2>/dev/null)
+	if [ -z "$new_ssid" ]; then
+		json_header
+		printf '{"ok":false,"error":"Missing ssid field."}'
+		exit 0
+	fi
+	msg=$(build_socket_msg "network" "private" "rename" "$new_ssid")
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+wifi_password)
+	new_pw=$(printf '%s' "$body" | jsonfilter -e '$.password' 2>/dev/null)
+	if [ -z "$new_pw" ]; then
+		msg=$(build_socket_msg "network" "private" "set-password")
+	else
+		msg=$(build_socket_msg "network" "private" "set-password" "$new_pw")
+	fi
+	resp=$(socket_send "$msg")
+	json_header
+	printf '{"ok":true,"response":'
+	printf '%s\n' "$resp" | json_esc
+	printf '}'
+	;;
+
+service_start)
+	/etc/init.d/tollgate-wrt start 2>&1
+	/etc/init.d/nodogsplash start 2>&1
+	json_header
+	printf '{"ok":true,"message":"Services started."}'
+	;;
+
+service_stop)
+	/etc/init.d/tollgate-wrt stop 2>&1
+	/etc/init.d/nodogsplash stop 2>&1
+	json_header
+	printf '{"ok":true,"message":"Services stopped."}'
+	;;
+
+service_restart)
+	/etc/init.d/nodogsplash restart 2>&1
+	/etc/init.d/tollgate-wrt restart 2>&1
+	json_header
+	printf '{"ok":true,"message":"Services restarted."}'
+	;;
+
+clients)
+	leases=$(cat /tmp/dhcp.leases 2>/dev/null || echo "")
+	authed=$(ndsctl status 2>/dev/null | grep -A100 "Client" || echo "")
+	json_header
+	printf '{"ok":true,"leases":'
+	printf '%s\n' "$leases" | json_esc
+	printf ',"authed":'
+	printf '%s\n' "$authed" | json_esc
 	printf '}'
 	;;
 

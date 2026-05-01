@@ -14,15 +14,12 @@ async function loginIfNeeded(page) {
 	await page.getByRole('heading', { name: 'TollGate' }).waitFor();
 }
 
-async function reloadFiles(page) {
-	await page.getByRole('button', { name: 'Reload both files' }).click();
-	await page.waitForTimeout(800);
-}
-
-async function saveEditor(page, editorSelector, buttonName, object) {
-	await page.locator(editorSelector).fill(JSON.stringify(object, null, 2));
-	await page.getByRole('button', { name: buttonName }).click();
-	await page.waitForTimeout(800);
+async function waitForDashboardLoad(page) {
+	await page.waitForFunction(() => {
+		const balance = document.querySelector('#ov_balance')?.textContent || '';
+		const version = document.querySelector('#ov_version')?.textContent || '';
+		return balance.trim() && balance !== '—' && version.trim() && version !== 'Loading…';
+	});
 }
 
 async function run() {
@@ -32,20 +29,40 @@ async function run() {
 	try {
 		await page.goto(url, { waitUntil: 'networkidle' });
 		await loginIfNeeded(page);
-		await page.waitForFunction(() => {
-			const version = document.querySelector('#version_text')?.textContent || '';
-			const status = document.querySelector('#status_text')?.textContent || '';
-			const wallet = document.querySelector('#wallet_balance')?.textContent || '';
-			return version.trim() && version !== 'Loading…' && status.trim() && status !== 'Loading…' && wallet.trim() && wallet !== '—';
-		});
 
-		await page.getByRole('button', { name: 'Dashboard' }).waitFor();
-		assert.match(await page.locator('#wallet_balance').textContent(), /\S/);
-		assert.match(await page.locator('#version_text').textContent(), /version:/i);
-		assert.match(await page.locator('#status_text').textContent(), /running:/i);
-		assert.match(await page.locator('#logs_box').textContent(), /tollgate-wrt|Skipping payout|No tollgate-wrt/i);
+		await page.getByRole('button', { name: 'Overview' }).waitFor();
+		await waitForDashboardLoad(page);
 
-		await page.getByRole('button', { name: 'JSON files' }).click();
+		assert.match(await page.locator('#ov_balance').textContent(), /\S/);
+		assert.match(await page.locator('#ov_version').textContent(), /version:/i);
+
+		await page.getByRole('button', { name: 'Wallet' }).click();
+		await page.waitForTimeout(1500);
+		assert.match(await page.locator('#wl_balance').textContent(), /\S/);
+		assert.ok(await page.locator('#wl_info').textContent(), 'wallet info loaded');
+
+		await page.getByRole('button', { name: 'Network' }).click();
+		await page.waitForTimeout(1500);
+		var nwLoading = await page.locator('#nw_status_loading').isVisible();
+		if (!nwLoading) {
+			assert.ok(await page.locator('#nw_enabled').textContent(), 'network status loaded');
+			assert.ok(await page.locator('#nw_ssid').textContent(), 'SSID loaded');
+		}
+
+		await page.getByRole('button', { name: 'Configuration' }).click();
+		await page.waitForTimeout(1500);
+		var cfgVisible = await page.locator('#cfg_content').isVisible();
+		if (cfgVisible) {
+			assert.ok(await page.locator('#cfg_price').textContent(), 'price loaded');
+			assert.ok(await page.locator('#cfg_metric').textContent(), 'metric loaded');
+		}
+
+		await page.getByRole('button', { name: 'Logs' }).click();
+		await page.waitForTimeout(1500);
+		assert.ok(await page.locator('#logs_box').textContent(), 'logs loaded');
+
+		await page.getByRole('button', { name: 'Advanced' }).click();
+		await page.waitForTimeout(1500);
 		const configEditor = page.locator('#config_editor');
 		const identitiesEditor = page.locator('#identities_editor');
 
@@ -53,24 +70,36 @@ async function run() {
 		const originalIdentities = JSON.parse(await identitiesEditor.inputValue());
 
 		const configProbe = { ...originalConfig, config_version: `${originalConfig.config_version}-pw` };
-		await saveEditor(page, '#config_editor', 'Save config.json', configProbe);
-		await reloadFiles(page);
+		await configEditor.fill(JSON.stringify(configProbe, null, 2));
+		await page.getByRole('button', { name: 'Save config.json' }).click();
+		await page.waitForTimeout(800);
+		await page.getByRole('button', { name: 'Reload both files' }).click();
+		await page.waitForTimeout(800);
 		assert.equal(JSON.parse(await configEditor.inputValue()).config_version, configProbe.config_version);
 
-		await saveEditor(page, '#config_editor', 'Save config.json', originalConfig);
-		await reloadFiles(page);
+		await configEditor.fill(JSON.stringify(originalConfig, null, 2));
+		await page.getByRole('button', { name: 'Save config.json' }).click();
+		await page.waitForTimeout(800);
+		await page.getByRole('button', { name: 'Reload both files' }).click();
+		await page.waitForTimeout(800);
 		assert.equal(JSON.parse(await configEditor.inputValue()).config_version, originalConfig.config_version);
 
 		const identitiesProbe = { ...originalIdentities, config_version: `${originalIdentities.config_version}-pw` };
-		await saveEditor(page, '#identities_editor', 'Save identities.json', identitiesProbe);
-		await reloadFiles(page);
+		await identitiesEditor.fill(JSON.stringify(identitiesProbe, null, 2));
+		await page.getByRole('button', { name: 'Save identities.json' }).click();
+		await page.waitForTimeout(800);
+		await page.getByRole('button', { name: 'Reload both files' }).click();
+		await page.waitForTimeout(800);
 		assert.equal(JSON.parse(await identitiesEditor.inputValue()).config_version, identitiesProbe.config_version);
 
-		await saveEditor(page, '#identities_editor', 'Save identities.json', originalIdentities);
-		await reloadFiles(page);
+		await identitiesEditor.fill(JSON.stringify(originalIdentities, null, 2));
+		await page.getByRole('button', { name: 'Save identities.json' }).click();
+		await page.waitForTimeout(800);
+		await page.getByRole('button', { name: 'Reload both files' }).click();
+		await page.waitForTimeout(800);
 		assert.equal(JSON.parse(await identitiesEditor.inputValue()).config_version, originalIdentities.config_version);
 
-		console.log(JSON.stringify({ ok: true, url, walletBalance: await page.locator('#wallet_balance').textContent() }));
+		console.log(JSON.stringify({ ok: true, url, walletBalance: await page.locator('#ov_balance').textContent() }));
 	} finally {
 		await browser.close();
 	}
