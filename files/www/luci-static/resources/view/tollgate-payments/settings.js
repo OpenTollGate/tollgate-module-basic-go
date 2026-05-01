@@ -1,513 +1,427 @@
 'use strict';
 'require view';
+'require fs';
+'require poll';
+'require ui';
+
+var HELPER = '/usr/libexec/tollgate-luci-helper';
+var CLI = '/usr/bin/tollgate';
+var CONFIG = '/etc/tollgate/config.json';
+var IDENTITIES = '/etc/tollgate/identities.json';
+
+function cli() {
+	var args = [];
+	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
+	return fs.exec_direct(CLI, args);
+}
+
+function helper() {
+	var args = [];
+	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
+	return fs.exec_direct(HELPER, args, 'json');
+}
+
+function saveJsonFile(path, data) {
+	var ts = new Date().toISOString().replace(/[^0-9T]/g, '').slice(0, 15);
+	return fs.exec_direct('cp', [path, path + '.bak.' + ts]).catch(function() {}).then(function() {
+		return fs.write(path, JSON.stringify(data, null, 2) + '\n');
+	});
+}
+
+function formatBalance(text) {
+	var match = String(text || '').match(/(\d+)\s*sats/i);
+	return match ? match[1] + ' sats' : (text || '—').trim() || '—';
+}
+
+function humanStepSize(bytes) {
+	if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GiB';
+	if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
+	if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
+	return bytes + ' B';
+}
+
+function statusBadge(text) {
+	if (/running|active|uptime/i.test(text || ''))
+		return E('span', { 'class': 'ifacebadge', 'style': 'background:#dff0d8;color:#3c763d;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Running');
+	if (/stopped|not running|inactive/i.test(text || ''))
+		return E('span', { 'class': 'ifacebadge', 'style': 'background:#f2dede;color:#a94442;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Stopped');
+	return E('span', { 'class': 'ifacebadge', 'style': 'background:#fcf8e3;color:#8a6d3b;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Unknown');
+}
 
 return view.extend({
-	render: function() {
-		var root = E('div', { 'class': 'tollgate-page' });
+	load: function() {
+		return Promise.all([
+			cli('wallet', 'balance').catch(function() { return ''; }),
+			cli('version').catch(function() { return ''; }),
+			cli('status').catch(function() { return ''; })
+		]);
+	},
 
-		root.innerHTML = [
-			'<style>',
-			'.tollgate-page{max-width:1040px}',
-			'.tg-pane{display:none}',
-			'.tg-pane.active{display:block}',
-			'.tg-tabbar{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 1.2rem 0;padding:0}',
-			'.tg-tabbar button{margin:0}',
-			'.tg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}',
-			'.tg-card{margin:0 0 1rem 0;padding:1rem;border:1px solid var(--border-color,#ddd);border-radius:4px}',
-			'.tg-card h3,.tg-card h4{margin:0 0 .5rem 0}',
-			'.tg-metric-label{font-size:13px;opacity:.7;margin:0 0 .25rem 0}',
-			'.tg-metric-value{font-size:28px;font-weight:700;margin:0}',
-			'.tg-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}',
-			'.tg-muted{opacity:.7;font-size:13px}',
-			'.tg-ok{color:#5cb85c}',
-			'.tg-err{color:#d9534f}',
-			'.tg-warn{color:#f0ad4e}',
-			'.tg-pre{max-height:24rem;overflow:auto;white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0;padding:.5rem;background:var(--background-color,#f5f5f5);border-radius:3px}',
-			'.tg-editor{width:100%;min-height:18rem;font-family:monospace;font-size:12px;line-height:1.45;resize:vertical}',
-			'.tg-file-state{font-size:13px;min-height:1.2rem}',
-			'.tg-field{margin:0 0 1rem 0}',
-			'.tg-field label{display:block;font-weight:600;margin:0 0 .25rem 0;font-size:13px}',
-			'.tg-field input,.tg-field select{width:100%;max-width:400px;padding:.35rem .5rem;font-size:14px}',
-			'.tg-field .tg-hint{font-size:12px;opacity:.7;margin:.25rem 0 0 0}',
-			'.tg-status{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600}',
-			'.tg-status.running{background:#dff0d8;color:#3c763d}',
-			'.tg-status.stopped{background:#f2dede;color:#a94442}',
-			'.tg-status.unknown{background:#fcf8e3;color:#8a6d3b}',
-			'.tg-badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;margin-left:4px}',
-			'.tg-confirm-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:1000;display:flex;align-items:center;justify-content:center}',
-			'.tg-confirm-box{background:#fff;padding:1.5rem;border-radius:6px;max-width:420px;width:90%}',
-			'.tg-confirm-box h3{margin:0 0 .75rem 0}',
-			'.tg-confirm-box p{margin:0 0 1rem 0;font-size:14px}',
-			'.tg-confirm-box .tg-actions{justify-content:flex-end}',
-			'.tg-password-row{display:flex;gap:6px;align-items:center}',
-			'.tg-password-row input{flex:1;max-width:340px}',
-			'</style>',
-			'<div class="cbi-map">',
-			'<h2 name="content">TollGate</h2>',
-			'<div class="cbi-map-descr">Manage your TollGate captive portal payment gateway.</div>',
-			'<div class="tg-tabbar">',
-			'<button id="tab_overview" class="cbi-button cbi-button-action" type="button">Overview</button>',
-			'<button id="tab_wallet" class="cbi-button" type="button">Wallet</button>',
-			'<button id="tab_network" class="cbi-button" type="button">Network</button>',
-			'<button id="tab_config" class="cbi-button" type="button">Configuration</button>',
-			'<button id="tab_logs" class="cbi-button" type="button">Logs</button>',
-			'<button id="tab_advanced" class="cbi-button" type="button">Advanced</button>',
-			'</div>',
+	render: function(data) {
+		var balance = data[0] || '';
+		var version = data[1] || '';
+		var statusText = data[2] || '';
 
-			'<div id="pane_overview" class="tg-pane active">',
-			'<div class="cbi-section">',
-			'<h3>Service Status</h3>',
-			'<div class="tg-grid">',
-			'<div class="tg-card"><p class="tg-metric-label">Wallet Balance</p><p id="ov_balance" class="tg-metric-value">—</p></div>',
-			'<div class="tg-card"><p class="tg-metric-label">Service</p><p id="ov_service" class="tg-metric-value"><span class="tg-status unknown">Loading</span></p></div>',
-			'</div>',
-			'<div class="tg-actions">',
-			'<button id="ov_start" class="cbi-button cbi-button-apply" type="button">Start</button>',
-			'<button id="ov_stop" class="cbi-button cbi-button-remove" type="button">Stop</button>',
-			'<button id="ov_restart" class="cbi-button cbi-button-save" type="button">Restart</button>',
-			'</div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Version</h3>',
-			'<pre id="ov_version" class="tg-pre">Loading…</pre>',
-			'</div>',
-			'</div>',
+		var activeTab = 'overview';
+		var tabContent = E('div');
 
-			'<div id="pane_wallet" class="tg-pane">',
-			'<div class="cbi-section">',
-			'<h3>Wallet Balance</h3>',
-			'<div class="tg-grid">',
-			'<div class="tg-card"><p class="tg-metric-label">Total Balance</p><p id="wl_balance" class="tg-metric-value">—</p></div>',
-			'</div>',
-			'<pre id="wl_info" class="tg-pre">Loading…</pre>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Fund Wallet</h3>',
-			'<div class="tg-field">',
-			'<label for="wl_token_input">Cashu Token</label>',
-			'<input type="password" id="wl_token_input" class="cbi-input-password" placeholder="Paste your Cashu ecash token">',
-			'<div class="tg-hint">Paste a Cashu token to add funds to the wallet. The token will be consumed.</div>',
-			'</div>',
-			'<div class="tg-actions">',
-			'<button id="wl_fund" class="cbi-button cbi-button-apply" type="button">Fund Wallet</button>',
-			'<span id="wl_fund_state" class="tg-muted"></span>',
-			'</div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Drain Wallet</h3>',
-			'<p class="tg-muted">Convert all wallet funds to Cashu tokens. The tokens will be displayed below — copy them to a safe place.</p>',
-			'<div class="tg-actions">',
-			'<button id="wl_drain" class="cbi-button cbi-button-remove" type="button">Drain All Funds</button>',
-			'<span id="wl_drain_state" class="tg-muted"></span>',
-			'</div>',
-			'<pre id="wl_drain_result" class="tg-pre" style="display:none"></pre>',
-			'</div>',
-			'</div>',
+		function q(id) { return document.getElementById(id); }
 
-			'<div id="pane_network" class="tg-pane">',
-			'<div class="cbi-section">',
-			'<h3>Private WiFi Network</h3>',
-			'<div id="nw_status_loading" class="tg-muted">Loading…</div>',
-			'<div id="nw_status_content" style="display:none">',
-			'<div class="tg-grid">',
-			'<div class="tg-card"><p class="tg-metric-label">Status</p><p id="nw_enabled" class="tg-metric-value"><span class="tg-status unknown">—</span></p></div>',
-			'<div class="tg-card"><p class="tg-metric-label">SSID</p><p id="nw_ssid" class="tg-metric-value" style="font-size:20px">—</p></div>',
-			'<div class="tg-card"><p class="tg-metric-label">Password</p><p id="nw_password" class="tg-metric-value" style="font-size:16px">—</p></div>',
-			'</div>',
-			'<div class="tg-actions">',
-			'<button id="nw_enable" class="cbi-button cbi-button-apply" type="button">Enable</button>',
-			'<button id="nw_disable" class="cbi-button cbi-button-remove" type="button">Disable</button>',
-			'</div>',
-			'</div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Rename Network</h3>',
-			'<div class="tg-field">',
-			'<label for="nw_new_ssid">New SSID</label>',
-			'<input type="text" id="nw_new_ssid" class="cbi-input-text" placeholder="Enter new network name">',
-			'</div>',
-			'<div class="tg-actions">',
-			'<button id="nw_rename" class="cbi-button cbi-button-save" type="button">Rename</button>',
-			'<span id="nw_rename_state" class="tg-muted"></span>',
-			'</div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Change Password</h3>',
-			'<div class="tg-field">',
-			'<label for="nw_new_pw">New Password</label>',
-			'<div class="tg-password-row">',
-			'<input type="password" id="nw_new_pw" class="cbi-input-password" placeholder="Leave empty to generate random">',
-			'</div>',
-			'<div class="tg-hint">Leave empty to auto-generate a memorable password.</div>',
-			'</div>',
-			'<div class="tg-actions">',
-			'<button id="nw_setpw" class="cbi-button cbi-button-save" type="button">Change Password</button>',
-			'<span id="nw_pw_state" class="tg-muted"></span>',
-			'</div>',
-			'</div>',
-			'</div>',
-
-			'<div id="pane_config" class="tg-pane">',
-			'<div class="cbi-section">',
-			'<h3>Pricing</h3>',
-			'<div id="cfg_loading" class="tg-muted">Loading configuration…</div>',
-			'<div id="cfg_content" style="display:none">',
-			'<div class="tg-grid">',
-			'<div class="tg-card"><p class="tg-metric-label">Price per Step</p><p id="cfg_price" class="tg-metric-value">—</p></div>',
-			'<div class="tg-card"><p class="tg-metric-label">Step Size</p><p id="cfg_step" class="tg-metric-value">—</p></div>',
-			'<div class="tg-card"><p class="tg-metric-label">Metric</p><p id="cfg_metric" class="tg-metric-value">—</p></div>',
-			'</div>',
-			'</div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Accepted Mints</h3>',
-			'<pre id="cfg_mints" class="tg-pre">Loading…</pre>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>Profit Share</h3>',
-			'<pre id="cfg_profit" class="tg-pre">Loading…</pre>',
-			'</div>',
-			'</div>',
-
-			'<div id="pane_logs" class="tg-pane">',
-			'<div class="cbi-section">',
-			'<h3>Service Logs</h3>',
-			'<div class="tg-muted">Recent tollgate-wrt log lines. Auto-refreshes while this tab is open.</div>',
-			'<pre id="logs_box" class="tg-pre">Loading…</pre>',
-			'</div>',
-			'</div>',
-
-			'<div id="pane_advanced" class="tg-pane">',
-			'<div class="cbi-section">',
-			'<h3>Raw JSON Editor</h3>',
-			'<div class="tg-muted">Edit configuration files directly. Changes here take effect after saving. Use with caution.</div>',
-			'<div class="tg-actions"><button id="reload_files" class="cbi-button" type="button">Reload both files</button><span id="files_state" class="tg-muted"></span></div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>config.json</h3>',
-			'<textarea id="config_editor" class="tg-editor" spellcheck="false"></textarea>',
-			'<div class="tg-actions">',
-			'<button id="validate_config" class="cbi-button cbi-button-action" type="button">Validate</button>',
-			'<button id="save_config" class="cbi-button cbi-button-save" type="button">Save config.json</button>',
-			'<span id="config_state" class="tg-file-state tg-muted"></span>',
-			'</div>',
-			'</div>',
-			'<div class="cbi-section">',
-			'<h3>identities.json</h3>',
-			'<textarea id="identities_editor" class="tg-editor" spellcheck="false"></textarea>',
-			'<div class="tg-actions">',
-			'<button id="validate_identities" class="cbi-button cbi-button-action" type="button">Validate</button>',
-			'<button id="save_identities" class="cbi-button cbi-button-save" type="button">Save identities.json</button>',
-			'<span id="identities_state" class="tg-file-state tg-muted"></span>',
-			'</div>',
-			'</div>',
-			'</div>',
-
-			'<div class="cbi-section"><pre id="messages" class="tg-pre" style="display:none"></pre></div>',
-			'</div>'
-		].join('');
-
-		var API = '/cgi-bin/tollgate-api';
-		var state = {
-			activeTab: 'overview',
-			configDirty: false,
-			identitiesDirty: false,
-			pollStarted: false
-		};
-
-		function q(sel) { return root.querySelector(sel); }
-		function must(sel) { var el = q(sel); if (!el) throw new Error('Missing: ' + sel); return el; }
-		function pretty(obj) { return JSON.stringify(obj, null, 2) + '\n'; }
-		function parseJson(text) { try { return JSON.parse(text || '{}'); } catch(e) { return null; } }
-		function setMsg(text) { var el = must('#messages'); el.textContent = text; el.style.display = text ? 'block' : 'none'; }
-
-		function api(action, body) {
-			var opts = { method: body == null ? 'GET' : 'POST' };
-			if (body != null) {
-				opts.headers = { 'Content-Type': 'application/json;charset=UTF-8' };
-				opts.body = typeof body === 'string' ? body : JSON.stringify(body);
-			}
-			return fetch(API + '?action=' + encodeURIComponent(action), opts).then(function(res) {
-				return res.json();
+		function setTab(name) {
+			activeTab = name;
+			var tabs = ['overview', 'wallet', 'network', 'config', 'logs', 'advanced'];
+			tabs.forEach(function(t) {
+				var btn = q('tab_' + t);
+				if (btn) btn.className = t === name ? 'cbi-button cbi-button-action' : 'cbi-button';
 			});
+			if (name === 'overview') renderOverview();
+			else if (name === 'wallet') renderWallet();
+			else if (name === 'network') renderNetwork();
+			else if (name === 'config') renderConfig();
+			else if (name === 'logs') renderLogs();
+			else if (name === 'advanced') renderAdvanced();
 		}
 
-		function confirmAction(title, message, onConfirm) {
-			var overlay = document.createElement('div');
-			overlay.className = 'tg-confirm-overlay';
-			overlay.innerHTML = '<div class="tg-confirm-box"><h3>' + title + '</h3><p>' + message + '</p><div class="tg-actions"><button class="cbi-button cbi-button-remove confirm-yes">Confirm</button><button class="cbi-button confirm-no">Cancel</button></div></div>';
-			document.body.appendChild(overlay);
-			overlay.querySelector('.confirm-yes').onclick = function() { document.body.removeChild(overlay); onConfirm(); };
-			overlay.querySelector('.confirm-no').onclick = function() { document.body.removeChild(overlay); };
-			overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+		function renderOverview() {
+			tabContent.innerHTML = '';
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Service Status')),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Wallet Balance')),
+					E('div', { 'class': 'cbi-value-field', 'id': 'ov_balance', 'style': 'font-size:24px;font-weight:700' }, formatBalance(balance))
+				]),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Service')),
+					E('div', { 'class': 'cbi-value-field', 'id': 'ov_status' }, statusBadge(statusText))
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-apply', 'click': function() { svcControl('start'); } }, _('Start')),
+					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
+						ui.showModal(_('Stop Services'), [
+							E('p', _('This will stop TollGate and NoDogSplash. Users will lose connectivity.')),
+							E('div', { 'class': 'right' }, [
+								E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+								E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() { ui.hideModal(); svcControl('stop'); } }, _('Confirm'))
+							])
+						]);
+					}}, _('Stop')),
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { svcControl('restart'); } }, _('Restart'))
+				])
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Version')),
+				E('pre', { 'id': 'ov_version', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, (version || '—').trim())
+			]));
 		}
 
-		function formatBalance(text) {
-			var cleaned = String(text || '').trim();
-			if (!cleaned) return '—';
-			var match = cleaned.match(/(\d+)\s*sats/i);
-			return match ? match[1] + ' sats' : cleaned;
+		function renderWallet() {
+			tabContent.innerHTML = '';
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Wallet Balance')),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Total Balance')),
+					E('div', { 'class': 'cbi-value-field', 'id': 'wl_balance', 'style': 'font-size:24px;font-weight:700' }, 'Loading…')
+				]),
+				E('pre', { 'id': 'wl_info', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:12rem;overflow:auto;margin:0' }, 'Loading…')
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Fund Wallet')),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'for': 'wl_token' }, _('Cashu Token')),
+					E('div', { 'class': 'cbi-value-field' }, [
+						E('input', { 'type': 'password', 'id': 'wl_token', 'class': 'cbi-input-password', 'placeholder': _('Paste your Cashu ecash token'), 'style': 'max-width:400px;width:100%' })
+					]),
+					E('div', { 'class': 'cbi-value-description' }, _('Paste a Cashu token to add funds. The token will be consumed.'))
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-apply', 'id': 'wl_fund_btn', 'click': walletFund }, _('Fund Wallet')),
+					' ', E('span', { 'id': 'wl_fund_state', 'style': 'font-size:13px;opacity:.7' })
+				])
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Drain Wallet')),
+				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Convert all wallet funds to Cashu tokens. Copy the tokens to a safe place.')),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': walletDrain }, _('Drain All Funds')),
+					' ', E('span', { 'id': 'wl_drain_state', 'style': 'font-size:13px;opacity:.7' })
+				]),
+				E('pre', { 'id': 'wl_drain_result', 'style': 'display:none;white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:16rem;overflow:auto;margin-top:8px' })
+			]));
+
+			cli('wallet', 'balance').then(function(b) { var el = q('wl_balance'); if (el) el.textContent = formatBalance(b); }).catch(function() {});
+			cli('wallet', 'info').then(function(t) { var el = q('wl_info'); if (el) el.textContent = (t || 'No info.').trim(); }).catch(function() {});
 		}
 
-		function extractNumber(text) {
-			var match = String(text || '').match(/(\d+)/);
-			return match ? parseInt(match[1], 10) : null;
-		}
+		function renderNetwork() {
+			tabContent.innerHTML = '';
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Private WiFi Network')),
+				E('div', { 'id': 'nw_loading', 'style': 'font-size:13px;opacity:.7' }, 'Loading…')
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Rename Network')),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'for': 'nw_new_ssid' }, _('New SSID')),
+					E('div', { 'class': 'cbi-value-field' }, [
+						E('input', { 'type': 'text', 'id': 'nw_new_ssid', 'class': 'cbi-input-text', 'placeholder': _('Enter new network name'), 'style': 'max-width:400px;width:100%' })
+					])
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': wifiRename }, _('Rename')),
+					' ', E('span', { 'id': 'nw_rename_state', 'style': 'font-size:13px;opacity:.7' })
+				])
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Change Password')),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'for': 'nw_new_pw' }, _('New Password')),
+					E('div', { 'class': 'cbi-value-field' }, [
+						E('input', { 'type': 'password', 'id': 'nw_new_pw', 'class': 'cbi-input-password', 'placeholder': _('Leave empty to generate random'), 'style': 'max-width:400px;width:100%' })
+					]),
+					E('div', { 'class': 'cbi-value-description' }, _('Leave empty to auto-generate a memorable password.'))
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': wifiPassword }, _('Change Password')),
+					' ', E('span', { 'id': 'nw_pw_state', 'style': 'font-size:13px;opacity:.7' })
+				])
+			]));
 
-		function humanStepSize(bytes) {
-			if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GiB';
-			if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
-			if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KiB';
-			return bytes + ' B';
-		}
-
-		function renderServiceStatus(statusText) {
-			var el = must('#ov_service');
-			var running = /running|active|uptime/i.test(statusText || '');
-			var stopped = /stopped|not running|inactive/i.test(statusText || '');
-			if (running) {
-				el.innerHTML = '<span class="tg-status running">Running</span>';
-			} else if (stopped) {
-				el.innerHTML = '<span class="tg-status stopped">Stopped</span>';
-			} else {
-				el.innerHTML = '<span class="tg-status unknown">' + (statusText ? 'Unknown' : 'No status') + '</span>';
-			}
-		}
-
-		function refreshOverview() {
-			return api('dashboard').then(function(data) {
-				if (!data.ok) throw new Error(data.error || 'Dashboard failed');
-				must('#ov_balance').textContent = formatBalance(data.wallet_balance);
-				must('#ov_version').textContent = String(data.version || '—').trim();
-				renderServiceStatus(data.status);
-				must('#logs_box').textContent = String(data.logs || 'No log lines.').trim();
+			helper('network', 'private', 'status').then(function(resp) {
+				var d = (resp && resp.data) || {};
+				var el = q('nw_loading');
+				if (!el) return;
+				el.innerHTML = '';
+				el.style.opacity = '1';
+				var enabled = d.enabled;
+				el.appendChild(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Status')),
+					E('div', { 'class': 'cbi-value-field' }, enabled
+						? E('span', { 'style': 'background:#dff0d8;color:#3c763d;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Enabled')
+						: E('span', { 'style': 'background:#f2dede;color:#a94442;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Disabled'))
+				]));
+				el.appendChild(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('SSID')),
+					E('div', { 'class': 'cbi-value-field', 'style': 'font-size:18px;font-weight:600' }, d.ssid || '—')
+				]));
+				el.appendChild(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Password')),
+					E('div', { 'class': 'cbi-value-field', 'style': 'font-size:14px;font-family:monospace' }, d.password || '—')
+				]));
+				el.appendChild(E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-apply', 'click': function() {
+						helper('network', 'private', 'enable').then(function() { setTab('network'); });
+					}}, _('Enable')),
+					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
+						ui.showModal(_('Disable Private WiFi'), [
+							E('p', _('Disabling the private network may lock you out of the router.')),
+							E('div', { 'class': 'right' }, [
+								E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+								E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
+									ui.hideModal();
+									helper('network', 'private', 'disable').then(function() { setTab('network'); });
+								}}, _('Confirm'))
+							])
+						]);
+					}}, _('Disable'))
+				]));
 			}).catch(function(err) {
-				setMsg('Dashboard refresh failed: ' + err);
+				var el = q('nw_loading');
+				if (el) el.textContent = 'Failed to load: ' + err;
 			});
 		}
 
-		function refreshWallet() {
-			api('dashboard').then(function(data) {
-				if (data.ok) must('#wl_balance').textContent = formatBalance(data.wallet_balance);
-			});
-			return api('wallet_info').then(function(data) {
-				if (!data.ok) throw new Error(data.error || 'Wallet info failed');
-				must('#wl_info').textContent = String(data.info || 'No wallet info.').trim();
-			}).catch(function(err) {
-				must('#wl_info').textContent = 'Failed to load wallet info: ' + err;
-			});
-		}
+		function renderConfig() {
+			tabContent.innerHTML = '';
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Pricing')),
+				E('div', { 'id': 'cfg_content', 'style': 'font-size:13px;opacity:.7' }, 'Loading…')
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Accepted Mints')),
+				E('pre', { 'id': 'cfg_mints', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, 'Loading…')
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Profit Share')),
+				E('pre', { 'id': 'cfg_profit', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, 'Loading…')
+			]));
 
-		function refreshNetwork() {
-			must('#nw_status_loading').style.display = 'block';
-			must('#nw_status_content').style.display = 'none';
-			return api('wifi_status').then(function(data) {
-				var resp = data.response ? parseJson(data.response) : null;
-				var d = resp && resp.data ? resp.data : null;
-				if (!d) throw new Error('No network data');
-
-				var enabledEl = must('#nw_enabled');
-				if (d.enabled) {
-					enabledEl.innerHTML = '<span class="tg-status running">Enabled</span>';
-				} else {
-					enabledEl.innerHTML = '<span class="tg-status stopped">Disabled</span>';
-				}
-
-				must('#nw_ssid').textContent = d.ssid || '—';
-				var pw = d.password || '—';
-				must('#nw_password').textContent = pw.length > 20 ? pw.substring(0, 20) + '…' : pw;
-
-				must('#nw_status_loading').style.display = 'none';
-				must('#nw_status_content').style.display = 'block';
-			}).catch(function(err) {
-				must('#nw_status_loading').textContent = 'Failed to load: ' + err;
-			});
-		}
-
-		function refreshConfig() {
-			return api('files').then(function(data) {
-				if (!data.ok) throw new Error(data.error || 'Failed to load config');
-
-				var config = data.config || {};
+			fs.read_direct(CONFIG, 'json').then(function(config) {
 				var mints = config.accepted_mints || [];
 				var profit = config.profit_share || [];
-
+				var el = q('cfg_content');
+				if (!el) return;
 				if (mints.length > 0) {
 					var m = mints[0];
-					must('#cfg_price').textContent = (m.price_per_step || '—') + ' ' + (m.price_unit || 'sats');
-					must('#cfg_step').textContent = config.metric === 'milliseconds'
-						? (config.step_size / 1000) + 's'
-						: humanStepSize(config.step_size || 0);
-					must('#cfg_metric').textContent = config.metric || '—';
+					el.innerHTML = '';
+					el.style.opacity = '1';
+					el.appendChild(E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title' }, _('Price per Step')),
+						E('div', { 'class': 'cbi-value-field', 'style': 'font-size:20px;font-weight:700' }, (m.price_per_step || '—') + ' ' + (m.price_unit || 'sats'))
+					]));
+					el.appendChild(E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title' }, _('Step Size')),
+						E('div', { 'class': 'cbi-value-field', 'style': 'font-size:20px;font-weight:700' },
+							config.metric === 'milliseconds' ? ((config.step_size || 0) / 1000) + 's' : humanStepSize(config.step_size || 0))
+					]));
+					el.appendChild(E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title' }, _('Metric')),
+						E('div', { 'class': 'cbi-value-field', 'style': 'font-size:20px;font-weight:700' }, config.metric || '—')
+					]));
 				} else {
-					must('#cfg_price').textContent = '—';
-					must('#cfg_step').textContent = '—';
-					must('#cfg_metric').textContent = '—';
+					el.textContent = 'No configuration found.';
 				}
-
-				must('#cfg_mints').textContent = JSON.stringify(mints, null, 2);
-				must('#cfg_profit').textContent = JSON.stringify(profit, null, 2);
-
-				must('#cfg_loading').style.display = 'none';
-				must('#cfg_content').style.display = 'block';
+				var mintsEl = q('cfg_mints');
+				if (mintsEl) mintsEl.textContent = JSON.stringify(mints, null, 2);
+				var profitEl = q('cfg_profit');
+				if (profitEl) profitEl.textContent = JSON.stringify(profit, null, 2);
 			}).catch(function(err) {
-				must('#cfg_loading').textContent = 'Failed: ' + err;
+				var el = q('cfg_content');
+				if (el) el.textContent = 'Failed: ' + err;
 			});
 		}
 
-		function loadFiles(force) {
-			if (!force && (state.configDirty || state.identitiesDirty) && !window.confirm('Reload and discard unsaved changes?')) return;
-			must('#files_state').textContent = 'Loading…';
-			api('files').then(function(data) {
-				if (!data.ok) throw new Error(data.error || 'Failed to load');
-				must('#config_editor').value = pretty(data.config || {});
-				must('#identities_editor').value = pretty(data.identities || {});
-				state.configDirty = false;
-				state.identitiesDirty = false;
-				must('#config_state').textContent = '';
-				must('#identities_state').textContent = '';
-				must('#files_state').textContent = 'Loaded ' + new Date().toLocaleTimeString();
-			}).catch(function(err) {
-				must('#files_state').textContent = 'Load failed: ' + err;
+		function renderLogs() {
+			tabContent.innerHTML = '';
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Service Logs')),
+				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Recent tollgate-wrt log lines. Auto-refreshes while this tab is open.')),
+				E('pre', { 'id': 'logs_box', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:24rem;overflow:auto;margin:0;background:var(--background-color,#f5f5f5);padding:.5rem;border-radius:3px' }, 'Loading…')
+			]));
+			fs.exec_direct('logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
+				var el = q('logs_box');
+				if (el) el.textContent = (t || 'No log lines.').trim();
+			}).catch(function() {
+				var el = q('logs_box');
+				if (el) el.textContent = 'No log lines.';
 			});
 		}
 
-		function validateEditor(action, selector, label, stateSel) {
-			var text = must(selector).value;
+		function renderAdvanced() {
+			tabContent.innerHTML = '';
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Raw JSON Editor')),
+				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Edit configuration files directly. Changes take effect after saving.')),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button', 'id': 'reload_files_btn', 'click': loadFiles }, _('Reload both files')),
+					' ', E('span', { 'id': 'files_state', 'style': 'font-size:13px;opacity:.7' })
+				])
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', 'config.json'),
+				E('textarea', { 'id': 'config_editor', 'class': 'cbi-input-textarea', 'style': 'width:100%;min-height:18rem;font-family:monospace;font-size:12px;line-height:1.45;resize:vertical', 'spellcheck': 'false' }),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { validateEditor(CONFIG, 'config_editor', 'config_state'); } }, _('Validate')),
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveEditor(CONFIG, 'config_editor', 'config_state'); } }, _('Save config.json')),
+					' ', E('span', { 'id': 'config_state', 'style': 'font-size:13px' })
+				])
+			]));
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', 'identities.json'),
+				E('textarea', { 'id': 'identities_editor', 'class': 'cbi-input-textarea', 'style': 'width:100%;min-height:18rem;font-family:monospace;font-size:12px;line-height:1.45;resize:vertical', 'spellcheck': 'false' }),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { validateEditor(IDENTITIES, 'identities_editor', 'identities_state'); } }, _('Validate')),
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveEditor(IDENTITIES, 'identities_editor', 'identities_state'); } }, _('Save identities.json')),
+					' ', E('span', { 'id': 'identities_state', 'style': 'font-size:13px' })
+				])
+			]));
+			loadFiles();
+		}
+
+		function loadFiles() {
+			var stateEl = q('files_state');
+			if (stateEl) stateEl.textContent = 'Loading…';
+			fs.read_direct(CONFIG, 'json').then(function(d) {
+				var el = q('config_editor');
+				if (el) el.value = JSON.stringify(d, null, 2) + '\n';
+			}).catch(function() {});
+			fs.read_direct(IDENTITIES, 'json').then(function(d) {
+				var el = q('identities_editor');
+				if (el) el.value = JSON.stringify(d, null, 2) + '\n';
+			}).catch(function() {});
+			if (stateEl) stateEl.textContent = 'Loaded ' + new Date().toLocaleTimeString();
+		}
+
+		function validateEditor(path, editorId, stateId) {
+			var text = (q(editorId) || {}).value || '';
 			try { JSON.parse(text); } catch(e) {
-				must(stateSel).textContent = 'Invalid JSON';
-				must(stateSel).className = 'tg-file-state tg-err';
+				var el = q(stateId);
+				if (el) { el.textContent = 'Invalid JSON: ' + e.message; el.style.color = '#d9534f'; }
 				return;
 			}
-			must(stateSel).textContent = 'Validating…';
-			api(action, text).then(function(res) {
-				if (res.ok) {
-					must(stateSel).textContent = 'Valid JSON';
-					must(stateSel).className = 'tg-file-state tg-ok';
-				} else {
-					must(stateSel).textContent = 'Invalid: ' + (res.error || '');
-					must(stateSel).className = 'tg-file-state tg-err';
-				}
-			}).catch(function(err) {
-				must(stateSel).textContent = 'Error: ' + err;
-				must(stateSel).className = 'tg-file-state tg-err';
-			});
+			var el = q(stateId);
+			if (el) { el.textContent = 'Valid JSON'; el.style.color = '#5cb85c'; }
 		}
 
-		function saveEditor(action, selector, label, stateSel, kind) {
-			var text = must(selector).value;
+		function saveEditor(path, editorId, stateId) {
+			var text = (q(editorId) || {}).value || '';
 			try { JSON.parse(text); } catch(e) {
-				must(stateSel).textContent = 'Invalid JSON';
-				must(stateSel).className = 'tg-file-state tg-err';
+				var el = q(stateId);
+				if (el) { el.textContent = 'Invalid JSON: ' + e.message; el.style.color = '#d9534f'; }
 				return;
 			}
-			must(stateSel).textContent = 'Saving…';
-			api(action, text).then(function(res) {
-				if (!res.ok) {
-					must(stateSel).textContent = 'Save failed: ' + (res.error || '');
-					must(stateSel).className = 'tg-file-state tg-err';
-					return;
-				}
-				state[kind + 'Dirty'] = false;
-				must(stateSel).textContent = 'Saved';
-				must(stateSel).className = 'tg-file-state tg-ok';
-				refreshOverview();
-				refreshConfig();
+			var stateEl = q(stateId);
+			if (stateEl) { stateEl.textContent = 'Saving…'; stateEl.style.color = ''; }
+			var data = JSON.parse(text);
+			saveJsonFile(path, data).then(function() {
+				if (stateEl) { stateEl.textContent = 'Saved'; stateEl.style.color = '#5cb85c'; }
 			}).catch(function(err) {
-				must(stateSel).textContent = 'Error: ' + err;
-				must(stateSel).className = 'tg-file-state tg-err';
+				if (stateEl) { stateEl.textContent = 'Save failed: ' + err; stateEl.style.color = '#d9534f'; }
 			});
 		}
 
-		function setActiveTab(name) {
-			state.activeTab = name;
-			var tabs = ['overview', 'wallet', 'network', 'config', 'logs', 'advanced'];
-			tabs.forEach(function(t) {
-				var pane = must('#pane_' + t);
-				var btn = must('#tab_' + t);
-				pane.classList.toggle('active', t === name);
-				btn.className = t === name ? 'cbi-button cbi-button-action' : 'cbi-button';
+		function svcControl(action) {
+			var svcCmds = {
+				start: [['/etc/init.d/tollgate-wrt', ['start']], ['/etc/init.d/nodogsplash', ['start']]],
+				stop: [['/etc/init.d/tollgate-wrt', ['stop']], ['/etc/init.d/nodogsplash', ['stop']]],
+				restart: [['/etc/init.d/nodogsplash', ['restart']], ['/etc/init.d/tollgate-wrt', ['restart']]]
+			};
+			var cmds = svcCmds[action];
+			if (!cmds) return;
+			Promise.all(cmds.map(function(c) { return fs.exec_direct(c[0], c[1]); })).then(function() {
+				setTimeout(function() { refreshOverview(); }, 3000);
 			});
-			if (name === 'wallet') refreshWallet();
-			if (name === 'network') refreshNetwork();
-			if (name === 'config') refreshConfig();
-			if (name === 'advanced') loadFiles(true);
 		}
 
-		function startPolling() {
-			if (state.pollStarted) return;
-			state.pollStarted = true;
-			if (typeof L !== 'undefined' && L.Poll && L.Poll.add) {
-				L.Poll.add(function() {
-					if (document.hidden) return;
-					if (state.activeTab === 'overview') return refreshOverview();
-					if (state.activeTab === 'logs') {
-						return api('dashboard').then(function(data) {
-							if (data.ok) must('#logs_box').textContent = String(data.logs || '').trim();
-						});
-					}
-				}, 5);
+		function walletFund() {
+			var tokenEl = q('wl_token');
+			var stateEl = q('wl_fund_state');
+			var btnEl = q('wl_fund_btn');
+			var token = (tokenEl || {}).value || '';
+			if (!token.trim()) {
+				if (stateEl) stateEl.textContent = 'Enter a token first.';
 				return;
 			}
-			setInterval(function() {
-				if (document.hidden) return;
-				if (state.activeTab === 'overview') refreshOverview();
-				if (state.activeTab === 'logs') {
-					api('dashboard').then(function(data) {
-						if (data.ok) must('#logs_box').textContent = String(data.logs || '').trim();
+			if (btnEl) btnEl.disabled = true;
+			if (stateEl) stateEl.textContent = 'Funding…';
+			helper('wallet', 'fund', token.trim()).then(function(resp) {
+				if (resp && resp.success) {
+					if (stateEl) stateEl.textContent = 'Funded successfully.';
+					if (tokenEl) tokenEl.value = '';
+					cli('wallet', 'balance').then(function(b) {
+						var el = q('wl_balance');
+						if (el) el.textContent = formatBalance(b);
 					});
+				} else {
+					if (stateEl) stateEl.textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
 				}
-			}, 5000);
+			}).catch(function(err) {
+				if (stateEl) stateEl.textContent = 'Error: ' + err;
+			}).finally(function() {
+				if (btnEl) btnEl.disabled = false;
+			});
 		}
 
-		function bindHandlers() {
-			var tabs = ['overview', 'wallet', 'network', 'config', 'logs', 'advanced'];
-			tabs.forEach(function(t) {
-				must('#tab_' + t).onclick = function() { setActiveTab(t); };
-			});
-
-			must('#ov_start').onclick = function() {
-				must('#ov_start').disabled = true;
-				api('service_start').then(function() { refreshOverview(); }).finally(function() { must('#ov_start').disabled = false; });
-			};
-			must('#ov_stop').onclick = function() {
-				confirmAction('Stop Services', 'This will stop TollGate and NoDogSplash. Users will lose connectivity.', function() {
-					api('service_stop').then(function() { refreshOverview(); });
-				});
-			};
-			must('#ov_restart').onclick = function() {
-				must('#ov_restart').disabled = true;
-				api('service_restart').then(function() { refreshOverview(); }).finally(function() { must('#ov_restart').disabled = false; });
-			};
-
-			must('#wl_fund').onclick = function() {
-				var token = must('#wl_token_input').value.trim();
-				if (!token) { must('#wl_fund_state').textContent = 'Enter a token first.'; return; }
-				must('#wl_fund_state').textContent = 'Funding…';
-				must('#wl_fund').disabled = true;
-				api('wallet_fund', JSON.stringify({ token: token })).then(function(data) {
-					var resp = parseJson(data.response || '{}');
-					if (resp && resp.success) {
-						must('#wl_fund_state').textContent = 'Funded successfully.';
-						must('#wl_token_input').value = '';
-						refreshWallet();
-					} else {
-						must('#wl_fund_state').textContent = 'Failed: ' + ((resp && resp.error) || data.error || 'Unknown error');
-					}
-				}).catch(function(err) {
-					must('#wl_fund_state').textContent = 'Error: ' + err;
-				}).finally(function() { must('#wl_fund').disabled = false; });
-			};
-
-			must('#wl_drain').onclick = function() {
-				confirmAction('Drain Wallet', 'This will convert ALL wallet funds to Cashu tokens. Make sure to copy the tokens — they will no longer be in the wallet.', function() {
-					must('#wl_drain_state').textContent = 'Draining…';
-					must('#wl_drain').disabled = true;
-					api('wallet_drain').then(function(data) {
-						var resp = parseJson(data.response || '{}');
-						if (resp && resp.success) {
-							must('#wl_drain_state').textContent = 'Drained successfully.';
-							var d = resp.data || {};
+		function walletDrain() {
+			ui.showModal(_('Drain Wallet'), [
+				E('p', _('This will convert ALL wallet funds to Cashu tokens. Copy them to a safe place — they will no longer be in the wallet.')),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
+					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
+						ui.hideModal();
+						var stateEl = q('wl_drain_state');
+						if (stateEl) stateEl.textContent = 'Draining…';
+						helper('wallet', 'drain', 'cashu').then(function(resp) {
+							var d = (resp && resp.data) || {};
 							var tokens = d.tokens || [];
 							var lines = ['Total drained: ' + (d.total_sats || 0) + ' sats', ''];
 							tokens.forEach(function(t, i) {
@@ -515,79 +429,103 @@ return view.extend({
 								if (t.token) lines.push(t.token);
 								lines.push('');
 							});
-							must('#wl_drain_result').textContent = lines.join('\n');
-							must('#wl_drain_result').style.display = 'block';
-							refreshWallet();
-						} else {
-							must('#wl_drain_state').textContent = 'Failed: ' + ((resp && resp.error) || data.error || 'Unknown error');
-						}
-					}).catch(function(err) {
-						must('#wl_drain_state').textContent = 'Error: ' + err;
-					}).finally(function() { must('#wl_drain').disabled = false; });
-				});
-			};
-
-			must('#nw_enable').onclick = function() {
-				must('#nw_enable').disabled = true;
-				api('wifi_enable').then(function() { refreshNetwork(); }).finally(function() { must('#nw_enable').disabled = false; });
-			};
-			must('#nw_disable').onclick = function() {
-				confirmAction('Disable Private WiFi', 'Disabling the private network may lock you out of the router. Make sure you have another way to access it.', function() {
-					api('wifi_disable').then(function() { refreshNetwork(); });
-				});
-			};
-			must('#nw_rename').onclick = function() {
-				var ssid = must('#nw_new_ssid').value.trim();
-				if (!ssid) { must('#nw_rename_state').textContent = 'Enter a new SSID.'; return; }
-				must('#nw_rename_state').textContent = 'Renaming…';
-				api('wifi_rename', JSON.stringify({ ssid: ssid })).then(function(data) {
-					var resp = parseJson(data.response || '{}');
-					if (resp && resp.success) {
-						must('#nw_rename_state').textContent = 'Renamed to ' + ssid;
-						must('#nw_new_ssid').value = '';
-						refreshNetwork();
-					} else {
-						must('#nw_rename_state').textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
-					}
-				}).catch(function(err) {
-					must('#nw_rename_state').textContent = 'Error: ' + err;
-				});
-			};
-			must('#nw_setpw').onclick = function() {
-				var pw = must('#nw_new_pw').value;
-				must('#nw_pw_state').textContent = 'Changing…';
-				api('wifi_password', JSON.stringify({ password: pw })).then(function(data) {
-					var resp = parseJson(data.response || '{}');
-					if (resp && resp.success) {
-						must('#nw_pw_state').textContent = 'Password changed.';
-						must('#nw_new_pw').value = '';
-						refreshNetwork();
-					} else {
-						must('#nw_pw_state').textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
-					}
-				}).catch(function(err) {
-					must('#nw_pw_state').textContent = 'Error: ' + err;
-				});
-			};
-
-			must('#reload_files').onclick = function() { loadFiles(false); };
-			must('#validate_config').onclick = function() { validateEditor('validate_config', '#config_editor', 'config.json', '#config_state'); };
-			must('#save_config').onclick = function() { saveEditor('save_config', '#config_editor', 'config.json', '#config_state', 'config'); };
-			must('#validate_identities').onclick = function() { validateEditor('validate_identities', '#identities_editor', 'identities.json', '#identities_state'); };
-			must('#save_identities').onclick = function() { saveEditor('save_identities', '#identities_editor', 'identities.json', '#identities_state', 'identities'); };
-			must('#config_editor').addEventListener('input', function() { state.configDirty = true; must('#config_state').textContent = 'Unsaved changes'; must('#config_state').className = 'tg-file-state tg-err'; });
-			must('#identities_editor').addEventListener('input', function() { state.identitiesDirty = true; must('#identities_state').textContent = 'Unsaved changes'; must('#identities_state').className = 'tg-file-state tg-err'; });
+							var resultEl = q('wl_drain_result');
+							if (resultEl) { resultEl.textContent = lines.join('\n'); resultEl.style.display = 'block'; }
+							if (stateEl) stateEl.textContent = 'Drained.';
+							cli('wallet', 'balance').then(function(b) {
+								var el = q('wl_balance');
+								if (el) el.textContent = formatBalance(b);
+							});
+						}).catch(function(err) {
+							if (stateEl) stateEl.textContent = 'Error: ' + err;
+						});
+					}}, _('Confirm'))
+				])
+			]);
 		}
 
-		try {
-			bindHandlers();
-			setActiveTab('overview');
-			refreshOverview();
-			startPolling();
-		} catch (err) {
-			root.innerHTML = '<div class="cbi-map"><h2>TollGate</h2><pre>' + String(err.message || err) + '</pre></div>';
+		function wifiRename() {
+			var ssidEl = q('nw_new_ssid');
+			var stateEl = q('nw_rename_state');
+			var ssid = (ssidEl || {}).value || '';
+			if (!ssid.trim()) { if (stateEl) stateEl.textContent = 'Enter a new SSID.'; return; }
+			if (stateEl) stateEl.textContent = 'Renaming…';
+			helper('network', 'private', 'rename', ssid.trim()).then(function(resp) {
+				if (resp && resp.success) {
+					if (stateEl) stateEl.textContent = 'Renamed to ' + ssid;
+					if (ssidEl) ssidEl.value = '';
+					setTab('network');
+				} else {
+					if (stateEl) stateEl.textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
+				}
+			}).catch(function(err) {
+				if (stateEl) stateEl.textContent = 'Error: ' + err;
+			});
 		}
 
-		return root;
-	}
+		function wifiPassword() {
+			var pwEl = q('nw_new_pw');
+			var stateEl = q('nw_pw_state');
+			var pw = (pwEl || {}).value || '';
+			if (stateEl) stateEl.textContent = 'Changing…';
+			var args = pw.trim() ? ['network', 'private', 'set-password', pw.trim()] : ['network', 'private', 'set-password'];
+			helper.apply(null, args).then(function(resp) {
+				if (resp && resp.success) {
+					if (stateEl) stateEl.textContent = 'Password changed.';
+					if (pwEl) pwEl.value = '';
+					setTab('network');
+				} else {
+					if (stateEl) stateEl.textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
+				}
+			}).catch(function(err) {
+				if (stateEl) stateEl.textContent = 'Error: ' + err;
+			});
+		}
+
+		function refreshOverview() {
+			cli('wallet', 'balance').then(function(b) {
+				var el = q('ov_balance');
+				if (el) el.textContent = formatBalance(b);
+				var wlEl = q('wl_balance');
+				if (wlEl) wlEl.textContent = formatBalance(b);
+			}).catch(function() {});
+			cli('status').then(function(s) {
+				var el = q('ov_status');
+				if (el) { el.innerHTML = ''; el.appendChild(statusBadge(s)); }
+			}).catch(function() {});
+		}
+
+		poll.add(function() {
+			if (document.hidden) return;
+			if (activeTab === 'overview') return refreshOverview();
+			if (activeTab === 'logs') {
+				return fs.exec_direct('logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
+					var el = q('logs_box');
+					if (el) el.textContent = (t || 'No log lines.').trim();
+				}).catch(function() {});
+			}
+		}, 5);
+
+		var viewEl = E('div', { 'class': 'cbi-map' }, [
+			E('h2', { 'name': 'content' }, 'TollGate'),
+			E('div', { 'class': 'cbi-map-descr' }, _('Manage your TollGate captive portal payment gateway.')),
+			E('div', { 'style': 'display:flex;gap:6px;flex-wrap:wrap;margin:0 0 1.2rem 0' }, [
+				E('button', { 'id': 'tab_overview', 'class': 'cbi-button cbi-button-action', 'click': function() { setTab('overview'); } }, _('Overview')),
+				E('button', { 'id': 'tab_wallet', 'class': 'cbi-button', 'click': function() { setTab('wallet'); } }, _('Wallet')),
+				E('button', { 'id': 'tab_network', 'class': 'cbi-button', 'click': function() { setTab('network'); } }, _('Network')),
+				E('button', { 'id': 'tab_config', 'class': 'cbi-button', 'click': function() { setTab('config'); } }, _('Configuration')),
+				E('button', { 'id': 'tab_logs', 'class': 'cbi-button', 'click': function() { setTab('logs'); } }, _('Logs')),
+				E('button', { 'id': 'tab_advanced', 'class': 'cbi-button', 'click': function() { setTab('advanced'); } }, _('Advanced'))
+			]),
+			tabContent
+		]);
+
+		renderOverview();
+
+		return viewEl;
+	},
+
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
 });

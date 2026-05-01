@@ -217,8 +217,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/luci/menu.d/luci-app-tollgate-payments.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/tollgate-payments
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/www/luci-static/resources/view/tollgate-payments/settings.js $(1)/www/luci-static/resources/view/tollgate-payments/
-	$(INSTALL_DIR) $(1)/www/cgi-bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/www/cgi-bin/tollgate-api $(1)/www/cgi-bin/
+	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/libexec/tollgate-luci-helper $(1)/usr/libexec/
+	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json $(1)/usr/share/rpcd/acl.d/
 
 	# Install cron table
 	$(INSTALL_DIR) $(1)/etc/crontabs
@@ -246,7 +248,8 @@ FILES_$(PKG_NAME) += \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/usr/share/luci/menu.d/luci-app-tollgate-payments.json \
 	/www/luci-static/resources/view/tollgate-payments/settings.js \
-	/www/cgi-bin/tollgate-api \
+	/usr/libexec/tollgate-luci-helper \
+	/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart
