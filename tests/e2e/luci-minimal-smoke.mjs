@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
 const router = process.env.TOLLGATE_ROUTER ?? '192.168.13.202:8080';
-const username = process.env.TOLLGATE_LUCI_USER ?? 'root';
-const password = process.env.TOLLGATE_LUCI_PASSWORD ?? 'c03rad0r123';
+const username = process.env.TOLLGATE_LUCI_USER;
+const password = process.env.TOLLGATE_LUCI_PASSWORD;
+if (!username || !password) {
+	console.error('Error: TOLLGATE_LUCI_USER and TOLLGATE_LUCI_PASSWORD env vars are required');
+	process.exit(1);
+}
 const url = process.env.TOLLGATE_LUCI_URL ?? `http://${router}/cgi-bin/luci/admin/services/tollgate-payments`;
 
 async function loginIfNeeded(page) {

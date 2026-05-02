@@ -136,8 +136,6 @@ endef
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	echo "DEBUG: Contents of go.mod after prepare:"
-	cat $(PKG_BUILD_DIR)/go.mod
 endef
 
 define Build/Configure
@@ -153,8 +151,6 @@ define Build/Compile
 		-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$(BUILD_TIME)')
 	
 	cd $(PKG_BUILD_DIR) && \
-	echo "DEBUG: TargetArch=$(ARCH) PackageArch=$(ARCH_PACKAGES) GoArch=$(TOLLGATE_GOARCH) GoMips=$(TOLLGATE_GOMIPS)" && \
-	echo "DEBUG: PackageVersion=$(PKG_VERSION) DisplayVersion=$(TOLLGATE_DISPLAY_VERSION) Commit=$(GIT_COMMIT) BuildTime=$(BUILD_TIME)" && \
 	env $(TOLLGATE_GO_BUILD_ENV) \
 	go build -o $(PKG_NAME) -trimpath -ldflags="-s -w $(VERSION_LDFLAGS)" main.go
 	

@@ -9,9 +9,6 @@ var CLI = '/usr/bin/tollgate';
 var CONFIG = '/etc/tollgate/config.json';
 var IDENTITIES = '/etc/tollgate/identities.json';
 
-// cli() returns raw text; callers parse with regex. If CLI output format
-// changes, the regex patterns in formatBalance() and waitForOverview() will
-// need updating. A future --json flag on the CLI would make this more robust.
 function cli() {
 	var args = [];
 	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
@@ -25,10 +22,17 @@ function helper() {
 }
 
 function saveJsonFile(path, data) {
-	var ts = new Date().toISOString().replace(/[^0-9T]/g, '').slice(0, 15);
+	var d = new Date();
+	var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+	var ts = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+		'_' + pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
 	return fs.exec_direct('/bin/cp', [path, path + '.bak.' + ts]).catch(function() {}).then(function() {
 		return fs.write(path, JSON.stringify(data, null, 2) + '\n');
 	});
+}
+
+function clearNode(node) {
+	while (node.firstChild) node.removeChild(node.firstChild);
 }
 
 function badge(label, bg, fg) {
@@ -36,7 +40,7 @@ function badge(label, bg, fg) {
 }
 
 function formatBalance(text) {
-	var match = String(text || '').match(/(\d+)\s*sats/i);
+	var match = String(text || '').match(/(\d+)\s*sats?/i);
 	return match ? match[1] + ' sats' : (text || '—').trim() || '—';
 }
 
@@ -53,6 +57,28 @@ function statusBadge(text) {
 	if (/stopped|not running|inactive/i.test(text || ''))
 		return badge('Stopped', '#f2dede', '#a94442');
 	return badge('Unknown', '#fcf8e3', '#8a6d3b');
+}
+
+function setSvcButtons(disabled) {
+	['ov_btn_start', 'ov_btn_stop', 'ov_btn_restart'].forEach(function(id) {
+		var el = document.getElementById(id);
+		if (el) el.disabled = disabled;
+	});
+}
+
+function copyToClipboard(text) {
+	if (navigator.clipboard && navigator.clipboard.writeText) {
+		return navigator.clipboard.writeText(text);
+	}
+	var ta = document.createElement('textarea');
+	ta.value = text;
+	ta.style.position = 'fixed';
+	ta.style.left = '-9999px';
+	document.body.appendChild(ta);
+	ta.select();
+	document.execCommand('copy');
+	document.body.removeChild(ta);
+	return Promise.resolve();
 }
 
 return view.extend({
@@ -91,7 +117,7 @@ return view.extend({
 		}
 
 		function renderOverview() {
-			tabContent.innerHTML = '';
+			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Service Status')),
 				E('div', { 'class': 'cbi-value' }, [
@@ -103,8 +129,8 @@ return view.extend({
 					E('div', { 'class': 'cbi-value-field', 'id': 'ov_status' }, statusBadge(statusText))
 				]),
 				E('div', { 'class': 'cbi-page-actions' }, [
-					E('button', { 'class': 'cbi-button cbi-button-apply', 'click': function() { svcControl('start'); } }, _('Start')),
-					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
+					E('button', { 'class': 'cbi-button cbi-button-apply', 'id': 'ov_btn_start', 'click': function() { svcControl('start'); } }, _('Start')),
+					E('button', { 'class': 'cbi-button cbi-button-remove', 'id': 'ov_btn_stop', 'click': function() {
 						ui.showModal(_('Stop Services'), [
 							E('p', _('This will stop TollGate and NoDogSplash. Users will lose connectivity.')),
 							E('div', { 'class': 'right' }, [
@@ -113,7 +139,7 @@ return view.extend({
 							])
 						]);
 					}}, _('Stop')),
-					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { svcControl('restart'); } }, _('Restart'))
+					E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'ov_btn_restart', 'click': function() { svcControl('restart'); } }, _('Restart'))
 				])
 			]));
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
@@ -123,7 +149,7 @@ return view.extend({
 		}
 
 		function renderWallet() {
-			tabContent.innerHTML = '';
+			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Wallet Balance')),
 				E('div', { 'class': 'cbi-value' }, [
@@ -153,7 +179,18 @@ return view.extend({
 					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': walletDrain }, _('Drain All Funds')),
 					' ', E('span', { 'id': 'wl_drain_state', 'style': 'font-size:13px;opacity:.7' })
 				]),
-				E('pre', { 'id': 'wl_drain_result', 'style': 'display:none;white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:16rem;overflow:auto;margin-top:8px' })
+				E('pre', { 'id': 'wl_drain_result', 'style': 'display:none;white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:16rem;overflow:auto;margin-top:8px' }),
+				E('div', { 'id': 'wl_drain_copy_wrap', 'style': 'display:none;margin-top:4px' }, [
+					E('button', { 'class': 'cbi-button', 'click': function() {
+						var el = q('wl_drain_result');
+						var text = el ? el.textContent : '';
+						copyToClipboard(text).then(function() {
+							var btn = q('wl_drain_copy_btn');
+							if (btn) btn.textContent = 'Copied!';
+							setTimeout(function() { if (btn) btn.textContent = _('Copy tokens to clipboard'); }, 2000);
+						});
+					}, 'id': 'wl_drain_copy_btn' }, _('Copy tokens to clipboard'))
+				])
 			]));
 
 			cli('wallet', 'balance').then(function(b) { var el = q('wl_balance'); if (el) el.textContent = formatBalance(b); }).catch(function() {});
@@ -161,7 +198,7 @@ return view.extend({
 		}
 
 		function renderNetwork() {
-			tabContent.innerHTML = '';
+			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Private WiFi Network')),
 				E('div', { 'id': 'nw_loading', 'style': 'font-size:13px;opacity:.7' }, 'Loading…')
@@ -198,9 +235,10 @@ return view.extend({
 				var d = (resp && resp.data) || {};
 				var el = q('nw_loading');
 				if (!el) return;
-				el.innerHTML = '';
+				clearNode(el);
 				el.style.opacity = '1';
 				var enabled = d.enabled;
+				var pwHidden = true;
 				el.appendChild(E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Status')),
 					E('div', { 'class': 'cbi-value-field' }, enabled
@@ -211,9 +249,17 @@ return view.extend({
 					E('label', { 'class': 'cbi-value-title' }, _('SSID')),
 					E('div', { 'class': 'cbi-value-field', 'style': 'font-size:18px;font-weight:600' }, d.ssid || '—')
 				]));
+				var pwSpan = E('span', { 'id': 'nw_pw_display', 'style': 'font-size:14px;font-family:monospace' }, '\u2022'.repeat(Math.min((d.password || '').length, 16)));
 				el.appendChild(E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Password')),
-					E('div', { 'class': 'cbi-value-field', 'style': 'font-size:14px;font-family:monospace' }, d.password || '—')
+					E('div', { 'class': 'cbi-value-field' }, [
+						pwSpan, ' ',
+						E('button', { 'class': 'cbi-button', 'style': 'font-size:11px;padding:2px 8px', 'click': function() {
+							pwHidden = !pwHidden;
+							pwSpan.textContent = pwHidden ? '\u2022'.repeat(Math.min((d.password || '').length, 16)) : (d.password || '—');
+							this.textContent = pwHidden ? _('Show') : _('Hide');
+						}}, _('Show'))
+					])
 				]));
 				el.appendChild(E('div', { 'class': 'cbi-page-actions' }, [
 					E('button', { 'class': 'cbi-button cbi-button-apply', 'click': function() {
@@ -239,7 +285,7 @@ return view.extend({
 		}
 
 		function renderConfig() {
-			tabContent.innerHTML = '';
+			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Pricing')),
 				E('div', { 'id': 'cfg_content', 'style': 'font-size:13px;opacity:.7' }, 'Loading…')
@@ -260,7 +306,7 @@ return view.extend({
 				if (!el) return;
 				if (mints.length > 0) {
 					var m = mints[0];
-					el.innerHTML = '';
+					clearNode(el);
 					el.style.opacity = '1';
 					el.appendChild(E('div', { 'class': 'cbi-value' }, [
 						E('label', { 'class': 'cbi-value-title' }, _('Price per Step')),
@@ -289,7 +335,7 @@ return view.extend({
 		}
 
 		function renderLogs() {
-			tabContent.innerHTML = '';
+			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Service Logs')),
 				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Recent tollgate-wrt log lines. Auto-refreshes while this tab is open.')),
@@ -305,7 +351,7 @@ return view.extend({
 		}
 
 		function renderAdvanced() {
-			tabContent.innerHTML = '';
+			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Raw JSON Editor')),
 				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Edit configuration files directly. Changes take effect after saving.')),
@@ -350,14 +396,25 @@ return view.extend({
 			});
 		}
 
+		var CONFIG_REQUIRED = ['config_version', 'metric', 'step_size', 'accepted_mints', 'profit_share'];
+
 		function validateEditor(path, editorId, stateId) {
 			var text = (q(editorId) || {}).value || '';
-			try { JSON.parse(text); } catch(e) {
+			var parsed;
+			try { parsed = JSON.parse(text); } catch(e) {
 				var el = q(stateId);
 				if (el) { el.textContent = 'Invalid JSON: ' + e.message; el.style.color = '#d9534f'; }
 				return;
 			}
 			var el = q(stateId);
+			if (path === CONFIG && Array.isArray(CONFIG_REQUIRED)) {
+				var missing = CONFIG_REQUIRED.filter(function(k) { return !(k in parsed); });
+				if (missing.length > 0 && el) {
+					el.textContent = 'Valid JSON — missing fields: ' + missing.join(', ');
+					el.style.color = '#8a6d3b';
+					return;
+				}
+			}
 			if (el) { el.textContent = 'Valid JSON'; el.style.color = '#5cb85c'; }
 		}
 
@@ -379,16 +436,34 @@ return view.extend({
 		}
 
 		function svcControl(action) {
-			var svcCmds = {
-				start: [['/etc/init.d/tollgate-wrt', ['start']], ['/etc/init.d/nodogsplash', ['start']]],
-				stop: [['/etc/init.d/tollgate-wrt', ['stop']], ['/etc/init.d/nodogsplash', ['stop']]],
-				restart: [['/etc/init.d/nodogsplash', ['restart']], ['/etc/init.d/tollgate-wrt', ['restart']]]
-			};
-			var cmds = svcCmds[action];
-			if (!cmds) return;
-			Promise.all(cmds.map(function(c) { return fs.exec_direct(c[0], c[1]); })).then(function() {
-				setTimeout(function() { refreshOverview(); }, 3000);
-			});
+			var statusEl = q('ov_status');
+			if (statusEl) { clearNode(statusEl); statusEl.appendChild(badge(action.charAt(0).toUpperCase() + action.slice(1) + 'ing…', '#fcf8e3', '#8a6d3b')); }
+			setSvcButtons(true);
+			clearPollWarning();
+
+			var cmds;
+			if (action === 'restart') {
+				cmds = [
+					fs.exec_direct('/etc/init.d/tollgate-wrt', ['stop']),
+					fs.exec_direct('/etc/init.d/nodogsplash', ['stop'])
+				];
+				Promise.all(cmds).then(function() {
+					return Promise.all([
+						fs.exec_direct('/etc/init.d/nodogsplash', ['start']),
+						fs.exec_direct('/etc/init.d/tollgate-wrt', ['start'])
+					]);
+				}).then(function() {
+					setTimeout(function() { setSvcButtons(false); refreshOverview(); }, 3000);
+				}).catch(function() { setSvcButtons(false); refreshOverview(); });
+			} else {
+				cmds = [
+					fs.exec_direct('/etc/init.d/tollgate-wrt', [action]),
+					fs.exec_direct('/etc/init.d/nodogsplash', [action])
+				];
+				Promise.all(cmds).then(function() {
+					setTimeout(function() { setSvcButtons(false); refreshOverview(); }, 3000);
+				}).catch(function() { setSvcButtons(false); refreshOverview(); });
+			}
 		}
 
 		function walletFund() {
@@ -440,6 +515,8 @@ return view.extend({
 							});
 							var resultEl = q('wl_drain_result');
 							if (resultEl) { resultEl.textContent = lines.join('\n'); resultEl.style.display = 'block'; }
+							var copyWrap = q('wl_drain_copy_wrap');
+							if (copyWrap) copyWrap.style.display = tokens.length > 0 ? 'block' : 'none';
 							if (stateEl) stateEl.textContent = 'Drained.';
 							cli('wallet', 'balance').then(function(b) {
 								var el = q('wl_balance');
@@ -502,7 +579,7 @@ return view.extend({
 			}).catch(function() { pollFailCount++; showPollWarning(); });
 			cli('status').then(function(s) {
 				var el = q('ov_status');
-				if (el) { el.innerHTML = ''; el.appendChild(statusBadge(s)); }
+				if (el) { clearNode(el); el.appendChild(statusBadge(s)); }
 			}).catch(function() {});
 		}
 

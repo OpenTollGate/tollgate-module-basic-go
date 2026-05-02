@@ -6,7 +6,7 @@ json_str_esc() {
 /\\n/g'
 }
 
-cmd="$1"
+cmd=$(json_str_esc "$1")
 shift
 
 args_json=""
