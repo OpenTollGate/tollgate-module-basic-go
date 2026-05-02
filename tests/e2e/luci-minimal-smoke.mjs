@@ -22,6 +22,21 @@ async function waitForOverview(page) {
 	}, { timeout: 15000 });
 }
 
+async function waitForEditors(page) {
+	await page.waitForFunction(() => {
+		const cfg = document.querySelector('#config_editor');
+		const ids = document.querySelector('#identities_editor');
+		return cfg && cfg.value && ids && ids.value;
+	}, { timeout: 10000 });
+}
+
+async function waitForSave(page, stateId) {
+	await page.waitForFunction((sid) => {
+		const el = document.querySelector('#' + sid);
+		return el && el.textContent.includes('Saved');
+	}, stateId, { timeout: 5000 });
+}
+
 async function run() {
 	const browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
@@ -65,40 +80,54 @@ async function run() {
 		assert.ok(await page.locator('#logs_box').textContent(), 'logs loaded');
 
 		await page.getByRole('button', { name: 'Advanced' }).click();
-		await page.waitForFunction(() => {
-			const cfg = document.querySelector('#config_editor');
-			const ids = document.querySelector('#identities_editor');
-			return cfg && cfg.value && ids && ids.value;
-		}, { timeout: 10000 });
+		await waitForEditors(page);
 		const configEditor = page.locator('#config_editor');
 		const identitiesEditor = page.locator('#identities_editor');
 
 		const originalConfig = JSON.parse(await configEditor.inputValue());
 		const originalIdentities = JSON.parse(await identitiesEditor.inputValue());
 
+		// config.json round-trip
 		const configProbe = { ...originalConfig, config_version: `${originalConfig.config_version}-pw` };
 		await configEditor.fill(JSON.stringify(configProbe, null, 2));
 		await page.getByRole('button', { name: 'Validate' }).first().click();
 		await page.waitForTimeout(300);
 		await page.getByRole('button', { name: 'Save config.json' }).click();
-		await page.waitForFunction(() => {
-			const el = document.querySelector('#config_state');
-			return el && el.textContent.includes('Saved');
-		}, { timeout: 5000 });
+		await waitForSave(page, 'config_state');
 
 		await page.getByRole('button', { name: 'Reload both files' }).click();
-		await page.waitForFunction(() => {
-			const el = document.querySelector('#config_editor');
-			return el && el.value.length > 0;
-		}, { timeout: 5000 });
+		await waitForEditors(page);
 		assert.equal(JSON.parse(await configEditor.inputValue()).config_version, configProbe.config_version);
 
 		await configEditor.fill(JSON.stringify(originalConfig, null, 2));
 		await page.getByRole('button', { name: 'Save config.json' }).click();
-		await page.waitForFunction(() => {
-			const el = document.querySelector('#config_state');
-			return el && el.textContent.includes('Saved');
-		}, { timeout: 5000 });
+		await waitForSave(page, 'config_state');
+
+		// identities.json round-trip
+		const idProbe = Array.isArray(originalIdentities)
+			? [...originalIdentities, { test_marker: 'pw' }]
+			: { ...originalIdentities, test_marker: 'pw' };
+		await identitiesEditor.fill(JSON.stringify(idProbe, null, 2));
+		await page.locator('#identities_editor').evaluate(el => {
+			const btn = el.closest('.cbi-section').querySelector('[class*="cbi-button-action"]');
+			if (btn) btn.click();
+		});
+		await page.waitForTimeout(300);
+		await page.getByRole('button', { name: 'Save identities.json' }).click();
+		await waitForSave(page, 'identities_state');
+
+		await page.getByRole('button', { name: 'Reload both files' }).click();
+		await waitForEditors(page);
+		var reloadedIdentities = JSON.parse(await identitiesEditor.inputValue());
+		if (Array.isArray(idProbe)) {
+			assert.equal(reloadedIdentities.length, idProbe.length);
+		} else {
+			assert.equal(reloadedIdentities.test_marker, 'pw');
+		}
+
+		await identitiesEditor.fill(JSON.stringify(originalIdentities, null, 2));
+		await page.getByRole('button', { name: 'Save identities.json' }).click();
+		await waitForSave(page, 'identities_state');
 
 		console.log(JSON.stringify({ ok: true, url, walletBalance: await page.locator('#ov_balance').textContent() }));
 	} finally {

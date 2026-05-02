@@ -47,7 +47,7 @@ else
 endif
 
 PKG_MAINTAINER:=TollGate <tollgate@tollgate.me>
-PKG_LICENSE:=CC0-1.0
+PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
 
 PKG_BUILD_DEPENDS:=golang/host
@@ -63,7 +63,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq
+	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq +netcat-openbsd
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files

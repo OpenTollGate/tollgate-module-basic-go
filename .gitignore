@@ -12,6 +12,7 @@ artifacts/
 vendor/
 tollgate
 tollgate-wrt
+tollgate-wrt-arm64
 tollgate-module-basic-go
 
 # Test artifacts

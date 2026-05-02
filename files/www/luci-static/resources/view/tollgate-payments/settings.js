@@ -9,6 +9,9 @@ var CLI = '/usr/bin/tollgate';
 var CONFIG = '/etc/tollgate/config.json';
 var IDENTITIES = '/etc/tollgate/identities.json';
 
+// cli() returns raw text; callers parse with regex. If CLI output format
+// changes, the regex patterns in formatBalance() and waitForOverview() will
+// need updating. A future --json flag on the CLI would make this more robust.
 function cli() {
 	var args = [];
 	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
@@ -28,6 +31,10 @@ function saveJsonFile(path, data) {
 	});
 }
 
+function badge(label, bg, fg) {
+	return E('span', { 'class': 'ifacebadge', 'style': 'background:' + bg + ';color:' + fg + ';padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, label);
+}
+
 function formatBalance(text) {
 	var match = String(text || '').match(/(\d+)\s*sats/i);
 	return match ? match[1] + ' sats' : (text || '—').trim() || '—';
@@ -42,10 +49,10 @@ function humanStepSize(bytes) {
 
 function statusBadge(text) {
 	if (/running|active|uptime/i.test(text || ''))
-		return E('span', { 'class': 'ifacebadge', 'style': 'background:#dff0d8;color:#3c763d;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Running');
+		return badge('Running', '#dff0d8', '#3c763d');
 	if (/stopped|not running|inactive/i.test(text || ''))
-		return E('span', { 'class': 'ifacebadge', 'style': 'background:#f2dede;color:#a94442;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Stopped');
-	return E('span', { 'class': 'ifacebadge', 'style': 'background:#fcf8e3;color:#8a6d3b;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Unknown');
+		return badge('Stopped', '#f2dede', '#a94442');
+	return badge('Unknown', '#fcf8e3', '#8a6d3b');
 }
 
 return view.extend({
@@ -64,6 +71,7 @@ return view.extend({
 
 		var activeTab = 'overview';
 		var tabContent = E('div');
+		var pollFailCount = 0;
 
 		function q(id) { return document.getElementById(id); }
 
@@ -196,8 +204,8 @@ return view.extend({
 				el.appendChild(E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Status')),
 					E('div', { 'class': 'cbi-value-field' }, enabled
-						? E('span', { 'style': 'background:#dff0d8;color:#3c763d;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Enabled')
-						: E('span', { 'style': 'background:#f2dede;color:#a94442;padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, 'Disabled'))
+						? badge('Enabled', '#dff0d8', '#3c763d')
+						: badge('Disabled', '#f2dede', '#a94442'))
 				]));
 				el.appendChild(E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('SSID')),
@@ -334,14 +342,10 @@ return view.extend({
 				fs.read_direct(CONFIG, 'json').catch(function() { return null; }),
 				fs.read_direct(IDENTITIES, 'json').catch(function() { return null; })
 			]).then(function(results) {
-				if (results[0]) {
-					var el = q('config_editor');
-					if (el) el.value = JSON.stringify(results[0], null, 2) + '\n';
-				}
-				if (results[1]) {
-					var el2 = q('identities_editor');
-					if (el2) el2.value = JSON.stringify(results[1], null, 2) + '\n';
-				}
+				var cfgEl = q('config_editor');
+				if (cfgEl) cfgEl.value = results[0] ? JSON.stringify(results[0], null, 2) + '\n' : '// config.json not found\n';
+				var idsEl = q('identities_editor');
+				if (idsEl) idsEl.value = results[1] ? JSON.stringify(results[1], null, 2) + '\n' : '// identities.json not found\n';
 				if (stateEl) stateEl.textContent = 'Loaded ' + new Date().toLocaleTimeString();
 			});
 		}
@@ -489,15 +493,32 @@ return view.extend({
 
 		function refreshOverview() {
 			cli('wallet', 'balance').then(function(b) {
+				pollFailCount = 0;
+				clearPollWarning();
 				var el = q('ov_balance');
 				if (el) el.textContent = formatBalance(b);
 				var wlEl = q('wl_balance');
 				if (wlEl) wlEl.textContent = formatBalance(b);
-			}).catch(function() {});
+			}).catch(function() { pollFailCount++; showPollWarning(); });
 			cli('status').then(function(s) {
 				var el = q('ov_status');
 				if (el) { el.innerHTML = ''; el.appendChild(statusBadge(s)); }
 			}).catch(function() {});
+		}
+
+		function showPollWarning() {
+			if (pollFailCount < 3) return;
+			var existing = q('poll_warning');
+			if (existing) return;
+			var header = tabContent.parentNode;
+			if (!header) return;
+			var warn = E('div', { 'id': 'poll_warning', 'class': 'alert-message warning', 'style': 'background:#fcf8e3;color:#8a6d3b;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:13px' }, _('Connection to service lost. Retrying…'));
+			header.insertBefore(warn, tabContent);
+		}
+
+		function clearPollWarning() {
+			var warn = q('poll_warning');
+			if (warn) warn.parentNode.removeChild(warn);
 		}
 
 		poll.add(function() {
@@ -505,9 +526,11 @@ return view.extend({
 			if (activeTab === 'overview') return refreshOverview();
 			if (activeTab === 'logs') {
 				return fs.exec_direct('/sbin/logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
+					pollFailCount = 0;
+					clearPollWarning();
 					var el = q('logs_box');
 					if (el) el.textContent = (t || 'No log lines.').trim();
-				}).catch(function() {});
+				}).catch(function() { pollFailCount++; showPollWarning(); });
 			}
 		}, 5);
 
