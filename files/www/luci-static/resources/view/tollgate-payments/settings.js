@@ -60,7 +60,7 @@ return view.extend({
 		return Promise.all([
 			cli('wallet', 'balance').catch(function() { return ''; }),
 			cli('version').catch(function() { return ''; }),
-			cli('status').catch(function() { return ''; })
+			cli('status').catch(function() { return 'not running'; })
 		]);
 	},
 
