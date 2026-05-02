@@ -23,7 +23,7 @@ function helper() {
 
 function saveJsonFile(path, data) {
 	var ts = new Date().toISOString().replace(/[^0-9T]/g, '').slice(0, 15);
-	return fs.exec_direct('cp', [path, path + '.bak.' + ts]).catch(function() {}).then(function() {
+	return fs.exec_direct('/bin/cp', [path, path + '.bak.' + ts]).catch(function() {}).then(function() {
 		return fs.write(path, JSON.stringify(data, null, 2) + '\n');
 	});
 }
@@ -287,7 +287,7 @@ return view.extend({
 				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Recent tollgate-wrt log lines. Auto-refreshes while this tab is open.')),
 				E('pre', { 'id': 'logs_box', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:24rem;overflow:auto;margin:0;background:var(--background-color,#f5f5f5);padding:.5rem;border-radius:3px' }, 'Loading…')
 			]));
-			fs.exec_direct('logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
+			fs.exec_direct('/sbin/logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
 				var el = q('logs_box');
 				if (el) el.textContent = (t || 'No log lines.').trim();
 			}).catch(function() {
@@ -330,15 +330,20 @@ return view.extend({
 		function loadFiles() {
 			var stateEl = q('files_state');
 			if (stateEl) stateEl.textContent = 'Loading…';
-			fs.read_direct(CONFIG, 'json').then(function(d) {
-				var el = q('config_editor');
-				if (el) el.value = JSON.stringify(d, null, 2) + '\n';
-			}).catch(function() {});
-			fs.read_direct(IDENTITIES, 'json').then(function(d) {
-				var el = q('identities_editor');
-				if (el) el.value = JSON.stringify(d, null, 2) + '\n';
-			}).catch(function() {});
-			if (stateEl) stateEl.textContent = 'Loaded ' + new Date().toLocaleTimeString();
+			Promise.all([
+				fs.read_direct(CONFIG, 'json').catch(function() { return null; }),
+				fs.read_direct(IDENTITIES, 'json').catch(function() { return null; })
+			]).then(function(results) {
+				if (results[0]) {
+					var el = q('config_editor');
+					if (el) el.value = JSON.stringify(results[0], null, 2) + '\n';
+				}
+				if (results[1]) {
+					var el2 = q('identities_editor');
+					if (el2) el2.value = JSON.stringify(results[1], null, 2) + '\n';
+				}
+				if (stateEl) stateEl.textContent = 'Loaded ' + new Date().toLocaleTimeString();
+			});
 		}
 
 		function validateEditor(path, editorId, stateId) {
@@ -499,7 +504,7 @@ return view.extend({
 			if (document.hidden) return;
 			if (activeTab === 'overview') return refreshOverview();
 			if (activeTab === 'logs') {
-				return fs.exec_direct('logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
+				return fs.exec_direct('/sbin/logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
 					var el = q('logs_box');
 					if (el) el.textContent = (t || 'No log lines.').trim();
 				}).catch(function() {});

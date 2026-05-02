@@ -237,10 +237,10 @@ endef
 # Update FILES declaration to include NoDogSplash files
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-wrt \
+	/usr/bin/tollgate \
+	/usr/bin/check_package_path \
 	/etc/init.d/tollgate-wrt \
 	/etc/config/firewall-tollgate \
-	/etc/modt/* \
-	/etc/profile \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/95-random-lan-ip \
@@ -250,7 +250,6 @@ FILES_$(PKG_NAME) += \
 	/www/luci-static/resources/view/tollgate-payments/settings.js \
 	/usr/libexec/tollgate-luci-helper \
 	/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json \
-	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart
 

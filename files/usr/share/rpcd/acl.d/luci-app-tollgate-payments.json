@@ -8,7 +8,10 @@
 			"file": {
 				"/etc/tollgate/": [ "read" ],
 				"/usr/bin/tollgate": [ "exec" ],
+				"/usr/bin/check_package_path": [ "exec" ],
 				"/usr/libexec/tollgate-luci-helper": [ "exec" ],
+				"/bin/cp": [ "exec" ],
+				"/sbin/logread": [ "exec" ],
 				"/etc/init.d/tollgate-wrt": [ "exec" ],
 				"/etc/init.d/nodogsplash": [ "exec" ]
 			}

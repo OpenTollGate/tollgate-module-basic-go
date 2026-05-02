@@ -16,25 +16,35 @@ The page is served by the `tollgate-wrt` package itself (not a separate
 ```
 LuCI browser (settings.js)
   │
-  │  fetch('/cgi-bin/tollgate-api?action=...')
-  ▼
-CGI shell script (/www/cgi-bin/tollgate-api)
-  │
-  ├── CLI commands (/usr/bin/tollgate wallet/status/version)
-  ├── Unix socket (/var/run/tollgate.sock) ──▶ running tollgate-wrt service
-  ├── init.d scripts (/etc/init.d/tollgate-wrt, nodogsplash)
-  └── JSON files (/etc/tollgate/config.json, identities.json)
+  ├── fs.exec_direct('/usr/bin/tollgate', [...])                ← display-only CLI
+  ├── fs.exec_direct('/usr/libexec/tollgate-luci-helper', [...]) ← socket operations
+  ├── fs.read_direct('/etc/tollgate/config.json')                ← config reads
+  ├── fs.write('/etc/tollgate/...', data)                        ← config saves
+  └── fs.exec_direct('/sbin/logread', [...])                     ← log output
 ```
 
-The CGI script runs as root under uhttpd. Wallet and network operations are
-proxied to the running `tollgate-wrt` service over the Unix domain socket using
-the same JSON protocol as the `tollgate` CLI.
+The view uses standard OpenWrt LuCI modules (`require view`, `require fs`,
+`require poll`, `require ui`) following the same pattern as luci-app-adblock
+and other mainstream LuCI applications.
+
+### Backend split
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| `tollgate` CLI | `/usr/bin/tollgate` | Display-only text output: `wallet balance`, `wallet info`, `status`, `version` |
+| Socket helper | `/usr/libexec/tollgate-luci-helper` | Structured JSON socket operations: wallet fund/drain, WiFi management, network status |
+| rpcd ACL | `/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json` | File/exec permission grants for LuCI `fs` module |
+
+The helper script proxies commands to the running `tollgate-wrt` service over
+the Unix domain socket at `/var/run/tollgate.sock`, using the same JSON
+`CLIMessage` protocol as the CLI. It returns JSON responses that the JS view
+parses directly.
 
 ## Tabs
 
 ### Overview
 
-- Wallet balance (auto-refreshes every 5 s)
+- Wallet balance (auto-refreshes every 5 s via `poll.add()`)
 - Service status badge (running / stopped)
 - Version info
 - Start / Stop / Restart buttons
@@ -42,88 +52,68 @@ the same JSON protocol as the `tollgate` CLI.
 ### Wallet
 
 - Total balance and per-mint breakdown
-- **Fund** — paste a Cashu ecash token to add funds
+- **Fund** — paste a Cashu ecash token to add funds (via socket helper)
 - **Drain** — convert all wallet funds to Cashu tokens (displayed on-screen;
-  copy them to a safe place)
+  copy them to a safe place). Confirmation dialog via `ui.showModal()`.
 
 ### Network
 
-- Private WiFi status (enabled/disabled, SSID, password)
-- Enable / Disable private WiFi (with confirmation)
+- Private WiFi status (enabled/disabled, SSID, password) loaded via helper
+- Enable / Disable private WiFi (with `ui.showModal()` confirmation)
 - Rename SSID
 - Change password (leave empty to auto-generate a memorable password)
 
 ### Configuration
 
-- Read-only pricing display (price per step, step size, metric)
+- Read-only pricing display (price per step, step size, metric) via `fs.read_direct()`
 - Accepted mints list
 - Profit share configuration
 
 ### Logs
 
-- Live tollgate-wrt log output (auto-refreshes while the tab is active)
+- Live tollgate-wrt log output via `fs.exec_direct('/sbin/logread', [...])`
+- Auto-refreshes while the tab is active via `poll.add()`
 
 ### Advanced
 
-- Raw JSON editors for `config.json` and `identities.json`
-- Validate and save buttons with timestamped backups
+- Raw JSON editors for `config.json` and `identities.json` via `fs.read_direct()`
+- Validate (JSON.parse check) and Save buttons
+- Save creates timestamped backup via `fs.exec_direct('/bin/cp', [...])`
+  then writes via `fs.write()`
 
-## CGI API Reference
+## RPCd ACL
 
-All actions are called via `GET /cgi-bin/tollgate-api?action=<action>`.
-Actions that accept a body expect `Content-Type: application/json`.
+The file `/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json` grants the
+LuCI session the following permissions:
 
-| Action | Method | Body | Description |
-|--------|--------|------|-------------|
-| `dashboard` | GET | — | Wallet balance, version, status, logs |
-| `wallet_info` | GET | — | Per-mint balance breakdown |
-| `wallet_fund` | POST | `{"token":"..."}` | Fund wallet with a Cashu token |
-| `wallet_drain` | POST | — | Drain all wallet funds to Cashu tokens |
-| `wifi_status` | GET | — | Private WiFi SSID, password, enabled state |
-| `wifi_enable` | POST | — | Enable private WiFi on both radios |
-| `wifi_disable` | POST | — | Disable private WiFi |
-| `wifi_rename` | POST | `{"ssid":"..."}` | Rename private SSID |
-| `wifi_password` | POST | `{"password":"..."}` | Change WiFi password (omit to auto-generate) |
-| `service_start` | POST | — | Start TollGate + NoDogSplash |
-| `service_stop` | POST | — | Stop services |
-| `service_restart` | POST | — | Restart services |
-| `clients` | GET | — | DHCP leases and ndsctl authenticated clients |
-| `files` | GET | — | Contents of config.json and identities.json |
-| `validate_config` | POST | raw JSON | Validate JSON syntax for config |
-| `validate_identities` | POST | raw JSON | Validate JSON syntax for identities |
-| `save_config` | POST | raw JSON | Atomic save with timestamped backup |
-| `save_identities` | POST | raw JSON | Atomic save with timestamped backup |
-
-### Response format
-
-All responses are `application/json` with at least an `ok` field:
-
-```json
-{"ok": true, "wallet_balance": "1234 sats", "version": "version: 0.7.0", ...}
-```
-
-Error responses:
-
-```json
-{"ok": false, "error": "Description of what went wrong."}
-```
+| Permission | Path | Access |
+|------------|------|--------|
+| Config files | `/etc/tollgate/` | read + write |
+| CLI binary | `/usr/bin/tollgate` | exec |
+| Helper script | `/usr/libexec/tollgate-luci-helper` | exec |
+| Backup copy | `/bin/cp` | exec |
+| Log reader | `/sbin/logread` | exec |
+| Service scripts | `/etc/init.d/tollgate-wrt` | exec |
+| NoDogSplash | `/etc/init.d/nodogsplash` | exec |
+| Package path check | `/usr/bin/check_package_path` | exec |
 
 ## Security model
 
-- The CGI script runs as **root** under uhttpd (standard for OpenWrt LuCI).
+- All operations run through LuCI's `fs` module, which is gated by rpcd ACLs.
 - Access is protected by LuCI's HTTP basic auth (the router admin password).
 - Wallet and network commands are sent over the Unix socket to the running
   service — the same path the CLI uses.
-- User-supplied strings (tokens, SSIDs, passwords) are escaped before JSON
-  embedding via `json_str_esc()` to prevent injection.
-- Service start/stop/restart call init.d scripts directly.
+- User-supplied strings (tokens, SSIDs, passwords) are escaped in the helper
+  script via `json_str_esc()` to prevent JSON injection.
+- Service start/stop/restart call init.d scripts through `fs.exec_direct()`.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `files/www/luci-static/resources/view/tollgate-payments/settings.js` | LuCI JavaScript view |
-| `files/www/cgi-bin/tollgate-api` | CGI REST API (shell script) |
+| `files/www/luci-static/resources/view/tollgate-payments/settings.js` | LuCI JavaScript view (6-tab admin UI) |
+| `files/usr/libexec/tollgate-luci-helper` | Socket proxy for structured JSON operations |
+| `files/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json` | rpcd ACL permissions |
 | `files/usr/share/luci/menu.d/luci-app-tollgate-payments.json` | Sidebar menu registration |
 
 ## Testing

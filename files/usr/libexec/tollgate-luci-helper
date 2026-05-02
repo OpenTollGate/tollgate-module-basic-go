@@ -2,7 +2,8 @@
 SOCKET="/var/run/tollgate.sock"
 
 json_str_esc() {
-	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g'
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g; s/
+/\\n/g'
 }
 
 cmd="$1"
@@ -17,4 +18,4 @@ args_json="${args_json%,}"
 
 ts=$(date -Iseconds 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 printf '{"command":"%s","args":[%s],"timestamp":"%s"}\n' "$cmd" "$args_json" "$ts" \
-	| nc -U "$SOCKET" 2>/dev/null
+	| nc -U "$SOCKET" 2>/dev/null || printf '{"success":false,"error":"Service not running (socket not found)"}'

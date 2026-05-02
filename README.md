@@ -160,9 +160,9 @@ TollGate ships a LuCI admin page at **Services → TollGate** with six tabs:
 - **Logs** — live service log output
 - **Advanced** — raw JSON editors for `config.json` and `identities.json`
 
-The backend is a CGI shell script at `/www/cgi-bin/tollgate-api` that
-proxies wallet and network commands to the running service over the Unix
-domain socket. Full API reference: [docs/luci-admin-ui.md](docs/luci-admin-ui.md).
+The backend uses standard LuCI `fs.exec_direct()` calls to the `tollgate` CLI
+and a small socket helper script, with rpcd ACL-gated permissions.
+Full architecture: [docs/luci-admin-ui.md](docs/luci-admin-ui.md).
 
 ## Testing
 
@@ -203,7 +203,7 @@ Design and protocol docs live under [docs/](docs/):
 - [docs/upstream_session_manager.md](docs/upstream_session_manager.md) — module internals + end-to-end cross-component flow
 - [docs/data-session-management.md](docs/data-session-management.md)
 - [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
-- [docs/luci-admin-ui.md](docs/luci-admin-ui.md) — admin UI architecture, CGI API reference, security model
+- [docs/luci-admin-ui.md](docs/luci-admin-ui.md) — admin UI architecture, backend patterns, security model
 
 ## License
 
