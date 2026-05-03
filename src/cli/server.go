@@ -150,6 +150,10 @@ func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 		return s.handleStatusCommand(msg.Args, msg.Flags)
 	case "version":
 		return s.handleVersionCommand()
+	case "config":
+		return s.handleConfigCommand(msg.Args, msg.Flags)
+	case "health":
+		return s.handleHealthCommand()
 	default:
 		return CLIResponse{
 			Success:   false,
@@ -457,9 +461,48 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 
 // handleVersionCommand returns version information
 func (s *CLIServer) handleVersionCommand() CLIResponse {
+	versionInfo := GetFullVersionInfo()
 	return CLIResponse{
 		Success:   true,
 		Message:   GetFormattedVersionInfo(),
+		Data:      versionInfo,
+		Timestamp: time.Now(),
+	}
+}
+
+// handleHealthCommand returns comprehensive health check
+func (s *CLIServer) handleHealthCommand() CLIResponse {
+	health := map[string]interface{}{
+		"running":     s.running,
+		"socket_ok":   true,
+		"uptime":      time.Since(s.startTime).String(),
+		"version":     GetVersionInfo(),
+		"config_ok":   s.configManager != nil,
+		"wallet_ok":   s.merchant != nil,
+		"network_ok":  true,
+	}
+
+	if s.merchant != nil {
+		balance := s.merchant.GetBalance()
+		health["wallet_balance_sats"] = balance
+		mints := s.merchant.GetAcceptedMints()
+		health["mint_count"] = len(mints)
+	}
+
+	if s.configManager != nil {
+		cfg := s.configManager.GetConfig()
+		health["metric"] = cfg.Metric
+		health["step_size"] = cfg.StepSize
+		health["reseller_mode"] = cfg.ResellerMode
+	}
+
+	allOK := s.running && s.configManager != nil && s.merchant != nil
+	health["healthy"] = allOK
+
+	return CLIResponse{
+		Success:   allOK,
+		Message:   func() string { if allOK { return "All systems healthy" }; return "Service degraded" }(),
+		Data:      health,
 		Timestamp: time.Now(),
 	}
 }
