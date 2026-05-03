@@ -204,8 +204,30 @@ jobs:
             echo "release_channel=dev" >> $GITHUB_OUTPUT
           fi
 
+  contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run config_manager tests
+        run: cd src/config_manager && go test ./... -v -count=1
+
+      - name: Run CLI contract tests
+        run: cd src/cmd/tollgate-cli && go test ./... -v -count=1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run ACL lint
+        run: node tests/contract/acl-lint.mjs
+
   build-package:
-    needs: [determine-versioning, define-matrix]
+    needs: [determine-versioning, define-matrix, contract-tests]
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
