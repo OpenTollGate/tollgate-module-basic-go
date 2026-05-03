@@ -4,31 +4,24 @@
 'require poll';
 'require ui';
 
-var HELPER = '/usr/libexec/tollgate-luci-helper';
 var CLI = '/usr/bin/tollgate';
-var CONFIG = '/etc/tollgate/config.json';
-var IDENTITIES = '/etc/tollgate/identities.json';
 
-function cli() {
+function cliJson() {
+	var args = [];
+	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
+	args.push('--json');
+	return fs.exec_direct(CLI, args, 'json').then(function(resp) {
+		if (resp && !resp.success && resp.error) {
+			return Promise.reject(resp.error);
+		}
+		return resp;
+	});
+}
+
+function cliRaw() {
 	var args = [];
 	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
 	return fs.exec_direct(CLI, args);
-}
-
-function helper() {
-	var args = [];
-	for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
-	return fs.exec_direct(HELPER, args, 'json');
-}
-
-function saveJsonFile(path, data) {
-	var d = new Date();
-	var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
-	var ts = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
-		'_' + pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
-	return fs.exec_direct('/bin/cp', [path, path + '.bak.' + ts]).catch(function() {}).then(function() {
-		return fs.write(path, JSON.stringify(data, null, 2) + '\n');
-	});
 }
 
 function clearNode(node) {
@@ -39,11 +32,6 @@ function badge(label, bg, fg) {
 	return E('span', { 'class': 'ifacebadge', 'style': 'background:' + bg + ';color:' + fg + ';padding:2px 8px;border-radius:3px;font-size:12px;font-weight:600' }, label);
 }
 
-function formatBalance(text) {
-	var match = String(text || '').match(/(\d+)\s*sats?/i);
-	return match ? match[1] + ' sats' : (text || '—').trim() || '—';
-}
-
 function humanStepSize(bytes) {
 	if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GiB';
 	if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MiB';
@@ -51,11 +39,9 @@ function humanStepSize(bytes) {
 	return bytes + ' B';
 }
 
-function statusBadge(text) {
-	if (/running|active|uptime/i.test(text || ''))
-		return badge('Running', '#dff0d8', '#3c763d');
-	if (/stopped|not running|inactive/i.test(text || ''))
-		return badge('Stopped', '#f2dede', '#a94442');
+function statusBadge(running) {
+	if (running === true) return badge('Running', '#dff0d8', '#3c763d');
+	if (running === false) return badge('Stopped', '#f2dede', '#a94442');
 	return badge('Unknown', '#fcf8e3', '#8a6d3b');
 }
 
@@ -81,23 +67,38 @@ function copyToClipboard(text) {
 	return Promise.resolve();
 }
 
+function saveJsonViaService(type, jsonStr) {
+	var cmd = type === 'config' ? 'save' : 'save-identities';
+	return cliJson('config', cmd, jsonStr);
+}
+
+function stateSpan(id, text, color) {
+	var el = document.getElementById(id);
+	if (!el) return;
+	el.textContent = text || '';
+	el.style.color = color || '';
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
-			cli('wallet', 'balance').catch(function() { return ''; }),
-			cli('version').catch(function() { return ''; }),
-			cli('status').catch(function() { return 'not running'; })
+			cliJson('wallet', 'balance').catch(function() { return null; }),
+			cliJson('status').catch(function() { return null; }),
+			cliJson('version').catch(function() { return null; }),
+			cliJson('config', 'schema').catch(function() { return null; })
 		]);
 	},
 
 	render: function(data) {
-		var balance = data[0] || '';
-		var version = data[1] || '';
-		var statusText = data[2] || '';
+		var balanceResp = data[0];
+		var statusResp = data[1];
+		var versionResp = data[2];
+		var schemaResp = data[3];
 
 		var activeTab = 'overview';
 		var tabContent = E('div');
 		var pollFailCount = 0;
+		var cachedSchema = (schemaResp && schemaResp.data) || null;
 
 		function q(id) { return document.getElementById(id); }
 
@@ -118,15 +119,31 @@ return view.extend({
 
 		function renderOverview() {
 			clearNode(tabContent);
+			var balanceSats = '—';
+			var statusData = null;
+			var versionData = null;
+
+			if (balanceResp && balanceResp.data) {
+				balanceSats = (balanceResp.data.balance_sats || 0) + ' sats';
+			}
+			if (statusResp && statusResp.data) {
+				statusData = statusResp.data;
+			}
+			if (versionResp && versionResp.data) {
+				versionData = versionResp.data;
+			}
+
+			var statusRunning = statusData ? statusData.running : false;
+
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Service Status')),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Wallet Balance')),
-					E('div', { 'class': 'cbi-value-field', 'id': 'ov_balance', 'style': 'font-size:24px;font-weight:700' }, formatBalance(balance))
+					E('div', { 'class': 'cbi-value-field', 'id': 'ov_balance', 'style': 'font-size:24px;font-weight:700' }, balanceSats)
 				]),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Service')),
-					E('div', { 'class': 'cbi-value-field', 'id': 'ov_status' }, statusBadge(statusText))
+					E('div', { 'class': 'cbi-value-field', 'id': 'ov_status' }, statusBadge(statusRunning))
 				]),
 				E('div', { 'class': 'cbi-page-actions' }, [
 					E('button', { 'class': 'cbi-button cbi-button-apply', 'id': 'ov_btn_start', 'click': function() { svcControl('start'); } }, _('Start')),
@@ -142,9 +159,18 @@ return view.extend({
 					E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'ov_btn_restart', 'click': function() { svcControl('restart'); } }, _('Restart'))
 				])
 			]));
+
+			var versionLines = [];
+			if (versionData) {
+				if (versionData.version) versionLines.push('Version: ' + versionData.version);
+				if (versionData.commit) versionLines.push('Commit: ' + versionData.commit);
+				if (versionData.build_time) versionLines.push('Built: ' + versionData.build_time);
+				if (versionData.go_version) versionLines.push('Go: ' + versionData.go_version);
+				if (versionData.openwrt_version) versionLines.push('OpenWrt: ' + versionData.openwrt_version);
+			}
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Version')),
-				E('pre', { 'id': 'ov_version', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, (version || '—').trim())
+				E('pre', { 'id': 'ov_version', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, versionLines.join('\n') || '—')
 			]));
 		}
 
@@ -193,8 +219,20 @@ return view.extend({
 				])
 			]));
 
-			cli('wallet', 'balance').then(function(b) { var el = q('wl_balance'); if (el) el.textContent = formatBalance(b); }).catch(function() {});
-			cli('wallet', 'info').then(function(t) { var el = q('wl_info'); if (el) el.textContent = (t || 'No info.').trim(); }).catch(function() {});
+			cliJson('wallet', 'balance').then(function(resp) {
+				var el = q('wl_balance');
+				if (el && resp && resp.data) el.textContent = (resp.data.balance_sats || 0) + ' sats';
+			}).catch(function() {});
+			cliJson('wallet', 'info').then(function(resp) {
+				var el = q('wl_info');
+				if (!el || !resp || !resp.data) return;
+				var lines = ['Total: ' + (resp.data.total_balance || 0) + ' sats across ' + (resp.data.mint_count || 0) + ' mint(s)', ''];
+				var mints = resp.data.mint_balances || {};
+				Object.keys(mints).forEach(function(url) {
+					lines.push('  ' + url + ': ' + mints[url] + ' sats');
+				});
+				el.textContent = lines.join('\n') || 'No info.';
+			}).catch(function() {});
 		}
 
 		function renderNetwork() {
@@ -231,7 +269,7 @@ return view.extend({
 				])
 			]));
 
-			helper('network', 'private', 'status').then(function(resp) {
+			cliJson('network', 'private', 'status').then(function(resp) {
 				var d = (resp && resp.data) || {};
 				var el = q('nw_loading');
 				if (!el) return;
@@ -263,7 +301,7 @@ return view.extend({
 				]));
 				el.appendChild(E('div', { 'class': 'cbi-page-actions' }, [
 					E('button', { 'class': 'cbi-button cbi-button-apply', 'click': function() {
-						helper('network', 'private', 'enable').then(function() { setTab('network'); });
+						cliJson('network', 'private', 'enable').then(function() { setTab('network'); });
 					}}, _('Enable')),
 					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
 						ui.showModal(_('Disable Private WiFi'), [
@@ -272,7 +310,7 @@ return view.extend({
 								E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
 								E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
 									ui.hideModal();
-									helper('network', 'private', 'disable').then(function() { setTab('network'); });
+									cliJson('network', 'private', 'disable').then(function() { setTab('network'); });
 								}}, _('Confirm'))
 							])
 						]);
@@ -287,50 +325,335 @@ return view.extend({
 		function renderConfig() {
 			clearNode(tabContent);
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h3', _('Pricing')),
+				E('h3', _('Configuration')),
 				E('div', { 'id': 'cfg_content', 'style': 'font-size:13px;opacity:.7' }, 'Loading…')
 			]));
-			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h3', _('Accepted Mints')),
-				E('pre', { 'id': 'cfg_mints', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, 'Loading…')
-			]));
-			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h3', _('Profit Share')),
-				E('pre', { 'id': 'cfg_profit', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:13px;margin:0' }, 'Loading…')
-			]));
 
-			fs.read_direct(CONFIG, 'json').then(function(config) {
-				var mints = config.accepted_mints || [];
-				var profit = config.profit_share || [];
-				var el = q('cfg_content');
-				if (!el) return;
-				if (mints.length > 0) {
-					var m = mints[0];
-					clearNode(el);
-					el.style.opacity = '1';
-					el.appendChild(E('div', { 'class': 'cbi-value' }, [
-						E('label', { 'class': 'cbi-value-title' }, _('Price per Step')),
-						E('div', { 'class': 'cbi-value-field', 'style': 'font-size:20px;font-weight:700' }, (m.price_per_step || '—') + ' ' + (m.price_unit || 'sats'))
-					]));
-					el.appendChild(E('div', { 'class': 'cbi-value' }, [
-						E('label', { 'class': 'cbi-value-title' }, _('Step Size')),
-						E('div', { 'class': 'cbi-value-field', 'style': 'font-size:20px;font-weight:700' },
-							config.metric === 'milliseconds' ? ((config.step_size || 0) / 1000) + 's' : humanStepSize(config.step_size || 0))
-					]));
-					el.appendChild(E('div', { 'class': 'cbi-value' }, [
-						E('label', { 'class': 'cbi-value-title' }, _('Metric')),
-						E('div', { 'class': 'cbi-value-field', 'style': 'font-size:20px;font-weight:700' }, config.metric || '—')
-					]));
-				} else {
-					el.textContent = 'No configuration found.';
-				}
-				var mintsEl = q('cfg_mints');
-				if (mintsEl) mintsEl.textContent = JSON.stringify(mints, null, 2);
-				var profitEl = q('cfg_profit');
-				if (profitEl) profitEl.textContent = JSON.stringify(profit, null, 2);
+			Promise.all([
+				cliJson('config', 'get'),
+				cachedSchema ? Promise.resolve({ data: cachedSchema }) : cliJson('config', 'schema')
+			]).then(function(results) {
+				var configResp = results[0];
+				var schemaData = (results[1] && results[1].data) || {};
+				var cfg = (configResp && configResp.data && configResp.data.config) || {};
+				var identities = (configResp && configResp.data && configResp.data.identities) || {};
+				var configSchema = schemaData.config || [];
+				var identitiesSchema = schemaData.identities || [];
+
+				var container = q('cfg_content');
+				if (!container) return;
+				clearNode(container);
+				container.style.opacity = '1';
+
+				var sections = [];
+
+				configSchema.forEach(function(field) {
+					if (field.json_key === 'config_version') return;
+					if (field.json_key === 'upstream_detector' || field.json_key === 'upstream_session_manager') return;
+					if (!field.editable) return;
+
+					if (field.type === 'array' && field.json_key === 'accepted_mints') {
+						sections.push(buildMintsSection(cfg.accepted_mints || [], field));
+					} else if (field.type === 'array' && field.json_key === 'profit_share') {
+						sections.push(buildProfitShareSection(cfg.profit_share || [], field, identities));
+					} else if (field.type === 'string' || field.type === 'uint64' || field.type === 'float64' || field.type === 'bool') {
+						sections.push(buildSimpleField(cfg, field));
+					}
+				});
+
+				sections.push(buildIdentitiesSection(identities, identitiesSchema));
+				sections.push(buildAdvancedConfigSection(cfg));
+
+				sections.push(E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveAllConfig(); } }, _('Save All Changes'))
+				]));
+
+				sections.forEach(function(s) { container.appendChild(s); });
 			}).catch(function(err) {
 				var el = q('cfg_content');
 				if (el) el.textContent = 'Failed: ' + err;
+			});
+		}
+
+		function buildSimpleField(cfg, field) {
+			var val = cfg[field.json_key];
+			var input;
+			if (field.enum) {
+				var options = field.enum.map(function(opt) {
+					return E('option', { 'value': opt, 'selected': String(val) === opt ? 'selected' : undefined }, opt);
+				});
+				input = E('select', { 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-select', 'style': 'max-width:200px' }, options);
+			} else if (field.type === 'bool') {
+				input = E('select', { 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-select', 'style': 'max-width:200px' }, [
+					E('option', { 'value': 'true', 'selected': val === true ? 'selected' : undefined }, 'true'),
+					E('option', { 'value': 'false', 'selected': val === false ? 'selected' : undefined }, 'false')
+				]);
+			} else {
+				input = E('input', {
+					'type': 'text', 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-text',
+					'value': val != null ? String(val) : '',
+					'style': 'max-width:200px', 'placeholder': field.description || ''
+				});
+			}
+			return E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _(field.json_key)),
+				E('div', { 'class': 'cbi-value-field' }, [
+					input,
+					E('div', { 'class': 'cbi-value-description' }, field.description || '')
+				])
+			]);
+		}
+
+		function buildMintsSection(mints, field) {
+			var rows = [];
+			mints.forEach(function(mint, idx) {
+				var fields = (field.children || []).map(function(cf) {
+					return E('td', { 'style': 'padding:2px 6px' }, [
+						E('input', {
+							'type': 'text', 'class': 'cbi-input-text',
+							'id': 'cfg_mint_' + idx + '_' + cf.json_key,
+							'value': mint[cf.json_key] != null ? String(mint[cf.json_key]) : '',
+							'style': 'width:100%;font-size:12px', 'placeholder': cf.json_key
+						})
+					]);
+				});
+				rows.push(E('tr', {}, fields));
+			});
+
+			var headers = (field.children || []).map(function(cf) {
+				return E('th', { 'style': 'padding:2px 6px;font-size:11px;text-align:left' }, cf.json_key);
+			});
+
+			return E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Accepted Mints')),
+				E('div', { 'style': 'overflow-x:auto' }, [
+					E('table', { 'class': 'table', 'style': 'width:100%;font-size:12px' }, [
+						E('thead', {}, [E('tr', {}, headers)]),
+						E('tbody', { 'id': 'cfg_mints_body' }, rows)
+					])
+				]),
+				E('div', { 'class': 'cbi-page-actions', 'style': 'margin-top:6px' }, [
+					E('button', { 'class': 'cbi-button', 'click': function() { addMintRow(field); } }, _('Add Mint'))
+				])
+			]);
+		}
+
+		function addMintRow(field) {
+			var tbody = q('cfg_mints_body');
+			if (!tbody) return;
+			var idx = tbody.children.length;
+			var fields = (field.children || []).map(function(cf) {
+				var def = cf.default != null ? String(cf.default) : '';
+				return E('td', { 'style': 'padding:2px 6px' }, [
+					E('input', {
+						'type': 'text', 'class': 'cbi-input-text',
+						'id': 'cfg_mint_' + idx + '_' + cf.json_key,
+						'value': def, 'style': 'width:100%;font-size:12px', 'placeholder': cf.json_key
+					})
+				]);
+			});
+			tbody.appendChild(E('tr', {}, fields));
+		}
+
+		function buildProfitShareSection(shares, field, identities) {
+			var rows = [];
+			var identNames = (identities.public_identities || []).map(function(i) { return i.name; });
+			shares.forEach(function(share, idx) {
+				rows.push(E('tr', {}, [
+					E('td', { 'style': 'padding:2px 6px' }, [
+						E('input', {
+							'type': 'text', 'class': 'cbi-input-text',
+							'id': 'cfg_ps_' + idx + '_factor',
+							'value': share.factor != null ? String(share.factor) : '',
+							'style': 'width:80px;font-size:12px', 'placeholder': '0.0-1.0'
+						})
+					]),
+					E('td', { 'style': 'padding:2px 6px' }, [
+						E('select', {
+							'id': 'cfg_ps_' + idx + '_identity', 'class': 'cbi-input-select',
+							'style': 'width:100%;font-size:12px'
+						}, identNames.map(function(n) {
+							return E('option', { 'value': n, 'selected': share.identity === n ? 'selected' : undefined }, n);
+						}))
+					]),
+					E('td', { 'style': 'padding:2px 6px' }, [
+						E('button', { 'class': 'cbi-button cbi-button-remove', 'style': 'font-size:11px;padding:1px 6px', 'click': function() {
+							this.closest('tr').remove();
+						} }, '\u00d7')
+					])
+				]));
+			});
+
+			return E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Profit Share')),
+				E('div', { 'style': 'overflow-x:auto' }, [
+					E('table', { 'class': 'table', 'style': 'width:100%;font-size:12px' }, [
+						E('thead', {}, [E('tr', {}, [
+							E('th', { 'style': 'padding:2px 6px;font-size:11px' }, 'factor'),
+							E('th', { 'style': 'padding:2px 6px;font-size:11px' }, 'identity'),
+							E('th', { 'style': 'padding:2px 6px;font-size:11px;width:30px' }, '')
+						])]),
+						E('tbody', { 'id': 'cfg_ps_body' }, rows)
+					])
+				]),
+				E('div', { 'class': 'cbi-page-actions', 'style': 'margin-top:6px' }, [
+					E('button', { 'class': 'cbi-button', 'click': function() {
+						var tbody = q('cfg_ps_body');
+						if (!tbody) return;
+						var idx = tbody.children.length;
+						tbody.appendChild(E('tr', {}, [
+							E('td', { 'style': 'padding:2px 6px' }, [
+								E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_ps_' + idx + '_factor', 'value': '0.5', 'style': 'width:80px;font-size:12px' })
+							]),
+							E('td', { 'style': 'padding:2px 6px' }, [
+								E('select', { 'id': 'cfg_ps_' + idx + '_identity', 'class': 'cbi-input-select', 'style': 'width:100%;font-size:12px' },
+									identNames.map(function(n) { return E('option', { 'value': n }, n); }))
+							]),
+							E('td', { 'style': 'padding:2px 6px' }, [
+								E('button', { 'class': 'cbi-button cbi-button-remove', 'style': 'font-size:11px;padding:1px 6px', 'click': function() { this.closest('tr').remove(); } }, '\u00d7')
+							])
+						]));
+					} }, _('Add Share'))
+				])
+			]);
+		}
+
+		function buildIdentitiesSection(identities, schema) {
+			var rows = [];
+			var publicIdents = identities.public_identities || [];
+			publicIdents.forEach(function(ident, idx) {
+				rows.push(E('tr', {}, [
+					E('td', { 'style': 'padding:2px 6px' }, [
+						E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_pi_' + idx + '_name', 'value': ident.name || '', 'style': 'width:100%;font-size:12px' })
+					]),
+					E('td', { 'style': 'padding:2px 6px' }, [
+						E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_pi_' + idx + '_pubkey', 'value': ident.pubkey || '', 'style': 'width:100%;font-size:12px', 'placeholder': 'hex pubkey' })
+					]),
+					E('td', { 'style': 'padding:2px 6px' }, [
+						E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_pi_' + idx + '_lightning_address', 'value': ident.lightning_address || '', 'style': 'width:100%;font-size:12px', 'placeholder': 'user@domain' })
+					])
+				]));
+			});
+
+			return E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Public Identities')),
+				E('p', { 'style': 'font-size:13px;opacity:.7' }, _('Identities used for profit sharing and trust.')),
+				E('div', { 'style': 'overflow-x:auto' }, [
+					E('table', { 'class': 'table', 'style': 'width:100%;font-size:12px' }, [
+						E('thead', {}, [E('tr', {}, [
+							E('th', { 'style': 'padding:2px 6px;font-size:11px' }, 'name'),
+							E('th', { 'style': 'padding:2px 6px;font-size:11px' }, 'pubkey'),
+							E('th', { 'style': 'padding:2px 6px;font-size:11px' }, 'lightning_address')
+						])]),
+						E('tbody', { 'id': 'cfg_pi_body' }, rows)
+					])
+				]),
+				E('div', { 'class': 'cbi-page-actions', 'style': 'margin-top:6px' }, [
+					E('button', { 'class': 'cbi-button', 'click': function() {
+						var tbody = q('cfg_pi_body');
+						if (!tbody) return;
+						var idx = tbody.children.length;
+						tbody.appendChild(E('tr', {}, [
+							E('td', { 'style': 'padding:2px 6px' }, [E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_pi_' + idx + '_name', 'value': '', 'style': 'width:100%;font-size:12px', 'placeholder': 'name' })]),
+							E('td', { 'style': 'padding:2px 6px' }, [E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_pi_' + idx + '_pubkey', 'value': '', 'style': 'width:100%;font-size:12px', 'placeholder': 'hex pubkey' })]),
+							E('td', { 'style': 'padding:2px 6px' }, [E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'cfg_pi_' + idx + '_lightning_address', 'value': '', 'style': 'width:100%;font-size:12px', 'placeholder': 'user@domain' })])
+						]));
+					} }, _('Add Identity'))
+				])
+			]);
+		}
+
+		function buildAdvancedConfigSection(cfg) {
+			return E('details', { 'style': 'margin-top:1rem' }, [
+				E('summary', { 'style': 'cursor:pointer;font-size:13px;opacity:.7' }, _('Advanced: upstream_detector, upstream_session_manager')),
+				E('pre', { 'id': 'cfg_advanced_raw', 'style': 'white-space:pre-wrap;font-family:monospace;font-size:12px;max-height:20rem;overflow:auto;margin:4px 0' },
+					JSON.stringify({
+						upstream_detector: cfg.upstream_detector || {},
+						upstream_session_manager: cfg.upstream_session_manager || {}
+					}, null, 2))
+			]);
+		}
+
+		function saveAllConfig() {
+			stateSpan('cfg_save_state', 'Saving…', '#8a6d3b');
+
+			cliJson('config', 'get').then(function(resp) {
+				var cfg = (resp && resp.data && resp.data.config) || {};
+				var identities = (resp && resp.data && resp.data.identities) || {};
+
+				var simpleFields = ['log_level', 'metric', 'step_size', 'margin', 'show_setup', 'reseller_mode'];
+				simpleFields.forEach(function(key) {
+					var el = q('cfg_' + key);
+					if (!el) return;
+					var val = el.value;
+					if (val === 'true') val = true;
+					else if (val === 'false') val = false;
+					else if (/^\d+$/.test(val)) val = parseInt(val, 10);
+					else if (/^\d+\.\d+$/.test(val)) val = parseFloat(val);
+					cfg[key] = val;
+				});
+
+				var tbody = q('cfg_mints_body');
+				if (tbody) {
+					var mints = [];
+					for (var i = 0; i < tbody.children.length; i++) {
+						var mint = {};
+						var mintFields = ['url', 'min_balance', 'balance_tolerance_percent', 'payout_interval_seconds', 'min_payout_amount', 'price_per_step', 'price_unit', 'purchase_min_steps'];
+						mintFields.forEach(function(f) {
+							var el = q('cfg_mint_' + i + '_' + f);
+							if (!el) return;
+							var v = el.value;
+							if (/^\d+$/.test(v)) v = parseInt(v, 10);
+							mint[f] = v;
+						});
+						if (mint.url) mints.push(mint);
+					}
+					cfg.accepted_mints = mints;
+				}
+
+				var psBody = q('cfg_ps_body');
+				if (psBody) {
+					var shares = [];
+					for (var i = 0; i < psBody.children.length; i++) {
+						var factorEl = q('cfg_ps_' + i + '_factor');
+						var identEl = q('cfg_ps_' + i + '_identity');
+						if (factorEl && identEl) {
+							shares.push({
+								factor: parseFloat(factorEl.value) || 0,
+								identity: identEl.value
+							});
+						}
+					}
+					cfg.profit_share = shares;
+				}
+
+				var piBody = q('cfg_pi_body');
+				if (piBody) {
+					var pubIdents = [];
+					for (var i = 0; i < piBody.children.length; i++) {
+						var nameEl = q('cfg_pi_' + i + '_name');
+						var pkEl = q('cfg_pi_' + i + '_pubkey');
+						var laEl = q('cfg_pi_' + i + '_lightning_address');
+						if (nameEl) {
+							var ident = { name: nameEl.value };
+							if (pkEl && pkEl.value) ident.pubkey = pkEl.value;
+							if (laEl && laEl.value) ident.lightning_address = laEl.value;
+							pubIdents.push(ident);
+						}
+					}
+					identities.public_identities = pubIdents;
+				}
+
+				var configJson = JSON.stringify(cfg);
+				var identitiesJson = JSON.stringify(identities);
+
+				return saveJsonViaService('config', configJson).then(function() {
+					return saveJsonViaService('identities', identitiesJson);
+				});
+			}).then(function() {
+				stateSpan('cfg_save_state', 'Saved. Restart tollgate-wrt to apply.', '#5cb85c');
+			}).catch(function(err) {
+				stateSpan('cfg_save_state', 'Save failed: ' + err, '#d9534f');
 			});
 		}
 
@@ -364,8 +687,8 @@ return view.extend({
 				E('h3', 'config.json'),
 				E('textarea', { 'id': 'config_editor', 'class': 'cbi-input-textarea', 'style': 'width:100%;min-height:18rem;font-family:monospace;font-size:12px;line-height:1.45;resize:vertical', 'spellcheck': 'false' }),
 				E('div', { 'class': 'cbi-page-actions' }, [
-					E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { validateEditor(CONFIG, 'config_editor', 'config_state'); } }, _('Validate')),
-					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveEditor(CONFIG, 'config_editor', 'config_state'); } }, _('Save config.json')),
+					E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { validateEditor('config_editor', 'config_state'); } }, _('Validate')),
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveAdvancedFile('config'); } }, _('Save config.json')),
 					' ', E('span', { 'id': 'config_state', 'style': 'font-size:13px' })
 				])
 			]));
@@ -373,8 +696,8 @@ return view.extend({
 				E('h3', 'identities.json'),
 				E('textarea', { 'id': 'identities_editor', 'class': 'cbi-input-textarea', 'style': 'width:100%;min-height:18rem;font-family:monospace;font-size:12px;line-height:1.45;resize:vertical', 'spellcheck': 'false' }),
 				E('div', { 'class': 'cbi-page-actions' }, [
-					E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { validateEditor(IDENTITIES, 'identities_editor', 'identities_state'); } }, _('Validate')),
-					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveEditor(IDENTITIES, 'identities_editor', 'identities_state'); } }, _('Save identities.json')),
+					E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { validateEditor('identities_editor', 'identities_state'); } }, _('Validate')),
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveAdvancedFile('identities'); } }, _('Save identities.json')),
 					' ', E('span', { 'id': 'identities_state', 'style': 'font-size:13px' })
 				])
 			]));
@@ -382,56 +705,45 @@ return view.extend({
 		}
 
 		function loadFiles() {
-			var stateEl = q('files_state');
-			if (stateEl) stateEl.textContent = 'Loading…';
-			Promise.all([
-				fs.read_direct(CONFIG, 'json').catch(function() { return null; }),
-				fs.read_direct(IDENTITIES, 'json').catch(function() { return null; })
-			]).then(function(results) {
+			stateSpan('files_state', 'Loading…', '');
+			cliJson('config', 'get').then(function(resp) {
+				var d = (resp && resp.data) || {};
 				var cfgEl = q('config_editor');
-				if (cfgEl) cfgEl.value = results[0] ? JSON.stringify(results[0], null, 2) + '\n' : '// config.json not found\n';
+				if (cfgEl) cfgEl.value = d.config ? JSON.stringify(d.config, null, 2) + '\n' : '// config not found\n';
 				var idsEl = q('identities_editor');
-				if (idsEl) idsEl.value = results[1] ? JSON.stringify(results[1], null, 2) + '\n' : '// identities.json not found\n';
-				if (stateEl) stateEl.textContent = 'Loaded ' + new Date().toLocaleTimeString();
+				if (idsEl) idsEl.value = d.identities ? JSON.stringify(d.identities, null, 2) + '\n' : '// identities not found\n';
+				stateSpan('files_state', 'Loaded ' + new Date().toLocaleTimeString(), '');
+			}).catch(function(err) {
+				stateSpan('files_state', 'Failed: ' + err, '#d9534f');
 			});
 		}
 
-		var CONFIG_REQUIRED = ['config_version', 'metric', 'step_size', 'accepted_mints', 'profit_share'];
-
-		function validateEditor(path, editorId, stateId) {
-			var text = (q(editorId) || {}).value || '';
-			var parsed;
-			try { parsed = JSON.parse(text); } catch(e) {
-				var el = q(stateId);
-				if (el) { el.textContent = 'Invalid JSON: ' + e.message; el.style.color = '#d9534f'; }
-				return;
-			}
-			var el = q(stateId);
-			if (path === CONFIG && Array.isArray(CONFIG_REQUIRED)) {
-				var missing = CONFIG_REQUIRED.filter(function(k) { return !(k in parsed); });
-				if (missing.length > 0 && el) {
-					el.textContent = 'Valid JSON — missing fields: ' + missing.join(', ');
-					el.style.color = '#8a6d3b';
-					return;
-				}
-			}
-			if (el) { el.textContent = 'Valid JSON'; el.style.color = '#5cb85c'; }
-		}
-
-		function saveEditor(path, editorId, stateId) {
+		function validateEditor(editorId, stateId) {
 			var text = (q(editorId) || {}).value || '';
 			try { JSON.parse(text); } catch(e) {
-				var el = q(stateId);
-				if (el) { el.textContent = 'Invalid JSON: ' + e.message; el.style.color = '#d9534f'; }
+				stateSpan(stateId, 'Invalid JSON: ' + e.message, '#d9534f');
 				return;
 			}
-			var stateEl = q(stateId);
-			if (stateEl) { stateEl.textContent = 'Saving…'; stateEl.style.color = ''; }
-			var data = JSON.parse(text);
-			saveJsonFile(path, data).then(function() {
-				if (stateEl) { stateEl.textContent = 'Saved'; stateEl.style.color = '#5cb85c'; }
+			stateSpan(stateId, 'Valid JSON', '#5cb85c');
+		}
+
+		function saveAdvancedFile(type) {
+			var editorId = type === 'config' ? 'config_editor' : 'identities_editor';
+			var stateId = type === 'config' ? 'config_state' : 'identities_state';
+			var text = (q(editorId) || {}).value || '';
+			try { JSON.parse(text); } catch(e) {
+				stateSpan(stateId, 'Invalid JSON: ' + e.message, '#d9534f');
+				return;
+			}
+			stateSpan(stateId, 'Saving…', '');
+			saveJsonViaService(type, text).then(function(resp) {
+				if (resp && resp.success) {
+					stateSpan(stateId, 'Saved. Restart tollgate-wrt to apply.', '#5cb85c');
+				} else {
+					stateSpan(stateId, 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
+				}
 			}).catch(function(err) {
-				if (stateEl) { stateEl.textContent = 'Save failed: ' + err; stateEl.style.color = '#d9534f'; }
+				stateSpan(stateId, 'Error: ' + err, '#d9534f');
 			});
 		}
 
@@ -441,13 +753,11 @@ return view.extend({
 			setSvcButtons(true);
 			clearPollWarning();
 
-			var cmds;
 			if (action === 'restart') {
-				cmds = [
+				Promise.all([
 					fs.exec_direct('/etc/init.d/tollgate-wrt', ['stop']),
 					fs.exec_direct('/etc/init.d/nodogsplash', ['stop'])
-				];
-				Promise.all(cmds).then(function() {
+				]).then(function() {
 					return Promise.all([
 						fs.exec_direct('/etc/init.d/nodogsplash', ['start']),
 						fs.exec_direct('/etc/init.d/tollgate-wrt', ['start'])
@@ -456,11 +766,10 @@ return view.extend({
 					setTimeout(function() { setSvcButtons(false); refreshOverview(); }, 3000);
 				}).catch(function() { setSvcButtons(false); refreshOverview(); });
 			} else {
-				cmds = [
+				Promise.all([
 					fs.exec_direct('/etc/init.d/tollgate-wrt', [action]),
 					fs.exec_direct('/etc/init.d/nodogsplash', [action])
-				];
-				Promise.all(cmds).then(function() {
+				]).then(function() {
 					setTimeout(function() { setSvcButtons(false); refreshOverview(); }, 3000);
 				}).catch(function() { setSvcButtons(false); refreshOverview(); });
 			}
@@ -468,28 +777,27 @@ return view.extend({
 
 		function walletFund() {
 			var tokenEl = q('wl_token');
-			var stateEl = q('wl_fund_state');
 			var btnEl = q('wl_fund_btn');
 			var token = (tokenEl || {}).value || '';
 			if (!token.trim()) {
-				if (stateEl) stateEl.textContent = 'Enter a token first.';
+				stateSpan('wl_fund_state', 'Enter a token first.', '#8a6d3b');
 				return;
 			}
 			if (btnEl) btnEl.disabled = true;
-			if (stateEl) stateEl.textContent = 'Funding…';
-			helper('wallet', 'fund', token.trim()).then(function(resp) {
+			stateSpan('wl_fund_state', 'Funding…', '');
+			cliJson('wallet', 'fund', token.trim()).then(function(resp) {
 				if (resp && resp.success) {
-					if (stateEl) stateEl.textContent = 'Funded successfully.';
+					stateSpan('wl_fund_state', 'Funded: ' + ((resp.data && resp.data.amount_received) || 0) + ' sats received.', '#5cb85c');
 					if (tokenEl) tokenEl.value = '';
-					cli('wallet', 'balance').then(function(b) {
+					cliJson('wallet', 'balance').then(function(r) {
 						var el = q('wl_balance');
-						if (el) el.textContent = formatBalance(b);
+						if (el && r && r.data) el.textContent = (r.data.balance_sats || 0) + ' sats';
 					});
 				} else {
-					if (stateEl) stateEl.textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
+					stateSpan('wl_fund_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
 				}
 			}).catch(function(err) {
-				if (stateEl) stateEl.textContent = 'Error: ' + err;
+				stateSpan('wl_fund_state', 'Error: ' + err, '#d9534f');
 			}).finally(function() {
 				if (btnEl) btnEl.disabled = false;
 			});
@@ -497,14 +805,13 @@ return view.extend({
 
 		function walletDrain() {
 			ui.showModal(_('Drain Wallet'), [
-				E('p', _('This will convert ALL wallet funds to Cashu tokens. Copy them to a safe place — they will no longer be in the wallet.')),
+				E('p', _('This will convert ALL wallet funds to Cashu tokens. Copy them to a safe place.')),
 				E('div', { 'class': 'right' }, [
 					E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')), ' ',
 					E('button', { 'class': 'cbi-button cbi-button-remove', 'click': function() {
 						ui.hideModal();
-						var stateEl = q('wl_drain_state');
-						if (stateEl) stateEl.textContent = 'Draining…';
-						helper('wallet', 'drain', 'cashu').then(function(resp) {
+						stateSpan('wl_drain_state', 'Draining…', '');
+						cliJson('wallet', 'drain', 'cashu').then(function(resp) {
 							var d = (resp && resp.data) || {};
 							var tokens = d.tokens || [];
 							var lines = ['Total drained: ' + (d.total_sats || 0) + ' sats', ''];
@@ -517,13 +824,13 @@ return view.extend({
 							if (resultEl) { resultEl.textContent = lines.join('\n'); resultEl.style.display = 'block'; }
 							var copyWrap = q('wl_drain_copy_wrap');
 							if (copyWrap) copyWrap.style.display = tokens.length > 0 ? 'block' : 'none';
-							if (stateEl) stateEl.textContent = 'Drained.';
-							cli('wallet', 'balance').then(function(b) {
+							stateSpan('wl_drain_state', 'Drained.', '#5cb85c');
+							cliJson('wallet', 'balance').then(function(r) {
 								var el = q('wl_balance');
-								if (el) el.textContent = formatBalance(b);
+								if (el && r && r.data) el.textContent = (r.data.balance_sats || 0) + ' sats';
 							});
 						}).catch(function(err) {
-							if (stateEl) stateEl.textContent = 'Error: ' + err;
+							stateSpan('wl_drain_state', 'Error: ' + err, '#d9534f');
 						});
 					}}, _('Confirm'))
 				])
@@ -532,54 +839,58 @@ return view.extend({
 
 		function wifiRename() {
 			var ssidEl = q('nw_new_ssid');
-			var stateEl = q('nw_rename_state');
 			var ssid = (ssidEl || {}).value || '';
-			if (!ssid.trim()) { if (stateEl) stateEl.textContent = 'Enter a new SSID.'; return; }
-			if (stateEl) stateEl.textContent = 'Renaming…';
-			helper('network', 'private', 'rename', ssid.trim()).then(function(resp) {
+			if (!ssid.trim()) { stateSpan('nw_rename_state', 'Enter a new SSID.', '#8a6d3b'); return; }
+			stateSpan('nw_rename_state', 'Renaming…', '');
+			cliJson('network', 'private', 'rename', ssid.trim()).then(function(resp) {
 				if (resp && resp.success) {
-					if (stateEl) stateEl.textContent = 'Renamed to ' + ssid;
+					stateSpan('nw_rename_state', 'Renamed to ' + ssid, '#5cb85c');
 					if (ssidEl) ssidEl.value = '';
 					setTab('network');
 				} else {
-					if (stateEl) stateEl.textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
+					stateSpan('nw_rename_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
 				}
 			}).catch(function(err) {
-				if (stateEl) stateEl.textContent = 'Error: ' + err;
+				stateSpan('nw_rename_state', 'Error: ' + err, '#d9534f');
 			});
 		}
 
 		function wifiPassword() {
 			var pwEl = q('nw_new_pw');
-			var stateEl = q('nw_pw_state');
 			var pw = (pwEl || {}).value || '';
-			if (stateEl) stateEl.textContent = 'Changing…';
+			stateSpan('nw_pw_state', 'Changing…', '');
 			var args = pw.trim() ? ['network', 'private', 'set-password', pw.trim()] : ['network', 'private', 'set-password'];
-			helper.apply(null, args).then(function(resp) {
+			cliJson.apply(null, args).then(function(resp) {
 				if (resp && resp.success) {
-					if (stateEl) stateEl.textContent = 'Password changed.';
+					var newPw = (resp.data && resp.data.new_password) || '';
+					stateSpan('nw_pw_state', newPw ? 'New password: ' + newPw : 'Password changed.', '#5cb85c');
 					if (pwEl) pwEl.value = '';
-					setTab('network');
+					setTimeout(function() { setTab('network'); }, 3000);
 				} else {
-					if (stateEl) stateEl.textContent = 'Failed: ' + ((resp && resp.error) || 'Unknown error');
+					stateSpan('nw_pw_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
 				}
 			}).catch(function(err) {
-				if (stateEl) stateEl.textContent = 'Error: ' + err;
+				stateSpan('nw_pw_state', 'Error: ' + err, '#d9534f');
 			});
 		}
 
 		function refreshOverview() {
-			cli('wallet', 'balance').then(function(b) {
+			cliJson('wallet', 'balance').then(function(resp) {
 				pollFailCount = 0;
 				clearPollWarning();
+				var text = (resp && resp.data) ? (resp.data.balance_sats || 0) + ' sats' : '—';
 				var el = q('ov_balance');
-				if (el) el.textContent = formatBalance(b);
+				if (el) el.textContent = text;
 				var wlEl = q('wl_balance');
-				if (wlEl) wlEl.textContent = formatBalance(b);
+				if (wlEl) wlEl.textContent = text;
 			}).catch(function() { pollFailCount++; showPollWarning(); });
-			cli('status').then(function(s) {
+			cliJson('status').then(function(resp) {
 				var el = q('ov_status');
-				if (el) { clearNode(el); el.appendChild(statusBadge(s)); }
+				if (el) {
+					clearNode(el);
+					var running = resp && resp.data && resp.data.running;
+					el.appendChild(statusBadge(running));
+				}
 			}).catch(function() {});
 		}
 
