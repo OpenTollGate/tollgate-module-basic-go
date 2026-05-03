@@ -18,27 +18,26 @@ async function loginIfNeeded(page) {
 	await page.getByRole('heading', { name: 'TollGate' }).waitFor();
 }
 
-async function waitForOverview(page) {
-	await page.waitForFunction(() => {
-		const balance = document.querySelector('#ov_balance')?.textContent || '';
-		const version = document.querySelector('#ov_version')?.textContent || '';
-		return balance.trim() && balance !== '—' && balance !== 'Loading…' && version.trim() && version !== 'Loading…';
-	}, { timeout: 15000 });
+function q(id) {
+	const el = document.getElementById(id);
+	return el ? el.textContent.trim() : '';
 }
 
-async function waitForEditors(page) {
-	await page.waitForFunction(() => {
-		const cfg = document.querySelector('#config_editor');
-		const ids = document.querySelector('#identities_editor');
-		return cfg && cfg.value && ids && ids.value;
-	}, { timeout: 10000 });
+function qValue(id) {
+	const el = document.getElementById(id);
+	return el ? el.value : '';
 }
 
-async function waitForSave(page, stateId) {
-	await page.waitForFunction((sid) => {
-		const el = document.querySelector('#' + sid);
-		return el && el.textContent.includes('Saved');
-	}, stateId, { timeout: 5000 });
+async function waitForText(page, id, notMatching, timeout) {
+	await page.waitForFunction(
+		([sel, exclude]) => {
+			const el = document.getElementById(sel);
+			const t = el ? el.textContent.trim() : '';
+			return t && t !== exclude;
+		},
+		[id, notMatching],
+		{ timeout }
+	);
 }
 
 async function run() {
@@ -47,44 +46,103 @@ async function run() {
 
 	try {
 		await page.goto(url, { waitUntil: 'networkidle' });
-		await loginIfNeeded(page);
+		await loginIfNeeded();
 
+		// --- Overview tab (default) ---
 		await page.getByRole('button', { name: 'Overview' }).waitFor();
-		await waitForOverview(page);
+		await waitForText(page, 'ov_balance', '—', 15000);
+		await waitForText(page, 'ov_version', '', 10000);
 
-		assert.match(await page.locator('#ov_balance').textContent(), /\S/);
-		assert.match(await page.locator('#ov_version').textContent(), /\S/);
+		const balance = await page.evaluate(q, 'ov_balance');
+		assert.match(balance, /\S/, 'overview balance non-empty');
+		const version = await page.evaluate(q, 'ov_version');
+		assert.match(version, /\S/, 'overview version non-empty');
+		console.log('PASS: overview tab');
 
+		// --- Wallet tab ---
 		await page.getByRole('button', { name: 'Wallet' }).click();
-		await page.waitForFunction(() => {
-			const b = document.querySelector('#wl_balance')?.textContent || '';
-			return b.trim() && b !== 'Loading…';
-		}, { timeout: 10000 });
-		assert.match(await page.locator('#wl_balance').textContent(), /\S/);
-		assert.ok(await page.locator('#wl_info').textContent(), 'wallet info loaded');
+		await waitForText(page, 'wl_balance', 'Loading…', 10000);
+		const wlBalance = await page.evaluate(q, 'wl_balance');
+		assert.match(wlBalance, /\S/, 'wallet balance non-empty');
+		const wlInfo = await page.evaluate(q, 'wl_info');
+		assert.ok(wlInfo.length > 0, 'wallet info loaded');
+		console.log('PASS: wallet tab');
 
+		// --- Network tab ---
 		await page.getByRole('button', { name: 'Network' }).click();
-		await page.waitForTimeout(2000);
-		var nwLoading = await page.locator('#nw_loading').isVisible();
-		if (!nwLoading) {
-			var nwText = await page.locator('#nw_loading').textContent();
-			assert.ok(nwText && nwText.trim().length > 0, 'network section loaded');
-		}
-
-		await page.getByRole('button', { name: 'Configuration' }).click();
-		await page.waitForTimeout(1500);
-		var cfgContent = await page.locator('#cfg_content').textContent();
-		assert.ok(cfgContent && cfgContent.trim().length > 0, 'config section loaded');
-
-		await page.getByRole('button', { name: 'Logs' }).click();
 		await page.waitForFunction(() => {
-			const el = document.querySelector('#logs_box');
+			const el = document.getElementById('nw_loading');
 			return el && el.textContent !== 'Loading…';
 		}, { timeout: 10000 });
-		assert.ok(await page.locator('#logs_box').textContent(), 'logs loaded');
+		const nwText = await page.evaluate(q, 'nw_loading');
+		assert.ok(nwText.length > 0, 'network section loaded');
+		console.log('PASS: network tab');
 
+		// --- Configuration tab (schema-driven) ---
+		await page.getByRole('button', { name: 'Configuration' }).click();
+		await waitForText(page, 'cfg_content', 'Loading…', 15000);
+
+		const stepSize = await page.evaluate(qValue, 'cfg_step_size');
+		assert.ok(stepSize.length > 0, 'config: step_size field populated');
+		console.log('PASS: config tab (schema fields loaded)');
+
+		// Read original step_size, change it, save, reload, verify, restore
+		const originalStepSize = await page.evaluate(qValue, 'cfg_step_size');
+		const probeValue = String(parseInt(originalStepSize, 10) + 1024);
+
+		await page.evaluate((v) => {
+			const el = document.getElementById('cfg_step_size');
+			if (el) el.value = v;
+		}, probeValue);
+
+		await page.evaluate(() => {
+			document.querySelector('.cbi-button-save')?.click();
+		});
+
+		await page.waitForFunction(() => {
+			const el = document.getElementById('cfg_save_state');
+			return el && el.textContent.includes('Saved');
+		}, { timeout: 10000 });
+		console.log('PASS: config save (step_size probe)');
+
+		// Reload config tab and verify round-trip
+		await page.getByRole('button', { name: 'Overview' }).click();
+		await page.waitForTimeout(500);
+		await page.getByRole('button', { name: 'Configuration' }).click();
+		await waitForText(page, 'cfg_content', 'Loading…', 15000);
+
+		const reloadedStepSize = await page.evaluate(qValue, 'cfg_step_size');
+		assert.equal(reloadedStepSize, probeValue, 'config round-trip: step_size persisted');
+
+		// Restore original
+		await page.evaluate((v) => {
+			const el = document.getElementById('cfg_step_size');
+			if (el) el.value = v;
+		}, originalStepSize);
+		await page.evaluate(() => {
+			document.querySelector('.cbi-button-save')?.click();
+		});
+		await page.waitForFunction(() => {
+			const el = document.getElementById('cfg_save_state');
+			return el && el.textContent.includes('Saved');
+		}, { timeout: 10000 });
+		console.log('PASS: config restore (step_size reverted)');
+
+		// --- Logs tab ---
+		await page.getByRole('button', { name: 'Logs' }).click();
+		await waitForText(page, 'logs_box', 'Loading…', 10000);
+		const logs = await page.evaluate(q, 'logs_box');
+		assert.ok(logs.length > 0, 'logs loaded');
+		console.log('PASS: logs tab');
+
+		// --- Advanced tab (raw JSON editors) ---
 		await page.getByRole('button', { name: 'Advanced' }).click();
-		await waitForEditors(page);
+		await page.waitForFunction(() => {
+			const cfg = document.getElementById('config_editor');
+			const ids = document.getElementById('identities_editor');
+			return cfg && cfg.value && ids && ids.value;
+		}, { timeout: 10000 });
+
 		const configEditor = page.locator('#config_editor');
 		const identitiesEditor = page.locator('#identities_editor');
 
@@ -97,43 +155,70 @@ async function run() {
 		await page.getByRole('button', { name: 'Validate' }).first().click();
 		await page.waitForTimeout(300);
 		await page.getByRole('button', { name: 'Save config.json' }).click();
-		await waitForSave(page, 'config_state');
+		await page.waitForFunction(() => {
+			const el = document.getElementById('config_state');
+			return el && el.textContent.includes('Saved');
+		}, { timeout: 5000 });
 
 		await page.getByRole('button', { name: 'Reload both files' }).click();
-		await waitForEditors(page);
+		await page.waitForFunction(() => {
+			const cfg = document.getElementById('config_editor');
+			return cfg && cfg.value;
+		}, { timeout: 10000 });
 		assert.equal(JSON.parse(await configEditor.inputValue()).config_version, configProbe.config_version);
+		console.log('PASS: advanced config.json round-trip');
 
 		await configEditor.fill(JSON.stringify(originalConfig, null, 2));
 		await page.getByRole('button', { name: 'Save config.json' }).click();
-		await waitForSave(page, 'config_state');
+		await page.waitForFunction(() => {
+			const el = document.getElementById('config_state');
+			return el && el.textContent.includes('Saved');
+		}, { timeout: 5000 });
 
 		// identities.json round-trip
 		const idProbe = Array.isArray(originalIdentities)
 			? [...originalIdentities, { test_marker: 'pw' }]
 			: { ...originalIdentities, test_marker: 'pw' };
 		await identitiesEditor.fill(JSON.stringify(idProbe, null, 2));
-		await page.locator('#identities_editor').evaluate(el => {
-			const btn = el.closest('.cbi-section').querySelector('[class*="cbi-button-action"]');
+		await page.evaluate(() => {
+			const btn = document.querySelector('#identities_editor')
+				?.closest('.cbi-section')
+				?.querySelector('[class*="cbi-button-action"]');
 			if (btn) btn.click();
 		});
 		await page.waitForTimeout(300);
 		await page.getByRole('button', { name: 'Save identities.json' }).click();
-		await waitForSave(page, 'identities_state');
+		await page.waitForFunction(() => {
+			const el = document.getElementById('identities_state');
+			return el && el.textContent.includes('Saved');
+		}, { timeout: 5000 });
 
 		await page.getByRole('button', { name: 'Reload both files' }).click();
-		await waitForEditors(page);
-		var reloadedIdentities = JSON.parse(await identitiesEditor.inputValue());
+		await page.waitForFunction(() => {
+			const ids = document.getElementById('identities_editor');
+			return ids && ids.value;
+		}, { timeout: 10000 });
+		const reloadedIdentities = JSON.parse(await identitiesEditor.inputValue());
 		if (Array.isArray(idProbe)) {
 			assert.equal(reloadedIdentities.length, idProbe.length);
 		} else {
 			assert.equal(reloadedIdentities.test_marker, 'pw');
 		}
+		console.log('PASS: advanced identities.json round-trip');
 
 		await identitiesEditor.fill(JSON.stringify(originalIdentities, null, 2));
 		await page.getByRole('button', { name: 'Save identities.json' }).click();
-		await waitForSave(page, 'identities_state');
+		await page.waitForFunction(() => {
+			const el = document.getElementById('identities_state');
+			return el && el.textContent.includes('Saved');
+		}, { timeout: 5000 });
 
-		console.log(JSON.stringify({ ok: true, url, walletBalance: await page.locator('#ov_balance').textContent() }));
+		console.log(JSON.stringify({
+			ok: true,
+			url,
+			walletBalance: await page.evaluate(q, 'ov_balance'),
+			tabs: ['overview', 'wallet', 'network', 'config', 'logs', 'advanced']
+		}));
 	} finally {
 		await browser.close();
 	}
