@@ -1,0 +1,13 @@
+{
+  "name": "tollgate-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:contract": "node tests/contract/acl-lint.mjs",
+    "test:e2e": "node tests/e2e/luci-minimal-smoke.mjs",
+    "test:e2e:enhanced": "playwright test --config tests/playwright.config.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.52.0"
+  }
+}
