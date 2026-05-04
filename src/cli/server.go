@@ -150,6 +150,10 @@ func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 		return s.handleStatusCommand(msg.Args, msg.Flags)
 	case "version":
 		return s.handleVersionCommand()
+	case "config":
+		return s.handleConfigCommand(msg.Args, msg.Flags)
+	case "health":
+		return s.handleHealthCommand()
 	default:
 		return CLIResponse{
 			Success:   false,
@@ -460,6 +464,23 @@ func (s *CLIServer) handleVersionCommand() CLIResponse {
 	return CLIResponse{
 		Success:   true,
 		Message:   GetFormattedVersionInfo(),
+		Data:      GetFullVersionInfo(),
+		Timestamp: time.Now(),
+	}
+}
+
+func (s *CLIServer) handleHealthCommand() CLIResponse {
+	health := map[string]interface{}{
+		"status":     "ok",
+		"version":    GetVersionInfo(),
+		"config_ok":  s.configManager != nil,
+		"wallet_ok":  s.merchant != nil,
+		"uptime":     time.Since(s.startTime).String(),
+	}
+	return CLIResponse{
+		Success:   true,
+		Message:   "healthy",
+		Data:      health,
 		Timestamp: time.Now(),
 	}
 }
