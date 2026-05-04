@@ -786,7 +786,7 @@ return view.extend({
 		function coerceByType(val, type) {
 			if (val === 'true') return true;
 			if (val === 'false') return false;
-			if (type === 'uint64' || type === 'int') return parseInt(val, 10);
+			if (type === 'uint64' || type === 'int' || type === 'duration') return parseInt(val, 10);
 			if (type === 'float64') return parseFloat(val);
 			return val;
 		}

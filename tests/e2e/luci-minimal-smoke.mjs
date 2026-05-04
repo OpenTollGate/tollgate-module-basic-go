@@ -98,7 +98,10 @@ async function run() {
 		}, probeValue);
 
 		await page.evaluate(() => {
-			document.querySelector('.cbi-button-save')?.click();
+			var btns = document.querySelectorAll('.cbi-button-save');
+			for (var i = 0; i < btns.length; i++) {
+				if (btns[i].textContent.trim() === 'Save') { btns[i].click(); break; }
+			}
 		});
 
 		await page.waitForFunction(() => {
@@ -121,7 +124,10 @@ async function run() {
 			if (el) el.value = v;
 		}, originalStepSize);
 		await page.evaluate(() => {
-			document.querySelector('.cbi-button-save')?.click();
+			var btns = document.querySelectorAll('.cbi-button-save');
+			for (var i = 0; i < btns.length; i++) {
+				if (btns[i].textContent.trim() === 'Save') { btns[i].click(); break; }
+			}
 		});
 		await page.waitForFunction(() => {
 			const el = document.getElementById('cfg_save_state');
