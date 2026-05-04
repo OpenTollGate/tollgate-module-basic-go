@@ -82,7 +82,7 @@ func SaveIdentities(filePath string, identitiesConfig *IdentitiesConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0600)
 }
 
 // EnsureDefaultIdentities ensures a default identities.json exists, loading from file if present.

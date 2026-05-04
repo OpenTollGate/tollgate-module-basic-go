@@ -29,6 +29,25 @@
 	opacity: .7;
 }
 
+.tg-state-success {
+	color: #5cb85c;
+	opacity: 1;
+}
+
+.tg-state-warning {
+	color: #8a6d3b;
+	opacity: 1;
+}
+
+.tg-state-error {
+	color: #d9534f;
+	opacity: 1;
+}
+
+.tg-loaded {
+	opacity: 1;
+}
+
 .tg-hint {
 	font-size: 13px;
 	opacity: .7;

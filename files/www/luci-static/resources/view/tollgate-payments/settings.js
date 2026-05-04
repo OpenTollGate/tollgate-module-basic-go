@@ -28,11 +28,12 @@ function statusBadge(running) {
 	return badge('Unknown', 'tg-badge-unknown');
 }
 
-function stateSpan(id, text, color) {
+function stateSpan(id, text, cls) {
 	var el = document.getElementById(id);
 	if (!el) return;
 	el.textContent = text || '';
-	el.style.color = color || '';
+	el.className = el.className.replace(/\btg-state-\S+/g, '').trim();
+	if (cls) el.classList.add(cls);
 }
 
 function setSvcButtons(disabled) {
@@ -254,7 +255,7 @@ return view.extend({
 				var el = q('nw_loading');
 				if (!el) return;
 				clearNode(el);
-				el.style.opacity = '1';
+				el.classList.add('tg-loaded');
 				var enabled = d.enabled;
 				var pwHidden = true;
 				el.appendChild(E('div', { 'class': 'cbi-value' }, [
@@ -323,7 +324,7 @@ return view.extend({
 				var container = q('cfg_content');
 				if (!container) return;
 				clearNode(container);
-				container.style.opacity = '1';
+				container.classList.add('tg-loaded');
 
 				var sections = [];
 
@@ -373,9 +374,9 @@ return view.extend({
 				]);
 			} else {
 				input = E('input', {
-					'type': 'text', 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-text',
+					'type': 'text', 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-text tg-input-sm',
 					'value': val != null ? String(val) : '',
-					'class': 'tg-input-sm', 'placeholder': field.description || ''
+					'placeholder': field.description || ''
 				});
 			}
 			return E('div', { 'class': 'cbi-value' }, [
@@ -395,10 +396,10 @@ return view.extend({
 				return E('div', { 'class': 'tg-mint-grid-item' }, [
 					E('label', { 'class': 'tg-field-label' }, cf.json_key.replace(/_/g, ' ')),
 					E('input', {
-						'type': 'text', 'class': 'cbi-input-text',
+						'type': 'text', 'class': 'cbi-input-text tg-field-sm',
 						'id': 'cfg_mint_' + idx + '_' + cf.json_key,
 						'value': mint[cf.json_key] != null ? String(mint[cf.json_key]) : (cf.default != null ? String(cf.default) : ''),
-						'class': 'tg-field-sm', 'placeholder': cf.json_key
+						'placeholder': cf.json_key
 					})
 				]);
 			});
@@ -408,10 +409,10 @@ return view.extend({
 				headerItems.push(E('div', { 'class': 'tg-mint-url' }, [
 					E('label', { 'class': 'tg-field-label' }, 'url'),
 					E('input', {
-						'type': 'text', 'class': 'cbi-input-text',
+						'type': 'text', 'class': 'cbi-input-text tg-field-sm',
 						'id': 'cfg_mint_' + idx + '_url',
 						'value': mint.url || '',
-						'class': 'tg-field-sm', 'placeholder': 'https://mint.example.com'
+						'placeholder': 'https://mint.example.com'
 					})
 				]));
 			}
@@ -555,27 +556,29 @@ return view.extend({
 				}
 				snapshotState();
 				for (var i = 0; i < n; i++) {
-					var rangeEl = q('cfg_ps_' + i + '_range');
-					if (rangeEl) {
-						(function(idx) {
-							rangeEl._handler = function() { onSliderChange(idx); };
-						})(i);
-					}
+					(function(idx) {
+						var rangeEl = q('cfg_ps_' + i + '_range');
+						if (rangeEl) {
+							rangeEl.removeEventListener('input', rangeEl._sliderFn);
+							rangeEl._sliderFn = function() { onSliderChange(idx); };
+							rangeEl.addEventListener('input', rangeEl._sliderFn);
+						}
+					})(i);
 				}
 			}
 
 			var rows = [];
 			shares.forEach(function(share, idx) {
 				var pct = share.factor != null ? share.factor : 0;
+				var rangeInput;
 				rows.push(E('tr', {}, [
 					E('td', { 'class': 'tg-slider-td' }, [
-						E('input', {
+						rangeInput = E('input', {
 							'type': 'range', 'id': 'cfg_ps_' + idx + '_range',
 							'min': '0', 'max': '100', 'step': '1',
 							'value': String(Math.round(pct * 100)),
 							'class': 'tg-slider',
 							'data-idx': String(idx),
-							'oninput': 'this._handler && this._handler()',
 						}),
 						E('input', {
 							'type': 'hidden', 'id': 'cfg_ps_' + idx + '_factor',
@@ -646,12 +649,14 @@ return view.extend({
 						]));
 						snapshotState();
 						for (var i = 0; i <= n; i++) {
-							var rangeEl = q('cfg_ps_' + i + '_range');
-							if (rangeEl && !rangeEl._handler) {
-								(function(idx) {
-									rangeEl._handler = function() { onSliderChange(idx); };
-								})(i);
-							}
+							(function(idx) {
+								var rangeEl = q('cfg_ps_' + i + '_range');
+								if (rangeEl) {
+									rangeEl.removeEventListener('input', rangeEl._sliderFn);
+									rangeEl._sliderFn = function() { onSliderChange(idx); };
+									rangeEl.addEventListener('input', rangeEl._sliderFn);
+								}
+							})(i);
 						}
 						for (var i = 0; i <= n; i++) onSliderChange(i);
 					} }, _('Add Share'))
@@ -664,7 +669,10 @@ return view.extend({
 				for (var i = 0; i < tbody.children.length; i++) {
 					(function(idx) {
 						var rangeEl = q('cfg_ps_' + idx + '_range');
-						if (rangeEl) rangeEl._handler = function() { onSliderChange(idx); };
+						if (rangeEl && !rangeEl._sliderBound) {
+							rangeEl._sliderBound = true;
+							rangeEl.addEventListener('input', function() { onSliderChange(idx); });
+						}
 					})(i);
 				}
 				snapshotState();
@@ -747,7 +755,7 @@ return view.extend({
 		}
 
 		function saveAllConfig(apply) {
-			stateSpan('cfg_save_state', 'Saving…', '#8a6d3b');
+			stateSpan('cfg_save_state', 'Saving…', 'tg-state-warning');
 
 			Promise.all([
 				cliJson('config', 'get'),
@@ -843,7 +851,7 @@ return view.extend({
 				});
 			}).then(function() {
 				if (apply) {
-					stateSpan('cfg_save_state', 'Saved. Restarting services…', '#5cb85c');
+					stateSpan('cfg_save_state', 'Saved. Restarting services…', 'tg-state-success');
 					Promise.all([
 						fs.exec_direct('/etc/init.d/tollgate-wrt', ['stop']),
 						fs.exec_direct('/etc/init.d/nodogsplash', ['stop'])
@@ -854,18 +862,18 @@ return view.extend({
 						]);
 					}).then(function() {
 						setTimeout(function() {
-							stateSpan('cfg_save_state', 'Saved and applied.', '#5cb85c');
+							stateSpan('cfg_save_state', 'Saved and applied.', 'tg-state-success');
 							setTab('config');
 						}, 3000);
 					}).catch(function() {
-						stateSpan('cfg_save_state', 'Saved but restart failed.', '#d9534f');
+						stateSpan('cfg_save_state', 'Saved but restart failed.', 'tg-state-error');
 						setTab('config');
 					});
 				} else {
-					stateSpan('cfg_save_state', 'Saved. Click "Save & Apply" to restart services.', '#5cb85c');
+					stateSpan('cfg_save_state', 'Saved. Click "Save & Apply" to restart services.', 'tg-state-success');
 				}
 			}).catch(function(err) {
-				stateSpan('cfg_save_state', 'Save failed: ' + err, '#d9534f');
+				stateSpan('cfg_save_state', 'Save failed: ' + err, 'tg-state-error');
 			});
 		}
 
@@ -926,17 +934,17 @@ return view.extend({
 				if (idsEl) idsEl.value = d.identities ? JSON.stringify(d.identities, null, 2) + '\n' : '// identities not found\n';
 				stateSpan('files_state', 'Loaded ' + new Date().toLocaleTimeString(), '');
 			}).catch(function(err) {
-				stateSpan('files_state', 'Failed: ' + err, '#d9534f');
+				stateSpan('files_state', 'Failed: ' + err, 'tg-state-error');
 			});
 		}
 
 		function validateEditor(editorId, stateId) {
 			var text = (q(editorId) || {}).value || '';
 			try { JSON.parse(text); } catch(e) {
-				stateSpan(stateId, 'Invalid JSON: ' + e.message, '#d9534f');
+				stateSpan(stateId, 'Invalid JSON: ' + e.message, 'tg-state-error');
 				return;
 			}
-			stateSpan(stateId, 'Valid JSON', '#5cb85c');
+			stateSpan(stateId, 'Valid JSON', 'tg-state-success');
 		}
 
 		function saveAdvancedFile(type) {
@@ -944,18 +952,18 @@ return view.extend({
 			var stateId = type === 'config' ? 'config_state' : 'identities_state';
 			var text = (q(editorId) || {}).value || '';
 			try { JSON.parse(text); } catch(e) {
-				stateSpan(stateId, 'Invalid JSON: ' + e.message, '#d9534f');
+				stateSpan(stateId, 'Invalid JSON: ' + e.message, 'tg-state-error');
 				return;
 			}
 			stateSpan(stateId, 'Saving…', '');
 			saveJsonViaService(type, text).then(function(resp) {
 				if (resp && resp.success) {
-					stateSpan(stateId, 'Saved. Restart tollgate-wrt to apply.', '#5cb85c');
+					stateSpan(stateId, 'Saved. Restart tollgate-wrt to apply.', 'tg-state-success');
 				} else {
-					stateSpan(stateId, 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
+					stateSpan(stateId, 'Failed: ' + ((resp && resp.error) || 'Unknown error'), 'tg-state-error');
 				}
 			}).catch(function(err) {
-				stateSpan(stateId, 'Error: ' + err, '#d9534f');
+				stateSpan(stateId, 'Error: ' + err, 'tg-state-error');
 			});
 		}
 
@@ -992,24 +1000,24 @@ return view.extend({
 			var btnEl = q('wl_fund_btn');
 			var token = (tokenEl || {}).value || '';
 			if (!token.trim()) {
-				stateSpan('wl_fund_state', 'Enter a token first.', '#8a6d3b');
+				stateSpan('wl_fund_state', 'Enter a token first.', 'tg-state-warning');
 				return;
 			}
 			if (btnEl) btnEl.disabled = true;
 			stateSpan('wl_fund_state', 'Funding…', '');
 			cliJson('wallet', 'fund', token.trim()).then(function(resp) {
 				if (resp && resp.success) {
-					stateSpan('wl_fund_state', 'Funded: ' + ((resp.data && resp.data.amount_received) || 0) + ' sats received.', '#5cb85c');
+					stateSpan('wl_fund_state', 'Funded: ' + ((resp.data && resp.data.amount_received) || 0) + ' sats received.', 'tg-state-success');
 					if (tokenEl) tokenEl.value = '';
 					cliJson('wallet', 'balance').then(function(r) {
 						var el = q('wl_balance');
 						if (el && r && r.data) el.textContent = (r.data.balance_sats || 0) + ' sats';
 					});
 				} else {
-					stateSpan('wl_fund_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
+					stateSpan('wl_fund_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), 'tg-state-error');
 				}
 			}).catch(function(err) {
-				stateSpan('wl_fund_state', 'Error: ' + err, '#d9534f');
+				stateSpan('wl_fund_state', 'Error: ' + err, 'tg-state-error');
 			}).finally(function() {
 				if (btnEl) btnEl.disabled = false;
 			});
@@ -1033,16 +1041,16 @@ return view.extend({
 								lines.push('');
 							});
 							var resultEl = q('wl_drain_result');
-							if (resultEl) { resultEl.textContent = lines.join('\n'); resultEl.style.display = 'block'; }
+							if (resultEl) { resultEl.textContent = lines.join('\n'); resultEl.classList.remove('tg-hidden'); }
 							var copyWrap = q('wl_drain_copy_wrap');
-							if (copyWrap) copyWrap.style.display = tokens.length > 0 ? 'block' : 'none';
-							stateSpan('wl_drain_state', 'Drained.', '#5cb85c');
+							if (copyWrap) { if (tokens.length > 0) copyWrap.classList.remove('tg-hidden'); else copyWrap.classList.add('tg-hidden'); }
+							stateSpan('wl_drain_state', 'Drained.', 'tg-state-success');
 							cliJson('wallet', 'balance').then(function(r) {
 								var el = q('wl_balance');
 								if (el && r && r.data) el.textContent = (r.data.balance_sats || 0) + ' sats';
 							});
 						}).catch(function(err) {
-							stateSpan('wl_drain_state', 'Error: ' + err, '#d9534f');
+							stateSpan('wl_drain_state', 'Error: ' + err, 'tg-state-error');
 						});
 					}}, _('Confirm'))
 				])
@@ -1052,18 +1060,18 @@ return view.extend({
 		function wifiRename() {
 			var ssidEl = q('nw_new_ssid');
 			var ssid = (ssidEl || {}).value || '';
-			if (!ssid.trim()) { stateSpan('nw_rename_state', 'Enter a new SSID.', '#8a6d3b'); return; }
+			if (!ssid.trim()) { stateSpan('nw_rename_state', 'Enter a new SSID.', 'tg-state-warning'); return; }
 			stateSpan('nw_rename_state', 'Renaming…', '');
 			cliJson('network', 'private', 'rename', ssid.trim()).then(function(resp) {
 				if (resp && resp.success) {
-					stateSpan('nw_rename_state', 'Renamed to ' + ssid, '#5cb85c');
+					stateSpan('nw_rename_state', 'Renamed to ' + ssid, 'tg-state-success');
 					if (ssidEl) ssidEl.value = '';
 					setTab('network');
 				} else {
-					stateSpan('nw_rename_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
+					stateSpan('nw_rename_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), 'tg-state-error');
 				}
 			}).catch(function(err) {
-				stateSpan('nw_rename_state', 'Error: ' + err, '#d9534f');
+				stateSpan('nw_rename_state', 'Error: ' + err, 'tg-state-error');
 			});
 		}
 
@@ -1075,14 +1083,14 @@ return view.extend({
 			cliJson.apply(null, args).then(function(resp) {
 				if (resp && resp.success) {
 					var newPw = (resp.data && resp.data.new_password) || '';
-					stateSpan('nw_pw_state', newPw ? 'New password: ' + newPw : 'Password changed.', '#5cb85c');
+					stateSpan('nw_pw_state', newPw ? 'New password: ' + newPw : 'Password changed.', 'tg-state-success');
 					if (pwEl) pwEl.value = '';
 					setTimeout(function() { setTab('network'); }, 3000);
 				} else {
-					stateSpan('nw_pw_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), '#d9534f');
+					stateSpan('nw_pw_state', 'Failed: ' + ((resp && resp.error) || 'Unknown error'), 'tg-state-error');
 				}
 			}).catch(function(err) {
-				stateSpan('nw_pw_state', 'Error: ' + err, '#d9534f');
+				stateSpan('nw_pw_state', 'Error: ' + err, 'tg-state-error');
 			});
 		}
 

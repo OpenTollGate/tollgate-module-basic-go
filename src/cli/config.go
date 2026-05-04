@@ -180,7 +180,13 @@ func (s *CLIServer) handleConfigSave(jsonStr string) CLIResponse {
 		}
 	}
 
-	s.configManager.ReloadConfig()
+	if err := s.configManager.ReloadConfig(); err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Config saved but reload failed: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
 
 	return CLIResponse{
 		Success:   true,
@@ -215,7 +221,13 @@ func (s *CLIServer) handleIdentitiesSave(jsonStr string) CLIResponse {
 		}
 	}
 
-	s.configManager.ReloadIdentities()
+	if err := s.configManager.ReloadIdentities(); err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Identities saved but reload failed: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
 
 	return CLIResponse{
 		Success:   true,

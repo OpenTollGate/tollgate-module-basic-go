@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,7 @@ type ConfigManager struct {
 	ConfigFilePath     string
 	InstallFilePath    string
 	IdentitiesFilePath string
+	mu                 sync.RWMutex
 	config             *Config
 	installConfig      *InstallConfig
 	identitiesConfig   *IdentitiesConfig
@@ -61,6 +63,8 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 
 // GetConfig returns the loaded main configuration.
 func (cm *ConfigManager) GetConfig() *Config {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	return cm.config
 }
 
@@ -69,7 +73,12 @@ func (cm *ConfigManager) ReloadConfig() error {
 	if err != nil {
 		return err
 	}
+	if loaded == nil {
+		return fmt.Errorf("config file %s is empty or missing", cm.ConfigFilePath)
+	}
+	cm.mu.Lock()
 	cm.config = loaded
+	cm.mu.Unlock()
 	return nil
 }
 
@@ -78,22 +87,32 @@ func (cm *ConfigManager) ReloadIdentities() error {
 	if err != nil {
 		return err
 	}
+	if loaded == nil {
+		return fmt.Errorf("identities file %s is empty or missing", cm.IdentitiesFilePath)
+	}
+	cm.mu.Lock()
 	cm.identitiesConfig = loaded
+	cm.mu.Unlock()
 	return nil
 }
 
 // GetInstallConfig returns the loaded install configuration.
 func (cm *ConfigManager) GetInstallConfig() *InstallConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	return cm.installConfig
 }
 
-// GetIdentities returns the loaded identities configuration.
 func (cm *ConfigManager) GetIdentities() *IdentitiesConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	return cm.identitiesConfig
 }
 
 // GetIdentity retrieves a public identity by name.
 func (cm *ConfigManager) GetIdentity(name string) (*PublicIdentity, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	for _, identity := range cm.identitiesConfig.PublicIdentities {
 		if identity.Name == name {
 			return &identity, nil
@@ -130,6 +149,8 @@ func (cm *ConfigManager) UpdatePricing(pricePerStep, stepSize int) error {
 
 // GetOwnedIdentity retrieves an owned identity by name.
 func (cm *ConfigManager) GetOwnedIdentity(name string) (*OwnedIdentity, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	for _, identity := range cm.identitiesConfig.OwnedIdentities {
 		if identity.Name == name {
 			return &identity, nil

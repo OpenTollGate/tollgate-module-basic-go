@@ -238,10 +238,21 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	if unmarshalErr == nil {
 		profitShareErr = config.ValidateProfitShare()
 	}
-	if unmarshalErr != nil || config.ConfigVersion != defaultConfig.ConfigVersion || profitShareErr != nil {
-		if profitShareErr != nil {
-			log.Printf("Invalid config profit_share, backing up and recreating: %v", profitShareErr)
+	if unmarshalErr != nil {
+		log.Printf("Invalid config JSON, backing up and recreating: %v", unmarshalErr)
+		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
+			return nil, backupErr
 		}
+		return defaultConfig, SaveConfig(filePath, defaultConfig)
+	}
+	if profitShareErr != nil {
+		log.Printf("Invalid profit_share, resetting to defaults: %v", profitShareErr)
+		config.ProfitShare = defaultConfig.ProfitShare
+		return &config, SaveConfig(filePath, &config)
+	}
+	if config.ConfigVersion != defaultConfig.ConfigVersion {
+		log.Printf("Config version mismatch, backing up and recreating")
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
 			return nil, backupErr
