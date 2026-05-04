@@ -1,0 +1,23 @@
+{
+	"luci-app-tollgate-payments": {
+		"description": "Grant access to TollGate service management",
+		"read": {
+			"ubus": {
+				"file": [ "read", "stat", "list" ]
+			},
+			"file": {
+				"/etc/tollgate/": [ "read" ],
+				"/usr/bin/tollgate": [ "exec" ],
+				"/usr/bin/check_package_path": [ "exec" ],
+				"/sbin/logread": [ "exec" ],
+				"/etc/init.d/tollgate-wrt": [ "exec" ],
+				"/etc/init.d/nodogsplash": [ "exec" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/etc/tollgate/": [ "write" ]
+			}
+		}
+	}
+}

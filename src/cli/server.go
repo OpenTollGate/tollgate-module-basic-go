@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -221,7 +223,10 @@ func (s *CLIServer) handleWalletDrain(drainArgs []string, flags map[string]strin
 	}
 }
 
-// handleCashuDrain drains all wallet balances to Cashu tokens for each mint
+func isTestnutMint(url string) bool {
+	return strings.Contains(strings.ToLower(url), "testnut")
+}
+
 func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 	if s.merchant == nil {
 		return CLIResponse{
@@ -231,8 +236,6 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 		}
 	}
 
-	// Get ALL mints from the wallet (not just configured accepted mints)
-	// This ensures we can drain funds even from mints that are no longer configured
 	allMintBalances := s.merchant.GetAllMintBalances()
 	if len(allMintBalances) == 0 {
 		return CLIResponse{
@@ -242,19 +245,29 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 		}
 	}
 
+	var nonTestnut []string
+	for mintURL, balance := range allMintBalances {
+		if balance > 0 && !isTestnutMint(mintURL) {
+			nonTestnut = append(nonTestnut, fmt.Sprintf("%s (%d sats)", mintURL, balance))
+		}
+	}
+	if len(nonTestnut) > 0 {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Cannot drain: non-testnut mint(s) have balance: %s. Drain only works reliably with testnut mints.", strings.Join(nonTestnut, ", ")),
+			Timestamp: time.Now(),
+		}
+	}
+
 	var tokens []CashuToken
 	var totalDrained uint64
 
-	// For each mint in the wallet, drain if balance > 0
 	for mintURL, balance := range allMintBalances {
-
 		if balance == 0 {
 			cliLogger.WithField("mint", mintURL).Debug("Skipping mint with zero balance")
 			continue
 		}
 
-		// Use DrainMint instead of CreatePaymentToken to avoid fee-related issues
-		// DrainMint extracts all available balance without trying to add fees
 		tokenString, actualAmount, err := s.merchant.DrainMint(mintURL)
 		if err != nil {
 			cliLogger.WithFields(logrus.Fields{
@@ -297,30 +310,32 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 		}
 	}
 
-	result := WalletDrainResult{
-		Success: true,
-		Tokens:  tokens,
-		Total:   totalDrained,
+	var lines []string
+	lines = append(lines, fmt.Sprintf("TollGate Wallet Drain - %s", time.Now().UTC().Format("2006-01-02 15:04:05 UTC")))
+	lines = append(lines, fmt.Sprintf("Total: %d sats from %d mint(s)", totalDrained, len(tokens)))
+	lines = append(lines, "")
+	for i, t := range tokens {
+		lines = append(lines, fmt.Sprintf("Mint %d: %s (%d sats)", i+1, t.MintURL, t.Balance))
+		lines = append(lines, t.Token)
+		lines = append(lines, "")
 	}
 
-	// Include filename in result if requested - client will handle saving
-	if filename, ok := flags["save_to_file"]; ok && filename != "" {
-		return CLIResponse{
-			Success: true,
-			Message: fmt.Sprintf("Successfully drained %d sats from %d mints", totalDrained, len(tokens)),
-			Data: map[string]interface{}{
-				"tokens":       tokens,
-				"total_sats":   totalDrained,
-				"save_to_file": filename,
-			},
-			Timestamp: time.Now(),
-		}
+	filename := fmt.Sprintf("tollgate-drain-%s.txt", time.Now().UTC().Format("20060102-150405"))
+	filePath := filepath.Join("/root", filename)
+	if err := os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0600); err != nil {
+		cliLogger.WithError(err).Error("Failed to write drain file")
+	} else {
+		cliLogger.WithField("path", filePath).Info("Drain tokens saved")
 	}
 
 	return CLIResponse{
 		Success:   true,
-		Message:   fmt.Sprintf("Successfully drained %d sats from %d mints", totalDrained, len(tokens)),
-		Data:      result,
+		Message:   fmt.Sprintf("Drained %d sats from %d mint(s). Tokens saved to %s", totalDrained, len(tokens), filePath),
+		Data: map[string]interface{}{
+			"tokens":     tokens,
+			"total_sats": totalDrained,
+			"saved_to":   filePath,
+		},
 		Timestamp: time.Now(),
 	}
 }

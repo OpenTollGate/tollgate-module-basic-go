@@ -1,0 +1,10 @@
+{
+  "admin/services/tollgate-payments": {
+    "title": "TollGate",
+    "order": 91,
+    "action": {
+      "type": "view",
+      "path": "tollgate-payments/settings"
+    }
+  }
+}

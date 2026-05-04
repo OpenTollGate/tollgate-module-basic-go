@@ -23,7 +23,7 @@ automatically.
 
 Wire protocol docs are under
 [docs/protocol/](docs/protocol/). The pre-built captive-portal site
-that ships in [packaging/files/tollgate-captive-portal-site/](packaging/files/tollgate-captive-portal-site/)
+that ships in [files/tollgate-captive-portal-site/](files/tollgate-captive-portal-site/)
 is generated from
 [OpenTollGate/tollgate-captive-portal-site](https://github.com/OpenTollGate/tollgate-captive-portal-site).
 
@@ -37,6 +37,8 @@ is generated from
   (reseller mode).
 - Per-mint pricing, trust allow/blocklists, configurable session
   increments and renewal thresholds.
+- LuCI admin UI for wallet management, private WiFi configuration,
+  service control, and live monitoring — see [docs/luci-admin-ui.md](docs/luci-admin-ui.md).
 
 ## Modules
 
@@ -53,7 +55,7 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for `status`, `start`/`stop`/`restart`, `logs`, `version`. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). |
+| [cli](src/cli/) | `tollgate` CLI — `status`, `start`/`stop`/`restart`, `logs`, `version`, `wallet balance/info/fund/drain`, `network private status/enable/disable/rename/set-password`. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
 ## Installation
@@ -71,10 +73,9 @@ On OpenWrt 24.10.x and earlier:
 opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
 
-For local packaging experiments use
-[scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
-the target binaries locally, stages the canonical `packaging/` recipe into the
-OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
+For local packaging experiments there is a developer helper
+[scripts/build-sdk-apk.sh](scripts/build-sdk-apk.sh) that wraps the
+`openwrt/sdk` Docker image.
 
 ## Configuration
 
@@ -148,6 +149,21 @@ Key fields:
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
 
+## LuCI Admin UI
+
+TollGate ships a LuCI admin page at **Services → TollGate** with six tabs:
+
+- **Overview** — service status, wallet balance, version, start/stop/restart
+- **Wallet** — fund (paste Cashu token), drain, per-mint balances
+- **Network** — private WiFi enable/disable, rename SSID, change password
+- **Configuration** — pricing, accepted mints, profit share (read-only summary)
+- **Logs** — live service log output
+- **Advanced** — raw JSON editors for `config.json` and `identities.json`
+
+The backend uses standard LuCI `fs.exec_direct()` calls to the `tollgate` CLI
+and a small socket helper script, with rpcd ACL-gated permissions.
+Full architecture: [docs/luci-admin-ui.md](docs/luci-admin-ui.md).
+
 ## Testing
 
 Unit tests, from the [src/](src/) directory:
@@ -175,6 +191,7 @@ router hardware:
 | [tests/test_ecash_functionality.py](tests/test_ecash_functionality.py) | Wallet-level Cashu operations. |
 | [tests/test_data_measurement.py](tests/test_data_measurement.py) | Byte accounting across a data-metered session. |
 | [tests/test_teardown.py](tests/test_teardown.py) | Reset routers between runs. |
+| [tests/e2e/luci-minimal-smoke.mjs](tests/e2e/luci-minimal-smoke.mjs) | Playwright smoke test for LuCI admin UI. |
 
 See [tests/README.md](tests/README.md) for how to wire up the test fleet.
 
@@ -186,6 +203,7 @@ Design and protocol docs live under [docs/](docs/):
 - [docs/upstream_session_manager.md](docs/upstream_session_manager.md) — module internals + end-to-end cross-component flow
 - [docs/data-session-management.md](docs/data-session-management.md)
 - [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
+- [docs/luci-admin-ui.md](docs/luci-admin-ui.md) — admin UI architecture, backend patterns, security model
 
 ## License
 

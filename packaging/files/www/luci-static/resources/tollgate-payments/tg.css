@@ -1,0 +1,313 @@
+.tg-badge {
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.tg-badge-running { background: #dff0d8; color: #3c763d; }
+.tg-badge-stopped { background: #f2dede; color: #a94442; }
+.tg-badge-unknown { background: #fcf8e3; color: #8a6d3b; }
+
+.tg-balance {
+	font-size: 24px;
+	font-weight: 700;
+}
+
+.tg-ssid {
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.tg-pw-display {
+	font-size: 14px;
+	font-family: monospace;
+}
+
+.tg-state {
+	font-size: 13px;
+	opacity: .7;
+}
+
+.tg-state-success {
+	color: #5cb85c;
+	opacity: 1;
+}
+
+.tg-state-warning {
+	color: #8a6d3b;
+	opacity: 1;
+}
+
+.tg-state-error {
+	color: #d9534f;
+	opacity: 1;
+}
+
+.tg-loaded {
+	opacity: 1;
+}
+
+.tg-hint {
+	font-size: 13px;
+	opacity: .7;
+}
+
+.tg-hint-sm {
+	font-size: 12px;
+	opacity: .7;
+	margin: 0 0 4px 0;
+}
+
+.tg-loading {
+	font-size: 13px;
+	opacity: .7;
+}
+
+.tg-tab-bar {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+	margin: 0 0 1.2rem 0;
+}
+
+.tg-input-max {
+	max-width: 400px;
+	width: 100%;
+}
+
+.tg-input-sm {
+	max-width: 200px;
+}
+
+.tg-field-sm {
+	width: 100%;
+	font-size: 12px;
+}
+
+.tg-btn-xs {
+	font-size: 11px;
+	padding: 2px 8px;
+}
+
+.tg-btn-remove {
+	font-size: 11px;
+	padding: 1px 6px;
+}
+
+.tg-monospace {
+	white-space: pre-wrap;
+	font-family: monospace;
+	font-size: 13px;
+	margin: 0;
+}
+
+.tg-monospace-sm {
+	white-space: pre-wrap;
+	font-family: monospace;
+	font-size: 12px;
+	margin: 4px 0;
+}
+
+.tg-scroll-box {
+	max-height: 24rem;
+	overflow: auto;
+	padding: .5rem;
+	background: var(--background-color, #f5f5f5);
+	border-radius: 3px;
+}
+
+.tg-scroll-sm {
+	max-height: 12rem;
+	overflow: auto;
+}
+
+.tg-scroll-md {
+	max-height: 16rem;
+	overflow: auto;
+	margin-top: 8px;
+}
+
+.tg-scroll-lg {
+	max-height: 20rem;
+	overflow: auto;
+}
+
+.tg-editor {
+	width: 100%;
+	min-height: 18rem;
+	font-family: monospace;
+	font-size: 12px;
+	line-height: 1.45;
+	resize: vertical;
+}
+
+.tg-mint-card {
+	background: #f9f9f9;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	padding: 10px 12px;
+	margin-bottom: 8px;
+}
+
+.tg-mint-header {
+	display: flex;
+	align-items: flex-start;
+}
+
+.tg-mint-url {
+	flex: 1;
+	margin-right: 8px;
+}
+
+.tg-mint-grid {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 6px 12px;
+	margin-top: 6px;
+}
+
+.tg-mint-grid-item {
+	margin-bottom: 4px;
+}
+
+.tg-field-label {
+	display: block;
+	font-size: 11px;
+	color: #666;
+	margin-bottom: 1px;
+}
+
+.tg-pct-label {
+	white-space: nowrap;
+	font-weight: 600;
+	font-size: 13px;
+	min-width: 60px;
+	text-align: center;
+}
+
+.tg-slider-td {
+	padding: 4px 6px;
+	width: 60%;
+}
+
+.tg-slider {
+	width: 100%;
+	vertical-align: middle;
+}
+
+.tg-th {
+	padding: 2px 6px;
+	font-size: 11px;
+	text-align: left;
+}
+
+.tg-th-narrow {
+	width: 30px;
+}
+
+.tg-th-pct {
+	width: 60px;
+}
+
+.tg-td {
+	padding: 2px 6px;
+}
+
+.tg-actions-sm {
+	margin-top: 6px;
+}
+
+.tg-overflow-x {
+	overflow-x: auto;
+}
+
+.tg-table-sm {
+	width: 100%;
+	font-size: 12px;
+}
+
+.tg-adv-summary {
+	cursor: pointer;
+	font-size: 13px;
+	opacity: .7;
+}
+
+.tg-poll-warning {
+	background: #fcf8e3;
+	color: #8a6d3b;
+	padding: 8px 12px;
+	border-radius: 3px;
+	margin-bottom: 8px;
+	font-size: 13px;
+}
+
+.tg-hidden {
+	display: none;
+}
+
+.tg-mint-remove {
+	align-self: flex-end;
+	margin-bottom: 2px;
+	font-size: 13px;
+	padding: 3px 8px;
+}
+
+.tg-adv-details {
+	margin-top: 1rem;
+}
+
+.tg-obj-fields {
+	padding: 0.5rem 0;
+}
+
+@media (max-width: 480px) {
+	.tg-tab-bar {
+		gap: 4px;
+	}
+	.tg-tab-bar .cbi-button {
+		font-size: 12px;
+		padding: 4px 8px;
+	}
+	.tg-input-sm {
+		max-width: none;
+	}
+	.tg-mint-grid {
+		grid-template-columns: 1fr 1fr;
+		gap: 6px 8px;
+	}
+	.tg-mint-header {
+		flex-direction: column;
+	}
+	.tg-mint-remove {
+		align-self: flex-start;
+		font-size: 16px;
+		padding: 6px 12px;
+		min-height: 36px;
+		min-width: 36px;
+	}
+	.tg-slider-td {
+		width: 50%;
+	}
+	.tg-btn-remove {
+		font-size: 16px;
+		padding: 6px 12px;
+		min-height: 36px;
+		min-width: 36px;
+	}
+	.tg-pct-label {
+		min-width: 50px;
+		font-size: 12px;
+	}
+	.tg-overflow-x {
+		-webkit-overflow-scrolling: touch;
+	}
+	.tg-scroll-box {
+		max-height: 16rem;
+		font-size: 11px;
+	}
+	.tg-editor {
+		min-height: 12rem;
+		font-size: 11px;
+	}
+}

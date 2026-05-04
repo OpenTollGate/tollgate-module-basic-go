@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -69,11 +70,14 @@ func InitializeGlobalLogger(logLevel string) {
 
 	logrus.SetLevel(level)
 
-	// Set a consistent formatter for the entire application
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 		ForceColors:   true,
 	})
+
+	log.SetFlags(0)
+	log.SetPrefix("")
+	log.SetOutput(os.Stdout)
 
 	logrus.WithField("log_level", level.String()).Info("Global logger initialized")
 }
