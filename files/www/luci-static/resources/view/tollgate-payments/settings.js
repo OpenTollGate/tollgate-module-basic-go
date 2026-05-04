@@ -330,7 +330,7 @@ return view.extend({
 					} else if (field.type === 'object') {
 						sections.push(buildObjectSection(field, cfg[field.json_key] || {}, field.json_key));
 					} else if (field.type === 'string' || field.type === 'uint64' || field.type === 'float64' || field.type === 'bool') {
-						sections.push(buildSimpleField(cfg, field));
+						sections.push(fieldRow(field.json_key, cfg[field.json_key], field));
 					}
 				});
 
@@ -350,28 +350,27 @@ return view.extend({
 			});
 		}
 
-		function buildSimpleField(cfg, field) {
-			var val = cfg[field.json_key];
+		function fieldRow(key, val, field) {
 			var input;
 			if (field.enum) {
-				var options = field.enum.map(function(opt) {
-					return E('option', { 'value': opt, 'selected': String(val) === opt ? 'selected' : undefined }, opt);
-				});
-				input = E('select', { 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-select tg-input-sm',  }, options);
+				input = E('select', { 'id': 'cfg_' + key, 'class': 'cbi-input-select tg-input-sm' },
+					field.enum.map(function(opt) {
+						return E('option', { 'value': opt, 'selected': String(val) === opt ? 'selected' : undefined }, opt);
+					}));
 			} else if (field.type === 'bool') {
-				input = E('select', { 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-select tg-input-sm',  }, [
-					E('option', { 'value': 'true', 'selected': val === true ? 'selected' : undefined }, 'true'),
-					E('option', { 'value': 'false', 'selected': val === false ? 'selected' : undefined }, 'false')
+				input = E('select', { 'id': 'cfg_' + key, 'class': 'cbi-input-select tg-input-sm' }, [
+					E('option', { 'value': 'true', 'selected': val === true || val === 'true' ? 'selected' : undefined }, 'true'),
+					E('option', { 'value': 'false', 'selected': val === false || val === 'false' ? 'selected' : undefined }, 'false')
 				]);
 			} else {
 				input = E('input', {
-					'type': 'text', 'id': 'cfg_' + field.json_key, 'class': 'cbi-input-text tg-input-sm',
+					'type': 'text', 'id': 'cfg_' + key, 'class': 'cbi-input-text tg-input-sm',
 					'value': val != null ? String(val) : '',
 					'placeholder': field.description || ''
 				});
 			}
 			return E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _(field.json_key)),
+				E('label', { 'class': 'cbi-value-title' }, _(key.replace(/.*\./, ''))),
 				E('div', { 'class': 'cbi-value-field' }, [
 					input,
 					E('div', { 'class': 'cbi-value-description' }, field.description || '')
@@ -672,33 +671,32 @@ return view.extend({
 			return section;
 		}
 
+		function buildIdentRow(idx, ident) {
+			return E('tr', {}, [
+				E('td', { 'class': 'tg-td' }, [
+					E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_name', 'value': (ident && ident.name) || '', 'placeholder': 'name' })
+				]),
+				E('td', { 'class': 'tg-td' }, [
+					E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_pubkey', 'value': (ident && ident.pubkey) || '', 'placeholder': 'hex pubkey' })
+				]),
+				E('td', { 'class': 'tg-td' }, [
+					E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_lightning_address', 'value': (ident && ident.lightning_address) || '', 'placeholder': 'user@domain' })
+				]),
+				E('td', { 'class': 'tg-td' }, [
+					E('button', { 'class': 'cbi-button cbi-button-remove tg-btn-remove', 'click': function() { this.closest('tr').remove(); } }, '\u00d7')
+				])
+			]);
+		}
+
 		function buildIdentitiesSection(identities, schema) {
-			var rows = [];
 			var publicIdents = identities.public_identities || [];
-			publicIdents.forEach(function(ident, idx) {
-				rows.push(E('tr', {}, [
-					E('td', { 'class': 'tg-td' }, [
-						E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_name', 'value': ident.name || '' })
-					]),
-					E('td', { 'class': 'tg-td' }, [
-						E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_pubkey', 'value': ident.pubkey || '', 'placeholder': 'hex pubkey' })
-					]),
-					E('td', { 'class': 'tg-td' }, [
-						E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_lightning_address', 'value': ident.lightning_address || '', 'placeholder': 'user@domain' })
-					]),
-					E('td', { 'class': 'tg-td' }, [
-						E('button', { 'class': 'cbi-button cbi-button-remove tg-btn-remove', 'click': function() {
-							this.closest('tr').remove();
-						} }, '\u00d7')
-					])
-				]));
-			});
+			var rows = publicIdents.map(function(ident, idx) { return buildIdentRow(idx, ident); });
 
 			return E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Public Identities')),
 				E('p', { 'class': 'tg-hint' }, _('Identities used for profit sharing and trust.')),
 				E('div', { 'class': 'tg-overflow-x' }, [
-					E('table', { 'class': 'table tg-field-sm',  }, [
+					E('table', { 'class': 'table tg-field-sm' }, [
 						E('thead', {}, [E('tr', {}, [
 							E('th', { 'class': 'tg-th' }, 'name'),
 							E('th', { 'class': 'tg-th' }, 'pubkey'),
@@ -711,16 +709,7 @@ return view.extend({
 				E('div', { 'class': 'cbi-page-actions tg-actions-sm' }, [
 					E('button', { 'class': 'cbi-button', 'click': function() {
 						var tbody = q('cfg_pi_body');
-						if (!tbody) return;
-						var idx = tbody.children.length;
-						tbody.appendChild(E('tr', {}, [
-							E('td', { 'class': 'tg-td' }, [E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_name', 'value': '', 'placeholder': 'name' })]),
-							E('td', { 'class': 'tg-td' }, [E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_pubkey', 'value': '', 'placeholder': 'hex pubkey' })]),
-							E('td', { 'class': 'tg-td' }, [E('input', { 'type': 'text', 'class': 'cbi-input-text tg-field-sm', 'id': 'cfg_pi_' + idx + '_lightning_address', 'value': '', 'placeholder': 'user@domain' })]),
-							E('td', { 'class': 'tg-td' }, [
-								E('button', { 'class': 'cbi-button cbi-button-remove tg-btn-remove', 'click': function() { this.closest('tr').remove(); } }, '\u00d7')
-							])
-						]));
+						if (tbody) tbody.appendChild(buildIdentRow(tbody.children.length, {}));
 					} }, _('Add Identity'))
 				])
 			]);
@@ -737,49 +726,21 @@ return view.extend({
 						var gcKey = childKey + '.' + grandchild.json_key;
 						var gcVal = (childVal || {})[grandchild.json_key];
 						if (grandchild.type === 'array' && grandchild.children && grandchild.children.length > 0 && grandchild.children[0].type === 'string') {
-							fields.push(buildFlatField(gcKey, Array.isArray(gcVal) ? gcVal.join(', ') : '', grandchild));
+							fields.push(fieldRow(gcKey, Array.isArray(gcVal) ? gcVal.join(', ') : '', grandchild));
 						} else {
-							fields.push(buildFlatField(gcKey, gcVal != null ? String(gcVal) : '', grandchild));
+							fields.push(fieldRow(gcKey, gcVal != null ? String(gcVal) : '', grandchild));
 						}
 					});
 				} else if (child.type === 'array' && child.children && child.children.length > 0 && child.children[0].type === 'string') {
-					fields.push(buildFlatField(childKey, Array.isArray(childVal) ? childVal.join(', ') : '', child));
+					fields.push(fieldRow(childKey, Array.isArray(childVal) ? childVal.join(', ') : '', child));
 				} else {
-					fields.push(buildFlatField(childKey, childVal != null ? String(childVal) : '', child));
+					fields.push(fieldRow(childKey, childVal != null ? String(childVal) : '', child));
 				}
 			});
 
 			return E('details', { 'class': 'tg-adv-details' }, [
 				E('summary', { 'class': 'tg-adv-summary' }, _(field.json_key.replace(/_/g, ' '))),
 				E('div', { 'class': 'tg-obj-fields' }, fields)
-			]);
-		}
-
-		function buildFlatField(dottedKey, val, field) {
-			var input;
-			if (field.enum) {
-				var options = field.enum.map(function(opt) {
-					return E('option', { 'value': opt, 'selected': val === opt ? 'selected' : undefined }, opt);
-				});
-				input = E('select', { 'id': 'cfg_' + dottedKey, 'class': 'cbi-input-select tg-input-sm' }, options);
-			} else if (field.type === 'bool') {
-				input = E('select', { 'id': 'cfg_' + dottedKey, 'class': 'cbi-input-select tg-input-sm' }, [
-					E('option', { 'value': 'true', 'selected': val === 'true' ? 'selected' : undefined }, 'true'),
-					E('option', { 'value': 'false', 'selected': val === 'false' ? 'selected' : undefined }, 'false')
-				]);
-			} else {
-				input = E('input', {
-					'type': 'text', 'id': 'cfg_' + dottedKey, 'class': 'cbi-input-text tg-input-sm',
-					'value': val || '',
-					'placeholder': field.description || ''
-				});
-			}
-			return E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _(dottedKey)),
-				E('div', { 'class': 'cbi-value-field' }, [
-					input,
-					E('div', { 'class': 'cbi-value-description' }, field.description || '')
-				])
 			]);
 		}
 
@@ -1005,6 +966,18 @@ return view.extend({
 			stateSpan(stateId, 'Valid JSON', 'tg-state-success');
 		}
 
+		function saveAndReport(promise, stateId, successMsg) {
+			return promise.then(function(resp) {
+				if (resp && resp.success) {
+					stateSpan(stateId, successMsg, 'tg-state-success');
+				} else {
+					stateSpan(stateId, 'Failed: ' + ((resp && resp.error) || 'Unknown error'), 'tg-state-error');
+				}
+			}).catch(function(err) {
+				stateSpan(stateId, 'Error: ' + err, 'tg-state-error');
+			});
+		}
+
 		function saveAdvancedFile(type) {
 			var editorId = type === 'config' ? 'config_editor' : 'identities_editor';
 			var stateId = type === 'config' ? 'config_state' : 'identities_state';
@@ -1014,15 +987,7 @@ return view.extend({
 				return;
 			}
 			stateSpan(stateId, 'Saving…', '');
-			saveJsonViaService(type, text).then(function(resp) {
-				if (resp && resp.success) {
-					stateSpan(stateId, 'Saved. Restart tollgate-wrt to apply.', 'tg-state-success');
-				} else {
-					stateSpan(stateId, 'Failed: ' + ((resp && resp.error) || 'Unknown error'), 'tg-state-error');
-				}
-			}).catch(function(err) {
-				stateSpan(stateId, 'Error: ' + err, 'tg-state-error');
-			});
+			saveAndReport(saveJsonViaService(type, text), stateId, 'Saved. Restart tollgate-wrt to apply.');
 		}
 
 		function svcControl(action) {

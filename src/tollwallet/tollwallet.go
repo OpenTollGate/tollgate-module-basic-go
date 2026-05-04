@@ -2,40 +2,32 @@ package tollwallet
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/Origami74/gonuts-tollgate/wallet"
 )
 
-// TollWallet represents a Cashu wallet that can receive, swap, and send tokens
 type TollWallet struct {
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
 	allowAndSwapUntrustedMints bool
 }
 
-// New creates a new Cashu wallet instance
 func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (*TollWallet, error) {
-	log.Printf("TollWallet.New: Initializing wallet at path: %s", walletPath)
-	log.Printf("TollWallet.New: Accepted mints: %v", acceptedMints)
-
-	// TODO: We want to restore from our mnemnonic seed phrase on startup as we have to keep our db in memory
-	// TODO: Copy approach from alby: https://github.com/getAlby/hub/blob/158d4a2539307bda289149792c3748d44c9fed37/lnclient/cashu/cashu.go#L46
+	logger.WithFields(map[string]interface{}{
+		"path":  walletPath,
+		"mints": acceptedMints,
+	}).Info("Initializing wallet")
 
 	if len(acceptedMints) < 1 {
 		return nil, fmt.Errorf("No mints provided. Wallet requires at least 1 accepted mint, none were provided")
 	}
 
 	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
-	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
+	logger.WithField("mint", acceptedMints[0]).Debug("Loading wallet")
 
-	// TODO: Fix issue where wallet db is not unlocked if it doesn't get a nework connection when the tollgate application boots.
-	// This causes issues when receiving later (aka, after first connect to upstream AFTER tollgate starts).
-	// The issue arises because of our hacky fork of gonuts for the offline functionatlity we need. Long term fix is switching to CDK.
 	cashuWallet, err := wallet.LoadWallet(config)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
@@ -48,121 +40,111 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 }
 
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
-	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()
-	log.Printf("TollWallet.Receive: Token mint: %s", mint)
-
 	swapToTrusted := false
 
-	// If mint is untrusted, check if operator allows swapping or rejects untrusted mints.
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
 			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
-			log.Printf("TollWallet.Receive: %v", err)
+			logger.WithField("mint", mint).Warn("Token rejected: untrusted mint")
 			return 0, err
 		}
 		swapToTrusted = true
-		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
+		logger.WithField("mint", mint).Info("Swapping untrusted mint token to trusted mint")
 	}
 
-	log.Printf("TollWallet.Receive: Calling wallet.Receive")
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
 	if err != nil {
-		log.Printf("TollWallet.Receive: wallet.Receive failed: %v", err)
+		logger.WithError(err).Error("wallet.Receive failed")
 		return 0, err
 	}
-	log.Printf("TollWallet.Receive: Successfully received %d sats", amountAfterSwap)
-
+	logger.WithField("amount", amountAfterSwap).Info("Received token")
 	return amountAfterSwap, err
 }
 
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {
-	log.Printf("TollWallet.Send: attempting to send %d sats from mint %s (includeFees=%t)", amount, mintUrl, includeFees)
+	logger.WithFields(map[string]interface{}{
+		"amount":       amount,
+		"mint":         mintUrl,
+		"includeFees":  includeFees,
+	}).Info("Sending tokens")
 
 	proofs, err := w.wallet.Send(amount, mintUrl, includeFees)
 	if err != nil {
-		log.Printf("TollWallet.Send: wallet.Send failed: %v", err)
+		logger.WithError(err).Error("wallet.Send failed")
 		return nil, fmt.Errorf("Failed to send %d to %s: %w", amount, mintUrl, err)
 	}
 
-	log.Printf("TollWallet.Send: received %d proofs from wallet.Send", len(proofs))
-
-	// Validate proofs array is not empty
 	if len(proofs) == 0 {
-		log.Printf("TollWallet.Send: ERROR - received empty proofs array from wallet.Send")
+		logger.Error("wallet.Send returned empty proofs array")
 		return nil, fmt.Errorf("wallet.Send returned empty proofs array for %d sats from %s", amount, mintUrl)
 	}
 
-	// Log proof details for debugging
 	totalProofAmount := uint64(0)
 	for i, proof := range proofs {
 		totalProofAmount += proof.Amount
-		log.Printf("TollWallet.Send: proof[%d]: amount=%d, secret=%s...", i, proof.Amount, proof.Secret[:min(10, len(proof.Secret))])
+		logger.WithFields(map[string]interface{}{
+			"index":  i,
+			"amount": proof.Amount,
+		}).Debug("Proof detail")
 	}
-	log.Printf("TollWallet.Send: total proof amount=%d (requested=%d)", totalProofAmount, amount)
-
-	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true) // TODO: Support multi unit
-	if err != nil {
-		log.Printf("TollWallet.Send: NewTokenV4 failed: %v", err)
-		return nil, fmt.Errorf("Failed to create token: %w", err)
-	}
-
-	log.Printf("TollWallet.Send: successfully created token")
-	return token, nil
-}
-
-// Drain creates a token containing all available balance for a specific mint
-// This is used for draining the wallet and does NOT include fees in the amount
-// since we want to extract all available funds without triggering swaps
-func (w *TollWallet) Drain(mintUrl string) (cashu.Token, uint64, error) {
-	log.Printf("TollWallet.Drain: attempting to drain all funds from mint %s", mintUrl)
-
-	// Get the current balance for this mint
-	balance := w.GetBalanceByMint(mintUrl)
-	if balance == 0 {
-		log.Printf("TollWallet.Drain: no balance to drain from mint %s", mintUrl)
-		return nil, 0, fmt.Errorf("no balance available for mint %s", mintUrl)
-	}
-
-	log.Printf("TollWallet.Drain: draining %d sats from mint %s (includeFees=false)", balance, mintUrl)
-
-	// Use Send with includeFees=false to avoid trying to add fees to the amount
-	// This ensures we only send what's available without triggering insufficient funds errors
-	proofs, err := w.wallet.Send(balance, mintUrl, false)
-	if err != nil {
-		log.Printf("TollWallet.Drain: wallet.Send failed: %v", err)
-		return nil, 0, fmt.Errorf("Failed to drain %d from %s: %w", balance, mintUrl, err)
-	}
-
-	log.Printf("TollWallet.Drain: received %d proofs from wallet.Send", len(proofs))
-
-	// Validate proofs array is not empty
-	if len(proofs) == 0 {
-		log.Printf("TollWallet.Drain: ERROR - received empty proofs array from wallet.Send")
-		return nil, 0, fmt.Errorf("wallet.Send returned empty proofs array for %d sats from %s", balance, mintUrl)
-	}
-
-	// Log proof details for debugging
-	totalProofAmount := uint64(0)
-	for i, proof := range proofs {
-		totalProofAmount += proof.Amount
-		log.Printf("TollWallet.Drain: proof[%d]: amount=%d, secret=%s...", i, proof.Amount, proof.Secret[:min(10, len(proof.Secret))])
-	}
-	log.Printf("TollWallet.Drain: total proof amount=%d (balance was=%d)", totalProofAmount, balance)
+	logger.WithFields(map[string]interface{}{
+		"total":     totalProofAmount,
+		"requested": amount,
+	}).Debug("Proof totals")
 
 	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true)
 	if err != nil {
-		log.Printf("TollWallet.Drain: NewTokenV4 failed: %v", err)
+		logger.WithError(err).Error("NewTokenV4 failed")
+		return nil, fmt.Errorf("Failed to create token: %w", err)
+	}
+
+	return token, nil
+}
+
+func (w *TollWallet) Drain(mintUrl string) (cashu.Token, uint64, error) {
+	balance := w.GetBalanceByMint(mintUrl)
+	if balance == 0 {
+		logger.WithField("mint", mintUrl).Info("No balance to drain")
+		return nil, 0, fmt.Errorf("no balance available for mint %s", mintUrl)
+	}
+
+	logger.WithFields(map[string]interface{}{
+		"mint":    mintUrl,
+		"balance": balance,
+	}).Info("Draining mint")
+
+	proofs, err := w.wallet.Send(balance, mintUrl, false)
+	if err != nil {
+		logger.WithError(err).Error("Drain wallet.Send failed")
+		return nil, 0, fmt.Errorf("Failed to drain %d from %s: %w", balance, mintUrl, err)
+	}
+
+	if len(proofs) == 0 {
+		logger.Error("Drain: wallet.Send returned empty proofs array")
+		return nil, 0, fmt.Errorf("wallet.Send returned empty proofs array for %d sats from %s", balance, mintUrl)
+	}
+
+	totalProofAmount := uint64(0)
+	for i, proof := range proofs {
+		totalProofAmount += proof.Amount
+		logger.WithFields(map[string]interface{}{
+			"index":  i,
+			"amount": proof.Amount,
+		}).Debug("Drain proof detail")
+	}
+
+	token, err := cashu.NewTokenV4(proofs, mintUrl, cashu.Sat, true)
+	if err != nil {
+		logger.WithError(err).Error("Drain NewTokenV4 failed")
 		return nil, 0, fmt.Errorf("Failed to create token: %w", err)
 	}
 
-	log.Printf("TollWallet.Drain: successfully created drain token with %d sats", totalProofAmount)
+	logger.WithField("total", totalProofAmount).Info("Drain complete")
 	return token, totalProofAmount, nil
 }
 
-// SendWithOverpayment sends tokens with overpayment capability using gonuts SendWithOptions
 func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, MaxOverpaymentAbsolute uint64) (string, error) {
-	// Set up send options with overpayment capability
 	options := wallet.SendOptions{
 		IncludeFees:            true,
 		AllowOverpayment:       true,
@@ -170,26 +152,26 @@ func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverp
 		MaxOverpaymentAbsolute: MaxOverpaymentAbsolute,
 	}
 
-	// Use the gonuts SendWithOptions method
 	result, err := w.wallet.SendWithOptions(amount, mintUrl, options)
 	if err != nil {
 		return "", fmt.Errorf("failed to send with overpayment to %s: %w", mintUrl, err)
 	}
 
-	// Create token from the proofs
 	token, err := cashu.NewTokenV4(result.Proofs, mintUrl, cashu.Sat, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to create token: %w", err)
 	}
 
-	// Encode token to string
 	tokenString, err := token.Serialize()
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize token: %w", err)
 	}
 
-	log.Printf("Send successful with %d%% overpayment tolerance: requested=%d, overpayment=%d",
-		maxOverpaymentPercent, result.RequestedAmount, result.Overpayment)
+	logger.WithFields(map[string]interface{}{
+		"requested":    result.RequestedAmount,
+		"overpayment":  result.Overpayment,
+		"tolerance_pct": maxOverpaymentPercent,
+	}).Info("Send with overpayment complete")
 
 	return tokenString, nil
 }
@@ -198,7 +180,6 @@ func ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }
 
-// contains checks if a string exists in a slice of strings
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
 		if item == str {
@@ -208,86 +189,77 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
-// GetBalance returns the current balance of the wallet
 func (w *TollWallet) GetBalance() uint64 {
-	balance := w.wallet.GetBalance()
-
-	return balance
+	return w.wallet.GetBalance()
 }
 
-// GetBalanceByMint returns the balance of a specific mint in the wallet
 func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
 	balanceByMints := w.wallet.GetBalanceByMints()
-
 	if balance, exists := balanceByMints[mintUrl]; exists {
 		return balance
 	}
 	return 0
 }
 
-// GetAllMintBalances returns a map of all mints and their balances in the wallet
 func (w *TollWallet) GetAllMintBalances() map[string]uint64 {
 	return w.wallet.GetBalanceByMints()
 }
 
-// MeltToLightning melts a token to a lightning invoice using LNURL
-// It attempts to melt for the target amount, reducing by 5% each time if fees are too high
 func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
-	log.Printf("Attempting to melt %d sats to LNURL %s with max %d sats", targetAmount, lnurl, maxCost)
+	logger.WithFields(map[string]interface{}{
+		"amount": targetAmount,
+		"lnurl":  lnurl,
+		"max":    maxCost,
+	}).Info("Starting melt to lightning")
 
-	// Start with the aimed payment amount
 	currentAmount := targetAmount
 	maxAttempts := 10
-	attempts := 0
 
 	var meltError error
 
-	// Try to melt with reducing amounts if needed
-	for attempts < maxAttempts {
-		log.Printf("Attempt %d: Trying to melt %d sats", attempts+1, currentAmount)
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		logger.WithFields(map[string]interface{}{
+			"attempt": attempts + 1,
+			"amount":  currentAmount,
+		}).Debug("Trying to melt")
 
-		// Get a Lightning invoice from the LNURL
 		invoice, err := lightning.GetInvoiceFromLightningAddress(lnurl, currentAmount)
 		if err != nil {
-			log.Printf("Error getting invoice: %v", err)
+			logger.WithError(err).Debug("Error getting invoice")
 			meltError = err
-			attempts++
 			continue
 		}
 
-		// Try to pay the invoice using the wallet
 		meltQuote, meltQuoteErr := w.wallet.RequestMeltQuote(invoice, mintUrl)
-
 		if meltQuoteErr != nil {
-			log.Printf("Error requesting melt quote for %s: %v", mintUrl, meltQuoteErr)
+			logger.WithError(meltQuoteErr).Debug("Error requesting melt quote")
 			meltError = meltQuoteErr
-			attempts++
 			continue
 		}
 
 		if meltQuote.Amount > maxCost {
-			log.Printf("Melting %d to %s costs too much, reducing by 5%%", targetAmount, lnurl)
+			logger.WithFields(map[string]interface{}{
+				"cost": meltQuote.Amount,
+				"max":  maxCost,
+			}).Debug("Melt cost too high, reducing by 5%")
 			meltError = fmt.Errorf("melt cost exceeds maximum allowed: %d > %d", meltQuote.Amount, maxCost)
-			currentAmount = currentAmount - (currentAmount * 5 / 100) // Reduce by 5%
-			attempts++
+			currentAmount = currentAmount - (currentAmount * 5 / 100)
 			continue
 		}
 
 		meltResult, meltErr := w.wallet.Melt(meltQuote.Quote)
-
 		if meltErr != nil {
-			log.Printf("Error melting quote %s for %s: %v", meltQuote.Quote, mintUrl, meltErr)
+			logger.WithError(meltErr).Debug("Error melting quote")
 			meltError = meltErr
-			attempts++
 			continue
 		}
 
-		log.Printf("meltResult: %s", meltResult.State)
-		log.Printf("Successfully melted %d sats with %d sats in fees", currentAmount, meltResult.FeeReserve)
+		logger.WithFields(map[string]interface{}{
+			"amount": currentAmount,
+			"fees":   meltResult.FeeReserve,
+		}).Info("Melt successful")
 		return nil
-
 	}
 
-	// If we get here, all attempts failed
-	return fmt.Errorf("failed to melt after %d attempts: %w", attempts, meltError)
+	return fmt.Errorf("failed to melt after %d attempts: %w", maxAttempts, meltError)
 }
