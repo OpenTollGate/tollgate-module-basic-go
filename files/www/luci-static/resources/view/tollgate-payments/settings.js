@@ -365,7 +365,8 @@ return view.extend({
 				sections.push(buildAdvancedConfigSection(cfg));
 
 				sections.push(E('div', { 'class': 'cbi-page-actions' }, [
-					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveAllConfig(); } }, _('Save All Changes'))
+					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveAllConfig(); } }, _('Save All Changes')),
+					' ', E('span', { 'id': 'cfg_save_state', 'style': 'font-size:13px;opacity:.7' })
 				]));
 
 				sections.forEach(function(s) { container.appendChild(s); });
@@ -417,12 +418,18 @@ return view.extend({
 						})
 					]);
 				});
+				fields.push(E('td', { 'style': 'padding:2px 6px' }, [
+					E('button', { 'class': 'cbi-button cbi-button-remove', 'style': 'font-size:11px;padding:1px 6px', 'click': function() {
+						this.closest('tr').remove();
+					} }, '\u00d7')
+				]));
 				rows.push(E('tr', {}, fields));
 			});
 
 			var headers = (field.children || []).map(function(cf) {
 				return E('th', { 'style': 'padding:2px 6px;font-size:11px;text-align:left' }, cf.json_key);
 			});
+			headers.push(E('th', { 'style': 'padding:2px 6px;font-size:11px;width:30px' }, ''));
 
 			return E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Accepted Mints')),
@@ -452,6 +459,11 @@ return view.extend({
 					})
 				]);
 			});
+			fields.push(E('td', { 'style': 'padding:2px 6px' }, [
+				E('button', { 'class': 'cbi-button cbi-button-remove', 'style': 'font-size:11px;padding:1px 6px', 'click': function() {
+					this.closest('tr').remove();
+				} }, '\u00d7')
+			]));
 			tbody.appendChild(E('tr', {}, fields));
 		}
 
@@ -574,37 +586,51 @@ return view.extend({
 			]);
 		}
 
+		function coerceByType(val, type) {
+			if (val === 'true') return true;
+			if (val === 'false') return false;
+			if (type === 'uint64' || type === 'int') return parseInt(val, 10);
+			if (type === 'float64') return parseFloat(val);
+			return val;
+		}
+
 		function saveAllConfig() {
 			stateSpan('cfg_save_state', 'Saving…', '#8a6d3b');
 
-			cliJson('config', 'get').then(function(resp) {
+			Promise.all([
+				cliJson('config', 'get'),
+				cachedSchema ? Promise.resolve({ data: cachedSchema }) : cliJson('config', 'schema')
+			]).then(function(results) {
+				var resp = results[0];
+				var schemaData = (results[1] && results[1].data) || {};
 				var cfg = (resp && resp.data && resp.data.config) || {};
 				var identities = (resp && resp.data && resp.data.identities) || {};
+				var configSchema = schemaData.config || [];
 
-				var simpleFields = ['log_level', 'metric', 'step_size', 'margin', 'show_setup', 'reseller_mode'];
-				simpleFields.forEach(function(key) {
-					var el = q('cfg_' + key);
+				configSchema.forEach(function(field) {
+					if (!field.editable) return;
+					if (field.json_key === 'accepted_mints' || field.json_key === 'profit_share') return;
+					if (field.type === 'object') return;
+					if (field.type === 'array' && (field.children || []).length > 0 && field.children[0].type !== 'string') return;
+
+					var el = q('cfg_' + field.json_key);
 					if (!el) return;
-					var val = el.value;
-					if (val === 'true') val = true;
-					else if (val === 'false') val = false;
-					else if (/^\d+$/.test(val)) val = parseInt(val, 10);
-					else if (/^\d+\.\d+$/.test(val)) val = parseFloat(val);
-					cfg[key] = val;
+					cfg[field.json_key] = coerceByType(el.value, field.type);
 				});
+
+				var mintSchemaField = configSchema.filter(function(f) { return f.json_key === 'accepted_mints'; })[0];
+				var mintChildKeys = (mintSchemaField && mintSchemaField.children || []).map(function(c) { return c.json_key; });
 
 				var tbody = q('cfg_mints_body');
 				if (tbody) {
 					var mints = [];
 					for (var i = 0; i < tbody.children.length; i++) {
 						var mint = {};
-						var mintFields = ['url', 'min_balance', 'balance_tolerance_percent', 'payout_interval_seconds', 'min_payout_amount', 'price_per_step', 'price_unit', 'purchase_min_steps'];
-						mintFields.forEach(function(f) {
+						mintChildKeys.forEach(function(f) {
 							var el = q('cfg_mint_' + i + '_' + f);
 							if (!el) return;
-							var v = el.value;
-							if (/^\d+$/.test(v)) v = parseInt(v, 10);
-							mint[f] = v;
+							var childField = (mintSchemaField.children || []).filter(function(c) { return c.json_key === f; })[0];
+							mint[f] = coerceByType(el.value, childField ? childField.type : 'string');
 						});
 						if (mint.url) mints.push(mint);
 					}

@@ -204,8 +204,33 @@ jobs:
             echo "release_channel=dev" >> $GITHUB_OUTPUT
           fi
 
+  contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run config_manager tests
+        run: cd src/config_manager && go test ./... -v -count=1
+
+      - name: Run CLI contract tests
+        run: cd src/cmd/tollgate-cli && go test ./... -v -count=1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run ACL lint
+        run: node tests/contract/acl-lint.mjs
+
+      - name: Run JS schema-key lint
+        run: node tests/contract/js-schema-lint.mjs
+
   build-package:
-    needs: [determine-versioning, define-matrix]
+    needs: [determine-versioning, define-matrix, contract-tests]
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.openwrt_version }}
@@ -284,12 +309,18 @@ jobs:
             export USE_UPX=0
           fi
           
-          env GOARCH=${{ matrix.goarch }} \
-            GOMIPS=${{ matrix.gomips }} \
-            PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }} \
-            USE_UPX=$USE_UPX \
-            UPX_FLAGS="$UPX_FLAGS" \
-            make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${{ env.PACKAGE_NAME }}/compile
+          # Override source URL when running on forks so the SDK fetches from
+          # the correct repo (the Makefile defaults to OpenTollGate upstream).
+          MAKE_ENV="GOARCH=${{ matrix.goarch }}"
+          MAKE_ENV="$MAKE_ENV GOMIPS=${{ matrix.gomips }}"
+          MAKE_ENV="$MAKE_ENV PACKAGE_VERSION=${{ needs.determine-versioning.outputs.package_version }}"
+          MAKE_ENV="$MAKE_ENV USE_UPX=$USE_UPX"
+          MAKE_ENV="$MAKE_ENV UPX_FLAGS=$UPX_FLAGS"
+          if [ "${{ github.repository }}" != "OpenTollGate/tollgate-module-basic-go" ]; then
+            MAKE_ENV="$MAKE_ENV TOLLGATE_PKG_SOURCE_URL=https://github.com/${{ github.repository }}.git"
+          fi
+          
+          env $MAKE_ENV make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${{ env.PACKAGE_NAME }}/compile
 
       - name: List output package(s)
         run: |
