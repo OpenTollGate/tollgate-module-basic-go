@@ -1,7 +1,9 @@
 package cli
 
 import (
+	crypto_rand "crypto/rand"
 	"fmt"
+	"math/big"
 	"os/exec"
 	"strings"
 	"time"
@@ -294,7 +296,6 @@ func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIRespo
 
 // generateRandomPassword generates a human-readable random password
 func generateRandomPassword() (string, error) {
-	// Use the same word list as the shell script
 	words := []string{
 		"alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
 		"golf", "hotel", "india", "juliet", "kilo", "lima",
@@ -303,17 +304,23 @@ func generateRandomPassword() (string, error) {
 		"yankee", "zulu",
 	}
 
-	// Generate 3 random words using time-based randomness
-	word1 := words[time.Now().UnixNano()%int64(len(words))]
-	time.Sleep(1 * time.Millisecond)
-	word2 := words[time.Now().UnixNano()%int64(len(words))]
-	time.Sleep(1 * time.Millisecond)
-	word3 := words[time.Now().UnixNano()%int64(len(words))]
+	word1, err := randomWord(words)
+	if err != nil {
+		return "", err
+	}
+	word2, err := randomWord(words)
+	if err != nil {
+		return "", err
+	}
+	word3, err := randomWord(words)
+	if err != nil {
+		return "", err
+	}
+	num, err := crypto_rand.Int(crypto_rand.Reader, big.NewInt(100))
+	if err != nil {
+		return "", err
+	}
 
-	// Add a random 2-digit number
-	num := time.Now().UnixNano() % 100
-
-	// Capitalize first letter of each word
 	capitalize := func(s string) string {
 		if len(s) == 0 {
 			return s
@@ -321,7 +328,15 @@ func generateRandomPassword() (string, error) {
 		return strings.ToUpper(string(s[0])) + s[1:]
 	}
 
-	return fmt.Sprintf("%s-%s-%s-%02d", capitalize(word1), capitalize(word2), capitalize(word3), num), nil
+	return fmt.Sprintf("%s-%s-%s-%02d", capitalize(word1), capitalize(word2), capitalize(word3), num.Int64()), nil
+}
+
+func randomWord(words []string) (string, error) {
+	n, err := crypto_rand.Int(crypto_rand.Reader, big.NewInt(int64(len(words))))
+	if err != nil {
+		return "", err
+	}
+	return words[n.Int64()], nil
 }
 
 // getUCIValue retrieves a UCI configuration value
