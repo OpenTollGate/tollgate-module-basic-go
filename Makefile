@@ -213,6 +213,8 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/luci/menu.d/luci-app-tollgate-payments.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/tollgate-payments
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/www/luci-static/resources/view/tollgate-payments/settings.js $(1)/www/luci-static/resources/view/tollgate-payments/
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/tollgate-payments
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/www/luci-static/resources/tollgate-payments/tg.css $(1)/www/luci-static/resources/tollgate-payments/
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json $(1)/usr/share/rpcd/acl.d/
 

@@ -65,7 +65,7 @@ func GetConfigSchema() []FieldSchema {
 			Name: "ProfitShare", JSONKey: "profit_share", Type: "array",
 			Description: "Profit sharing configuration", Required: true, Editable: true,
 			Children: []FieldSchema{
-				{Name: "Factor", JSONKey: "factor", Type: "float64", Description: "Share factor (0.0-1.0), all factors should sum to 1.0", Required: true, Editable: true, Min: 0.0, Max: 1.0},
+			{Name: "Factor", JSONKey: "factor", Type: "float64", Description: "Share ratio (0.0\u20131.0). All factors MUST sum to 1.0. Use 0.79 not 79\u2014this is a ratio, not a percentage.", Required: true, Editable: true, Min: 0.0, Max: 1.0},
 				{Name: "Identity", JSONKey: "identity", Type: "string", Description: "Identity name from identities.json", Required: true, Editable: true},
 			},
 		},
@@ -135,7 +135,7 @@ func GetIdentitiesSchema() []FieldSchema {
 			Description: "Public identities for profit sharing and trust", Required: true, Editable: true,
 			Children: []FieldSchema{
 				{Name: "Name", JSONKey: "name", Type: "string", Description: "Identity name", Required: true, Editable: true},
-				{Name: "PubKey", JSONKey: "pubkey", Type: "string", Description: "Nostr public key (hex)", Required: false, Editable: true},
+				{Name: "PubKey", JSONKey: "pubkey", Type: "string", Description: "Nostr public key — not currently used for payouts (lightning_address is used instead)", Required: false, Editable: true},
 				{Name: "LightningAddress", JSONKey: "lightning_address", Type: "string", Description: "Lightning address for payouts", Required: false, Editable: true},
 			},
 		},

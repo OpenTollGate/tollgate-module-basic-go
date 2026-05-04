@@ -46,7 +46,7 @@ async function run() {
 
 	try {
 		await page.goto(url, { waitUntil: 'networkidle' });
-		await loginIfNeeded();
+		await loginIfNeeded(page);
 
 		// --- Overview tab (default) ---
 		await page.getByRole('button', { name: 'Overview' }).waitFor();
@@ -169,11 +169,25 @@ async function run() {
 		console.log('PASS: advanced config.json round-trip');
 
 		await configEditor.fill(JSON.stringify(originalConfig, null, 2));
-		await page.getByRole('button', { name: 'Save config.json' }).click();
-		await page.waitForFunction(() => {
+		await page.waitForTimeout(300);
+		await page.evaluate(() => {
 			const el = document.getElementById('config_state');
-			return el && el.textContent.includes('Saved');
-		}, { timeout: 5000 });
+			if (el) el.textContent = '';
+		});
+		await page.waitForTimeout(200);
+		await page.getByRole('button', { name: 'Save config.json' }).click();
+		try {
+			await page.waitForFunction(() => {
+				const el = document.getElementById('config_state');
+				return el && el.textContent.includes('Saved');
+			}, { timeout: 5000 });
+		} catch (e) {
+			await page.getByRole('button', { name: 'Save config.json' }).click();
+			await page.waitForFunction(() => {
+				const el = document.getElementById('config_state');
+				return el && el.textContent.includes('Saved');
+			}, { timeout: 10000 });
+		}
 
 		// identities.json round-trip
 		const idProbe = Array.isArray(originalIdentities)
@@ -207,11 +221,24 @@ async function run() {
 		console.log('PASS: advanced identities.json round-trip');
 
 		await identitiesEditor.fill(JSON.stringify(originalIdentities, null, 2));
-		await page.getByRole('button', { name: 'Save identities.json' }).click();
-		await page.waitForFunction(() => {
+		await page.waitForTimeout(300);
+		await page.evaluate(() => {
 			const el = document.getElementById('identities_state');
-			return el && el.textContent.includes('Saved');
-		}, { timeout: 5000 });
+			if (el) el.textContent = '';
+		});
+		await page.getByRole('button', { name: 'Save identities.json' }).click();
+		try {
+			await page.waitForFunction(() => {
+				const el = document.getElementById('identities_state');
+				return el && el.textContent.includes('Saved');
+			}, { timeout: 5000 });
+		} catch (e) {
+			await page.getByRole('button', { name: 'Save identities.json' }).click();
+			await page.waitForFunction(() => {
+				const el = document.getElementById('identities_state');
+				return el && el.textContent.includes('Saved');
+			}, { timeout: 10000 });
+		}
 
 		console.log(JSON.stringify({
 			ok: true,

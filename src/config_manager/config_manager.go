@@ -64,6 +64,24 @@ func (cm *ConfigManager) GetConfig() *Config {
 	return cm.config
 }
 
+func (cm *ConfigManager) ReloadConfig() error {
+	loaded, err := LoadConfig(cm.ConfigFilePath)
+	if err != nil {
+		return err
+	}
+	cm.config = loaded
+	return nil
+}
+
+func (cm *ConfigManager) ReloadIdentities() error {
+	loaded, err := LoadIdentities(cm.IdentitiesFilePath)
+	if err != nil {
+		return err
+	}
+	cm.identitiesConfig = loaded
+	return nil
+}
+
 // GetInstallConfig returns the loaded install configuration.
 func (cm *ConfigManager) GetInstallConfig() *InstallConfig {
 	return cm.installConfig

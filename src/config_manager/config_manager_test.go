@@ -110,3 +110,86 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
+
+func TestValidateProfitShare(t *testing.T) {
+	tests := []struct {
+		name    string
+		shares  []ProfitShareConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "default config is valid",
+			shares:  NewDefaultConfig().ProfitShare,
+			wantErr: false,
+		},
+		{
+			name:    "single factor 1.0",
+			shares:  []ProfitShareConfig{{Factor: 1.0, Identity: "owner"}},
+			wantErr: false,
+		},
+		{
+			name:    "sum < 1.0",
+			shares:  []ProfitShareConfig{{Factor: 0.5, Identity: "a"}, {Factor: 0.3, Identity: "b"}},
+			wantErr: true,
+			errMsg:  "must sum to 1.0",
+		},
+		{
+			name:    "sum > 1.0",
+			shares:  []ProfitShareConfig{{Factor: 0.8, Identity: "a"}, {Factor: 0.3, Identity: "b"}},
+			wantErr: true,
+			errMsg:  "must sum to 1.0",
+		},
+		{
+			name:    "negative factor",
+			shares:  []ProfitShareConfig{{Factor: -0.1, Identity: "a"}, {Factor: 1.1, Identity: "b"}},
+			wantErr: true,
+			errMsg:  "negative factor",
+		},
+		{
+			name:    "factor > 1.0",
+			shares:  []ProfitShareConfig{{Factor: 79.0, Identity: "owner"}},
+			wantErr: true,
+			errMsg:  "> 1.0",
+		},
+		{
+			name:    "empty list",
+			shares:  []ProfitShareConfig{},
+			wantErr: true,
+			errMsg:  "empty",
+		},
+		{
+			name:    "thirds within tolerance",
+			shares:  []ProfitShareConfig{{Factor: 1.0 / 3, Identity: "a"}, {Factor: 1.0 / 3, Identity: "b"}, {Factor: 1.0 / 3, Identity: "c"}},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{ProfitShare: tt.shares}
+			err := cfg.ValidateProfitShare()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateProfitShare() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && tt.errMsg != "" {
+				if !contains(err.Error(), tt.errMsg) {
+					t.Errorf("ValidateProfitShare() error = %q, want containing %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

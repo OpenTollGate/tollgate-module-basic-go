@@ -164,6 +164,14 @@ func (s *CLIServer) handleConfigSave(jsonStr string) CLIResponse {
 		}
 	}
 
+	if err := cfg.ValidateProfitShare(); err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Invalid profit_share: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+
 	if err := config_manager.SaveConfig(s.configManager.ConfigFilePath, &cfg); err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -171,6 +179,8 @@ func (s *CLIServer) handleConfigSave(jsonStr string) CLIResponse {
 			Timestamp: time.Now(),
 		}
 	}
+
+	s.configManager.ReloadConfig()
 
 	return CLIResponse{
 		Success:   true,
@@ -204,6 +214,8 @@ func (s *CLIServer) handleIdentitiesSave(jsonStr string) CLIResponse {
 			Timestamp: time.Now(),
 		}
 	}
+
+	s.configManager.ReloadIdentities()
 
 	return CLIResponse{
 		Success:   true,
