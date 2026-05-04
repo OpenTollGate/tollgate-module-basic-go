@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fileExists, readFile, cleanupFiles, getWalletBalance, getWalletInfo, drainViaCLI } from './helpers/router.mjs';
 
 const username = process.env.TOLLGATE_LUCI_USER;
 const password = process.env.TOLLGATE_LUCI_PASSWORD;
@@ -260,5 +261,74 @@ test.describe('desktop interactions', () => {
 		await page.waitForTimeout(500);
 		expect(await $('config_state')(page)).toContain('Invalid JSON');
 		await editor.fill(original);
+	});
+
+	test('drain: modal appears and can be cancelled', async ({ page }) => {
+		await page.waitForTimeout(3000);
+		await page.getByRole('button', { name: 'Drain All Funds' }).click();
+		await page.waitForTimeout(500);
+		const cancelBtn = page.locator('#modal_overlay .cbi-button').first();
+		if (await cancelBtn.count()) {
+			await cancelBtn.click();
+			await page.waitForTimeout(300);
+			expect(await $('wl_drain_state')(page)).not.toContain('Drained');
+		}
+	});
+
+	test('drain: empty wallet shows message', async ({ page }) => {
+		const balance = getWalletBalance();
+		if (balance > 0) test.skip();
+		await page.waitForTimeout(3000);
+		await page.getByRole('button', { name: 'Drain All Funds' }).click();
+		await page.waitForTimeout(500);
+		const confirmBtn = page.locator('#modal_overlay .cbi-button-remove').first();
+		if (await confirmBtn.count()) await confirmBtn.click();
+		await page.waitForFunction(
+			() => { const el = document.getElementById('wl_drain_state'); return el && el.textContent.trim().length > 0 && !el.textContent.includes('Draining'); },
+			{ timeout: 10000 }
+		);
+		const state = await $('wl_drain_state')(page);
+		expect(state).toMatch(/Drained|No tokens/i);
+	});
+
+	test('drain: saves tokens to file on device', async ({ page }) => {
+		const info = getWalletInfo();
+		const balance = info?.data?.total_balance ?? 0;
+		if (balance === 0) test.skip();
+		const mintBalances = info?.data?.mint_balances || {};
+		for (const [url, bal] of Object.entries(mintBalances)) {
+			if (bal > 0 && !url.toLowerCase().includes('testnut')) {
+				test.skip();
+				return;
+			}
+		}
+
+		cleanupFiles('/root/tollgate-drain-*.txt');
+		await page.waitForTimeout(3000);
+		await page.getByRole('button', { name: 'Drain All Funds' }).click();
+		await page.waitForTimeout(500);
+		const confirmBtn = page.locator('#modal_overlay .cbi-button-remove').first();
+		if (await confirmBtn.count()) await confirmBtn.click();
+
+		await page.waitForFunction(
+			() => { const el = document.getElementById('wl_drain_state'); return el && (el.textContent.includes('Drained') || el.textContent.includes('Error')); },
+			{ timeout: 15000 }
+		);
+
+		const stateText = await $('wl_drain_state')(page);
+		expect(stateText).toContain('Drained');
+
+		const pathMatch = stateText.match(/\/root\/tollgate-drain-[^\s]+/);
+		expect(pathMatch).toBeTruthy();
+		const filePath = pathMatch[0];
+
+		expect(fileExists(filePath)).toBeTruthy();
+		const content = readFile(filePath);
+		expect(content).toContain('TollGate Wallet Drain');
+		expect(content).toMatch(/cashuA/i);
+
+		expect(getWalletBalance()).toBe(0);
+
+		cleanupFiles(filePath);
 	});
 });
