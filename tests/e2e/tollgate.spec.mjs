@@ -94,7 +94,6 @@ test('advanced tab loads', async ({ page }) => {
 // ── Desktop-only interactions ───────────────────────────────
 
 test.describe('desktop interactions', () => {
-	test.skip(({ viewport }) => viewport?.width !== 1280);
 
 	test('dashboard: restart modal', async ({ page }) => {
 		await page.waitForTimeout(3000);
