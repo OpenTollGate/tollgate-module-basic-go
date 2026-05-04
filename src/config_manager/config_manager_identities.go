@@ -3,7 +3,6 @@ package config_manager
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -100,7 +99,7 @@ func EnsureDefaultIdentities(filePath string) (*IdentitiesConfig, error) {
 	var identitiesConfig IdentitiesConfig
 	if err := json.Unmarshal(data, &identitiesConfig); err != nil || identitiesConfig.ConfigVersion != defaultIdentitiesConfig.ConfigVersion {
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "identities", defaultIdentitiesConfig.ConfigVersion); backupErr != nil {
-			log.Printf("CRITICAL: Failed to backup and remove invalid identities config: %v", backupErr)
+			logger.WithError(backupErr).Error("Failed to backup invalid identities config")
 			return nil, backupErr
 		}
 		return defaultIdentitiesConfig, SaveIdentities(filePath, defaultIdentitiesConfig)

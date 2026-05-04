@@ -3,7 +3,6 @@ package config_manager
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"time"
@@ -239,22 +238,22 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		profitShareErr = config.ValidateProfitShare()
 	}
 	if unmarshalErr != nil {
-		log.Printf("Invalid config JSON, backing up and recreating: %v", unmarshalErr)
+		logger.WithError(unmarshalErr).Warn("Invalid config JSON, backing up and recreating")
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
-			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
+			logger.WithError(backupErr).Error("Failed to backup invalid config")
 			return nil, backupErr
 		}
 		return defaultConfig, SaveConfig(filePath, defaultConfig)
 	}
 	if profitShareErr != nil {
-		log.Printf("Invalid profit_share, resetting to defaults: %v", profitShareErr)
+		logger.WithError(profitShareErr).Warn("Invalid profit_share, resetting to defaults")
 		config.ProfitShare = defaultConfig.ProfitShare
 		return &config, SaveConfig(filePath, &config)
 	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
-		log.Printf("Config version mismatch, backing up and recreating")
+		logger.Warn("Config version mismatch, backing up and recreating")
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
-			log.Printf("CRITICAL: Failed to backup and remove invalid config: %v", backupErr)
+			logger.WithError(backupErr).Error("Failed to backup config")
 			return nil, backupErr
 		}
 		return defaultConfig, SaveConfig(filePath, defaultConfig)

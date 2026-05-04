@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -60,18 +61,20 @@ func getTollgatePaths() (configPath, installPath, identitiesPath string) {
 func InitializeGlobalLogger(logLevel string) {
 	level, err := logrus.ParseLevel(strings.ToLower(logLevel))
 	if err != nil {
-		// Default to info level if parsing fails
 		level = logrus.InfoLevel
 		logrus.WithError(err).Warn("Failed to parse log level, defaulting to info")
 	}
 
 	logrus.SetLevel(level)
 
-	// Set a consistent formatter for the entire application
 	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-		ForceColors:   true,
+		DisableColors:    true,
+		DisableTimestamp: true,
 	})
+
+	logrus.SetOutput(os.Stdout)
+
+	log.SetOutput(os.Stdout)
 
 	logrus.WithField("log_level", level.String()).Info("Global logger initialized")
 }
@@ -207,7 +210,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println("mac", mac)
+	mainLogger.WithField("mac", mac).Debug("MAC address resolved")
 	fmt.Fprint(w, "mac=", mac)
 }
 
@@ -346,8 +349,8 @@ func HandleRoot(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
-	fmt.Println("Starting Tollgate Core")
-	fmt.Println("Listening on all interfaces on port", port)
+	mainLogger.Info("Starting Tollgate Core")
+	mainLogger.WithField("port", port).Info("Listening on all interfaces")
 
 	mainLogger.Info("Registering handlers...")
 
@@ -428,7 +431,7 @@ func main() {
 		mainLogger.Fatal(err)
 	}
 
-	fmt.Println("Shutting down Tollgate - Whoami")
+	mainLogger.Info("Shutting down Tollgate")
 }
 
 // isOnline checks if the device has at least one active, non-loopback network interface with an IP address.

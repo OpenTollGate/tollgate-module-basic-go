@@ -3,15 +3,13 @@ package merchant
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -19,6 +17,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/sirupsen/logrus"
 )
 
 // CustomerSession represents an active session
@@ -70,12 +69,12 @@ func (m *Merchant) saveSessions() {
 	}
 	data, err := json.Marshal(m.customerSessions)
 	if err != nil {
-		log.Printf("Error marshaling sessions: %v", err)
+		logger.WithError(err).Error("Error marshaling sessions")
 		return
 	}
 	tmp := m.sessionFile + ".tmp"
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		log.Printf("Error writing sessions: %v", err)
+		logger.WithError(err).Error("Error writing sessions")
 		return
 	}
 	os.Rename(tmp, m.sessionFile)
@@ -88,13 +87,13 @@ func (m *Merchant) RestoreSessions() {
 	data, err := os.ReadFile(m.sessionFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("Error reading sessions file: %v", err)
+			logger.WithError(err).Error("Error reading sessions file")
 		}
 		return
 	}
 	var sessions map[string]*CustomerSession
 	if err := json.Unmarshal(data, &sessions); err != nil {
-		log.Printf("Error parsing sessions file: %v", err)
+		logger.WithError(err).Error("Error parsing sessions file")
 		return
 	}
 	now := time.Now().Unix()
@@ -102,36 +101,44 @@ func (m *Merchant) RestoreSessions() {
 		if session.Metric == "milliseconds" {
 			endTime := session.StartTime + int64(session.Allotment/1000)
 			if endTime <= now {
-				log.Printf("Skipping expired time session for %s (ended %d s ago)", mac, now-endTime)
+				logger.WithFields(logrus.Fields{
+					"mac":     mac,
+					"expired": now - endTime,
+				}).Debug("Skipping expired time session")
 				continue
 			}
 			valve.OpenGateUntil(mac, endTime)
 			m.customerSessions[mac] = session
-			log.Printf("Restored time session for %s (%d s remaining)", mac, endTime-now)
+			logger.WithFields(logrus.Fields{
+				"mac":        mac,
+				"remaining_s": endTime - now,
+			}).Info("Restored time session")
 		} else if session.Metric == "bytes" {
 			valve.OpenGate(mac)
 			m.customerSessions[mac] = session
-			log.Printf("Restored data session for %s (%d bytes)", mac, session.Allotment)
+			logger.WithFields(logrus.Fields{
+				"mac":       mac,
+				"allotment": session.Allotment,
+			}).Info("Restored data session")
 		}
 	}
-	log.Printf("Restored %d sessions from %s", len(m.customerSessions), m.sessionFile)
+	logger.WithField("count", len(m.customerSessions)).Info("Sessions restored")
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
-	log.Printf("=== Merchant Initializing ===")
+	logger.Info("Merchant initializing")
 
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("main config is nil")
 	}
 
-	// Extract mint URLs from MintConfig
 	mintURLs := make([]string, len(config.AcceptedMints))
 	for i, mint := range config.AcceptedMints {
 		mintURLs[i] = mint.URL
 	}
 
-	log.Printf("Setting up wallet...")
+	logger.Info("Setting up wallet")
 	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
@@ -143,16 +150,17 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	}
 	balance := tollwallet.GetBalance()
 
-	// Set advertisement
 	advertisementStr, err := CreateAdvertisement(configManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement: %w", err)
 	}
 
-	log.Printf("Accepted Mints: %v", config.AcceptedMints)
-	log.Printf("Wallet Balance: %d", balance)
-	log.Printf("Advertisement: %s", advertisementStr)
-	log.Printf("=== Merchant ready ===")
+	logger.WithFields(logrus.Fields{
+		"mints":   mintURLs,
+		"balance": balance,
+	}).Debug("Wallet configured")
+
+	logger.Info("Merchant ready")
 
 	return &Merchant{
 		config:           config,
@@ -199,7 +207,7 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 
 // StartDataUsageMonitoring starts a background routine to monitor data usage for active sessions
 func (m *Merchant) StartDataUsageMonitoring() {
-	log.Printf("Starting data usage monitoring routine")
+	logger.Info("Starting data usage monitoring routine")
 
 	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
 	go func() {
@@ -230,47 +238,44 @@ func (m *Merchant) checkDataUsage() {
 		// Get current usage
 		usage, err := valve.GetDataUsageSinceBaseline(mac)
 		if err != nil {
-			log.Printf("Error getting data usage for %s: %v", mac, err)
+			logger.WithError(err).WithField("mac", mac).Error("Error getting data usage")
 			continue
 		}
 
-		// Check if allotment is reached
 		if usage >= session.Allotment {
-			log.Printf("Data allotment reached for %s: %s / %s",
-				mac,
-				utils.BytesToHumanReadable(usage),
-				utils.BytesToHumanReadable(session.Allotment))
+			logger.WithFields(logrus.Fields{
+				"mac":       mac,
+				"usage":     utils.BytesToHumanReadable(usage),
+				"allotment": utils.BytesToHumanReadable(session.Allotment),
+			}).Info("Data allotment reached")
 
-			// Close the gate
 			err = valve.CloseGate(mac)
 			if err != nil {
-				log.Printf("Error closing gate for %s: %v", mac, err)
+				logger.WithError(err).WithField("mac", mac).Error("Error closing gate")
 			} else {
-				log.Printf("Successfully closed gate for %s", mac)
+				logger.WithField("mac", mac).Info("Gate closed")
 			}
 
 			m.sessionMu.Lock()
 			delete(m.customerSessions, mac)
 			m.saveSessions()
 			m.sessionMu.Unlock()
-			log.Printf("Removed expired session for %s", mac)
 		} else {
-			// Log progress periodically (every ~10 checks = 20 seconds)
-			if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB
-				log.Printf("Data usage for %s: %s / %s (%.1f%%)",
-					mac,
-					utils.BytesToHumanReadable(usage),
-					utils.BytesToHumanReadable(session.Allotment),
-					float64(usage)/float64(session.Allotment)*100)
+			if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 {
+				logger.WithFields(logrus.Fields{
+					"mac":    mac,
+					"usage":  utils.BytesToHumanReadable(usage),
+					"limit":  utils.BytesToHumanReadable(session.Allotment),
+					"pct":    fmt.Sprintf("%.1f", float64(usage)/float64(session.Allotment)*100),
+				}).Debug("Data usage progress")
 			}
 		}
 	}
 }
 
 func (m *Merchant) StartPayoutRoutine() {
-	log.Printf("Starting payout routine")
+	logger.Info("Starting payout routine")
 
-	// Create timer for each mint
 	for _, mint := range m.config.AcceptedMints {
 		go func(mintConfig config_manager.MintConfig) {
 			ticker := time.NewTicker(1 * time.Minute)
@@ -282,7 +287,7 @@ func (m *Merchant) StartPayoutRoutine() {
 		}(mint)
 	}
 
-	log.Printf("Payout routine started")
+	logger.Info("Payout routine started")
 }
 
 // processPayout checks balances and processes payouts for each mint
@@ -293,7 +298,11 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 
 	// Skip if balance is below minimum payout amount
 	if balance < mintConfig.MinPayoutAmount {
-		log.Printf("Skipping payout %s, Balance %d does not meet threshold of %d", mintConfig.URL, balance, mintConfig.MinPayoutAmount)
+		logger.WithFields(logrus.Fields{
+			"mint":      mintConfig.URL,
+			"balance":   balance,
+			"threshold": mintConfig.MinPayoutAmount,
+		}).Debug("Skipping payout: below threshold")
 		return
 	}
 
@@ -311,26 +320,29 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 		// Lookup lightning address from identities based on the profitShare.Identity name
 		profitShareIdentity, err := identities.GetPublicIdentity(profitShare.Identity)
 		if err != nil {
-			log.Printf("Warning: Could not find public identity for profit share: %v", err)
-			continue // Skip this profit share if identity not found
+			logger.WithError(err).WithField("identity", profitShare.Identity).Warn("Could not find public identity for profit share")
+			continue
 		}
 		m.PayoutShare(mintConfig, aimedAmount, profitShareIdentity.LightningAddress)
 	}
 
-	log.Printf("Payout completed for mint %s", mintConfig.URL)
+	logger.WithField("mint", mintConfig.URL).Info("Payout completed")
 }
 
 func (m *Merchant) PayoutShare(mintConfig config_manager.MintConfig, aimedPaymentAmount uint64, lightningAddress string) {
 	tolerancePaymentAmount := aimedPaymentAmount + (aimedPaymentAmount * mintConfig.BalanceTolerancePercent / 100)
 
-	log.Printf("Processing payout for mint %s: aiming for %d sats with %d sats tolerance", mintConfig.URL, aimedPaymentAmount, tolerancePaymentAmount)
+	logger.WithFields(logrus.Fields{
+		"mint":       mintConfig.URL,
+		"aimed":      aimedPaymentAmount,
+		"tolerance":  tolerancePaymentAmount,
+	}).Debug("Processing payout")
 
 	maxCost := aimedPaymentAmount + tolerancePaymentAmount
 	meltErr := m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, lightningAddress)
 
-	// If melting fails try to return the money to the wallet
 	if meltErr != nil {
-		log.Printf("Error during payout for mint %s. Error melting to lightning. Skipping... %v", mintConfig.URL, meltErr)
+		logger.WithError(meltErr).WithField("mint", mintConfig.URL).Error("Error melting to lightning")
 		return
 	}
 }
@@ -384,7 +396,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	log.Printf("Amount after swap: %d", amountAfterSwap)
+	logger.WithFields(logrus.Fields{
+		"amount": amountAfterSwap,
+	}).Debug("Amount after swap")
 
 	// Calculate allotment using the configured metric and mint-specific pricing
 	mintURL := paymentCashuToken.Mint()
@@ -437,10 +451,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 				}
 				return noticeEvent, nil
 			}
-			// The valve module automatically sets the data baseline
-			log.Printf("Opened gate for new data session: %s", macAddress)
+			logger.WithField("mac", macAddress).Info("Opened gate for new data session")
 		} else {
-			log.Printf("Gate already open for %s, extending allotment without resetting baseline", macAddress)
+			logger.WithField("mac", macAddress).Debug("Gate already open, extending allotment")
 		}
 		// The merchant will periodically check usage and close the gate when allotment is reached
 	default:
@@ -565,22 +578,26 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 
 // calculateAllotmentMs calculates allotment in milliseconds from steps
 func (m *Merchant) calculateAllotmentMs(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
-	// Convert steps to milliseconds using configured step size
 	totalMs := steps * m.config.StepSize
 
-	log.Printf("Converting %d steps to %d ms using step size %d",
-		steps, totalMs, m.config.StepSize)
+	logger.WithFields(logrus.Fields{
+		"steps":    steps,
+		"total_ms": totalMs,
+		"step_size": m.config.StepSize,
+	}).Debug("Converting steps to milliseconds")
 
 	return totalMs, nil
 }
 
 // calculateAllotmentBytes calculates allotment in bytes from steps
 func (m *Merchant) calculateAllotmentBytes(steps uint64, mintConfig *config_manager.MintConfig) (uint64, error) {
-	// Convert steps to bytes using configured step size
 	totalBytes := steps * m.config.StepSize
 
-	log.Printf("Converting %d steps to %d bytes using step size %d",
-		steps, totalBytes, m.config.StepSize)
+	logger.WithFields(logrus.Fields{
+		"steps":      steps,
+		"total_bytes": totalBytes,
+		"step_size":  m.config.StepSize,
+	}).Debug("Converting steps to bytes")
 
 	return totalBytes, nil
 }
@@ -648,15 +665,21 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 			leftoverAllotment = existingAllotment - timePassedInMetric
 		}
 
-		log.Printf("Session extension: existing=%d %s, passed=%d %s, leftover=%d %s, additional=%d %s",
-			existingAllotment, m.config.Metric, timePassedInMetric, m.config.Metric,
-			leftoverAllotment, m.config.Metric, additionalAllotment, m.config.Metric)
+		logger.WithFields(logrus.Fields{
+			"existing":  existingAllotment,
+			"passed":    timePassedInMetric,
+			"leftover":  leftoverAllotment,
+			"additional": additionalAllotment,
+			"metric":    m.config.Metric,
+		}).Debug("Session extension")
 	} else {
-		// For non-time metrics (like bytes), keep the full existing allotment
 		leftoverAllotment = existingAllotment
-		log.Printf("Session extension: existing=%d %s, leftover=%d %s (no decay), additional=%d %s",
-			existingAllotment, m.config.Metric, leftoverAllotment, m.config.Metric,
-			additionalAllotment, m.config.Metric)
+		logger.WithFields(logrus.Fields{
+			"existing":  existingAllotment,
+			"leftover":  leftoverAllotment,
+			"additional": additionalAllotment,
+			"metric":    m.config.Metric,
+		}).Debug("Session extension (no decay)")
 	}
 
 	// Calculate new total allotment
@@ -779,8 +802,12 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 	balance := m.tollwallet.GetBalanceByMint(mintURL)
 	totalBalance := m.tollwallet.GetBalance()
 
-	log.Printf("Creating payment token: amount=%d, mintURL=%s, balance_by_mint=%d, total_balance=%d",
-		amount, mintURL, balance, totalBalance)
+	logger.WithFields(logrus.Fields{
+		"amount":        amount,
+		"mint":          mintURL,
+		"mint_balance":  balance,
+		"total_balance": totalBalance,
+	}).Debug("Creating payment token")
 
 	if balance < amount {
 		return "", fmt.Errorf("insufficient balance: need %d sats, have %d sats for mint %s (total balance: %d)",
@@ -809,8 +836,9 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 		return "", fmt.Errorf("token serialization returned empty string")
 	}
 
-	log.Printf("Successfully created payment token: length=%d, token_preview=%s...",
-		len(tokenString), tokenString[:min(50, len(tokenString))])
+	logger.WithFields(logrus.Fields{
+		"length": len(tokenString),
+	}).Debug("Payment token created")
 
 	return tokenString, nil
 }
@@ -822,7 +850,10 @@ func (m *Merchant) DrainMint(mintURL string) (string, uint64, error) {
 	// Check balance before attempting to drain
 	balance := m.tollwallet.GetBalanceByMint(mintURL)
 
-	log.Printf("Draining mint: mintURL=%s, balance=%d", mintURL, balance)
+	logger.WithFields(logrus.Fields{
+		"mint":    mintURL,
+		"balance": balance,
+	}).Info("Draining mint")
 
 	if balance == 0 {
 		return "", 0, fmt.Errorf("no balance available for mint %s", mintURL)
@@ -850,8 +881,10 @@ func (m *Merchant) DrainMint(mintURL string) (string, uint64, error) {
 		return "", 0, fmt.Errorf("drain token serialization returned empty string")
 	}
 
-	log.Printf("Successfully drained mint %s: amount=%d, token_length=%d",
-		mintURL, actualAmount, len(tokenString))
+	logger.WithFields(logrus.Fields{
+		"mint":   mintURL,
+		"amount": actualAmount,
+	}).Info("Mint drained")
 
 	return tokenString, actualAmount, nil
 }
@@ -924,33 +957,33 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 
 // Fund adds a cashu token to the wallet
 func (m *Merchant) Fund(cashuToken string) (uint64, error) {
-	log.Printf("Funding wallet with cashu token (length: %d)", len(cashuToken))
+	logger.WithField("length", len(cashuToken)).Info("Funding wallet with cashu token")
 
-	// Basic validation - cashu tokens typically start with "cashuA" and are much longer
 	if len(cashuToken) < 10 {
 		return 0, fmt.Errorf("invalid cashu token: token too short (expected cashu token format)")
 	}
 
-	// Parse the cashu token with error recovery
 	tokenPreview := cashuToken
 	if len(cashuToken) > 50 {
 		tokenPreview = cashuToken[:50] + "..."
 	}
-	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
+	logger.WithFields(logrus.Fields{
+		"length":  len(cashuToken),
+		"preview": tokenPreview,
+	}).Debug("Decoding token")
 
 	parsedToken, err := cashu.DecodeTokenV4(cashuToken)
 	if err != nil {
-		log.Printf("Failed to decode cashu token (length: %d): %v", len(cashuToken), err)
+		logger.WithError(err).WithField("length", len(cashuToken)).Error("Failed to decode cashu token")
 		return 0, fmt.Errorf("invalid cashu token format: %w", err)
 	}
 
-	// Add token to wallet
 	amountReceived, err := m.tollwallet.Receive(parsedToken)
 	if err != nil {
-		log.Printf("Failed to receive cashu token: %v", err)
+		logger.WithError(err).Error("Failed to receive cashu token")
 		return 0, fmt.Errorf("failed to receive token: %w", err)
 	}
 
-	log.Printf("Successfully funded wallet with %d sats", amountReceived)
+	logger.WithField("amount", amountReceived).Info("Wallet funded")
 	return amountReceived, nil
 }

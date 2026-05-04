@@ -2,11 +2,12 @@ package config_manager
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ConfigManager manages the configuration files.
@@ -31,9 +32,17 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 		configPath = filepath.Join(testConfigDir, filepath.Base(configPath))
 		installPath = filepath.Join(testConfigDir, filepath.Base(installPath))
 		identitiesPath = filepath.Join(testConfigDir, filepath.Base(identitiesPath))
-		log.Printf("Using config paths for testing: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
+		logger.WithFields(logrus.Fields{
+			"config":     configPath,
+			"install":    installPath,
+			"identities": identitiesPath,
+		}).Debug("Using test config paths")
 	} else {
-		log.Printf("Using config paths: config=%s, install=%s, identities=%s", configPath, installPath, identitiesPath)
+		logger.WithFields(logrus.Fields{
+			"config":     configPath,
+			"install":    installPath,
+			"identities": identitiesPath,
+		}).Debug("Using config paths")
 	}
 
 	cm := &ConfigManager{
@@ -140,7 +149,10 @@ func (cm *ConfigManager) UpdatePricing(pricePerStep, stepSize int) error {
 	}
 
 	if needsUpdate {
-		log.Printf("Price changed. Udpating config file with price_per_step=%d, step_size=%d", pricePerStep, stepSize)
+		logger.WithFields(logrus.Fields{
+			"price_per_step": pricePerStep,
+			"step_size":      stepSize,
+		}).Info("Price changed, updating config")
 		return SaveConfig(cm.ConfigFilePath, config)
 	}
 
@@ -177,6 +189,9 @@ func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
 	}
 
 	// 4. Log the action
-	log.Printf("WARNING: Invalid '%s' config file found. Backed up to %s", fileType, backupPath)
+	logger.WithFields(logrus.Fields{
+		"file_type": fileType,
+		"backup":    backupPath,
+	}).Warn("Invalid config file backed up")
 	return nil
 }

@@ -164,7 +164,7 @@ func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
 	logger.WithFields(logrus.Fields{
 		"interface": event.InterfaceName,
 		"gateway":   event.GatewayIP,
-	}).Info("Interface is up with gateway - notifying upstream session manager")
+	}).Debug("Interface is up with gateway - notifying upstream session manager")
 
 	// Report gateway to upstream session manager
 	ud.reportGatewayToUSM(event.InterfaceName, event.InterfaceInfo.MacAddress, event.GatewayIP)
@@ -172,7 +172,9 @@ func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
 
 // handleInterfaceDown handles interface down events
 func (ud *upstreamDetector) handleInterfaceDown(event NetworkEvent) {
-	logger.WithField("interface", event.InterfaceName).Info("Interface is down - notifying upstream session manager")
+	logger.WithFields(logrus.Fields{
+		"interface": event.InterfaceName,
+	}).Debug("Interface is down - notifying upstream session manager")
 
 	// Notify upstream session manager of disconnect
 	if ud.upstreamSessionManager != nil {
@@ -230,7 +232,7 @@ func (ud *upstreamDetector) reportGatewayToUSM(interfaceName, macAddress, gatewa
 		"interface": interfaceName,
 		"gateway":   gatewayIP,
 		"mac":       macAddress,
-	}).Info("📡 Reporting gateway to upstream session manager")
+	}).Debug("Reporting gateway to upstream session manager")
 
 	// Report gateway to upstream session manager - it will handle all TollGate logic
 	err := ud.upstreamSessionManager.HandleGatewayConnected(interfaceName, macAddress, gatewayIP)
@@ -244,7 +246,7 @@ func (ud *upstreamDetector) reportGatewayToUSM(interfaceName, macAddress, gatewa
 		logger.WithFields(logrus.Fields{
 			"interface": interfaceName,
 			"gateway":   gatewayIP,
-		}).Info("✅ Successfully reported gateway to upstream session manager")
+		}).Debug("Gateway reported to upstream session manager")
 	}
 }
 
@@ -274,12 +276,12 @@ func (ud *upstreamDetector) periodicGatewayCheck() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	logger.Info("Starting periodic gateway check (every 30s)")
+	logger.Debug("Starting periodic gateway check (every 30s)")
 
 	for {
 		select {
 		case <-ud.stopChan:
-			logger.Info("Periodic gateway check stopping")
+			logger.Debug("Periodic gateway check stopping")
 			return
 
 		case <-ticker.C:
@@ -324,7 +326,7 @@ func (ud *upstreamDetector) performInitialInterfaceScan() {
 	// Small delay to allow the system to fully initialize
 	time.Sleep(2 * time.Second)
 
-	logger.Info("Performing initial interface scan to report existing gateways")
+	logger.Debug("Performing initial interface scan to report existing gateways")
 
 	// Get current network interfaces
 	interfaces, err := ud.networkMonitor.GetCurrentInterfaces()
@@ -349,11 +351,11 @@ func (ud *upstreamDetector) performInitialInterfaceScan() {
 		logger.WithFields(logrus.Fields{
 			"interface": iface.Name,
 			"gateway":   gatewayIP,
-		}).Info("Startup scan: Found interface with gateway - reporting to upstream session manager")
+		}).Debug("Startup scan: found interface with gateway")
 
 		// Report gateway to upstream session manager
 		ud.reportGatewayToUSM(iface.Name, iface.MacAddress, gatewayIP)
 	}
 
-	logger.Info("Initial interface scan completed")
+	logger.Debug("Initial interface scan completed")
 }

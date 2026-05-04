@@ -2,7 +2,6 @@ package config_manager
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"time"
 )
@@ -77,7 +76,7 @@ func EnsureDefaultInstall(filePath string) (*InstallConfig, error) {
 	var installConfig InstallConfig
 	if err := json.Unmarshal(data, &installConfig); err != nil || installConfig.ConfigVersion != defaultInstallConfig.ConfigVersion {
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "install", defaultInstallConfig.ConfigVersion); backupErr != nil {
-			log.Printf("CRITICAL: Failed to backup and remove invalid install config: %v", backupErr)
+			logger.WithError(backupErr).Error("Failed to backup invalid install config")
 			return nil, backupErr
 		}
 		return defaultInstallConfig, SaveInstallConfig(filePath, defaultInstallConfig)

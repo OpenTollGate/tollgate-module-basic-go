@@ -9,6 +9,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/Origami74/gonuts-tollgate v0.6.1
 	github.com/nbd-wtf/go-nostr v0.51.11
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (

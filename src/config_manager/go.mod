@@ -3,8 +3,8 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager
 go 1.24.2
 
 require (
-	github.com/hashicorp/go-version v1.7.0
 	github.com/nbd-wtf/go-nostr v0.51.10
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
