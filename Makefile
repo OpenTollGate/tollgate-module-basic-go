@@ -230,6 +230,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
 endef
 
+define Package/$(PKG_NAME)/prerm
+#!/bin/sh
+rm -f /usr/bin/tollgate /usr/bin/tollgate-wrt
+endef
+
 # Update FILES declaration to include NoDogSplash files
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-wrt \
@@ -244,6 +249,7 @@ FILES_$(PKG_NAME) += \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/usr/share/luci/menu.d/luci-app-tollgate-payments.json \
 	/www/luci-static/resources/view/tollgate-payments/settings.js \
+	/www/luci-static/resources/tollgate-payments/tg.css \
 	/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart

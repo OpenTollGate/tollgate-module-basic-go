@@ -260,3 +260,54 @@
 .tg-obj-fields {
 	padding: 0.5rem 0;
 }
+
+@media (max-width: 480px) {
+	.tg-tab-bar {
+		gap: 4px;
+	}
+	.tg-tab-bar .cbi-button {
+		font-size: 12px;
+		padding: 4px 8px;
+	}
+	.tg-input-sm {
+		max-width: none;
+	}
+	.tg-mint-grid {
+		grid-template-columns: 1fr 1fr;
+		gap: 6px 8px;
+	}
+	.tg-mint-header {
+		flex-direction: column;
+	}
+	.tg-mint-remove {
+		align-self: flex-start;
+		font-size: 16px;
+		padding: 6px 12px;
+		min-height: 36px;
+		min-width: 36px;
+	}
+	.tg-slider-td {
+		width: 50%;
+	}
+	.tg-btn-remove {
+		font-size: 16px;
+		padding: 6px 12px;
+		min-height: 36px;
+		min-width: 36px;
+	}
+	.tg-pct-label {
+		min-width: 50px;
+		font-size: 12px;
+	}
+	.tg-overflow-x {
+		-webkit-overflow-scrolling: touch;
+	}
+	.tg-scroll-box {
+		max-height: 16rem;
+		font-size: 11px;
+	}
+	.tg-editor {
+		min-height: 12rem;
+		font-size: 11px;
+	}
+}
