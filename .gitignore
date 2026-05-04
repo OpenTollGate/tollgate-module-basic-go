@@ -20,6 +20,8 @@ tollgate-module-basic-go
 tests/*.bin
 tests/__pycache__/
 tests/e2e/screenshots/
+tests/e2e/report/
+tests/e2e/test-results/
 
 # AI tooling — shared skills are symlinked, local memory is per-repo
 .claude/
