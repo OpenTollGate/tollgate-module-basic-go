@@ -31,3 +31,4 @@ memory-project/
 reference/
 node_modules/
 .sisyphus/
+src/cmd/tollgate-cli/tollgate-cli
