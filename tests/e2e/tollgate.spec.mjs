@@ -263,6 +263,183 @@ test.describe('desktop interactions', () => {
 		await editor.fill(original);
 	});
 
+	test('network: password and enable/disable buttons render', async ({ page }) => {
+		await clickTab(page, 'Network');
+		await waitLoaded(page, 'nw_loading');
+		const pwInput = await page.evaluate(() => !!document.getElementById('nw_new_pw'));
+		expect(pwInput).toBeTruthy();
+		const hasEnableBtn = await page.evaluate(() => {
+			const btns = document.querySelectorAll('button');
+			for (const b of btns) if (b.textContent.trim() === 'Enable') return true;
+			return false;
+		});
+		expect(hasEnableBtn).toBeTruthy();
+		const hasDisableBtn = await page.evaluate(() => {
+			const btns = document.querySelectorAll('button');
+			for (const b of btns) if (b.textContent.trim() === 'Disable') return true;
+			return false;
+		});
+		expect(hasDisableBtn).toBeTruthy();
+	});
+
+	test('config: add share applies proportional squeeze', async ({ page }) => {
+		await waitForConfig(page);
+		await page.evaluate(() => document.getElementById('cfg_ps_body')?.scrollIntoView({ block: 'center' }));
+		await page.waitForTimeout(300);
+
+		const before = await page.evaluate(() => {
+			const tbody = document.getElementById('cfg_ps_body');
+			if (!tbody || tbody.children.length === 0) return null;
+			const factors = [];
+			for (let i = 0; i < tbody.children.length; i++) {
+				const el = document.getElementById('cfg_ps_' + i + '_factor');
+				factors.push(el ? parseFloat(el.value) : 0);
+			}
+			return { count: tbody.children.length, factors };
+		});
+		if (!before || before.count < 1) return;
+
+		await page.evaluate(() => {
+			for (const btn of document.querySelectorAll('button'))
+				if (btn.textContent.trim() === 'Add Share') { btn.click(); break; }
+		});
+		await page.waitForTimeout(500);
+
+		const after = await page.evaluate(() => {
+			const tbody = document.getElementById('cfg_ps_body');
+			if (!tbody) return null;
+			const factors = [];
+			for (let i = 0; i < tbody.children.length; i++) {
+				const el = document.getElementById('cfg_ps_' + i + '_factor');
+				factors.push(el ? parseFloat(el.value) : 0);
+			}
+			return { count: tbody.children.length, factors };
+		});
+		if (!after) return;
+
+		expect(after.count).toBe(before.count + 1);
+		const n = before.count;
+		const squeeze = n / (n + 1);
+		const newShare = 1 / (n + 1);
+		for (let i = 0; i < n; i++) {
+			const expected = before.factors[i] * squeeze;
+			expect(Math.abs(after.factors[i] - expected)).toBeLessThan(0.02);
+		}
+		expect(Math.abs(after.factors[n] - newShare)).toBeLessThan(0.02);
+	});
+
+	test('config: remove share row redistributes evenly', async ({ page }) => {
+		await waitForConfig(page);
+		await page.evaluate(() => document.getElementById('cfg_ps_body')?.scrollIntoView({ block: 'center' }));
+		await page.waitForTimeout(300);
+
+		const beforeCount = await page.evaluate(() => document.getElementById('cfg_ps_body')?.children.length ?? 0);
+		if (beforeCount < 2) return;
+
+		const removeBtns = await page.evaluate(() => {
+			const tbody = document.getElementById('cfg_ps_body');
+			if (!tbody) return 0;
+			const btns = tbody.querySelectorAll('.tg-btn-remove');
+			if (btns.length) btns[btns.length - 1].click();
+			return tbody.children.length;
+		});
+		await page.waitForTimeout(500);
+
+		const after = await page.evaluate(() => {
+			const tbody = document.getElementById('cfg_ps_body');
+			if (!tbody) return null;
+			const factors = [];
+			for (let i = 0; i < tbody.children.length; i++) {
+				const el = document.getElementById('cfg_ps_' + i + '_factor');
+				factors.push(el ? parseFloat(el.value) : 0);
+			}
+			return { count: tbody.children.length, factors };
+		});
+		if (!after) return;
+
+		expect(after.count).toBe(beforeCount - 1);
+		const evenShare = 1 / after.count;
+		for (const f of after.factors) {
+			expect(Math.abs(f - evenShare)).toBeLessThan(0.02);
+		}
+	});
+
+	test('config: add identity row', async ({ page }) => {
+		await waitForConfig(page);
+		await page.evaluate(() => document.getElementById('cfg_pi_body')?.scrollIntoView({ block: 'center' }));
+		await page.waitForTimeout(300);
+
+		const before = await page.evaluate(() => document.getElementById('cfg_pi_body')?.children.length ?? 0);
+		await page.evaluate(() => {
+			for (const btn of document.querySelectorAll('button'))
+				if (btn.textContent.trim() === 'Add Identity') { btn.click(); break; }
+		});
+		await page.waitForTimeout(300);
+
+		const after = await page.evaluate(() => document.getElementById('cfg_pi_body')?.children.length ?? 0);
+		expect(after).toBe(before + 1);
+
+		const newInputs = await page.evaluate(() => {
+			const tbody = document.getElementById('cfg_pi_body');
+			if (!tbody) return false;
+			const lastRow = tbody.children[tbody.children.length - 1];
+			return lastRow ? lastRow.querySelectorAll('input').length >= 2 : false;
+		});
+		expect(newInputs).toBeTruthy();
+	});
+
+	test('config: remove identity row', async ({ page }) => {
+		await waitForConfig(page);
+		await page.evaluate(() => document.getElementById('cfg_pi_body')?.scrollIntoView({ block: 'center' }));
+		await page.waitForTimeout(300);
+
+		const before = await page.evaluate(() => document.getElementById('cfg_pi_body')?.children.length ?? 0);
+		if (before < 2) return;
+
+		await page.evaluate(() => {
+			const tbody = document.getElementById('cfg_pi_body');
+			if (!tbody) return;
+			const btns = tbody.querySelectorAll('.tg-btn-remove');
+			if (btns.length) btns[btns.length - 1].click();
+		});
+		await page.waitForTimeout(300);
+
+		const after = await page.evaluate(() => document.getElementById('cfg_pi_body')?.children.length ?? 0);
+		expect(after).toBe(before - 1);
+	});
+
+	test('advanced: reload files updates timestamp', async ({ page }) => {
+		await waitForAdvanced(page);
+		await page.evaluate(() => {
+			for (const btn of document.querySelectorAll('button'))
+				if (btn.textContent.trim() === 'Reload both files') { btn.click(); break; }
+		});
+		await page.waitForFunction(
+			() => {
+				const el = document.getElementById('files_state');
+				return el && el.textContent.includes('Loaded');
+			},
+			{ timeout: 10000 }
+		);
+		expect(await $('files_state')(page)).toContain('Loaded');
+	});
+
+	test('advanced: validate identities editor', async ({ page }) => {
+		await waitForAdvanced(page);
+		const editor = page.locator('#identities_editor');
+		const original = await editor.inputValue();
+		await editor.fill('not valid json {{{');
+		await page.evaluate(() => {
+			const btns = document.querySelectorAll('button');
+			for (let i = btns.length - 1; i >= 0; i--) {
+				if (btns[i].textContent.trim() === 'Validate') { btns[i].click(); break; }
+			}
+		});
+		await page.waitForTimeout(500);
+		expect(await $('identities_state')(page)).toContain('Invalid JSON');
+		await editor.fill(original);
+	});
+
 	test('drain: modal appears and can be cancelled', async ({ page }) => {
 		await page.waitForTimeout(3000);
 		await page.getByRole('button', { name: 'Drain All Funds' }).click();
