@@ -214,7 +214,7 @@ async function run() {
 
 		// === TEST 5: Restore original profit_share ===
 		console.log('\n--- Test 5: Restore original profit_share ---');
-		await page.getByRole('button', { name: 'Overview' }).click();
+		await page.getByRole('button', { name: 'Dashboard' }).click();
 		await page.waitForTimeout(500);
 		await page.getByRole('button', { name: 'Configuration' }).click();
 		await waitForConfigLoaded(page);
@@ -264,7 +264,7 @@ async function run() {
 
 		// === TEST 6: Identity remove button exists and works ===
 		console.log('\n--- Test 6: Identity remove button ---');
-		await page.getByRole('button', { name: 'Overview' }).click();
+		await page.getByRole('button', { name: 'Dashboard' }).click();
 		await page.waitForTimeout(500);
 		await page.getByRole('button', { name: 'Configuration' }).click();
 		await waitForConfigLoaded(page);
@@ -290,7 +290,7 @@ async function run() {
 			await saveConfig(page);
 			await waitForSaveState(page, 'Saved', 10000);
 
-			await page.getByRole('button', { name: 'Overview' }).click();
+			await page.getByRole('button', { name: 'Dashboard' }).click();
 			await page.waitForTimeout(500);
 			await page.getByRole('button', { name: 'Configuration' }).click();
 			await waitForConfigLoaded(page);

@@ -76,7 +76,7 @@ return view.extend({
 		var versionResp = data[2];
 		var schemaResp = data[3];
 
-		var activeTab = 'overview';
+		var activeTab = 'dashboard';
 		var tabContent = E('div');
 		var pollFailCount = 0;
 		var cachedSchema = (schemaResp && schemaResp.data) || null;
@@ -85,20 +85,19 @@ return view.extend({
 
 		function setTab(name) {
 			activeTab = name;
-			var tabs = ['overview', 'wallet', 'network', 'config', 'logs', 'advanced'];
+			var tabs = ['dashboard', 'network', 'config', 'logs', 'advanced'];
 			tabs.forEach(function(t) {
 				var btn = q('tab_' + t);
 				if (btn) btn.className = t === name ? 'cbi-button cbi-button-action' : 'cbi-button';
 			});
-			if (name === 'overview') renderOverview();
-			else if (name === 'wallet') renderWallet();
+			if (name === 'dashboard') renderDashboard();
 			else if (name === 'network') renderNetwork();
 			else if (name === 'config') renderConfig();
 			else if (name === 'logs') renderLogs();
 			else if (name === 'advanced') renderAdvanced();
 		}
 
-		function renderOverview() {
+		function renderDashboard() {
 			clearNode(tabContent);
 			var balanceSats = '—';
 			var statusData = null;
@@ -119,10 +118,6 @@ return view.extend({
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Service Status')),
 				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('Wallet Balance')),
-					E('div', { 'class': 'cbi-value-field tg-balance', 'id': 'ov_balance' }, balanceSats)
-				]),
-				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Service')),
 					E('div', { 'class': 'cbi-value-field', 'id': 'ov_status' }, statusBadge(statusRunning))
 				]),
@@ -141,30 +136,15 @@ return view.extend({
 				])
 			]));
 
-			var versionLines = [];
-			if (versionData) {
-				if (versionData.version) versionLines.push('Version: ' + versionData.version);
-				if (versionData.commit) versionLines.push('Commit: ' + versionData.commit);
-				if (versionData.build_time) versionLines.push('Built: ' + versionData.build_time);
-				if (versionData.go_version) versionLines.push('Go: ' + versionData.go_version);
-				if (versionData.openwrt_version) versionLines.push('OpenWrt: ' + versionData.openwrt_version);
-			}
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h3', _('Version')),
-				E('pre', { 'id': 'ov_version', 'class': 'tg-monospace' }, versionLines.join('\n') || '—')
-			]));
-		}
-
-		function renderWallet() {
-			clearNode(tabContent);
-			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h3', _('Wallet Balance')),
+				E('h3', _('Wallet')),
 				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('Total Balance')),
-					E('div', { 'class': 'cbi-value-field tg-balance', 'id': 'wl_balance' }, 'Loading…')
+					E('label', { 'class': 'cbi-value-title' }, _('Balance')),
+					E('div', { 'class': 'cbi-value-field tg-balance', 'id': 'ov_balance' }, balanceSats)
 				]),
 				E('pre', { 'id': 'wl_info', 'class': 'tg-monospace tg-scroll-sm' }, 'Loading…')
 			]));
+
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Fund Wallet')),
 				E('div', { 'class': 'cbi-value' }, [
@@ -179,6 +159,7 @@ return view.extend({
 					' ', E('span', { 'id': 'wl_fund_state', 'class': 'tg-hint' })
 				])
 			]));
+
 			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Drain Wallet')),
 				E('p', { 'class': 'tg-hint' }, _('Convert all wallet funds to Cashu tokens. Copy the tokens to a safe place.')),
@@ -200,20 +181,30 @@ return view.extend({
 				])
 			]));
 
+			var versionLines = [];
+			if (versionData) {
+				if (versionData.version) versionLines.push('Version: ' + versionData.version);
+				if (versionData.commit) versionLines.push('Commit: ' + versionData.commit);
+				if (versionData.build_time) versionLines.push('Built: ' + versionData.build_time);
+				if (versionData.go_version) versionLines.push('Go: ' + versionData.go_version);
+				if (versionData.openwrt_version) versionLines.push('OpenWrt: ' + versionData.openwrt_version);
+			}
+			tabContent.appendChild(E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Version')),
+				E('pre', { 'id': 'ov_version', 'class': 'tg-monospace' }, versionLines.join('\n') || '—')
+			]));
+
 			cliJson('wallet', 'balance').then(function(resp) {
-				var el = q('wl_balance');
+				var el = q('ov_balance');
 				if (el && resp && resp.data) el.textContent = (resp.data.balance_sats || 0) + ' sats';
 			}).catch(function() {});
 			cliJson('wallet', 'info').then(function(resp) {
 				var el = q('wl_info');
-				if (!el || !resp || !resp.data) return;
-				var lines = ['Total: ' + (resp.data.total_balance || 0) + ' sats across ' + (resp.data.mint_count || 0) + ' mint(s)', ''];
-				var mints = resp.data.mint_balances || {};
-				Object.keys(mints).forEach(function(url) {
-					lines.push('  ' + url + ': ' + mints[url] + ' sats');
-				});
-				el.textContent = lines.join('\n') || 'No info.';
-			}).catch(function() {});
+				if (el && resp && resp.data) {
+					var d = resp.data;
+					el.textContent = 'Total: ' + (d.total_balance || 0) + ' sats across ' + (d.mint_count || 0) + ' mints';
+				}
+		}).catch(function() {});
 		}
 
 		function renderNetwork() {
@@ -330,20 +321,20 @@ return view.extend({
 
 				configSchema.forEach(function(field) {
 					if (field.json_key === 'config_version') return;
-					if (field.json_key === 'upstream_detector' || field.json_key === 'upstream_session_manager') return;
 					if (!field.editable) return;
 
 					if (field.type === 'array' && field.json_key === 'accepted_mints') {
 						sections.push(buildMintsSection(cfg.accepted_mints || [], field));
 					} else if (field.type === 'array' && field.json_key === 'profit_share') {
 						sections.push(buildProfitShareSection(cfg.profit_share || [], field, identities));
+					} else if (field.type === 'object') {
+						sections.push(buildObjectSection(field, cfg[field.json_key] || {}, field.json_key));
 					} else if (field.type === 'string' || field.type === 'uint64' || field.type === 'float64' || field.type === 'bool') {
 						sections.push(buildSimpleField(cfg, field));
 					}
 				});
 
 				sections.push(buildIdentitiesSection(identities, identitiesSchema));
-				sections.push(buildAdvancedConfigSection(cfg));
 
 				sections.push(E('div', { 'class': 'cbi-page-actions' }, [
 					E('button', { 'class': 'cbi-button cbi-button-save', 'click': function() { saveAllConfig(false); } }, _('Save')),
@@ -735,14 +726,60 @@ return view.extend({
 			]);
 		}
 
-		function buildAdvancedConfigSection(cfg) {
+		function buildObjectSection(field, value, prefix) {
+			var fields = [];
+			(field.children || []).forEach(function(child) {
+				var childKey = prefix + '.' + child.json_key;
+				var childVal = value[child.json_key];
+
+				if (child.type === 'object' && child.children && child.children.length > 0) {
+					child.children.forEach(function(grandchild) {
+						var gcKey = childKey + '.' + grandchild.json_key;
+						var gcVal = (childVal || {})[grandchild.json_key];
+						if (grandchild.type === 'array' && grandchild.children && grandchild.children.length > 0 && grandchild.children[0].type === 'string') {
+							fields.push(buildFlatField(gcKey, Array.isArray(gcVal) ? gcVal.join(', ') : '', grandchild));
+						} else {
+							fields.push(buildFlatField(gcKey, gcVal != null ? String(gcVal) : '', grandchild));
+						}
+					});
+				} else if (child.type === 'array' && child.children && child.children.length > 0 && child.children[0].type === 'string') {
+					fields.push(buildFlatField(childKey, Array.isArray(childVal) ? childVal.join(', ') : '', child));
+				} else {
+					fields.push(buildFlatField(childKey, childVal != null ? String(childVal) : '', child));
+				}
+			});
+
 			return E('details', { 'class': 'tg-adv-details' }, [
-				E('summary', { 'class': 'tg-adv-summary' }, _('Advanced: upstream_detector, upstream_session_manager')),
-				E('pre', { 'id': 'cfg_advanced_raw', 'class': 'tg-monospace-sm tg-scroll-lg' },
-					JSON.stringify({
-						upstream_detector: cfg.upstream_detector || {},
-						upstream_session_manager: cfg.upstream_session_manager || {}
-					}, null, 2))
+				E('summary', { 'class': 'tg-adv-summary' }, _(field.json_key.replace(/_/g, ' '))),
+				E('div', { 'class': 'tg-obj-fields' }, fields)
+			]);
+		}
+
+		function buildFlatField(dottedKey, val, field) {
+			var input;
+			if (field.enum) {
+				var options = field.enum.map(function(opt) {
+					return E('option', { 'value': opt, 'selected': val === opt ? 'selected' : undefined }, opt);
+				});
+				input = E('select', { 'id': 'cfg_' + dottedKey, 'class': 'cbi-input-select tg-input-sm' }, options);
+			} else if (field.type === 'bool') {
+				input = E('select', { 'id': 'cfg_' + dottedKey, 'class': 'cbi-input-select tg-input-sm' }, [
+					E('option', { 'value': 'true', 'selected': val === 'true' ? 'selected' : undefined }, 'true'),
+					E('option', { 'value': 'false', 'selected': val === 'false' ? 'selected' : undefined }, 'false')
+				]);
+			} else {
+				input = E('input', {
+					'type': 'text', 'id': 'cfg_' + dottedKey, 'class': 'cbi-input-text tg-input-sm',
+					'value': val || '',
+					'placeholder': field.description || ''
+				});
+			}
+			return E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _(dottedKey)),
+				E('div', { 'class': 'cbi-value-field' }, [
+					input,
+					E('div', { 'class': 'cbi-value-description' }, field.description || '')
+				])
 			]);
 		}
 
@@ -752,6 +789,22 @@ return view.extend({
 			if (type === 'uint64' || type === 'int') return parseInt(val, 10);
 			if (type === 'float64') return parseFloat(val);
 			return val;
+		}
+
+		function collectObjectFields(field, obj, prefix) {
+			(field.children || []).forEach(function(child) {
+				var childKey = prefix + '.' + child.json_key;
+				if (child.type === 'object' && child.children && child.children.length > 0) {
+					if (!obj[child.json_key]) obj[child.json_key] = {};
+					collectObjectFields(child, obj[child.json_key], childKey);
+				} else if (child.type === 'array' && child.children && child.children.length > 0 && child.children[0].type === 'string') {
+					var el = q('cfg_' + childKey);
+					if (el) obj[child.json_key] = el.value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+				} else {
+					var el = q('cfg_' + childKey);
+					if (el) obj[child.json_key] = coerceByType(el.value, child.type);
+				}
+			});
 		}
 
 		function saveAllConfig(apply) {
@@ -770,7 +823,12 @@ return view.extend({
 				configSchema.forEach(function(field) {
 					if (!field.editable) return;
 					if (field.json_key === 'accepted_mints' || field.json_key === 'profit_share') return;
-					if (field.type === 'object') return;
+					if (field.type === 'object') {
+						var objVal = cfg[field.json_key] || {};
+						collectObjectFields(field, objVal, field.json_key);
+						cfg[field.json_key] = objVal;
+						return;
+					}
 					if (field.type === 'array' && (field.children || []).length > 0 && field.children[0].type !== 'string') return;
 
 					var el = q('cfg_' + field.json_key);
@@ -983,15 +1041,15 @@ return view.extend({
 						fs.exec_direct('/etc/init.d/tollgate-wrt', ['start'])
 					]);
 				}).then(function() {
-					setTimeout(function() { setSvcButtons(false); refreshOverview(); }, 3000);
-				}).catch(function() { setSvcButtons(false); refreshOverview(); });
+					setTimeout(function() { setSvcButtons(false); refreshDashboard(); }, 3000);
+				}).catch(function() { setSvcButtons(false); refreshDashboard(); });
 			} else {
 				Promise.all([
 					fs.exec_direct('/etc/init.d/tollgate-wrt', [action]),
 					fs.exec_direct('/etc/init.d/nodogsplash', [action])
 				]).then(function() {
-					setTimeout(function() { setSvcButtons(false); refreshOverview(); }, 3000);
-				}).catch(function() { setSvcButtons(false); refreshOverview(); });
+					setTimeout(function() { setSvcButtons(false); refreshDashboard(); }, 3000);
+				}).catch(function() { setSvcButtons(false); refreshDashboard(); });
 			}
 		}
 
@@ -1010,7 +1068,7 @@ return view.extend({
 					stateSpan('wl_fund_state', 'Funded: ' + ((resp.data && resp.data.amount_received) || 0) + ' sats received.', 'tg-state-success');
 					if (tokenEl) tokenEl.value = '';
 					cliJson('wallet', 'balance').then(function(r) {
-						var el = q('wl_balance');
+						var el = q('ov_balance');
 						if (el && r && r.data) el.textContent = (r.data.balance_sats || 0) + ' sats';
 					});
 				} else {
@@ -1046,7 +1104,7 @@ return view.extend({
 							if (copyWrap) { if (tokens.length > 0) copyWrap.classList.remove('tg-hidden'); else copyWrap.classList.add('tg-hidden'); }
 							stateSpan('wl_drain_state', 'Drained.', 'tg-state-success');
 							cliJson('wallet', 'balance').then(function(r) {
-								var el = q('wl_balance');
+								var el = q('ov_balance');
 								if (el && r && r.data) el.textContent = (r.data.balance_sats || 0) + ' sats';
 							});
 						}).catch(function(err) {
@@ -1094,15 +1152,13 @@ return view.extend({
 			});
 		}
 
-		function refreshOverview() {
+		function refreshDashboard() {
 			cliJson('wallet', 'balance').then(function(resp) {
 				pollFailCount = 0;
 				clearPollWarning();
 				var text = (resp && resp.data) ? (resp.data.balance_sats || 0) + ' sats' : '—';
 				var el = q('ov_balance');
 				if (el) el.textContent = text;
-				var wlEl = q('wl_balance');
-				if (wlEl) wlEl.textContent = text;
 			}).catch(function() { pollFailCount++; showPollWarning(); });
 			cliJson('status').then(function(resp) {
 				var el = q('ov_status');
@@ -1131,7 +1187,7 @@ return view.extend({
 
 		poll.add(function() {
 			if (document.hidden) return;
-			if (activeTab === 'overview') return refreshOverview();
+			if (activeTab === 'dashboard') return refreshDashboard();
 			if (activeTab === 'logs') {
 				return fs.exec_direct('/sbin/logread', ['-e', 'tollgate-wrt', '-l', '300']).then(function(t) {
 					pollFailCount = 0;
@@ -1151,8 +1207,7 @@ return view.extend({
 			E('h2', { 'name': 'content' }, 'TollGate'),
 			E('div', { 'class': 'cbi-map-descr' }, _('Manage your TollGate captive portal payment gateway.')),
 			E('div', { 'class': 'tg-tab-bar' }, [
-				E('button', { 'id': 'tab_overview', 'class': 'cbi-button cbi-button-action', 'click': function() { setTab('overview'); } }, _('Overview')),
-				E('button', { 'id': 'tab_wallet', 'class': 'cbi-button', 'click': function() { setTab('wallet'); } }, _('Wallet')),
+				E('button', { 'id': 'tab_dashboard', 'class': 'cbi-button cbi-button-action', 'click': function() { setTab('dashboard'); } }, _('Dashboard')),
 				E('button', { 'id': 'tab_network', 'class': 'cbi-button', 'click': function() { setTab('network'); } }, _('Network')),
 				E('button', { 'id': 'tab_config', 'class': 'cbi-button', 'click': function() { setTab('config'); } }, _('Configuration')),
 				E('button', { 'id': 'tab_logs', 'class': 'cbi-button', 'click': function() { setTab('logs'); } }, _('Logs')),
@@ -1161,7 +1216,7 @@ return view.extend({
 			tabContent
 		]);
 
-		renderOverview();
+		renderDashboard();
 
 		return viewEl;
 	},

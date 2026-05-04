@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const router = process.env.TOLLGATE_ROUTER ?? '192.168.13.202:8080';
 const username = process.env.TOLLGATE_LUCI_USER;
@@ -9,6 +11,15 @@ if (!username || !password) {
 	process.exit(1);
 }
 const url = process.env.TOLLGATE_LUCI_URL ?? `http://${router}/cgi-bin/luci/admin/services/tollgate-payments`;
+
+const screenshotDir = join(process.cwd(), 'tests', 'e2e', 'screenshots');
+if (!existsSync(screenshotDir)) mkdirSync(screenshotDir, { recursive: true });
+
+async function screenshot(page, name) {
+	try {
+		await page.screenshot({ path: join(screenshotDir, name), fullPage: true });
+	} catch (_) {}
+}
 
 async function loginIfNeeded(page) {
 	if (!(await page.getByText('Authorization Required').count())) return;
@@ -42,33 +53,24 @@ async function waitForText(page, id, notMatching, timeout) {
 
 async function run() {
 	const browser = await chromium.launch({ headless: true });
-	const page = await browser.newPage();
+	const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 	try {
 		await page.goto(url, { waitUntil: 'networkidle' });
 		await loginIfNeeded(page);
+		await screenshot(page, '00-login.png');
 
-		// --- Overview tab (default) ---
-		await page.getByRole('button', { name: 'Overview' }).waitFor();
+		await page.getByRole('button', { name: 'Dashboard' }).waitFor();
 		await waitForText(page, 'ov_balance', '—', 15000);
 		await waitForText(page, 'ov_version', '', 10000);
 
 		const balance = await page.evaluate(q, 'ov_balance');
-		assert.match(balance, /\S/, 'overview balance non-empty');
+		assert.match(balance, /\S/, 'dashboard balance non-empty');
 		const version = await page.evaluate(q, 'ov_version');
-		assert.match(version, /\S/, 'overview version non-empty');
-		console.log('PASS: overview tab');
+		assert.match(version, /\S/, 'dashboard version non-empty');
+		console.log('PASS: dashboard tab');
+		await screenshot(page, '01-dashboard.png');
 
-		// --- Wallet tab ---
-		await page.getByRole('button', { name: 'Wallet' }).click();
-		await waitForText(page, 'wl_balance', 'Loading…', 10000);
-		const wlBalance = await page.evaluate(q, 'wl_balance');
-		assert.match(wlBalance, /\S/, 'wallet balance non-empty');
-		const wlInfo = await page.evaluate(q, 'wl_info');
-		assert.ok(wlInfo.length > 0, 'wallet info loaded');
-		console.log('PASS: wallet tab');
-
-		// --- Network tab ---
 		await page.getByRole('button', { name: 'Network' }).click();
 		await page.waitForFunction(() => {
 			const el = document.getElementById('nw_loading');
@@ -77,16 +79,16 @@ async function run() {
 		const nwText = await page.evaluate(q, 'nw_loading');
 		assert.ok(nwText.length > 0, 'network section loaded');
 		console.log('PASS: network tab');
+		await screenshot(page, '02-network.png');
 
-		// --- Configuration tab (schema-driven) ---
 		await page.getByRole('button', { name: 'Configuration' }).click();
 		await waitForText(page, 'cfg_content', 'Loading…', 15000);
 
 		const stepSize = await page.evaluate(qValue, 'cfg_step_size');
 		assert.ok(stepSize.length > 0, 'config: step_size field populated');
 		console.log('PASS: config tab (schema fields loaded)');
+		await screenshot(page, '03-config.png');
 
-		// Read original step_size, change it, save, reload, verify, restore
 		const originalStepSize = await page.evaluate(qValue, 'cfg_step_size');
 		const probeValue = String(parseInt(originalStepSize, 10) + 1024);
 
@@ -104,9 +106,9 @@ async function run() {
 			return el && el.textContent.includes('Saved');
 		}, { timeout: 10000 });
 		console.log('PASS: config save (step_size probe)');
+		await screenshot(page, '04-config-saved.png');
 
-		// Reload config tab and verify round-trip
-		await page.getByRole('button', { name: 'Overview' }).click();
+		await page.getByRole('button', { name: 'Dashboard' }).click();
 		await page.waitForTimeout(500);
 		await page.getByRole('button', { name: 'Configuration' }).click();
 		await waitForText(page, 'cfg_content', 'Loading…', 15000);
@@ -114,7 +116,6 @@ async function run() {
 		const reloadedStepSize = await page.evaluate(qValue, 'cfg_step_size');
 		assert.equal(reloadedStepSize, probeValue, 'config round-trip: step_size persisted');
 
-		// Restore original
 		await page.evaluate((v) => {
 			const el = document.getElementById('cfg_step_size');
 			if (el) el.value = v;
@@ -127,15 +128,15 @@ async function run() {
 			return el && el.textContent.includes('Saved');
 		}, { timeout: 10000 });
 		console.log('PASS: config restore (step_size reverted)');
+		await screenshot(page, '05-config-restored.png');
 
-		// --- Logs tab ---
 		await page.getByRole('button', { name: 'Logs' }).click();
 		await waitForText(page, 'logs_box', 'Loading…', 10000);
 		const logs = await page.evaluate(q, 'logs_box');
 		assert.ok(logs.length > 0, 'logs loaded');
 		console.log('PASS: logs tab');
+		await screenshot(page, '06-logs.png');
 
-		// --- Advanced tab (raw JSON editors) ---
 		await page.getByRole('button', { name: 'Advanced' }).click();
 		await page.waitForFunction(() => {
 			const cfg = document.getElementById('config_editor');
@@ -149,7 +150,8 @@ async function run() {
 		const originalConfig = JSON.parse(await configEditor.inputValue());
 		const originalIdentities = JSON.parse(await identitiesEditor.inputValue());
 
-		// config.json round-trip
+		await screenshot(page, '07-advanced.png');
+
 		const configProbe = { ...originalConfig, config_version: `${originalConfig.config_version}-pw` };
 		await configEditor.fill(JSON.stringify(configProbe, null, 2));
 		await page.getByRole('button', { name: 'Validate' }).first().click();
@@ -189,7 +191,6 @@ async function run() {
 			}, { timeout: 10000 });
 		}
 
-		// identities.json round-trip
 		const idProbe = Array.isArray(originalIdentities)
 			? [...originalIdentities, { test_marker: 'pw' }]
 			: { ...originalIdentities, test_marker: 'pw' };
@@ -244,7 +245,7 @@ async function run() {
 			ok: true,
 			url,
 			walletBalance: await page.evaluate(q, 'ov_balance'),
-			tabs: ['overview', 'wallet', 'network', 'config', 'logs', 'advanced']
+			tabs: ['dashboard', 'network', 'config', 'logs', 'advanced']
 		}));
 	} finally {
 		await browser.close();
