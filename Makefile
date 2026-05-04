@@ -63,7 +63,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq +netcat-openbsd
+	DEPENDS:=$(GO_ARCH_DEPENDS) +nodogsplash +luci +jq
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files
@@ -213,8 +213,6 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/luci/menu.d/luci-app-tollgate-payments.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/tollgate-payments
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/www/luci-static/resources/view/tollgate-payments/settings.js $(1)/www/luci-static/resources/view/tollgate-payments/
-	$(INSTALL_DIR) $(1)/usr/libexec
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/files/usr/libexec/tollgate-luci-helper $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/files/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json $(1)/usr/share/rpcd/acl.d/
 
@@ -244,7 +242,6 @@ FILES_$(PKG_NAME) += \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/usr/share/luci/menu.d/luci-app-tollgate-payments.json \
 	/www/luci-static/resources/view/tollgate-payments/settings.js \
-	/usr/libexec/tollgate-luci-helper \
 	/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart
