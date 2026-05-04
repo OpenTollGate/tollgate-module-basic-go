@@ -71,7 +71,7 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 		logger.WithFields(logrus.Fields{
 			"gateway":   gatewayIP,
 			"interface": interfaceName,
-		}).Info("📝 New gateway discovered")
+		}).Debug("New gateway discovered")
 	}
 
 	// Check if already has session
@@ -86,7 +86,7 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 	logger.WithFields(logrus.Fields{
 		"gateway":   gatewayIP,
 		"interface": interfaceName,
-	}).Info("🔍 Checking if gateway is a TollGate")
+	}).Debug("Checking if gateway is a TollGate")
 
 	// Check if it's a TollGate
 	event, err := c.getUpstreamAdvertisement(gatewayIP, interfaceName)

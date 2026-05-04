@@ -83,7 +83,7 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 				"gateway": gatewayIP,
 				"attempt": attempt + 1,
 				"total":   tp.config.ProbeRetryCount,
-			}).Info("🔄 Retrying tollgate probe (may not be a TollGate)")
+			}).Debug("Retrying tollgate probe")
 
 			// Wait with context awareness
 			select {
@@ -123,7 +123,7 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 				"attempt": attempt + 1,
 				"total":   tp.config.ProbeRetryCount,
 				"error":   err,
-			}).Info("⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable")
+			}).Debug("Gateway probe attempt failed")
 		}
 	}
 
@@ -131,7 +131,7 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 	logger.WithFields(logrus.Fields{
 		"gateway":  gatewayIP,
 		"attempts": tp.config.ProbeRetryCount,
-	}).Info("ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)")
+	}).Debug("Gateway is not a TollGate or unavailable (will retry via polling)")
 
 	return nil, fmt.Errorf("gateway not responding as TollGate after %d attempts: %w",
 		tp.config.ProbeRetryCount, lastErr)
@@ -143,7 +143,7 @@ func (tp *tollGateProber) CancelProbesForInterface(interfaceName string) {
 	defer tp.probesMutex.Unlock()
 
 	if cancelFunc, exists := tp.activeProbes[interfaceName]; exists {
-		logger.WithField("interface", interfaceName).Info("Cancelling active probe for interface")
+		logger.WithField("interface", interfaceName).Debug("Cancelling active probe for interface")
 		cancelFunc()
 		delete(tp.activeProbes, interfaceName)
 	}
@@ -226,7 +226,7 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 		"url":           url,
 		"purpose":       "trigger_ndsctl_session",
 		"protocol_note": "TEMPORARY WORKAROUND - not part of TollGate protocol",
-	}).Info("🚨 TEMPORARY: Triggering captive portal session for ndsctl")
+	}).Debug("Triggering captive portal session for ndsctl")
 
 	// Create request with context and short timeout
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -268,7 +268,7 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 		"gateway_ip":   gatewayIP,
 		"status_code":  resp.StatusCode,
 		"content_type": resp.Header.Get("Content-Type"),
-	}).Info("✅ Captive portal request completed - ndsctl session should be triggered")
+	}).Debug("Captive portal request completed")
 
 	return nil
 }
