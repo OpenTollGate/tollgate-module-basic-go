@@ -503,15 +503,20 @@ test.describe('desktop interactions', () => {
 	});
 
 	test('drain: saves tokens to file on device', async ({ page }) => {
+		if (!isSafeForNetworkTests()) test.skip();
 		const info = getWalletInfo();
 		const balance = info?.data?.total_balance ?? 0;
-		if (balance === 0) test.skip();
 		const mintBalances = info?.data?.mint_balances || {};
 		for (const [url, bal] of Object.entries(mintBalances)) {
 			if (bal > 0 && !url.toLowerCase().includes('testnut')) {
 				test.skip();
 				return;
 			}
+		}
+		if (balance === 0) {
+			const token = mintTestnutTokens(10);
+			fundViaCLI(token);
+			await page.waitForTimeout(2000);
 		}
 
 		cleanupFiles('/root/tollgate-drain-*.txt');
