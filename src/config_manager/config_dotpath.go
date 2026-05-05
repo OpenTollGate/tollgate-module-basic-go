@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// SetDotPath updates a nested config field using dot-notation and persists to disk.
+//
+// Examples:
+//
+//	SetDotPath(cm, "log_level", "debug")                        // top-level string
+//	SetDotPath(cm, "accepted_mints.0.price_per_step", "5")      // array → object → uint64
+//	SetDotPath(cm, "upstream_detector.probe_timeout", "30s")    // nested duration
+//	SetDotPath(cm, "identities.public_identities.0.name", "alice") // identities file
+//
+// Navigation uses JSON tags (not Go field names) to match the schema keys that the UI uses.
 func SetDotPath(cm *ConfigManager, key, value string) error {
 	cfg := cm.GetConfig()
 	identities := cm.GetIdentities()
@@ -39,6 +49,9 @@ func SetDotPath(cm *ConfigManager, key, value string) error {
 	}
 }
 
+// setFieldReflect walks a struct hierarchy by path parts using reflection.
+// It navigates through structs (by JSON tag), slices (by numeric index),
+// and pointers (auto-dereferenced) to reach the leaf field and set its value.
 func setFieldReflect(v reflect.Value, parts []string, value string) error {
 	for i, part := range parts {
 		if !v.IsValid() {

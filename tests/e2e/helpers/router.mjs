@@ -80,14 +80,11 @@ const CASHU = `echo "" | cashu -h ${MINT_URL}`;
 
 export function mintTestnutTokens(amountSats) {
 	return withLock(() => {
-		const balOut = execSync(`${CASHU} balance`, { encoding: 'utf8', timeout: 15000, shell: '/bin/bash' });
-		const currentBalance = parseInt(balOut.match(/Balance: (\d+)/)?.[1] || '0', 10);
-		if (currentBalance < amountSats + 10) {
-			const createOut = execSync(`${CASHU} invoice ${amountSats + 50} --no-check`, { encoding: 'utf8', timeout: 30000, shell: '/bin/bash' });
-			const idMatch = createOut.match(/--id ([a-f0-9]+)/);
-			if (idMatch) {
-				execSync(`${CASHU} invoice ${amountSats + 50} --id ${idMatch[1]}`, { encoding: 'utf8', timeout: 30000, shell: '/bin/bash' });
-			}
+		const mintAmount = amountSats + 10;
+		const createOut = execSync(`${CASHU} invoice ${mintAmount} --no-check`, { encoding: 'utf8', timeout: 30000, shell: '/bin/bash' });
+		const idMatch = createOut.match(/--id ([a-f0-9]+)/);
+		if (idMatch) {
+			execSync(`${CASHU} invoice ${mintAmount} --id ${idMatch[1]}`, { encoding: 'utf8', timeout: 30000, shell: '/bin/bash' });
 		}
 		const out = execSync(`${CASHU} send ${amountSats}`, { encoding: 'utf8', timeout: 30000, shell: '/bin/bash' });
 		const lines = out.split('\n');

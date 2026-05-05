@@ -1,5 +1,26 @@
+// Package config_manager provides thread-safe configuration management for TollGate.
+//
+// # Schema-Driven Config
+//
+// The schema (GetConfigSchema / GetIdentitiesSchema) is the single source of truth
+// for every editable config field. The LuCI admin UI fetches it at runtime via
+// `tollgate config schema --json` and renders forms dynamically — zero hardcoded
+// field names in JavaScript.
+//
+// Drift tests (config_schema_drift_test.go) ensure the schema stays in sync with
+// the Go struct definitions. If you add a field to Config, the test fails until
+// you add the matching FieldSchema entry.
 package config_manager
 
+// FieldSchema describes a single config field for both UI rendering and validation.
+//
+// The schema serves three consumers:
+//   - LuCI settings.js: builds input fields, sliders, dropdowns from schema JSON
+//   - SetDotPath: validates dot-notation keys against schema field names
+//   - Drift tests: ensures schema matches Go struct tags (and vice versa)
+//
+// Type values: "string", "bool", "int", "uint64", "float64", "duration", "object", "array".
+// The "duration" type is stored as nanosecond int64 in Go but displayed as "10s", "2m" etc.
 type FieldSchema struct {
 	Name        string            `json:"name"`
 	Type        string            `json:"type"`
