@@ -604,3 +604,37 @@ func TestUpstreamManager_CleanupStaleSTAs_InterfaceContract_Error(t *testing.T) 
 	assert.Error(t, err)
 	connector.AssertExpectations(t)
 }
+
+func TestUpstreamManager_ConfigOverride_NewFields(t *testing.T) {
+	config := UpstreamManagerConfig{
+		EmergencyPenalty:       50,
+		MaxConsecutiveFailures: 5,
+		SwitchCooldown:         20 * time.Minute,
+		StartupGracePeriod:     60 * time.Second,
+		PostSwitchWait:         10 * time.Second,
+	}
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	assert.Equal(t, 50, um.config.EmergencyPenalty)
+	assert.Equal(t, 5, um.config.MaxConsecutiveFailures)
+	assert.Equal(t, 20*time.Minute, um.config.SwitchCooldown)
+	assert.Equal(t, 60*time.Second, um.config.StartupGracePeriod)
+	assert.Equal(t, 10*time.Second, um.config.PostSwitchWait)
+}
+
+func TestUpstreamManager_ConfigOverride_ZeroValues_Default(t *testing.T) {
+	config := UpstreamManagerConfig{}
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	assert.Equal(t, 20, um.config.EmergencyPenalty)
+	assert.Equal(t, 3, um.config.MaxConsecutiveFailures)
+	assert.Equal(t, 10*time.Minute, um.config.SwitchCooldown)
+	assert.Equal(t, 90*time.Second, um.config.StartupGracePeriod)
+	assert.Equal(t, 5*time.Second, um.config.PostSwitchWait)
+}

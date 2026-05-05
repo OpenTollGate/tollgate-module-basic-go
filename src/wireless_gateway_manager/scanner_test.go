@@ -130,3 +130,22 @@ func TestScanner_GetRadios_Mock(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"radio0", "radio1"}, radios)
 }
+
+func TestFormatScanResults(t *testing.T) {
+	networks := []NetworkInfo{
+		{SSID: "TestNet", Signal: -50, Encryption: "psk2", Radio: "radio0"},
+		{SSID: "OpenNet", Signal: -70, Encryption: "none", Radio: "radio1"},
+	}
+	result := FormatScanResults(networks)
+	assert.Contains(t, result, "TestNet")
+	assert.Contains(t, result, "OpenNet")
+	assert.Contains(t, result, "2 network(s) found")
+	assert.Contains(t, result, "SSID")
+}
+
+func TestFormatScanResults_Empty(t *testing.T) {
+	result := FormatScanResults(nil)
+	assert.Equal(t, "No networks found", result)
+	result = FormatScanResults([]NetworkInfo{})
+	assert.Equal(t, "No networks found", result)
+}
