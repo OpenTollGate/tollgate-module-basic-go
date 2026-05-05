@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { fileExists, readFile, cleanupFiles, getWalletBalance, getWalletInfo, drainViaCLI, fundViaCLI, mintTestnutTokens } from './helpers/router.mjs';
+import { fileExists, readFile, cleanupFiles, getWalletBalance, getWalletInfo, drainViaCLI, fundViaCLI, mintTestnutTokens, getPrivateSSID, setPrivateSSID, isSafeForNetworkTests } from './helpers/router.mjs';
 
 const username = process.env.TOLLGATE_LUCI_USER;
 const password = process.env.TOLLGATE_LUCI_PASSWORD;
@@ -147,6 +147,40 @@ test.describe('desktop interactions', () => {
 		await page.getByRole('button', { name: 'Rename' }).click();
 		await page.waitForTimeout(500);
 		expect(await $('nw_rename_state')(page)).toContain('Enter a new SSID');
+	});
+
+	test('network: rename private SSID round-trip', async ({ page }) => {
+		if (!isSafeForNetworkTests()) test.skip();
+		const originalSSID = getPrivateSSID();
+		const testSSID = 'TestPw-' + Date.now().toString(36);
+
+		await clickTab(page, 'Network');
+		await waitLoaded(page, 'nw_loading');
+		await page.evaluate((s) => { const el = document.getElementById('nw_new_ssid'); if (el) el.value = s; }, testSSID);
+		await page.getByRole('button', { name: 'Rename' }).click();
+		await page.waitForTimeout(8000);
+
+		const onDevice = getPrivateSSID();
+		expect(onDevice).toBe(testSSID);
+
+		setPrivateSSID(originalSSID);
+		await page.waitForTimeout(3000);
+		expect(getPrivateSSID()).toBe(originalSSID);
+	});
+
+	test('network: change password to auto-generated', async ({ page }) => {
+		if (!isSafeForNetworkTests()) test.skip();
+		await clickTab(page, 'Network');
+		await waitLoaded(page, 'nw_loading');
+		await page.evaluate(() => { const el = document.getElementById('nw_new_pw'); if (el) el.value = ''; });
+		await page.getByRole('button', { name: 'Change Password' }).click();
+		await page.waitForFunction(
+			() => { const el = document.getElementById('nw_pw_state'); return el && (el.textContent.includes('New password') || el.textContent.includes('changed') || el.textContent.includes('Failed') || el.textContent.includes('Error')); },
+			{ timeout: 15000 }
+		);
+		const state = await $('nw_pw_state')(page);
+		expect(state).toMatch(/New password|Password changed/i);
+		expect(state).toMatch(/\d+/);
 	});
 
 	test('config: expand object section', async ({ page }) => {
