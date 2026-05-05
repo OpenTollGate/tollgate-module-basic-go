@@ -265,39 +265,6 @@ func (c *Connector) verifyConnection(expectedSSID string) error {
 	return fmt.Errorf("failed to verify connection to %s after %d retries", expectedSSID, retries)
 }
 
-func (c *Connector) cleanupSTAInterfaces() error {
-	logger.Info("Cleaning up existing STA wifi-iface sections")
-	output, err := c.ExecuteUCI("show", "wireless")
-	if err != nil {
-		return err
-	}
-
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	sectionsToDelete := []string{}
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasSuffix(line, ".mode='sta'") {
-			section := strings.TrimSuffix(line, ".mode='sta'")
-			sectionsToDelete = append(sectionsToDelete, section)
-		}
-	}
-
-	for _, section := range sectionsToDelete {
-		logger.WithField("section", section).Debug("Deleting old STA interface section")
-		if _, err := c.ExecuteUCI("delete", section); err != nil {
-			// We log the error but continue, as a failed delete is not critical
-			logger.WithFields(logrus.Fields{
-				"section": section,
-				"error":   err,
-			}).Warn("Failed to delete section")
-		}
-	}
-
-	return nil
-}
-
-// findAvailableSTAInterface scans the wireless config for a disabled STA interface and returns its name.
-// In reseller mode, it looks for tollgate_sta_2g and tollgate_sta_5g interfaces.
 func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 	logger.Info("Searching for an available STA wifi-iface section")
 	output, err := c.ExecuteUCI("show", "wireless")
@@ -742,6 +709,91 @@ func (c *Connector) GetActiveSTA() (*STASection, error) {
 		}
 	}
 	return nil, nil
+}
+
+func (c *Connector) CleanupStaleSTAs() error {
+	logger.Info("Cleaning up stale STA interfaces")
+
+	sections, err := c.GetSTASections()
+	if err != nil {
+		return fmt.Errorf("failed to get STA sections for cleanup: %w", err)
+	}
+
+	if len(sections) == 0 {
+		return nil
+	}
+
+	activeSTA, _ := c.GetActiveSTA()
+	var activeName string
+	if activeSTA != nil {
+		activeName = activeSTA.Name
+	}
+
+	ssidSections := make(map[string][]STASection)
+	for _, s := range sections {
+		ssidSections[s.SSID] = append(ssidSections[s.SSID], s)
+	}
+
+	var commitNeeded bool
+	var deleted int
+
+	for ssid, secs := range ssidSections {
+		if len(secs) <= 1 {
+			for _, s := range secs {
+				if !s.Disabled && s.Name != activeName {
+					logger.WithFields(logrus.Fields{
+						"interface": s.Name,
+						"ssid":      ssid,
+					}).Warn("Disabling orphaned STA (enabled but not active)")
+					if _, err := c.ExecuteUCI("set", "wireless."+s.Name+".disabled=1"); err == nil {
+						commitNeeded = true
+						deleted++
+					}
+				}
+			}
+			continue
+		}
+
+		var kept bool
+		var keptName string
+		for _, s := range secs {
+			if !kept {
+				if s.Name == activeName {
+					kept = true
+					keptName = s.Name
+					continue
+				}
+				if s.Disabled {
+					kept = true
+					keptName = s.Name
+					continue
+				}
+			}
+			logger.WithFields(logrus.Fields{
+				"interface": s.Name,
+				"ssid":      ssid,
+				"kept":      keptName,
+			}).Info("Removing duplicate STA section")
+			if _, err := c.ExecuteUCI("delete", "wireless."+s.Name); err != nil {
+				logger.WithFields(logrus.Fields{
+					"interface": s.Name,
+					"error":     err,
+				}).Warn("Failed to delete duplicate STA")
+			} else {
+				commitNeeded = true
+				deleted++
+			}
+		}
+	}
+
+	if commitNeeded {
+		if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+			return fmt.Errorf("failed to commit wireless config after cleanup: %w", err)
+		}
+		logger.WithField("deleted", deleted).Info("Stale STA cleanup complete")
+	}
+
+	return nil
 }
 
 func sanitizeSSIDForUCI(ssid string) string {

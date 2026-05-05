@@ -564,3 +564,31 @@ func TestUpstreamManager_PostSwitch_NoBlacklistWhenConnectivityOK(t *testing.T) 
 	assert.True(t, um.isBlacklisted("OldNet"), "Old SSID should be blacklisted (emergency switch)")
 	connector.AssertExpectations(t)
 }
+
+func TestUpstreamManager_CleanupStaleSTAs_InterfaceContract(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("CleanupStaleSTAs").Return(nil)
+	err := um.connector.CleanupStaleSTAs()
+	assert.NoError(t, err)
+	connector.AssertExpectations(t)
+}
+
+func TestUpstreamManager_CleanupStaleSTAs_InterfaceContract_Error(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("CleanupStaleSTAs").Return(assert.AnError)
+	err := um.connector.CleanupStaleSTAs()
+	assert.Error(t, err)
+	connector.AssertExpectations(t)
+}

@@ -71,6 +71,10 @@ func (gm *GatewayManager) EnsureRadiosEnabled() error {
 	return gm.connector.EnsureRadiosEnabled()
 }
 
+func (gm *GatewayManager) CleanupStaleSTAs() error {
+	return gm.connector.CleanupStaleSTAs()
+}
+
 func (gm *GatewayManager) FormatScanResults(networks []NetworkInfo) string {
 	if len(networks) == 0 {
 		return "No networks found"

@@ -188,6 +188,24 @@ func TestConnector_GetSTANetdev_NotFound(t *testing.T) {
 	m.AssertExpectations(t)
 }
 
+func TestConnector_CleanupStaleSTAs_Success(t *testing.T) {
+	m := &MockConnector{}
+	m.On("CleanupStaleSTAs").Return(nil)
+
+	err := m.CleanupStaleSTAs()
+	assert.NoError(t, err)
+	m.AssertExpectations(t)
+}
+
+func TestConnector_CleanupStaleSTAs_Error(t *testing.T) {
+	m := &MockConnector{}
+	m.On("CleanupStaleSTAs").Return(assert.AnError)
+
+	err := m.CleanupStaleSTAs()
+	assert.Error(t, err)
+	m.AssertExpectations(t)
+}
+
 func TestSanitizeSSIDForUCI(t *testing.T) {
 	tests := []struct {
 		input    string

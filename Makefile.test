@@ -20,7 +20,7 @@
         r-smoke r-full r-status r-logs r-scan r-list r-connect \
         r-remove r-verify-uci r-wait-daemon r-test-cleanup \
         r-test-edge-cases r-test-reseller-guard r-push r-shell \
-        routers help
+        r-check-sta-health routers help
 
 SSID   ?=
 PASS   ?=
@@ -459,3 +459,33 @@ r-full: ## [remote] Run full test suite via SSH (requires SSID, optional PASS, R
 	@echo "  - Phase 5:   make -f Makefile.test r-wait-daemon ROUTER=$(ROUTER)"
 	@echo "  - Phase 6:   make -f Makefile.test r-remove SSID=<old-ssid> ROUTER=$(ROUTER)"
 	@echo "  - Phase 7:   make -f Makefile.test r-test-reseller-guard ROUTER=$(ROUTER)"
+
+define _resolve_router
+$(eval include routers.env) \
+_router_host=$$(grep -E "^ROUTER_$(shell echo $(ROUTER) | tr '[:lower:]' '[:upper:]')_HOST=" routers.env | cut -d= -f2); \
+if [ -z "$$_router_host" ]; then echo "$(RED)Unknown router '$(ROUTER)'. Check routers.env$(RESET)" >&2; exit 1; fi
+endef
+
+define RESOLVE_ROUTER
+router_host=$$(grep -E "^ROUTER_$$(echo $(ROUTER) | tr '[:lower:]' '[:upper:]')_HOST=" routers.env | cut -d= -f2); \
+if [ -z "$$router_host" ]; then echo "$(RED)Unknown router '$(ROUTER)'. Check routers.env$(RESET)" >&2; exit 1; fi
+endef
+
+r-check-sta-health: ## [remote] Verify no stale/duplicate STA sections exist
+	@$(RESOLVE_ROUTER); \
+	echo "$(BOLD)=== STA Health Check [$(ROUTER)] ===$(RESET)"; \
+	output=$$(ssh $(SSH_OPTS) $(ROUTER_USER)@$$router_host "tollgate upstream list 2>/dev/null"); \
+	echo "$$output"; \
+	echo ""; \
+	active_count=$$(echo "$$output" | grep -c 'ACTIVE'); \
+	if [ "$$active_count" -gt 1 ]; then \
+		echo "$(RED)FAIL: $$active_count ACTIVE STAs (expected 1)$(RESET)"; \
+		exit 1; \
+	fi; \
+	total_count=$$(echo "$$output" | grep -cE '^[A-Za-z]'); \
+	dup_ssids=$$(echo "$$output" | awk '{print $$1}' | sort | uniq -d); \
+	if [ -n "$$dup_ssids" ]; then \
+		echo "$(RED)FAIL: Duplicate SSIDs found: $$dup_ssids$(RESET)"; \
+		exit 1; \
+	fi; \
+	echo "$(GREEN)OK: 1 active STA, no duplicates, $$total_count total STAs$(RESET)"

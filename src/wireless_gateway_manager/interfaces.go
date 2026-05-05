@@ -28,6 +28,7 @@ type ConnectorInterface interface {
 	EnsureWWANSetup() error
 	EnsureRadiosEnabled() error
 	GetSTANetdev(sectionName string) (string, error)
+	CleanupStaleSTAs() error
 }
 
 // ScannerInterface defines the methods for network scanning operations.

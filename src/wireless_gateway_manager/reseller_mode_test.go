@@ -90,6 +90,11 @@ func (m *MockConnector) GetSTANetdev(sectionName string) (string, error) {
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockConnector) CleanupStaleSTAs() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 type MockScanner struct {
 	mock.Mock
 }

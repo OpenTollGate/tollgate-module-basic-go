@@ -98,6 +98,9 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 	if err := um.connector.EnsureWWANSetup(); err != nil {
 		logger.WithError(err).Warn("Failed to ensure wwan setup on startup")
 	}
+	if err := um.connector.CleanupStaleSTAs(); err != nil {
+		logger.WithError(err).Warn("Failed to cleanup stale STAs on startup")
+	}
 
 	startupGraceEnd := time.Now().Add(startupGracePeriod)
 	logger.WithField("grace_seconds", startupGracePeriod.Seconds()).Info("Startup grace period active")
@@ -182,6 +185,9 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 				lostCount++
 				logger.WithField("lost_count", lostCount).Info("Connectivity lost")
 					if lostCount >= um.config.LostThreshold {
+						if err := um.connector.CleanupStaleSTAs(); err != nil {
+							logger.WithError(err).Warn("Failed to cleanup stale STAs during emergency")
+						}
 						shouldScan = true
 						reason = "emergency"
 					}
@@ -202,6 +208,10 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 				"signal":      currentSignal,
 				"reason":      reason,
 			}).Info("Running upstream scan cycle")
+
+			if err := um.connector.CleanupStaleSTAs(); err != nil {
+				logger.WithError(err).Warn("Failed to cleanup stale STAs before switch")
+			}
 
 			um.runScanCycle(activeIface, activeSSID, currentSignal, reason, isReseller)
 			scanCounter = 0
