@@ -252,6 +252,11 @@ jobs:
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"
           install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart         "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
 
+          install -D -m 0644 packaging/files/www/luci-static/resources/view/tollgate-payments/settings.js         "$PAYLOAD/www/luci-static/resources/view/tollgate-payments/settings.js"
+          install -D -m 0644 packaging/files/www/luci-static/resources/tollgate-payments/tg.css                    "$PAYLOAD/www/luci-static/resources/tollgate-payments/tg.css"
+          install -D -m 0644 packaging/files/usr/share/luci/menu.d/luci-app-tollgate-payments.json                 "$PAYLOAD/usr/share/luci/menu.d/luci-app-tollgate-payments.json"
+          install -D -m 0644 packaging/files/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json                  "$PAYLOAD/usr/share/rpcd/acl.d/luci-app-tollgate-payments.json"
+
           mkdir -p \
             "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site" \
             "$PAYLOAD/etc/tollgate/ecash" \
