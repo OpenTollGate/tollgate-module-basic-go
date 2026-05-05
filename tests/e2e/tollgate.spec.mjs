@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { fileExists, readFile, cleanupFiles, getWalletBalance, getWalletInfo, drainViaCLI } from './helpers/router.mjs';
+import { fileExists, readFile, cleanupFiles, getWalletBalance, getWalletInfo, drainViaCLI, fundViaCLI, mintTestnutTokens } from './helpers/router.mjs';
 
 const username = process.env.TOLLGATE_LUCI_USER;
 const password = process.env.TOLLGATE_LUCI_PASSWORD;
@@ -515,5 +515,98 @@ test.describe('desktop interactions', () => {
 		expect(getWalletBalance()).toBe(0);
 
 		cleanupFiles(filePath);
+	});
+
+	test('fund: valid testnut token updates balance', async ({ page }) => {
+		const token = mintTestnutTokens(10);
+		expect(token).toMatch(/^cashu[AB]/);
+
+		await page.waitForTimeout(3000);
+		await page.evaluate((t) => { const el = document.getElementById('wl_token'); if (el) el.value = t; }, token);
+		await page.getByRole('button', { name: 'Fund Wallet' }).click();
+		await page.waitForFunction(
+			() => { const el = document.getElementById('wl_fund_state'); return el && (el.textContent.includes('Funded') || el.textContent.includes('Error') || el.textContent.includes('Failed')); },
+			{ timeout: 15000 }
+		);
+		const state = await $('wl_fund_state')(page);
+		expect(state).toContain('Funded');
+
+		const info = getWalletInfo();
+		expect(info?.data?.total_balance).toBeGreaterThan(0);
+	});
+
+	test('fund: garbage token shows error', async ({ page }) => {
+		await page.waitForTimeout(3000);
+		await page.evaluate(() => { const el = document.getElementById('wl_token'); if (el) el.value = 'not-a-valid-token-at-all'; });
+		await page.getByRole('button', { name: 'Fund Wallet' }).click();
+		await page.waitForFunction(
+			() => { const el = document.getElementById('wl_fund_state'); return el && el.textContent.trim().length > 0 && !el.textContent.includes('Funding'); },
+			{ timeout: 10000 }
+		);
+		const state = await $('wl_fund_state')(page);
+		expect(state).toMatch(/error|fail|invalid/i);
+	});
+
+	test('fund + drain lifecycle with SSH verification', async ({ page }) => {
+		cleanupFiles('/root/tollgate-drain-*.txt');
+
+		const token = mintTestnutTokens(10);
+		expect(token).toMatch(/^cashu[AB]/);
+
+		const fundResult = fundViaCLI(token);
+		expect(fundResult?.success).toBeTruthy();
+		expect(fundResult?.data?.amount_received).toBeGreaterThan(0);
+
+		const balanceBefore = getWalletBalance();
+		expect(balanceBefore).toBeGreaterThan(0);
+
+		await page.waitForTimeout(3000);
+		await page.getByRole('button', { name: 'Drain All Funds' }).click();
+		await page.waitForTimeout(500);
+		const confirmBtn = page.locator('#modal_overlay .cbi-button-remove').first();
+		if (await confirmBtn.count()) await confirmBtn.click();
+
+		await page.waitForFunction(
+			() => { const el = document.getElementById('wl_drain_state'); return el && (el.textContent.includes('Drained') || el.textContent.includes('Error')); },
+			{ timeout: 15000 }
+		);
+
+		const stateText = await $('wl_drain_state')(page);
+
+		if (!stateText.includes('Error')) {
+			expect(stateText).toContain('Drained');
+
+			const pathMatch = stateText.match(/\/root\/tollgate-drain-[^\s]+/);
+			if (pathMatch) {
+				const filePath = pathMatch[0];
+				expect(fileExists(filePath)).toBeTruthy();
+				const content = readFile(filePath);
+				expect(content).toContain('TollGate Wallet Drain');
+				expect(content).toMatch(/cashuA/i);
+				cleanupFiles(filePath);
+			}
+		}
+
+		const balanceAfter = getWalletBalance();
+		expect(balanceAfter).toBe(0);
+	});
+
+	test('drain twice shows zero on second attempt', async ({ page }) => {
+		const balance = getWalletBalance();
+		if (balance > 0) {
+			drainViaCLI();
+		}
+
+		await page.waitForTimeout(3000);
+		await page.getByRole('button', { name: 'Drain All Funds' }).click();
+		await page.waitForTimeout(500);
+		const confirmBtn = page.locator('#modal_overlay .cbi-button-remove').first();
+		if (await confirmBtn.count()) await confirmBtn.click();
+		await page.waitForFunction(
+			() => { const el = document.getElementById('wl_drain_state'); return el && (el.textContent.includes('Drained') || el.textContent.includes('No tokens') || el.textContent.includes('Error')); },
+			{ timeout: 10000 }
+		);
+		const state = await $('wl_drain_state')(page);
+		expect(state).toMatch(/Drained|No tokens/i);
 	});
 });
