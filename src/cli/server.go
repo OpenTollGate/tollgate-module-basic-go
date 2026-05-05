@@ -26,21 +26,31 @@ var cliLogger = logrus.WithField("module", "cli")
 type CLIServer struct {
 	configManager   *config_manager.ConfigManager
 	merchant        merchant.MerchantInterface
-	gatewayManager  *wireless_gateway_manager.GatewayManager
+	connector       wireless_gateway_manager.ConnectorInterface
+	scanner         wireless_gateway_manager.ScannerInterface
 	upstreamManager *wireless_gateway_manager.UpstreamManager
 	startTime       time.Time
 	listener        net.Listener
 	running         bool
 }
 
-func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface, gatewayManager *wireless_gateway_manager.GatewayManager, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
+func NewCLIServer(configManager *config_manager.ConfigManager, merchant merchant.MerchantInterface, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
 		configManager:   configManager,
 		merchant:        merchant,
-		gatewayManager:  gatewayManager,
+		connector:       connector,
+		scanner:         scanner,
 		upstreamManager: upstreamManager,
 		startTime:      time.Now(),
 	}
+}
+
+func (s *CLIServer) manualPauseDuration() time.Duration {
+	cfg := s.configManager.GetConfig()
+	if cfg != nil && cfg.UpstreamWifi.ManualPauseSeconds > 0 {
+		return time.Duration(cfg.UpstreamWifi.ManualPauseSeconds) * time.Second
+	}
+	return 120 * time.Second
 }
 
 // Start begins listening on the Unix socket
@@ -456,7 +466,7 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 		Uptime:    uptime.String(),
 		ConfigOK:  s.configManager != nil,
 		WalletOK:  s.merchant != nil,
-		NetworkOK: true, // TODO: Check actual network status
+		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
 
 	return CLIResponse{
@@ -514,7 +524,7 @@ func (s *CLIServer) handleUpstreamCommand(args []string, flags map[string]string
 		}
 	}
 
-	if s.gatewayManager == nil {
+	if s.connector == nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     "Gateway manager not available",
@@ -549,7 +559,7 @@ func (s *CLIServer) handleUpstreamCommand(args []string, flags map[string]string
 }
 
 func (s *CLIServer) handleUpstreamScan() CLIResponse {
-	networks, err := s.gatewayManager.ScanAllRadios()
+	networks, err := s.scanner.ScanAllRadios()
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -592,7 +602,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		passphrase = connectArgs[1]
 	}
 
-	if err := s.gatewayManager.EnsureRadiosEnabled(); err != nil {
+	if err := s.connector.EnsureRadiosEnabled(); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to enable radios: %v", err),
@@ -600,7 +610,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	networks, err := s.gatewayManager.ScanAllRadios()
+	networks, err := s.scanner.ScanAllRadios()
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -609,7 +619,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	bestRadio, err := s.gatewayManager.FindBestRadioForSSID(ssid, networks)
+	bestRadio, err := s.scanner.FindBestRadioForSSID(ssid, networks)
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -626,7 +636,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	uciEnc := s.gatewayManager.DetectEncryption(encryptionStr)
+	uciEnc := s.scanner.DetectEncryption(encryptionStr)
 
 	if uciEnc == "none" {
 		passphrase = ""
@@ -638,7 +648,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	if err := s.gatewayManager.EnsureWWANSetup(); err != nil {
+	if err := s.connector.EnsureWWANSetup(); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to setup wwan: %v", err),
@@ -646,7 +656,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	ifaceName, err := s.gatewayManager.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
+	ifaceName, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -656,12 +666,12 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	}
 
 	activeIface := ""
-	activeSTA, _ := s.gatewayManager.GetActiveSTA()
+	activeSTA, _ := s.connector.GetActiveSTA()
 	if activeSTA != nil {
 		activeIface = activeSTA.Name
 	}
 
-	if err := s.gatewayManager.SwitchUpstream(activeIface, ifaceName, ssid); err != nil {
+	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to connect: %v", err),
@@ -670,7 +680,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	}
 
 	if s.upstreamManager != nil {
-		s.upstreamManager.PauseConnectivityChecks(120 * time.Second)
+		s.upstreamManager.PauseConnectivityChecks(s.manualPauseDuration())
 	}
 
 	return CLIResponse{
@@ -699,20 +709,20 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Enabling radios...")
-	if err := s.gatewayManager.EnsureRadiosEnabled(); err != nil {
+	if err := s.connector.EnsureRadiosEnabled(); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to enable radios: %v", err), Timestamp: time.Now()})
 		return
 	}
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Scanning for '%s'...", ssid))
-	networks, err := s.gatewayManager.ScanAllRadios()
+	networks, err := s.scanner.ScanAllRadios()
 	if err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to scan networks: %v", err), Timestamp: time.Now()})
 		return
 	}
 
-	bestRadio, err := s.gatewayManager.FindBestRadioForSSID(ssid, networks)
+	bestRadio, err := s.scanner.FindBestRadioForSSID(ssid, networks)
 	if err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("SSID '%s' not found in scan", ssid), Timestamp: time.Now()})
 		return
@@ -733,7 +743,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 			break
 		}
 	}
-	uciEnc := s.gatewayManager.DetectEncryption(encryptionStr)
+	uciEnc := s.scanner.DetectEncryption(encryptionStr)
 
 	if uciEnc == "none" {
 		passphrase = ""
@@ -747,7 +757,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Setting up wwan interface...")
-	if err := s.gatewayManager.EnsureWWANSetup(); err != nil {
+	if err := s.connector.EnsureWWANSetup(); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to setup wwan: %v", err), Timestamp: time.Now()})
 		return
 	}
@@ -764,27 +774,27 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Creating STA %s on %s...", ifaceName, bestRadio))
-	staIface, err := s.gatewayManager.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
+	staIface, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to create STA interface: %v", err), Timestamp: time.Now()})
 		return
 	}
 
 	activeIface := ""
-	activeSTA, _ := s.gatewayManager.GetActiveSTA()
+	activeSTA, _ := s.connector.GetActiveSTA()
 	if activeSTA != nil {
 		activeIface = activeSTA.Name
 	}
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Switching upstream... waiting for DHCP")
-	if err := s.gatewayManager.SwitchUpstream(activeIface, staIface, ssid); err != nil {
+	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
 	}
 
 	if s.upstreamManager != nil {
-		s.upstreamManager.PauseConnectivityChecks(120 * time.Second)
+		s.upstreamManager.PauseConnectivityChecks(s.manualPauseDuration())
 	}
 
 	step++
@@ -796,7 +806,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 }
 
 func (s *CLIServer) handleUpstreamList() CLIResponse {
-	sections, err := s.gatewayManager.GetSTASections()
+	sections, err := s.connector.GetSTASections()
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -828,7 +838,7 @@ func (s *CLIServer) handleUpstreamList() CLIResponse {
 }
 
 func (s *CLIServer) handleUpstreamRemove(ssid string) CLIResponse {
-	if err := s.gatewayManager.RemoveDisabledSTA(ssid); err != nil {
+	if err := s.connector.RemoveDisabledSTA(ssid); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to remove upstream: %v", err),

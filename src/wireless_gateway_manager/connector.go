@@ -190,10 +190,12 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// For 'delete', "Entry not found" is not a critical error.
 		if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
 			logger.WithField("command", strings.Join(args, " ")).Debug("UCI entry to delete was not found (which is okay)")
 			return "", nil
+		}
+		if len(args) > 0 && args[0] == "get" && strings.Contains(stderr.String(), "Entry not found") {
+			return "", fmt.Errorf("uci: Entry not found")
 		}
 		logger.WithFields(logrus.Fields{
 			"error":  err,
@@ -931,7 +933,7 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		reloadDone <- c.reloadRadio(candidateRadio)
 	}()
 
-	staIface, err := c.waitForSTAIP(candidateRadio, candidateSSID, 180*time.Second)
+	staIface, err := c.waitForSTAIP(candidateRadio, candidateSSID, c.dhcpTimeout())
 	<-reloadDone
 
 	if err == nil && staIface != "" {
@@ -1132,6 +1134,13 @@ func (c *Connector) EnsureWWANSetup() error {
 	return nil
 }
 
+func (c *Connector) dhcpTimeout() time.Duration {
+	if c.DHCPTimeout > 0 {
+		return c.DHCPTimeout
+	}
+	return 180 * time.Second
+}
+
 func (c *Connector) EnsureRadiosEnabled() error {
 	radios, err := c.getRadiosFromConfig()
 	if err != nil {
@@ -1140,7 +1149,10 @@ func (c *Connector) EnsureRadiosEnabled() error {
 
 	var changed bool
 	for _, radio := range radios {
-		disabled, _ := c.ExecuteUCI("get", "wireless."+radio+".disabled")
+		disabled, err := c.ExecuteUCI("get", "wireless."+radio+".disabled")
+		if err != nil {
+			continue
+		}
 		if strings.TrimSpace(disabled) == "1" {
 			logger.WithField("radio", radio).Info("Enabling disabled radio")
 			if _, err := c.ExecuteUCI("set", "wireless."+radio+".disabled=0"); err != nil {

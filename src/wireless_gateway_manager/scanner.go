@@ -272,3 +272,22 @@ func (s *Scanner) FindBestRadioForSSID(ssid string, networks []NetworkInfo) (str
 	return "", fmt.Errorf("SSID '%s' not found in scan results", ssid)
 }
 
+func FormatScanResults(networks []NetworkInfo) string {
+	if len(networks) == 0 {
+		return "No networks found"
+	}
+
+	var result string
+	result = fmt.Sprintf("%-30s %-15s %-20s %s\n", "SSID", "Signal", "Encryption", "Radio")
+	result += fmt.Sprintf("%s\n", "----------------------------------------------------------------------")
+	for _, net := range networks {
+		result += fmt.Sprintf("%-30s %-15s %-20s %s\n", net.SSID, fmt.Sprintf("%d dBm", net.Signal), net.Encryption, net.Radio)
+	}
+	result += fmt.Sprintf("\n%d network(s) found.", len(networks))
+	return result
+}
+
+func init() {
+	logger.WithField("module", "wireless_gateway_manager").Info("Wireless gateway manager module loaded")
+}
+

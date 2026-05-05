@@ -2,6 +2,7 @@ package wireless_gateway_manager
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -220,4 +221,14 @@ func TestSanitizeSSIDForUCI(t *testing.T) {
 		result := sanitizeSSIDForUCI(tt.input)
 		assert.Equal(t, tt.expected, result)
 	}
+}
+
+func TestConnector_DHCPTimeout_Default(t *testing.T) {
+	c := &Connector{}
+	assert.Equal(t, 180*time.Second, c.dhcpTimeout())
+}
+
+func TestConnector_DHCPTimeout_Custom(t *testing.T) {
+	c := &Connector{DHCPTimeout: 60 * time.Second}
+	assert.Equal(t, 60*time.Second, c.dhcpTimeout())
 }

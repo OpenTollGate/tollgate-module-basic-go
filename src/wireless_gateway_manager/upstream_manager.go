@@ -12,13 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	tollGateEmergencyPenalty = 20
-	maxConsecutiveFailures   = 3
-	switchCooldown           = 10 * time.Minute
-	startupGracePeriod       = 90 * time.Second
-)
-
 type Candidate struct {
 	Signal    int
 	Radio     string
@@ -51,12 +44,17 @@ type ConfigReadResult struct {
 
 func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 	return UpstreamManagerConfig{
-		ScanInterval:  300 * time.Second,
-		FastCheck:     30 * time.Second,
-		LostThreshold: 2,
-		HysteresisDB:  12,
-		SignalFloor:   -85,
-		BlacklistTTL:  60 * time.Minute,
+		ScanInterval:           300 * time.Second,
+		FastCheck:              30 * time.Second,
+		LostThreshold:          2,
+		HysteresisDB:           12,
+		SignalFloor:            -85,
+		BlacklistTTL:           60 * time.Minute,
+		EmergencyPenalty:       20,
+		MaxConsecutiveFailures: 3,
+		SwitchCooldown:         10 * time.Minute,
+		StartupGracePeriod:     90 * time.Second,
+		PostSwitchWait:         5 * time.Second,
 	}
 }
 
@@ -78,6 +76,21 @@ func NewUpstreamManager(connector ConnectorInterface, scanner ScannerInterface, 
 	}
 	if config.BlacklistTTL == 0 {
 		config.BlacklistTTL = 60 * time.Minute
+	}
+	if config.EmergencyPenalty == 0 {
+		config.EmergencyPenalty = 20
+	}
+	if config.MaxConsecutiveFailures == 0 {
+		config.MaxConsecutiveFailures = 3
+	}
+	if config.SwitchCooldown == 0 {
+		config.SwitchCooldown = 10 * time.Minute
+	}
+	if config.StartupGracePeriod == 0 {
+		config.StartupGracePeriod = 90 * time.Second
+	}
+	if config.PostSwitchWait == 0 {
+		config.PostSwitchWait = 5 * time.Second
 	}
 	return &UpstreamManager{
 		connector: connector,
@@ -102,8 +115,8 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		logger.WithError(err).Warn("Failed to cleanup stale STAs on startup")
 	}
 
-	startupGraceEnd := time.Now().Add(startupGracePeriod)
-	logger.WithField("grace_seconds", startupGracePeriod.Seconds()).Info("Startup grace period active")
+	startupGraceEnd := time.Now().Add(um.config.StartupGracePeriod)
+	logger.WithField("grace_seconds", um.config.StartupGracePeriod.Seconds()).Info("Startup grace period active")
 
 	scanCounter := 0
 	lostCount := 0
@@ -248,11 +261,11 @@ func (um *UpstreamManager) isInCooldown() bool {
 func (um *UpstreamManager) recordSwitchFailure() {
 	um.failMu.Lock()
 	um.consecutiveFails++
-	if um.consecutiveFails >= maxConsecutiveFailures {
-		um.cooldownUntil = time.Now().Add(switchCooldown)
+	if um.consecutiveFails >= um.config.MaxConsecutiveFailures {
+		um.cooldownUntil = time.Now().Add(um.config.SwitchCooldown)
 		logger.WithFields(logrus.Fields{
 			"failures":        um.consecutiveFails,
-			"cooldown_minutes": switchCooldown.Minutes(),
+			"cooldown_minutes": um.config.SwitchCooldown.Minutes(),
 		}).Warn("Circuit breaker triggered: entering cooldown")
 	}
 	um.failMu.Unlock()
@@ -371,7 +384,7 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 }
 
 func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string) {
-	time.Sleep(5 * time.Second)
+	time.Sleep(um.config.PostSwitchWait)
 	cmd := exec.Command("ping", "-c", "1", "-W", "5", "9.9.9.9")
 	if cmd.Run() != nil {
 		um.blacklistSSID(ssid)
@@ -493,7 +506,7 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo, isEmer
 
 		score := net.Signal
 		if isEmergency && isTollGate {
-			score -= tollGateEmergencyPenalty
+			score -= um.config.EmergencyPenalty
 			logger.WithFields(logrus.Fields{
 				"ssid":     net.SSID,
 				"original": net.Signal,
@@ -525,6 +538,11 @@ func (um *UpstreamManager) checkConnectivity(staDevice string) bool {
 		return false
 	}
 
+	cmd := exec.Command("ping", "-c", "1", "-W", "3", "9.9.9.9")
+	return cmd.Run() == nil
+}
+
+func (um *UpstreamManager) CheckConnectivity() bool {
 	cmd := exec.Command("ping", "-c", "1", "-W", "3", "9.9.9.9")
 	return cmd.Run() == nil
 }

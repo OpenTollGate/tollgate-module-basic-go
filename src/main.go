@@ -31,12 +31,13 @@ var mainLogger = logrus.WithField("module", "main")
 // Global configuration variable
 // Define configFile at a higher scope
 var (
-	configManager *config_manager.ConfigManager
-	mainConfig    *config_manager.Config
-	installConfig *config_manager.InstallConfig
+	configManager   *config_manager.ConfigManager
+	mainConfig      *config_manager.Config
+	installConfig   *config_manager.InstallConfig
+	sharedConnector *wireless_gateway_manager.Connector
+	sharedScanner   *wireless_gateway_manager.Scanner
 )
 
-var gatewayManager *wireless_gateway_manager.GatewayManager
 var upstreamManager *wireless_gateway_manager.UpstreamManager
 
 var tollgateDetailsString string
@@ -91,15 +92,15 @@ func init() {
 
 	installConfig = configManager.GetInstallConfig()
 
-	gatewayManager, err = wireless_gateway_manager.Init(context.Background(), configManager)
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to initialize gateway manager")
-	}
-
 	mainConfig = configManager.GetConfig()
 
-	// Initialize global logger with the configured log level
 	InitializeGlobalLogger(mainConfig.LogLevel)
+
+	sharedConnector = &wireless_gateway_manager.Connector{}
+	if mainConfig != nil && mainConfig.UpstreamWifi.DHCPTimeoutSeconds > 0 {
+		sharedConnector.DHCPTimeout = time.Duration(mainConfig.UpstreamWifi.DHCPTimeoutSeconds) * time.Second
+	}
+	sharedScanner = &wireless_gateway_manager.Scanner{Connector: sharedConnector}
 
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
@@ -111,13 +112,10 @@ func init() {
 	merchantInstance.StartPayoutRoutine()
 	merchantInstance.StartDataUsageMonitoring()
 
-	// Initialize upstream WiFi manager
 	initUpstreamManager()
 
-	// Initialize upstream detector module
 	initUpstreamDetector()
 
-	// Initialize CLI server (must come after initUpstreamManager so CLIServer gets non-nil upstreamManager)
 	initCLIServer()
 }
 
@@ -146,11 +144,26 @@ func initUpstreamDetector() {
 func initUpstreamManager() {
 	upstreamConfig := wireless_gateway_manager.DefaultUpstreamManagerConfig()
 
-	connector := &wireless_gateway_manager.Connector{}
-	scanner := &wireless_gateway_manager.Scanner{Connector: connector}
+	cfg := configManager.GetConfig()
+	if cfg != nil && cfg.UpstreamWifi.ScanIntervalSeconds > 0 {
+		upstreamConfig = wireless_gateway_manager.UpstreamManagerConfig{
+			ScanInterval:           time.Duration(cfg.UpstreamWifi.ScanIntervalSeconds) * time.Second,
+			FastCheck:              time.Duration(cfg.UpstreamWifi.FastCheckSeconds) * time.Second,
+			LostThreshold:          cfg.UpstreamWifi.LostThreshold,
+			HysteresisDB:           cfg.UpstreamWifi.HysteresisDB,
+			SignalFloor:            cfg.UpstreamWifi.SignalFloor,
+			BlacklistTTL:           time.Duration(cfg.UpstreamWifi.BlacklistTTLMinutes) * time.Minute,
+			EmergencyPenalty:       cfg.UpstreamWifi.EmergencyPenalty,
+			MaxConsecutiveFailures: cfg.UpstreamWifi.MaxConsecutiveFailures,
+			SwitchCooldown:         time.Duration(cfg.UpstreamWifi.SwitchCooldownMinutes) * time.Minute,
+			StartupGracePeriod:     time.Duration(cfg.UpstreamWifi.StartupGraceSeconds) * time.Second,
+			PostSwitchWait:         time.Duration(cfg.UpstreamWifi.PostSwitchWaitSeconds) * time.Second,
+		}
+	}
+
 	resellerChecker := &resellerModeAdapter{cm: configManager}
 
-	upstreamManager = wireless_gateway_manager.NewUpstreamManager(connector, scanner, resellerChecker, upstreamConfig)
+	upstreamManager = wireless_gateway_manager.NewUpstreamManager(sharedConnector, sharedScanner, resellerChecker, upstreamConfig)
 
 	go func() {
 		upstreamManager.Start(context.Background())
@@ -172,7 +185,7 @@ func (r *resellerModeAdapter) IsResellerModeActive() bool {
 }
 
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantInstance, gatewayManager, upstreamManager)
+	cliServer = cli.NewCLIServer(configManager, merchantInstance, sharedConnector, sharedScanner, upstreamManager)
 
 	err := cliServer.Start()
 	if err != nil {

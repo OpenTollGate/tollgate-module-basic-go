@@ -1,11 +1,8 @@
 package wireless_gateway_manager
 
 import (
-	"reflect"
 	"testing"
-	"unsafe"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -123,23 +120,6 @@ type MockVendorElementProcessor struct {
 	mock.Mock
 }
 
-type MockNetworkMonitor struct {
-	mock.Mock
-}
-
-func (m *MockNetworkMonitor) IsConnected() bool {
-	args := m.Called()
-	return args.Bool(0)
-}
-
-func (m *MockNetworkMonitor) Start() {
-	m.Called()
-}
-
-func (m *MockNetworkMonitor) Stop() {
-	m.Called()
-}
-
 func (m *MockVendorElementProcessor) ExtractAndScore(network NetworkInfo) (map[string]interface{}, int, error) {
 	args := m.Called(network)
 	return args.Get(0).(map[string]interface{}), args.Int(1), args.Error(2)
@@ -155,32 +135,7 @@ func (m *MockVendorElementProcessor) GetLocalAPVendorElements() (map[string]stri
 	return args.Get(0).(map[string]string), args.Error(1)
 }
 
-func TestResellerModeDisabled_GatewayManagerInit(t *testing.T) {
-	cm := &config_manager.ConfigManager{}
-	config := config_manager.NewDefaultConfig()
-	config.ResellerMode = false
-	setConfigField(cm, config)
-
-	mockConnector := &MockConnector{}
-	mockScanner := &MockScanner{}
-
-	gm := &GatewayManager{
-		connector: mockConnector,
-		scanner:   mockScanner,
-	}
-
-	mockScanner.AssertExpectations(t)
-	mockConnector.AssertExpectations(t)
-	_ = gm
-}
-
 func TestResellerModeEnabled_ScanAllRadios(t *testing.T) {
-	cm := &config_manager.ConfigManager{}
-	config := config_manager.NewDefaultConfig()
-	config.ResellerMode = true
-	setConfigField(cm, config)
-
-	mockConnector := &MockConnector{}
 	mockScanner := &MockScanner{}
 	mockScanner.On("ScanAllRadios").Return([]NetworkInfo{
 		{SSID: "TollGate-ABC", BSSID: "00:11:22:33:44:55", Signal: -50, Encryption: "none"},
@@ -188,12 +143,7 @@ func TestResellerModeEnabled_ScanAllRadios(t *testing.T) {
 		{SSID: "TollGate-XYZ", BSSID: "CC:DD:EE:FF:00:11", Signal: -70, Encryption: "none"},
 	}, nil)
 
-	gm := &GatewayManager{
-		connector: mockConnector,
-		scanner:   mockScanner,
-	}
-
-	networks, err := gm.ScanAllRadios()
+	networks, err := mockScanner.ScanAllRadios()
 	if err != nil {
 		t.Fatalf("ScanAllRadios failed: %v", err)
 	}
@@ -209,13 +159,4 @@ func TestResellerModeEnabled_ScanAllRadios(t *testing.T) {
 	}
 
 	mockScanner.AssertExpectations(t)
-}
-
-func setConfigField(cm *config_manager.ConfigManager, config *config_manager.Config) {
-	cmValue := reflect.ValueOf(cm).Elem()
-	configField := cmValue.FieldByName("config")
-	if !configField.CanSet() {
-		configField = reflect.NewAt(configField.Type(), unsafe.Pointer(configField.UnsafeAddr())).Elem()
-	}
-	configField.Set(reflect.ValueOf(config))
 }

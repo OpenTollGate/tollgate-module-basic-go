@@ -25,6 +25,12 @@ func TestUpstreamManager_DefaultConfig(t *testing.T) {
 	assert.Equal(t, 2, config.LostThreshold)
 	assert.Equal(t, 12, config.HysteresisDB)
 	assert.Equal(t, -85, config.SignalFloor)
+	assert.Equal(t, 60, int(config.BlacklistTTL.Minutes()))
+	assert.Equal(t, 20, config.EmergencyPenalty)
+	assert.Equal(t, 3, config.MaxConsecutiveFailures)
+	assert.Equal(t, 10, int(config.SwitchCooldown.Minutes()))
+	assert.Equal(t, 90, int(config.StartupGracePeriod.Seconds()))
+	assert.Equal(t, 5, int(config.PostSwitchWait.Seconds()))
 }
 
 func TestUpstreamManager_NewUpstreamManager(t *testing.T) {
@@ -51,6 +57,12 @@ func TestUpstreamManager_NewUpstreamManager_SetsDefaults(t *testing.T) {
 	assert.Equal(t, 2, um.config.LostThreshold)
 	assert.Equal(t, 12, um.config.HysteresisDB)
 	assert.Equal(t, -85, um.config.SignalFloor)
+	assert.Equal(t, 60, int(um.config.BlacklistTTL.Minutes()))
+	assert.Equal(t, 20, um.config.EmergencyPenalty)
+	assert.Equal(t, 3, um.config.MaxConsecutiveFailures)
+	assert.Equal(t, 10, int(um.config.SwitchCooldown.Minutes()))
+	assert.Equal(t, 90, int(um.config.StartupGracePeriod.Seconds()))
+	assert.Equal(t, 5, int(um.config.PostSwitchWait.Seconds()))
 }
 
 func TestUpstreamManager_FindKnownCandidates_NoKnownSSIDs(t *testing.T) {
