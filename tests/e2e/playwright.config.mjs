@@ -1,10 +1,17 @@
 import { defineConfig } from '@playwright/test';
 
+const viewport = process.env.TOLLGATE_VIEWPORT || 'desktop';
+const viewports = {
+	desktop: { width: 1280, height: 900 },
+	mobile: { width: 375, height: 812 },
+};
+
 export default defineConfig({
 	testDir: '.',
 	testMatch: '*.spec.mjs',
 	retries: 1,
 	timeout: 60000,
+	workers: 1,
 	reporter: [
 		['html', { outputFolder: 'report', open: 'never' }],
 		['list'],
@@ -18,12 +25,8 @@ export default defineConfig({
 	},
 	projects: [
 		{
-			name: 'desktop',
-			use: { viewport: { width: 1280, height: 900 } },
-		},
-		{
-			name: 'mobile',
-			use: { viewport: { width: 375, height: 812 } },
+			name: viewport,
+			use: { viewport: viewports[viewport] || viewports.desktop },
 		},
 	],
 });
