@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - src/config_manager
+          - src/utils
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Run tests
+        working-directory: ${{ matrix.module }}
+        run: go test ./... -v -count=1
+
+  contract-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: ACL lint
+        run: node tests/contract/acl-lint.mjs
+      - name: JS schema lint
+        run: node tests/contract/js-schema-lint.mjs
