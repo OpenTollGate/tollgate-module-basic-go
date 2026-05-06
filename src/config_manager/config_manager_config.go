@@ -20,6 +20,23 @@ type Config struct {
 	ResellerMode           bool                         `json:"reseller_mode"`
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
+	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
+}
+
+type UpstreamWifiConfig struct {
+	ScanIntervalSeconds     int `json:"scan_interval_seconds"`
+	FastCheckSeconds        int `json:"fast_check_seconds"`
+	LostThreshold           int `json:"lost_threshold"`
+	HysteresisDB            int `json:"hysteresis_db"`
+	SignalFloor             int `json:"signal_floor"`
+	BlacklistTTLMinutes     int `json:"blacklist_ttl_minutes"`
+	EmergencyPenalty        int `json:"emergency_penalty"`
+	MaxConsecutiveFailures  int `json:"max_consecutive_failures"`
+	SwitchCooldownMinutes   int `json:"switch_cooldown_minutes"`
+	StartupGraceSeconds     int `json:"startup_grace_seconds"`
+	PostSwitchWaitSeconds   int `json:"post_switch_wait_seconds"`
+	DHCPTimeoutSeconds      int `json:"dhcp_timeout_seconds"`
+	ManualPauseSeconds      int `json:"manual_pause_seconds"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -191,6 +208,21 @@ func NewDefaultConfig() *Config {
 			UsageTracking: UsageTrackingConfig{
 				DataMonitoringInterval: 500 * time.Millisecond,
 			},
+		},
+		UpstreamWifi: UpstreamWifiConfig{
+			ScanIntervalSeconds:    300,
+			FastCheckSeconds:       30,
+			LostThreshold:          2,
+			HysteresisDB:           12,
+			SignalFloor:            -85,
+			BlacklistTTLMinutes:    60,
+			EmergencyPenalty:       20,
+			MaxConsecutiveFailures: 3,
+			SwitchCooldownMinutes:  10,
+			StartupGraceSeconds:    90,
+			PostSwitchWaitSeconds:  5,
+			DHCPTimeoutSeconds:     180,
+			ManualPauseSeconds:     120,
 		},
 	}
 }

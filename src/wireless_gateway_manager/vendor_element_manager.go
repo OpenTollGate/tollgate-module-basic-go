@@ -62,8 +62,6 @@ func (v *VendorElementProcessor) parseVendorElements(rawIEs []byte) (map[string]
 }
 */
 
-// calculateScore calculates the score for a network. For now, it prioritizes "TollGate-" SSIDs.
-// The hop count from ni.HopCount is intentionally not used for scoring, as it is used for filtering connections separately in the GatewayManager.
 func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
 	score := ni.Signal
 
@@ -123,6 +121,3 @@ func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, 
 	logger.Debug("GetLocalAPVendorElements called (functionality currently stubbed)")
 	return make(map[string]string), nil
 }
-
-// Ensure VendorElementProcessor implements VendorElementProcessorInterface
-var _ VendorElementProcessorInterface = (*VendorElementProcessor)(nil)

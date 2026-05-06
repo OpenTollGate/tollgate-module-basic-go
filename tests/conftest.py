@@ -5,11 +5,29 @@ import shutil
 import os
 import time
 
+
+def _load_env():
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env()
+
 LOCAL_MINT_URL = "https://nofees.testnut.cashu.space"
 TOLLGATE_NETWORK_PREFIXES = ["TollGate-"]
-INTERFACE = "wlp59s0"  # This should be configurable
+INTERFACE = "wlp59s0"
 BLOSSOM_URL = "https://blossom.swissdash.site/21d180236f012e5ece0e7881b3602779f14d6b1d8deaaf63914aa0f5b67d4bc3.ipk"
-ROUTER_PASSWORD = "c08r4d0r123"
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
+WIFI_SSID = os.environ.get("WIFI_SSID", "c08r4d0r")
+WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD", "c08r4d0r123")
 
 # Global variable to store router information
 router_info = {

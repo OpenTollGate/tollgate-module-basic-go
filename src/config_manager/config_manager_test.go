@@ -110,3 +110,72 @@ func TestConfigManager(t *testing.T) {
 		t.Errorf("Loaded install config does not match saved config")
 	}
 }
+
+func TestUpstreamWifiConfig_Defaults(t *testing.T) {
+	config := NewDefaultConfig()
+	cfg := config.UpstreamWifi
+	if cfg.ScanIntervalSeconds != 300 {
+		t.Errorf("expected ScanIntervalSeconds=300, got %d", cfg.ScanIntervalSeconds)
+	}
+	if cfg.FastCheckSeconds != 30 {
+		t.Errorf("expected FastCheckSeconds=30, got %d", cfg.FastCheckSeconds)
+	}
+	if cfg.LostThreshold != 2 {
+		t.Errorf("expected LostThreshold=2, got %d", cfg.LostThreshold)
+	}
+	if cfg.HysteresisDB != 12 {
+		t.Errorf("expected HysteresisDB=12, got %d", cfg.HysteresisDB)
+	}
+	if cfg.SignalFloor != -85 {
+		t.Errorf("expected SignalFloor=-85, got %d", cfg.SignalFloor)
+	}
+	if cfg.BlacklistTTLMinutes != 60 {
+		t.Errorf("expected BlacklistTTLMinutes=60, got %d", cfg.BlacklistTTLMinutes)
+	}
+	if cfg.EmergencyPenalty != 20 {
+		t.Errorf("expected EmergencyPenalty=20, got %d", cfg.EmergencyPenalty)
+	}
+	if cfg.MaxConsecutiveFailures != 3 {
+		t.Errorf("expected MaxConsecutiveFailures=3, got %d", cfg.MaxConsecutiveFailures)
+	}
+	if cfg.SwitchCooldownMinutes != 10 {
+		t.Errorf("expected SwitchCooldownMinutes=10, got %d", cfg.SwitchCooldownMinutes)
+	}
+	if cfg.StartupGraceSeconds != 90 {
+		t.Errorf("expected StartupGraceSeconds=90, got %d", cfg.StartupGraceSeconds)
+	}
+	if cfg.PostSwitchWaitSeconds != 5 {
+		t.Errorf("expected PostSwitchWaitSeconds=5, got %d", cfg.PostSwitchWaitSeconds)
+	}
+	if cfg.DHCPTimeoutSeconds != 180 {
+		t.Errorf("expected DHCPTimeoutSeconds=180, got %d", cfg.DHCPTimeoutSeconds)
+	}
+	if cfg.ManualPauseSeconds != 120 {
+		t.Errorf("expected ManualPauseSeconds=120, got %d", cfg.ManualPauseSeconds)
+	}
+}
+
+func TestUpstreamWifiConfig_RoundTrip(t *testing.T) {
+	tempDir := t.TempDir()
+	configFilePath := filepath.Join(tempDir, "config.json")
+
+	original := NewDefaultConfig()
+	original.UpstreamWifi.ScanIntervalSeconds = 600
+	original.UpstreamWifi.SignalFloor = -70
+
+	err := SaveConfig(configFilePath, original)
+	if err != nil {
+		t.Fatalf("SaveConfig error: %v", err)
+	}
+
+	loaded, err := LoadConfig(configFilePath)
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+	if loaded.UpstreamWifi.ScanIntervalSeconds != 600 {
+		t.Errorf("expected ScanIntervalSeconds=600, got %d", loaded.UpstreamWifi.ScanIntervalSeconds)
+	}
+	if loaded.UpstreamWifi.SignalFloor != -70 {
+		t.Errorf("expected SignalFloor=-70, got %d", loaded.UpstreamWifi.SignalFloor)
+	}
+}

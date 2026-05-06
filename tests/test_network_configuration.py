@@ -3,6 +3,11 @@ import subprocess
 import time
 import re
 import socket
+import os
+
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
+WIFI_SSID = os.environ.get("WIFI_SSID", "c08r4d0r")
+WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD", "c08r4d0r123")
 
 def wait_for_network_stability(router_ip, router_password, timeout=30):
     """Wait for the network to become stable after configuration changes."""
@@ -158,7 +163,9 @@ def create_wwan_interface(router_ip, router_password="root"):
     except Exception as e:
         raise Exception(f"Failed to create wwan interface: {e}")
 
-def configure_wireless_station_interfaces(router_ip, router_password="root", target_password="c08r4d0r123"):
+def configure_wireless_station_interfaces(router_ip, router_password="root", target_password=None):
+    if target_password is None:
+        target_password = WIFI_PASSWORD
     """Configure the wireless station interfaces (wifinet0 and wifinet1)."""
     # Add router information for better output formatting
     print(f"=== Configuring Router at {router_ip} ===")
@@ -181,7 +188,7 @@ def configure_wireless_station_interfaces(router_ip, router_password="root", tar
             "sshpass", "-p", router_password,
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
             f"root@{router_ip}",
-            f"/sbin/uci set wireless.wifinet0=wifi-iface && /sbin/uci set wireless.wifinet0.device='radio0' && /sbin/uci set wireless.wifinet0.network='wwan' && /sbin/uci set wireless.wifinet0.mode='sta' && /sbin/uci set wireless.wifinet0.ssid='c08r4d0r' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='sae' && /sbin/uci set wireless.wifinet0.disabled='1'"
+            f"/sbin/uci set wireless.wifinet0=wifi-iface && /sbin/uci set wireless.wifinet0.device='radio0' && /sbin/uci set wireless.wifinet0.network='wwan' && /sbin/uci set wireless.wifinet0.mode='sta' && /sbin/uci set wireless.wifinet0.ssid='{WIFI_SSID}' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='sae' && /sbin/uci set wireless.wifinet0.disabled='1'"
         ]
         
         result = subprocess.run(ssh_command, capture_output=True, text=True)
@@ -206,7 +213,7 @@ def configure_wireless_station_interfaces(router_ip, router_password="root", tar
             "sshpass", "-p", router_password,
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
             f"root@{router_ip}",
-            f"/sbin/uci set wireless.wifinet1=wifi-iface && /sbin/uci set wireless.wifinet1.device='radio1' && /sbin/uci set wireless.wifinet1.network='wwan' && /sbin/uci set wireless.wifinet1.mode='sta' && /sbin/uci set wireless.wifinet1.ssid='c08r4d0r' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='sae' && /sbin/uci set wireless.wifinet1.disabled='1'"
+            f"/sbin/uci set wireless.wifinet1=wifi-iface && /sbin/uci set wireless.wifinet1.device='radio1' && /sbin/uci set wireless.wifinet1.network='wwan' && /sbin/uci set wireless.wifinet1.mode='sta' && /sbin/uci set wireless.wifinet1.ssid='{WIFI_SSID}' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='sae' && /sbin/uci set wireless.wifinet1.disabled='1'"
         ]
         
         result = subprocess.run(ssh_command, capture_output=True, text=True)
@@ -222,8 +229,8 @@ def configure_wireless_station_interfaces(router_ip, router_password="root", tar
         "sshpass", "-p", router_password,
         "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
         f"root@{router_ip}",
-        f"/sbin/uci set wireless.wifinet0.ssid='c08r4d0r' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='sae' && /sbin/uci set wireless.wifinet0.disabled='1' && "
-        f"/sbin/uci set wireless.wifinet1.ssid='c08r4d0r' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='sae' && /sbin/uci set wireless.wifinet1.disabled='0' && "
+        f"/sbin/uci set wireless.wifinet0.ssid='{WIFI_SSID}' && /sbin/uci set wireless.wifinet0.key='{target_password}' && /sbin/uci set wireless.wifinet0.encryption='sae' && /sbin/uci set wireless.wifinet0.disabled='1' && "
+        f"/sbin/uci set wireless.wifinet1.ssid='{WIFI_SSID}' && /sbin/uci set wireless.wifinet1.key='{target_password}' && /sbin/uci set wireless.wifinet1.encryption='sae' && /sbin/uci set wireless.wifinet1.disabled='0' && "
         f"/sbin/uci commit wireless"
     ]
     
@@ -318,7 +325,7 @@ def test_configure_all_routers(request, post_test_image_flasher, tollgate_networ
             
             # Reboot the router immediately after configuration while still connected to its network
             print(f"Rebooting router {router_ip}...")
-            router_password = "c08r4d0r123"
+            router_password = ROUTER_PASSWORD
             ssh_command = [
                 "sshpass", "-p", router_password,
                 "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
