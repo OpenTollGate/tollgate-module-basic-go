@@ -16,6 +16,7 @@ type CLIResponse struct {
 	Message   string      `json:"message,omitempty"`
 	Data      interface{} `json:"data,omitempty"`
 	Error     string      `json:"error,omitempty"`
+	Progress  string      `json:"progress,omitempty"`
 	Timestamp time.Time   `json:"timestamp"`
 }
 
@@ -55,4 +56,20 @@ type PrivateNetworkInfo struct {
 	SSID     string `json:"ssid"`
 	Password string `json:"password"`
 	Enabled  bool   `json:"enabled"`
+}
+
+type UpstreamNetwork struct {
+	SSID       string `json:"ssid"`
+	Signal     int    `json:"signal"`
+	Channel    string `json:"channel"`
+	Encryption string `json:"encryption"`
+	BSSID      string `json:"bssid"`
+	Radio      string `json:"radio"`
+}
+
+type UpstreamSTA struct {
+	SSID       string `json:"ssid"`
+	Status     string `json:"status"`
+	Radio      string `json:"radio"`
+	Encryption string `json:"encryption"`
 }

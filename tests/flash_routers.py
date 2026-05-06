@@ -12,9 +12,24 @@ import time
 import os
 import sys
 
-# Configuration
-INTERFACES = ["enx00e04c683d2d", "enx00e04c6812d4"]  # List of interfaces to monitor
-ROUTER_PASSWORD = "c08r4d0r123"
+
+def _load_env():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env()
+
+INTERFACES = ["enx00e04c683d2d", "enx00e04c6812d4"]
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
 IMAGE_FILE = "78ccda8fdbd71df9143fb41aff75d2104fbb56313d2c1ba8ce56c8ab951e5d26.bin"
 
 
