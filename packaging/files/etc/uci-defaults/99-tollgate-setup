@@ -39,7 +39,6 @@ setup_uhttpd() {
     uci set uhttpd.main.network_timeout='30'
     uci set uhttpd.main.http_keepalive='20'
     uci set uhttpd.main.tcp_keepalive='1'
-    uci set uhttpd.main.commonname='TollGate'
 }
 
 setup_dns_dnsmasq() {
@@ -100,6 +99,11 @@ setup_hostname() {
     else
         log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
     fi
+    # TLS cert CN should match whatever hostname is active after the check above.
+    local final_hostname
+    final_hostname=$(uci -q get system.@system[0].hostname)
+    uci set uhttpd.main.commonname="$final_hostname"
+    log "uhttpd cert commonname set to ${final_hostname}"
 }
 
 setup_nodogsplash() {
