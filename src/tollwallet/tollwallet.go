@@ -52,13 +52,13 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()
 	log.Printf("TollWallet.Receive: Token mint: %s", mint)
+	log.Printf("TollWallet.Receive: Wallet acceptedMints: %v", w.acceptedMints)
 
 	swapToTrusted := false
 
-	// If mint is untrusted, check if operator allows swapping or rejects untrusted mints.
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
-			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
+			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints. Accepted: %v", mint, w.acceptedMints)
 			log.Printf("TollWallet.Receive: %v", err)
 			return 0, err
 		}

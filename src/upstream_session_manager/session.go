@@ -47,8 +47,8 @@ type UpstreamSession struct {
 	lastPaymentAttempt time.Time  // Last time we attempted payment
 
 	// Dependencies
-	configManager *config_manager.ConfigManager
-	merchant      merchant.MerchantInterface
+	configManager  *config_manager.ConfigManager
+	merchant       merchant.MerchantProvider
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -61,7 +61,7 @@ func NewUpstreamSession(
 	advertisement *nostr.Event,
 	adInfo *tollgate_protocol.AdvertisementInfo,
 	configManager *config_manager.ConfigManager,
-	merchantImpl merchant.MerchantInterface,
+	merchantProvider merchant.MerchantProvider,
 ) (*UpstreamSession, error) {
 	// Get config for renewal offsets
 	config := configManager.GetConfig()
@@ -101,7 +101,7 @@ func NewUpstreamSession(
 		}
 		if _, err := selectCompatiblePricingWithFunds(
 			adInfo.PricingOptions,
-			merchantImpl,
+			merchantProvider.GetMerchant(),
 			preferredAllotment,
 			adInfo.StepSize,
 		); err != nil {
@@ -123,7 +123,7 @@ func NewUpstreamSession(
 		Status:            SessionActive,
 		UsageTracker:      nil,
 		configManager:     configManager,
-		merchant:          merchantImpl,
+		merchant:          merchantProvider,
 	}
 
 	// Start tracker - it will handle initial payment if needed (usage == 0/0),
@@ -258,7 +258,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	// Select pricing option with sufficient funds for our desired payment
 	selectedPricing, err := selectCompatiblePricingWithFunds(
 		s.AdvertisementInfo.PricingOptions,
-		s.merchant,
+		s.merchant.GetMerchant(),
 		preferredAllotment,
 		s.AdvertisementInfo.StepSize,
 	)
@@ -310,7 +310,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 	// Create payment token
 	amount := steps * s.SelectedPricing.PricePerStep
-	token, err := s.merchant.CreatePaymentTokenWithOverpayment(
+	token, err := s.merchant.GetMerchant().CreatePaymentTokenWithOverpayment(
 		s.SelectedPricing.MintURL,
 		amount,
 		10000, // overpayment tolerance
@@ -414,7 +414,7 @@ func (s *UpstreamSession) recoverToken(token string, originalErr error) {
 	}
 
 	// Call the token recovery utility
-	recoverFailedPaymentToken(s.merchant, token, mintURL, originalErr)
+	recoverFailedPaymentToken(s.merchant.GetMerchant(), token, mintURL, originalErr)
 }
 
 // Stop stops the session (stops tracker and marks as expired)
