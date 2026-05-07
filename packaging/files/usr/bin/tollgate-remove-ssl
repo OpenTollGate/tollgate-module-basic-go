@@ -1,0 +1,95 @@
+#!/bin/sh
+# tollgate-remove-ssl — Revert HTTPS configuration back to HTTP
+#
+# Usage: tollgate-remove-ssl
+#
+# Undoes the changes made by tollgate-apply-ssl:
+#   1. Removes the installed cert+key
+#   2. Restores uhttpd to auto-generated self-signed cert
+#   3. Removes the dnsmasq DNS entry for the SSL domain
+#   4. Reverts nodogsplash to HTTP (TollGate.lan, port 80)
+#   5. Reloads uhttpd, dnsmasq, nodogsplash
+
+set -euo pipefail
+
+SSL_DIR="/etc/tollgate/ssl"
+BACKUP_DIR="${SSL_DIR}/backup"
+
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "ERROR: no SSL backup found at ${BACKUP_DIR}/"
+    echo "  Either SSL was never applied, or the backup was deleted."
+    exit 1
+fi
+
+DOMAIN=$(cat "${BACKUP_DIR}/ssl.domain" 2>/dev/null || echo "")
+LAN_IP=$(cat "${BACKUP_DIR}/ssl.lan_ip" 2>/dev/null || echo "")
+
+echo "Reverting SSL configuration for: ${DOMAIN:-unknown}"
+echo ""
+echo "Changes to revert:"
+echo "  [1] Remove cert+key from ${SSL_DIR}/"
+echo "  [2] uhttpd: restore default self-signed cert"
+echo "  [3] dnsmasq: remove DNS entry for ${DOMAIN}"
+echo "  [4] nodogsplash: revert to TollGate.lan port 80"
+echo ""
+printf "Revert all? [y/N] "
+read -r CONFIRM
+case "$CONFIRM" in
+    [yY]|[yY][eE][sS]) ;;
+    *) echo "Aborted."; exit 0 ;;
+esac
+
+# ── Restore uhttpd ─────────────────────────────────────────────────────────
+
+# Remove custom cert and point uhttpd back to the default self-signed ones
+rm -f "${SSL_DIR}/server.crt" "${SSL_DIR}/server.key"
+
+if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then
+    uci set uhttpd.main.cert='/etc/uhttpd.crt'
+    uci set uhttpd.main.key='/etc/uhttpd.key'
+else
+    # Remove cert/key references; uhttpd will auto-generate on next start
+    uci -q delete uhttpd.main.cert
+    uci -q delete uhttpd.main.key
+fi
+echo "[1] uhttpd cert reverted."
+
+# ── Remove dnsmasq DNS entry ───────────────────────────────────────────────
+
+if [ -n "$DOMAIN" ]; then
+    # Remove the domain section we added
+    for idx in $(uci show dhcp 2>/dev/null | grep "=domain" | cut -d. -f2 | cut -d= -f1); do
+        name=$(uci -q get "dhcp.${idx}.name" 2>/dev/null || echo "")
+        if [ "$name" = "$DOMAIN" ]; then
+            uci delete "dhcp.${idx}"
+            echo "[2] Removed dnsmasq entry for ${DOMAIN}"
+            break
+        fi
+    done
+fi
+
+# ── Restore nodogsplash ────────────────────────────────────────────────────
+
+ORIGINAL_DOMAIN=$(cat "${BACKUP_DIR}/nds.gatewaydomainname" 2>/dev/null || echo "TollGate.lan")
+ORIGINAL_PORT=$(cat "${BACKUP_DIR}/nds.gatewayport" 2>/dev/null || echo "80")
+
+uci set nodogsplash.@nodogsplash[0].gatewaydomainname="$ORIGINAL_DOMAIN"
+uci set nodogsplash.@nodogsplash[0].gatewayport="$ORIGINAL_PORT"
+echo "[3] nodogsplash reverted to ${ORIGINAL_DOMAIN}:${ORIGINAL_PORT}"
+
+# ── Commit and reload ──────────────────────────────────────────────────────
+
+uci commit uhttpd
+uci commit dhcp
+uci commit nodogsplash
+
+/etc/init.d/uhttpd reload
+/etc/init.d/dnsmasq reload
+/etc/init.d/nodogsplash restart
+
+# Clean up backup
+rm -rf "$BACKUP_DIR"
+
+echo ""
+echo "Done. HTTPS removed. Portal now served over HTTP."
+echo "  Portal URL: http://${ORIGINAL_DOMAIN}/"
