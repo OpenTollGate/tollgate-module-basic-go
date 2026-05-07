@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net/http"
 	"os/exec"
 	"strings"
 	"sync"
@@ -38,7 +37,6 @@ type UpstreamManager struct {
 	consecutiveFails int
 	cooldownUntil    time.Time
 	connectivityCheckFn func() bool
-	isTollGateConnection bool
 }
 
 type ConfigReadResult struct {
@@ -59,8 +57,6 @@ func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 		StartupGracePeriod:     90 * time.Second,
 		PostSwitchWait:         5 * time.Second,
 		StartupSettle:         15 * time.Second,
-		StartupRetryInterval:  10 * time.Second,
-		StartupScanInterval:   10 * time.Second,
 	}
 }
 
@@ -101,15 +97,6 @@ func NewUpstreamManager(connector ConnectorInterface, scanner ScannerInterface, 
 	if config.StartupSettle == 0 {
 		config.StartupSettle = 15 * time.Second
 	}
-	if config.TollGateLostThreshold == 0 {
-		config.TollGateLostThreshold = 6
-	}
-	if config.StartupRetryInterval == 0 {
-		config.StartupRetryInterval = 10 * time.Second
-	}
-	if config.StartupScanInterval == 0 {
-		config.StartupScanInterval = 10 * time.Second
-	}
 	return &UpstreamManager{
 		connector: connector,
 		scanner:   scanner,
@@ -136,6 +123,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 	time.Sleep(um.config.StartupSettle)
 
 	const startupRetries = 3
+	const startupRetryInterval = 10 * time.Second
 	connected := false
 	for attempt := 1; attempt <= startupRetries; attempt++ {
 		if um.checkConnectivityForStartup(staNetdev) {
@@ -151,7 +139,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 				"attempt":   attempt,
 				"remaining": startupRetries - attempt,
 			}).Info("Startup check: no internet yet, retrying")
-			time.Sleep(um.config.StartupRetryInterval)
+			time.Sleep(startupRetryInterval)
 		}
 	}
 
@@ -161,59 +149,10 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 	}
 
 	logger.WithField("ssid", activeSTA.SSID).Warn("Startup check: active STA has no internet, triggering emergency scan")
+	um.blacklistSSID(activeSTA.SSID)
 
-	const startupScanRetries = 3
-	switched := false
-	for scanAttempt := 1; scanAttempt <= startupScanRetries; scanAttempt++ {
-		logger.WithFields(logrus.Fields{
-			"attempt":   scanAttempt,
-			"remaining": startupScanRetries - scanAttempt,
-		}).Info("Startup check: scanning for alternative upstream")
-
-		um.purgeBlacklist()
-		networks, err := um.scanner.ScanAllRadios()
-		if err != nil {
-			logger.WithError(err).Warn("Startup check: scan failed")
-			if scanAttempt < startupScanRetries {
-				time.Sleep(um.config.StartupScanInterval)
-			}
-			continue
-		}
-
-		isReseller := um.isResellerModeActive()
-		candidate, err := um.findCandidates(networks, isReseller, true)
-		if err != nil || candidate == nil {
-			logger.Info("Startup check: no candidate found in scan")
-			if scanAttempt < startupScanRetries {
-				time.Sleep(um.config.StartupScanInterval)
-			}
-			continue
-		}
-
-		logger.WithFields(logrus.Fields{
-			"ssid":   candidate.SSID,
-			"signal": candidate.Signal,
-		}).Info("Startup check: candidate found, switching")
-
-		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID); err != nil {
-			logger.WithError(err).Warn("Startup check: switch failed")
-			um.recordSwitchFailure()
-			if scanAttempt < startupScanRetries {
-				time.Sleep(um.config.StartupScanInterval)
-			}
-			continue
-		}
-
-		um.resetSwitchFailures()
-		um.blacklistSSID(activeSTA.SSID)
-		go um.verifyPostSwitchConnectivity(candidate.SSID)
-		switched = true
-		break
-	}
-
-	if !switched {
-		logger.Warn("Startup check: no working upstream found after all scan retries, deferring to main loop")
-	}
+	isReseller := um.isResellerModeActive()
+	um.runScanCycle(activeSTA.Name, activeSTA.SSID, 0, "startup-no-internet", isReseller)
 }
 
 func (um *UpstreamManager) checkConnectivityForStartup(staDevice string) bool {
@@ -319,12 +258,8 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 					continue
 				}
 				lostCount++
-				lostThreshold := um.config.LostThreshold
-				if um.isTollGateConnection {
-					lostThreshold = um.config.TollGateLostThreshold
-				}
 				logger.WithField("lost_count", lostCount).Info("Connectivity lost")
-					if lostCount >= lostThreshold {
+					if lostCount >= um.config.LostThreshold {
 						if err := um.connector.CleanupStaleSTAs(); err != nil {
 							logger.WithError(err).Warn("Failed to cleanup stale STAs during emergency")
 						}
@@ -505,40 +440,13 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 			if isEmergency && activeSSID != "" {
 				um.blacklistSSID(activeSSID)
 			}
-			go um.verifyPostSwitchConnectivity(candidate.SSID)
+			um.verifyPostSwitchConnectivity(candidate.SSID)
 		}
 	}
-}
-
-func (um *UpstreamManager) waitForDefaultRoute(timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		cmd := exec.Command("ip", "route", "show", "default")
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		err := cmd.Run()
-		routeOutput := out.String()
-		if err == nil && strings.Contains(routeOutput, " via ") {
-			logger.WithField("route", strings.TrimSpace(routeOutput)).Debug("Post-switch: default route found")
-			return true
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	logger.WithField("timeout", timeout).Warn("Post-switch: timed out waiting for default route")
-	return false
 }
 
 func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string) {
-	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
-	if um.waitForDefaultRoute(30 * time.Second) {
-		if um.probeTollGateGateway() {
-			um.isTollGateConnection = true
-			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
-			return
-		}
-	}
-
-	um.isTollGateConnection = false
+	time.Sleep(um.config.PostSwitchWait)
 	cmd := exec.Command("ping", "-c", "1", "-W", "5", "9.9.9.9")
 	if cmd.Run() != nil {
 		um.blacklistSSID(ssid)
@@ -546,35 +454,6 @@ func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string) {
 	} else {
 		logger.WithField("ssid", ssid).Info("Post-switch connectivity verified")
 	}
-}
-
-func (um *UpstreamManager) probeTollGateGateway() bool {
-	cmd := exec.Command("ip", "route", "show", "default")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if cmd.Run() != nil {
-		return false
-	}
-
-	fields := strings.Fields(out.String())
-	gatewayIP := ""
-	for i, f := range fields {
-		if f == "via" && i+1 < len(fields) {
-			gatewayIP = fields[i+1]
-			break
-		}
-	}
-	if gatewayIP == "" {
-		return false
-	}
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://" + gatewayIP + ":2121/")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 500
 }
 
 func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool, isEmergency bool) (*Candidate, error) {
