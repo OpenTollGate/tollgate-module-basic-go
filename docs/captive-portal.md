@@ -128,7 +128,7 @@ The `99-tollgate-setup` script only enables HTTPS on uhttpd if cert and key
 files already exist at `/etc/uhttpd.crt` and `/etc/uhttpd.key`. On a fresh
 firmware flash, these files don't exist, so uhttpd runs HTTP only on port 8080.
 
-### Enabling SSL
+### Enabling SSL (Real Certificate)
 
 ```
 tollgate-apply-ssl <cert-file> [key-file]
@@ -147,10 +147,30 @@ This script:
    clients can reach uhttpd HTTPS
 8. **Reloads** all services
 
-After applying SSL:
+After applying SSL with a real cert:
 - `http://example.com/` → captive portal (NoDogSplash, HTTP)
 - `https://example.com/` → LuCI admin (uhttpd, HTTPS)
 - `http://example.com:8080/` → LuCI admin (uhttpd, HTTP, still available)
+
+### Enabling SSL (Self-Signed)
+
+```
+tollgate-apply-ssl
+```
+
+When called with no arguments, the script generates a self-signed certificate
+for the router's hostname (e.g. `TollGate.lan`). This mode:
+
+- Generates a 2048-bit RSA cert valid for 10 years using openssl (or px5g fallback)
+- Configures uhttpd to serve HTTPS on port 443
+- Allows port 443 through NoDogSplash firewall
+- Does **not** change dnsmasq or NoDogSplash domain (hostname already resolves)
+
+Self-signed HTTPS is intended for encrypted LuCI admin access on the local
+network. Browsers will display a certificate warning that users must accept.
+
+**Self-signed certs do NOT provide RFC 8908 compliance.** See
+[Standards Compliance](#standards-compliance) below.
 
 ### Disabling SSL
 
@@ -160,17 +180,22 @@ tollgate-remove-ssl
 
 Reverts all changes made by `tollgate-apply-ssl`:
 - Removes installed cert+key
-- Restores uhttpd to default cert configuration
-- Removes dnsmasq domain entry
-- Reverts NoDogSplash to original `gatewaydomainname` and `gatewayport`
+- Restores uhttpd to previous cert configuration
+- Removes dnsmasq domain entry (real-cert mode only)
+- Reverts NoDogSplash `gatewaydomainname` (real-cert mode only)
+- Removes port 443 firewall allow rule
 - Reloads all services
 
-### Self-Signed Certificates (Not Yet Implemented)
+### Script Interaction with First-Boot Setup
 
-Planned: when `tollgate-apply-ssl` is called without a cert file, it should
-generate a self-signed certificate for local use. This would enable LuCI
-HTTPS on the local network but does **not** provide RFC 8908 compliance
-(browsers will show certificate warnings).
+`99-tollgate-setup` runs once on first boot. `tollgate-apply-ssl` runs
+manually afterward. They don't conflict because:
+
+- Setup configures uhttpd HTTPS only if `/etc/uhttpd.crt` + `/etc/uhttpd.key`
+  already exist (firmware-provided certs)
+- `tollgate-apply-ssl` overwrites cert/key paths and backs up current values
+- `tollgate-remove-ssl` restores from backup — reverts to pre-SSL state
+- Re-running setup (removing setup flag) resets everything to defaults
 
 ## Standards Compliance
 
@@ -205,18 +230,38 @@ Response: { "captive": true, "user-portal-url": "https://..." }
 ```
 
 Requirements for compliance:
-- **HTTPS with publicly trusted certificate** — self-signed does not qualify
+- **HTTPS with validated certificate** — client MUST validate cert per RFC 6125
 - Content-Type: `application/captive+json`
-- Cache-Control: `no-store`
+- Cache-Control: `no-store` or `private`
 - Per-client state (must know if the requesting client is authenticated)
+- OCSP stapling SHOULD be supported
+- Network SHOULD allow access to OCSP/CRL/NTP servers
 
-Implementation options:
-- Add to Go API (`tollgate-basic` on port 2121) — would need TLS support
-- Add to uhttpd via CGI script — simpler but less flexible
+#### Self-Signed Certificates and RFC 8908
 
-**Why not yet**: Requires a publicly trusted cert and integration with
-NoDogSplash's client auth state. The current HTTP interception approach
-works on all platforms.
+The RFC does **not** explicitly require a publicly trusted CA certificate. It
+requires that clients successfully validate the certificate. However, in
+practice:
+
+- A plain self-signed cert will **fail validation** on unmanaged devices
+  (consumers) because it's not in their trust store
+- A private CA root works if you **control the client devices** (enterprise)
+- **Best interoperability**: real domain + publicly trusted cert
+
+RFC 8908 Section 4.1 includes a **graceful degradation clause**:
+
+> *"If the client is unable to validate the certificate presented by the API
+> server, it MUST NOT proceed with any of the behavior for API interaction
+> described in this document. The client will proceed to interact with the
+> captive network as if the API capabilities were not present."*
+
+This means clients fall back to legacy HTTP interception when cert validation
+fails. Our current captive portal (NoDogSplash on port 80) works correctly as
+this fallback.
+
+**Why not yet**: Requires a publicly trusted cert on a real domain + integration
+with NoDogSplash's client auth state. Self-signed certs provide HTTPS for LuCI
+admin but cannot serve as an RFC 8908 endpoint for unmanaged devices.
 
 ### RFC 8952 — CAPPORT Architecture
 
