@@ -48,22 +48,67 @@ When a mint recovers, the `onFirstReachable` callback creates a full merchant an
 
 ## Test Results
 
-### Unit tests — all pass, `go vet` clean
+### Automated Tests
 
-```
-src/    — 23 tests (config path integration, E2E HTTP, main)
-src/merchant/ — 70 tests (health tracker, degraded merchant, provider, offline wallet)
-src/cli/ — 12 tests (server, MerchantProvider)
-```
+| Test Suite | Tests | Result |
+|------------|-------|--------|
+| `go vet -tags testenv ./...` | — | CLEAN |
+| `go test` — main package | 23 (config path, E2E HTTP, main) | PASS |
+| `go test` — merchant package | 70 (health tracker, degraded, provider, offline wallet) | PASS |
+| `go test` — cli package | 12 (server, MerchantProvider) | PASS |
+| **Total** | **105** | **PASS** |
 
-### Hardware tests — both routers pass full degraded lifecycle
+### Hardware Tests — GL.iNet MT3000 (arm64, OpenWrt 24.10.4)
 
-```
-make r-smoke-degraded ROUTER=alpha   # PASS
-make r-smoke-degraded ROUTER=beta    # PASS
-```
+All hardware tests run against `nofee.testnut.cashu.space` on both alpha and beta routers.
 
-Steps verified on each router: deploy → fund wallet → block mint → degraded mode with offline balance → unblock → recovery to full merchant → restore config.
+#### Single-Router Degraded Lifecycle (`r-smoke-degraded`)
+
+Verifies: service boots in degraded mode when mint is blocked, offline wallet preserves balance, service recovers to full merchant when mint is unblocked.
+
+Steps: setup test mint → fund wallet (1013 sats) → block mint via /etc/hosts → restart → verify degraded mode with offline balance → unblock → restart → verify full merchant → restore production config.
+
+| Router | Result |
+|--------|--------|
+| Alpha (100.90.41.166) | PASS — degraded mode loaded 11421 sats offline, recovered to full |
+| Beta (100.90.216.248) | PASS — degraded mode loaded 9272 sats offline, recovered to full |
+
+#### Two-Router Degraded Upstream (`r-smoke-degraded-upstream`)
+
+Verifies: alpha connects to beta's open AP, alpha's USM detects beta as TollGate gateway, alpha pays for upstream access. Then mint is blocked on alpha, verifying the degraded merchant can renew the upstream session using offline e-cash.
+
+**Status: BLOCKED by pre-existing DHCP timeout issue**
+
+Alpha's STA associates with beta's AP at L2 (signal -35 dBm, association succeeds) but DHCP never responds within the 180s timeout. Beta's dnsmasq is configured to serve on br-lan (172.19.217.x) and the AP interfaces are bridged into br-lan. The issue appears to be an OpenWrt netifd race condition where the DHCP client on the wwan interface doesn't receive the server's response after a radio reload. This is a pre-existing bug in the upstream WiFi manager, not related to the mint health changes.
+
+The degraded-to-upstream payment path (`CreatePaymentTokenWithOverpayment` on the degraded merchant's offline wallet) is unit-tested extensively (70 merchant tests including `TestKickstart_WalletLoaded_CreatePaymentTokenWithOverpayment`). The two-router end-to-end test requires a separate fix for the DHCP issue, which should be tracked as a follow-up issue.
+
+#### Config Path Verification (`r-diagnose-config-path`)
+
+Verifies: service reads config from `/etc/tollgate/config.json` (not from `/tmp/` as the pre-fix `000_main_test_env.go` caused).
+
+| Router | Result |
+|--------|--------|
+| Alpha | PASS — `config=/etc/tollgate/config.json` |
+| Beta | PASS — `config=/etc/tollgate/config.json` |
+
+#### STA Health Check (`r-check-sta-health`)
+
+Verifies: no stale or duplicate STA sections in UCI wireless config.
+
+| Router | Result |
+|--------|--------|
+| Alpha | PASS — 1 active STA, no duplicates |
+| Beta | PASS — 1 active STA, no duplicates |
+
+### Tests Not Yet Run on This Branch
+
+| Test | What it covers | Risk |
+|------|---------------|------|
+| `r-smoke-degraded-connect` | Connect to upstream while already degraded (risky) | High — may strand router, needs physical access |
+| `r-test-first-boot-offline` | First boot with no wallet on disk | Low — covered by unit test `TestKickstart_WalletNotLoaded_FirstBoot_NoPanic` |
+| `r-test-no-mints` | Zero configured mints | Low — covered by unit test `TestKickstart_WalletNotLoaded_NoConfiguredMints` |
+| `r-full` | Full ~20min test suite | Low — exercises same paths as smoke tests |
 
 ## Merge Base
 
