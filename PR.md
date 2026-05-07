@@ -27,6 +27,27 @@ When a mint recovers, the `onFirstReachable` callback creates a full merchant an
 
 `GetAdvertisement()` regenerates on each call using live health data, so the nostr advertisement always reflects which mints are currently reachable.
 
+## Additional Fixes (on this branch)
+
+### Cross-Radio DHCP Nudge (`src/wireless_gateway_manager/connector.go`)
+
+When switching STAs across different radios, OpenWrt's netifd may not re-evaluate the wwan interface after `wifi reload`. The DHCP client never starts, causing a 180s timeout.
+
+Fix: dual-trigger `ifup wwan` nudge in `waitForSTAIP`:
+1. **Cross-radio trigger**: fires immediately once L2 association succeeds on a different radio than the active STA
+2. **Timer trigger**: fires after 15s grace period as fallback
+
+Both set the same `nudged` flag so the nudge fires at most once per switch.
+
+### Startup Connectivity Hygiene (`src/wireless_gateway_manager/upstream_manager.go`)
+
+After a power cycle, OpenWrt brings up whatever STAs have `disabled=0` in UCI before tollgate-wrt starts. If a non-internet STA (e.g., another TollGate's AP) is enabled, the router connects to it. The upstream manager's 90-second grace period meant no connectivity check ran, leaving the router without internet for ~3 minutes.
+
+Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grace period:
+1. Gets active STA, waits 15s for DHCP/L2 to settle
+2. Pings 9.9.9.9 — if internet works, returns immediately
+3. If no internet: blacklists the current SSID and triggers an emergency scan+switch
+
 ## Files to Review
 
 | File | What changed |
@@ -45,6 +66,9 @@ When a mint recovers, the `onFirstReachable` callback creates a full merchant an
 | `src/config_manager/buildinfo.go` | New — `GitBranch` var for conditional dev-only test mint |
 | `src/config_manager/config_manager_config.go` | Modified — test mint auto-appended on non-main branches |
 | `src/tollwallet/tollwallet.go` | Modified — diagnostic logging for accepted mints on rejection |
+| `src/wireless_gateway_manager/connector.go` | Modified — dual-trigger `ifup wwan` nudge in `waitForSTAIP` for cross-radio DHCP |
+| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup connectivity hygiene, injectable check for testing |
+| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — 7 new tests for startup connectivity check |
 
 ## Test Results
 
@@ -56,7 +80,8 @@ When a mint recovers, the `onFirstReachable` callback creates a full merchant an
 | `go test` — main package | 23 (config path, E2E HTTP, main) | PASS |
 | `go test` — merchant package | 70 (health tracker, degraded, provider, offline wallet) | PASS |
 | `go test` — cli package | 12 (server, MerchantProvider) | PASS |
-| **Total** | **105** | **PASS** |
+| `go test` — WGM package | 7 (startup check, blacklist, circuit breaker) | PASS |
+| **Total** | **112** | **PASS** |
 
 ### Hardware Tests — GL.iNet MT3000 (arm64, OpenWrt 24.10.4)
 
@@ -70,18 +95,16 @@ Steps: setup test mint → fund wallet (1013 sats) → block mint via /etc/hosts
 
 | Router | Result |
 |--------|--------|
-| Alpha (100.90.41.166) | PASS — degraded mode loaded 11421 sats offline, recovered to full |
-| Beta (100.90.216.248) | PASS — degraded mode loaded 9272 sats offline, recovered to full |
+| Alpha (100.90.41.166) | PASS — degraded mode loaded 16626 sats offline, recovered to full |
+| Beta (100.90.216.248) | PASS — degraded mode loaded 11116 sats offline, recovered to full |
 
 #### Two-Router Degraded Upstream (`r-smoke-degraded-upstream`)
 
 Verifies: alpha connects to beta's open AP, alpha's USM detects beta as TollGate gateway, alpha pays for upstream access. Then mint is blocked on alpha, verifying the degraded merchant can renew the upstream session using offline e-cash.
 
-**Status: BLOCKED by pre-existing DHCP timeout issue**
+**Status: PASS**
 
-Alpha's STA associates with beta's AP at L2 (signal -35 dBm, association succeeds) but DHCP never responds within the 180s timeout. Beta's dnsmasq is configured to serve on br-lan (172.19.217.x) and the AP interfaces are bridged into br-lan. The issue appears to be an OpenWrt netifd race condition where the DHCP client on the wwan interface doesn't receive the server's response after a radio reload. This is a pre-existing bug in the upstream WiFi manager, not related to the mint health changes.
-
-The degraded-to-upstream payment path (`CreatePaymentTokenWithOverpayment` on the degraded merchant's offline wallet) is unit-tested extensively (70 merchant tests including `TestKickstart_WalletLoaded_CreatePaymentTokenWithOverpayment`). The two-router end-to-end test requires a separate fix for the DHCP issue, which should be tracked as a follow-up issue.
+Alpha connected to beta's TollGate-D1C6 AP via radio0, got DHCP within 5s (cross-radio nudge working), detected beta as gateway. Degraded mode payment attempts confirmed. NetBird recovered after switching back to TP-Link_97E6.
 
 #### Config Path Verification (`r-diagnose-config-path`)
 
