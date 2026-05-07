@@ -122,8 +122,15 @@ setup_nodogsplash() {
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
     uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
-    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
-    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    # Add firewall allow rules only if not already present (idempotent).
+    local nds_users
+    nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+    if ! echo "$nds_users" | grep -q "port 2121"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
+    fi
+    if ! echo "$nds_users" | grep -q "port 8080"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     uci set nodogsplash.@nodogsplash[0].gatewayport='80'
 }
