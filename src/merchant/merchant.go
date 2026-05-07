@@ -705,8 +705,8 @@ func (m *Merchant) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 }
 
 // CreateNoticeEvent creates a notice event for error communication
-func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	identities := m.configManager.GetIdentities()
+func createNoticeEvent(configManager *config_manager.ConfigManager, level, code, message, customerPubkey string) (*nostr.Event, error) {
+	identities := configManager.GetIdentities()
 	if identities == nil {
 		return nil, fmt.Errorf("identities config is nil")
 	}
@@ -714,14 +714,12 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 	if err != nil {
 		return nil, fmt.Errorf("merchant identity not found: %w", err)
 	}
-	// Get the public key from the private key
 	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public key: %w", err)
 	}
-
 	noticeEvent := &nostr.Event{
-		Kind:      21023, // NIP-94 notice event
+		Kind:      21023,
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
@@ -730,19 +728,18 @@ func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string
 		},
 		Content: message,
 	}
-
-	// Add customer pubkey if provided
 	if customerPubkey != "" {
 		noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
 	}
-
-	// Sign with tollgate private key
 	err = noticeEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}
-
 	return noticeEvent, nil
+}
+
+func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
+	return createNoticeEvent(m.configManager, level, code, message, customerPubkey)
 }
 
 // MerchantInterface method implementations

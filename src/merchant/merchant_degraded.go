@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -27,13 +27,6 @@ type MerchantDegraded struct {
 	wallet            Wallet
 	walletLoaded      bool
 	walletPath        string
-}
-
-func NewMerchantDegraded(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker) *MerchantDegraded {
-	return &MerchantDegraded{
-		configManager:     configManager,
-		mintHealthTracker: mintHealthTracker,
-	}
 }
 
 func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker, walletFactory WalletFactory, walletPath string) *MerchantDegraded {
@@ -154,36 +147,7 @@ func (m *MerchantDegraded) StartDataUsageMonitoring() {
 }
 
 func (m *MerchantDegraded) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	identities := m.configManager.GetIdentities()
-	if identities == nil {
-		return nil, fmt.Errorf("identities config is nil")
-	}
-	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
-	if err != nil {
-		return nil, fmt.Errorf("merchant identity not found: %w", err)
-	}
-	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get public key: %w", err)
-	}
-	noticeEvent := &nostr.Event{
-		Kind:      21023,
-		PubKey:    tollgatePubkey,
-		CreatedAt: nostr.Now(),
-		Tags: nostr.Tags{
-			{"level", level},
-			{"code", code},
-		},
-		Content: message,
-	}
-	if customerPubkey != "" {
-		noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
-	}
-	err = noticeEvent.Sign(merchantIdentity.PrivateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign notice event: %w", err)
-	}
-	return noticeEvent, nil
+	return createNoticeEvent(m.configManager, level, code, message, customerPubkey)
 }
 
 func (m *MerchantDegraded) GetSession(macAddress string) (*CustomerSession, error) {
@@ -210,9 +174,9 @@ func DefaultWalletFactory(walletPath string, mintURLs []string) (Wallet, error) 
 	if err := os.MkdirAll(walletPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletPath, err)
 	}
-	return newTollWallet(walletPath, mintURLs)
-}
-
-func defaultWalletPath(configManager *config_manager.ConfigManager) string {
-	return filepath.Dir(configManager.ConfigFilePath)
+	tw, err := tollwallet.New(walletPath, mintURLs, false)
+	if err != nil {
+		return nil, err
+	}
+	return tw, nil
 }
