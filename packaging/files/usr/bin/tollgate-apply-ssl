@@ -1,21 +1,19 @@
 #!/bin/sh
-# tollgate-apply-ssl — Install an SSL certificate and configure HTTPS
+# tollgate-apply-ssl — Enable HTTPS for LuCI admin interface
 #
-# Usage: tollgate-apply-ssl <cert-file> [key-file]
+# Usage:
+#   tollgate-apply-ssl                 # Self-signed cert for current hostname
+#   tollgate-apply-ssl <cert-file>     # Combined PEM (cert + key)
+#   tollgate-apply-ssl <cert> <key>    # Separate cert and key files
 #
-# If only one file is given and it contains both CERTIFICATE and PRIVATE KEY
-# PEM blocks, the file is split automatically. If two files are given, the
-# first is the certificate chain and the second is the private key.
+# Self-signed mode generates a cert for the router's hostname (e.g. TollGate.lan).
+# This is useful for encrypted LuCI admin access on the local network but does NOT
+# provide RFC 8908 captive portal API compliance (clients will reject self-signed certs).
 #
-# The script:
-#   1. Validates the certificate (PEM, not expired)
-#   2. Extracts the domain from SAN or CN
-#   3. Shows each config change and asks for confirmation
-#   4. Installs cert+key to /etc/tollgate/ssl/
-#   5. Configures uhttpd for HTTPS
-#   6. Adds dnsmasq DNS entry for the domain
-#   7. Updates captive portal domain name (keeps HTTP port 80)
-#   8. Reloads uhttpd, dnsmasq, nodogsplash
+# With a real cert, the script also:
+#   - Adds a dnsmasq DNS entry so the cert domain resolves to the LAN IP
+#   - Updates NoDogSplash gatewaydomainname to match the cert domain
+#   - Allows port 443 through NoDogSplash firewall
 #
 # Revert with: tollgate-remove-ssl
 
@@ -26,14 +24,8 @@ BACKUP_DIR="${SSL_DIR}/backup"
 CERT_DEST="${SSL_DIR}/server.crt"
 KEY_DEST="${SSL_DIR}/server.key"
 LAN_IP=$(uci -q get network.lan.ipaddr || echo "")
-
-# ── Dependency check ────────────────────────────────────────────────────────
-
-if ! command -v openssl >/dev/null 2>&1; then
-    echo "ERROR: openssl is not installed."
-    echo "  opkg update && opkg install openssl-util"
-    exit 1
-fi
+SELF_SIGN=false
+DOMAIN=""
 
 if [ -z "$LAN_IP" ]; then
     echo "ERROR: cannot determine LAN IP (network.lan.ipaddr)."
@@ -48,15 +40,17 @@ WORK_DIR=$(mktemp -d)
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
-if [ $# -eq 0 ] || [ $# -gt 2 ]; then
-    echo "Usage: tollgate-apply-ssl <cert-file> [key-file]"
+if [ $# -eq 0 ]; then
+    # No arguments → self-signed mode
+    SELF_SIGN=true
+elif [ $# -gt 2 ]; then
+    echo "Usage: tollgate-apply-ssl [<cert-file> [key-file]]"
     echo ""
-    echo "  cert-file  PEM file with the certificate (and optionally the private key)"
-    echo "  key-file   PEM file with the private key (if not included in cert-file)"
+    echo "  (no args)   Generate a self-signed certificate for the current hostname"
+    echo "  cert-file   PEM file with the certificate (and optionally the private key)"
+    echo "  key-file    PEM file with the private key (if not included in cert-file)"
     exit 1
-fi
-
-if [ $# -eq 1 ]; then
+elif [ $# -eq 1 ]; then
     INPUT="$1"
     if [ ! -f "$INPUT" ]; then
         echo "ERROR: file not found: $INPUT"
@@ -67,7 +61,6 @@ if [ $# -eq 1 ]; then
     has_key=$(grep -c "BEGIN PRIVATE KEY\|BEGIN RSA PRIVATE KEY\|BEGIN EC PRIVATE KEY" "$INPUT" 2>/dev/null || echo 0)
 
     if [ "$has_cert" -gt 0 ] && [ "$has_key" -gt 0 ]; then
-        # Split combined PEM
         echo "Detected combined PEM (cert + key in one file). Splitting..."
         awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' "$INPUT" > "$WORK_DIR/cert.pem"
         awk '/BEGIN PRIVATE KEY/,/END PRIVATE KEY/; /BEGIN RSA PRIVATE KEY/,/END RSA PRIVATE KEY/; /BEGIN EC PRIVATE KEY/,/END EC PRIVATE KEY/' "$INPUT" > "$WORK_DIR/key.pem"
@@ -98,6 +91,149 @@ else
     fi
 fi
 
+# ── Self-signed certificate generation ──────────────────────────────────────
+
+if [ "$SELF_SIGN" = true ]; then
+    # Need openssl or px5g for cert generation
+    if ! command -v openssl >/dev/null 2>&1 && ! command -v px5g >/dev/null 2>&1; then
+        echo "ERROR: openssl or px5g is required for self-signed cert generation."
+        echo "  opkg update && opkg install openssl-util"
+        exit 1
+    fi
+
+    # Use current hostname as the domain
+    DOMAIN=$(uci -q get system.@system[0].hostname || echo "TollGate")
+    DOMAIN="${DOMAIN}.lan"
+
+    echo "Generating self-signed certificate for ${DOMAIN}..."
+
+    if command -v openssl >/dev/null 2>&1; then
+        openssl req -x509 -newkey rsa:2048 -keyout "$WORK_DIR/key.pem" \
+            -out "$WORK_DIR/cert.pem" -days 3650 -nodes \
+            -subj "/CN=${DOMAIN}" \
+            -addext "subjectAltName=DNS:${DOMAIN},DNS:$(uci -q get system.@system[0].hostname || echo TollGate)" \
+            2>/dev/null
+    else
+        # px5g fallback (OpenWrt built-in, but limited — no SAN support)
+        px5g selfsigned -der -days 3650 -newkey rsa:2048 \
+            -keyout "$WORK_DIR/key.pem" -out "$WORK_DIR/cert.pem" \
+            -subject "/CN=${DOMAIN}" 2>/dev/null
+        # Convert DER to PEM if px5g produced DER
+        if ! grep -q "BEGIN CERTIFICATE" "$WORK_DIR/cert.pem" 2>/dev/null; then
+            openssl x509 -inform DER -in "$WORK_DIR/cert.pem" -out "$WORK_DIR/cert_pem.pem" 2>/dev/null \
+                && mv "$WORK_DIR/cert_pem.pem" "$WORK_DIR/cert.pem"
+        fi
+        if ! grep -q "BEGIN PRIVATE KEY\|BEGIN RSA PRIVATE KEY" "$WORK_DIR/key.pem" 2>/dev/null; then
+            openssl rsa -inform DER -in "$WORK_DIR/key.pem" -out "$WORK_DIR/key_pem.pem" 2>/dev/null \
+                && mv "$WORK_DIR/key_pem.pem" "$WORK_DIR/key.pem"
+        fi
+    fi
+
+    if [ ! -f "$WORK_DIR/cert.pem" ] || [ ! -f "$WORK_DIR/key.pem" ]; then
+        echo "ERROR: failed to generate self-signed certificate."
+        exit 1
+    fi
+
+    CERT_FILE="$WORK_DIR/cert.pem"
+    KEY_FILE="$WORK_DIR/key.pem"
+
+    echo ""
+    echo "Certificate details:"
+    echo "  Domain : $DOMAIN (self-signed)"
+    echo "  Expires: 10 years"
+    echo "  LAN IP : $LAN_IP"
+    echo ""
+    echo "  NOTE: Self-signed certs are NOT trusted by browsers or RFC 8908 clients."
+    echo "  The captive portal will continue using HTTP interception."
+    echo "  LuCI admin will be accessible via HTTPS with a browser warning."
+    echo ""
+
+    # ── Show plan and confirm (self-signed) ──────────────────────────────────
+
+    echo "Changes to apply:"
+    echo "  [1] Install self-signed cert+key to ${SSL_DIR}/"
+    echo "  [2] uhttpd: set cert='${CERT_DEST}' key='${KEY_DEST}'"
+    echo "  [3] nodogsplash: allow tcp port 443 so clients can reach uhttpd HTTPS"
+    echo ""
+    printf "Apply all? [y/N] "
+    read -r CONFIRM
+    case "$CONFIRM" in
+        [yY]|[yY][eE][sS]) ;;
+        *) echo "Aborted."; exit 0 ;;
+    esac
+
+    # ── Backup current state (self-signed) ───────────────────────────────────
+
+    mkdir -p "$BACKUP_DIR"
+
+    uci get uhttpd.main.cert 2>/dev/null > "${BACKUP_DIR}/uhttpd.cert" || true
+    uci get uhttpd.main.key 2>/dev/null > "${BACKUP_DIR}/uhttpd.key" || true
+    uci get nodogsplash.@nodogsplash[0].gatewaydomainname 2>/dev/null > "${BACKUP_DIR}/nds.gatewaydomainname" || true
+    uci get nodogsplash.@nodogsplash[0].gatewayport 2>/dev/null > "${BACKUP_DIR}/nds.gatewayport" || true
+    echo "$DOMAIN" > "${BACKUP_DIR}/ssl.domain"
+    echo "$LAN_IP" > "${BACKUP_DIR}/ssl.lan_ip"
+    echo "self-signed" > "${BACKUP_DIR}/ssl.mode"
+    # No dnsmasq changes needed — hostname already resolves via dnsmasq hostname
+    uci show dhcp 2>/dev/null | grep "=domain" > "${BACKUP_DIR}/dnsmasq.domains" || true
+
+    echo "Backup saved to ${BACKUP_DIR}/"
+
+    # ── Install cert (self-signed) ───────────────────────────────────────────
+
+    mkdir -p "$SSL_DIR"
+    cp "$CERT_FILE" "$CERT_DEST"
+    cp "$KEY_FILE" "$KEY_DEST"
+    chmod 600 "$KEY_DEST"
+    chmod 644 "$CERT_DEST"
+    echo "[1] Self-signed certificate installed."
+
+    # ── Configure uhttpd (self-signed) ───────────────────────────────────────
+
+    uci set uhttpd.main.cert="$CERT_DEST"
+    uci set uhttpd.main.key="$KEY_DEST"
+    current_https=$(uci -q get uhttpd.main.listen_https 2>/dev/null || echo "")
+    if ! echo "$current_https" | grep -q "0.0.0.0:443"; then
+        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
+    fi
+    if ! echo "$current_https" | grep -q '\[::\]:443'; then
+        uci add_list uhttpd.main.listen_https='[::]:443'
+    fi
+    uci commit uhttpd
+    echo "[2] uhttpd configured."
+
+    # ── Allow port 443 through NoDogSplash (self-signed) ─────────────────────
+
+    nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+    if ! echo "$nds_users" | grep -q "port 443"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
+    fi
+    uci commit nodogsplash
+    echo "[3] nodogsplash firewall updated."
+
+    # ── Reload services (self-signed) ────────────────────────────────────────
+
+    /etc/init.d/uhttpd reload
+    /etc/init.d/nodogsplash restart
+
+    echo ""
+    echo "Done. Self-signed HTTPS enabled for ${DOMAIN}"
+    echo ""
+    echo "  Portal URL: http://${DOMAIN}/ (NoDogSplash, HTTP only)"
+    echo "  LuCI URL:   https://${DOMAIN}/ (uhttpd, HTTPS, self-signed)"
+    echo ""
+    echo "To revert: tollgate-remove-ssl"
+    exit 0
+fi
+
+# ── Real certificate mode ───────────────────────────────────────────────────
+
+# Need openssl for cert validation
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "ERROR: openssl is not installed."
+    echo "  opkg update && opkg install openssl-util"
+    exit 1
+fi
+
 # ── Validate certificate ───────────────────────────────────────────────────
 
 if ! openssl x509 -in "$CERT_FILE" -noout >/dev/null 2>&1; then
@@ -114,13 +250,9 @@ fi
 
 # ── Extract domain ─────────────────────────────────────────────────────────
 
-DOMAIN=""
-
 # Try SAN first
 SAN=$(openssl x509 -in "$CERT_FILE" -noout -ext subjectAltName 2>/dev/null || true)
 if [ -n "$SAN" ]; then
-    # Parse "DNS:example.com, DNS:www.example.com, IP:1.2.3.4"
-    # Pick the first DNS entry
     DOMAIN=$(echo "$SAN" | sed 's/.*Subject Alternative Name//' | tr ',' '\n' | grep -i 'DNS:' | head -1 | sed 's/.*DNS://' | tr -d ' ')
 fi
 
@@ -164,14 +296,13 @@ esac
 
 mkdir -p "$BACKUP_DIR"
 
-# Save current UCI values for revert
 uci get uhttpd.main.cert 2>/dev/null > "${BACKUP_DIR}/uhttpd.cert" || true
 uci get uhttpd.main.key 2>/dev/null > "${BACKUP_DIR}/uhttpd.key" || true
 uci get nodogsplash.@nodogsplash[0].gatewaydomainname 2>/dev/null > "${BACKUP_DIR}/nds.gatewaydomainname" || true
 uci get nodogsplash.@nodogsplash[0].gatewayport 2>/dev/null > "${BACKUP_DIR}/nds.gatewayport" || true
 echo "$DOMAIN" > "${BACKUP_DIR}/ssl.domain"
 echo "$LAN_IP" > "${BACKUP_DIR}/ssl.lan_ip"
-# Save dnsmasq domain entries for this domain if any
+echo "real-cert" > "${BACKUP_DIR}/ssl.mode"
 uci show dhcp 2>/dev/null | grep "=domain" > "${BACKUP_DIR}/dnsmasq.domains" || true
 
 echo "Backup saved to ${BACKUP_DIR}/"
@@ -189,7 +320,6 @@ echo "[1] Certificate installed."
 
 uci set uhttpd.main.cert="$CERT_DEST"
 uci set uhttpd.main.key="$KEY_DEST"
-# Ensure HTTPS listeners are present
 current_https=$(uci -q get uhttpd.main.listen_https 2>/dev/null || echo "")
 if ! echo "$current_https" | grep -q "0.0.0.0:443"; then
     uci add_list uhttpd.main.listen_https='0.0.0.0:443'
@@ -202,7 +332,6 @@ echo "[2] uhttpd configured."
 
 # ── Configure dnsmasq ──────────────────────────────────────────────────────
 
-# Remove any existing domain entry for this domain to avoid duplicates
 existing=$(uci show dhcp 2>/dev/null | grep "=domain" | while read -r line; do
     idx=$(echo "$line" | cut -d. -f2 | cut -d= -f1)
     name=$(uci -q get "dhcp.${idx}.name" 2>/dev/null || echo "")
@@ -212,8 +341,6 @@ if [ -n "$existing" ]; then
     uci -q delete "dhcp.${existing}" 2>/dev/null || true
 fi
 
-# Add dnsmasq address entry: /domain/IP
-# Use a UCI config section so it survives reboots
 uci add dhcp domain >/dev/null
 uci set dhcp.@domain[-1].name="$DOMAIN"
 uci set dhcp.@domain[-1].ip="$LAN_IP"
