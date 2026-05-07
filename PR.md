@@ -67,8 +67,8 @@ Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grac
 | `src/config_manager/config_manager_config.go` | Modified — test mint auto-appended on non-main branches |
 | `src/tollwallet/tollwallet.go` | Modified — diagnostic logging for accepted mints on rejection |
 | `src/wireless_gateway_manager/connector.go` | Modified — dual-trigger `ifup wwan` nudge in `waitForSTAIP` for cross-radio DHCP |
-| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup connectivity hygiene, injectable check for testing |
-| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — 7 new tests for startup connectivity check |
+| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup connectivity hygiene with 3-retry scan loop, deferred blacklisting, injectable check for testing |
+| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — 11 new tests for startup connectivity check (including scan retry, switch retry, deferred blacklist) |
 
 ## Test Results
 
@@ -80,8 +80,8 @@ Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grac
 | `go test` — main package | 23 (config path, E2E HTTP, main) | PASS |
 | `go test` — merchant package | 70 (health tracker, degraded, provider, offline wallet) | PASS |
 | `go test` — cli package | 12 (server, MerchantProvider) | PASS |
-| `go test` — WGM package | 7 (startup check, blacklist, circuit breaker) | PASS |
-| **Total** | **112** | **PASS** |
+| `go test` — WGM package | 11 (startup check, scan retry, switch retry, deferred blacklist, circuit breaker) | PASS |
+| **Total** | **116** | **PASS** |
 
 ### Hardware Tests — GL.iNet MT3000 (arm64, OpenWrt 24.10.4)
 
@@ -119,10 +119,22 @@ Verifies: service reads config from `/etc/tollgate/config.json` (not from `/tmp/
 
 Verifies: no stale or duplicate STA sections in UCI wireless config.
 
+Test targets defined in [`mint-health/Makefile`](https://github.com/OpenTollGate/physical-router-test-automation/blob/feature/router-to-router-interaction/mint-health/Makefile).
+
 | Router | Result |
 |--------|--------|
 | Alpha | PASS — 1 active STA, no duplicates |
 | Beta | PASS — 1 active STA, no duplicates |
+
+#### Dead-Only Boot Recovery (`r-test-startup-hygiene-dead-only`)
+
+Verifies: boot with ONLY a dead STA enabled (other router's open AP with its upstream disconnected), startup check detects no internet, triggers emergency scan, switches to a working candidate.
+
+Setup: disconnect beta's upstream → enable only TollGate-D1C6 on alpha (beta's open AP, no internet) → disable all other STAs → reboot alpha. Verify: startup logs show "no internet" detection, emergency scan, candidate found, switch succeeded, internet recovered. Cleanup: restore alpha STAs + wallet, reconnect beta's upstream (with 5-min safety-net auto-restore on beta).
+
+**Status: PASS (Alpha)**
+
+Startup check correctly detected no internet on TollGate-D1C6 after settle period, triggered emergency scan on attempt 1, found candidate c03rad0r-D1C6 (signal=-20), switched successfully, blacklisted dead SSID. Internet recovered.
 
 ### Tests Not Yet Run on This Branch
 
