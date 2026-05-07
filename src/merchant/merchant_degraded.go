@@ -16,6 +16,7 @@ type Wallet interface {
 	GetBalanceByMint(mintUrl string) uint64
 	GetAllMintBalances() map[string]uint64
 	SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+	Shutdown() error
 }
 
 type WalletFactory func(walletPath string, mintURLs []string) (Wallet, error)
@@ -63,6 +64,17 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 
 func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 	m.onUpgrade = callback
+}
+
+func (m *MerchantDegraded) Shutdown() error {
+	if m.wallet != nil {
+		err := m.wallet.Shutdown()
+		m.wallet = nil
+		m.walletLoaded = false
+		return err
+	}
+	m.walletLoaded = false
+	return nil
 }
 
 func (m *MerchantDegraded) CreatePaymentToken(mintURL string, amount uint64) (string, error) {

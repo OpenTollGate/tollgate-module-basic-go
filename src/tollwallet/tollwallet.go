@@ -48,6 +48,13 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}, nil
 }
 
+func (w *TollWallet) Shutdown() error {
+	if w.wallet != nil {
+		return w.wallet.Shutdown()
+	}
+	return nil
+}
+
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()

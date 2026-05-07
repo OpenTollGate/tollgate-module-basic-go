@@ -85,6 +85,9 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		mintHealthTracker.StartProactiveChecks()
 		mintHealthTracker.SetOnFirstReachable(func() {
 			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
+			if err := deg.Shutdown(); err != nil {
+				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
+			}
 			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
 			if err != nil {
 				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
