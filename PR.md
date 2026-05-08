@@ -185,13 +185,52 @@ Setup: disconnect beta's upstream → enable only TollGate-D1C6 on alpha (beta's
 
 Startup check correctly detected no internet on TollGate-D1C6 after settle period, triggered emergency scan on attempt 1, found candidate c03rad0r-D1C6 (signal=-20), switched successfully, blacklisted dead SSID. Internet recovered.
 
+### Additional Hardware Test Results (Post Power Cycle)
+
+Both routers power cycled, rescued (DNS fix + upstream restore), then full suite run.
+
+#### Degraded Mode Lifecycle (`r-smoke-degraded`)
+
+| Router | Result |
+|--------|--------|
+| Alpha (100.90.41.166) | PASS — degraded mode loaded 19591 sats, offline ops OK, recovery to full merchant after restart |
+| Beta (100.90.216.248) | PASS — degraded mode loaded 11517 sats, offline ops OK, recovery to full merchant after restart |
+
+#### In-Process Degraded Recovery (`r-smoke-degraded-recovery`)
+
+| Router | Result |
+|--------|--------|
+| Alpha (100.90.41.166) | PASS — recovered in-process without restart, balance preserved |
+| Beta (100.90.216.248) | PASS — recovered in-process without restart, balance preserved |
+
+#### Dynamic Merchant Rebuild (`r-smoke-dynamic-rebuild`)
+
+| Router | Result |
+|--------|--------|
+| Alpha (100.90.41.166) | PASS — auto-downgrade detected at 30s via proactive check, in-process recovery confirmed, balance 19591 sats preserved through full cycle |
+
+#### Startup Hygiene (`r-test-startup-hygiene`)
+
+| Router | Result |
+|--------|--------|
+| Alpha (100.90.41.166) | PASS — startup check triggered, emergency scan found TP-Link_97E6, internet recovered, NetBird up |
+
+#### Two-Router Degraded Upstream (`r-smoke-degraded-upstream`)
+
+| Result |
+|--------|
+| PASS — alpha connected to beta's TollGate-D1C6 AP, initial payment succeeded (2 sats), pin set (4m55s), session renewal working, both routers restored after test |
+
+#### Pin Upstream (`r-smoke-pin-upstream`)
+
+| Result |
+|--------|
+| PASS — alpha paid beta, pin set on TollGate-D1C6 (4m55s), alpha stayed pinned throughout session, pin prevented scan-away |
+
 ### Tests Not Yet Run on This Branch
 
 | Test | What it covers | Risk |
 |------|---------------|------|
-| `r-smoke-dynamic-mint-recovery` | Full merchant downgrade + recovery cycle on hardware | Low — unit + integration tests cover the logic |
-| `r-smoke-degraded-upstream-preblock` | Verify pin prevents upstream switch-away while session active | Medium — needs active upstream session |
-| `r-smoke-degraded-upstream-stay` | Verify router stays on paid upstream with pin | Medium — needs active upstream session |
 | `r-test-first-boot-offline` | First boot with no wallet on disk | Low — covered by unit test |
 | `r-full` | Full ~20min test suite | Low — exercises same paths as smoke tests |
 
