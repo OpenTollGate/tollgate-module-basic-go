@@ -220,7 +220,21 @@ uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
 uci commit nodogsplash
 log_message "NoDogSplash configuration completed"
 
-# 6. Add TollGate port to firewall (if not in firewall-tollgate)
+# 6. Disable IPv6 on LAN interface
+# NoDogSplash does not manage IPv6 traffic; disable RA and DHCPv6
+# on the LAN bridge so that client connectivity checks use IPv4 only.
+log_message "Disabling IPv6 on LAN for NDS compatibility"
+uci_safe_set dhcp lan dhcpv6 'disabled'
+uci_safe_set dhcp lan ra 'disabled'
+uci commit dhcp
+# Prevent the kernel from forwarding IPv6 packets from LAN clients.
+echo 0 > /proc/sys/net/ipv6/conf/br-lan/forwarding 2>/dev/null
+mkdir -p /etc/sysctl.d
+printf '# TollGate: IPv6 not supported by NDS captive portal\nnet.ipv6.conf.br-lan.forwarding=0\n' \
+    > /etc/sysctl.d/12-tollgate-ipv6.conf
+log_message "IPv6 disabled on LAN"
+
+# 7. Add TollGate port to firewall (if not in firewall-tollgate)
 log_message "Checking for TollGate protocol port in firewall rules"
 if ! grep -q "port 2121" /etc/config/firewall-tollgate 2>/dev/null; then
     # Add rule directly to main firewall if not in tollgate-specific file
@@ -236,7 +250,7 @@ else
     log_message "TollGate protocol port already in firewall rules"
 fi
 
-# 7. Add first-login-setup hook to profile if it doesn't exist
+# 8. Add first-login-setup hook to profile if it doesn't exist
 log_message "Checking for first-login-setup hook in profile"
 if ! grep -q "first-login-setup" /etc/profile; then
     # Append the first-login-setup code to the end of profile
