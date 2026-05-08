@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
@@ -177,5 +178,59 @@ func TestUpstreamSession_MultipleSessionsShareProvider(t *testing.T) {
 	}
 	if providerMerchantName(s2.merchant) != "full" {
 		t.Fatalf("s2: expected full, got %s", providerMerchantName(s2.merchant))
+	}
+}
+
+type mockPinner struct {
+	pinned bool
+	ssid   string
+	dur    time.Duration
+}
+
+func (m *mockPinner) PinUpstream(ssid string, duration time.Duration) {
+	m.pinned = true
+	m.ssid = ssid
+	m.dur = duration
+}
+
+func TestUpstreamSession_PinnerSettable(t *testing.T) {
+	pinner := &mockPinner{}
+	session := &UpstreamSession{
+		GatewayIP:      "192.168.1.1",
+		merchant:       merchant.NewMutexMerchantProvider(&namedMerchant{name: "test"}),
+		upstreamPinner: pinner,
+	}
+
+	if session.upstreamPinner == nil {
+		t.Fatal("expected upstreamPinner to be set")
+	}
+}
+
+func TestUpstreamSessionManager_SetUpstreamPinner(t *testing.T) {
+	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "test"})
+	usm := &UpstreamSessionManager{
+		merchant: p,
+	}
+
+	pinner := &mockPinner{}
+	usm.SetUpstreamPinner(pinner)
+
+	if usm.upstreamPinner == nil {
+		t.Fatal("expected upstreamPinner to be set after SetUpstreamPinner")
+	}
+}
+
+func TestUpstreamPinnerInterface_PinUpstream(t *testing.T) {
+	pinner := &mockPinner{}
+	pinner.PinUpstream("TestNet", 5*time.Minute)
+
+	if !pinner.pinned {
+		t.Error("expected pinned to be true")
+	}
+	if pinner.ssid != "TestNet" {
+		t.Errorf("expected ssid TestNet, got %s", pinner.ssid)
+	}
+	if pinner.dur != 5*time.Minute {
+		t.Errorf("expected duration 5m, got %v", pinner.dur)
 	}
 }

@@ -47,8 +47,9 @@ type UpstreamSession struct {
 	lastPaymentAttempt time.Time  // Last time we attempted payment
 
 	// Dependencies
-	configManager  *config_manager.ConfigManager
-	merchant       merchant.MerchantProvider
+	configManager   *config_manager.ConfigManager
+	merchant        merchant.MerchantProvider
+	upstreamPinner  UpstreamPinner
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -62,6 +63,7 @@ func NewUpstreamSession(
 	adInfo *tollgate_protocol.AdvertisementInfo,
 	configManager *config_manager.ConfigManager,
 	merchantProvider merchant.MerchantProvider,
+	upstreamPinner UpstreamPinner,
 ) (*UpstreamSession, error) {
 	// Get config for renewal offsets
 	config := configManager.GetConfig()
@@ -124,6 +126,7 @@ func NewUpstreamSession(
 		UsageTracker:      nil,
 		configManager:     configManager,
 		merchant:          merchantProvider,
+		upstreamPinner:    upstreamPinner,
 	}
 
 	// Start tracker - it will handle initial payment if needed (usage == 0/0),
@@ -300,7 +303,18 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 		"new_allotment": allotment,
 		"payment_count": s.PaymentCount,
 		"total_spent":   s.TotalSpent,
-	}).Info("✅ Payment successful, session updated")
+	}).Info("Payment successful, session updated")
+
+	if s.upstreamPinner != nil {
+		pinDuration := time.Duration(s.TotalAllotment) * time.Millisecond
+		if s.AdvertisementInfo.Metric == "bytes" {
+			pinDuration = 5 * time.Minute
+		}
+		if s.RenewalOffset > 0 && pinDuration > time.Duration(s.RenewalOffset)*time.Millisecond {
+			pinDuration -= time.Duration(s.RenewalOffset) * time.Millisecond
+		}
+		s.upstreamPinner.PinUpstream("", pinDuration)
+	}
 
 	return nil
 }

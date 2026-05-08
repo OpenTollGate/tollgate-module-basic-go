@@ -1417,3 +1417,111 @@ func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
 	}
 	t.Log("successfully re-opened wallet after degraded Shutdown() — BoltDB lock was properly released")
 }
+
+func TestNewMerchantDegradedFromFull(t *testing.T) {
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("failed to create config manager: %v", err)
+	}
+
+	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srvFail.Close()
+
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
+	}
+
+	tracker := newTestTracker(cfg, nil)
+	tracker.RunInitialProbe()
+
+	deg := NewMerchantDegradedFromFull(cm, tracker)
+	if deg == nil {
+		t.Fatal("NewMerchantDegradedFromFull returned nil")
+	}
+	if deg.mintHealthTracker != tracker {
+		t.Error("expected tracker to be set on degraded merchant")
+	}
+}
+
+func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("failed to create config manager: %v", err)
+	}
+
+	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srvFail.Close()
+
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
+	}
+
+	tracker := newTestTracker(cfg, nil)
+	tracker.RunInitialProbe()
+
+	deg := NewMerchantDegradedFromFull(cm, tracker)
+
+	callbackCalled := false
+	deg.SetOnReachableSetChanged(func() {
+		callbackCalled = true
+	})
+
+	tracker.mu.RLock()
+	cb := tracker.onReachableSetChanged
+	tracker.mu.RUnlock()
+
+	if cb == nil {
+		t.Fatal("expected onReachableSetChanged callback to be set on tracker")
+	}
+	cb()
+	if !callbackCalled {
+		t.Error("expected callback to be called")
+	}
+}
+
+func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("failed to create config manager: %v", err)
+	}
+
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: "https://mint.test", PricePerStep: 1, PriceUnit: "sats"},
+	}
+
+	tracker := newTestTracker(cfg, nil)
+	deg := NewMerchantDegradedFromFull(cm, tracker)
+
+	returnedTracker := deg.GetMintHealthTracker()
+	if returnedTracker != tracker {
+		t.Error("GetMintHealthTracker should return the same tracker instance")
+	}
+}

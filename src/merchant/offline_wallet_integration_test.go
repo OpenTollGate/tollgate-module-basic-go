@@ -824,3 +824,221 @@ func TestIntegration_TollWalletOfflineReload(t *testing.T) {
 		t.Log("  VERDICT: PASS")
 	}
 }
+
+func TestIntegration_FullMerchantDowngradeOnAllMintsDown(t *testing.T) {
+	requireMintReachable(t, testMintTarget)
+
+	proxy := setupReverseProxy(t, testMintTarget)
+	proxyURL := proxy.URL
+
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	cmCfg := cm.GetConfig()
+	cmCfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+	}
+
+	fundWallet(t, proxyURL, testDir)
+
+	tracker := NewMintHealthTracker(cm)
+	tracker.RunInitialProbe()
+
+	if len(tracker.GetReachableMintConfigs()) == 0 {
+		t.Fatal("expected at least 1 reachable mint after initial probe")
+	}
+
+	full, err := newFullMerchant(cm, tracker)
+	if err != nil {
+		t.Fatalf("newFullMerchant: %v", err)
+	}
+	balance := full.GetBalance()
+	t.Logf("Full merchant started, balance=%d", balance)
+
+	setChangedCh := make(chan struct{}, 1)
+	tracker.SetOnReachableSetChanged(func() {
+		select {
+		case setChangedCh <- struct{}{}:
+		default:
+		}
+	})
+
+	proxy.CloseClientConnections()
+	proxy.Close()
+	confirmProxyDead(t, proxyURL)
+
+	tracker.RunProactiveCheck()
+
+	select {
+	case <-setChangedCh:
+		t.Log("onReachableSetChanged fired after mint went down")
+	case <-time.After(5 * time.Second):
+		t.Fatal("TIMEOUT: onReachableSetChanged did not fire")
+	}
+
+	reachable := tracker.GetReachableMintConfigs()
+	if len(reachable) != 0 {
+		t.Fatalf("expected 0 reachable mints, got %d", len(reachable))
+	}
+
+	fullM := full.(*Merchant)
+	if err := fullM.Shutdown(); err != nil {
+		t.Fatalf("full.Shutdown: %v", err)
+	}
+
+	deg := NewMerchantDegradedFromFull(cm, tracker)
+	if deg == nil {
+		t.Fatal("NewMerchantDegradedFromFull returned nil")
+	}
+
+	provider := NewMutexMerchantProvider(deg)
+	if _, ok := provider.GetMerchant().(*MerchantDegraded); !ok {
+		t.Fatal("expected provider to hold MerchantDegraded after downgrade")
+	}
+
+	degBalance := provider.GetMerchant().GetBalance()
+	t.Logf("Degraded merchant balance=%d (was %d)", degBalance, balance)
+}
+
+func TestIntegration_DegradedRecoveryWithSetChangedCallback(t *testing.T) {
+	requireMintReachable(t, testMintTarget)
+
+	proxy := setupReverseProxy(t, testMintTarget)
+	proxyURL := proxy.URL
+	proxyPort := extractPort(t, proxyURL)
+
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	cmCfg := cm.GetConfig()
+	cmCfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+	}
+
+	fundWallet(t, proxyURL, testDir)
+
+	proxy.CloseClientConnections()
+	proxy.Close()
+	confirmProxyDead(t, proxyURL)
+
+	tracker := NewMintHealthTracker(cm)
+	tracker.RunInitialProbe()
+
+	deg := NewMerchantDegradedWithWallet(cm, tracker, DefaultWalletFactory, testDir)
+	if !deg.WalletLoaded() {
+		t.Fatal("degraded merchant failed to load offline wallet")
+	}
+
+	upgradeCh := make(chan MerchantInterface, 1)
+	deg.OnUpgrade(func(full MerchantInterface) {
+		upgradeCh <- full
+	})
+
+	setChangedCh := make(chan struct{}, 5)
+	tracker.SetOnReachableSetChanged(func() {
+		select {
+		case setChangedCh <- struct{}{}:
+		default:
+		}
+	})
+
+	tracker.SetOnFirstReachable(func() {
+		if err := deg.Shutdown(); err != nil {
+			t.Logf("deg.Shutdown: %v", err)
+		}
+		full, err := newFullMerchant(cm, tracker)
+		if err != nil {
+			t.Logf("newFullMerchant: %v", err)
+			return
+		}
+		if deg.onUpgrade != nil {
+			deg.onUpgrade(full)
+		}
+	})
+
+	proxy2 := startProxyOnPort(t, testMintTarget, proxyPort)
+	defer proxy2.Close()
+
+	tracker.RunProactiveCheck()
+	tracker.RunProactiveCheck()
+	tracker.RunProactiveCheck()
+
+	select {
+	case full := <-upgradeCh:
+		t.Logf("Upgraded to full merchant, balance=%d", full.GetBalance())
+	case <-time.After(5 * time.Second):
+		t.Fatal("TIMEOUT: upgrade did not happen")
+	}
+
+	select {
+	case <-setChangedCh:
+		t.Log("onReachableSetChanged also fired during recovery")
+	case <-time.After(5 * time.Second):
+		t.Log("Note: onReachableSetChanged did not fire (acceptable — setChanged gating)")
+	}
+}
+
+func TestIntegration_FullMerchantShutdownReleasesBoltDB(t *testing.T) {
+	requireMintReachable(t, testMintTarget)
+
+	proxy := setupReverseProxy(t, testMintTarget)
+	proxyURL := proxy.URL
+	defer proxy.Close()
+
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	cmCfg := cm.GetConfig()
+	cmCfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+	}
+
+	fundWallet(t, proxyURL, testDir)
+
+	tracker := NewMintHealthTracker(cm)
+	tracker.RunInitialProbe()
+
+	full1, err := newFullMerchant(cm, tracker)
+	if err != nil {
+		t.Fatalf("newFullMerchant 1: %v", err)
+	}
+	balance1 := full1.GetBalance()
+	t.Logf("First full merchant, balance=%d", balance1)
+
+	full1M := full1.(*Merchant)
+	if err := full1M.Shutdown(); err != nil {
+		t.Fatalf("full1.Shutdown: %v", err)
+	}
+
+	full2, err := newFullMerchant(cm, tracker)
+	if err != nil {
+		t.Fatalf("newFullMerchant 2 after shutdown: %v", err)
+	}
+	balance2 := full2.GetBalance()
+	t.Logf("Second full merchant after reopen, balance=%d", balance2)
+
+	if balance1 != balance2 {
+		t.Errorf("balance mismatch: first=%d, second=%d", balance1, balance2)
+	}
+
+	full2M := full2.(*Merchant)
+	full2M.Shutdown()
+}

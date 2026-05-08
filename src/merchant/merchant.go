@@ -158,6 +158,18 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	return m, nil
 }
 
+func (m *Merchant) Shutdown() error {
+	return m.tollwallet.Shutdown()
+}
+
+func (m *Merchant) SetOnReachableSetChanged(callback func()) {
+	m.mintHealthTracker.SetOnReachableSetChanged(callback)
+}
+
+func (m *Merchant) GetMintHealthTracker() *MintHealthTracker {
+	return m.mintHealthTracker
+}
+
 // GetUsage returns the current usage in format "[usage]/[allotment]"
 // Returns "-1" if no session exists
 // Returns error for actual errors (caller should return 500)

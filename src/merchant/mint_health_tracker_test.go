@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
@@ -642,5 +643,238 @@ func TestConcurrentAccess(t *testing.T) {
 	// Wait for all goroutines
 	for i := 0; i < 15; i++ {
 		<-done
+	}
+}
+
+// --- onReachableSetChanged Tests ---
+
+func TestOnReachableSetChanged_FiredWhenMintGoesDown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+	tracker.RunInitialProbe()
+
+	callbackCalled := make(chan struct{}, 1)
+	tracker.SetOnReachableSetChanged(func() {
+		select {
+		case callbackCalled <- struct{}{}:
+		default:
+		}
+	})
+
+	srv.Close()
+
+	tracker.RunProactiveCheck()
+
+	select {
+	case <-callbackCalled:
+	case <-time.After(2 * time.Second):
+		t.Error("expected onReachableSetChanged to fire when mint goes down")
+	}
+}
+
+func TestOnReachableSetChanged_FiredWhenMintRecovers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+	tracker.RunInitialProbe()
+
+	callbackCount := make(chan struct{}, 10)
+	tracker.SetOnReachableSetChanged(func() {
+		select {
+		case callbackCount <- struct{}{}:
+		default:
+		}
+	})
+
+	srv.Close()
+	tracker.RunProactiveCheck()
+
+	_ = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/info" {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+
+	tracker.RunProactiveCheck()
+	tracker.RunProactiveCheck()
+	tracker.RunProactiveCheck()
+
+	select {
+	case <-callbackCount:
+	default:
+		t.Error("expected onReachableSetChanged to fire on recovery")
+	}
+}
+
+func TestOnReachableSetChanged_NotFiredWhenSetUnchanged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+	tracker.RunInitialProbe()
+
+	callbackCalled := false
+	tracker.SetOnReachableSetChanged(func() {
+		callbackCalled = true
+	})
+
+	tracker.RunProactiveCheck()
+
+	time.Sleep(100 * time.Millisecond)
+	if callbackCalled {
+		t.Error("expected onReachableSetChanged NOT to fire when reachable set is unchanged")
+	}
+}
+
+func TestOnReachableSetChanged_MultipleMintsOneGoesDown(t *testing.T) {
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srvA.Close()
+
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srvB.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srvA.URL, srvB.URL), nil)
+	tracker.recoveryThreshold = 3
+	tracker.RunInitialProbe()
+
+	callbackCalled := make(chan struct{}, 1)
+	tracker.SetOnReachableSetChanged(func() {
+		select {
+		case callbackCalled <- struct{}{}:
+		default:
+		}
+	})
+
+	srvB.Close()
+
+	tracker.RunProactiveCheck()
+
+	select {
+	case <-callbackCalled:
+	case <-time.After(2 * time.Second):
+		t.Error("expected onReachableSetChanged to fire when one of two mints goes down")
+	}
+
+	if !tracker.IsReachable(srvA.URL) {
+		t.Error("mint A should still be reachable")
+	}
+	if tracker.IsReachable(srvB.URL) {
+		t.Error("mint B should be unreachable")
+	}
+}
+
+func TestOnReachableSetChanged_NilCallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+	tracker.RunInitialProbe()
+
+	srv.Close()
+
+	tracker.RunProactiveCheck()
+}
+
+func TestSetOnReachableSetChanged_OverwriteCallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+	tracker.RunInitialProbe()
+
+	firstCalled := false
+	tracker.SetOnReachableSetChanged(func() {
+		firstCalled = true
+	})
+
+	secondCalled := make(chan struct{}, 1)
+	tracker.SetOnReachableSetChanged(func() {
+		select {
+		case secondCalled <- struct{}{}:
+		default:
+		}
+	})
+
+	srv.Close()
+	tracker.RunProactiveCheck()
+
+	select {
+	case <-secondCalled:
+	case <-time.After(2 * time.Second):
+		t.Error("expected second callback to fire")
+	}
+
+	if firstCalled {
+		t.Error("first callback should not have been called after overwrite")
+	}
+}
+
+func TestRunInitialProbe_SetsReachableCount(t *testing.T) {
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/info" {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srvA.Close()
+
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/info" {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srvB.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srvA.URL, srvB.URL), nil)
+	tracker.RunInitialProbe()
+
+	tracker.mu.RLock()
+	count := tracker.reachableCount
+	tracker.mu.RUnlock()
+
+	if count != 2 {
+		t.Errorf("expected reachableCount=2, got %d", count)
+	}
+}
+
+func TestRunInitialProbe_PartialReachable_SetsCorrectCount(t *testing.T) {
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/info" {
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srvA.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srvA.URL, "https://unreachable.test"), nil)
+	tracker.httpClient = &http.Client{Timeout: 100 * time.Millisecond}
+	tracker.RunInitialProbe()
+
+	tracker.mu.RLock()
+	count := tracker.reachableCount
+	tracker.mu.RUnlock()
+
+	if count != 1 {
+		t.Errorf("expected reachableCount=1, got %d", count)
 	}
 }

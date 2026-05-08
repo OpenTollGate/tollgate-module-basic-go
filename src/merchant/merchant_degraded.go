@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -66,6 +67,11 @@ func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 	m.onUpgrade = callback
 }
 
+func NewMerchantDegradedFromFull(configManager *config_manager.ConfigManager, tracker *MintHealthTracker) *MerchantDegraded {
+	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	return NewMerchantDegradedWithWallet(configManager, tracker, DefaultWalletFactory, walletDirPath)
+}
+
 func (m *MerchantDegraded) Shutdown() error {
 	if m.wallet != nil {
 		err := m.wallet.Shutdown()
@@ -75,6 +81,14 @@ func (m *MerchantDegraded) Shutdown() error {
 	}
 	m.walletLoaded = false
 	return nil
+}
+
+func (m *MerchantDegraded) SetOnReachableSetChanged(callback func()) {
+	m.mintHealthTracker.SetOnReachableSetChanged(callback)
+}
+
+func (m *MerchantDegraded) GetMintHealthTracker() *MintHealthTracker {
+	return m.mintHealthTracker
 }
 
 func (m *MerchantDegraded) CreatePaymentToken(mintURL string, amount uint64) (string, error) {

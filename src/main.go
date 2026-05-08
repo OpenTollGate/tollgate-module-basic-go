@@ -52,6 +52,33 @@ func swapMerchant(newMerchant merchant.MerchantInterface) {
 	merchantProvider.SetMerchant(newMerchant)
 }
 
+func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
+	type reachableSetNotifier interface {
+		SetOnReachableSetChanged(func())
+	}
+	if rsn, ok := m.(reachableSetNotifier); ok {
+		rsn.SetOnReachableSetChanged(func() {
+			mainLogger.Info("Reachable mint set changed — rebuilding merchant")
+			current := merchantProvider.GetMerchant()
+			if full, ok := current.(*merchant.Merchant); ok {
+				if full.GetMintHealthTracker().GetReachableMintConfigs() == nil || len(full.GetMintHealthTracker().GetReachableMintConfigs()) == 0 {
+					mainLogger.Warn("All mints unreachable — downgrading to degraded mode")
+					if err := full.Shutdown(); err != nil {
+						mainLogger.WithError(err).Error("Failed to shutdown merchant before downgrade")
+					}
+					deg := merchant.NewMerchantDegradedFromFull(configManager, full.GetMintHealthTracker())
+					deg.OnUpgrade(func(upgraded merchant.MerchantInterface) {
+						mainLogger.Info("Upgrading from degraded to full merchant after recovery")
+						swapMerchant(upgraded)
+						registerReachableSetChangedCallback(upgraded)
+					})
+					swapMerchant(deg)
+				}
+			}
+		})
+	}
+}
+
 // getTollgatePaths returns the configuration file paths based on the environment.
 // If TOLLGATE_TEST_CONFIG_DIR is set, it uses paths within that directory for testing.
 // Otherwise, it defaults to /etc/tollgate.
@@ -124,7 +151,10 @@ func init() {
 		deg.OnUpgrade(func(full merchant.MerchantInterface) {
 			mainLogger.Info("Upgrading from degraded to full merchant")
 			swapMerchant(full)
+			registerReachableSetChangedCallback(full)
 		})
+	} else {
+		registerReachableSetChangedCallback(merchantInstance)
 	}
 
 	initUpstreamManager()
@@ -144,6 +174,7 @@ func initUpstreamDetector() {
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
+	usmInstance.SetUpstreamPinner(upstreamManager)
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
 
 	go func() {
