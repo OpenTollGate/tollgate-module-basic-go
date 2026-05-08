@@ -33,6 +33,26 @@ Fix: `Shutdown()` method added to `TollWallet`, the `Wallet` interface, and `Mer
 
 `GetAdvertisement()` regenerates on each call using live health data, so the nostr advertisement always reflects which mints are currently reachable.
 
+### Dynamic Merchant Rebuild on Reachability Changes (`src/merchant/mint_health_tracker.go`, `src/main.go`)
+
+When the reachable mint set changes (mint goes down or recovers), the `onReachableSetChanged` callback fires. If all mints go unreachable while running as a full merchant, the service automatically downgrades to degraded mode — shuts down the wallet, creates a `MerchantDegraded`, and swaps it in via `MerchantProvider`. When a mint recovers, the existing `onFirstReachable` callback upgrades back to full merchant.
+
+Key additions:
+- `MintHealthTracker.onReachableSetChanged` — fires when `reachableCount` changes
+- `Merchant.Shutdown()` — releases BoltDB lock via `tollwallet.Shutdown()`
+- `NewMerchantDegradedFromFull()` — creates degraded merchant from existing tracker
+- `registerReachableSetChangedCallback()` in `main.go` — orchestrates downgrade/upgrade cycle
+
+### Upstream Pin After Payment (`src/wireless_gateway_manager/upstream_manager.go`, `src/upstream_session_manager/session.go`)
+
+After a successful upstream session payment, the current WiFi upstream is "pinned" to prevent the upstream manager from scanning and switching away. Scheduled scans are suppressed entirely while pinned; emergency scans are suppressed unless signal drops below `SignalFloor` (can't serve clients on a dying link).
+
+Key additions:
+- `UpstreamManager.PinUpstream(ssid, duration)` — sets pin, resolves empty SSID to current active STA
+- `UpstreamManager.isPinned()` / `getPinnedSSID()` — pin state queries
+- `UpstreamPinner` interface — decouples session manager from upstream manager
+- Session manager calls `PinUpstream("")` after each successful payment/renewal with duration based on allotment (milliseconds metric) or 5 minutes (bytes metric)
+
 ## Additional Fixes (on this branch)
 
 ### Cross-Radio DHCP Nudge (`src/wireless_gateway_manager/connector.go`)
@@ -58,23 +78,24 @@ Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grac
 
 | File | What changed |
 |------|-------------|
-| `src/merchant/mint_health_tracker.go` | New — health probing with lock-free HTTP calls |
-| `src/merchant/mint_health_tracker_test.go` | New — 36 tests (unit, integration, concurrent) |
-| `src/merchant/merchant_degraded.go` | New — offline wallet, stub operations, notice events, `Shutdown()` for BoltDB lock release |
-| `src/merchant/merchant_degraded_test.go` | New — 39 tests covering all stubs, kickstart, shutdown lifecycle, BoltDB lock E2E |
+| `src/merchant/mint_health_tracker.go` | New — health probing with lock-free HTTP calls, `onReachableSetChanged` callback, `reachableCount` tracking |
+| `src/merchant/mint_health_tracker_test.go` | New — 44 tests (unit, integration, concurrent, set-changed callback, reachable count) |
+| `src/merchant/merchant_degraded.go` | New — offline wallet, stub operations, notice events, `Shutdown()` for BoltDB lock, `NewMerchantDegradedFromFull()`, `SetOnReachableSetChanged()`, `GetMintHealthTracker()` |
+| `src/merchant/merchant_degraded_test.go` | New — 42 tests covering all stubs, kickstart, shutdown lifecycle, BoltDB lock E2E, degraded-from-full, pinner/tracker accessors |
 | `src/merchant/merchant_provider.go` | New — MutexMerchantProvider |
 | `src/merchant/merchant_provider_test.go` | New — 10 tests (concurrent get/set, swap propagation) |
-| `src/merchant/merchant.go` | Modified — health-aware startup, dynamic advertisement, `deg.Shutdown()` before upgrade |
-| `src/main.go` | Modified — MerchantProvider wrapper, degraded-to-full upgrade callback |
+| `src/merchant/merchant.go` | Modified — health-aware startup, dynamic advertisement, `Shutdown()`, `SetOnReachableSetChanged()`, `GetMintHealthTracker()` |
+| `src/merchant/offline_wallet_integration_test.go` | New — 9 integration tests including full-merchant-downgrade, degraded-recovery with set-changed, BoltDB lock release E2E |
+| `src/main.go` | Modified — MerchantProvider wrapper, degraded-to-full upgrade callback, `registerReachableSetChangedCallback()`, upstream pinner wiring |
 | `src/cli/server.go` | Modified — accepts MerchantProvider instead of MerchantInterface |
-| `src/upstream_session_manager/` | Modified — uses MerchantProvider |
+| `src/upstream_session_manager/` | Modified — uses MerchantProvider, `UpstreamPinner` interface, `SetUpstreamPinner()`, calls `PinUpstream()` after payment |
+| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup connectivity hygiene, `PinUpstream()`, `isPinned()`, `getPinnedSSID()`, pin-aware scan suppression |
+| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — 16 tests (startup check, scan retry, switch retry, deferred blacklist, pin upstream) |
 | `src/000_main_test_env.go` | Modified — added `//go:build testenv` build tag (was leaking test config path to production) |
 | `src/config_manager/buildinfo.go` | New — `GitBranch` var for conditional dev-only test mint |
 | `src/config_manager/config_manager_config.go` | Modified — test mint auto-appended on non-main branches |
 | `src/tollwallet/tollwallet.go` | Modified — diagnostic logging, `Shutdown() error` for BoltDB lock release |
 | `src/wireless_gateway_manager/connector.go` | Modified — dual-trigger `ifup wwan` nudge in `waitForSTAIP` for cross-radio DHCP |
-| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup connectivity hygiene with 3-retry scan loop, deferred blacklisting, injectable check for testing |
-| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — 11 new tests for startup connectivity check (including scan retry, switch retry, deferred blacklist) |
 
 ## Test Results
 
@@ -83,11 +104,12 @@ Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grac
 | Test Suite | Tests | Result |
 |------------|-------|--------|
 | `go vet -tags testenv ./...` | — | CLEAN |
-| `go test` — main package | 23 (config path, E2E HTTP, main) | PASS |
-| `go test` — merchant package | 85 (health tracker, degraded, provider, offline wallet, BoltDB lock) | PASS |
+| `go test` — main package | 27 (config path, E2E HTTP, main) | PASS |
+| `go test` — merchant package | 96 (health tracker, degraded, provider, offline wallet, BoltDB lock, set-changed callback, reachable count, degraded-from-full) | PASS |
 | `go test` — cli package | 12 (server, MerchantProvider) | PASS |
-| `go test` — WGM package | 11 (startup check, scan retry, switch retry, deferred blacklist, circuit breaker) | PASS |
-| **Total** | **131** | **PASS** |
+| `go test` — upstream_session_manager | 10 (provider, swap, pinner) | PASS |
+| `go test` — WGM package | 16 (startup check, scan retry, switch retry, deferred blacklist, circuit breaker, pin upstream) | PASS |
+| **Total** | **161** | **PASS** |
 
 ### Hardware Tests — GL.iNet MT3000 (arm64, OpenWrt 24.10.4)
 
@@ -167,9 +189,10 @@ Startup check correctly detected no internet on TollGate-D1C6 after settle perio
 
 | Test | What it covers | Risk |
 |------|---------------|------|
-| `r-smoke-degraded-connect` | Connect to upstream while already degraded (risky) | High — may strand router, needs physical access |
-| `r-test-first-boot-offline` | First boot with no wallet on disk | Low — covered by unit test `TestKickstart_WalletNotLoaded_FirstBoot_NoPanic` |
-| `r-test-no-mints` | Zero configured mints | Low — covered by unit test `TestKickstart_WalletNotLoaded_NoConfiguredMints` |
+| `r-smoke-dynamic-mint-recovery` | Full merchant downgrade + recovery cycle on hardware | Low — unit + integration tests cover the logic |
+| `r-smoke-degraded-upstream-preblock` | Verify pin prevents upstream switch-away while session active | Medium — needs active upstream session |
+| `r-smoke-degraded-upstream-stay` | Verify router stays on paid upstream with pin | Medium — needs active upstream session |
+| `r-test-first-boot-offline` | First boot with no wallet on disk | Low — covered by unit test |
 | `r-full` | Full ~20min test suite | Low — exercises same paths as smoke tests |
 
 ## Merge Base
@@ -179,3 +202,5 @@ Clean patch applied on top of `origin/main` at `289ab87`.
 ## Known Limitations
 
 - **Degraded `DrainMint`**: Always returns error — admin drain requires full merchant mode.
+- **Upstream pin only fires after payment**: The pin mechanism only activates after a successful session payment/renewal. If no upstream session is active, the upstream manager scans freely.
+- **Pin duration for bytes metric**: Hardcoded 5 minutes since bytes-based allotment doesn't map naturally to time. Could be improved with usage-rate estimation.
