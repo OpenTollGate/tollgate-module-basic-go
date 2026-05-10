@@ -109,8 +109,12 @@ func init() {
 	if err2 != nil {
 		mainLogger.WithError(err2).Fatal("Failed to create merchant")
 	}
-	merchantInstance.StartPayoutRoutine()
-	merchantInstance.StartDataUsageMonitoring()
+	if _, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
+		mainLogger.Warn("Merchant started in degraded mode — wallet unavailable, payment operations will fail until restart")
+	} else {
+		merchantInstance.StartPayoutRoutine()
+		merchantInstance.StartDataUsageMonitoring()
+	}
 
 	initUpstreamManager()
 

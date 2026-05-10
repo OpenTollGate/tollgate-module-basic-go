@@ -88,7 +88,9 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	tollwallet, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
+		log.Printf("Wallet init failed (mints may be unreachable): %v", walletErr)
+		log.Printf("Falling back to degraded mode")
+		return NewDegraded(configManager)
 	}
 	balance := tollwallet.GetBalance()
 
