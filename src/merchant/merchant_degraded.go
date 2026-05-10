@@ -45,7 +45,35 @@ func (m *MerchantDegraded) GetAdvertisement() string                            
 func (m *MerchantDegraded) StartPayoutRoutine()                                                        {}
 func (m *MerchantDegraded) StartDataUsageMonitoring()                                                  {}
 func (m *MerchantDegraded) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	return nil, errDegraded
+	identities := m.configManager.GetIdentities()
+	if identities == nil {
+		return nil, fmt.Errorf("identities config is nil")
+	}
+	merchantIdentity, err := identities.GetOwnedIdentity("merchant")
+	if err != nil {
+		return nil, fmt.Errorf("merchant identity not found: %w", err)
+	}
+	tollgatePubkey, err := nostr.GetPublicKey(merchantIdentity.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get public key: %w", err)
+	}
+	noticeEvent := &nostr.Event{
+		Kind:      21023,
+		PubKey:    tollgatePubkey,
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			{"level", level},
+			{"code", code},
+		},
+		Content: message,
+	}
+	if customerPubkey != "" {
+		noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
+	}
+	if err := noticeEvent.Sign(merchantIdentity.PrivateKey); err != nil {
+		return nil, fmt.Errorf("failed to sign notice event: %w", err)
+	}
+	return noticeEvent, nil
 }
 func (m *MerchantDegraded) GetSession(macAddress string) (*CustomerSession, error) { return nil, fmt.Errorf("no active sessions in degraded mode") }
 func (m *MerchantDegraded) AddAllotment(string, string, uint64) (*CustomerSession, error) {
