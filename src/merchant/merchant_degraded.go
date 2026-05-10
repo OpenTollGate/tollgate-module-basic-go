@@ -12,10 +12,12 @@ import (
 var errDegraded = fmt.Errorf("service degraded: wallet unavailable, mints unreachable")
 
 type MerchantDegraded struct {
-	configManager *config_manager.ConfigManager
-	advertisement string
-	sessions      map[string]*CustomerSession
-	sessionMu     sync.RWMutex
+	configManager  *config_manager.ConfigManager
+	advertisement  string
+	sessions       map[string]*CustomerSession
+	sessionMu      sync.RWMutex
+	healthTracker  *MintHealthTracker
+	onFirstReachable func()
 }
 
 func NewDegraded(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -37,7 +39,10 @@ func (m *MerchantDegraded) DrainMint(string) (string, uint64, error)            
 func (m *MerchantDegraded) RequestLightningInvoice(string, string, uint64) (*LightningInvoice, error)  { return nil, errDegraded }
 func (m *MerchantDegraded) GetLightningInvoiceStatus(string, string) (*LightningQuoteStatus, error)    { return nil, errDegraded }
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig                             { return nil }
-func (m *MerchantDegraded) GetBalance() uint64                                                         { return 0 }
+func (m *MerchantDegraded) GetBalance() uint64 {
+	log.Printf("WARNING: GetBalance called in degraded mode — wallet unavailable, returning 0")
+	return 0
+}
 func (m *MerchantDegraded) GetBalanceByMint(string) uint64                                             { return 0 }
 func (m *MerchantDegraded) GetAllMintBalances() map[string]uint64                                      { return nil }
 func (m *MerchantDegraded) PurchaseSession(string, string) (*nostr.Event, error)                       { return nil, errDegraded }
@@ -81,3 +86,22 @@ func (m *MerchantDegraded) AddAllotment(string, string, uint64) (*CustomerSessio
 }
 func (m *MerchantDegraded) GetUsage(string) (string, error) { return "", errDegraded }
 func (m *MerchantDegraded) Fund(string) (uint64, error)     { return 0, errDegraded }
+
+func (m *MerchantDegraded) SetHealthTracker(tracker *MintHealthTracker) {
+	m.healthTracker = tracker
+}
+
+func (m *MerchantDegraded) GetMintHealthTracker() *MintHealthTracker {
+	return m.healthTracker
+}
+
+func (m *MerchantDegraded) Shutdown() error {
+	if m.healthTracker != nil {
+		m.healthTracker.Stop()
+	}
+	return nil
+}
+
+func (m *MerchantDegraded) SetOnFirstReachable(fn func()) {
+	m.onFirstReachable = fn
+}
