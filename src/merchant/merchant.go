@@ -382,6 +382,10 @@ func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
 
+func (m *Merchant) Shutdown() error {
+	return m.tollwallet.Shutdown()
+}
+
 func CreateAdvertisement(configManager *config_manager.ConfigManager) (string, error) {
 	config := configManager.GetConfig()
 	if config == nil {
