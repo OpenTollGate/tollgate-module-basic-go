@@ -42,6 +42,8 @@ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9G
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/nbd-wtf/go-nostr v0.51.10 h1:MxyN/bRNqdeLbiN9lODbXduLRkYwy7SDTm73uGrsdU4=
 github.com/nbd-wtf/go-nostr v0.51.10/go.mod h1:IF30/Cm4AS90wd1GjsFJbBqq7oD1txo+2YUFYXqK3Nc=
+github.com/nbd-wtf/go-nostr v0.51.11 h1:Dk0+7ZNq17ElYAVlGunalh0loIKiPgU2mWuAi3mWybE=
+github.com/nbd-wtf/go-nostr v0.51.11/go.mod h1:IF30/Cm4AS90wd1GjsFJbBqq7oD1txo+2YUFYXqK3Nc=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/puzpuzpuz/xsync/v3 v3.5.1 h1:GJYJZwO6IdxN/IKbneznS6yPkVC+c3zyY/j19c++5Fg=

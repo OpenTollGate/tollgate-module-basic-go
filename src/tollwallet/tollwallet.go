@@ -3,6 +3,7 @@ package tollwallet
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -48,17 +49,24 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}, nil
 }
 
+func (w *TollWallet) Shutdown() error {
+	if w.wallet != nil {
+		return w.wallet.Shutdown()
+	}
+	return nil
+}
+
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()
 	log.Printf("TollWallet.Receive: Token mint: %s", mint)
+	log.Printf("TollWallet.Receive: Wallet acceptedMints: %v", w.acceptedMints)
 
 	swapToTrusted := false
 
-	// If mint is untrusted, check if operator allows swapping or rejects untrusted mints.
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
-			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
+			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints. Accepted: %v", mint, w.acceptedMints)
 			log.Printf("TollWallet.Receive: %v", err)
 			return 0, err
 		}
@@ -211,10 +219,12 @@ func ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }
 
-// contains checks if a string exists in a slice of strings
+// contains checks if a string exists in a slice of strings.
+// Uses case-insensitive comparison since DNS hostnames are case-insensitive
+// and wallets may return mint URLs with different casing than config.
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
-		if item == str {
+		if strings.EqualFold(item, str) {
 			return true
 		}
 	}

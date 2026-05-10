@@ -907,10 +907,17 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		return fmt.Errorf("no radio found for interface %s", candidateIface)
 	}
 
+	var activeRadio string
+	if activeIface != "" {
+		activeRadio, _ = c.ExecuteUCI("get", "wireless."+activeIface+".device")
+		activeRadio = strings.TrimSpace(activeRadio)
+	}
+
 	logger.WithFields(logrus.Fields{
 		"active":          activeIface,
 		"candidate":       candidateIface,
 		"candidate_radio": candidateRadio,
+		"active_radio":    activeRadio,
 		"ssid":            candidateSSID,
 	}).Info("Switching upstream")
 
@@ -933,7 +940,7 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		reloadDone <- c.reloadRadio(candidateRadio)
 	}()
 
-	staIface, err := c.waitForSTAIP(candidateRadio, candidateSSID, c.dhcpTimeout())
+	staIface, err := c.waitForSTAIP(candidateRadio, activeRadio, candidateSSID, c.dhcpTimeout())
 	<-reloadDone
 
 	if err == nil && staIface != "" {
@@ -953,6 +960,8 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		"candidate": candidateIface,
 	}).Warn("Timed out waiting for DHCP, reverting to previous upstream")
 
+	exec.Command("ifdown", "wwan").Run()
+
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=1"); err != nil {
 		logger.WithError(err).Error("Failed to disable candidate during fallback")
 	}
@@ -967,6 +976,13 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 	if err := c.reloadRadio(candidateRadio); err != nil {
 		logger.WithError(err).Error("Failed to reload radio during fallback")
 	}
+	if activeIface != "" && activeRadio != "" && activeRadio != candidateRadio {
+		if err := c.reloadRadio(activeRadio); err != nil {
+			logger.WithError(err).Error("Failed to reload active radio during fallback")
+		}
+	}
+
+	exec.Command("ifup", "wwan").Run()
 
 	return fmt.Errorf("timed out waiting for DHCP on %s, reverted to previous upstream", candidateSSID)
 }
@@ -979,9 +995,27 @@ func (c *Connector) GetSTADevice(ifaceName string) (string, error) {
 	return strings.TrimSpace(output), nil
 }
 
-func (c *Connector) waitForSTAIP(radio string, targetSSID string, timeout time.Duration) (string, error) {
+func (c *Connector) waitForSTAIP(radio, activeRadio, targetSSID string, timeout time.Duration) (string, error) {
+	// When switching STAs across different radios (e.g., radio0 → radio1),
+	// netifd may not re-evaluate the wwan interface after the radio reload.
+	// The new STA's netdev appears (phy1-sta0) but netifd still considers
+	// wwan bound to the old device (phy0-sta0, now torn down). As a result,
+	// udhcpc never starts or sends discovers that go unanswered.
+	//
+	// We nudge netifd with "ifup wwan" to force it to rebind to the new
+	// netdev. Two triggers:
+	//   1. Cross-radio: nudge immediately once L2 association succeeds
+	//      (detected by activeRadio != candidateRadio and STA netdev exists)
+	//   2. Timer: nudge after 15s grace period as a fallback for edge cases
+	//
+	// The nudge fires at most once per call (whichever trigger fires first).
+	crossRadio := activeRadio != "" && activeRadio != radio
+	nudged := false
+	const nudgeGracePeriod = 15 * time.Second
+
 	radioNum := strings.TrimPrefix(radio, "radio")
 	deadline := time.Now().Add(timeout)
+	startTime := time.Now()
 
 	for time.Now().Before(deadline) {
 		entries, err := os.ReadDir("/sys/class/net")
@@ -990,6 +1024,7 @@ func (c *Connector) waitForSTAIP(radio string, targetSSID string, timeout time.D
 			continue
 		}
 
+		staFound := false
 		for _, entry := range entries {
 			name := entry.Name()
 			if !strings.Contains(name, "sta") && !strings.Contains(name, "wlan") {
@@ -1001,24 +1036,38 @@ func (c *Connector) waitForSTAIP(radio string, targetSSID string, timeout time.D
 				continue
 			}
 			if strings.TrimSpace(string(phyIdx)) == radioNum {
+				staFound = true
 				if ip := c.getInterfaceIP(name); ip != "" {
 					if c.verifySTASSID(name, targetSSID) {
 						return name, nil
 					}
 					logger.WithFields(logrus.Fields{
-						"iface":   name,
-						"ip":      ip,
+						"iface":         name,
+						"ip":            ip,
 						"expected_ssid": targetSSID,
-						"remaining": time.Until(deadline).Truncate(time.Second),
+						"remaining":     time.Until(deadline).Truncate(time.Second),
 					}).Debug("STA has IP but wrong SSID, still reconnecting")
 				}
 				logger.WithFields(logrus.Fields{
-					"iface": name,
-					"radio": radio,
+					"iface":     name,
+					"radio":     radio,
 					"remaining": time.Until(deadline).Truncate(time.Second),
 				}).Debug("STA interface found but no IP yet")
 			}
 		}
+
+		if !nudged {
+			if crossRadio && staFound {
+				logger.Info("Nudging netifd with ifup wwan after cross-radio STA transition")
+				exec.Command("ifup", "wwan").Run()
+				nudged = true
+			} else if time.Since(startTime) >= nudgeGracePeriod {
+				logger.Info("Nudging netifd with ifup wwan after 15s grace period (no IP yet)")
+				exec.Command("ifup", "wwan").Run()
+				nudged = true
+			}
+		}
+
 		time.Sleep(2 * time.Second)
 	}
 
