@@ -12,20 +12,21 @@ import (
 )
 
 type MintHealthTracker struct {
-	mu                sync.RWMutex
-	mintConfigs       []config_manager.MintConfig
-	reachable         map[string]bool
-	reachableCount    int
-	hadReachableMint  bool
+	mu               sync.RWMutex
+	mintConfigs      []config_manager.MintConfig
+	reachable        map[string]bool
+	reachableCount   int
+	hadReachableMint bool
 
 	onFirstReachable      func()
 	onReachableSetChanged func()
 
 	stopCh        chan struct{}
+	stopOnce      sync.Once
 	probeInterval time.Duration
 	probeTimeout  time.Duration
 
-	consecutiveSuccess map[string]int
+	consecutiveSuccess  map[string]int
 	requiredConsecutive int
 }
 
@@ -80,8 +81,10 @@ func (m *MintHealthTracker) Start() {
 }
 
 func (m *MintHealthTracker) Stop() {
-	close(m.stopCh)
-	log.Printf("MintHealthTracker: stopped")
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+		log.Printf("MintHealthTracker: stopped")
+	})
 }
 
 func (m *MintHealthTracker) probeMint(mintURL string) bool {
