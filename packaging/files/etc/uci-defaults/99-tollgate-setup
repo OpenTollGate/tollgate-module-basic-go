@@ -25,19 +25,10 @@ setup_firewall_include() {
 setup_uhttpd() {
     uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
     uci -q delete uhttpd.main.listen_http
-    uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
-    uci add_list uhttpd.main.listen_http='[::]:8080'
+    uci add_list uhttpd.main.listen_http='127.0.0.1:8080'
     uci -q delete uhttpd.main.listen_https
     uci -q delete uhttpd.main.cert
     uci -q delete uhttpd.main.key
-    # Only enable HTTPS if cert and key files exist; otherwise uhttpd
-    # crash-loops because it sees listen_https but has no TLS config.
-    if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then
-        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
-        uci add_list uhttpd.main.listen_https='[::]:443'
-        uci set uhttpd.main.cert='/etc/uhttpd.crt'
-        uci set uhttpd.main.key='/etc/uhttpd.key'
-    fi
     uci set uhttpd.main.redirect_https='0'
     uci set uhttpd.main.home='/www'
     uci set uhttpd.main.rfc1918_filter='1'
@@ -113,7 +104,8 @@ setup_hostname() {
     uci set uhttpd.main.commonname="$final_hostname"
     # Apply to running kernel immediately so /proc/sys/kernel/hostname
     # reflects the new value without requiring a reboot.
-    hostname "$final_hostname"
+    hostname "$final_hostname" 2>/dev/null || echo "$final_hostname" > /proc/sys/kernel/hostname
+    uci set uhttpd.defaults.commonname="$final_hostname"
     log "Hostname applied to running kernel: ${final_hostname}"
 }
 
@@ -133,6 +125,9 @@ setup_nodogsplash() {
     fi
     if ! echo "$nds_users" | grep -q "port 8080"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    fi
+    if ! echo "$nds_users" | grep -q "port 443"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
     fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     uci set nodogsplash.@nodogsplash[0].gatewayport='80'
@@ -267,9 +262,9 @@ commit_all() {
 log "Starting TollGate configuration"
 
 setup_firewall_include
-setup_uhttpd
 setup_dns_dnsmasq
 setup_hostname
+setup_uhttpd
 setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
 setup_nodogsplash
 setup_tollgate_firewall_rules
