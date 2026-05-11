@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -608,6 +610,54 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func newLuCIProxy() *httputil.ReverseProxy {
+	target, _ := url.Parse("http://127.0.0.1:8080")
+	return &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			r.SetXForwarded()
+			mainLogger.WithFields(logrus.Fields{
+				"method": r.In.Method,
+				"path":   r.In.URL.Path,
+			}).Debug("Proxying request to LuCI")
+		},
+	}
+}
+
+func isTollgateRoute(path string) bool {
+	switch path {
+	case "/whoami", "/ln-invoice", "/balance", "/usage":
+		return true
+	default:
+		return false
+	}
+}
+
+func startHTTPSServer(certFile, keyFile string) {
+	luciProxy := newLuCIProxy()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isTollgateRoute(r.URL.Path) {
+			http.DefaultServeMux.ServeHTTP(w, r)
+			return
+		}
+		luciProxy.ServeHTTP(w, r)
+	})
+
+	server := &http.Server{
+		Addr:         ":443",
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	mainLogger.Info("Starting HTTPS server on :443 with LuCI proxy")
+	if err := server.ListenAndServeTLS(certFile, keyFile); err != nil {
+		mainLogger.WithError(err).Error("HTTPS server failed")
+	}
+}
+
 func main() {
 	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
 	fmt.Println("Starting Tollgate Core")
@@ -664,6 +714,17 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, usageStr)
 	})
+
+	// Conditionally start HTTPS server on 443 with LuCI reverse proxy
+	certFile := "/etc/tollgate/ssl/server.crt"
+	keyFile := "/etc/tollgate/ssl/server.key"
+	if _, err := os.Stat(certFile); err == nil {
+		if _, err := os.Stat(keyFile); err == nil {
+			go startHTTPSServer(certFile, keyFile)
+		} else {
+			mainLogger.Warn("HTTPS cert found but key missing, skipping HTTPS")
+		}
+	}
 
 	mainLogger.Info("Starting HTTP server on all interfaces...")
 	server := &http.Server{

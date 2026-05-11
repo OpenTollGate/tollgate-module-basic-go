@@ -152,8 +152,8 @@ if [ "$SELF_SIGN" = true ]; then
 
     echo "Changes to apply:"
     echo "  [1] Install self-signed cert+key to ${SSL_DIR}/"
-    echo "  [2] uhttpd: set cert='${CERT_DEST}' key='${KEY_DEST}'"
-    echo "  [3] nodogsplash: allow tcp port 443 so clients can reach uhttpd HTTPS"
+    echo "  [2] tollgate-wrt: restart to enable HTTPS"
+    echo "  [3] nodogsplash: allow tcp port 443 so clients can reach HTTPS"
     echo ""
     printf "Apply all? [y/N] "
     read -r CONFIRM
@@ -189,17 +189,9 @@ if [ "$SELF_SIGN" = true ]; then
 
     # ── Configure uhttpd (self-signed) ───────────────────────────────────────
 
-    uci set uhttpd.main.cert="$CERT_DEST"
-    uci set uhttpd.main.key="$KEY_DEST"
-    current_https=$(uci -q get uhttpd.main.listen_https 2>/dev/null || echo "")
-    if ! echo "$current_https" | grep -q "0.0.0.0:443"; then
-        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
-    fi
-    if ! echo "$current_https" | grep -q '\[::\]:443'; then
-        uci add_list uhttpd.main.listen_https='[::]:443'
-    fi
-    uci commit uhttpd
-    echo "[2] uhttpd configured."
+    # No uhttpd changes needed — Go binary handles TLS directly.
+    # uhttpd stays on 127.0.0.1:8080 (HTTP) for LuCI backend.
+    echo "[2] No uhttpd changes needed (Go binary handles TLS)."
 
     # ── Allow port 443 through NoDogSplash (self-signed) ─────────────────────
 
@@ -212,14 +204,14 @@ if [ "$SELF_SIGN" = true ]; then
 
     # ── Reload services (self-signed) ────────────────────────────────────────
 
-    /etc/init.d/uhttpd reload
+    /etc/init.d/tollgate-wrt restart
     /etc/init.d/nodogsplash restart
 
     echo ""
     echo "Done. Self-signed HTTPS enabled for ${DOMAIN}"
     echo ""
     echo "  Portal URL: http://${DOMAIN}/ (NoDogSplash, HTTP only)"
-    echo "  LuCI URL:   https://${DOMAIN}/ (uhttpd, HTTPS, self-signed)"
+    echo "  LuCI URL:   https://${DOMAIN}/ (Go reverse proxy, HTTPS, self-signed)"
     echo ""
     echo "To revert: tollgate-remove-ssl"
     exit 0
@@ -280,10 +272,10 @@ echo ""
 
 echo "Changes to apply:"
 echo "  [1] Install cert+key to ${SSL_DIR}/"
-echo "  [2] uhttpd: set cert='${CERT_DEST}' key='${KEY_DEST}'"
+echo "  [2] tollgate-wrt: restart to enable HTTPS"
 echo "  [3] dnsmasq: resolve ${DOMAIN} → ${LAN_IP}"
 echo "  [4] nodogsplash: gatewaydomainname='${DOMAIN}' (portal stays on HTTP port 80)"
-echo "  [5] nodogsplash: allow tcp port 443 so clients can reach uhttpd HTTPS"
+echo "  [5] nodogsplash: allow tcp port 443 so clients can reach HTTPS"
 echo ""
 printf "Apply all? [y/N] "
 read -r CONFIRM
@@ -318,17 +310,9 @@ echo "[1] Certificate installed."
 
 # ── Configure uhttpd ───────────────────────────────────────────────────────
 
-uci set uhttpd.main.cert="$CERT_DEST"
-uci set uhttpd.main.key="$KEY_DEST"
-current_https=$(uci -q get uhttpd.main.listen_https 2>/dev/null || echo "")
-if ! echo "$current_https" | grep -q "0.0.0.0:443"; then
-    uci add_list uhttpd.main.listen_https='0.0.0.0:443'
-fi
-if ! echo "$current_https" | grep -q '\[::\]:443'; then
-    uci add_list uhttpd.main.listen_https='[::]:443'
-fi
-uci commit uhttpd
-echo "[2] uhttpd configured."
+# No uhttpd changes needed — Go binary handles TLS directly.
+# uhttpd stays on 127.0.0.1:8080 (HTTP) for LuCI backend.
+echo "[2] No uhttpd changes needed (Go binary handles TLS)."
 
 # ── Configure dnsmasq ──────────────────────────────────────────────────────
 
@@ -351,9 +335,9 @@ echo "[3] dnsmasq configured: ${DOMAIN} → ${LAN_IP}"
 
 uci set nodogsplash.@nodogsplash[0].gatewaydomainname="$DOMAIN"
 # Keep NoDogSplash on port 80 — it cannot do TLS (built on libmicrohttpd without MHD_USE_TLS).
-# The captive portal uses HTTP interception, not HTTPS. Port 443 is served by uhttpd for LuCI.
+# The captive portal uses HTTP interception, not HTTPS. Port 443 is served by the Go reverse proxy.
 
-# Allow port 443 through nodogsplash so clients can reach uhttpd HTTPS (LuCI)
+# Allow port 443 through nodogsplash so clients can reach the Go reverse proxy (HTTPS)
 nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
 if ! echo "$nds_users" | grep -q "port 443"; then
     uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
@@ -363,7 +347,7 @@ echo "[4] nodogsplash configured."
 
 # ── Reload services ────────────────────────────────────────────────────────
 
-/etc/init.d/uhttpd reload
+/etc/init.d/tollgate-wrt restart
 /etc/init.d/dnsmasq reload
 /etc/init.d/nodogsplash restart
 
@@ -371,6 +355,6 @@ echo ""
 echo "Done. HTTPS enabled for ${DOMAIN}"
 echo ""
 echo "  Portal URL: http://${DOMAIN}/ (NoDogSplash, HTTP only)"
-echo "  LuCI URL:   https://${DOMAIN}/ (uhttpd, HTTPS)"
+echo "  LuCI URL:   https://${DOMAIN}/ (Go reverse proxy, HTTPS)"
 echo ""
 echo "To revert: tollgate-remove-ssl"
