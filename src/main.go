@@ -42,7 +42,7 @@ var upstreamManager *wireless_gateway_manager.UpstreamManager
 
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
-var merchantProvider *merchant.MerchantProvider
+var merchantProvider merchant.MerchantProvider
 var cliServer *cli.CLIServer
 
 func getMerchant() merchant.MerchantInterface {
@@ -141,8 +141,7 @@ func init() {
 			newMerchant.StartPayoutRoutine()
 			newMerchant.StartDataUsageMonitoring()
 
-			mainLogger.Info("Upgraded from degraded to full merchant")
-			mainLogger.Warn("CLI and USM still reference degraded merchant — restart recommended for full recovery")
+			mainLogger.Info("Upgraded from degraded to full merchant — all consumers (HTTP, CLI, USM) now use the new merchant via provider")
 		})
 
 		tracker.Start()
@@ -168,7 +167,7 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream detector instance")
 	}
 
-	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantInstance)
+	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantProvider)
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
@@ -228,7 +227,7 @@ func (r *resellerModeAdapter) IsResellerModeActive() bool {
 }
 
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantInstance, sharedConnector, sharedScanner, upstreamManager)
+	cliServer = cli.NewCLIServer(configManager, merchantProvider, sharedConnector, sharedScanner, upstreamManager)
 
 	err := cliServer.Start()
 	if err != nil {
