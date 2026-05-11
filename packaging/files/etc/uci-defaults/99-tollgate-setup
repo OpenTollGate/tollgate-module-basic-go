@@ -111,7 +111,10 @@ setup_hostname() {
     local final_hostname
     final_hostname=$(uci -q get system.@system[0].hostname)
     uci set uhttpd.main.commonname="$final_hostname"
-    log "uhttpd cert commonname set to ${final_hostname}"
+    # Apply to running kernel immediately so /proc/sys/kernel/hostname
+    # reflects the new value without requiring a reboot.
+    hostname "$final_hostname"
+    log "Hostname applied to running kernel: ${final_hostname}"
 }
 
 setup_nodogsplash() {
