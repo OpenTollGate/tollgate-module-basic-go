@@ -12,6 +12,7 @@
   "lightning_tab": "⚡️ Lightning",
 
   "loading": "Loading",
+  "retrying": "Retrying…",
   "cancel": "Cancel",
   "paste": "Paste",
   "processing": "Processing…",
@@ -87,6 +88,11 @@
   "TG003_message": "TollGate could not connect to its relay. Contact the network administrator or try again later.",
   "TG004_label": "Pricing Error",
   "TG004_message": "Could not retrieve TollGate pricing information.",
+  "TG005_label": "Service Temporarily Unavailable",
+  "TG005_message": "TollGate is initializing. Please try again in a few moments.",
+
+  "no-reachable-mints_label": "Service Temporarily Unavailable",
+  "no-reachable-mints_message": "TollGate is initializing. No reachable mints detected. Service will auto-recover.",
 
   "CU001_label": "No access options available",
   "CU001_message": "Could not parse TollGate access options.",

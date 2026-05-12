@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Success - Connected</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(135deg, #2E7D32 0%, #4CAF50 25%, #66BB6A 50%, #81C784 75%, #A5D6A7 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            overflow: hidden;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 2rem;
+            position: relative;
+            z-index: 2;
+        }
+        
+        .checkmark {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            margin: 0 auto 2rem;
+            position: relative;
+            animation: checkmarkPulse 2s ease-in-out infinite;
+        }
+        
+        .checkmark::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: white;
+        }
+        
+        @keyframes checkmarkPulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 300;
+            margin-bottom: 1rem;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-bottom: 2rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        
+        .leaf {
+            position: absolute;
+            opacity: 0.1;
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        .leaf:nth-child(1) { top: 10%; left: 10%; animation-delay: 0s; }
+        .leaf:nth-child(2) { top: 20%; right: 15%; animation-delay: 1s; }
+        .leaf:nth-child(3) { bottom: 20%; left: 20%; animation-delay: 2s; }
+        .leaf:nth-child(4) { bottom: 10%; right: 10%; animation-delay: 3s; }
+        .leaf:nth-child(5) { top: 50%; left: 5%; animation-delay: 4s; }
+        .leaf:nth-child(6) { top: 60%; right: 5%; animation-delay: 5s; }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(10deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating leaf decorations -->
+    <div class="leaf">🍃</div>
+    <div class="leaf">🌿</div>
+    <div class="leaf">🍃</div>
+    <div class="leaf">🌿</div>
+    <div class="leaf">🍃</div>
+    <div class="leaf">🌿</div>
+    
+    <div class="container">
+        <div class="checkmark"></div>
+        <h1>Success!</h1>
+        <p>You are now connected to the internet</p>
+    </div>
+</body>
+</html>
