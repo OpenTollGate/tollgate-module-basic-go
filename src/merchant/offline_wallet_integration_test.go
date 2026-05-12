@@ -155,20 +155,6 @@ func startProxyOnPort(t *testing.T, targetURL string, port int) *httptest.Server
 	return server
 }
 
-func setupTestConfigManager(t *testing.T) (*config_manager.ConfigManager, string) {
-	t.Helper()
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("NewConfigManager: %v", err)
-	}
-	return cm, testDir
-}
-
 func boolStr(cond bool, ifTrue, ifFalse string) string {
 	if cond {
 		return ifTrue
