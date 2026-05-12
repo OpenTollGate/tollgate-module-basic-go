@@ -4,59 +4,25 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
-	"github.com/nbd-wtf/go-nostr"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 )
 
 type namedMerchant struct {
 	name string
 }
 
-func (m *namedMerchant) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
-	return "", fmt.Errorf("mock: %s", m.name)
-}
 func (m *namedMerchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
 	return "", fmt.Errorf("mock: %s", m.name)
 }
-func (m *namedMerchant) DrainMint(mintURL string) (string, uint64, error) {
-	return "", 0, fmt.Errorf("mock: %s", m.name)
-}
 func (m *namedMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
-func (m *namedMerchant) GetBalance() uint64                             { return 0 }
 func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64         { return 0 }
-func (m *namedMerchant) GetAllMintBalances() map[string]uint64          { return nil }
-func (m *namedMerchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
-	return nil, fmt.Errorf("mock: %s", m.name)
-}
-func (m *namedMerchant) GetAdvertisement() string { return "" }
-func (m *namedMerchant) StartPayoutRoutine()     {}
-func (m *namedMerchant) StartDataUsageMonitoring() {}
-func (m *namedMerchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
-	return nil, fmt.Errorf("mock: %s", m.name)
-}
-func (m *namedMerchant) GetSession(macAddress string) (*merchant.CustomerSession, error) {
-	return nil, fmt.Errorf("mock: %s", m.name)
-}
-func (m *namedMerchant) AddAllotment(macAddress, metric string, amount uint64) (*merchant.CustomerSession, error) {
-	return nil, fmt.Errorf("mock: %s", m.name)
-}
-func (m *namedMerchant) GetUsage(macAddress string) (string, error) {
-	return "", fmt.Errorf("mock: %s", m.name)
-}
 func (m *namedMerchant) Fund(cashuToken string) (uint64, error) {
 	return 0, fmt.Errorf("mock: %s", m.name)
 }
-func (m *namedMerchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*merchant.LightningInvoice, error) {
-	return nil, fmt.Errorf("mock: %s", m.name)
-}
-func (m *namedMerchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*merchant.LightningQuoteStatus, error) {
-	return nil, fmt.Errorf("mock: %s", m.name)
-}
 
-func providerMerchantName(p merchant.MerchantProvider) string {
+func providerMerchantName(p merchant_types.MerchantProvider) string {
 	m := p.GetMerchant()
 	if m == nil {
 		return "nil"
@@ -68,7 +34,7 @@ func providerMerchantName(p merchant.MerchantProvider) string {
 }
 
 func TestMockMerchantProvider_BasicSwap(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
+	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 
 	if providerMerchantName(p) != "degraded" {
 		t.Fatalf("expected degraded, got %s", providerMerchantName(p))
@@ -82,7 +48,7 @@ func TestMockMerchantProvider_BasicSwap(t *testing.T) {
 }
 
 func TestMockMerchantProvider_NilMerchant(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(nil)
+	p := merchant_types.NewMutexMerchantProvider(nil)
 
 	if providerMerchantName(p) != "nil" {
 		t.Fatalf("expected nil, got %s", providerMerchantName(p))
@@ -90,7 +56,7 @@ func TestMockMerchantProvider_NilMerchant(t *testing.T) {
 }
 
 func TestMockMerchantProvider_ConcurrentSwapAndRead(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "initial"})
+	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "initial"})
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -112,7 +78,7 @@ func TestMockMerchantProvider_ConcurrentSwapAndRead(t *testing.T) {
 }
 
 func TestUpstreamSessionManager_StoresMerchantProvider(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "test"})
+	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "test"})
 	usm := &UpstreamSessionManager{
 		merchant: p,
 	}
@@ -123,7 +89,7 @@ func TestUpstreamSessionManager_StoresMerchantProvider(t *testing.T) {
 }
 
 func TestUpstreamSessionManager_SwapPropagates(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
+	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 	usm := &UpstreamSessionManager{
 		merchant: p,
 	}
@@ -140,7 +106,7 @@ func TestUpstreamSessionManager_SwapPropagates(t *testing.T) {
 }
 
 func TestUpstreamSession_MerchantProviderPropagates(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
+	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 
 	session := &UpstreamSession{
 		GatewayIP: "192.168.1.1",
@@ -159,7 +125,7 @@ func TestUpstreamSession_MerchantProviderPropagates(t *testing.T) {
 }
 
 func TestUpstreamSession_MultipleSessionsShareProvider(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
+	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 
 	s1 := &UpstreamSession{GatewayIP: "192.168.1.1", merchant: p}
 	s2 := &UpstreamSession{GatewayIP: "192.168.1.2", merchant: p}
@@ -178,59 +144,5 @@ func TestUpstreamSession_MultipleSessionsShareProvider(t *testing.T) {
 	}
 	if providerMerchantName(s2.merchant) != "full" {
 		t.Fatalf("s2: expected full, got %s", providerMerchantName(s2.merchant))
-	}
-}
-
-type mockPinner struct {
-	pinned bool
-	ssid   string
-	dur    time.Duration
-}
-
-func (m *mockPinner) PinUpstream(ssid string, duration time.Duration) {
-	m.pinned = true
-	m.ssid = ssid
-	m.dur = duration
-}
-
-func TestUpstreamSession_PinnerSettable(t *testing.T) {
-	pinner := &mockPinner{}
-	session := &UpstreamSession{
-		GatewayIP:      "192.168.1.1",
-		merchant:       merchant.NewMutexMerchantProvider(&namedMerchant{name: "test"}),
-		upstreamPinner: pinner,
-	}
-
-	if session.upstreamPinner == nil {
-		t.Fatal("expected upstreamPinner to be set")
-	}
-}
-
-func TestUpstreamSessionManager_SetUpstreamPinner(t *testing.T) {
-	p := merchant.NewMutexMerchantProvider(&namedMerchant{name: "test"})
-	usm := &UpstreamSessionManager{
-		merchant: p,
-	}
-
-	pinner := &mockPinner{}
-	usm.SetUpstreamPinner(pinner)
-
-	if usm.upstreamPinner == nil {
-		t.Fatal("expected upstreamPinner to be set after SetUpstreamPinner")
-	}
-}
-
-func TestUpstreamPinnerInterface_PinUpstream(t *testing.T) {
-	pinner := &mockPinner{}
-	pinner.PinUpstream("TestNet", 5*time.Minute)
-
-	if !pinner.pinned {
-		t.Error("expected pinned to be true")
-	}
-	if pinner.ssid != "TestNet" {
-		t.Errorf("expected ssid TestNet, got %s", pinner.ssid)
-	}
-	if pinner.dur != 5*time.Minute {
-		t.Errorf("expected duration 5m, got %v", pinner.dur)
 	}
 }

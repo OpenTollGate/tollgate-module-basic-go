@@ -39,9 +39,6 @@ type UpstreamManager struct {
 	cooldownUntil    time.Time
 	connectivityCheckFn    func() bool
 	isTollGateConnection   bool
-	pinMu                  sync.Mutex
-	pinnedSSID             string
-	pinnedUntil            time.Time
 }
 
 type ConfigReadResult struct {
@@ -346,29 +343,6 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 				activeSSID = activeSTA.SSID
 			}
 
-			pinnedSSID := um.getPinnedSSID()
-			if pinnedSSID != "" {
-				if reason == "scheduled" {
-					logger.WithField("pinned_ssid", pinnedSSID).Debug("Skipping scheduled scan — upstream is pinned")
-					scanCounter = 0
-					continue
-				}
-				if reason == "emergency" && currentSignal >= um.config.SignalFloor {
-					logger.WithFields(logrus.Fields{
-						"pinned_ssid": pinnedSSID,
-						"signal":      currentSignal,
-						"floor":       um.config.SignalFloor,
-					}).Debug("Skipping emergency scan — upstream is pinned and signal is adequate")
-					lostCount = 0
-					continue
-				}
-				logger.WithFields(logrus.Fields{
-					"pinned_ssid": pinnedSSID,
-					"reason":      reason,
-					"signal":      currentSignal,
-				}).Warn("Allowing scan despite pin — signal below floor or no active STA")
-			}
-
 			logger.WithFields(logrus.Fields{
 				"active_ssid": activeSSID,
 				"signal":      currentSignal,
@@ -402,39 +376,6 @@ func (um *UpstreamManager) isPaused() bool {
 	paused := time.Now().Before(um.pauseUntil)
 	um.pauseMu.Unlock()
 	return paused
-}
-
-func (um *UpstreamManager) PinUpstream(ssid string, duration time.Duration) {
-	um.pinMu.Lock()
-	if ssid == "" {
-		if active, err := um.connector.GetActiveSTA(); err == nil && active != nil {
-			ssid = active.SSID
-		}
-	}
-	um.pinnedSSID = ssid
-	um.pinnedUntil = time.Now().Add(duration)
-	um.pinMu.Unlock()
-	logger.WithFields(logrus.Fields{
-		"ssid":     ssid,
-		"duration": duration,
-	}).Info("Pinned upstream")
-}
-
-func (um *UpstreamManager) isPinned() bool {
-	um.pinMu.Lock()
-	pinned := um.pinnedSSID != "" && time.Now().Before(um.pinnedUntil)
-	um.pinMu.Unlock()
-	return pinned
-}
-
-func (um *UpstreamManager) getPinnedSSID() string {
-	um.pinMu.Lock()
-	ssid := ""
-	if time.Now().Before(um.pinnedUntil) {
-		ssid = um.pinnedSSID
-	}
-	um.pinMu.Unlock()
-	return ssid
 }
 
 func (um *UpstreamManager) isInCooldown() bool {

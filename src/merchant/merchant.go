@@ -2,6 +2,7 @@ package merchant
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -45,12 +46,11 @@ type MerchantInterface interface {
 	StartPayoutRoutine()
 	StartDataUsageMonitoring()
 	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
-	// New session management methods
 	GetSession(macAddress string) (*CustomerSession, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	GetUsage(macAddress string) (string, error)
-	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
+	SetOnReachableSetChanged(callback func())
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -59,7 +59,6 @@ type Merchant struct {
 	configManager     *config_manager.ConfigManager
 	tollwallet        tollwallet.TollWallet
 	mintHealthTracker *MintHealthTracker
-	advertisement     string
 	customerSessions  map[string]*CustomerSession
 	sessionMu         sync.RWMutex
 	lightningQuotes   map[string]*lightningQuoteRecord
@@ -83,7 +82,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		walletDirPath := filepath.Dir(configManager.ConfigFilePath)
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
 		mintHealthTracker.StartProactiveChecks()
-		mintHealthTracker.SetOnFirstReachable(func() {
+		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
 			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
 			if err := deg.Shutdown(); err != nil {
 				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
@@ -146,7 +145,6 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		configManager:     configManager,
 		tollwallet:        *tw,
 		mintHealthTracker: mintHealthTracker,
-		advertisement:     advertisementStr,
 		customerSessions:  make(map[string]*CustomerSession),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
 	}
@@ -377,15 +375,14 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
 
-		if !strings.Contains(err.Error(), "Token already spent") {
+		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
 		var errorCode string
 		var errorMessage string
 
-		// Check for specific error types
-		if strings.Contains(err.Error(), "Token already spent") {
+		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
 		} else {
@@ -443,9 +440,8 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 func (m *Merchant) GetAdvertisement() string {
 	ad, err := CreateAdvertisement(m.configManager, m.mintHealthTracker)
 	if err != nil {
-		return m.advertisement
+		return ""
 	}
-	m.advertisement = ad
 	return ad
 }
 

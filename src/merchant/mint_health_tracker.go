@@ -95,7 +95,11 @@ func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	t.consecutiveSuccesses[mintURL] = 0
 }
 
-func (t *MintHealthTracker) SetOnFirstReachable(callback func()) {
+// SetOnFirstReachableForDegraded registers a callback that fires once when a mint
+// becomes reachable after starting with none. The hadReachableMint flag is reset to
+// false so the callback fires on the first mint recovery — this is only meaningful
+// for the degraded merchant path which starts with all mints unreachable.
+func (t *MintHealthTracker) SetOnFirstReachableForDegraded(callback func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onFirstReachable = callback
@@ -181,27 +185,27 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	setChanged := newCount != t.reachableCount
 	t.reachableCount = newCount
 
+	var callbacks []func()
+
 	if !t.hadReachableMint && t.onFirstReachable != nil {
 		for _, mint := range config.AcceptedMints {
 			if t.reachableMints[mint.URL] {
 				t.hadReachableMint = true
-				cb := t.onFirstReachable
-				t.mu.Unlock()
-				go cb()
-				t.mu.Lock()
+				callbacks = append(callbacks, t.onFirstReachable)
 				break
 			}
 		}
 	}
 
 	if setChanged && t.onReachableSetChanged != nil {
-		cb := t.onReachableSetChanged
-		t.mu.Unlock()
-		go cb()
-		return
+		callbacks = append(callbacks, t.onReachableSetChanged)
 	}
 
 	t.mu.Unlock()
+
+	for _, cb := range callbacks {
+		go cb()
+	}
 }
 
 func (t *MintHealthTracker) probeMint(mintURL string) bool {

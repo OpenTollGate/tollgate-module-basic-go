@@ -515,7 +515,7 @@ func TestIntegration_RecoveryAndUpgrade(t *testing.T) {
 	recoveryCh := make(chan struct{}, 1)
 	upgradeCh := make(chan MerchantInterface, 1)
 
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		t.Log("onFirstReachable callback fired")
 		close(recoveryCh)
 
@@ -954,7 +954,7 @@ func TestIntegration_DegradedRecoveryWithSetChangedCallback(t *testing.T) {
 		}
 	})
 
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		if err := deg.Shutdown(); err != nil {
 			t.Logf("deg.Shutdown: %v", err)
 		}

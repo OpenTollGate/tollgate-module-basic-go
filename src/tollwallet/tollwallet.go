@@ -1,14 +1,18 @@
 package tollwallet
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
 	"github.com/Origami74/gonuts-tollgate/wallet"
 )
+
+var ErrTokenAlreadySpent = errors.New("Token already spent")
 
 // TollWallet represents a Cashu wallet that can receive, swap, and send tokens
 type TollWallet struct {
@@ -56,32 +60,27 @@ func (w *TollWallet) Shutdown() error {
 }
 
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
-	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()
-	log.Printf("TollWallet.Receive: Token mint: %s", mint)
-	log.Printf("TollWallet.Receive: Wallet acceptedMints: %v", w.acceptedMints)
 
 	swapToTrusted := false
 
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
 			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints. Accepted: %v", mint, w.acceptedMints)
-			log.Printf("TollWallet.Receive: %v", err)
 			return 0, err
 		}
 		swapToTrusted = true
-		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
 	}
 
-	log.Printf("TollWallet.Receive: Calling wallet.Receive")
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
 	if err != nil {
-		log.Printf("TollWallet.Receive: wallet.Receive failed: %v", err)
+		if strings.Contains(err.Error(), "Token already spent") {
+			return 0, fmt.Errorf("%w: %v", ErrTokenAlreadySpent, err)
+		}
 		return 0, err
 	}
-	log.Printf("TollWallet.Receive: Successfully received %d sats", amountAfterSwap)
 
-	return amountAfterSwap, err
+	return amountAfterSwap, nil
 }
 
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {

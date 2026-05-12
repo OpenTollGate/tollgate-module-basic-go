@@ -187,7 +187,9 @@ func IsDevBuild() bool {
 func NewDefaultConfig() *Config {
 	mints := defaultProductionMints()
 	if IsDevBuild() {
-		mints = append(mints, defaultTestMint())
+		testMint := defaultTestMint()
+		log.Printf("WARN: dev build detected (branch=%s), injecting test mint: %s", GitBranch, testMint.URL)
+		mints = append(mints, testMint)
 	}
 
 	return &Config{

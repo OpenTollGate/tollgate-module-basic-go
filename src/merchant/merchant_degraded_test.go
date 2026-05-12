@@ -294,7 +294,7 @@ func TestOnFirstReachable_FiredOnce(t *testing.T) {
 	var mu sync.Mutex
 	done := make(chan struct{})
 
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		mu.Lock()
 		callCount++
 		mu.Unlock()
@@ -340,7 +340,7 @@ func TestOnFirstReachable_NotFiredIfInitiallyReachable(t *testing.T) {
 	tracker.recoveryThreshold = 3
 
 	done := make(chan struct{})
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		close(done)
 	})
 
@@ -410,17 +410,17 @@ func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
 		t.Fatal("expected hadReachableMint to be true after initial probe")
 	}
 
-	tracker.SetOnFirstReachable(func() {})
+	tracker.SetOnFirstReachableForDegraded(func() {})
 
 	tracker.mu.RLock()
 	hadMint = tracker.hadReachableMint
 	tracker.mu.RUnlock()
 	if hadMint {
-		t.Error("expected hadReachableMint to be reset to false after SetOnFirstReachable")
+		t.Error("expected hadReachableMint to be reset to false after SetOnFirstReachableForDegraded")
 	}
 }
 
-func TestOnFirstReachable_FiredAfterSetOnFirstReachableReset(t *testing.T) {
+func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -439,7 +439,7 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableReset(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		close(done)
 	})
 
@@ -448,7 +448,7 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableReset(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Error("expected onFirstReachable to fire after SetOnFirstReachable reset and proactive check")
+		t.Error("expected onFirstReachable to fire after SetOnFirstReachableForDegraded reset and proactive check")
 	}
 }
 
@@ -848,7 +848,7 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 
 	var upgraded MerchantInterface
 	done := make(chan struct{})
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		close(done)
 	})
 
@@ -1222,7 +1222,7 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 	}
 
 	shutdownDone := make(chan struct{}, 1)
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		if err := deg.Shutdown(); err != nil {
 			t.Errorf("Shutdown failed: %v", err)
 		}
@@ -1304,7 +1304,7 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	}
 
 	upgradeDone := make(chan struct{}, 1)
-	tracker.SetOnFirstReachable(func() {
+	tracker.SetOnFirstReachableForDegraded(func() {
 		deg.Shutdown()
 
 		newWallet := &mockWallet{balance: 1000, balanceByMint: map[string]uint64{srv.URL: 1000}}

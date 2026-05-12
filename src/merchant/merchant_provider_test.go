@@ -74,6 +74,8 @@ func (m *mockMerchantForProvider) GetLightningInvoiceStatus(quoteID, macAddress 
 	return nil, fmt.Errorf("mock: %s", m.name)
 }
 
+func (m *mockMerchantForProvider) SetOnReachableSetChanged(callback func()) {}
+
 func extractMockName(m MerchantInterface) string {
 	if mock, ok := m.(*mockMerchantForProvider); ok {
 		return mock.name

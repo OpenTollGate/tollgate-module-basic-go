@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -16,35 +15,24 @@ import (
 // Module-level logger with pre-configured module field
 var logger = logrus.WithField("module", "upstream_session_manager")
 
-type UpstreamPinner interface {
-	PinUpstream(ssid string, duration time.Duration)
-}
-
-// Gateway represents a discovered gateway with optional session
 type Gateway struct {
 	InterfaceName string
 	MacAddress    string
 	GatewayIP     string
-	Session       *UpstreamSession // nil if no session
+	Session       *UpstreamSession
 	mu            sync.RWMutex
 }
 
-// UpstreamSessionManager manages upstream TollGate sessions
 type UpstreamSessionManager struct {
-	configManager   *config_manager.ConfigManager
-	merchant        merchant.MerchantProvider
-	gateways        map[string]*Gateway // keyed by gateway IP
-	tollGateProber  TollGateProber
-	upstreamPinner  UpstreamPinner
-	mu              sync.RWMutex
-}
-
-func (usm *UpstreamSessionManager) SetUpstreamPinner(pinner UpstreamPinner) {
-	usm.upstreamPinner = pinner
+	configManager  *config_manager.ConfigManager
+	merchant       merchant_types.MerchantProvider
+	gateways       map[string]*Gateway
+	tollGateProber TollGateProber
+	mu             sync.RWMutex
 }
 
 // NewUpstreamSessionManager creates a new upstream_session_manager instance
-func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) (UpstreamSessionManagerInterface, error) {
+func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant_types.MerchantProvider) (UpstreamSessionManagerInterface, error) {
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -126,7 +114,6 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 		adInfo,
 		c.configManager,
 		c.merchant,
-		c.upstreamPinner,
 	)
 	if err != nil {
 		logger.WithFields(logrus.Fields{

@@ -89,7 +89,6 @@ type UpstreamSessionManagerInterface interface {
 	HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error
 	HandleDisconnect(interfaceName string) error
 	GetActiveSessions() map[string]*UpstreamSession
-	SetUpstreamPinner(pinner UpstreamPinner)
 	Stop() error
 }
 
