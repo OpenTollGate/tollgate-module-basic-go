@@ -2,10 +2,12 @@ package main
 
 import (
 	"context" // Added for context.Background()
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -128,6 +130,17 @@ func InitializeGlobalLogger(logLevel string) {
 }
 
 func init() {
+	http.DefaultTransport = &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+		}).DialContext,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout: 20 * time.Second,
+		MaxIdleConns:        10,
+		IdleConnTimeout:     30 * time.Second,
+		ForceAttemptHTTP2:   false,
+	}
+
 	var err error
 
 	configPath, installPath, identitiesPath := getTollgatePaths()

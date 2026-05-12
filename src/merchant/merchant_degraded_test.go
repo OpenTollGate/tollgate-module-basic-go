@@ -19,17 +19,7 @@ import (
 func newDegradedMerchantWithConfig(t *testing.T) (*MerchantDegraded, *config_manager.ConfigManager) {
 	t.Helper()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, _ := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -214,9 +204,8 @@ func TestMerchantDegraded_Fund_ReturnsError(t *testing.T) {
 }
 
 func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	cm, testDir := setupTestConfigManager(t)
 
-	testDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
 	identitiesPath := filepath.Join(testDir, "identities.json")
 
 	noMerchantIdentities := []byte(`{
@@ -226,15 +215,6 @@ func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
 	}`)
 	if err := os.WriteFile(identitiesPath, noMerchantIdentities, 0644); err != nil {
 		t.Fatalf("failed to write identities: %v", err)
-	}
-
-	cm, err := config_manager.NewConfigManager(
-		filepath.Join(testDir, "config.json"),
-		filepath.Join(testDir, "install.json"),
-		identitiesPath,
-	)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
 	}
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +233,7 @@ func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
 		mintHealthTracker: tracker,
 	}
 
-	_, err = deg.CreateNoticeEvent("error", "test", "test message", "")
+	_, err := deg.CreateNoticeEvent("error", "test", "test message", "")
 	if err == nil {
 		t.Fatal("expected error when no merchant identity exists")
 	}
@@ -497,17 +477,7 @@ func (w *mockWallet) Shutdown() error {
 func newDegradedMerchantWithMockWallet(t *testing.T, wallet Wallet, walletFactoryErr error) (*MerchantDegraded, *config_manager.ConfigManager, *MintHealthTracker) {
 	t.Helper()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -669,17 +639,7 @@ func TestKickstart_WalletNotLoaded_GetAcceptedMintsStillReturnsAllConfigured(t *
 }
 
 func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = []config_manager.MintConfig{}
@@ -705,17 +665,7 @@ func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
 func TestKickstart_WalletFactoryReceivesAllConfiguredMintURLs(t *testing.T) {
 	var receivedURLs []string
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -797,17 +747,7 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -880,17 +820,7 @@ func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
 	}))
 	defer srvDown.Close()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = []config_manager.MintConfig{
@@ -971,17 +901,7 @@ func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
 	}))
 	defer srvDown.Close()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = []config_manager.MintConfig{
@@ -1010,7 +930,7 @@ func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
 		t.Errorf("expected 0 balance, got %d", deg.GetBalance())
 	}
 
-	_, err = deg.CreatePaymentTokenWithOverpayment(srvDown.URL, 100, 10000, 100)
+	_, err := deg.CreatePaymentTokenWithOverpayment(srvDown.URL, 100, 10000, 100)
 	if err == nil {
 		t.Fatal("expected error when no wallet loaded")
 	}
@@ -1185,17 +1105,7 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -1266,17 +1176,7 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, testDir := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -1419,17 +1319,7 @@ func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
 }
 
 func TestNewMerchantDegradedFromFull(t *testing.T) {
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, _ := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -1454,17 +1344,7 @@ func TestNewMerchantDegradedFromFull(t *testing.T) {
 }
 
 func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, _ := setupTestConfigManager(t)
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -1500,17 +1380,7 @@ func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
 }
 
 func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
-	testDir := t.TempDir()
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
-
-	configPath := filepath.Join(testDir, "config.json")
-	installPath := filepath.Join(testDir, "install.json")
-	identitiesPath := filepath.Join(testDir, "identities.json")
-
-	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
-	if err != nil {
-		t.Fatalf("failed to create config manager: %v", err)
-	}
+	cm, _ := setupTestConfigManager(t)
 
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = []config_manager.MintConfig{

@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,7 +12,7 @@ import (
 
 const (
 	defaultRecoveryThreshold uint8 = 3
-	probeTimeout            = 5 * time.Second
+	probeTimeout            = 30 * time.Second
 	probeInterval           = 5 * time.Minute
 )
 
@@ -91,6 +92,9 @@ func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.reachableMints[mintURL] {
+		t.reachableCount--
+	}
 	t.reachableMints[mintURL] = false
 	t.consecutiveSuccesses[mintURL] = 0
 }
@@ -118,6 +122,7 @@ func (t *MintHealthTracker) RunInitialProbe() {
 		return
 	}
 
+	log.Printf("RunInitialProbe: probing %d mint(s)", len(config.AcceptedMints))
 	results := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
 		results[mint.URL] = t.probeMint(mint.URL)
@@ -155,6 +160,7 @@ func (t *MintHealthTracker) runProactiveCheck() {
 		return
 	}
 
+	log.Printf("runProactiveCheck: probing %d mint(s)", len(config.AcceptedMints))
 	results := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
 		results[mint.URL] = t.probeMint(mint.URL)
@@ -204,6 +210,7 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	t.mu.Unlock()
 
 	for _, cb := range callbacks {
+		log.Printf("runProactiveCheck: firing callback (hadReachable=%v, setChanged=%v)", t.hadReachableMint, setChanged)
 		go cb()
 	}
 }
@@ -211,11 +218,16 @@ func (t *MintHealthTracker) runProactiveCheck() {
 func (t *MintHealthTracker) probeMint(mintURL string) bool {
 	url := strings.TrimRight(mintURL, "/") + "/v1/info"
 
+	start := time.Now()
 	resp, err := t.httpClient.Get(url)
+	elapsed := time.Since(start)
 	if err != nil {
+		log.Printf("mint probe FAILED: url=%s elapsed=%s error=%v", url, elapsed, err)
 		return false
 	}
 	defer resp.Body.Close()
 
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
+	log.Printf("mint probe: url=%s status=%d elapsed=%s ok=%v", url, resp.StatusCode, elapsed, ok)
+	return ok
 }

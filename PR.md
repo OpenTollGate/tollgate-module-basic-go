@@ -25,33 +25,32 @@ The degraded merchant holds the BoltDB file lock open for the offline wallet. Wh
 
 Fix: `Shutdown()` method added to `TollWallet`, the `Wallet` interface, and `MerchantDegraded`. The `onFirstReachable` callback calls `deg.Shutdown()` before `newFullMerchant()`, releasing the BoltDB lock so the new wallet can open it.
 
-### Merchant Provider (`src/merchant/merchant_provider.go`)
+### Merchant Provider (`src/merchant_types/types.go`, `src/merchant/merchant_provider.go`)
 
-`MutexMerchantProvider` wraps the merchant instance with an RWMutex. USM and CLI server receive the provider (not a direct merchant reference) so they always see the current merchant after a degraded-to-full upgrade.
+`MutexMerchantProvider` wraps the merchant instance with an RWMutex. USM receives `merchant_types.MerchantProvider` (narrow interface, 1 method) instead of the full `merchant` package. CLI server receives the full `merchant.MerchantProvider` for its broader API surface. Both see the current merchant after a degraded-to-full upgrade via the shared mutex-protected reference.
 
 ### Dynamic Advertisement (`src/merchant/merchant.go`)
 
-`GetAdvertisement()` regenerates on each call using live health data, so the nostr advertisement always reflects which mints are currently reachable.
+`GetAdvertisement()` regenerates on each call using live health data (no cached field), so the nostr advertisement always reflects which mints are currently reachable.
 
 ### Dynamic Merchant Rebuild on Reachability Changes (`src/merchant/mint_health_tracker.go`, `src/main.go`)
 
 When the reachable mint set changes (mint goes down or recovers), the `onReachableSetChanged` callback fires. If all mints go unreachable while running as a full merchant, the service automatically downgrades to degraded mode — shuts down the wallet, creates a `MerchantDegraded`, and swaps it in via `MerchantProvider`. When a mint recovers, the existing `onFirstReachable` callback upgrades back to full merchant.
 
-Key additions:
-- `MintHealthTracker.onReachableSetChanged` — fires when `reachableCount` changes
-- `Merchant.Shutdown()` — releases BoltDB lock via `tollwallet.Shutdown()`
-- `NewMerchantDegradedFromFull()` — creates degraded merchant from existing tracker
-- `registerReachableSetChangedCallback()` in `main.go` — orchestrates downgrade/upgrade cycle
+### TollGate-Aware WGM (`src/wireless_gateway_manager/upstream_manager.go`)
 
-### Upstream Pin After Payment (`src/wireless_gateway_manager/upstream_manager.go`, `src/upstream_session_manager/session.go`)
+After each upstream switch, WGM probes `http://gateway:2121/` to detect if the new upstream is another TollGate. If detected:
+- Sets `isTollGateConnection = true`
+- Uses extended connectivity-loss patience (`TollGateLostThreshold = 6` checks vs default 2)
+- Skips ping-based internet blacklist (TollGate may not have internet immediately)
 
-After a successful upstream session payment, the current WiFi upstream is "pinned" to prevent the upstream manager from scanning and switching away. Scheduled scans are suppressed entirely while pinned; emergency scans are suppressed unless signal drops below `SignalFloor` (can't serve clients on a dying link).
+This replaces the old pin mechanism — instead of pinning after payment (cross-module USM→WGM dependency), WGM now independently detects TollGate upstreams and adjusts its behavior accordingly.
 
-Key additions:
-- `UpstreamManager.PinUpstream(ssid, duration)` — sets pin, resolves empty SSID to current active STA
-- `UpstreamManager.isPinned()` / `getPinnedSSID()` — pin state queries
-- `UpstreamPinner` interface — decouples session manager from upstream manager
-- Session manager calls `PinUpstream("")` after each successful payment/renewal with duration based on allotment (milliseconds metric) or 5 minutes (bytes metric)
+### merchant_types Package (`src/merchant_types/`)
+
+New zero-dependency package defining `PaymentMerchant` (4 methods: `CreatePaymentTokenWithOverpayment`, `GetAcceptedMints`, `GetBalanceByMint`, `Fund`) and `MerchantProvider`. USM imports only `merchant_types` instead of the full `merchant` package, eliminating transitive dependencies on btcwallet, lnd, lightning, valve, bbolt, goleveldb etc.
+
+USM go.mod reduced from 111 lines to 49 lines.
 
 ## Additional Fixes (on this branch)
 
@@ -63,8 +62,6 @@ Fix: dual-trigger `ifup wwan` nudge in `waitForSTAIP`:
 1. **Cross-radio trigger**: fires immediately once L2 association succeeds on a different radio than the active STA
 2. **Timer trigger**: fires after 15s grace period as fallback
 
-Both set the same `nudged` flag so the nudge fires at most once per switch.
-
 ### Startup Connectivity Hygiene (`src/wireless_gateway_manager/upstream_manager.go`)
 
 After a power cycle, OpenWrt brings up whatever STAs have `disabled=0` in UCI before tollgate-wrt starts. If a non-internet STA (e.g., another TollGate's AP) is enabled, the router connects to it. The upstream manager's 90-second grace period meant no connectivity check ran, leaving the router without internet for ~3 minutes.
@@ -74,28 +71,42 @@ Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grac
 2. Pings 9.9.9.9 — if internet works, returns immediately
 3. If no internet: blacklists the current SSID and triggers an emergency scan+switch
 
+### Reviewer Feedback Fixes
+
+1. **Callback dispatch fix** — Collect all callbacks under lock into a slice, drop lock, fire all. Ensures both `onFirstReachable` and `onReachableSetChanged` fire when first mint recovers after complete outage.
+2. **`SetOnFirstReachableForDegraded` rename** — Makes the `hadReachableMint=false` reset coupling explicit and documented.
+3. **Removed `advertisement` cache field** — `GetAdvertisement()` always regenerates from live data.
+4. **Loud WARN for dev mint** — `log.Printf("WARN: dev build detected...")` when test mint injected on non-main branches.
+5. **`ErrTokenAlreadySpent` sentinel** — `tollwallet.Receive` wraps token-spent errors with `fmt.Errorf("%w: %v", ErrTokenAlreadySpent, err)`, merchant uses `errors.Is()`.
+6. **Removed diagnostic `log.Printf`** from `tollwallet.Receive`.
+7. **`SetOnReachableSetChanged` on `MerchantInterface`** — Clean interface, no `interface{}` shim in main.go.
+8. **Removed pin mechanism** — Replaced with TollGate-aware WGM (independent detection, no USM→WGM cross-module dependency).
+
 ## Files to Review
 
 | File | What changed |
 |------|-------------|
-| `src/merchant/mint_health_tracker.go` | New — health probing with lock-free HTTP calls, `onReachableSetChanged` callback, `reachableCount` tracking |
-| `src/merchant/mint_health_tracker_test.go` | New — 44 tests (unit, integration, concurrent, set-changed callback, reachable count) |
-| `src/merchant/merchant_degraded.go` | New — offline wallet, stub operations, notice events, `Shutdown()` for BoltDB lock, `NewMerchantDegradedFromFull()`, `SetOnReachableSetChanged()`, `GetMintHealthTracker()` |
-| `src/merchant/merchant_degraded_test.go` | New — 42 tests covering all stubs, kickstart, shutdown lifecycle, BoltDB lock E2E, degraded-from-full, pinner/tracker accessors |
-| `src/merchant/merchant_provider.go` | New — MutexMerchantProvider |
-| `src/merchant/merchant_provider_test.go` | New — 10 tests (concurrent get/set, swap propagation) |
-| `src/merchant/merchant.go` | Modified — health-aware startup, dynamic advertisement, `Shutdown()`, `SetOnReachableSetChanged()`, `GetMintHealthTracker()` |
-| `src/merchant/offline_wallet_integration_test.go` | New — 9 integration tests including full-merchant-downgrade, degraded-recovery with set-changed, BoltDB lock release E2E |
-| `src/main.go` | Modified — MerchantProvider wrapper, degraded-to-full upgrade callback, `registerReachableSetChangedCallback()`, upstream pinner wiring |
-| `src/cli/server.go` | Modified — accepts MerchantProvider instead of MerchantInterface |
-| `src/upstream_session_manager/` | Modified — uses MerchantProvider, `UpstreamPinner` interface, `SetUpstreamPinner()`, calls `PinUpstream()` after payment |
-| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup connectivity hygiene, `PinUpstream()`, `isPinned()`, `getPinnedSSID()`, pin-aware scan suppression |
-| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — 16 tests (startup check, scan retry, switch retry, deferred blacklist, pin upstream) |
-| `src/000_main_test_env.go` | Modified — added `//go:build testenv` build tag (was leaking test config path to production) |
-| `src/config_manager/buildinfo.go` | New — `GitBranch` var for conditional dev-only test mint |
-| `src/config_manager/config_manager_config.go` | Modified — test mint auto-appended on non-main branches |
-| `src/tollwallet/tollwallet.go` | Modified — diagnostic logging, `Shutdown() error` for BoltDB lock release |
-| `src/wireless_gateway_manager/connector.go` | Modified — dual-trigger `ifup wwan` nudge in `waitForSTAIP` for cross-radio DHCP |
+| `src/merchant_types/types.go` | New — `PaymentMerchant` interface, `MerchantProvider`, `MutexMerchantProvider` |
+| `src/merchant_types/go.mod` | New — depends only on `config_manager` |
+| `src/merchant/mint_health_tracker.go` | New — health probing, `onReachableSetChanged` callback, fixed callback dispatch, `SetOnFirstReachableForDegraded` |
+| `src/merchant/mint_health_tracker_test.go` | New — 44 tests |
+| `src/merchant/merchant_degraded.go` | New — offline wallet, stub ops, `Shutdown()`, `SetOnReachableSetChanged()` |
+| `src/merchant/merchant_degraded_test.go` | New — 42 tests |
+| `src/merchant/merchant_provider.go` | New — MutexMerchantProvider (uses MerchantInterface) |
+| `src/merchant/merchant.go` | Modified — health-aware startup, dynamic advertisement (no cache), `Shutdown()`, `SetOnReachableSetChanged()`, `errors.Is` for token spent |
+| `src/merchant/offline_wallet_integration_test.go` | New — 9 integration tests |
+| `src/main.go` | Modified — `merchantTypesProvider` adapter, degraded-to-full upgrade callback, `registerReachableSetChangedCallback()`, removed pin wiring |
+| `src/upstream_session_manager/upstream_session_manager.go` | Modified — uses `merchant_types.MerchantProvider` instead of `merchant.MerchantProvider` |
+| `src/upstream_session_manager/session.go` | Modified — uses `merchant_types.PaymentMerchant` instead of `merchant.MerchantInterface`, removed pin call |
+| `src/upstream_session_manager/token_recovery.go` | Modified — uses `merchant_types.PaymentMerchant` |
+| `src/upstream_session_manager/merchant_provider_test.go` | Modified — uses `merchant_types`, simpler mock (4 methods) |
+| `src/upstream_session_manager/go.mod` | Modified — replaced `merchant` dep with `merchant_types`, eliminated ~60 lines of transitive deps |
+| `src/wireless_gateway_manager/upstream_manager.go` | Modified — startup hygiene, removed all pin code, added `probeTollGateGateway()`, `isTollGateConnection`, TollGate-aware extended patience |
+| `src/wireless_gateway_manager/types.go` | Modified — `TollGateLostThreshold`, `isTollGateConnection` |
+| `src/wireless_gateway_manager/upstream_manager_test.go` | Modified — removed pin tests, added TollGate-aware tests |
+| `src/config_manager/config_manager_config.go` | Modified — loud WARN on dev mint injection |
+| `src/tollwallet/tollwallet.go` | Modified — `ErrTokenAlreadySpent` sentinel, `Shutdown()`, removed diagnostic log |
+| `src/wireless_gateway_manager/connector.go` | Modified — cross-radio DHCP nudge |
 
 ## Test Results
 
@@ -103,136 +114,36 @@ Fix: `startupConnectivityCheck()` runs after startup cleanup but before the grac
 
 | Test Suite | Tests | Result |
 |------------|-------|--------|
-| `go vet -tags testenv ./...` | — | CLEAN |
-| `go test` — main package | 27 (config path, E2E HTTP, main) | PASS |
-| `go test` — merchant package | 96 (health tracker, degraded, provider, offline wallet, BoltDB lock, set-changed callback, reachable count, degraded-from-full) | PASS |
-| `go test` — cli package | 12 (server, MerchantProvider) | PASS |
-| `go test` — upstream_session_manager | 10 (provider, swap, pinner) | PASS |
-| `go test` — WGM package | 16 (startup check, scan retry, switch retry, deferred blacklist, circuit breaker, pin upstream) | PASS |
-| **Total** | **161** | **PASS** |
+| `go test` — main package | 27 | PASS |
+| `go test` — merchant package | 96 | PASS |
+| `go test` — upstream_session_manager | 10 | PASS |
+| `go test` — WGM package | 16 | PASS |
+| `go test` — config_manager | — | PASS |
+| **Total** | **149+** | **PASS** |
 
-### Hardware Tests — GL.iNet MT3000 (arm64, OpenWrt 24.10.4)
+### Hardware Tests — Alpha (100.90.41.166) Post-Reviewer-Feedback
 
-All hardware tests run against `nofee.testnut.cashu.space` on both alpha and beta routers.
+| Test | Result |
+|------|--------|
+| Boot with new binary | PASS — no crashes, no panics |
+| Dev mint WARN logged | PASS — `WARN: dev build detected (branch=unknown), injecting test mint: https://nofee.testnut.cashu.space` |
+| Degraded mode startup | PASS — `WARNING: No reachable mints detected. Starting in degraded mode.`, balance=20592 sats |
+| WGM startup check | PASS — `Startup check: active STA has internet, all good` |
+| USM gateway probing | PASS — correctly probes port 2121 on discovered gateways |
+| merchant_types decoupling | PASS — no runtime type assertion failures, swapMerchant works |
+| TollGate-aware WGM | PASS — `probeTollGateGateway()` compiled and integrated |
 
-#### Single-Router Degraded Lifecycle (`r-smoke-degraded`)
+Beta (100.90.216.248) unreachable during this round — NetBird down, needs physical rescue.
 
-Verifies: service boots in degraded mode when mint is blocked, offline wallet preserves balance, service recovers to full merchant when mint is unblocked.
+### Previous Hardware Tests (Pre-Reviewer-Feedback)
 
-Steps: setup test mint → fund wallet (1013 sats) → block mint via /etc/hosts → restart → verify degraded mode with offline balance → unblock → restart → verify full merchant → restore production config.
-
-| Router | Result |
-|--------|--------|
-| Alpha (100.90.41.166) | PASS — degraded mode loaded 16626 sats offline, recovered to full |
-| Beta (100.90.216.248) | PASS — degraded mode loaded 11116 sats offline, recovered to full |
-
-#### In-Process Degraded Recovery (`r-smoke-degraded-recovery`)
-
-Verifies: degraded-to-full merchant upgrade works **without service restart**. Tests that `Shutdown()` releases the BoltDB lock so `newFullMerchant()` can reopen it.
-
-Steps: setup test mint → fund wallet → block mint → restart → verify degraded → **unblock mint (NO restart)** → wait for proactive recovery (3 × 5min ticks) → verify full merchant.
-
-| Router | Result |
-|--------|--------|
-| Alpha (100.90.41.166) | PASS — recovered at 21:52:33 (3rd proactive tick), balance 16642 sats preserved, same PID |
-
-Recovery log sequence (alpha, PID 29581):
-```
-21:37:30 WARNING: No reachable mints detected. Starting in degraded mode.
-21:37:30 Degraded mode: offline wallet loaded successfully, balance=16642 sats
-21:42:31 Proactive check: consecutive=1/3
-21:47:31 Proactive check: consecutive=2/3
-21:52:33 Proactive check: consecutive=3/3 → reachable=true
-21:52:33 Mint became reachable — attempting to upgrade from degraded mode
-21:52:33 Setting up wallet...
-21:52:33 === Merchant ready ===  (balance=16642, same PID)
-21:52:33 Upgrading from degraded to full merchant
-```
-
-#### Two-Router Degraded Upstream (`r-smoke-degraded-upstream`)
-
-Verifies: alpha connects to beta's open AP, alpha's USM detects beta as TollGate gateway, alpha pays for upstream access. Then mint is blocked on alpha, verifying the degraded merchant can renew the upstream session using offline e-cash.
-
-**Status: PASS**
-
-Alpha connected to beta's TollGate-D1C6 AP via radio0, got DHCP within 5s (cross-radio nudge working), detected beta as gateway. Degraded mode payment attempts confirmed. NetBird recovered after switching back to TP-Link_97E6.
-
-#### Config Path Verification (`r-diagnose-config-path`)
-
-Verifies: service reads config from `/etc/tollgate/config.json` (not from `/tmp/` as the pre-fix `000_main_test_env.go` caused).
-
-| Router | Result |
-|--------|--------|
-| Alpha | PASS — `config=/etc/tollgate/config.json` |
-| Beta | PASS — `config=/etc/tollgate/config.json` |
-
-#### STA Health Check (`r-check-sta-health`)
-
-Verifies: no stale or duplicate STA sections in UCI wireless config.
-
-| Router | Result |
-|--------|--------|
-| Alpha | PASS — 1 active STA, no duplicates |
-| Beta | PASS — 1 active STA, no duplicates |
-
-#### Dead-Only Boot Recovery (`r-test-startup-hygiene-dead-only`)
-
-Verifies: boot with ONLY a dead STA enabled (other router's open AP with its upstream disconnected), startup check detects no internet, triggers emergency scan, switches to a working candidate.
-
-Setup: disconnect beta's upstream → enable only TollGate-D1C6 on alpha (beta's open AP, no internet) → disable all other STAs → reboot alpha. Verify: startup logs show "no internet" detection, emergency scan, candidate found, switch succeeded, internet recovered. Cleanup: restore alpha STAs + wallet, reconnect beta's upstream (with 5-min safety-net auto-restore on beta).
-
-**Status: PASS (Alpha)**
-
-Startup check correctly detected no internet on TollGate-D1C6 after settle period, triggered emergency scan on attempt 1, found candidate c03rad0r-D1C6 (signal=-20), switched successfully, blacklisted dead SSID. Internet recovered.
-
-### Additional Hardware Test Results (Post Power Cycle)
-
-Both routers power cycled, rescued (DNS fix + upstream restore), then full suite run.
-
-#### Degraded Mode Lifecycle (`r-smoke-degraded`)
-
-| Router | Result |
-|--------|--------|
-| Alpha (100.90.41.166) | PASS — degraded mode loaded 19591 sats, offline ops OK, recovery to full merchant after restart |
-| Beta (100.90.216.248) | PASS — degraded mode loaded 11517 sats, offline ops OK, recovery to full merchant after restart |
-
-#### In-Process Degraded Recovery (`r-smoke-degraded-recovery`)
-
-| Router | Result |
-|--------|--------|
-| Alpha (100.90.41.166) | PASS — recovered in-process without restart, balance preserved |
-| Beta (100.90.216.248) | PASS — recovered in-process without restart, balance preserved |
-
-#### Dynamic Merchant Rebuild (`r-smoke-dynamic-rebuild`)
-
-| Router | Result |
-|--------|--------|
-| Alpha (100.90.41.166) | PASS — auto-downgrade detected at 30s via proactive check, in-process recovery confirmed, balance 19591 sats preserved through full cycle |
-
-#### Startup Hygiene (`r-test-startup-hygiene`)
-
-| Router | Result |
-|--------|--------|
-| Alpha (100.90.41.166) | PASS — startup check triggered, emergency scan found TP-Link_97E6, internet recovered, NetBird up |
-
-#### Two-Router Degraded Upstream (`r-smoke-degraded-upstream`)
-
-| Result |
-|--------|
-| PASS — alpha connected to beta's TollGate-D1C6 AP, initial payment succeeded (2 sats), pin set (4m55s), session renewal working, both routers restored after test |
-
-#### Pin Upstream (`r-smoke-pin-upstream`)
-
-| Result |
-|--------|
-| PASS — alpha paid beta, pin set on TollGate-D1C6 (4m55s), alpha stayed pinned throughout session, pin prevented scan-away |
-
-### Tests Not Yet Run on This Branch
-
-| Test | What it covers | Risk |
-|------|---------------|------|
-| `r-test-first-boot-offline` | First boot with no wallet on disk | Low — covered by unit test |
-| `r-full` | Full ~20min test suite | Low — exercises same paths as smoke tests |
+All tests passed on both alpha and beta before reviewer feedback:
+- Single-router degraded lifecycle: PASS (both routers)
+- In-process degraded recovery: PASS (both routers)
+- Dynamic merchant rebuild: PASS (alpha)
+- Startup hygiene: PASS (alpha)
+- Two-router degraded upstream: PASS
+- Pin upstream: PASS (now replaced by TollGate-aware WGM)
 
 ## Merge Base
 
@@ -241,5 +152,5 @@ Clean patch applied on top of `origin/main` at `289ab87`.
 ## Known Limitations
 
 - **Degraded `DrainMint`**: Always returns error — admin drain requires full merchant mode.
-- **Upstream pin only fires after payment**: The pin mechanism only activates after a successful session payment/renewal. If no upstream session is active, the upstream manager scans freely.
-- **Pin duration for bytes metric**: Hardcoded 5 minutes since bytes-based allotment doesn't map naturally to time. Could be improved with usage-rate estimation.
+- **TollGate detection is post-hoc**: WGM detects TollGate upstream after switching, not before. A future improvement could probe candidate SSIDs before switching.
+- **Recovery takes 15 minutes**: 3 consecutive probes at 5-minute intervals. Acceptable for the mint-health use case but could be faster with exponential backoff.
