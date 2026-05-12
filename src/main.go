@@ -140,7 +140,6 @@ func init() {
 		IdleConnTimeout:     30 * time.Second,
 		ForceAttemptHTTP2:   false,
 	}
-
 	var err error
 
 	configPath, installPath, identitiesPath := getTollgatePaths()

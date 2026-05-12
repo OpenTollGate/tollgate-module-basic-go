@@ -204,8 +204,8 @@ func TestMerchantDegraded_Fund_ReturnsError(t *testing.T) {
 }
 
 func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
-	cm, testDir := setupTestConfigManager(t)
-
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
 	identitiesPath := filepath.Join(testDir, "identities.json")
 
 	noMerchantIdentities := []byte(`{
@@ -215,6 +215,15 @@ func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
 	}`)
 	if err := os.WriteFile(identitiesPath, noMerchantIdentities, 0644); err != nil {
 		t.Fatalf("failed to write identities: %v", err)
+	}
+
+	cm, err := config_manager.NewConfigManager(
+		filepath.Join(testDir, "config.json"),
+		filepath.Join(testDir, "install.json"),
+		identitiesPath,
+	)
+	if err != nil {
+		t.Fatalf("failed to create config manager: %v", err)
 	}
 
 	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -233,7 +242,7 @@ func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
 		mintHealthTracker: tracker,
 	}
 
-	_, err := deg.CreateNoticeEvent("error", "test", "test message", "")
+	_, err = deg.CreateNoticeEvent("error", "test", "test message", "")
 	if err == nil {
 		t.Fatal("expected error when no merchant identity exists")
 	}
@@ -1287,13 +1296,14 @@ func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
 		t.Fatalf("initial wallet seed creation failed: %v", err)
 	}
 
+	shortClient := &http.Client{Timeout: 1 * time.Second}
 	cfg := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: "http://192.0.2.1:12345", PricePerStep: 1, PriceUnit: "sats"},
+			{URL: "http://127.0.0.1:1", PricePerStep: 1, PriceUnit: "sats"},
 		},
 	}
 
-	tracker := newTestTracker(cfg, nil)
+	tracker := newTestTracker(cfg, shortClient)
 	tracker.recoveryThreshold = 1
 	tracker.RunInitialProbe()
 

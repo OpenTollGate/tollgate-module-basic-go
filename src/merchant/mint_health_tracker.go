@@ -31,6 +31,7 @@ type MintHealthTracker struct {
 	hadReachableMint     bool
 	onReachableSetChanged func()
 	reachableCount       int
+	stopCh               chan struct{}
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
@@ -46,14 +47,37 @@ func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker 
 }
 
 func (t *MintHealthTracker) StartProactiveChecks() {
+	t.mu.Lock()
+	if t.stopCh != nil {
+		t.mu.Unlock()
+		return
+	}
+	t.stopCh = make(chan struct{})
+	stopCh := t.stopCh
+	t.mu.Unlock()
+
 	go func() {
 		ticker := time.NewTicker(probeInterval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			t.runProactiveCheck()
+		for {
+			select {
+			case <-ticker.C:
+				t.runProactiveCheck()
+			case <-stopCh:
+				return
+			}
 		}
 	}()
+}
+
+func (t *MintHealthTracker) Stop() {
+	t.mu.Lock()
+	if t.stopCh != nil {
+		close(t.stopCh)
+		t.stopCh = nil
+	}
+	t.mu.Unlock()
 }
 
 func (t *MintHealthTracker) IsReachable(mintURL string) bool {
