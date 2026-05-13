@@ -134,12 +134,15 @@ func init() {
 		DialContext: (&net.Dialer{
 			Timeout: 10 * time.Second,
 		}).DialContext,
+		DisableKeepAlives:     true,
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout: 20 * time.Second,
-		MaxIdleConns:        10,
-		IdleConnTimeout:     30 * time.Second,
-		ForceAttemptHTTP2:   false,
+		TLSHandshakeTimeout:   20 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		MaxIdleConns:          10,
+		IdleConnTimeout:       30 * time.Second,
+		ForceAttemptHTTP2:     false,
 	}
+	http.DefaultClient.Timeout = 30 * time.Second
 	var err error
 
 	configPath, installPath, identitiesPath := getTollgatePaths()
@@ -739,7 +742,7 @@ func main() {
 		Addr: port,
 		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

@@ -371,7 +371,34 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	amountAfterSwap, err := m.tollwallet.Receive(paymentCashuToken)
+	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
+
+	type receiveResult struct {
+		amount uint64
+		err    error
+	}
+	ch := make(chan receiveResult, 1)
+	go func() {
+		amount, err := m.tollwallet.Receive(paymentCashuToken)
+		ch <- receiveResult{amount, err}
+	}()
+
+	var amountAfterSwap uint64
+	err = nil
+	select {
+	case res := <-ch:
+		amountAfterSwap = res.amount
+		err = res.err
+		log.Printf("PurchaseSession: Receive completed, amount=%d, err=%v", amountAfterSwap, err)
+	case <-time.After(30 * time.Second):
+		log.Printf("PurchaseSession: Receive TIMED OUT after 30s for mint=%s mac=%s", paymentCashuToken.Mint(), macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-timeout",
+			fmt.Sprintf("Payment processing timed out after 30 seconds. Please try again."), macAddress)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("payment timeout and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
+	}
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
 
