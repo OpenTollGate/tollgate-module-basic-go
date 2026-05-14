@@ -20,6 +20,28 @@ Merging `94-mint-health-rebase-clean` into `main` gives the tollgate router the 
 
 ---
 
+## PR Size Overview
+
+After rebasing onto `main` + `fix/wgm-improvements` (WGM PR merged), the final reviewable diff breaks down as:
+
+| Category | Files | Net Lines | Notes |
+|---|---|---|---|
+| **Source code** (*.go, non-test) | 18 | +1,120 / -151 | Core feature logic |
+| **Test code** (*_test.go) | 11 | +4,397 / -0 | Unit + integration tests |
+| **Frontend assets** (js/css/html) | 14 | ~0 net | Bundle rebuild (renames) |
+| **Stray docs** (delete before merge) | 4 | +730 | Will be removed |
+| **WGM overlap** (vanishes on rebase) | 4 | ~-530 | Subsumed by `fix/wgm-improvements` |
+
+**After rebase + cleanup, the reviewer sees:**
+- ~1,100 lines of source logic (merchant health, degraded mode, TLS fixes, merchant_types decoupling)
+- ~4,400 lines of tests (test:code ratio ~4:1)
+- Frontend bundle swap is zero-net (1 rebuilt JS file replaces another)
+- No WGM changes (already merged via `fix/wgm-improvements`)
+
+**Before this PR can merge, rebase onto `main` after `fix/wgm-improvements` lands.** The rebase removes ~530 lines of WGM overlap and eliminates 4 conflicting files. No manual conflict resolution expected — the WGM branch is a clean superset of what this branch carries in those files.
+
+---
+
 ## Happy Path Test Plan
 
 This section describes what a reviewer or QA engineer should verify to confirm that every feature introduced by this branch works correctly end-to-end. It covers the happy path only — see `mint-health/docs/router-test-plan.md` in the test automation repo for edge-case and destructive tests.
