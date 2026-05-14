@@ -44,18 +44,31 @@ After rebasing onto `main` + `fix/wgm-improvements` (WGM PR merged), the final r
 
 ## Happy Path Test Plan
 
-This section describes what a reviewer or QA engineer should verify to confirm that every feature introduced by this branch works correctly end-to-end. It covers the happy path only — see `mint-health/docs/router-test-plan.md` in the test automation repo for edge-case and destructive tests.
+Set router IPs before starting. All commands below use `$alpha` and `$beta`:
+
+```sh
+alpha="10.47.41.1"       # Alpha — LAN via enx00e04c683d2d
+beta="192.168.244.1"     # Beta  — LAN via enx00e04c633a90
+```
 
 ### Pre-conditions
 
-| Requirement | How to satisfy |
-|-------------|---------------|
-| Two GL.iNet MT3000 routers (Alpha + Beta) on NetBird | `ssh root@<alpha-ip> ping -c1 8.8.8.8` |
-| Test mint reachable from both routers | `ssh root@<alpha-ip> "wget -qO- https://nofee.testnut.cashu.space/v1/info"` |
-| Latest binary deployed to both routers | `make -f mint-health/Makefile r-deploy ROUTER=alpha` (repeat for beta) |
-| Playwright installed in `physical-router-test-automation` | `npm install` in that repo |
-| `mint-token` binary built | `cd scripts/mint-token && go build -o mint-token .` |
-| Wallet funded on Alpha (for USM payment tests) | `make -f mint-health/Makefile r-fund-wallet ROUTER=alpha` |
+```sh
+# 1. Both routers reachable
+ssh root@$alpha ping -c1 8.8.8.8
+ssh root@$beta ping -c1 8.8.8.8
+
+# 2. Test mint reachable from both routers
+ssh root@$alpha "wget -qO- https://nofee.testnut.cashu.space/v1/info"
+ssh root@$beta "wget -qO- https://nofee.testnut.cashu.space/v1/info"
+
+# 3. Deploy latest binary to both routers
+make -f mint-health/Makefile r-deploy ROUTER=alpha
+make -f mint-health/Makefile r-deploy ROUTER=beta
+
+# 4. Fund wallet on Alpha (for payment tests)
+make -f mint-health/Makefile r-fund-wallet ROUTER=alpha
+```
 
 ---
 
@@ -63,22 +76,26 @@ This section describes what a reviewer or QA engineer should verify to confirm t
 
 **Feature**: Merchant starts in full mode, wallet loads, advertisement is served.
 
-| Step | Command | Expected result |
-|------|---------|-----------------|
-| 1.1 Deploy and restart | `make -f mint-health/Makefile r-deploy ROUTER=alpha && make -f mint-health/Makefile r-restart-service ROUTER=alpha` | Binary copied, service restarted |
-| 1.2 Check logs for full merchant | `make -f mint-health/Makefile r-check-merchant ROUTER=alpha` | Logs contain `=== Merchant ready ===` |
-| 1.3 Verify wallet loaded | `ssh root@<ip> "tollgate wallet balance"` | Returns a balance (may be 0) |
-| 1.4 Verify API advertisement | `curl -s http://<ip>:2121/ | jq .kind` | Returns `10021` with `price_per_step` tags |
-| 1.5 Verify dev-mint WARN (non-main branch) | `ssh root@<ip> "logread -e tollgate-wrt \| grep 'dev build detected'"` | Log line present |
-
-**Automated coverage**: Go `TestNew_ReturnsFullMerchant`, `TestUpstreamManager_DefaultConfig`. Playwright `API returns valid advertisement with pricing`.
-
-**Run automated tests**:
 ```sh
-cd src/merchant && go test -run TestNew -v
-cd ../.. && curl -s http://<router-ip>:2121/ | jq .
-cd ../physical-router-test-automation && npx playwright test -g "advertisement"
+# 1.1 Deploy and restart
+make -f mint-health/Makefile r-deploy ROUTER=alpha && make -f mint-health/Makefile r-restart-service ROUTER=alpha
+
+# 1.2 Check logs for full merchant
+make -f mint-health/Makefile r-check-merchant ROUTER=alpha
+# Expected: "=== Merchant ready ==="
+
+# 1.3 Verify wallet loaded
+ssh root@$alpha "tollgate wallet balance"
+
+# 1.4 Verify API advertisement
+curl -s http://$alpha:2121/ | jq .kind
+# Expected: 10021
+
+# 1.5 Verify dev-mint WARN (non-main branch)
+ssh root@$alpha "logread -e tollgate-wrt | grep 'dev build detected'"
 ```
+
+**Automated coverage**: Go `TestNew_ReturnsFullMerchant`, `TestUpstreamManager_DefaultConfig`.
 
 ---
 
@@ -86,202 +103,244 @@ cd ../physical-router-test-automation && npx playwright test -g "advertisement"
 
 **Feature**: If no mints respond to the initial probe, the service starts in degraded mode with an offline wallet instead of crashing.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 2.1 Record baseline balance | `make -f mint-health/Makefile r-record-baseline ROUTER=alpha` | Balance saved |
-| 2.2 Block mint | `make -f mint-health/Makefile r-block-mint ROUTER=alpha` | `OK: Mint unreachable` |
-| 2.3 Restart into degraded mode | `make -f mint-health/Makefile r-restart-service ROUTER=alpha` | Service restarts |
-| 2.4 Verify degraded mode | `make -f mint-health/Makefile r-check-degraded ROUTER=alpha` | Logs: `Starting in degraded mode`, `offline wallet loaded successfully` |
-| 2.5 Verify cached balance matches | `ssh root@<ip> "tollgate wallet balance"` | Same value as step 2.1 |
-| 2.6 Verify service stable | `ssh root@<ip> "tollgate status"` | `running: true`, no panics in logs |
-| 2.7 Verify API returns notice | `curl -s http://<ip>:2121/ | jq .kind` | Returns `21023` (notice event), not `10021` |
-
-**Automated coverage**: Go `TestNew_ReturnsDegradedWhenNoMintsReachable`, `TestKickstart_WalletLoaded_OfflineBalanceAvailable`, `TestIntegration_FirstBootOffline`, `TestIntegration_DegradedMerchantOffline`.
-
-**Run automated tests**:
 ```sh
-cd src/merchant && go test -run "TestNew_ReturnsDegraded|TestKickstart|TestIntegration_Degraded|TestIntegration_FirstBoot" -v
+# 2.1 Record baseline balance
+make -f mint-health/Makefile r-record-baseline ROUTER=alpha
+
+# 2.2 Block mint
+make -f mint-health/Makefile r-block-mint ROUTER=alpha
+# Expected: "OK: Mint unreachable"
+
+# 2.3 Restart into degraded mode
+make -f mint-health/Makefile r-restart-service ROUTER=alpha
+
+# 2.4 Verify degraded mode
+make -f mint-health/Makefile r-check-degraded ROUTER=alpha
+# Expected: "Starting in degraded mode", "offline wallet loaded successfully"
+
+# 2.5 Verify cached balance matches baseline
+ssh root@$alpha "tollgate wallet balance"
+
+# 2.6 Verify service stable
+ssh root@$alpha "tollgate status"
+# Expected: running: true
+
+# 2.7 Verify API returns notice (not advertisement)
+curl -s http://$alpha:2121/ | jq .kind
+# Expected: 21023 (notice event)
 ```
+
+**Automated coverage**: Go `TestNew_ReturnsDegradedWhenNoMintsReachable`, `TestKickstart_WalletLoaded_OfflineBalanceAvailable`.
 
 ---
 
 ### 3. Automatic Recovery from Degraded to Full Merchant
 
-**Feature**: When a mint comes back online, proactive health checks detect it, and the service upgrades in-process.
+**Feature**: When a mint comes back online, proactive health checks detect it, and the service upgrades in-process. Continues from test 2 (mint is blocked).
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 3.1 (Continues from test 2 — mint is blocked) | | |
-| 3.2 Unblock mint | `make -f mint-health/Makefile r-unblock-mint ROUTER=alpha` | `OK: Mint reachable again` |
-| 3.3 Wait for recovery | `make -f mint-health/Makefile r-wait-recovery ROUTER=alpha` | Logs: `Mint became reachable`, `Upgrading from degraded to full merchant`, `=== Merchant ready ===` |
-| 3.4 Verify full merchant | `make -f mint-health/Makefile r-check-merchant ROUTER=alpha` | `=== Merchant ready ===` in logs |
-| 3.5 Verify API back to normal | `curl -s http://<ip>:2121/ | jq .kind` | Returns `10021` |
-
-**Note**: Recovery requires 3 consecutive probes at 5-minute intervals (up to ~15 min). On hardware, the hotplug script (`95-tollgate-restart`) may trigger a full service restart before the proactive check fires, which is also acceptable.
-
-**Automated coverage**: Go `TestOnFirstReachable_FiredOnce`, `TestIntegration_RecoveryAndUpgrade`, `TestKickstart_Integration_DegradedToFullUpgrade`, `TestE2E_BoltDBLock_DegradedShutdownThenReopen`.
-
-**Run automated tests**:
 ```sh
-cd src/merchant && go test -run "TestOnFirstReachable|TestIntegration_Recovery|TestKickstart_Integration_DegradedToFull|TestE2E_BoltDBLock" -v
+# 3.1 Unblock mint
+make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
+# Expected: "OK: Mint reachable again"
+
+# 3.2 Wait for recovery (up to 15 min — 3 probes at 5-min intervals)
+make -f mint-health/Makefile r-wait-recovery ROUTER=alpha
+# Expected: "Mint became reachable", "Upgrading from degraded to full merchant"
+
+# 3.3 Verify full merchant
+make -f mint-health/Makefile r-check-merchant ROUTER=alpha
+# Expected: "=== Merchant ready ==="
+
+# 3.4 Verify API back to normal
+curl -s http://$alpha:2121/ | jq .kind
+# Expected: 10021
 ```
+
+**Note**: On hardware, the hotplug script (`95-tollgate-restart`) may trigger a full service restart before the proactive check fires. Either outcome is acceptable.
+
+**Automated coverage**: Go `TestOnFirstReachable_FiredOnce`, `TestIntegration_RecoveryAndUpgrade`, `TestE2E_BoltDBLock_DegradedShutdownThenReopen`.
 
 ---
 
-### 4. Captive Portal Happy Path — Payment Works End-to-End
+### 4. Captive Portal Happy Path — Payment End-to-End
 
-**Feature**: A client connects to the TollGate AP, the captive portal loads, the client pastes a Cashu token, payment is processed, and internet access is granted.
+**Feature**: Client connects, portal loads, Cashu token submitted, payment processed, internet granted.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 4.1 Ensure full merchant mode | (Tests 1.1–1.2 should already be done) | `=== Merchant ready ===` in logs |
-| 4.2 Playwright: portal UI loads | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "cashu token input"` | Portal shows `#cashu-token` input |
-| 4.3 Playwright: mint selection buttons visible | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "mint selection pricing"` | At least one mint option button |
-| 4.4 Playwright: no bare "0" literals | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "bare.*0"` | Both cashu and lightning tabs pass |
-| 4.5 Playwright: full e2e payment | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "checkmark"` | Token minted, submitted, checkmark shown, allotment displayed |
-| 4.6 Verify session created | `ssh root@<ip> "logread -e tollgate-wrt \| grep 'PurchaseSession'"` | `Payment successful, session created` |
-
-**Automated coverage**: Playwright `captive-portal.spec.mjs` — 9 tests (all passed at `a701c2a`).
-
-**Run automated tests** (from `physical-router-test-automation` repo):
 ```sh
-TOLLGATE_CAPTIVE_PORTAL_HOST=<router-lan-ip> npm test
+# 4.1 Ensure full merchant mode (run test 1 first)
+
+# 4.2 Portal UI loads — check for cashu token input
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "cashu token input"
+
+# 4.3 Mint selection buttons visible
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "mint selection pricing"
+
+# 4.4 No bare "0" literals
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "bare.*0"
+
+# 4.5 Full e2e payment — checkmark shown
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "checkmark"
+
+# 4.6 Verify session created in router logs
+ssh root@$alpha "logread -e tollgate-wrt | grep 'PurchaseSession'"
+# Expected: "Payment successful, session created"
 ```
 
 ---
 
 ### 5. Captive Portal Degraded-Mode UI
 
-**Feature**: When mints are unreachable, the captive portal shows a clear error, hides payment inputs, and displays a retry indicator.
+**Feature**: When mints are unreachable, portal shows error, hides payment inputs, displays retry indicator.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 5.1 Block mint and restart | (Same as test 2.2–2.3) | Degraded mode |
-| 5.2 Playwright: error message shown | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "unreachable"` | `.status.error` visible with "unreachable"/"initializing"/"unavailable" text |
-| 5.3 Playwright: retry indicator | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "retrying"` | `.tollgate-captive-portal-retrying` visible with "retry" text |
-| 5.4 Playwright: payment tabs hidden | `TOLLGATE_CAPTIVE_PORTAL_HOST=<ip> npx playwright test -g "hides payment"` | `#cashu-token` not visible |
-| 5.5 Unblock mint | `make -f mint-health/Makefile r-unblock-mint ROUTER=alpha` | Restore for subsequent tests |
-
-**Automated coverage**: Playwright `shows backend error message when mints are unreachable`, `shows retrying indicator when in degraded mode`, `hides payment tabs when in degraded mode`.
-
-**Run automated tests** (from `physical-router-test-automation` repo):
 ```sh
-TOLLGATE_CAPTIVE_PORTAL_HOST=<router-lan-ip> npx playwright test -g "degraded mode"
+# 5.1 Block mint and restart (same as test 2.2–2.3)
+make -f mint-health/Makefile r-block-mint ROUTER=alpha
+make -f mint-health/Makefile r-restart-service ROUTER=alpha
+
+# 5.2 Error message shown
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "unreachable"
+
+# 5.3 Retry indicator visible
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "retrying"
+
+# 5.4 Payment tabs hidden
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "hides payment"
+
+# 5.5 Unblock mint for subsequent tests
+make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
 ```
 
 ---
 
 ### 6. Dynamic Downgrade When All Mints Go Offline Mid-Operation
 
-**Feature**: If all mints become unreachable while the service is running in full merchant mode, the service automatically downgrades to degraded mode.
+**Feature**: If all mints go offline while running in full mode, service automatically downgrades.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 6.1 Start in full merchant mode | (Test 1 should be done) | `=== Merchant ready ===` |
-| 6.2 Block mint | `make -f mint-health/Makefile r-block-mint ROUTER=alpha` | Mint unreachable |
-| 6.3 Wait for proactive check to fire (up to 5 min) | `ssh root@<ip> "timeout 360 logread -e tollgate-wrt -f" \| grep -i "reachable\|downgrad"` | Log: `Reachable mint set changed — rebuilding merchant`, `All mints unreachable — downgrading to degraded mode` |
-| 6.4 Verify degraded | `make -f mint-health/Makefile r-check-degraded ROUTER=alpha` | Degraded mode confirmed |
-| 6.5 Unblock mint | `make -f mint-health/Makefile r-unblock-mint ROUTER=alpha` | Restore for subsequent tests |
-
-**Automated coverage**: Go `TestMintHealthTracker_OnReachableSetChanged_FiresOnRemoval`, `TestIntegration_FullMerchantDowngradeOnAllMintsDown`.
-
-**Run automated tests**:
 ```sh
-cd src/merchant && go test -run "TestMintHealthTracker_OnReachableSetChanged_FiresOnRemoval|TestIntegration_FullMerchantDowngrade" -v
+# 6.1 Start in full merchant mode (run test 1 first)
+
+# 6.2 Block mint
+make -f mint-health/Makefile r-block-mint ROUTER=alpha
+
+# 6.3 Wait for proactive check to fire (up to 5 min)
+ssh root@$alpha "timeout 360 logread -e tollgate-wrt -f" | grep -i "reachable\|downgrad"
+# Expected: "Reachable mint set changed — rebuilding merchant"
+#           "All mints unreachable — downgrading to degraded mode"
+
+# 6.4 Verify degraded
+make -f mint-health/Makefile r-check-degraded ROUTER=alpha
+
+# 6.5 Unblock mint
+make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
 ```
 
 ---
 
 ### 7. TollGate-Aware Upstream Detection
 
-**Feature**: When a router switches its upstream to another TollGate's AP, WGM detects this by probing `gateway:2121` and applies extended connectivity-loss patience (6 checks instead of 2), avoiding premature blacklisting.
+**Feature**: WGM detects TollGate upstreams by probing `gateway:2121`, applies extended patience (6 lost checks vs default 2).
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 7.1 Both routers in full merchant mode | (Tests 1.1–1.2 on both) | Both show `=== Merchant ready ===` |
-| 7.2 Alpha connects to Beta's TollGate AP | `make -f mint-health/Makefile r-connect SSID=<beta-ssid> PASS=<pass> ROUTER=alpha` | STA switched |
-| 7.3 Wait for post-switch detection | `sleep 10 && ssh root@<alpha-ip> "logread -e tollgate-wrt \| grep -i 'TollGate\|tollgate'"` | Log: `TollGate detected` or `probeTollGateGateway` activity |
-| 7.4 Verify extended patience active | `ssh root@<alpha-ip> "logread -e tollgate-wrt \| grep 'lost_count'"` | Losses counted up to 6 before emergency scan |
-
-**Automated coverage**: Go `TestUpstreamManager_DefaultConfig` (verifies `TollGateLostThreshold = 6`), WGM startup check tests.
-
-**Run automated tests**:
 ```sh
-cd src/wireless_gateway_manager && go test -run "TestUpstreamManager_DefaultConfig|TestUpstreamManager_StartupCheck" -v
+# 7.1 Both routers in full merchant mode
+make -f mint-health/Makefile r-check-merchant ROUTER=alpha
+make -f mint-health/Makefile r-check-merchant ROUTER=beta
+
+# 7.2 Alpha connects to Beta's TollGate AP
+make -f mint-health/Makefile r-connect SSID=<beta-ssid> PASS=<pass> ROUTER=alpha
+
+# 7.3 Wait for post-switch detection
+sleep 10 && ssh root@$alpha "logread -e tollgate-wrt | grep -i 'TollGate'"
+# Expected: "TollGate detected" or probeTollGateGateway activity
+
+# 7.4 Verify extended patience active
+ssh root@$alpha "logread -e tollgate-wrt | grep 'lost_count'"
+# Expected: losses counted up to 6 before emergency scan
 ```
 
 ---
 
 ### 8. Two-Router Upstream Session Payment (Degraded Merchant)
 
-**Feature**: Alpha (in degraded mode, cached wallet) connects to Beta (full merchant, TollGate AP), discovers Beta's advertisement, and pays for upstream access using its offline wallet balance.
+**Feature**: Alpha (degraded, cached wallet) connects to Beta (full merchant, TollGate AP), discovers Beta's ad, pays from offline wallet.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 8.1 Fund Alpha's wallet | `make -f mint-health/Makefile r-fund-wallet ROUTER=alpha` | Balance > 0 |
-| 8.2 Block Alpha's mint | `make -f mint-health/Makefile r-block-mint ROUTER=alpha` | Degraded mode after restart |
-| 8.3 Restart Alpha in degraded mode | `make -f mint-health/Makefile r-restart-service ROUTER=alpha` | `Starting in degraded mode`, `offline wallet loaded` |
-| 8.4 Verify Beta is full merchant | `make -f mint-health/Makefile r-check-merchant ROUTER=beta` | `=== Merchant ready ===` |
-| 8.5 Run two-router smoke test | `make -f mint-health/Makefile r-smoke-degraded-upstream` | 13-step lifecycle completes: Alpha discovers Beta, creates session, pays from cached wallet |
-| 8.6 Cleanup | `make -f mint-health/Makefile r-unblock-mint ROUTER=alpha && make -f mint-health/Makefile r-cleanup ROUTER=alpha` | Config restored |
-
-**Automated coverage**: Go `TestKickstart_WalletLoaded_CreatePaymentTokenWithOverpayment`, `TestIntegration_OfflineWalletReload`. Playwright has no two-router test (requires physical hardware).
-
-**Run automated tests**:
 ```sh
-cd src/merchant && go test -run "TestKickstart_WalletLoaded_CreatePayment|TestIntegration_OfflineWallet" -v
+# 8.1 Fund Alpha's wallet
+make -f mint-health/Makefile r-fund-wallet ROUTER=alpha
+
+# 8.2 Block Alpha's mint and restart into degraded mode
+make -f mint-health/Makefile r-block-mint ROUTER=alpha
+make -f mint-health/Makefile r-restart-service ROUTER=alpha
+
+# 8.3 Verify Alpha is degraded
+make -f mint-health/Makefile r-check-degraded ROUTER=alpha
+
+# 8.4 Verify Beta is full merchant
+make -f mint-health/Makefile r-check-merchant ROUTER=beta
+
+# 8.5 Run two-router smoke test
+make -f mint-health/Makefile r-smoke-degraded-upstream
+
+# 8.6 Cleanup
+make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
+make -f mint-health/Makefile r-cleanup ROUTER=alpha
 ```
 
 ---
 
 ### 9. Startup Connectivity Hygiene
 
-**Feature**: After a power cycle, if the router connects to a non-internet STA (e.g., another TollGate's AP), WGM detects this within seconds and performs an emergency scan+switch to find a working upstream.
+**Feature**: After power cycle with non-internet STA active, WGM detects and performs emergency scan+switch.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 9.1 Setup: enable a non-internet STA | `make -f mint-health/Makefile r-test-startup-hygiene-setup ROUTER=alpha` | Bad STA enabled in UCI |
-| 9.2 Reboot and verify auto-switch | `make -f mint-health/Makefile r-test-startup-hygiene ROUTER=alpha` | After boot: `Startup check: no internet`, emergency scan, switch to working SSID |
-| 9.3 Verify connectivity restored | `ssh root@<ip> "ping -c1 9.9.9.9"` | Ping succeeds |
-| 9.4 Cleanup | `make -f mint-health/Makefile r-test-startup-hygiene-verify ROUTER=alpha` | Config restored |
-
-**Automated coverage**: Go `TestUpstreamManager_StartupCheck_NoInternet_SwitchesToCandidate` and 7 related startup check tests.
-
-**Run automated tests**:
 ```sh
-cd src/wireless_gateway_manager && go test -run "TestUpstreamManager_StartupCheck" -v
+# 9.1 Setup: enable a non-internet STA
+make -f mint-health/Makefile r-test-startup-hygiene-setup ROUTER=alpha
+
+# 9.2 Reboot and verify auto-switch
+make -f mint-health/Makefile r-test-startup-hygiene ROUTER=alpha
+# Expected: "Startup check: no internet", emergency scan, switch to working SSID
+
+# 9.3 Verify connectivity restored
+ssh root@$alpha "ping -c1 9.9.9.9"
+
+# 9.4 Cleanup
+make -f mint-health/Makefile r-test-startup-hygiene-verify ROUTER=alpha
 ```
 
 ---
 
 ### 10. Cross-Radio DHCP Nudge
 
-**Feature**: When switching STAs across different WiFi radios (e.g., radio0 to radio1), an `ifup wwan` nudge fires to prevent the 180s DHCP timeout caused by netifd not re-evaluating the wwan interface.
+**Feature**: Cross-radio STA switch triggers `ifup wwan` nudge, preventing 180s DHCP timeout.
 
-| Step | Command | Expected result |
-|------|---------|----------------|
-| 10.1 Alpha connected to upstream on radio0 | `ssh root@<ip> "uci get wireless.upstream_*.device"` | `radio0` |
-| 10.2 Switch to SSID on radio1 | `make -f mint-health/Makefile r-connect SSID=<radio1-ssid> PASS=<pass> ROUTER=alpha` | Switch completes in <30s (not 180s) |
-| 10.3 Verify nudge in logs | `ssh root@<ip> "logread -e tollgate-wrt \| grep -i 'nudge'"` | `Nudging netifd with ifup wwan after cross-radio STA transition` |
-| 10.4 Verify IP obtained | `ssh root@<ip> "ip addr show wwan \| grep inet"` | IP address assigned |
+```sh
+# 10.1 Check current radio
+ssh root@$alpha "uci get wireless.upstream_*.device"
 
-**Automated coverage**: Go `TestUpstreamManager_StartupCheck_*` covers the startup path. Cross-radio logic itself is in `connector.go` and is tested via hardware tests (no mock for `ifup`).
+# 10.2 Switch to SSID on a different radio
+make -f mint-health/Makefile r-connect SSID=<radio1-ssid> PASS=<pass> ROUTER=alpha
+# Expected: switch completes in <30s (not 180s)
+
+# 10.3 Verify nudge in logs
+ssh root@$alpha "logread -e tollgate-wrt | grep -i 'nudge'"
+# Expected: "Nudging netifd with ifup wwan after cross-radio STA transition"
+
+# 10.4 Verify IP obtained
+ssh root@$alpha "ip addr show wwan | grep inet"
+```
 
 ---
 
-### Quick Regression Command
-
-Run all automated tests across every affected package:
+### Quick Regression
 
 ```sh
-# Go tests
-cd src/merchant && go test ./... -count=1 -v          # 96 tests
-cd ../wireless_gateway_manager && go test ./... -count=1 -v  # 16 tests
-cd ../upstream_session_manager && go test ./... -count=1 -v  # 10 tests
-cd .. && go test ./... -count=1 -v                      # 27 tests (main)
+# Go tests — all packages
+cd src/merchant && go test ./... -count=1 -v                        # 96 tests
+cd ../wireless_gateway_manager && go test ./... -count=1 -v          # 16 tests
+cd ../upstream_session_manager && go test ./... -count=1 -v          # 10 tests
+cd .. && go test ./... -count=1 -v                                   # 27 tests (main)
 
 # Playwright tests (from physical-router-test-automation repo)
-TOLLGATE_CAPTIVE_PORTAL_HOST=<router-lan-ip> npm test  # 9 tests
+TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npm test                         # 9 tests
 ```
 
 All 149+ Go tests and 9 Playwright tests pass at `a701c2a`.
