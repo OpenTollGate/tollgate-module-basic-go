@@ -44,11 +44,34 @@ After rebasing onto `main` + `fix/wgm-improvements` (WGM PR merged), the final r
 
 ## Happy Path Test Plan
 
+### Setup
+
 Set router IPs before starting. All commands below use `$alpha` and `$beta`:
 
 ```sh
 alpha="10.47.41.1"       # Alpha — LAN via enx00e04c683d2d
 beta="192.168.244.1"     # Beta  — LAN via enx00e04c633a90
+```
+
+#### Build & Deploy (from the Go repo)
+
+```sh
+# Cross-compile for arm64 with testenv build tag (required for /etc/tollgate/config.json)
+cd src/
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags testenv -o tollgate-wrt .
+
+# Deploy to both routers (scp -O required — OpenWrt ash lacks sftp-server)
+scp -O tollgate-wrt root@$alpha:/usr/bin/tollgate-wrt
+scp -O tollgate-wrt root@$beta:/usr/bin/tollgate-wrt
+```
+
+#### Test Automation (from the test automation repo)
+
+All `make` commands below assume you're in the `mint-health/` directory of the
+[test automation repo](https://github.com/OpenTollGate/physical-router-test-automation/tree/feature/router-to-router-interaction):
+
+```sh
+cd ~/physical-router-test-automation/mint-health/
 ```
 
 ### Pre-conditions
@@ -63,11 +86,11 @@ ssh root@$alpha "wget -qO- https://nofee.testnut.cashu.space/v1/info"
 ssh root@$beta "wget -qO- https://nofee.testnut.cashu.space/v1/info"
 
 # 3. Deploy latest binary to both routers
-make -f mint-health/Makefile r-deploy ROUTER=alpha
-make -f mint-health/Makefile r-deploy ROUTER=beta
+make r-deploy ROUTER=alpha
+make r-deploy ROUTER=beta
 
 # 4. Fund wallet on Alpha (for payment tests)
-make -f mint-health/Makefile r-fund-wallet ROUTER=alpha
+make r-fund-wallet ROUTER=alpha
 ```
 
 ---
@@ -78,10 +101,10 @@ make -f mint-health/Makefile r-fund-wallet ROUTER=alpha
 
 ```sh
 # 1.1 Deploy and restart
-make -f mint-health/Makefile r-deploy ROUTER=alpha && make -f mint-health/Makefile r-restart-service ROUTER=alpha
+make r-deploy ROUTER=alpha && make r-restart-service ROUTER=alpha
 
 # 1.2 Check logs for full merchant
-make -f mint-health/Makefile r-check-merchant ROUTER=alpha
+make r-check-merchant ROUTER=alpha
 # Expected: "=== Merchant ready ==="
 
 # 1.3 Verify wallet loaded
@@ -105,17 +128,17 @@ ssh root@$alpha "logread -e tollgate-wrt | grep 'dev build detected'"
 
 ```sh
 # 2.1 Record baseline balance
-make -f mint-health/Makefile r-record-baseline ROUTER=alpha
+make r-record-baseline ROUTER=alpha
 
 # 2.2 Block mint
-make -f mint-health/Makefile r-block-mint ROUTER=alpha
+make r-block-mint ROUTER=alpha
 # Expected: "OK: Mint unreachable"
 
 # 2.3 Restart into degraded mode
-make -f mint-health/Makefile r-restart-service ROUTER=alpha
+make r-restart-service ROUTER=alpha
 
 # 2.4 Verify degraded mode
-make -f mint-health/Makefile r-check-degraded ROUTER=alpha
+make r-check-degraded ROUTER=alpha
 # Expected: "Starting in degraded mode", "offline wallet loaded successfully"
 
 # 2.5 Verify cached balance matches baseline
@@ -140,15 +163,15 @@ curl -s http://$alpha:2121/ | jq .kind
 
 ```sh
 # 3.1 Unblock mint
-make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
+make r-unblock-mint ROUTER=alpha
 # Expected: "OK: Mint reachable again"
 
 # 3.2 Wait for recovery (up to 15 min — 3 probes at 5-min intervals)
-make -f mint-health/Makefile r-wait-recovery ROUTER=alpha
+make r-wait-recovery ROUTER=alpha
 # Expected: "Mint became reachable", "Upgrading from degraded to full merchant"
 
 # 3.3 Verify full merchant
-make -f mint-health/Makefile r-check-merchant ROUTER=alpha
+make r-check-merchant ROUTER=alpha
 # Expected: "=== Merchant ready ==="
 
 # 3.4 Verify API back to normal
@@ -194,8 +217,8 @@ ssh root@$alpha "logread -e tollgate-wrt | grep 'PurchaseSession'"
 
 ```sh
 # 5.1 Block mint and restart (same as test 2.2–2.3)
-make -f mint-health/Makefile r-block-mint ROUTER=alpha
-make -f mint-health/Makefile r-restart-service ROUTER=alpha
+make r-block-mint ROUTER=alpha
+make r-restart-service ROUTER=alpha
 
 # 5.2 Error message shown
 TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "unreachable"
@@ -207,7 +230,7 @@ TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "retrying"
 TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "hides payment"
 
 # 5.5 Unblock mint for subsequent tests
-make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
+make r-unblock-mint ROUTER=alpha
 ```
 
 ---
@@ -220,7 +243,7 @@ make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
 # 6.1 Start in full merchant mode (run test 1 first)
 
 # 6.2 Block mint
-make -f mint-health/Makefile r-block-mint ROUTER=alpha
+make r-block-mint ROUTER=alpha
 
 # 6.3 Wait for proactive check to fire (up to 5 min)
 ssh root@$alpha "timeout 360 logread -e tollgate-wrt -f" | grep -i "reachable\|downgrad"
@@ -228,10 +251,10 @@ ssh root@$alpha "timeout 360 logread -e tollgate-wrt -f" | grep -i "reachable\|d
 #           "All mints unreachable — downgrading to degraded mode"
 
 # 6.4 Verify degraded
-make -f mint-health/Makefile r-check-degraded ROUTER=alpha
+make r-check-degraded ROUTER=alpha
 
 # 6.5 Unblock mint
-make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
+make r-unblock-mint ROUTER=alpha
 ```
 
 ---
@@ -242,11 +265,11 @@ make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
 
 ```sh
 # 7.1 Both routers in full merchant mode
-make -f mint-health/Makefile r-check-merchant ROUTER=alpha
-make -f mint-health/Makefile r-check-merchant ROUTER=beta
+make r-check-merchant ROUTER=alpha
+make r-check-merchant ROUTER=beta
 
 # 7.2 Alpha connects to Beta's TollGate AP
-make -f mint-health/Makefile r-connect SSID=<beta-ssid> PASS=<pass> ROUTER=alpha
+make r-connect SSID=<beta-ssid> PASS=<pass> ROUTER=alpha
 
 # 7.3 Wait for post-switch detection
 sleep 10 && ssh root@$alpha "logread -e tollgate-wrt | grep -i 'TollGate'"
@@ -265,24 +288,24 @@ ssh root@$alpha "logread -e tollgate-wrt | grep 'lost_count'"
 
 ```sh
 # 8.1 Fund Alpha's wallet
-make -f mint-health/Makefile r-fund-wallet ROUTER=alpha
+make r-fund-wallet ROUTER=alpha
 
 # 8.2 Block Alpha's mint and restart into degraded mode
-make -f mint-health/Makefile r-block-mint ROUTER=alpha
-make -f mint-health/Makefile r-restart-service ROUTER=alpha
+make r-block-mint ROUTER=alpha
+make r-restart-service ROUTER=alpha
 
 # 8.3 Verify Alpha is degraded
-make -f mint-health/Makefile r-check-degraded ROUTER=alpha
+make r-check-degraded ROUTER=alpha
 
 # 8.4 Verify Beta is full merchant
-make -f mint-health/Makefile r-check-merchant ROUTER=beta
+make r-check-merchant ROUTER=beta
 
 # 8.5 Run two-router smoke test
-make -f mint-health/Makefile r-smoke-degraded-upstream
+make r-smoke-degraded-upstream
 
 # 8.6 Cleanup
-make -f mint-health/Makefile r-unblock-mint ROUTER=alpha
-make -f mint-health/Makefile r-cleanup ROUTER=alpha
+make r-unblock-mint ROUTER=alpha
+make r-cleanup ROUTER=alpha
 ```
 
 ---
@@ -293,17 +316,17 @@ make -f mint-health/Makefile r-cleanup ROUTER=alpha
 
 ```sh
 # 9.1 Setup: enable a non-internet STA
-make -f mint-health/Makefile r-test-startup-hygiene-setup ROUTER=alpha
+make r-test-startup-hygiene-setup ROUTER=alpha
 
 # 9.2 Reboot and verify auto-switch
-make -f mint-health/Makefile r-test-startup-hygiene ROUTER=alpha
+make r-test-startup-hygiene ROUTER=alpha
 # Expected: "Startup check: no internet", emergency scan, switch to working SSID
 
 # 9.3 Verify connectivity restored
 ssh root@$alpha "ping -c1 9.9.9.9"
 
 # 9.4 Cleanup
-make -f mint-health/Makefile r-test-startup-hygiene-verify ROUTER=alpha
+make r-test-startup-hygiene-verify ROUTER=alpha
 ```
 
 ---
@@ -317,7 +340,7 @@ make -f mint-health/Makefile r-test-startup-hygiene-verify ROUTER=alpha
 ssh root@$alpha "uci get wireless.upstream_*.device"
 
 # 10.2 Switch to SSID on a different radio
-make -f mint-health/Makefile r-connect SSID=<radio1-ssid> PASS=<pass> ROUTER=alpha
+make r-connect SSID=<radio1-ssid> PASS=<pass> ROUTER=alpha
 # Expected: switch completes in <30s (not 180s)
 
 # 10.3 Verify nudge in logs
