@@ -46,23 +46,81 @@ After rebasing onto `main` + `fix/wgm-improvements` (WGM PR merged), the final r
 
 ### Setup
 
-Set router IPs before starting. All commands below use `$alpha` and `$beta`:
+Set all variables before starting. These are used throughout the test plan.
+**You must replace the `<...>` placeholders with actual values from your hardware setup.**
+Check `routers.env` in the test automation repo for your SSID names and passwords.
 
 ```sh
-alpha="10.47.41.1"       # Alpha — LAN via enx00e04c683d2d
-beta="192.168.244.1"     # Beta  — LAN via enx00e04c633a90
+# Router IPs (LAN interfaces on your dev machine)
+alpha="10.47.41.1"       # Alpha router LAN IP
+beta="192.168.244.1"     # Beta router LAN IP
+
+# SSIDs and passwords — REPLACE THESE with values from your routers.env
+beta_ssid="<other-router-5ghz-ssid>"    # Other router's TollGate AP (test 7, 8, 9)
+beta_ssid_24="<other-router-2.4ghz-ssid>" # Other router's 2.4GHz AP (test 10 cross-radio)
+internet_ssid="<ssid-with-internet>"    # An internet-providing SSID (test 10)
+internet_pass="<password>"              # Password for internet SSID (leave empty if open)
+
+# Verify variables are filled in (not still <...> placeholders)
+echo "alpha=$alpha  beta=$beta"
+echo "beta_ssid=$beta_ssid  beta_ssid_24=$beta_ssid_24"
+echo "internet_ssid=$internet_ssid  internet_pass=$internet_pass"
+# If any line still shows <...>, edit the values above before continuing.
 ```
+
+#### Network Topology
+
+```
+                         ┌─────────────┐
+                         │  Internet   │
+                         │  (9.9.9.9)  │
+                         └──────┬──────┘
+                                │
+                    ┌───────────┴───────────┐
+                    │   Working upstream    │
+                    │  ($internet_ssid)     │
+                    └───────────┬───────────┘
+                                │ WiFi (radio1)
+                ┌───────────────┼───────────────┐
+                │               │               │
+           ┌────┴─────┐   ┌────┴─────┐   ┌─────┴────┐
+           │  Alpha   │◄──┤  TollGate │──►│   Beta   │
+           │          │   │  AP WiFi  │   │          │
+           │  $alpha  │   │ ($beta_   │   │  $beta   │
+           │          │   │  ssid)    │   │          │
+           └────┬─────┘   └──────────┘   └─────┬────┘
+                │                              │
+         USB-LAN (enx...)                USB-LAN (enx...)
+                │                              │
+           ┌────┴──────────────────────────────┴────┐
+           │            Dev Machine                 │
+           │   (test automation + CLI + browser)     │
+           └────────────────────────────────────────┘
+```
+
+**Three connection modes used across the tests:**
+- **Upstream internet** — router connects to a working WiFi upstream (tests 1-6, 10)
+- **TollGate-to-TollGate** — one router connects to the other's TollGate AP (tests 7, 8)
+- **LAN control** — dev machine talks to both routers via USB-LAN for `make` targets, SSH, and SCP
 
 #### Build & Deploy (from the Go repo)
 
 ```sh
-# Cross-compile for arm64 with testenv build tag (required for /etc/tollgate/config.json)
+# Cross-compile for arm64 (do NOT use -tags testenv — that overrides config to /tmp)
 cd src/
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags testenv -o tollgate-wrt .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o tollgate-wrt .
+
+# Stop service on both routers (binary is locked while running — "Text file busy")
+ssh root@$alpha "/etc/init.d/tollgate-wrt stop"
+ssh root@$beta "/etc/init.d/tollgate-wrt stop"
 
 # Deploy to both routers (scp -O required — OpenWrt ash lacks sftp-server)
 scp -O tollgate-wrt root@$alpha:/usr/bin/tollgate-wrt
 scp -O tollgate-wrt root@$beta:/usr/bin/tollgate-wrt
+
+# Restart service on both routers
+ssh root@$alpha "/etc/init.d/tollgate-wrt start"
+ssh root@$beta "/etc/init.d/tollgate-wrt start"
 ```
 
 #### Test Automation (from the test automation repo)
@@ -85,11 +143,7 @@ ssh root@$beta ping -c1 8.8.8.8
 ssh root@$alpha "wget -qO- https://nofee.testnut.cashu.space/v1/info"
 ssh root@$beta "wget -qO- https://nofee.testnut.cashu.space/v1/info"
 
-# 3. Deploy latest binary to both routers
-make r-deploy ROUTER=alpha
-make r-deploy ROUTER=beta
-
-# 4. Fund wallet on Alpha (for payment tests)
+# 3. Fund wallet on Alpha (for payment tests)
 make r-fund-wallet ROUTER=alpha
 ```
 
@@ -100,15 +154,20 @@ make r-fund-wallet ROUTER=alpha
 **Feature**: Merchant starts in full mode, wallet loads, advertisement is served.
 
 ```sh
-# 1.1 Deploy and restart
-make r-deploy ROUTER=alpha && make r-restart-service ROUTER=alpha
+# 1.0 Safety cleanup — removes any leftover /etc/hosts blocks from previous tests
+make r-cleanup ROUTER=alpha 2>/dev/null; true
+
+# 1.1 Restart service (binary already deployed from Build & Deploy step)
+make r-restart-service ROUTER=alpha
+# Expected: OK_RESTARTED, "Waiting 3s for startup..."
 
 # 1.2 Check logs for full merchant
 make r-check-merchant ROUTER=alpha
-# Expected: "=== Merchant ready ==="
+# Expected: OK_MERCHANT_READY_VIA_STATUS, wallet balance shown
 
 # 1.3 Verify wallet loaded
 ssh root@$alpha "tollgate wallet balance"
+# Expected: "Total wallet balance: <N> sats"
 
 # 1.4 Verify API advertisement
 curl -s http://$alpha:2121/ | jq .kind
@@ -116,6 +175,8 @@ curl -s http://$alpha:2121/ | jq .kind
 
 # 1.5 Verify dev-mint WARN (non-main branch)
 ssh root@$alpha "logread -e tollgate-wrt | grep 'dev build detected'"
+# Expected: "dev build detected (branch=unknown), injecting test mint: ..."
+# This is normal: binary was built without version ldflags, so it auto-injects the test mint.
 ```
 
 **Automated coverage**: Go `TestNew_ReturnsFullMerchant`, `TestUpstreamManager_DefaultConfig`.
@@ -129,6 +190,7 @@ ssh root@$alpha "logread -e tollgate-wrt | grep 'dev build detected'"
 ```sh
 # 2.1 Record baseline balance
 make r-record-baseline ROUTER=alpha
+# Expected: "Saved to /tmp/tollgate-baseline-alpha.txt", balance shown
 
 # 2.2 Block mint
 make r-block-mint ROUTER=alpha
@@ -136,17 +198,19 @@ make r-block-mint ROUTER=alpha
 
 # 2.3 Restart into degraded mode
 make r-restart-service ROUTER=alpha
+# Expected: OK_RESTARTED
 
 # 2.4 Verify degraded mode
 make r-check-degraded ROUTER=alpha
-# Expected: "Starting in degraded mode", "offline wallet loaded successfully"
+# Expected: OK_DEGRADED, "Degraded mode: offline wallet loaded successfully, balance=<N> sats"
 
 # 2.5 Verify cached balance matches baseline
 ssh root@$alpha "tollgate wallet balance"
+# Expected: same balance as step 2.1
 
 # 2.6 Verify service stable
 ssh root@$alpha "tollgate status"
-# Expected: running: true
+# Expected: running: true, config_ok: true, wallet_ok: true
 
 # 2.7 Verify API returns notice (not advertisement)
 curl -s http://$alpha:2121/ | jq .kind
@@ -172,7 +236,7 @@ make r-wait-recovery ROUTER=alpha
 
 # 3.3 Verify full merchant
 make r-check-merchant ROUTER=alpha
-# Expected: "=== Merchant ready ==="
+# Expected: OK_MERCHANT_READY_VIA_STATUS
 
 # 3.4 Verify API back to normal
 curl -s http://$alpha:2121/ | jq .kind
@@ -187,25 +251,43 @@ curl -s http://$alpha:2121/ | jq .kind
 
 ### 4. Captive Portal Happy Path — Payment End-to-End
 
-**Feature**: Client connects, portal loads, Cashu token submitted, payment processed, internet granted.
+**Feature**: Client connects, portal loads, Cashu token submitted, payment processed, internet granted. These tests require mints to be reachable (API returns `kind: 10021`).
 
 ```sh
-# 4.1 Ensure full merchant mode (run test 1 first)
+# 4.0 Detect which router has internet for portal tests
+alpha="10.47.41.1"; beta="192.168.244.1"
+cd ~/physical-router-test-automation/tests
+online=""
+for r in $alpha $beta; do
+  if ssh -o ConnectTimeout=5 root@$r "wget -qO- https://nofee.testnut.cashu.space/v1/info" >/dev/null 2>&1; then
+    online=$r; break
+  fi
+done
+if [ -z "$online" ]; then echo "!!! NEITHER ROUTER CAN REACH THE MINT — cannot run portal tests !!!"; else echo "Using $online for portal tests"; fi
+
+# 4.1 Safety cleanup — removes any leftover /etc/hosts blocks from previous tests
+cd ~/physical-router-test-automation/mint-health/
+make r-cleanup ROUTER=alpha 2>/dev/null; true
+cd ~/physical-router-test-automation/tests/
 
 # 4.2 Portal UI loads — check for cashu token input
-TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "cashu token input"
+TOLLGATE_CAPTIVE_PORTAL_HOST=$online npx playwright test -g "cashu token input"
+# Expected: test passes, portal shows cashu token input
 
 # 4.3 Mint selection buttons visible
-TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "mint selection pricing"
+TOLLGATE_CAPTIVE_PORTAL_HOST=$online npx playwright test -g "mint selection pricing"
+# Expected: at least one mint option button present
 
 # 4.4 No bare "0" literals
-TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "bare.*0"
+TOLLGATE_CAPTIVE_PORTAL_HOST=$online npx playwright test -g "no bare"
+# Expected: both cashu and lightning tabs pass
 
 # 4.5 Full e2e payment — checkmark shown
-TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "checkmark"
+TOLLGATE_CAPTIVE_PORTAL_HOST=$online npx playwright test -g "checkmark"
+# Expected: token minted, submitted, checkmark shown, allotment displayed
 
 # 4.6 Verify session created in router logs
-ssh root@$alpha "logread -e tollgate-wrt | grep 'PurchaseSession'"
+ssh root@$online "logread -e tollgate-wrt | grep 'PurchaseSession'"
 # Expected: "Payment successful, session created"
 ```
 
@@ -217,20 +299,29 @@ ssh root@$alpha "logread -e tollgate-wrt | grep 'PurchaseSession'"
 
 ```sh
 # 5.1 Block mint and restart (same as test 2.2–2.3)
+cd ~/physical-router-test-automation/mint-health/
 make r-block-mint ROUTER=alpha
+# Expected: "OK: Mint unreachable"
 make r-restart-service ROUTER=alpha
+# Expected: OK_RESTARTED
 
 # 5.2 Error message shown
+cd ~/physical-router-test-automation/tests
 TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "unreachable"
+# Expected: .status.error visible with "unreachable"/"initializing"/"unavailable" text
 
 # 5.3 Retry indicator visible
 TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "retrying"
+# Expected: .tollgate-captive-portal-retrying visible with "retry" text
 
 # 5.4 Payment tabs hidden
 TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npx playwright test -g "hides payment"
+# Expected: #cashu-token not visible
 
 # 5.5 Unblock mint for subsequent tests
+cd ~/physical-router-test-automation/mint-health/
 make r-unblock-mint ROUTER=alpha
+# Expected: "OK: Mint reachable again"
 ```
 
 ---
@@ -244,6 +335,7 @@ make r-unblock-mint ROUTER=alpha
 
 # 6.2 Block mint
 make r-block-mint ROUTER=alpha
+# Expected: "OK: Mint unreachable"
 
 # 6.3 Wait for proactive check to fire (up to 5 min)
 ssh root@$alpha "timeout 360 logread -e tollgate-wrt -f" | grep -i "reachable\|downgrad"
@@ -252,9 +344,11 @@ ssh root@$alpha "timeout 360 logread -e tollgate-wrt -f" | grep -i "reachable\|d
 
 # 6.4 Verify degraded
 make r-check-degraded ROUTER=alpha
+# Expected: OK_DEGRADED
 
 # 6.5 Unblock mint
 make r-unblock-mint ROUTER=alpha
+# Expected: "OK: Mint reachable again"
 ```
 
 ---
@@ -264,12 +358,19 @@ make r-unblock-mint ROUTER=alpha
 **Feature**: WGM detects TollGate upstreams by probing `gateway:2121`, applies extended patience (6 lost checks vs default 2).
 
 ```sh
+# 7.0 Safety cleanup — removes any leftover /etc/hosts blocks from previous tests
+cd ~/physical-router-test-automation/mint-health/
+make r-cleanup ROUTER=alpha 2>/dev/null; true
+
 # 7.1 Both routers in full merchant mode
 make r-check-merchant ROUTER=alpha
+# Expected: OK_MERCHANT_READY_VIA_STATUS
 make r-check-merchant ROUTER=beta
+# Expected: OK_MERCHANT_READY_VIA_STATUS
 
-# 7.2 Alpha connects to Beta's TollGate AP
-make r-connect SSID=<beta-ssid> PASS=<pass> ROUTER=alpha
+# 7.2 Alpha connects to Beta's TollGate AP (open network, no password)
+make r-connect SSID="$beta_ssid" ROUTER=alpha
+# Expected: STA switched successfully
 
 # 7.3 Wait for post-switch detection
 sleep 10 && ssh root@$alpha "logread -e tollgate-wrt | grep -i 'TollGate'"
@@ -289,23 +390,31 @@ ssh root@$alpha "logread -e tollgate-wrt | grep 'lost_count'"
 ```sh
 # 8.1 Fund Alpha's wallet
 make r-fund-wallet ROUTER=alpha
+# Expected: "Successfully funded wallet with <N> sats"
 
 # 8.2 Block Alpha's mint and restart into degraded mode
 make r-block-mint ROUTER=alpha
+# Expected: "OK: Mint unreachable"
 make r-restart-service ROUTER=alpha
+# Expected: OK_RESTARTED
 
 # 8.3 Verify Alpha is degraded
 make r-check-degraded ROUTER=alpha
+# Expected: OK_DEGRADED, "offline wallet loaded successfully"
 
 # 8.4 Verify Beta is full merchant
 make r-check-merchant ROUTER=beta
+# Expected: OK_MERCHANT_READY_VIA_STATUS
 
 # 8.5 Run two-router smoke test
 make r-smoke-degraded-upstream
+# Expected: 13-step lifecycle completes — Alpha discovers Beta, creates session, pays from cached wallet
 
 # 8.6 Cleanup
 make r-unblock-mint ROUTER=alpha
+# Expected: "OK: Mint reachable again"
 make r-cleanup ROUTER=alpha
+# Expected: "Cleanup done"
 ```
 
 ---
@@ -314,9 +423,30 @@ make r-cleanup ROUTER=alpha
 
 **Feature**: After power cycle with non-internet STA active, WGM detects and performs emergency scan+switch.
 
+**Prerequisites**: The setup target creates a disabled STA pointing at the other router's TollGate AP and enables it before reboot. For this to work:
+- Beta's TollGate AP (`TollGate-24A6-5GHz`) must be broadcasting and visible from Alpha
+- Alpha must have internet on its current upstream (so the startup check can detect "no internet" on the dead STA and switch away)
+- Alpha must have a funded wallet (setup backs it up and verify restores it)
+
 ```sh
+# 9.0 Verify prerequisites
+cd ~/physical-router-test-automation/mint-health/
+
+# Beta's TollGate AP must be visible from Alpha's scan
+ssh root@$alpha "iwinfo wl-sta0 scan 2>/dev/null | grep -c 'TollGate-24A6'"
+# Expected: count >= 1 (Beta's AP is visible)
+
+# Alpha must have internet on current upstream
+ssh root@$alpha "ping -c1 -W3 9.9.9.9"
+# Expected: "0% packet loss"
+
+# Alpha must have wallet balance (run `make r-fund-wallet ROUTER=alpha` if needed)
+ssh root@$alpha "tollgate wallet balance"
+# Expected: balance > 0
+
 # 9.1 Setup: enable a non-internet STA
 make r-test-startup-hygiene-setup ROUTER=alpha
+# Expected: dead STA enabled in UCI, ecash removed, state saved
 
 # 9.2 Reboot and verify auto-switch
 make r-test-startup-hygiene ROUTER=alpha
@@ -324,9 +454,11 @@ make r-test-startup-hygiene ROUTER=alpha
 
 # 9.3 Verify connectivity restored
 ssh root@$alpha "ping -c1 9.9.9.9"
+# Expected: "1 packets transmitted, 1 packets received, 0% packet loss"
 
 # 9.4 Cleanup
 make r-test-startup-hygiene-verify ROUTER=alpha
+# Expected: config restored, wallet restored
 ```
 
 ---
@@ -335,20 +467,28 @@ make r-test-startup-hygiene-verify ROUTER=alpha
 
 **Feature**: Cross-radio STA switch triggers `ifup wwan` nudge, preventing 180s DHCP timeout.
 
-```sh
-# 10.1 Check current radio
-ssh root@$alpha "uci get wireless.upstream_*.device"
+**Prerequisite**: Alpha must be connected to an upstream on one radio (e.g., radio0) with a second SSID available on a different radio (e.g., radio1). The variables `internet_ssid`/`internet_pass` and `beta_ssid_24` from the Setup section are used here.
 
-# 10.2 Switch to SSID on a different radio
-make r-connect SSID=<radio1-ssid> PASS=<pass> ROUTER=alpha
+```sh
+# 10.1 Check which radio Alpha's current upstream is on
+cd ~/physical-router-test-automation/mint-health/
+ssh root@$alpha "uci show wireless | grep 'upstream_.*disabled=0' -A5 | grep device"
+# Expected: shows current radio (e.g. "radio0")
+
+# 10.2 Switch to an SSID on the OTHER radio (if currently radio0, use radio1; vice versa)
+# If current is radio0 → switch to EnterSSID-5GHz (radio1, requires password):
+make r-connect SSID="$internet_ssid" PASS="$internet_pass" ROUTER=alpha
+# If current is radio1 → switch to TollGate-24A6-2.4GHz (radio0, open):
+# make r-connect SSID="$beta_ssid_24" ROUTER=alpha
 # Expected: switch completes in <30s (not 180s)
 
 # 10.3 Verify nudge in logs
 ssh root@$alpha "logread -e tollgate-wrt | grep -i 'nudge'"
 # Expected: "Nudging netifd with ifup wwan after cross-radio STA transition"
 
-# 10.4 Verify IP obtained
-ssh root@$alpha "ip addr show wwan | grep inet"
+# 10.4 Verify IP obtained on the new interface
+ssh root@$alpha "ip addr show | grep -A2 'wwan\|wl-sta'"
+# Expected: "inet <ip-address>/<prefix> scope global"
 ```
 
 ---
@@ -356,14 +496,15 @@ ssh root@$alpha "ip addr show wwan | grep inet"
 ### Quick Regression
 
 ```sh
-# Go tests — all packages
+# Go tests — all packages (from the Go repo src/ directory)
 cd src/merchant && go test ./... -count=1 -v                        # 96 tests
 cd ../wireless_gateway_manager && go test ./... -count=1 -v          # 16 tests
 cd ../upstream_session_manager && go test ./... -count=1 -v          # 10 tests
 cd .. && go test ./... -count=1 -v                                   # 27 tests (main)
 
-# Playwright tests (from physical-router-test-automation repo)
-TOLLGATE_CAPTIVE_PORTAL_HOST=$alpha npm test                         # 9 tests
+# Playwright tests (from the test automation repo — uses $online from test 4.0)
+cd ~/physical-router-test-automation/tests
+TOLLGATE_CAPTIVE_PORTAL_HOST=$online npx playwright test              # 9 tests
 ```
 
 All 149+ Go tests and 9 Playwright tests pass at `a701c2a`.
