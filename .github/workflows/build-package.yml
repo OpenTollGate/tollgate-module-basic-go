@@ -36,8 +36,8 @@ jobs:
               { "compile_key": "mips-softfloat",  "goarch": "mips",   "gomips": "softfloat" },
               { "compile_key": "amd64",           "goarch": "amd64" }
             ]
-           }
-           EOF
+          }
+          EOF
           echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
 
   # Package matrix. Each cell declares which compile_key it consumes, which
@@ -75,8 +75,8 @@ jobs:
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
               { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": false }
             ]
-           }
-           EOF
+          }
+          EOF
           # OpenWrt versions are pinned per format in the package jobs below:
           # ipk -> 24.10.1, apk -> 25.12.0. Matrix entries stay version-free
           # so the output filenames and NIP-94 tags don't carry what's really
