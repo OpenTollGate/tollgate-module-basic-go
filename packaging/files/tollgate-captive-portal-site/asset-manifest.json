@@ -1,10 +1,10 @@
 {
   "assets": {
     "js": [
-      "assets/balance-KIGosmzN.js",
-      "assets/browser-ponyfill-BzkklOjh.js",
-      "assets/index-BzBgeUKU.js",
-      "assets/portal-Cw7cQUJh.js",
+      "assets/balance-D3LHuw3Z.js",
+      "assets/browser-ponyfill-CpYDkJ3z.js",
+      "assets/index-mvQB7cj7.js",
+      "assets/portal-CHguwDcl.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js"
     ],
     "css": [
@@ -14,7 +14,10 @@
     "images": [
       "assets/TollGate_Logo-C-white-D93CsdZc.png",
       "assets/TollGate_icon-White-D4_quBbR.png",
-      "favicon.ico"
+      "assets/net4sats-icon-white-B1Mm-QzD.png",
+      "assets/net4sats-logo-colour-BmEbNv08.png",
+      "favicon.ico",
+      "net4sats-icon.png"
     ],
     "locales": [
       "locales/en.json"

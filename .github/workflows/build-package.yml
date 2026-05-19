@@ -389,6 +389,7 @@ jobs:
   # one websocket connection per relay (not one per package). Fails fast
   # if any Blossom upload fails after retries.
   publish-metadata:
+    if: github.repository_owner == 'OpenTollGate'
     needs: [determine-versioning, package-ipk, package-apk, define-package-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -544,6 +545,7 @@ jobs:
 
   trigger-build-os:
     name: Trigger TollGate OS build
+    if: github.repository_owner == 'OpenTollGate'
     runs-on: ubuntu-latest
     needs: [determine-versioning, publish-metadata]
     steps:

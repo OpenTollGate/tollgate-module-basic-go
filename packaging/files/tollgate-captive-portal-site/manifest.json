@@ -3,12 +3,7 @@
   "name": "net4sats",
   "icons": [
     {
-      "src": "assets/TollGate_icon-White-D4_quBbR.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "assets/TollGate_icon-White-D4_quBbR.png",
+      "src": "net4sats-icon.png",
       "sizes": "512x512",
       "type": "image/png"
     }
