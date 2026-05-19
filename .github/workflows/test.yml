@@ -45,3 +45,13 @@ jobs:
           node-version: '22'
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
+
+  build-purity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Build purity check
+        run: bash tests/contract/build-purity.sh
