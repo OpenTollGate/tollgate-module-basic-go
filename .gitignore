@@ -36,3 +36,8 @@ memory-global
 memory-project/
 reference/
 .opencode/
+
+# Planning docs — internal, not for release
+docs/configuration-ui-merge-plan.md
+docs/configurationwizzard-integration.md
+PR.md
