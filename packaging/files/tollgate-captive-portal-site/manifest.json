@@ -1,15 +1,20 @@
 {
-  "short_name": "Tollgate Portal",
-  "name": "Tollgate Captive Portal",
+  "short_name": "net4sats",
+  "name": "net4sats",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "72x72",
-      "type": "image/x-icon"
+      "src": "assets/TollGate_icon-White-D4_quBbR.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/TollGate_icon-White-D4_quBbR.png",
+      "sizes": "512x512",
+      "type": "image/png"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#f60",
+  "background_color": "#080e1d"
 }
