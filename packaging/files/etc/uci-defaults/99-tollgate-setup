@@ -113,7 +113,7 @@ setup_hostname() {
     uci set uhttpd.main.commonname="$final_hostname"
     # Apply to running kernel immediately so /proc/sys/kernel/hostname
     # reflects the new value without requiring a reboot.
-    hostname "$final_hostname"
+    echo "$final_hostname" > /proc/sys/kernel/hostname
     log "Hostname applied to running kernel: ${final_hostname}"
 }
 
