@@ -35,4 +35,5 @@ skills
 memory-global
 memory-project/
 reference/
-.opencode/
+.opencode/.playwright-mcp/
+*.png
