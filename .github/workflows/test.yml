@@ -25,6 +25,17 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go test ./... -v -count=1 -race
 
+  main-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Run main package tests
+        working-directory: src
+        run: go test -v -count=1 -race -tags testenv .
+
   contract-lint:
     runs-on: ubuntu-latest
     steps:
