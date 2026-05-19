@@ -113,6 +113,25 @@ func GetConfigSchema() []FieldSchema {
 				},
 			},
 		},
+		{
+			Name: "UpstreamWifi", JSONKey: "upstream_wifi", Type: "object",
+			Description: "Upstream WiFi scanning and selection configuration", Required: true, Editable: true,
+			Children: []FieldSchema{
+				{Name: "ScanIntervalSeconds", JSONKey: "scan_interval_seconds", Type: "int", Description: "Seconds between full WiFi scans", Default: 300, Required: true, Editable: true, Min: 10, Max: 3600},
+				{Name: "FastCheckSeconds", JSONKey: "fast_check_seconds", Type: "int", Description: "Seconds between fast signal checks", Default: 30, Required: true, Editable: true, Min: 5, Max: 300},
+				{Name: "LostThreshold", JSONKey: "lost_threshold", Type: "int", Description: "Consecutive fast-check failures before marking as lost", Default: 2, Required: true, Editable: true, Min: 1, Max: 10},
+				{Name: "HysteresisDB", JSONKey: "hysteresis_db", Type: "int", Description: "Signal hysteresis in dB to prevent flapping", Default: 12, Required: true, Editable: true, Min: 0, Max: 30},
+				{Name: "SignalFloor", JSONKey: "signal_floor", Type: "int", Description: "Minimum signal strength in dBm to consider a network usable", Default: -85, Required: true, Editable: true, Min: -100, Max: -30},
+				{Name: "BlacklistTTLMinutes", JSONKey: "blacklist_ttl_minutes", Type: "int", Description: "Minutes before a blacklisted network is retried", Default: 60, Required: true, Editable: true, Min: 1, Max: 1440},
+				{Name: "EmergencyPenalty", JSONKey: "emergency_penalty", Type: "int", Description: "Penalty score added on emergency disconnect", Default: 20, Required: true, Editable: true, Min: 0, Max: 100},
+				{Name: "MaxConsecutiveFailures", JSONKey: "max_consecutive_failures", Type: "int", Description: "Consecutive failures before emergency scan", Default: 3, Required: true, Editable: true, Min: 1, Max: 20},
+				{Name: "SwitchCooldownMinutes", JSONKey: "switch_cooldown_minutes", Type: "int", Description: "Minimum minutes between network switches", Default: 10, Required: true, Editable: true, Min: 1, Max: 120},
+				{Name: "StartupGraceSeconds", JSONKey: "startup_grace_seconds", Type: "int", Description: "Grace period on startup before scoring", Default: 90, Required: true, Editable: true, Min: 10, Max: 600},
+				{Name: "PostSwitchWaitSeconds", JSONKey: "post_switch_wait_seconds", Type: "int", Description: "Seconds to wait after a switch before scoring", Default: 5, Required: true, Editable: true, Min: 1, Max: 60},
+				{Name: "DHCPTimeoutSeconds", JSONKey: "dhcp_timeout_seconds", Type: "int", Description: "Timeout for DHCP after connecting to a network", Default: 180, Required: true, Editable: true, Min: 10, Max: 600},
+				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
+			},
+		},
 	}
 }
 
