@@ -268,3 +268,109 @@ func TestSetDotPathInvalidValue(t *testing.T) {
 		t.Error("Expected error for non-boolean show_setup, got nil")
 	}
 }
+
+func TestSetDotPathSchemaEnumValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	cm, err := NewConfigManager(
+		tempDir+"/config.json",
+		tempDir+"/install.json",
+		tempDir+"/identities.json",
+	)
+	if err != nil {
+		t.Fatalf("Failed to create ConfigManager: %v", err)
+	}
+
+	err = SetDotPath(cm, "log_level", "INVALID")
+	if err == nil {
+		t.Error("Expected error for invalid log_level enum value, got nil")
+	}
+
+	err = SetDotPath(cm, "metric", "INVALID")
+	if err == nil {
+		t.Error("Expected error for invalid metric enum value, got nil")
+	}
+
+	err = SetDotPath(cm, "log_level", "debug")
+	if err != nil {
+		t.Errorf("Valid enum value 'debug' should be accepted, got: %v", err)
+	}
+
+	err = SetDotPath(cm, "metric", "milliseconds")
+	if err != nil {
+		t.Errorf("Valid enum value 'milliseconds' should be accepted, got: %v", err)
+	}
+}
+
+func TestSetDotPathSchemaMinMaxValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	cm, err := NewConfigManager(
+		tempDir+"/config.json",
+		tempDir+"/install.json",
+		tempDir+"/identities.json",
+	)
+	if err != nil {
+		t.Fatalf("Failed to create ConfigManager: %v", err)
+	}
+
+	err = SetDotPath(cm, "margin", "5.0")
+	if err == nil {
+		t.Error("Expected error for margin > 1.0 (max), got nil")
+	}
+
+	err = SetDotPath(cm, "margin", "-0.5")
+	if err == nil {
+		t.Error("Expected error for margin < 0.0 (min), got nil")
+	}
+
+	err = SetDotPath(cm, "margin", "0.5")
+	if err != nil {
+		t.Errorf("Valid margin 0.5 should be accepted, got: %v", err)
+	}
+
+	err = SetDotPath(cm, "profit_share.0.factor", "5.0")
+	if err == nil {
+		t.Error("Expected error for profit_share factor > 1.0 (max), got nil")
+	}
+
+	err = SetDotPath(cm, "profit_share.0.factor", "-0.1")
+	if err == nil {
+		t.Error("Expected error for profit_share factor < 0.0 (min), got nil")
+	}
+}
+
+func TestSetDotPathSchemaUpstreamWifiValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	cm, err := NewConfigManager(
+		tempDir+"/config.json",
+		tempDir+"/install.json",
+		tempDir+"/identities.json",
+	)
+	if err != nil {
+		t.Fatalf("Failed to create ConfigManager: %v", err)
+	}
+
+	err = SetDotPath(cm, "upstream_wifi.scan_interval_seconds", "5")
+	if err == nil {
+		t.Error("Expected error for scan_interval_seconds < 10 (min), got nil")
+	}
+
+	err = SetDotPath(cm, "upstream_wifi.scan_interval_seconds", "5000")
+	if err == nil {
+		t.Error("Expected error for scan_interval_seconds > 3600 (max), got nil")
+	}
+
+	err = SetDotPath(cm, "upstream_wifi.scan_interval_seconds", "600")
+	if err != nil {
+		t.Errorf("Valid scan_interval_seconds 600 should be accepted, got: %v", err)
+	}
+
+	err = SetDotPath(cm, "upstream_wifi.signal_floor", "-20")
+	if err == nil {
+		t.Error("Expected error for signal_floor > -30 (max), got nil")
+	}
+
+	err = SetDotPath(cm, "upstream_wifi.signal_floor", "-70")
+	if err != nil {
+		t.Errorf("Valid signal_floor -70 should be accepted, got: %v", err)
+	}
+}

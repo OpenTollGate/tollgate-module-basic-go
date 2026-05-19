@@ -247,5 +247,6 @@ func TestValidateProfitShare(t *testing.T) {
 					t.Errorf("ValidateProfitShare() error = %q, want containing %q", err.Error(), tt.errMsg)
 				}
 			}
+		})
 	}
 }
