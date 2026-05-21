@@ -94,3 +94,4 @@ func (m *MerchantDegraded) AddAllotment(string, string, uint64) (*CustomerSessio
 }
 func (m *MerchantDegraded) GetUsage(string) (string, error) { return "", errDegraded }
 func (m *MerchantDegraded) Fund(string) (uint64, error)     { return 0, errDegraded }
+func (m *MerchantDegraded) Shutdown() error                  { return nil }
