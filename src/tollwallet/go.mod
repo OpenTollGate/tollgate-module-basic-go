@@ -8,7 +8,10 @@ require (
 	github.com/stretchr/testify v1.10.0
 )
 
-replace github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+replace (
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+	github.com/Origami74/gonuts-tollgate => github.com/Amperstrand/gonuts-tollgate feature/v2-keyset-ids
+)
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect

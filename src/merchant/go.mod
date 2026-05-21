@@ -67,6 +67,7 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ../valve
+	github.com/Origami74/gonuts-tollgate => github.com/Amperstrand/gonuts-tollgate feature/v2-keyset-ids
 )
 
 require (
