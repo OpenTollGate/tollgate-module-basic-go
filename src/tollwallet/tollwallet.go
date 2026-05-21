@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -16,7 +17,7 @@ type TollWallet struct {
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
 	allowAndSwapUntrustedMints bool
-	closed                     bool
+	shutdownOnce               sync.Once
 }
 
 // New creates a new Cashu wallet instance
@@ -326,9 +327,9 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 }
 
 func (w *TollWallet) Shutdown() error {
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	return w.wallet.Shutdown()
+	var err error
+	w.shutdownOnce.Do(func() {
+		err = w.wallet.Shutdown()
+	})
+	return err
 }

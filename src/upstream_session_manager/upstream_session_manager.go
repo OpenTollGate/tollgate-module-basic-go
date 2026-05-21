@@ -35,6 +35,9 @@ type UpstreamSessionManager struct {
 
 // NewUpstreamSessionManager creates a new upstream_session_manager instance
 func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) (UpstreamSessionManagerInterface, error) {
+	if merchantProvider == nil {
+		return nil, fmt.Errorf("merchantProvider is nil")
+	}
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")

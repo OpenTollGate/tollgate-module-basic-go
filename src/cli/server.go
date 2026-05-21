@@ -469,7 +469,7 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 		Version:   GetVersionInfo(),
 		Uptime:    uptime.String(),
 		ConfigOK:  s.configManager != nil,
-		WalletOK:  s.merchantProvider.GetMerchant() != nil,
+		WalletOK:  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
 		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
 

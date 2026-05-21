@@ -99,29 +99,36 @@ func (m *MintHealthTracker) probeMint(mintURL string) bool {
 }
 
 func (m *MintHealthTracker) runProactiveCheck() {
+	// Probe all mints outside the lock (network I/O).
+	type probeResult struct {
+		url       string
+		reachable bool
+	}
+	results := make([]probeResult, len(m.mintConfigs))
+	for i, cfg := range m.mintConfigs {
+		results[i] = probeResult{url: cfg.URL, reachable: m.probeMint(cfg.URL)}
+	}
+
+	// Now lock only to update shared state and collect callbacks.
 	var callbacks []func()
-	previousCount := 0
-	firstJustBecameReachable := false
 
 	m.mu.Lock()
-	for _, cfg := range m.mintConfigs {
-		reachable := m.probeMint(cfg.URL)
-
-		if reachable {
-			m.consecutiveSuccess[cfg.URL]++
+	for _, r := range results {
+		if r.reachable {
+			m.consecutiveSuccess[r.url]++
 		} else {
-			m.consecutiveSuccess[cfg.URL] = 0
+			m.consecutiveSuccess[r.url] = 0
 		}
 
-		wasReachable := m.reachable[cfg.URL]
-		nowReachable := m.consecutiveSuccess[cfg.URL] >= m.requiredConsecutive
+		wasReachable := m.reachable[r.url]
+		nowReachable := m.consecutiveSuccess[r.url] >= m.requiredConsecutive
 
 		if nowReachable != wasReachable {
-			m.reachable[cfg.URL] = nowReachable
+			m.reachable[r.url] = nowReachable
 			if nowReachable {
-				log.Printf("MintHealthTracker: mint %s became reachable (hysteresis: %d consecutive successes)", cfg.URL, m.consecutiveSuccess[cfg.URL])
+				log.Printf("MintHealthTracker: mint %s became reachable (hysteresis: %d consecutive successes)", r.url, m.consecutiveSuccess[r.url])
 			} else {
-				log.Printf("MintHealthTracker: mint %s became unreachable", cfg.URL)
+				log.Printf("MintHealthTracker: mint %s became unreachable", r.url)
 			}
 		}
 	}
@@ -132,10 +139,11 @@ func (m *MintHealthTracker) runProactiveCheck() {
 			count++
 		}
 	}
-	previousCount = m.reachableCount
+	previousCount := m.reachableCount
 	countChanged := count != previousCount
 	m.reachableCount = count
 
+	firstJustBecameReachable := false
 	if !m.hadReachableMint && count > 0 {
 		firstJustBecameReachable = true
 		m.hadReachableMint = true
@@ -187,6 +195,14 @@ func (m *MintHealthTracker) SetOnReachableSetChanged(fn func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onReachableSetChanged = fn
+}
+
+// ResetFirstReachable allows the onFirstReachable callback to fire again
+// on the next proactive check that finds a reachable mint.
+func (m *MintHealthTracker) ResetFirstReachable() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.hadReachableMint = false
 }
 
 func (m *MintHealthTracker) String() string {

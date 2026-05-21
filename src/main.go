@@ -43,6 +43,7 @@ var upstreamManager *wireless_gateway_manager.UpstreamManager
 var tollgateDetailsString string
 var merchantInstance merchant.MerchantInterface
 var merchantProvider merchant.MerchantProvider
+var healthTracker *merchant.MintHealthTracker
 var cliServer *cli.CLIServer
 
 func getMerchant() merchant.MerchantInterface {
@@ -117,21 +118,19 @@ func init() {
 
 	merchantProvider = merchant.NewMerchantProvider(merchantInstance)
 
-	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
+	healthTracker = merchant.NewMintHealthTracker(mainConfig.AcceptedMints)
+	healthTracker.RunInitialProbe()
+
+	if _, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
 		mainLogger.Warn("Merchant started in degraded mode — wallet unavailable, payment operations will fail until mints recover")
 
-		tracker := merchant.NewMintHealthTracker(mainConfig.AcceptedMints)
-		tracker.RunInitialProbe()
-		deg.SetHealthTracker(tracker)
-
-		tracker.SetOnFirstReachable(func() {
+		healthTracker.SetOnFirstReachable(func() {
 			mainLogger.Info("Mint became reachable — attempting to upgrade from degraded mode")
-
-			deg.Shutdown()
 
 			newMerchant, err := merchant.New(configManager)
 			if err != nil {
 				mainLogger.WithError(err).Error("Failed to create full merchant during recovery — staying in degraded mode")
+				healthTracker.ResetFirstReachable()
 				return
 			}
 
@@ -143,16 +142,12 @@ func init() {
 
 			mainLogger.Info("Upgraded from degraded to full merchant — all consumers (HTTP, CLI, USM) now use the new merchant via provider")
 		})
-
-		tracker.Start()
 	} else {
-		tracker := merchant.NewMintHealthTracker(mainConfig.AcceptedMints)
-		tracker.RunInitialProbe()
-		tracker.Start()
-
 		merchantInstance.StartPayoutRoutine()
 		merchantInstance.StartDataUsageMonitoring()
 	}
+
+	healthTracker.Start()
 
 	initUpstreamManager()
 
