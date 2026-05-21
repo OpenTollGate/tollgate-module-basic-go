@@ -134,6 +134,14 @@ func init() {
 				return
 			}
 
+			// merchant.New() falls back to degraded mode without returning an error.
+			// If we still got a degraded merchant, the recovery didn't succeed — retry later.
+			if _, stillDegraded := newMerchant.(*merchant.MerchantDegraded); stillDegraded {
+				mainLogger.Warn("Recovery attempt returned degraded merchant — staying in degraded mode, will retry")
+				healthTracker.ResetFirstReachable()
+				return
+			}
+
 			merchantProvider.SetMerchant(newMerchant)
 			merchantInstance = newMerchant
 
