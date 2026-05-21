@@ -51,6 +51,8 @@ type MerchantInterface interface {
 	GetUsage(macAddress string) (string, error)
 	// Wallet funding methods
 	Fund(cashuToken string) (uint64, error)
+	// Lifecycle
+	Shutdown() error
 }
 
 // Merchant represents the financial decision maker for the tollgate

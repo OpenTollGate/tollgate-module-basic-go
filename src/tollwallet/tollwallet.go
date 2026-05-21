@@ -1,8 +1,10 @@
 package tollwallet
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 
@@ -41,7 +43,8 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 
 		w, err := wallet.LoadWallet(config)
 		if err != nil {
-			if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+			var netErr net.Error
+			if errors.As(err, &netErr) || isNetworkError(err) {
 				log.Printf("TollWallet.New: Mint %s unreachable: %v", mintURL, err)
 				lastErr = err
 				continue
@@ -332,4 +335,10 @@ func (w *TollWallet) Shutdown() error {
 		err = w.wallet.Shutdown()
 	})
 	return err
+}
+
+func isNetworkError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no such host")
 }

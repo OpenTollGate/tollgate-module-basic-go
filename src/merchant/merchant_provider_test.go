@@ -54,6 +54,7 @@ func (s *stubMerchant) GetUsage(string) (string, error) {
 func (s *stubMerchant) Fund(string) (uint64, error) {
 	return 0, fmt.Errorf("stub: %s", s.label)
 }
+func (s *stubMerchant) Shutdown() error { return nil }
 
 // TestMutexMerchantProviderSatisfiesInterface verifies the compile-time
 // interface assertion in merchant_provider.go is valid.
