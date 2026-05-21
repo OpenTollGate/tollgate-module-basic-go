@@ -12,12 +12,10 @@ import (
 var errDegraded = fmt.Errorf("service degraded: wallet unavailable, mints unreachable")
 
 type MerchantDegraded struct {
-	configManager    *config_manager.ConfigManager
-	advertisement    string
-	sessions         map[string]*CustomerSession
-	sessionMu        sync.RWMutex
-	healthTracker    *MintHealthTracker
-	onFirstReachable func()
+	configManager *config_manager.ConfigManager
+	advertisement string
+	sessions      map[string]*CustomerSession
+	sessionMu     sync.RWMutex
 }
 
 func NewDegraded(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -96,22 +94,3 @@ func (m *MerchantDegraded) AddAllotment(string, string, uint64) (*CustomerSessio
 }
 func (m *MerchantDegraded) GetUsage(string) (string, error) { return "", errDegraded }
 func (m *MerchantDegraded) Fund(string) (uint64, error)     { return 0, errDegraded }
-
-func (m *MerchantDegraded) SetHealthTracker(tracker *MintHealthTracker) {
-	m.healthTracker = tracker
-}
-
-func (m *MerchantDegraded) GetMintHealthTracker() *MintHealthTracker {
-	return m.healthTracker
-}
-
-func (m *MerchantDegraded) Shutdown() error {
-	if m.healthTracker != nil {
-		m.healthTracker.Stop()
-	}
-	return nil
-}
-
-func (m *MerchantDegraded) SetOnFirstReachable(fn func()) {
-	m.onFirstReachable = fn
-}
