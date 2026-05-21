@@ -33,7 +33,8 @@ jobs:
               { "compile_key": "arm64",           "goarch": "arm64" },
               { "compile_key": "armv7",           "goarch": "arm",    "goarm": "7" },
               { "compile_key": "mipsle-softfloat","goarch": "mipsle", "gomips": "softfloat" },
-              { "compile_key": "mips-softfloat",  "goarch": "mips",   "gomips": "softfloat" }
+              { "compile_key": "mips-softfloat",  "goarch": "mips",   "gomips": "softfloat" },
+              { "compile_key": "amd64",           "goarch": "amd64" }
             ]
           }
           EOF
@@ -71,7 +72,8 @@ jobs:
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-fast" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-brute" },
-              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" }
+              { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
+              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": false }
             ]
           }
           EOF
@@ -79,8 +81,6 @@ jobs:
           # ipk -> 24.10.1, apk -> 25.12.0. Matrix entries stay version-free
           # so the output filenames and NIP-94 tags don't carry what's really
           # a build-time detail.
-          #
-          # TODO: AMD64 remains disabled — SDK arch 'amd64' vs 'x86-generic' mismatch.
 
           # Compression gate: UPX variants (esp. --brute, --ultra-brute) are
           # expensive and only meaningful for shipped artifacts. Keep them
