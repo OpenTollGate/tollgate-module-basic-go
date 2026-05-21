@@ -28,8 +28,16 @@ setup_uhttpd() {
     uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
     uci add_list uhttpd.main.listen_http='[::]:8080'
     uci -q delete uhttpd.main.listen_https
-    uci add_list uhttpd.main.listen_https='0.0.0.0:443'
-    uci add_list uhttpd.main.listen_https='[::]:443'
+    uci -q delete uhttpd.main.cert
+    uci -q delete uhttpd.main.key
+    # Only enable HTTPS if cert and key files exist; otherwise uhttpd
+    # crash-loops because it sees listen_https but has no TLS config.
+    if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then
+        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
+        uci add_list uhttpd.main.listen_https='[::]:443'
+        uci set uhttpd.main.cert='/etc/uhttpd.crt'
+        uci set uhttpd.main.key='/etc/uhttpd.key'
+    fi
     uci set uhttpd.main.redirect_https='0'
     uci set uhttpd.main.home='/www'
     uci set uhttpd.main.rfc1918_filter='1'
@@ -90,6 +98,25 @@ setup_public_wifi() {
     uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
 }
 
+setup_hostname() {
+    local current_hostname
+    current_hostname=$(uci -q get system.@system[0].hostname)
+    if [ "$current_hostname" = "OpenWrt" ]; then
+        uci set system.@system[0].hostname='TollGate'
+        log "Hostname changed to TollGate (was OpenWrt default)"
+    else
+        log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
+    fi
+    # TLS cert CN should match whatever hostname is active after the check above.
+    local final_hostname
+    final_hostname=$(uci -q get system.@system[0].hostname)
+    uci set uhttpd.main.commonname="$final_hostname"
+    # Apply to running kernel immediately so /proc/sys/kernel/hostname
+    # reflects the new value without requiring a reboot.
+    echo "$final_hostname" > /proc/sys/kernel/hostname
+    log "Hostname applied to running kernel: ${final_hostname}"
+}
+
 setup_nodogsplash() {
     [ -f /etc/config/nodogsplash ] || touch /etc/config/nodogsplash
     if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
@@ -98,8 +125,17 @@ setup_nodogsplash() {
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
     uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
-    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
-    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    # Add firewall allow rules only if not already present (idempotent).
+    local nds_users
+    nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+    if ! echo "$nds_users" | grep -q "port 2121"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
+    fi
+    if ! echo "$nds_users" | grep -q "port 8080"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    fi
+    uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
+    uci set nodogsplash.@nodogsplash[0].gatewayport='80'
 }
 
 setup_tollgate_firewall_rules() {
@@ -216,6 +252,7 @@ setup_private_network() {
 }
 
 commit_all() {
+    uci commit system
     uci commit network
     uci commit wireless
     uci commit dhcp
@@ -232,6 +269,7 @@ log "Starting TollGate configuration"
 setup_firewall_include
 setup_uhttpd
 setup_dns_dnsmasq
+setup_hostname
 setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
 setup_nodogsplash
 setup_tollgate_firewall_rules
