@@ -31,6 +31,9 @@ func TestUpstreamManager_DefaultConfig(t *testing.T) {
 	assert.Equal(t, 10, int(config.SwitchCooldown.Minutes()))
 	assert.Equal(t, 90, int(config.StartupGracePeriod.Seconds()))
 	assert.Equal(t, 5, int(config.PostSwitchWait.Seconds()))
+	assert.Equal(t, 15, int(config.StartupSettle.Seconds()))
+	assert.Equal(t, 10, int(config.StartupRetryInterval.Seconds()))
+	assert.Equal(t, 10, int(config.StartupScanInterval.Seconds()))
 }
 
 func TestUpstreamManager_NewUpstreamManager(t *testing.T) {
@@ -623,6 +626,202 @@ func TestUpstreamManager_ConfigOverride_NewFields(t *testing.T) {
 	assert.Equal(t, 20*time.Minute, um.config.SwitchCooldown)
 	assert.Equal(t, 60*time.Second, um.config.StartupGracePeriod)
 	assert.Equal(t, 10*time.Second, um.config.PostSwitchWait)
+	assert.Equal(t, 15*time.Second, um.config.StartupSettle)
+	assert.Equal(t, 10*time.Second, um.config.StartupRetryInterval)
+	assert.Equal(t, 10*time.Second, um.config.StartupScanInterval)
+}
+
+func TestUpstreamManager_StartupCheck_NoActiveSTA(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("GetActiveSTA").Return(nil, nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertNotCalled(t, "ScanAllRadios")
+	assert.Empty(t, um.blacklist)
+}
+
+func TestUpstreamManager_StartupCheck_GetActiveSTAError(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+
+	connector.On("GetActiveSTA").Return(nil, fmt.Errorf("uci error"))
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertNotCalled(t, "ScanAllRadios")
+	assert.Empty(t, um.blacklist)
+}
+
+func TestUpstreamManager_StartupCheck_HasInternet(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return true }
+
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_mynet", SSID: "MyNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_mynet").Return("phy0-sta0", nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertNotCalled(t, "ScanAllRadios")
+	assert.Empty(t, um.blacklist)
+}
+
+func TestUpstreamManager_StartupCheck_NoInternet_SwitchesToCandidate(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "GoodNet", Signal: -40, Radio: "radio1"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.True(t, um.isBlacklisted("BadNet"), "non-internet SSID should be blacklisted after successful switch")
+	assert.False(t, um.isBlacklisted("GoodNet"), "working candidate should not be blacklisted")
+}
+
+func TestUpstreamManager_StartupCheck_NoInternet_NoCandidateAvailable(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "UnknownNet", Signal: -40, Radio: "radio0"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{}, nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.False(t, um.isBlacklisted("BadNet"), "SSID should NOT be blacklisted when no candidate found — deferred to main loop")
+	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpstreamManager_StartupCheck_NoInternet_SwitchFails(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "GoodNet", Signal: -40, Radio: "radio1"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(fmt.Errorf("wifi reload failed"))
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.False(t, um.isBlacklisted("BadNet"), "SSID should NOT be blacklisted when switch fails — deferred to main loop")
+	assert.Equal(t, 3, um.consecutiveFails, "switch failures should be recorded for each retry")
+}
+
+func TestUpstreamManager_StartupCheck_ResellerMode(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(true)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "HomeWiFi", Signal: -45, Radio: "radio0"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_homewifi", "HomeWiFi").Return(nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	reseller.AssertExpectations(t)
+	assert.True(t, um.isBlacklisted("BadNet"))
 }
 
 func TestUpstreamManager_ConfigOverride_ZeroValues_Default(t *testing.T) {
@@ -637,4 +836,135 @@ func TestUpstreamManager_ConfigOverride_ZeroValues_Default(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, um.config.SwitchCooldown)
 	assert.Equal(t, 90*time.Second, um.config.StartupGracePeriod)
 	assert.Equal(t, 5*time.Second, um.config.PostSwitchWait)
+	assert.Equal(t, 15*time.Second, um.config.StartupSettle)
+	assert.Equal(t, 10*time.Second, um.config.StartupRetryInterval)
+	assert.Equal(t, 10*time.Second, um.config.StartupScanInterval)
+}
+
+func TestUpstreamManager_StartupCheck_ScanFailsThenSucceedsOnRetry(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{}, fmt.Errorf("scan busy")).Once()
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "GoodNet", Signal: -40, Radio: "radio1"},
+	}, nil).Once()
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.True(t, um.isBlacklisted("BadNet"), "should be blacklisted after successful switch on retry")
+	assert.False(t, um.isBlacklisted("GoodNet"))
+}
+
+func TestUpstreamManager_StartupCheck_CandidateNotFoundFirstScan(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "UnknownNet", Signal: -50, Radio: "radio0"},
+	}, nil).Once()
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "GoodNet", Signal: -40, Radio: "radio1"},
+	}, nil).Once()
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil)
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.True(t, um.isBlacklisted("BadNet"))
+}
+
+func TestUpstreamManager_StartupCheck_SwitchFailsThenSucceedsOnRetry(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{
+		{SSID: "GoodNet", Signal: -40, Radio: "radio1"},
+	}, nil)
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
+	}, nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(fmt.Errorf("failed")).Once()
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil).Once()
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.True(t, um.isBlacklisted("BadNet"), "should be blacklisted after successful switch on retry")
+}
+
+func TestUpstreamManager_StartupCheck_AllScanRetriesFail_NoBlacklist(t *testing.T) {
+	connector := &MockConnector{}
+	scanner := &MockScanner{}
+	reseller := &MockResellerChecker{}
+	config := DefaultUpstreamManagerConfig()
+	config.StartupSettle = 1 * time.Millisecond
+	config.StartupRetryInterval = 1 * time.Millisecond
+	config.StartupScanInterval = 1 * time.Millisecond
+
+	um := NewUpstreamManager(connector, scanner, reseller, config)
+	um.connectivityCheckFn = func() bool { return false }
+
+	reseller.On("IsResellerModeActive").Return(false)
+	connector.On("GetActiveSTA").Return(&STASection{
+		Name: "upstream_badnet", SSID: "BadNet", Device: "radio0",
+	}, nil)
+	connector.On("GetSTANetdev", "upstream_badnet").Return("phy0-sta0", nil)
+	scanner.On("ScanAllRadios").Return([]NetworkInfo{}, fmt.Errorf("scan busy"))
+
+	um.startupConnectivityCheck()
+
+	connector.AssertExpectations(t)
+	scanner.AssertExpectations(t)
+	assert.False(t, um.isBlacklisted("BadNet"), "should NOT be blacklisted when all scan retries fail — deferred to main loop")
 }
