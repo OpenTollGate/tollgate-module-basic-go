@@ -172,8 +172,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/tollgate/tollgate-captive-portal-site
 	$(CP) $(PKG_MAKEFILE_DIR)files/tollgate-captive-portal-site/* $(1)/etc/tollgate/tollgate-captive-portal-site/
 
-	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/check_package_path $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-remove-ssl $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/etc/crontabs
 
@@ -187,6 +188,8 @@ endef
 FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-wrt \
 	/usr/bin/tollgate \
+	/usr/bin/tollgate-apply-ssl \
+	/usr/bin/tollgate-remove-ssl \
 	/etc/init.d/tollgate-wrt \
 	/etc/config/firewall-tollgate \
 	/usr/local/bin/first-login-setup \
