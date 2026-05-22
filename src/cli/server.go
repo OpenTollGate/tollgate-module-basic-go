@@ -464,12 +464,25 @@ func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string)
 func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) CLIResponse {
 	uptime := time.Since(s.startTime)
 
+	// TODO(c1): WalletOK intentionally stays true even in degraded mode. Unknown
+	// downstream consumers may depend on this field being true for the service to
+	// be considered healthy. A future iteration should add a separate DegradedMode
+	// field to ServiceStatus and/or make WalletOK reflect actual wallet usability.
+	// For now we log the degraded state so operators can see it in the journal.
+	m := s.merchantProvider.GetMerchant()
+	walletOK := s.merchantProvider != nil && m != nil
+	if walletOK {
+		if _, degraded := m.(*merchant.MerchantDegraded); degraded {
+			cliLogger.Warn("Wallet reported OK but merchant is in degraded mode — mints unreachable, payment operations will fail until recovery")
+		}
+	}
+
 	status := ServiceStatus{
 		Running:   true,
 		Version:   GetVersionInfo(),
 		Uptime:    uptime.String(),
 		ConfigOK:  s.configManager != nil,
-		WalletOK:  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
+		WalletOK:  walletOK,
 		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
 

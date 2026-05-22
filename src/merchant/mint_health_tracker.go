@@ -42,6 +42,13 @@ func NewMintHealthTracker(mintConfigs []config_manager.MintConfig) *MintHealthTr
 	}
 }
 
+// RunInitialProbe probes all mints synchronously and populates internal state.
+//
+// TODO(c3): This method is NOT thread-safe — it modifies reachable, reachableCount,
+// consecutiveSuccess, and hadReachableMint without holding mu. It MUST be called
+// before Start() (which launches the background goroutine). Calling it after Start()
+// would race with runProactiveCheck. Currently safe because init() calls
+// RunInitialProbe → SetOnFirstReachable → Start in strict order.
 func (m *MintHealthTracker) RunInitialProbe() []config_manager.MintConfig {
 	var reachable []config_manager.MintConfig
 
@@ -157,6 +164,12 @@ func (m *MintHealthTracker) runProactiveCheck() {
 	}
 	m.mu.Unlock()
 
+	// TODO(c2): Callbacks fire on the timer goroutine. If onFirstReachable performs
+	// heavy work (e.g. merchant.New which does wallet loading + network I/O), the
+	// timer goroutine blocks until recovery completes. This prevents subsequent
+	// proactive checks and delays Stop() response. Acceptable today because
+	// onFirstReachable is one-shot and the probe interval is 5 minutes, but if
+	// callbacks grow heavier, fire them in a separate goroutine.
 	for _, cb := range callbacks {
 		cb()
 	}

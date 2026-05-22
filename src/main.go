@@ -41,6 +41,11 @@ var (
 var upstreamManager *wireless_gateway_manager.UpstreamManager
 
 var tollgateDetailsString string
+// TODO: merchantInstance is kept for the initial degraded-type check and the
+// non-degraded startup path (StartPayoutRoutine/StartDataUsageMonitoring).
+// After recovery, it's written back but never read again — all consumers use
+// merchantProvider.GetMerchant(). Consider eliminating this variable by scoping
+// the initial merchant to init() only and using the provider everywhere.
 var merchantInstance merchant.MerchantInterface
 var merchantProvider merchant.MerchantProvider
 var healthTracker *merchant.MintHealthTracker

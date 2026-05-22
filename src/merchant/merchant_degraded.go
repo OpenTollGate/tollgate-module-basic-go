@@ -2,11 +2,11 @@ package merchant
 
 import (
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/sirupsen/logrus"
 )
 
 var errDegraded = fmt.Errorf("service degraded: wallet unavailable, mints unreachable")
@@ -14,8 +14,10 @@ var errDegraded = fmt.Errorf("service degraded: wallet unavailable, mints unreac
 type MerchantDegraded struct {
 	configManager *config_manager.ConfigManager
 	advertisement string
-	sessions      map[string]*CustomerSession
-	sessionMu     sync.RWMutex
+	// TODO(c5): sessions and sessionMu are unused — no method ever writes to the map,
+	// and GetSession always returns an error. They can be removed in a cleanup pass.
+	sessions  map[string]*CustomerSession
+	sessionMu sync.RWMutex
 }
 
 func NewDegraded(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -23,7 +25,7 @@ func NewDegraded(configManager *config_manager.ConfigManager) (MerchantInterface
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement in degraded mode: %w", err)
 	}
-	log.Printf("=== Merchant starting in DEGRADED mode (mints unreachable) ===")
+	logrus.Warn("Merchant starting in DEGRADED mode (mints unreachable)")
 	return &MerchantDegraded{
 		configManager: configManager,
 		advertisement: advertisementStr,
@@ -44,7 +46,7 @@ func (m *MerchantDegraded) GetLightningInvoiceStatus(string, string) (*Lightning
 }
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig { return nil }
 func (m *MerchantDegraded) GetBalance() uint64 {
-	log.Printf("WARNING: GetBalance called in degraded mode — wallet unavailable, returning 0")
+	logrus.Warn("GetBalance called in degraded mode — wallet unavailable, returning 0")
 	return 0
 }
 func (m *MerchantDegraded) GetBalanceByMint(string) uint64        { return 0 }

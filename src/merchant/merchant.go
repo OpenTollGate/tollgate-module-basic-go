@@ -382,6 +382,12 @@ func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
 }
 
+// TODO(c4): Shutdown cleanly stops the wallet DB, but is NOT wired into any signal
+// handler or defer. On process exit the wallet DB may not get a clean shutdown.
+// This is a pre-existing gap — adding a SIGTERM/SIGINT handler that calls Shutdown
+// on the current merchant (obtained via MerchantProvider) should be a follow-up PR.
+// Also consider adding Shutdown() to MerchantInterface so callers don't need type
+// assertions.
 func (m *Merchant) Shutdown() error {
 	return m.tollwallet.Shutdown()
 }
