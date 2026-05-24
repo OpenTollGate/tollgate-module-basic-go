@@ -3,6 +3,12 @@
 # services start. All UCI changes are committed in a single pass at the end;
 # no service restarts here (uci-defaults runs before procd brings services up).
 
+SETUP_FLAG="/etc/tollgate-setup-done"
+
+if [ -f "$SETUP_FLAG" ]; then
+    exit 0
+fi
+
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
@@ -22,8 +28,16 @@ setup_uhttpd() {
     uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
     uci add_list uhttpd.main.listen_http='[::]:8080'
     uci -q delete uhttpd.main.listen_https
-    uci add_list uhttpd.main.listen_https='0.0.0.0:443'
-    uci add_list uhttpd.main.listen_https='[::]:443'
+    uci -q delete uhttpd.main.cert
+    uci -q delete uhttpd.main.key
+    # Only enable HTTPS if cert and key files exist; otherwise uhttpd
+    # crash-loops because it sees listen_https but has no TLS config.
+    if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then
+        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
+        uci add_list uhttpd.main.listen_https='[::]:443'
+        uci set uhttpd.main.cert='/etc/uhttpd.crt'
+        uci set uhttpd.main.key='/etc/uhttpd.key'
+    fi
     uci set uhttpd.main.redirect_https='0'
     uci set uhttpd.main.home='/www'
     uci set uhttpd.main.rfc1918_filter='1'
@@ -53,27 +67,54 @@ setup_dns_dnsmasq() {
     uci set dhcp.@dnsmasq[0].expandhosts='1'
 }
 
+configure_radio_ap() {
+    local iface="$1" label="$2"
+    if ! uci -q get "wireless.$iface" >/dev/null; then
+        return
+    fi
+    local current_mode
+    current_mode=$(uci -q get "wireless.$iface".mode)
+    if [ "$current_mode" = "sta" ]; then
+        log "$iface is STA, preserving upstream connection"
+        return
+    fi
+    uci set "wireless.$iface".name="$label"
+    uci set "wireless.$iface".mode='ap'
+    uci set "wireless.$iface".network='lan'
+    uci set "wireless.$iface".ssid="$GATEWAY_NAME"
+    uci set "wireless.$iface".encryption='none'
+    uci set "wireless.$iface".disabled='0'
+}
+
 # Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
 setup_public_wifi() {
     RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
     GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
     log "Gateway name: ${GATEWAY_NAME}"
 
-    # Same SSID on both radios so clients see one network and band-steer.
-    if uci -q get wireless.default_radio0 >/dev/null; then
-        uci set wireless.default_radio0.name='tollgate_2g_open'
-        uci set wireless.default_radio0.ssid="$GATEWAY_NAME"
-        uci set wireless.default_radio0.encryption='none'
-        uci set wireless.default_radio0.disabled='0'
-    fi
-    if uci -q get wireless.default_radio1 >/dev/null; then
-        uci set wireless.default_radio1.name='tollgate_5g_open'
-        uci set wireless.default_radio1.ssid="$GATEWAY_NAME"
-        uci set wireless.default_radio1.encryption='none'
-        uci set wireless.default_radio1.disabled='0'
-    fi
+    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
+    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
     uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
     uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+}
+
+setup_hostname() {
+    local current_hostname
+    current_hostname=$(uci -q get system.@system[0].hostname)
+    if [ "$current_hostname" = "OpenWrt" ]; then
+        uci set system.@system[0].hostname='TollGate'
+        log "Hostname changed to TollGate (was OpenWrt default)"
+    else
+        log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
+    fi
+    # TLS cert CN should match whatever hostname is active after the check above.
+    local final_hostname
+    final_hostname=$(uci -q get system.@system[0].hostname)
+    uci set uhttpd.main.commonname="$final_hostname"
+    # Apply to running kernel immediately so /proc/sys/kernel/hostname
+    # reflects the new value without requiring a reboot.
+    echo "$final_hostname" > /proc/sys/kernel/hostname
+    log "Hostname applied to running kernel: ${final_hostname}"
 }
 
 setup_nodogsplash() {
@@ -84,8 +125,17 @@ setup_nodogsplash() {
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
     uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
-    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
-    uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    # Add firewall allow rules only if not already present (idempotent).
+    local nds_users
+    nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+    if ! echo "$nds_users" | grep -q "port 2121"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
+    fi
+    if ! echo "$nds_users" | grep -q "port 8080"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    fi
+    uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
+    uci set nodogsplash.@nodogsplash[0].gatewayport='80'
 }
 
 setup_tollgate_firewall_rules() {
@@ -143,7 +193,7 @@ setup_private_network() {
         private_octet3=$((octet3 + 1))
     fi
     private_ip="${octet1}.${octet2}.${private_octet3}.1"
-    private_ssid="c03rad0r-${RANDOM_SUFFIX}"
+    private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
 
     # Memorable password: 3 words + 2-digit number. Single /dev/urandom read,
     # awk picks words — avoids forking per word.
@@ -202,6 +252,7 @@ setup_private_network() {
 }
 
 commit_all() {
+    uci commit system
     uci commit network
     uci commit wireless
     uci commit dhcp
@@ -218,6 +269,7 @@ log "Starting TollGate configuration"
 setup_firewall_include
 setup_uhttpd
 setup_dns_dnsmasq
+setup_hostname
 setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
 setup_nodogsplash
 setup_tollgate_firewall_rules
@@ -227,4 +279,5 @@ setup_private_network        # consumes RANDOM_SUFFIX
 commit_all
 
 log "TollGate setup completed"
+touch "$SETUP_FLAG"
 exit 0
