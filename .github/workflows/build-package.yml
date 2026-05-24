@@ -33,6 +33,7 @@ jobs:
               { "compile_key": "arm64",           "goarch": "arm64" },
               { "compile_key": "armv7",           "goarch": "arm",    "goarm": "7" },
               { "compile_key": "mipsle-softfloat","goarch": "mipsle", "gomips": "softfloat" },
+              { "compile_key": "amd64",           "goarch": "amd64" }
               { "compile_key": "mips-softfloat",  "goarch": "mips",   "gomips": "softfloat" }
             ]
           }
@@ -67,6 +68,7 @@ jobs:
               { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
               { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "ipk": true, "apk": false },
               { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
+              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": false }
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-fast" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
