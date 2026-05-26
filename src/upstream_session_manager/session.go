@@ -47,8 +47,8 @@ type UpstreamSession struct {
 	lastPaymentAttempt time.Time  // Last time we attempted payment
 
 	// Dependencies
-	configManager *config_manager.ConfigManager
-	merchant      merchant.MerchantInterface
+	configManager    *config_manager.ConfigManager
+	merchantProvider merchant.MerchantProvider
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -61,7 +61,7 @@ func NewUpstreamSession(
 	advertisement *nostr.Event,
 	adInfo *tollgate_protocol.AdvertisementInfo,
 	configManager *config_manager.ConfigManager,
-	merchantImpl merchant.MerchantInterface,
+	merchantProvider merchant.MerchantProvider,
 ) (*UpstreamSession, error) {
 	// Get config for renewal offsets
 	config := configManager.GetConfig()
@@ -101,7 +101,7 @@ func NewUpstreamSession(
 		}
 		if _, err := selectCompatiblePricingWithFunds(
 			adInfo.PricingOptions,
-			merchantImpl,
+			merchantProvider.GetMerchant(),
 			preferredAllotment,
 			adInfo.StepSize,
 		); err != nil {
@@ -123,7 +123,7 @@ func NewUpstreamSession(
 		Status:            SessionActive,
 		UsageTracker:      nil,
 		configManager:     configManager,
-		merchant:          merchantImpl,
+		merchantProvider:  merchantProvider,
 	}
 
 	// Start tracker - it will handle initial payment if needed (usage == 0/0),
@@ -219,6 +219,8 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	s.paymentMu.Lock()
 	defer s.paymentMu.Unlock()
 
+	m := s.merchantProvider.GetMerchant()
+
 	// Throttle payment attempts (minimum 5 seconds between attempts)
 	// Check this FIRST, before checking paymentInProgress
 	if time.Since(s.lastPaymentAttempt) < 5*time.Second {
@@ -258,7 +260,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	// Select pricing option with sufficient funds for our desired payment
 	selectedPricing, err := selectCompatiblePricingWithFunds(
 		s.AdvertisementInfo.PricingOptions,
-		s.merchant,
+		m,
 		preferredAllotment,
 		s.AdvertisementInfo.StepSize,
 	)
@@ -308,9 +310,10 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 // sendPayment sends a payment (initial or renewal) and returns the allotment
 // Uses new simplified protocol: POST plain text Cashu token
 func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
+	m := s.merchantProvider.GetMerchant()
 	// Create payment token
 	amount := steps * s.SelectedPricing.PricePerStep
-	token, err := s.merchant.CreatePaymentTokenWithOverpayment(
+	token, err := m.CreatePaymentTokenWithOverpayment(
 		s.SelectedPricing.MintURL,
 		amount,
 		10000, // overpayment tolerance
@@ -414,7 +417,7 @@ func (s *UpstreamSession) recoverToken(token string, originalErr error) {
 	}
 
 	// Call the token recovery utility
-	recoverFailedPaymentToken(s.merchant, token, mintURL, originalErr)
+	recoverFailedPaymentToken(s.merchantProvider.GetMerchant(), token, mintURL, originalErr)
 }
 
 // Stop stops the session (stops tracker and marks as expired)

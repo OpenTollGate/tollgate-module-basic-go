@@ -26,15 +26,18 @@ type Gateway struct {
 
 // UpstreamSessionManager manages upstream TollGate sessions
 type UpstreamSessionManager struct {
-	configManager  *config_manager.ConfigManager
-	merchant       merchant.MerchantInterface
-	gateways       map[string]*Gateway // keyed by gateway IP
-	tollGateProber TollGateProber
-	mu             sync.RWMutex
+	configManager    *config_manager.ConfigManager
+	merchantProvider merchant.MerchantProvider
+	gateways         map[string]*Gateway // keyed by gateway IP
+	tollGateProber   TollGateProber
+	mu               sync.RWMutex
 }
 
 // NewUpstreamSessionManager creates a new upstream_session_manager instance
-func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantImpl merchant.MerchantInterface) (UpstreamSessionManagerInterface, error) {
+func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) (UpstreamSessionManagerInterface, error) {
+	if merchantProvider == nil {
+		return nil, fmt.Errorf("merchantProvider is nil")
+	}
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -44,10 +47,10 @@ func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merc
 	tollGateProber := NewTollGateProber(&config.UpstreamDetector)
 
 	usm := &UpstreamSessionManager{
-		configManager:  configManager,
-		merchant:       merchantImpl,
-		gateways:       make(map[string]*Gateway),
-		tollGateProber: tollGateProber,
+		configManager:    configManager,
+		merchantProvider: merchantProvider,
+		gateways:         make(map[string]*Gateway),
+		tollGateProber:   tollGateProber,
 	}
 
 	logger.Info("UpstreamSessionManager initialized successfully")
@@ -115,7 +118,7 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 		event,
 		adInfo,
 		c.configManager,
-		c.merchant,
+		c.merchantProvider,
 	)
 	if err != nil {
 		logger.WithFields(logrus.Fields{

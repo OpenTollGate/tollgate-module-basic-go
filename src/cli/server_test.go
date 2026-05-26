@@ -23,8 +23,8 @@ func (m *MockCLIConnector) GetConnectedSSID() (string, error) {
 	args := m.Called()
 	return args.String(0), args.Error(1)
 }
-func (m *MockCLIConnector) Disconnect() error                    { return m.Called().Error(0) }
-func (m *MockCLIConnector) Reconnect() error                     { return m.Called().Error(0) }
+func (m *MockCLIConnector) Disconnect() error { return m.Called().Error(0) }
+func (m *MockCLIConnector) Reconnect() error  { return m.Called().Error(0) }
 func (m *MockCLIConnector) ExecuteUCI(args ...string) (string, error) {
 	ia := make([]interface{}, len(args))
 	for i, a := range args {
@@ -90,12 +90,12 @@ func (m *MockCLIScanner) FindBestRadioForSSID(ssid string, networks []wireless_g
 
 func newTestCLIServer(connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface) *CLIServer {
 	return &CLIServer{
-		configManager:   nil,
-		merchant:        nil,
-		connector:       connector,
-		scanner:         scanner,
-		upstreamManager: nil,
-		startTime:       time.Now(),
+		configManager:    nil,
+		merchantProvider: nil,
+		connector:        connector,
+		scanner:          scanner,
+		upstreamManager:  nil,
+		startTime:        time.Now(),
 	}
 }
 
