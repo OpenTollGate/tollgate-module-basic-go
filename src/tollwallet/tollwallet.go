@@ -74,6 +74,11 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
 	if err != nil {
+		// The upstream cashu library does not export a typed error for
+		// "token already spent", so we match on the error string at this
+		// boundary and wrap it with our own sentinel (ErrTokenAlreadySpent).
+		// Callers should use errors.Is(err, ErrTokenAlreadySpent) — no
+		// further string matching needed downstream.
 		if strings.Contains(err.Error(), "Token already spent") {
 			return 0, fmt.Errorf("%w: %v", ErrTokenAlreadySpent, err)
 		}

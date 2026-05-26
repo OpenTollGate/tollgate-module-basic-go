@@ -18,27 +18,8 @@ import (
 
 func newDegradedMerchantWithConfig(t *testing.T) (*MerchantDegraded, *config_manager.ConfigManager) {
 	t.Helper()
-
-	cm, _ := setupTestConfigManager(t)
-
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
-
-	deg := &MerchantDegraded{
-		configManager:     cm,
-		mintHealthTracker: tracker,
-	}
-	return deg, cm
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	return ds.Degraded(), ds.CM
 }
 
 func TestMerchantDegraded_CreatePaymentToken_ReturnsError(t *testing.T) {
@@ -226,10 +207,7 @@ func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
 		t.Fatalf("failed to create config manager: %v", err)
 	}
 
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
+	srvFail := newUnreachableServer(t)
 
 	tracker := newTestTracker(&config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
@@ -485,36 +463,11 @@ func (w *mockWallet) Shutdown() error {
 
 func newDegradedMerchantWithMockWallet(t *testing.T, wallet Wallet, walletFactoryErr error) (*MerchantDegraded, *config_manager.ConfigManager, *MintHealthTracker) {
 	t.Helper()
-
-	cm, testDir := setupTestConfigManager(t)
-
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
+	ds, _ := newDegradedSetupWithServer(t, []config_manager.MintConfig{
 		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
-
-	var factory WalletFactory
-	if walletFactoryErr != nil {
-		factory = func(walletPath string, mintURLs []string) (Wallet, error) {
-			return nil, walletFactoryErr
-		}
-	} else {
-		factory = func(walletPath string, mintURLs []string) (Wallet, error) {
-			return wallet, nil
-		}
-	}
-
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
-	return deg, cm, tracker
+	})
+	deg := ds.DegradedWithWallet(wallet, walletFactoryErr)
+	return deg, ds.CM, ds.Tracker
 }
 
 func TestKickstart_WalletLoaded_OfflineBalanceAvailable(t *testing.T) {
@@ -648,12 +601,7 @@ func TestKickstart_WalletNotLoaded_GetAcceptedMintsStillReturnsAllConfigured(t *
 }
 
 func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
-	cm, testDir := setupTestConfigManager(t)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{}
-
-	tracker := newTestTracker(cfg, nil)
+	ds := newDegradedSetup(t, []config_manager.MintConfig{})
 
 	factoryCalled := false
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
@@ -661,7 +609,7 @@ func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
 		return &mockWallet{balance: 100}, nil
 	}
 
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 
 	if deg.WalletLoaded() {
 		t.Error("expected wallet to NOT be loaded when no mints configured")
@@ -674,21 +622,9 @@ func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
 func TestKickstart_WalletFactoryReceivesAllConfiguredMintURLs(t *testing.T) {
 	var receivedURLs []string
 
-	cm, testDir := setupTestConfigManager(t)
-
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
+	ds, _ := newDegradedSetupWithServer(t, []config_manager.MintConfig{
 		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
+	})
 
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
 		receivedURLs = make([]string, len(mintURLs))
@@ -696,9 +632,9 @@ func TestKickstart_WalletFactoryReceivesAllConfiguredMintURLs(t *testing.T) {
 		return &mockWallet{balance: 0}, nil
 	}
 
-	NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 
-	allConfigs := tracker.GetAllConfiguredMintConfigs()
+	allConfigs := ds.Tracker.GetAllConfiguredMintConfigs()
 	expectedURLs := make([]string, len(allConfigs))
 	for i, c := range allConfigs {
 		expectedURLs[i] = c.URL
@@ -756,27 +692,15 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cm, testDir := setupTestConfigManager(t)
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	ds.Tracker.recoveryThreshold = 1
 
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.recoveryThreshold = 1
-
-	mw := &mockWallet{balance: 200, balanceByMint: map[string]uint64{srvFail.URL: 200}}
+	mw := &mockWallet{balance: 200, balanceByMint: map[string]uint64{ds.Server.URL: 200}}
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
 		return mw, nil
 	}
 
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 
 	if !deg.WalletLoaded() {
 		t.Fatal("expected offline wallet to be loaded")
@@ -786,29 +710,29 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 	}
 
 	mints := deg.GetAcceptedMints()
-	if len(mints) != 1 || mints[0].URL != srvFail.URL {
+	if len(mints) != 1 || mints[0].URL != ds.Server.URL {
 		t.Fatalf("expected 1 configured mint, got %d", len(mints))
 	}
 
-	reachable := tracker.GetReachableMintConfigs()
+	reachable := ds.Tracker.GetReachableMintConfigs()
 	if len(reachable) != 0 {
 		t.Fatal("expected 0 reachable mints (server is down)")
 	}
 
 	var upgraded MerchantInterface
 	done := make(chan struct{})
-	tracker.SetOnFirstReachableForDegraded(func() {
+	ds.Tracker.SetOnFirstReachableForDegraded(func() {
 		close(done)
 	})
 
-	provider := tracker.configProvider.(*mockConfigProvider)
+	provider := ds.Tracker.configProvider.(*mockConfigProvider)
 	provider.config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
 			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
 		},
 	}
 
-	tracker.RunProactiveCheck()
+	ds.Tracker.RunProactiveCheck()
 
 	select {
 	case <-done:
@@ -816,7 +740,7 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 		t.Fatal("expected onFirstReachable to fire")
 	}
 
-	if !tracker.IsReachable(srv.URL) {
+	if !ds.Tracker.IsReachable(srv.URL) {
 		t.Fatal("expected mint to be reachable after proactive check")
 	}
 
@@ -824,30 +748,17 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 }
 
 func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
-	srvDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer srvDown.Close()
+	srvDown := newUnreachableServer(t)
 
-	cm, testDir := setupTestConfigManager(t)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
+	ds := newDegradedSetup(t, []config_manager.MintConfig{
 		{URL: srvDown.URL, PricePerStep: 1, PriceUnit: "sats"},
 		{URL: "https://mint2.example.com", PricePerStep: 2, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
-
-	if len(tracker.GetReachableMintConfigs()) != 0 {
-		t.Fatal("setup: expected no reachable mints")
-	}
+	})
 
 	mw := &mockWallet{
 		balance: 5000,
 		balanceByMint: map[string]uint64{
-			srvDown.URL:              3000,
+			srvDown.URL:                 3000,
 			"https://mint2.example.com": 2000,
 		},
 		overpaymentResult: "cashuAofflinepaymenttoken",
@@ -857,7 +768,7 @@ func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
 		return mw, nil
 	}
 
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 
 	if !deg.WalletLoaded() {
 		t.Fatal("expected wallet loaded from disk")
@@ -905,26 +816,13 @@ func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
 }
 
 func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
-	srvDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer srvDown.Close()
-
-	cm, testDir := setupTestConfigManager(t)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvDown.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
+	ds, _ := newDegradedSetupWithServer(t, nil)
 
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
 		return nil, fmt.Errorf("bolt db does not exist: first boot")
 	}
 
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 
 	if deg.WalletLoaded() {
 		t.Fatal("expected wallet to NOT be loaded on first boot")
@@ -939,7 +837,7 @@ func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
 		t.Errorf("expected 0 balance, got %d", deg.GetBalance())
 	}
 
-	_, err := deg.CreatePaymentTokenWithOverpayment(srvDown.URL, 100, 10000, 100)
+	_, err := deg.CreatePaymentTokenWithOverpayment(ds.Server.URL, 100, 10000, 100)
 	if err == nil {
 		t.Fatal("expected error when no wallet loaded")
 	}
@@ -1114,34 +1012,22 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cm, testDir := setupTestConfigManager(t)
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	ds.Tracker.recoveryThreshold = 1
 
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.recoveryThreshold = 1
-
-	mw := &mockWallet{balance: 200, balanceByMint: map[string]uint64{srvFail.URL: 200}}
+	mw := &mockWallet{balance: 200, balanceByMint: map[string]uint64{ds.Server.URL: 200}}
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
 		return mw, nil
 	}
 
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 
 	if !deg.WalletLoaded() {
 		t.Fatal("expected offline wallet to be loaded")
 	}
 
 	shutdownDone := make(chan struct{}, 1)
-	tracker.SetOnFirstReachableForDegraded(func() {
+	ds.Tracker.SetOnFirstReachableForDegraded(func() {
 		if err := deg.Shutdown(); err != nil {
 			t.Errorf("Shutdown failed: %v", err)
 		}
@@ -1151,14 +1037,14 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 		shutdownDone <- struct{}{}
 	})
 
-	provider := tracker.configProvider.(*mockConfigProvider)
+	provider := ds.Tracker.configProvider.(*mockConfigProvider)
 	provider.config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
 			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
 		},
 	}
 
-	tracker.RunProactiveCheck()
+	ds.Tracker.RunProactiveCheck()
 
 	select {
 	case <-shutdownDone:
@@ -1185,27 +1071,15 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cm, testDir := setupTestConfigManager(t)
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	ds.Tracker.recoveryThreshold = 1
 
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srvFail.Close)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.recoveryThreshold = 1
-
-	oldWallet := &mockWallet{balance: 200, balanceByMint: map[string]uint64{srvFail.URL: 200}}
+	oldWallet := &mockWallet{balance: 200, balanceByMint: map[string]uint64{ds.Server.URL: 200}}
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
 		return oldWallet, nil
 	}
 
-	deg := NewMerchantDegradedWithWallet(cm, tracker, factory, testDir)
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
 	provider := NewMutexMerchantProvider(deg)
 
 	if !deg.WalletLoaded() {
@@ -1213,13 +1087,13 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	}
 
 	upgradeDone := make(chan struct{}, 1)
-	tracker.SetOnFirstReachableForDegraded(func() {
+	ds.Tracker.SetOnFirstReachableForDegraded(func() {
 		deg.Shutdown()
 
 		newWallet := &mockWallet{balance: 1000, balanceByMint: map[string]uint64{srv.URL: 1000}}
 		newDeg := &MerchantDegraded{
-			configManager:     cm,
-			mintHealthTracker: tracker,
+			configManager:     ds.CM,
+			mintHealthTracker: ds.Tracker,
 			wallet:            newWallet,
 			walletLoaded:      true,
 		}
@@ -1228,14 +1102,14 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 		upgradeDone <- struct{}{}
 	})
 
-	configProvider := tracker.configProvider.(*mockConfigProvider)
+	configProvider := ds.Tracker.configProvider.(*mockConfigProvider)
 	configProvider.config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
 			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
 		},
 	}
 
-	tracker.RunProactiveCheck()
+	ds.Tracker.RunProactiveCheck()
 
 	select {
 	case <-upgradeDone:
@@ -1329,56 +1203,30 @@ func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
 }
 
 func TestNewMerchantDegradedFromFull(t *testing.T) {
-	cm, _ := setupTestConfigManager(t)
+	ds, _ := newDegradedSetupWithServer(t, nil)
 
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer srvFail.Close()
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
-
-	deg := NewMerchantDegradedFromFull(cm, tracker)
+	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
 	if deg == nil {
 		t.Fatal("NewMerchantDegradedFromFull returned nil")
 	}
-	if deg.mintHealthTracker != tracker {
+	if deg.mintHealthTracker != ds.Tracker {
 		t.Error("expected tracker to be set on degraded merchant")
 	}
 }
 
 func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
-	cm, _ := setupTestConfigManager(t)
+	ds, _ := newDegradedSetupWithServer(t, nil)
 
-	srvFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer srvFail.Close()
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
-	}
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
-
-	deg := NewMerchantDegradedFromFull(cm, tracker)
+	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
 
 	callbackCalled := false
 	deg.SetOnReachableSetChanged(func() {
 		callbackCalled = true
 	})
 
-	tracker.mu.RLock()
-	cb := tracker.onReachableSetChanged
-	tracker.mu.RUnlock()
+	ds.Tracker.mu.RLock()
+	cb := ds.Tracker.onReachableSetChanged
+	ds.Tracker.mu.RUnlock()
 
 	if cb == nil {
 		t.Fatal("expected onReachableSetChanged callback to be set on tracker")
@@ -1390,18 +1238,14 @@ func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
 }
 
 func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
-	cm, _ := setupTestConfigManager(t)
-
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = []config_manager.MintConfig{
+	ds := newDegradedSetup(t, []config_manager.MintConfig{
 		{URL: "https://mint.test", PricePerStep: 1, PriceUnit: "sats"},
-	}
+	})
 
-	tracker := newTestTracker(cfg, nil)
-	deg := NewMerchantDegradedFromFull(cm, tracker)
+	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
 
 	returnedTracker := deg.GetMintHealthTracker()
-	if returnedTracker != tracker {
+	if returnedTracker != ds.Tracker {
 		t.Error("GetMintHealthTracker should return the same tracker instance")
 	}
 }
