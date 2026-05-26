@@ -3,6 +3,8 @@ package tollwallet
 import (
 	"fmt"
 	"log"
+	"strings"
+	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -15,6 +17,7 @@ type TollWallet struct {
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
 	allowAndSwapUntrustedMints bool
+	shutdownOnce               sync.Once
 }
 
 // New creates a new Cashu wallet instance
@@ -29,16 +32,34 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		return nil, fmt.Errorf("No mints provided. Wallet requires at least 1 accepted mint, none were provided")
 	}
 
-	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
-	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
+	var cashuWallet *wallet.Wallet
+	var lastErr error
 
-	// TODO: Fix issue where wallet db is not unlocked if it doesn't get a nework connection when the tollgate application boots.
-	// This causes issues when receiving later (aka, after first connect to upstream AFTER tollgate starts).
-	// The issue arises because of our hacky fork of gonuts for the offline functionatlity we need. Long term fix is switching to CDK.
-	cashuWallet, err := wallet.LoadWallet(config)
+	for _, mintURL := range acceptedMints {
+		config := wallet.Config{WalletPath: walletPath, CurrentMintURL: mintURL}
+		log.Printf("TollWallet.New: Trying to load wallet with mint: %s", mintURL)
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", err)
+		w, err := wallet.LoadWallet(config)
+		if err != nil {
+			if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+				log.Printf("TollWallet.New: Mint %s unreachable: %v", mintURL, err)
+				lastErr = err
+				continue
+			}
+			if w != nil {
+				w.Shutdown()
+			}
+			lastErr = err
+			continue
+		}
+
+		cashuWallet = w
+		log.Printf("Wallet loaded successfully with mint: %s (tried %d mints)", mintURL, len(acceptedMints))
+		break
+	}
+
+	if cashuWallet == nil {
+		return nil, fmt.Errorf("failed to create wallet: all %d mints failed, last error: %w", len(acceptedMints), lastErr)
 	}
 
 	return &TollWallet{
@@ -303,4 +324,12 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 
 	// If we get here, all attempts failed
 	return fmt.Errorf("failed to melt after %d attempts: %w", attempts, meltError)
+}
+
+func (w *TollWallet) Shutdown() error {
+	var err error
+	w.shutdownOnce.Do(func() {
+		err = w.wallet.Shutdown()
+	})
+	return err
 }

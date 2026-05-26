@@ -88,7 +88,9 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	tollwallet, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
+		log.Printf("Wallet init failed (mints may be unreachable): %v", walletErr)
+		log.Printf("Falling back to degraded mode")
+		return NewDegraded(configManager)
 	}
 	balance := tollwallet.GetBalance()
 
@@ -378,6 +380,16 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 func (m *Merchant) GetAdvertisement() string {
 	return m.advertisement
+}
+
+// TODO(c4): Shutdown cleanly stops the wallet DB, but is NOT wired into any signal
+// handler or defer. On process exit the wallet DB may not get a clean shutdown.
+// This is a pre-existing gap — adding a SIGTERM/SIGINT handler that calls Shutdown
+// on the current merchant (obtained via MerchantProvider) should be a follow-up PR.
+// Also consider adding Shutdown() to MerchantInterface so callers don't need type
+// assertions.
+func (m *Merchant) Shutdown() error {
+	return m.tollwallet.Shutdown()
 }
 
 func CreateAdvertisement(configManager *config_manager.ConfigManager) (string, error) {
