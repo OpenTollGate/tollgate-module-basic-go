@@ -24,28 +24,31 @@ var cliLogger = logrus.WithField("module", "cli")
 
 // CLIServer handles Unix socket communication for CLI commands
 type CLIServer struct {
-	configManager    *config_manager.ConfigManager
-	merchantProvider merchant.MerchantProvider
-	connector        wireless_gateway_manager.ConnectorInterface
-	scanner          wireless_gateway_manager.ScannerInterface
-	upstreamManager  *wireless_gateway_manager.UpstreamManager
-	startTime        time.Time
-	listener         net.Listener
-	running          bool
+	configManager   *config_manager.ConfigManager
+	merchant        merchant.MerchantProvider
+	connector       wireless_gateway_manager.ConnectorInterface
+	scanner         wireless_gateway_manager.ScannerInterface
+	upstreamManager *wireless_gateway_manager.UpstreamManager
+	startTime       time.Time
+	listener        net.Listener
+	running         bool
 }
 
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
-		configManager:    configManager,
-		merchantProvider: merchantProvider,
-		connector:        connector,
-		scanner:          scanner,
-		upstreamManager:  upstreamManager,
-		startTime:        time.Now(),
+		configManager:   configManager,
+		merchant:        merchantProvider,
+		connector:       connector,
+		scanner:         scanner,
+		upstreamManager: upstreamManager,
+		startTime:       time.Now(),
 	}
 }
 
 func (s *CLIServer) manualPauseDuration() time.Duration {
+	if s.configManager == nil {
+		return 120 * time.Second
+	}
 	cfg := s.configManager.GetConfig()
 	if cfg != nil && cfg.UpstreamWifi.ManualPauseSeconds > 0 {
 		return time.Duration(cfg.UpstreamWifi.ManualPauseSeconds) * time.Second
@@ -241,7 +244,7 @@ func (s *CLIServer) handleWalletDrain(drainArgs []string, flags map[string]strin
 
 // handleCashuDrain drains all wallet balances to Cashu tokens for each mint
 func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
-	m := s.merchantProvider.GetMerchant()
+	m := s.merchant.GetMerchant()
 	if m == nil {
 		return CLIResponse{
 			Success:   false,
@@ -346,7 +349,7 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 
 // handleWalletBalance returns the current wallet balance
 func (s *CLIServer) handleWalletBalance() CLIResponse {
-	m := s.merchantProvider.GetMerchant()
+	m := s.merchant.GetMerchant()
 	if m == nil {
 		return CLIResponse{
 			Success:   false,
@@ -370,7 +373,7 @@ func (s *CLIServer) handleWalletBalance() CLIResponse {
 
 // handleWalletInfo returns detailed wallet information
 func (s *CLIServer) handleWalletInfo() CLIResponse {
-	m := s.merchantProvider.GetMerchant()
+	m := s.merchant.GetMerchant()
 	if m == nil {
 		return CLIResponse{
 			Success:   false,
@@ -426,7 +429,7 @@ func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string)
 		}
 	}
 
-	m := s.merchantProvider.GetMerchant()
+	m := s.merchant.GetMerchant()
 	if m == nil {
 		return CLIResponse{
 			Success:   false,
@@ -464,25 +467,12 @@ func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string)
 func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) CLIResponse {
 	uptime := time.Since(s.startTime)
 
-	// TODO(c1): WalletOK intentionally stays true even in degraded mode. Unknown
-	// downstream consumers may depend on this field being true for the service to
-	// be considered healthy. A future iteration should add a separate DegradedMode
-	// field to ServiceStatus and/or make WalletOK reflect actual wallet usability.
-	// For now we log the degraded state so operators can see it in the journal.
-	m := s.merchantProvider.GetMerchant()
-	walletOK := s.merchantProvider != nil && m != nil
-	if walletOK {
-		if _, degraded := m.(*merchant.MerchantDegraded); degraded {
-			cliLogger.Warn("Wallet reported OK but merchant is in degraded mode — mints unreachable, payment operations will fail until recovery")
-		}
-	}
-
 	status := ServiceStatus{
 		Running:   true,
 		Version:   GetVersionInfo(),
 		Uptime:    uptime.String(),
 		ConfigOK:  s.configManager != nil,
-		WalletOK:  walletOK,
+		WalletOK:  s.merchant != nil && s.merchant.GetMerchant() != nil,
 		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
 

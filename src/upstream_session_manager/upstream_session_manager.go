@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -15,29 +15,24 @@ import (
 // Module-level logger with pre-configured module field
 var logger = logrus.WithField("module", "upstream_session_manager")
 
-// Gateway represents a discovered gateway with optional session
 type Gateway struct {
 	InterfaceName string
 	MacAddress    string
 	GatewayIP     string
-	Session       *UpstreamSession // nil if no session
+	Session       *UpstreamSession
 	mu            sync.RWMutex
 }
 
-// UpstreamSessionManager manages upstream TollGate sessions
 type UpstreamSessionManager struct {
-	configManager    *config_manager.ConfigManager
-	merchantProvider merchant.MerchantProvider
-	gateways         map[string]*Gateway // keyed by gateway IP
-	tollGateProber   TollGateProber
-	mu               sync.RWMutex
+	configManager  *config_manager.ConfigManager
+	merchant       merchant_types.MerchantProvider
+	gateways       map[string]*Gateway
+	tollGateProber TollGateProber
+	mu             sync.RWMutex
 }
 
 // NewUpstreamSessionManager creates a new upstream_session_manager instance
-func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) (UpstreamSessionManagerInterface, error) {
-	if merchantProvider == nil {
-		return nil, fmt.Errorf("merchantProvider is nil")
-	}
+func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant_types.MerchantProvider) (UpstreamSessionManagerInterface, error) {
 	config := configManager.GetConfig()
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -47,10 +42,10 @@ func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merc
 	tollGateProber := NewTollGateProber(&config.UpstreamDetector)
 
 	usm := &UpstreamSessionManager{
-		configManager:    configManager,
-		merchantProvider: merchantProvider,
-		gateways:         make(map[string]*Gateway),
-		tollGateProber:   tollGateProber,
+		configManager:  configManager,
+		merchant:       merchantProvider,
+		gateways:       make(map[string]*Gateway),
+		tollGateProber: tollGateProber,
 	}
 
 	logger.Info("UpstreamSessionManager initialized successfully")
@@ -118,7 +113,7 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 		event,
 		adInfo,
 		c.configManager,
-		c.merchantProvider,
+		c.merchant,
 	)
 	if err != nil {
 		logger.WithFields(logrus.Fields{

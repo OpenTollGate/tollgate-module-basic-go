@@ -1,3 +1,6 @@
+//go:build testenv
+// +build testenv
+
 package main
 
 import (

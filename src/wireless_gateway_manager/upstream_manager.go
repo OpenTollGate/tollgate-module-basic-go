@@ -37,8 +37,8 @@ type UpstreamManager struct {
 	failMu           sync.Mutex
 	consecutiveFails int
 	cooldownUntil    time.Time
-	connectivityCheckFn func() bool
-	isTollGateConnection bool
+	connectivityCheckFn    func() bool
+	isTollGateConnection   bool
 }
 
 type ConfigReadResult struct {

@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -98,4 +99,30 @@ func setMainConfigField(cm *config_manager.ConfigManager, config *config_manager
 		configField = reflect.NewAt(configField.Type(), unsafe.Pointer(configField.UnsafeAddr())).Elem()
 	}
 	configField.Set(reflect.ValueOf(config))
+}
+
+func TestGetTollgatePaths_Default(t *testing.T) {
+	os.Unsetenv("TOLLGATE_TEST_CONFIG_DIR")
+	configPath, installPath, identitiesPath := getTollgatePaths()
+	assert.Equal(t, "/etc/tollgate/config.json", configPath)
+	assert.Equal(t, "/etc/tollgate/install.json", installPath)
+	assert.Equal(t, "/etc/tollgate/identities.json", identitiesPath)
+}
+
+func TestGetTollgatePaths_TestEnv(t *testing.T) {
+	original := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
+	defer os.Setenv("TOLLGATE_TEST_CONFIG_DIR", original)
+
+	testDir := "/tmp/test-tollgate-paths"
+	os.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+	configPath, installPath, identitiesPath := getTollgatePaths()
+	assert.Equal(t, testDir+"/config.json", configPath)
+	assert.Equal(t, testDir+"/install.json", installPath)
+	assert.Equal(t, testDir+"/identities.json", identitiesPath)
+}
+
+func TestGetTollgatePaths_TestEnvUnset(t *testing.T) {
+	os.Unsetenv("TOLLGATE_TEST_CONFIG_DIR")
+	configPath, _, _ := getTollgatePaths()
+	assert.Equal(t, "/etc/tollgate/config.json", configPath, "production path must be /etc/tollgate/config.json when TOLLGATE_TEST_CONFIG_DIR is unset")
 }

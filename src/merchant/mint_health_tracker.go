@@ -1,7 +1,6 @@
 package merchant
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -11,224 +10,248 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
+const (
+	defaultRecoveryThreshold uint8 = 3
+	probeTimeout            = 30 * time.Second
+	probeInterval           = 5 * time.Minute
+)
+
+type mintConfigProvider interface {
+	GetConfig() *config_manager.Config
+}
+
 type MintHealthTracker struct {
-	mu               sync.RWMutex
-	mintConfigs      []config_manager.MintConfig
-	reachable        map[string]bool
-	reachableCount   int
-	hadReachableMint bool
-
-	onFirstReachable      func()
+	mu                   sync.RWMutex
+	reachableMints       map[string]bool
+	consecutiveSuccesses map[string]uint8
+	httpClient           *http.Client
+	configProvider       mintConfigProvider
+	recoveryThreshold    uint8
+	onFirstReachable     func()
+	hadReachableMint     bool
 	onReachableSetChanged func()
-
-	stopCh        chan struct{}
-	stopOnce      sync.Once
-	probeInterval time.Duration
-	probeTimeout  time.Duration
-
-	consecutiveSuccess  map[string]int
-	requiredConsecutive int
+	reachableCount       int
+	stopCh               chan struct{}
 }
 
-func NewMintHealthTracker(mintConfigs []config_manager.MintConfig) *MintHealthTracker {
+func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
 	return &MintHealthTracker{
-		mintConfigs:         mintConfigs,
-		reachable:           make(map[string]bool),
-		consecutiveSuccess:  make(map[string]int),
-		requiredConsecutive: 3,
-		probeInterval:       5 * time.Minute,
-		probeTimeout:        5 * time.Second,
-		stopCh:              make(chan struct{}),
+		reachableMints:       make(map[string]bool),
+		consecutiveSuccesses: make(map[string]uint8),
+		httpClient: &http.Client{
+			Timeout: probeTimeout,
+		},
+		configProvider:    configProvider,
+		recoveryThreshold: defaultRecoveryThreshold,
 	}
 }
 
-// RunInitialProbe probes all mints synchronously and populates internal state.
-//
-// TODO(c3): This method is NOT thread-safe — it modifies reachable, reachableCount,
-// consecutiveSuccess, and hadReachableMint without holding mu. It MUST be called
-// before Start() (which launches the background goroutine). Calling it after Start()
-// would race with runProactiveCheck. Currently safe because init() calls
-// RunInitialProbe → SetOnFirstReachable → Start in strict order.
-func (m *MintHealthTracker) RunInitialProbe() []config_manager.MintConfig {
-	var reachable []config_manager.MintConfig
-
-	for _, cfg := range m.mintConfigs {
-		if m.probeMint(cfg.URL) {
-			m.reachable[cfg.URL] = true
-			m.reachableCount++
-			m.consecutiveSuccess[cfg.URL] = m.requiredConsecutive
-			reachable = append(reachable, cfg)
-		} else {
-			m.reachable[cfg.URL] = false
-			m.consecutiveSuccess[cfg.URL] = 0
-		}
+func (t *MintHealthTracker) StartProactiveChecks() {
+	t.mu.Lock()
+	if t.stopCh != nil {
+		t.mu.Unlock()
+		return
 	}
+	t.stopCh = make(chan struct{})
+	stopCh := t.stopCh
+	t.mu.Unlock()
 
-	if m.reachableCount > 0 {
-		m.hadReachableMint = true
-	}
-
-	return reachable
-}
-
-func (m *MintHealthTracker) Start() {
-	ticker := time.NewTicker(m.probeInterval)
 	go func() {
+		ticker := time.NewTicker(probeInterval)
 		defer ticker.Stop()
+
 		for {
 			select {
-			case <-m.stopCh:
-				return
 			case <-ticker.C:
-				m.runProactiveCheck()
+				t.runProactiveCheck()
+			case <-stopCh:
+				return
 			}
 		}
 	}()
-	log.Printf("MintHealthTracker: started proactive checks every %s", m.probeInterval)
 }
 
-func (m *MintHealthTracker) Stop() {
-	m.stopOnce.Do(func() {
-		close(m.stopCh)
-		log.Printf("MintHealthTracker: stopped")
-	})
+func (t *MintHealthTracker) Stop() {
+	t.mu.Lock()
+	if t.stopCh != nil {
+		close(t.stopCh)
+		t.stopCh = nil
+	}
+	t.mu.Unlock()
 }
 
-func (m *MintHealthTracker) probeMint(mintURL string) bool {
-	endpoint := strings.TrimRight(mintURL, "/") + "/v1/info"
-	client := &http.Client{Timeout: m.probeTimeout}
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+func (t *MintHealthTracker) IsReachable(mintURL string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.reachableMints[mintURL]
 }
 
-func (m *MintHealthTracker) runProactiveCheck() {
-	// Probe all mints outside the lock (network I/O).
-	type probeResult struct {
-		url       string
-		reachable bool
-	}
-	results := make([]probeResult, len(m.mintConfigs))
-	for i, cfg := range m.mintConfigs {
-		results[i] = probeResult{url: cfg.URL, reachable: m.probeMint(cfg.URL)}
+func (t *MintHealthTracker) GetReachableMintConfigs() []config_manager.MintConfig {
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return nil
 	}
 
-	// Now lock only to update shared state and collect callbacks.
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	var reachable []config_manager.MintConfig
+	for _, mint := range config.AcceptedMints {
+		if t.reachableMints[mint.URL] {
+			reachable = append(reachable, mint)
+		}
+	}
+	return reachable
+}
+
+func (t *MintHealthTracker) GetAllConfiguredMintConfigs() []config_manager.MintConfig {
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return nil
+	}
+	return config.AcceptedMints
+}
+
+func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.reachableMints[mintURL] {
+		t.reachableCount--
+	}
+	t.reachableMints[mintURL] = false
+	t.consecutiveSuccesses[mintURL] = 0
+}
+
+// SetOnFirstReachableForDegraded registers a callback that fires once when a mint
+// becomes reachable after starting with none. The hadReachableMint flag is reset to
+// false so the callback fires on the first mint recovery — this is only meaningful
+// for the degraded merchant path which starts with all mints unreachable.
+func (t *MintHealthTracker) SetOnFirstReachableForDegraded(callback func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onFirstReachable = callback
+	t.hadReachableMint = false
+}
+
+func (t *MintHealthTracker) SetOnReachableSetChanged(callback func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onReachableSetChanged = callback
+}
+
+func (t *MintHealthTracker) RunInitialProbe() {
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return
+	}
+
+	log.Printf("RunInitialProbe: probing %d mint(s)", len(config.AcceptedMints))
+	results := make(map[string]bool, len(config.AcceptedMints))
+	for _, mint := range config.AcceptedMints {
+		results[mint.URL] = t.probeMint(mint.URL)
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for url, ok := range results {
+		if ok {
+			t.reachableMints[url] = true
+			t.consecutiveSuccesses[url] = t.recoveryThreshold
+		} else {
+			t.reachableMints[url] = false
+			t.consecutiveSuccesses[url] = 0
+		}
+	}
+
+	t.reachableCount = 0
+	for _, mint := range config.AcceptedMints {
+		if t.reachableMints[mint.URL] {
+			t.hadReachableMint = true
+			t.reachableCount++
+		}
+	}
+}
+
+func (t *MintHealthTracker) RunProactiveCheck() {
+	t.runProactiveCheck()
+}
+
+func (t *MintHealthTracker) runProactiveCheck() {
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return
+	}
+
+	log.Printf("runProactiveCheck: probing %d mint(s)", len(config.AcceptedMints))
+	results := make(map[string]bool, len(config.AcceptedMints))
+	for _, mint := range config.AcceptedMints {
+		results[mint.URL] = t.probeMint(mint.URL)
+	}
+
+	t.mu.Lock()
+
+	for _, mint := range config.AcceptedMints {
+		if results[mint.URL] {
+			t.consecutiveSuccesses[mint.URL]++
+
+			if !t.reachableMints[mint.URL] && t.consecutiveSuccesses[mint.URL] >= t.recoveryThreshold {
+				t.reachableMints[mint.URL] = true
+			}
+		} else {
+			t.consecutiveSuccesses[mint.URL] = 0
+			t.reachableMints[mint.URL] = false
+		}
+	}
+
+	newCount := 0
+	for _, mint := range config.AcceptedMints {
+		if t.reachableMints[mint.URL] {
+			newCount++
+		}
+	}
+
+	setChanged := newCount != t.reachableCount
+	t.reachableCount = newCount
+
 	var callbacks []func()
 
-	m.mu.Lock()
-	for _, r := range results {
-		if r.reachable {
-			m.consecutiveSuccess[r.url]++
-		} else {
-			m.consecutiveSuccess[r.url] = 0
-		}
-
-		wasReachable := m.reachable[r.url]
-		nowReachable := m.consecutiveSuccess[r.url] >= m.requiredConsecutive
-
-		if nowReachable != wasReachable {
-			m.reachable[r.url] = nowReachable
-			if nowReachable {
-				log.Printf("MintHealthTracker: mint %s became reachable (hysteresis: %d consecutive successes)", r.url, m.consecutiveSuccess[r.url])
-			} else {
-				log.Printf("MintHealthTracker: mint %s became unreachable", r.url)
+	if !t.hadReachableMint && t.onFirstReachable != nil {
+		for _, mint := range config.AcceptedMints {
+			if t.reachableMints[mint.URL] {
+				t.hadReachableMint = true
+				callbacks = append(callbacks, t.onFirstReachable)
+				break
 			}
 		}
 	}
 
-	count := 0
-	for _, r := range m.reachable {
-		if r {
-			count++
-		}
-	}
-	previousCount := m.reachableCount
-	countChanged := count != previousCount
-	m.reachableCount = count
-
-	firstJustBecameReachable := false
-	if !m.hadReachableMint && count > 0 {
-		firstJustBecameReachable = true
-		m.hadReachableMint = true
+	if setChanged && t.onReachableSetChanged != nil {
+		callbacks = append(callbacks, t.onReachableSetChanged)
 	}
 
-	if firstJustBecameReachable && m.onFirstReachable != nil {
-		callbacks = append(callbacks, m.onFirstReachable)
-	}
-	if countChanged && m.onReachableSetChanged != nil {
-		callbacks = append(callbacks, m.onReachableSetChanged)
-	}
-	m.mu.Unlock()
+	t.mu.Unlock()
 
-	// TODO(c2): Callbacks fire on the timer goroutine. If onFirstReachable performs
-	// heavy work (e.g. merchant.New which does wallet loading + network I/O), the
-	// timer goroutine blocks until recovery completes. This prevents subsequent
-	// proactive checks and delays Stop() response. Acceptable today because
-	// onFirstReachable is one-shot and the probe interval is 5 minutes, but if
-	// callbacks grow heavier, fire them in a separate goroutine.
 	for _, cb := range callbacks {
-		cb()
+		log.Printf("runProactiveCheck: firing callback (hadReachable=%v, setChanged=%v)", t.hadReachableMint, setChanged)
+		go cb()
 	}
 }
 
-func (m *MintHealthTracker) GetReachableMintConfigs() []config_manager.MintConfig {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (t *MintHealthTracker) probeMint(mintURL string) bool {
+	url := strings.TrimRight(mintURL, "/") + "/v1/info"
 
-	var result []config_manager.MintConfig
-	for _, cfg := range m.mintConfigs {
-		if m.reachable[cfg.URL] {
-			result = append(result, cfg)
-		}
+	start := time.Now()
+	resp, err := t.httpClient.Get(url)
+	elapsed := time.Since(start)
+	if err != nil {
+		log.Printf("mint probe FAILED: url=%s elapsed=%s error=%v", url, elapsed, err)
+		return false
 	}
-	return result
-}
+	defer resp.Body.Close()
 
-func (m *MintHealthTracker) GetReachableCount() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.reachableCount
-}
-
-// SetOnFirstReachable sets a callback that fires once when the first mint
-// comes back after a total outage. RunInitialProbe sets hadReachableMint to
-// true if any mint was reachable during the initial probe, which suppresses
-// this callback until all mints go down and one recovers.
-func (m *MintHealthTracker) SetOnFirstReachable(fn func()) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.onFirstReachable = fn
-}
-
-func (m *MintHealthTracker) SetOnReachableSetChanged(fn func()) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.onReachableSetChanged = fn
-}
-
-// ResetFirstReachable allows the onFirstReachable callback to fire again
-// on the next proactive check that finds a reachable mint.
-func (m *MintHealthTracker) ResetFirstReachable() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.hadReachableMint = false
-}
-
-func (m *MintHealthTracker) String() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var parts []string
-	for _, cfg := range m.mintConfigs {
-		status := "unreachable"
-		if m.reachable[cfg.URL] {
-			status = "reachable"
-		}
-		parts = append(parts, fmt.Sprintf("%s=%s", cfg.URL, status))
-	}
-	return fmt.Sprintf("MintHealthTracker{%s}", strings.Join(parts, ", "))
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
+	log.Printf("mint probe: url=%s status=%d elapsed=%s ok=%v", url, resp.StatusCode, elapsed, ok)
+	return ok
 }
