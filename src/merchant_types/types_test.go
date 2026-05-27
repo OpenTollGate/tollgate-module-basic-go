@@ -76,3 +76,22 @@ func TestMutexMerchantProvider_SetToNil(t *testing.T) {
 	p.SetMerchant(nil)
 	assert.Nil(t, p.GetMerchant())
 }
+
+func TestPaymentMerchant_InterfaceNilSafety(t *testing.T) {
+	var m PaymentMerchant = nil
+	assert.Nil(t, m)
+}
+
+func TestMutexMerchantProvider_NilTransition(t *testing.T) {
+	p := NewMutexMerchantProvider(nil)
+	assert.Nil(t, p.GetMerchant())
+
+	p.SetMerchant(&mockPaymentMerchant{balance: 50})
+	assert.Equal(t, uint64(50), p.GetMerchant().GetBalanceByMint("any"))
+
+	p.SetMerchant(nil)
+	assert.Nil(t, p.GetMerchant())
+
+	p.SetMerchant(&mockPaymentMerchant{balance: 99})
+	assert.Equal(t, uint64(99), p.GetMerchant().GetBalanceByMint("any"))
+}
