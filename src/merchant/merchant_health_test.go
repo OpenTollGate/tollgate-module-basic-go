@@ -244,3 +244,39 @@ func TestMerchant_GetAcceptedMints_ReturnsOnlyReachable(t *testing.T) {
 		t.Errorf("expected %s, got %s", srvA.URL, mints[0].URL)
 	}
 }
+
+func TestMerchant_SetOnReachableSetChanged_DelegatesToTracker(t *testing.T) {
+	srv := reachableServer(t)
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.RunInitialProbe()
+
+	var called bool
+	tracker.SetOnReachableSetChanged(func() {
+		called = true
+	})
+
+	if tracker.onReachableSetChanged == nil {
+		t.Fatal("expected callback to be set on tracker")
+	}
+
+	tracker.onReachableSetChanged()
+	if !called {
+		t.Error("expected delegated callback to fire")
+	}
+}
+
+func TestMerchant_GetMintHealthTracker_ReturnsTracker(t *testing.T) {
+	srv := reachableServer(t)
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.RunInitialProbe()
+
+	m := &Merchant{
+		config:            mintConfigWithURLs(srv.URL),
+		mintHealthTracker: tracker,
+	}
+
+	returned := m.GetMintHealthTracker()
+	if returned != tracker {
+		t.Error("GetMintHealthTracker did not return the same tracker instance")
+	}
+}
