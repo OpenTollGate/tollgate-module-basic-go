@@ -360,15 +360,15 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
+	// Read the request body (capped at 1MB to prevent resource exhaustion)
+	defer r.Body.Close()
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		mainLogger.WithError(err).Error("Error reading request body")
 		sendNoticeResponse(w, getMerchant(), http.StatusBadRequest, "error", "invalid-request",
 			fmt.Sprintf("Error reading request body: %v", err), macAddress)
 		return
 	}
-	defer r.Body.Close()
 
 	// Print the request body to console
 	bodyStr := string(body)
