@@ -8,9 +8,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -389,4 +391,361 @@ func TestWriteBackupFile(t *testing.T) {
 			t.Error("expected file to not exist")
 		}
 	})
+}
+
+func TestSSLInstallCerts(t *testing.T) {
+	origSSLDir := sslDir
+	origCertDest := certDest
+	origKeyDest := keyDest
+	defer func() {
+		sslDir = origSSLDir
+		certDest = origCertDest
+		keyDest = origKeyDest
+	}()
+
+	dir := t.TempDir()
+	sslDir = filepath.Join(dir, "ssl")
+	certDest = filepath.Join(sslDir, "server.crt")
+	keyDest = filepath.Join(sslDir, "server.key")
+
+	certSrc := filepath.Join(dir, "test.crt")
+	keySrc := filepath.Join(dir, "test.key")
+	os.WriteFile(certSrc, []byte("cert-data"), 0644)
+	os.WriteFile(keySrc, []byte("key-data"), 0600)
+
+	if err := sslInstallCerts(certSrc, keySrc); err != nil {
+		t.Fatal(err)
+	}
+
+	certData, _ := os.ReadFile(certDest)
+	if string(certData) != "cert-data" {
+		t.Errorf("cert content mismatch: %q", certData)
+	}
+
+	keyData, _ := os.ReadFile(keyDest)
+	if string(keyData) != "key-data" {
+		t.Errorf("key content mismatch: %q", keyData)
+	}
+
+	keyInfo, _ := os.Stat(keyDest)
+	if keyInfo.Mode().Perm() != 0600 {
+		t.Errorf("key permissions: %o, want 0600", keyInfo.Mode().Perm())
+	}
+
+	certInfo, _ := os.Stat(certDest)
+	if certInfo.Mode().Perm() != 0644 {
+		t.Errorf("cert permissions: %o, want 0644", certInfo.Mode().Perm())
+	}
+}
+
+func TestCleanupStaleTempDirs(t *testing.T) {
+	tmpDir := os.TempDir()
+	matchDir := filepath.Join(tmpDir, "tollgate-ssl-test-"+fmt.Sprintf("%d", time.Now().UnixNano()))
+	os.MkdirAll(matchDir, 0755)
+	defer os.RemoveAll(matchDir)
+
+	splitDir := filepath.Join(tmpDir, "tollgate-ssl-split-test-"+fmt.Sprintf("%d", time.Now().UnixNano()))
+	os.MkdirAll(splitDir, 0755)
+	defer os.RemoveAll(splitDir)
+
+	keepDir := filepath.Join(tmpDir, "tollgate-keep-"+fmt.Sprintf("%d", time.Now().UnixNano()))
+	os.MkdirAll(keepDir, 0755)
+	defer os.RemoveAll(keepDir)
+
+	cleanupStaleTempDirs()
+
+	if _, err := os.Stat(matchDir); !os.IsNotExist(err) {
+		t.Error("matching temp dir should be removed")
+	}
+	if _, err := os.Stat(splitDir); !os.IsNotExist(err) {
+		t.Error("matching split dir should be removed")
+	}
+	if _, err := os.Stat(keepDir); os.IsNotExist(err) {
+		t.Error("non-matching dir should be kept")
+	}
+}
+
+func TestConfigureUhttpd(t *testing.T) {
+	var commands []string
+	fnRunCommandChecked = func(name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		return "", nil
+	}
+	defer func() {
+		fnRunCommandChecked = defaultRunCommandChecked
+		fnRunCommand = defaultRunCommand
+	}()
+
+	if err := configureUhttpd(); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "uhttpd.main.cert") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected uhttpd cert config command")
+	}
+}
+
+func TestConfigureDnsmasq(t *testing.T) {
+	var commands []string
+	fnRunCommandChecked = func(name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		return "", nil
+	}
+	defer func() {
+		fnRunCommandChecked = defaultRunCommandChecked
+		fnRunCommand = defaultRunCommand
+	}()
+
+	if err := configureDnsmasq("test.lan", "192.168.1.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "dhcp") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected dhcp config command")
+	}
+}
+
+func TestConfigureNodogsplash(t *testing.T) {
+	var commands []string
+	fnRunCommandChecked = func(name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	defer func() { fnRunCommandChecked = defaultRunCommandChecked }()
+
+	if err := configureNodogsplash("test.lan"); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "gatewaydomainname") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected gatewaydomainname command")
+	}
+}
+
+func TestAllowPort443(t *testing.T) {
+	var commands []string
+	fnRunCommandChecked = func(name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		return "", nil
+	}
+	defer func() {
+		fnRunCommandChecked = defaultRunCommandChecked
+		fnRunCommand = defaultRunCommand
+	}()
+
+	if err := allowPort443(); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "443") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected port 443 allow command")
+	}
+}
+
+func TestRemovePort443Allow(t *testing.T) {
+	var commands []string
+	fnRunCommandChecked = func(name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	defer func() { fnRunCommandChecked = defaultRunCommandChecked }()
+
+	if err := removePort443Allow(); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "443") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected port 443 removal command")
+	}
+}
+
+func TestUCIGetList(t *testing.T) {
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		return "'0.0.0.0:443' '[::]:443'", nil
+	}
+	defer func() { fnRunCommand = defaultRunCommand }()
+
+	result := uciGetList("uhttpd.main.listen_https")
+	if len(result) != 2 {
+		t.Fatalf("expected 2 items, got %d: %v", len(result), result)
+	}
+	if result[0] != "0.0.0.0:443" {
+		t.Errorf("first item: %q", result[0])
+	}
+	if result[1] != "[::]:443" {
+		t.Errorf("second item: %q", result[1])
+	}
+}
+
+func TestUCIGetList_Empty(t *testing.T) {
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		return "", fmt.Errorf("not found")
+	}
+	defer func() { fnRunCommand = defaultRunCommand }()
+
+	result := uciGetList("uhttpd.main.listen_https")
+	if result != nil {
+		t.Errorf("expected nil for empty, got %v", result)
+	}
+}
+
+func TestRestoreUhttpd_FromBackup(t *testing.T) {
+	origBackupDir := backupDir
+	origSSLDir := sslDir
+	origCertDest := certDest
+	origKeyDest := keyDest
+	defer func() {
+		backupDir = origBackupDir
+		sslDir = origSSLDir
+		certDest = origCertDest
+		keyDest = origKeyDest
+	}()
+
+	dir := t.TempDir()
+	backupDir = filepath.Join(dir, "backup")
+	sslDir = filepath.Join(dir, "ssl")
+	certDest = filepath.Join(sslDir, "server.crt")
+	keyDest = filepath.Join(sslDir, "server.key")
+	os.MkdirAll(backupDir, 0755)
+
+	os.WriteFile(backupDir+"/uhttpd.cert", []byte("/etc/old.crt\n"), 0644)
+	os.WriteFile(backupDir+"/uhttpd.key", []byte("/etc/old.key\n"), 0644)
+
+	var commands []string
+	fnRunCommandChecked = func(name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		if len(args) >= 2 && args[0] == "-q" && args[1] == "get" {
+			key := args[2]
+			data, _ := os.ReadFile(backupDir + "/" + filepath.Base(key))
+			return strings.TrimSpace(string(data)), nil
+		}
+		return "", nil
+	}
+	defer func() {
+		fnRunCommandChecked = defaultRunCommandChecked
+		fnRunCommand = defaultRunCommand
+	}()
+
+	if err := restoreUhttpd(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(commands) == 0 {
+		t.Error("expected uci commands to be issued")
+	}
+}
+
+func TestSSLStatus_NotConfigured(t *testing.T) {
+	origSSLDir := sslDir
+	defer func() { sslDir = origSSLDir }()
+
+	sslDir = t.TempDir() + "/nonexistent"
+
+	err := sslStatus()
+	if err != nil {
+		t.Logf("sslStatus returned: %v (acceptable)", err)
+	}
+}
+
+func TestSSLBackup(t *testing.T) {
+	origBackupDir := backupDir
+	defer func() { backupDir = origBackupDir }()
+
+	backupDir = filepath.Join(t.TempDir(), "backup")
+
+	fnRunCommand = func(name string, args ...string) (string, error) {
+		return "", nil
+	}
+	fnRunCommandChecked = func(name string, args ...string) error {
+		return nil
+	}
+	defer func() {
+		fnRunCommand = defaultRunCommand
+		fnRunCommandChecked = defaultRunCommandChecked
+	}()
+
+	if err := sslBackup("self-signed", "test.lan", "192.168.1.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(backupDir + "/ssl.mode"); os.IsNotExist(err) {
+		t.Error("expected ssl.mode backup file")
+	}
+	data, _ := os.ReadFile(backupDir + "/ssl.mode")
+	if strings.TrimSpace(string(data)) != "self-signed" {
+		t.Errorf("ssl.mode content: %q", string(data))
+	}
+}
+
+func TestConfirmOrYes_Flag(t *testing.T) {
+	sslYesFlag = true
+	defer func() { sslYesFlag = false }()
+
+	if !confirmOrYes("test") {
+		t.Error("expected true when sslYesFlag is set")
+	}
+}
+
+func TestConfirmOrYes_Ask(t *testing.T) {
+	sslYesFlag = false
+	defer func() { sslYesFlag = false }()
+
+	called := false
+	fnAskConfirmation = func(msg string) bool {
+		called = true
+		return true
+	}
+	defer func() { fnAskConfirmation = defaultAskConfirmation }()
+
+	confirmOrYes("test")
+	if !called {
+		t.Error("expected askConfirmation to be called")
+	}
 }

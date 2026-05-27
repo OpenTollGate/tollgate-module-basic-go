@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
+var (
 	sslDir    = "/etc/tollgate/ssl"
 	backupDir = sslDir + "/backup"
 	certDest  = sslDir + "/server.crt"
@@ -26,6 +26,32 @@ const (
 )
 
 var sslYesFlag bool
+
+var fnRunCommand = defaultRunCommand
+var fnRunCommandChecked = defaultRunCommandChecked
+var fnAskConfirmation = defaultAskConfirmation
+
+func defaultRunCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func defaultRunCommandChecked(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+func defaultAskConfirmation(msg string) bool {
+	var response string
+	fmt.Printf("%s (y/N): ", msg)
+	fmt.Scanln(&response)
+	return strings.ToLower(response) == "y" || strings.ToLower(response) == "yes"
+}
 
 var sslCmd = &cobra.Command{
 	Use:   "ssl",
@@ -78,7 +104,7 @@ func confirmOrYes(msg string) bool {
 	if sslYesFlag {
 		return true
 	}
-	return askConfirmation(msg)
+	return fnAskConfirmation(msg)
 }
 
 func sslApply(args []string) error {
@@ -793,18 +819,11 @@ func filterLines(input, contains string) []string {
 }
 
 func runCommand(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return fnRunCommand(name, args...)
 }
 
 func runCommandChecked(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
-	}
-	return nil
+	return fnRunCommandChecked(name, args...)
 }
 
 func uciGet(key string) (string, error) {
