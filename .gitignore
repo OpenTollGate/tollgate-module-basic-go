@@ -36,3 +36,9 @@ memory-global
 memory-project/
 reference/
 .opencode/
+
+# Scratchpad docs — not project docs, should not merge
+PR.md
+IMPLEMENTATION_TEST_PLAN.md
+IMPLEMENTATION_PLAN_REVIEWER_FEEDBACK.md
+REVIEWER_FEEDBACK_NOTES.md
