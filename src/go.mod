@@ -6,6 +6,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0
@@ -19,6 +20,7 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ./merchant_types
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol => ./tollgate_protocol
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector => ./upstream_detector
@@ -70,6 +72,7 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect
