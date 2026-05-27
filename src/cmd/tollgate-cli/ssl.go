@@ -27,30 +27,19 @@ var (
 
 var sslYesFlag bool
 
-var fnRunCommand = defaultRunCommand
-var fnRunCommandChecked = defaultRunCommandChecked
-var fnAskConfirmation = defaultAskConfirmation
-
-func defaultRunCommand(name string, args ...string) (string, error) {
+func runCommand(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
-func defaultRunCommandChecked(name string, args ...string) error {
+func runCommandChecked(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
 	}
 	return nil
-}
-
-func defaultAskConfirmation(msg string) bool {
-	var response string
-	fmt.Printf("%s (y/N): ", msg)
-	fmt.Scanln(&response)
-	return strings.ToLower(response) == "y" || strings.ToLower(response) == "yes"
 }
 
 var sslCmd = &cobra.Command{
@@ -104,7 +93,7 @@ func confirmOrYes(msg string) bool {
 	if sslYesFlag {
 		return true
 	}
-	return fnAskConfirmation(msg)
+	return askConfirmation(msg)
 }
 
 func sslApply(args []string) error {
@@ -816,14 +805,6 @@ func filterLines(input, contains string) []string {
 		}
 	}
 	return result
-}
-
-func runCommand(name string, args ...string) (string, error) {
-	return fnRunCommand(name, args...)
-}
-
-func runCommandChecked(name string, args ...string) error {
-	return fnRunCommandChecked(name, args...)
 }
 
 func uciGet(key string) (string, error) {
