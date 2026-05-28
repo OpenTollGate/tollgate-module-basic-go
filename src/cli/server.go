@@ -513,7 +513,7 @@ func (s *CLIServer) handleHealthCommand() CLIResponse {
 		"status":     "ok",
 		"version":    GetVersionInfo(),
 		"config_ok":  s.configManager != nil,
-		"wallet_ok":  s.merchant != nil,
+		"wallet_ok":  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
 		"uptime":     time.Since(s.startTime).String(),
 	}
 	return CLIResponse{
