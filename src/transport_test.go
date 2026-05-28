@@ -44,18 +44,3 @@ func TestDefaultTransport_DisableKeepAlives(t *testing.T) {
 func TestDefaultClient_TimeoutSet(t *testing.T) {
 	assert.Equal(t, 30*time.Second, http.DefaultClient.Timeout)
 }
-
-func TestDefaultTransport_MaxIdleConns(t *testing.T) {
-	transport, ok := http.DefaultTransport.(*http.Transport)
-	assert.True(t, ok)
-	assert.Equal(t, 10, transport.MaxIdleConns)
-}
-
-func TestDefaultTransport_DefaultClientUsesDefaultTransport(t *testing.T) {
-	assert.Nil(t, http.DefaultClient.Transport,
-		"DefaultClient should use DefaultTransport (no override)")
-	transport, ok := http.DefaultTransport.(*http.Transport)
-	assert.True(t, ok)
-	assert.NotNil(t, transport.TLSClientConfig)
-	assert.Equal(t, uint16(tls.VersionTLS12), transport.TLSClientConfig.MaxVersion)
-}

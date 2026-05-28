@@ -86,16 +86,9 @@ type PaymentProposal struct {
 
 // UpstreamSessionManagerInterface defines the interface for the upstream_session_manager module
 type UpstreamSessionManagerInterface interface {
-	// HandleGatewayConnected is called when UpstreamDetector discovers a gateway
 	HandleGatewayConnected(interfaceName, macAddress, gatewayIP string) error
-
-	// HandleDisconnect is called when a network interface goes down
 	HandleDisconnect(interfaceName string) error
-
-	// Management methods
 	GetActiveSessions() map[string]*UpstreamSession
-
-	// Control methods
 	Stop() error
 }
 

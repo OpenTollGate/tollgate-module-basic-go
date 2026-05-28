@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -47,8 +47,8 @@ type UpstreamSession struct {
 	lastPaymentAttempt time.Time  // Last time we attempted payment
 
 	// Dependencies
-	configManager    *config_manager.ConfigManager
-	merchantProvider merchant.MerchantProvider
+	configManager   *config_manager.ConfigManager
+	merchant        merchant_types.MerchantProvider
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -61,7 +61,7 @@ func NewUpstreamSession(
 	advertisement *nostr.Event,
 	adInfo *tollgate_protocol.AdvertisementInfo,
 	configManager *config_manager.ConfigManager,
-	merchantProvider merchant.MerchantProvider,
+	merchantProvider merchant_types.MerchantProvider,
 ) (*UpstreamSession, error) {
 	// Get config for renewal offsets
 	config := configManager.GetConfig()
@@ -123,7 +123,7 @@ func NewUpstreamSession(
 		Status:            SessionActive,
 		UsageTracker:      nil,
 		configManager:     configManager,
-		merchantProvider:  merchantProvider,
+		merchant:          merchantProvider,
 	}
 
 	// Start tracker - it will handle initial payment if needed (usage == 0/0),
@@ -219,8 +219,6 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	s.paymentMu.Lock()
 	defer s.paymentMu.Unlock()
 
-	m := s.merchantProvider.GetMerchant()
-
 	// Throttle payment attempts (minimum 5 seconds between attempts)
 	// Check this FIRST, before checking paymentInProgress
 	if time.Since(s.lastPaymentAttempt) < 5*time.Second {
@@ -260,7 +258,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	// Select pricing option with sufficient funds for our desired payment
 	selectedPricing, err := selectCompatiblePricingWithFunds(
 		s.AdvertisementInfo.PricingOptions,
-		m,
+		s.merchant.GetMerchant(),
 		preferredAllotment,
 		s.AdvertisementInfo.StepSize,
 	)
@@ -302,7 +300,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 		"new_allotment": allotment,
 		"payment_count": s.PaymentCount,
 		"total_spent":   s.TotalSpent,
-	}).Info("✅ Payment successful, session updated")
+	}).Info("Payment successful, session updated")
 
 	return nil
 }
@@ -310,10 +308,9 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 // sendPayment sends a payment (initial or renewal) and returns the allotment
 // Uses new simplified protocol: POST plain text Cashu token
 func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
-	m := s.merchantProvider.GetMerchant()
 	// Create payment token
 	amount := steps * s.SelectedPricing.PricePerStep
-	token, err := m.CreatePaymentTokenWithOverpayment(
+	token, err := s.merchant.GetMerchant().CreatePaymentTokenWithOverpayment(
 		s.SelectedPricing.MintURL,
 		amount,
 		10000, // overpayment tolerance
@@ -417,7 +414,7 @@ func (s *UpstreamSession) recoverToken(token string, originalErr error) {
 	}
 
 	// Call the token recovery utility
-	recoverFailedPaymentToken(s.merchantProvider.GetMerchant(), token, mintURL, originalErr)
+	recoverFailedPaymentToken(s.merchant.GetMerchant(), token, mintURL, originalErr)
 }
 
 // Stop stops the session (stops tracker and marks as expired)
@@ -430,7 +427,7 @@ func (s *UpstreamSession) Stop() {
 // and has sufficient balance to make the desired payment
 func selectCompatiblePricingWithFunds(
 	options []tollgate_protocol.PricingOption,
-	merchantImpl merchant.MerchantInterface,
+	merchantImpl merchant_types.PaymentMerchant,
 	preferredAllotment uint64,
 	stepSize uint64,
 ) (*tollgate_protocol.PricingOption, error) {

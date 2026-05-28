@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"context" // Added for context.Background()
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -19,6 +19,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
@@ -43,18 +44,53 @@ var (
 var upstreamManager *wireless_gateway_manager.UpstreamManager
 
 var tollgateDetailsString string
-// TODO: merchantInstance is kept for the initial degraded-type check and the
-// non-degraded startup path (StartPayoutRoutine/StartDataUsageMonitoring).
-// After recovery, it's written back but never read again — all consumers use
-// merchantProvider.GetMerchant(). Consider eliminating this variable by scoping
-// the initial merchant to init() only and using the provider everywhere.
-var merchantInstance merchant.MerchantInterface
-var merchantProvider merchant.MerchantProvider
-var healthTracker *merchant.MintHealthTracker
+
+var (
+	merchantProvider *merchantTypesProvider
+)
+
 var cliServer *cli.CLIServer
 
-func getMerchant() merchant.MerchantInterface {
-	return merchantProvider.GetMerchant()
+type merchantTypesProvider struct {
+	inner *merchant.MutexMerchantProvider
+}
+
+func (p *merchantTypesProvider) GetMerchant() merchant_types.PaymentMerchant {
+	return p.inner.GetMerchant()
+}
+
+func swapMerchant(newMerchant merchant_types.PaymentMerchant) {
+	if mi, ok := newMerchant.(merchant.MerchantInterface); ok {
+		merchantProvider.inner.SetMerchant(mi)
+	} else {
+		mainLogger.Error("swapMerchant: cannot convert PaymentMerchant to MerchantInterface")
+	}
+}
+
+func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
+	m.SetOnReachableSetChanged(func() {
+		mainLogger.Info("Reachable mint set changed — rebuilding merchant")
+		current := merchantProvider.inner.GetMerchant()
+		full, ok := current.(*merchant.Merchant)
+		if !ok {
+			return
+		}
+		reachableMints := full.GetMintHealthTracker().GetReachableMintConfigs()
+		if len(reachableMints) > 0 {
+			return
+		}
+		mainLogger.Warn("All mints unreachable — downgrading to degraded mode")
+		if err := full.Shutdown(); err != nil {
+			mainLogger.WithError(err).Error("Failed to shutdown merchant before downgrade")
+		}
+		deg := merchant.NewMerchantDegradedFromFull(configManager, full.GetMintHealthTracker())
+		deg.OnUpgrade(func(upgraded merchant.MerchantInterface) {
+			mainLogger.Info("Upgrading from degraded to full merchant after recovery")
+			swapMerchant(upgraded)
+			registerReachableSetChangedCallback(upgraded)
+		})
+		swapMerchant(deg)
+	})
 }
 
 // getTollgatePaths returns the configuration file paths based on the environment.
@@ -99,7 +135,7 @@ func init() {
 			Timeout: 10 * time.Second,
 		}).DialContext,
 		DisableKeepAlives:     true,
-		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12},
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout:   20 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		MaxIdleConns:          10,
@@ -107,7 +143,6 @@ func init() {
 		ForceAttemptHTTP2:     false,
 	}
 	http.DefaultClient.Timeout = 30 * time.Second
-
 	var err error
 
 	configPath, installPath, identitiesPath := getTollgatePaths()
@@ -132,51 +167,22 @@ func init() {
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
 	var err2 error
-	merchantInstance, err2 = merchant.New(configManager)
+	merchantInstance, err2 := merchant.New(configManager)
 	if err2 != nil {
 		mainLogger.WithError(err2).Fatal("Failed to create merchant")
 	}
+	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(merchantInstance)}
 
-	merchantProvider = merchant.NewMerchantProvider(merchantInstance)
-
-	healthTracker = merchant.NewMintHealthTracker(mainConfig.AcceptedMints)
-	healthTracker.RunInitialProbe()
-
-	if _, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
-		mainLogger.Warn("Merchant started in degraded mode — wallet unavailable, payment operations will fail until mints recover")
-
-		healthTracker.SetOnFirstReachable(func() {
-			mainLogger.Info("Mint became reachable — attempting to upgrade from degraded mode")
-
-			newMerchant, err := merchant.New(configManager)
-			if err != nil {
-				mainLogger.WithError(err).Error("Failed to create full merchant during recovery — staying in degraded mode")
-				healthTracker.ResetFirstReachable()
-				return
-			}
-
-			// merchant.New() falls back to degraded mode without returning an error.
-			// If we still got a degraded merchant, the recovery didn't succeed — retry later.
-			if _, stillDegraded := newMerchant.(*merchant.MerchantDegraded); stillDegraded {
-				mainLogger.Warn("Recovery attempt returned degraded merchant — staying in degraded mode, will retry")
-				healthTracker.ResetFirstReachable()
-				return
-			}
-
-			merchantProvider.SetMerchant(newMerchant)
-			merchantInstance = newMerchant
-
-			newMerchant.StartPayoutRoutine()
-			newMerchant.StartDataUsageMonitoring()
-
-			mainLogger.Info("Upgraded from degraded to full merchant — all consumers (HTTP, CLI, USM) now use the new merchant via provider")
+	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
+		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		deg.OnUpgrade(func(full merchant.MerchantInterface) {
+			mainLogger.Info("Upgrading from degraded to full merchant")
+			swapMerchant(full)
+			registerReachableSetChangedCallback(full)
 		})
 	} else {
-		merchantInstance.StartPayoutRoutine()
-		merchantInstance.StartDataUsageMonitoring()
+		registerReachableSetChangedCallback(merchantInstance)
 	}
-
-	healthTracker.Start()
 
 	initUpstreamManager()
 
@@ -251,7 +257,7 @@ func (r *resellerModeAdapter) IsResellerModeActive() bool {
 }
 
 func initCLIServer() {
-	cliServer = cli.NewCLIServer(configManager, merchantProvider, sharedConnector, sharedScanner, upstreamManager)
+	cliServer = cli.NewCLIServer(configManager, merchantProvider.inner, sharedConnector, sharedScanner, upstreamManager)
 
 	err := cliServer.Start()
 	if err != nil {
@@ -314,7 +320,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, getMerchant().GetAdvertisement())
+	fmt.Fprint(w, merchantProvider.inner.GetMerchant().GetAdvertisement())
 }
 
 // handleRootPost handles POST requests to the root endpoint
@@ -335,7 +341,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error getting MAC address")
-		sendNoticeResponse(w, getMerchant(), http.StatusBadRequest, "error", "mac-address-lookup-failed",
+		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "mac-address-lookup-failed",
 			fmt.Sprintf("Failed to lookup MAC address for IP %s: %v", ip, err), "")
 		return
 	}
@@ -344,7 +350,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error reading request body")
-		sendNoticeResponse(w, getMerchant(), http.StatusBadRequest, "error", "invalid-request",
+		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-request",
 			fmt.Sprintf("Error reading request body: %v", err), macAddress)
 		return
 	}
@@ -380,7 +386,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 
 		if paymentToken == "" {
 			mainLogger.Error("No payment tag found in event")
-			sendNoticeResponse(w, getMerchant(), http.StatusBadRequest, "error", "invalid-event",
+			sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-event",
 				"No payment tag found in event", macAddress)
 			return
 		}
@@ -393,14 +399,14 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process payment with cashu token and MAC address
-	responseEvent, err := getMerchant().PurchaseSession(cashuToken, macAddress)
+	responseEvent, err := merchantProvider.inner.GetMerchant().PurchaseSession(cashuToken, macAddress)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
 		mainLogger.WithError(err).Error("Payment processing failed")
-		sendNoticeResponse(w, getMerchant(), http.StatusInternalServerError, "error", "internal-error",
+		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusInternalServerError, "error", "internal-error",
 			fmt.Sprintf("Internal error during payment processing: %v", err), macAddress)
 		return
 	}
@@ -423,8 +429,8 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendNoticeResponse creates and sends a notice event response
-func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, statusCode int, level, code, message, customerPubkey string) {
-	noticeEvent, err := m.CreateNoticeEvent(level, code, message, customerPubkey)
+func sendNoticeResponse(w http.ResponseWriter, merchantInstance merchant.MerchantInterface, statusCode int, level, code, message, customerPubkey string) {
+	noticeEvent, err := merchantInstance.CreateNoticeEvent(level, code, message, customerPubkey)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error creating notice event")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -512,7 +518,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	usage, err := getMerchant().GetUsage(macAddress)
+	usage, err := merchantProvider.inner.GetMerchant().GetUsage(macAddress)
 	if err != nil {
 		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).Error("Error getting balance usage")
 		w.Header().Set("Content-Type", "application/json")
@@ -536,7 +542,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := getMerchant().GetSession(macAddress)
+	session, err := merchantProvider.inner.GetMerchant().GetSession(macAddress)
 	if err != nil || session == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -603,7 +609,7 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invoice, err := getMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)
+	invoice, err := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)
 	if err != nil {
 		mainLogger.WithError(err).Warn("Failed to create lightning invoice")
 		w.Header().Set("Content-Type", "application/json")
@@ -647,7 +653,7 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 
 	// Quotes are bound to the device MAC at invoice creation time. Polling only
 	// reveals status for that same device and access is granted to the recorded MAC.
-	status, err := getMerchant().GetLightningInvoiceStatus(quoteID, macAddress)
+	status, err := merchantProvider.inner.GetMerchant().GetLightningInvoiceStatus(quoteID, macAddress)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		if errors.Is(err, merchant.ErrQuoteNotFound) {
@@ -716,7 +722,7 @@ func main() {
 		}
 
 		// Get usage from merchant
-		usageStr, err := getMerchant().GetUsage(macAddress)
+		usageStr, err := merchantProvider.inner.GetMerchant().GetUsage(macAddress)
 		if err != nil {
 			mainLogger.WithFields(logrus.Fields{
 				"mac":   macAddress,
@@ -736,7 +742,7 @@ func main() {
 		Addr: port,
 		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
