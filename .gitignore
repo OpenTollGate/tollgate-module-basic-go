@@ -13,6 +13,8 @@ vendor/
 tollgate
 tollgate-wrt
 tollgate-module-basic-go
+tollgate-cli
+*.exe
 
 # Test artifacts
 **/tollwallet_db/*

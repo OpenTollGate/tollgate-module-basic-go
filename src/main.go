@@ -769,19 +769,38 @@ func getIP(r *http.Request) string {
 	return ip
 }
 
+var privateCIDRs []net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"192.168.0.0/16",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"127.0.0.0/8",
+		"fd00::/8",
+		"::1/128",
+	} {
+		_, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid CIDR %s: %v", cidr, err))
+		}
+		privateCIDRs = append(privateCIDRs, *n)
+	}
+}
+
 func isLocalOrigin(origin string) bool {
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false
 	}
-	host := u.Hostname()
-	return host == "127.0.0.1" || host == "localhost" ||
-		strings.HasPrefix(host, "192.168.") ||
-		strings.HasPrefix(host, "10.") ||
-		strings.HasPrefix(host, "172.16.") ||
-		strings.HasPrefix(host, "172.17.") ||
-		strings.HasPrefix(host, "172.18.") ||
-		strings.HasPrefix(host, "172.19.") ||
-		strings.HasPrefix(host, "172.2") ||
-		strings.HasPrefix(host, "172.3")
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		return u.Hostname() == "localhost"
+	}
+	for _, n := range privateCIDRs {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }

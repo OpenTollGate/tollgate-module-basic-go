@@ -65,7 +65,12 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 func (cm *ConfigManager) GetConfig() *Config {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	return cm.config
+	cp := *cm.config
+	cp.AcceptedMints = make([]MintConfig, len(cm.config.AcceptedMints))
+	copy(cp.AcceptedMints, cm.config.AcceptedMints)
+	cp.ProfitShare = make([]ProfitShareConfig, len(cm.config.ProfitShare))
+	copy(cp.ProfitShare, cm.config.ProfitShare)
+	return &cp
 }
 
 func (cm *ConfigManager) ReloadConfig() error {
@@ -100,13 +105,19 @@ func (cm *ConfigManager) ReloadIdentities() error {
 func (cm *ConfigManager) GetInstallConfig() *InstallConfig {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	return cm.installConfig
+	cp := *cm.installConfig
+	return &cp
 }
 
 func (cm *ConfigManager) GetIdentities() *IdentitiesConfig {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	return cm.identitiesConfig
+	cp := *cm.identitiesConfig
+	cp.PublicIdentities = make([]PublicIdentity, len(cm.identitiesConfig.PublicIdentities))
+	copy(cp.PublicIdentities, cm.identitiesConfig.PublicIdentities)
+	cp.OwnedIdentities = make([]OwnedIdentity, len(cm.identitiesConfig.OwnedIdentities))
+	copy(cp.OwnedIdentities, cm.identitiesConfig.OwnedIdentities)
+	return &cp
 }
 
 // GetIdentity retrieves a public identity by name.
@@ -123,25 +134,26 @@ func (cm *ConfigManager) GetIdentity(name string) (*PublicIdentity, error) {
 
 // UpdatePricing updates the pricing information in the config file if it has changed.
 func (cm *ConfigManager) UpdatePricing(pricePerStep, stepSize int) error {
-	config := cm.GetConfig()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
 	needsUpdate := false
 
-	// Assuming the first mint is the one to update. This may need to be revisited.
-	if len(config.AcceptedMints) > 0 {
-		if config.AcceptedMints[0].PricePerStep != uint64(pricePerStep) {
-			config.AcceptedMints[0].PricePerStep = uint64(pricePerStep)
+	if len(cm.config.AcceptedMints) > 0 {
+		if cm.config.AcceptedMints[0].PricePerStep != uint64(pricePerStep) {
+			cm.config.AcceptedMints[0].PricePerStep = uint64(pricePerStep)
 			needsUpdate = true
 		}
 	}
 
-	if config.StepSize != uint64(stepSize) {
-		config.StepSize = uint64(stepSize)
+	if cm.config.StepSize != uint64(stepSize) {
+		cm.config.StepSize = uint64(stepSize)
 		needsUpdate = true
 	}
 
 	if needsUpdate {
 		log.Printf("Price changed. Udpating config file with price_per_step=%d, step_size=%d", pricePerStep, stepSize)
-		return SaveConfig(cm.ConfigFilePath, config)
+		return SaveConfig(cm.ConfigFilePath, cm.config)
 	}
 
 	return nil
