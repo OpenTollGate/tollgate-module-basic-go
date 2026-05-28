@@ -44,15 +44,12 @@ func NewDefaultIdentitiesConfig() *IdentitiesConfig {
 		PublicIdentities: []PublicIdentity{
 			{
 				Name:             "developer",
+				PubKey:           "not currently used",
 				LightningAddress: "tollgate@minibits.cash",
 			},
 			{
-				Name:   "trusted_maintainer_1",
-				PubKey: "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a",
-			},
-			{
 				Name:             "owner",
-				PubKey:           "[on_setup]",
+				PubKey:           "not currently used",
 				LightningAddress: "tollgate@minibits.cash",
 			},
 		},
@@ -85,7 +82,7 @@ func SaveIdentities(filePath string, identitiesConfig *IdentitiesConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0600)
 }
 
 // EnsureDefaultIdentities ensures a default identities.json exists, loading from file if present.
