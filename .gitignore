@@ -13,8 +13,6 @@ vendor/
 tollgate
 tollgate-wrt
 tollgate-module-basic-go
-tollgate-cli
-*.exe
 
 # Test artifacts
 **/tollwallet_db/*
@@ -38,8 +36,3 @@ memory-global
 memory-project/
 reference/
 .opencode/
-
-# Planning docs — internal, not for release
-docs/configuration-ui-merge-plan.md
-docs/configurationwizzard-integration.md
-PR.md

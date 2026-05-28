@@ -1,5 +1,3 @@
-//go:build testenv
-
 package main
 
 import (

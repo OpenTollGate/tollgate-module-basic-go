@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -14,7 +13,6 @@ type ConfigManager struct {
 	ConfigFilePath     string
 	InstallFilePath    string
 	IdentitiesFilePath string
-	mu                 sync.RWMutex
 	config             *Config
 	installConfig      *InstallConfig
 	identitiesConfig   *IdentitiesConfig
@@ -63,67 +61,21 @@ func NewConfigManager(configPath, installPath, identitiesPath string) (*ConfigMa
 
 // GetConfig returns the loaded main configuration.
 func (cm *ConfigManager) GetConfig() *Config {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-	cp := *cm.config
-	cp.AcceptedMints = make([]MintConfig, len(cm.config.AcceptedMints))
-	copy(cp.AcceptedMints, cm.config.AcceptedMints)
-	cp.ProfitShare = make([]ProfitShareConfig, len(cm.config.ProfitShare))
-	copy(cp.ProfitShare, cm.config.ProfitShare)
-	return &cp
-}
-
-func (cm *ConfigManager) ReloadConfig() error {
-	loaded, err := LoadConfig(cm.ConfigFilePath)
-	if err != nil {
-		return err
-	}
-	if loaded == nil {
-		return fmt.Errorf("config file %s is empty or missing", cm.ConfigFilePath)
-	}
-	cm.mu.Lock()
-	cm.config = loaded
-	cm.mu.Unlock()
-	return nil
-}
-
-func (cm *ConfigManager) ReloadIdentities() error {
-	loaded, err := LoadIdentities(cm.IdentitiesFilePath)
-	if err != nil {
-		return err
-	}
-	if loaded == nil {
-		return fmt.Errorf("identities file %s is empty or missing", cm.IdentitiesFilePath)
-	}
-	cm.mu.Lock()
-	cm.identitiesConfig = loaded
-	cm.mu.Unlock()
-	return nil
+	return cm.config
 }
 
 // GetInstallConfig returns the loaded install configuration.
 func (cm *ConfigManager) GetInstallConfig() *InstallConfig {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-	cp := *cm.installConfig
-	return &cp
+	return cm.installConfig
 }
 
+// GetIdentities returns the loaded identities configuration.
 func (cm *ConfigManager) GetIdentities() *IdentitiesConfig {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-	cp := *cm.identitiesConfig
-	cp.PublicIdentities = make([]PublicIdentity, len(cm.identitiesConfig.PublicIdentities))
-	copy(cp.PublicIdentities, cm.identitiesConfig.PublicIdentities)
-	cp.OwnedIdentities = make([]OwnedIdentity, len(cm.identitiesConfig.OwnedIdentities))
-	copy(cp.OwnedIdentities, cm.identitiesConfig.OwnedIdentities)
-	return &cp
+	return cm.identitiesConfig
 }
 
 // GetIdentity retrieves a public identity by name.
 func (cm *ConfigManager) GetIdentity(name string) (*PublicIdentity, error) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
 	for _, identity := range cm.identitiesConfig.PublicIdentities {
 		if identity.Name == name {
 			return &identity, nil
@@ -134,26 +86,25 @@ func (cm *ConfigManager) GetIdentity(name string) (*PublicIdentity, error) {
 
 // UpdatePricing updates the pricing information in the config file if it has changed.
 func (cm *ConfigManager) UpdatePricing(pricePerStep, stepSize int) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
+	config := cm.GetConfig()
 	needsUpdate := false
 
-	if len(cm.config.AcceptedMints) > 0 {
-		if cm.config.AcceptedMints[0].PricePerStep != uint64(pricePerStep) {
-			cm.config.AcceptedMints[0].PricePerStep = uint64(pricePerStep)
+	// Assuming the first mint is the one to update. This may need to be revisited.
+	if len(config.AcceptedMints) > 0 {
+		if config.AcceptedMints[0].PricePerStep != uint64(pricePerStep) {
+			config.AcceptedMints[0].PricePerStep = uint64(pricePerStep)
 			needsUpdate = true
 		}
 	}
 
-	if cm.config.StepSize != uint64(stepSize) {
-		cm.config.StepSize = uint64(stepSize)
+	if config.StepSize != uint64(stepSize) {
+		config.StepSize = uint64(stepSize)
 		needsUpdate = true
 	}
 
 	if needsUpdate {
 		log.Printf("Price changed. Udpating config file with price_per_step=%d, step_size=%d", pricePerStep, stepSize)
-		return SaveConfig(cm.ConfigFilePath, cm.config)
+		return SaveConfig(cm.ConfigFilePath, config)
 	}
 
 	return nil
@@ -161,8 +112,6 @@ func (cm *ConfigManager) UpdatePricing(pricePerStep, stepSize int) error {
 
 // GetOwnedIdentity retrieves an owned identity by name.
 func (cm *ConfigManager) GetOwnedIdentity(name string) (*OwnedIdentity, error) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
 	for _, identity := range cm.identitiesConfig.OwnedIdentities {
 		if identity.Name == name {
 			return &identity, nil
