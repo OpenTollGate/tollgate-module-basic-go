@@ -158,4 +158,30 @@ func TestContains(t *testing.T) {
 		assert.True(t, contains(mints, "https://Mint2.Example.Com"))
 		assert.False(t, contains(mints, "https://mint3.example.com"))
 	})
+
+	t.Run("Case insensitive host but case sensitive path", func(t *testing.T) {
+		mints := []string{"https://mint.minibits.cash/Bitcoin"}
+		assert.True(t, contains(mints, "https://MINT.MINIBITS.CASH/Bitcoin"),
+			"host case should not matter")
+		assert.True(t, contains(mints, "https://mint.minibits.cash/Bitcoin"),
+			"exact match should work")
+		assert.False(t, contains(mints, "https://mint.minibits.cash/bitcoin"),
+			"path is case-sensitive")
+		assert.False(t, contains(mints, "https://MINT.MINIBITS.CASH/bitcoin"),
+			"even with different host case, path must match exactly")
+	})
+
+	t.Run("URL parse failure falls back to exact match", func(t *testing.T) {
+		mints := []string{"not-a-url"}
+		assert.True(t, contains(mints, "not-a-url"))
+		assert.False(t, contains(mints, "NOT-A-URL"),
+			"fallback is exact match, not EqualFold")
+	})
+
+	t.Run("Empty path differs from trailing slash", func(t *testing.T) {
+		mints := []string{"https://testnut.cashu.exchange"}
+		assert.True(t, contains(mints, "https://TESTNUT.CASHU.EXCHANGE"))
+		assert.False(t, contains(mints, "https://testnut.cashu.exchange/"),
+			"empty path != slash path")
+	})
 }

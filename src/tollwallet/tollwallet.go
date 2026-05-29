@@ -3,6 +3,7 @@ package tollwallet
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -232,12 +233,23 @@ func ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }
 
-// contains checks if a string exists in a slice of strings
-// Uses case-insensitive comparison since DNS hostnames are case-insensitive
-// and wallets may return mint URLs with different casing than config
+func mintURLMatches(a, b string) bool {
+	ua, err := url.Parse(a)
+	if err != nil {
+		return a == b
+	}
+	ub, err := url.Parse(b)
+	if err != nil {
+		return a == b
+	}
+	return strings.EqualFold(ua.Host, ub.Host) &&
+		ua.Scheme == ub.Scheme &&
+		ua.Path == ub.Path
+}
+
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
-		if strings.EqualFold(item, str) {
+		if mintURLMatches(item, str) {
 			return true
 		}
 	}
