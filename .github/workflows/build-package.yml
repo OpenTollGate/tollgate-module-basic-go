@@ -14,7 +14,8 @@ env:
   PACKAGE_NAME: "tollgate-wrt"
   GO_VERSION: "1.24.2"
   DEBUG: "true"
-  BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
+  BLOSSOM_SERVERS: "https://blossom.tollgate.me https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech"
+  BLOSSOM_MIN_SUCCESS: "2"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
     wss://nos.lol
@@ -187,7 +188,7 @@ jobs:
           chmod +x /usr/local/bin/nak
           nak --version
 
-      - name: Upload binaries to Blossom (per-arch)
+      - name: Upload binaries to Blossom (per-arch, mirrored)
         id: blossom-upload
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
@@ -195,21 +196,31 @@ jobs:
           set -euo pipefail
 
           blossom_upload() {
-            local file="$1" attempt=1 delay=2
-            while [ $attempt -le 3 ]; do
-              resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1) || true
-              hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-              if [ -n "$hash" ] && [ "$hash" != "null" ]; then
-                printf '%s' "$hash"
-                return 0
-              fi
-              echo "  attempt $attempt failed for $(basename "$file"); retrying in ${delay}s..." >&2
-              sleep $delay
-              delay=$((delay * 2))
-              attempt=$((attempt + 1))
+            local file="$1"
+            local hash="" ok=0
+            for server in $BLOSSOM_SERVERS; do
+              local attempt=1 delay=2
+              while [ $attempt -le 3 ]; do
+                resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1) || true
+                srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+                if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                  ok=$((ok + 1))
+                  [ -z "$hash" ] && hash="$srv_hash"
+                  echo "  ok: ${server} -> ${srv_hash}" >&2
+                  break
+                fi
+                echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+                sleep $delay
+                delay=$((delay * 2))
+                attempt=$((attempt + 1))
+              done
             done
-            echo "ERROR: Blossom upload failed for $file after 3 attempts" >&2
-            return 1
+            if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+              echo "ERROR: only ${ok} mirrors succeeded for $(basename "$file") (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
+              return 1
+            fi
+            echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
+            printf '%s' "$hash"
           }
 
           HASH_JSON="{}"
@@ -246,7 +257,18 @@ jobs:
             echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
             exit 1
           fi
-          curl -L -o binaries.tar.gz "${BLOSSOM_SERVER}/${BINARIES_HASH}"
+          DOWNLOADED=false
+          for server in $BLOSSOM_SERVERS; do
+            if curl -fsSL -o binaries.tar.gz "${server}/${BINARIES_HASH}"; then
+              DOWNLOADED=true
+              echo "Downloaded from ${server}"
+              break
+            fi
+          done
+          if [ "$DOWNLOADED" != "true" ]; then
+            echo "ERROR: failed to download binaries from any mirror" >&2
+            exit 1
+          fi
           mkdir -p bin
           tar xzf binaries.tar.gz -C bin
           ls -lh bin/
@@ -320,26 +342,31 @@ jobs:
           set -euo pipefail
 
           PKG_FILE="artifacts/$PACKAGE_FILENAME"
-          PKG_HASH=""
-          attempt=1; delay=2
-          while [ $attempt -le 3 ]; do
-            resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
-            PKG_HASH=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-            if [ -n "$PKG_HASH" ] && [ "$PKG_HASH" != "null" ]; then
-              break
-            fi
-            echo "attempt $attempt failed; retrying in ${delay}s..." >&2
-            echo "response: $resp" >&2
-            sleep $delay
-            delay=$((delay * 2))
-            attempt=$((attempt + 1))
+          PKG_HASH="" CANONICAL="" ok=0
+          for server in $BLOSSOM_SERVERS; do
+            attempt=1; delay=2
+            while [ $attempt -le 3 ]; do
+              resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
+              srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                ok=$((ok + 1))
+                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash" && CANONICAL="$server"
+                echo "  ok: ${server} -> ${srv_hash}" >&2
+                break
+              fi
+              echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
           done
-          if [ -z "$PKG_HASH" ]; then
-            echo "ERROR: Blossom upload failed after 3 attempts" >&2
+          if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+            echo "ERROR: only ${ok} mirrors succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
             exit 1
           fi
+          echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
 
-          PKG_URL="${BLOSSOM_SERVER}/${PKG_HASH}.ipk"
+          PKG_URL="${CANONICAL}/${PKG_HASH}.ipk"
           compression_tag="${{ matrix.compression }}"
           [ -z "$compression_tag" ] && compression_tag="none"
 
@@ -397,7 +424,18 @@ jobs:
             echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
             exit 1
           fi
-          curl -L -o binaries.tar.gz "${BLOSSOM_SERVER}/${BINARIES_HASH}"
+          DOWNLOADED=false
+          for server in $BLOSSOM_SERVERS; do
+            if curl -fsSL -o binaries.tar.gz "${server}/${BINARIES_HASH}"; then
+              DOWNLOADED=true
+              echo "Downloaded from ${server}"
+              break
+            fi
+          done
+          if [ "$DOWNLOADED" != "true" ]; then
+            echo "ERROR: failed to download binaries from any mirror" >&2
+            exit 1
+          fi
           mkdir -p bin
           tar xzf binaries.tar.gz -C bin
           ls -lh bin/
@@ -468,26 +506,31 @@ jobs:
           cp "$PACKAGE_PATH" "/github/workspace/${PACKAGE_FILENAME}"
 
           PKG_FILE="/github/workspace/${PACKAGE_FILENAME}"
-          PKG_HASH=""
-          attempt=1; delay=2
-          while [ $attempt -le 3 ]; do
-            resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
-            PKG_HASH=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-            if [ -n "$PKG_HASH" ] && [ "$PKG_HASH" != "null" ]; then
-              break
-            fi
-            echo "attempt $attempt failed; retrying in ${delay}s..." >&2
-            echo "response: $resp" >&2
-            sleep $delay
-            delay=$((delay * 2))
-            attempt=$((attempt + 1))
+          PKG_HASH="" CANONICAL="" ok=0
+          for server in $BLOSSOM_SERVERS; do
+            attempt=1; delay=2
+            while [ $attempt -le 3 ]; do
+              resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
+              srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                ok=$((ok + 1))
+                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash" && CANONICAL="$server"
+                echo "  ok: ${server} -> ${srv_hash}" >&2
+                break
+              fi
+              echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
           done
-          if [ -z "$PKG_HASH" ]; then
-            echo "ERROR: Blossom upload failed after 3 attempts" >&2
+          if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+            echo "ERROR: only ${ok} mirrors succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
             exit 1
           fi
+          echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
 
-          PKG_URL="${BLOSSOM_SERVER}/${PKG_HASH}.apk"
+          PKG_URL="${CANONICAL}/${PKG_HASH}.apk"
           compression_tag="${{ matrix.compression }}"
           [ -z "$compression_tag" ] && compression_tag="none"
 
@@ -523,7 +566,7 @@ jobs:
       BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
       PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
       RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
-      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
     steps:
       - name: Install required tools
         run: |
