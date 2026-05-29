@@ -199,7 +199,7 @@ jobs:
           ls -lh bin/
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v3
         with:
           name: binaries-${{ matrix.compile_key }}
           path: bin/
@@ -220,7 +220,7 @@ jobs:
           fetch-depth: 1
 
       - name: Download prebuilt binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v3
         with:
           name: binaries-${{ matrix.compile_key }}
           path: bin/
@@ -284,7 +284,7 @@ jobs:
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.PACKAGE_FILENAME }}
           path: artifacts/${{ env.PACKAGE_FILENAME }}
@@ -310,7 +310,7 @@ jobs:
           fetch-depth: 1
 
       - name: Download prebuilt binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v3
         with:
           name: binaries-${{ matrix.compile_key }}
           path: bin/
@@ -379,7 +379,7 @@ jobs:
           cp "$PACKAGE_PATH" "/github/workspace/artifacts/${PACKAGE_FILENAME}"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.PACKAGE_FILENAME }}
           path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
@@ -414,7 +414,7 @@ jobs:
           nak --version
 
       - name: Download all package artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v3
         with:
           # Matches both ipk and apk artifacts uploaded by package-ipk
           # and package-apk.
