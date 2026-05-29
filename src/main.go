@@ -263,18 +263,39 @@ func initCLIServer() {
 }
 
 func getMacAddress(ipAddress string) (string, error) {
-	data, err := os.ReadFile("/tmp/dhcp.leases")
-	if err != nil {
-		return "", fmt.Errorf("reading dhcp leases: %w", err)
+	if net.ParseIP(ipAddress) == nil {
+		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
 	}
 	ipLower := strings.ToLower(strings.TrimSpace(ipAddress))
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && strings.ToLower(fields[2]) == ipLower {
-			return strings.TrimSpace(fields[1]), nil
+
+	// Primary source: dnsmasq lease file — authoritative for DHCP clients.
+	// Format per line: <timestamp> <mac> <ip> <hostname> <clientid>
+	// Match case-insensitively so IPv6 hextets compare regardless of casing.
+	data, err := os.ReadFile("/tmp/dhcp.leases")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 && strings.ToLower(fields[2]) == ipLower {
+				return strings.TrimSpace(fields[1]), nil
+			}
 		}
 	}
-	return "", fmt.Errorf("MAC not found for IP %s", ipAddress)
+
+	// Fallback: kernel ARP table — catches static-IP clients and survives
+	// dnsmasq restarts. In-memory entries expire after a few minutes of
+	// inactivity, so this is not a replacement for the lease file.
+	// Format per line: <ip> <hwtype> <flags> <mac> <mask> <device>
+	arpData, err := os.ReadFile("/proc/net/arp")
+	if err == nil {
+		for _, line := range strings.Split(string(arpData), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 4 && strings.ToLower(fields[0]) == ipLower && fields[3] != "00:00:00:00:00:00" {
+				return strings.TrimSpace(fields[3]), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no MAC found for %s in DHCP leases or ARP table", ipAddress)
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
@@ -347,15 +368,15 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
+	// Read the request body (capped at 1MB to prevent resource exhaustion)
+	defer r.Body.Close()
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		mainLogger.WithError(err).Error("Error reading request body")
 		sendNoticeResponse(w, getMerchant(), http.StatusBadRequest, "error", "invalid-request",
 			fmt.Sprintf("Error reading request body: %v", err), macAddress)
 		return
 	}
-	defer r.Body.Close()
 
 	// Print the request body to console
 	bodyStr := string(body)
@@ -512,10 +533,14 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	ip := getIP(r)
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address for /balance")
+		// Client IP not in DHCP leases — can't identify device.
+		// Return "no active session" instead of erroring, so the balance
+		// page works even when lease is expired or missing (e.g. after
+		// dnsmasq restart, or requests from non-DHCP clients).
+		mainLogger.WithError(err).Debug("MAC lookup failed for /balance, returning no-session")
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: "failed to resolve device MAC address"})
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
 		return
 	}
 
@@ -750,23 +775,36 @@ func main() {
 	mainLogger.Fatal(server.ListenAndServe())
 }
 
+func isLocalRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
 func getIP(r *http.Request) string {
-	ip := r.Header.Get("X-Real-Ip")
-	if ip != "" {
-		return ip
+	if isLocalRequest(r) {
+		ip := r.Header.Get("X-Real-Ip")
+		if ip != "" {
+			return strings.TrimSpace(ip)
+		}
+
+		ips := r.Header.Get("X-Forwarded-For")
+		if ips != "" {
+			return strings.TrimSpace(strings.Split(ips, ",")[0])
+		}
 	}
 
-	ips := r.Header.Get("X-Forwarded-For")
-	if ips != "" {
-		return strings.Split(ips, ",")[0]
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
 	}
-
-	ip = r.RemoteAddr
-	if colon := strings.LastIndex(ip, ":"); colon != -1 {
-		ip = ip[:colon]
-	}
-
-	return ip
+	return r.RemoteAddr
 }
 
 var privateCIDRs []net.IPNet
