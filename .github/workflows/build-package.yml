@@ -582,8 +582,7 @@ jobs:
       - name: Fetch build results from relays
         run: |
           set -euo pipefail
-          FILTER=$(jq -n -c --arg id "$BUILD_ID" '{"kinds":[30078],"#r":[$id],"limit":50}')
-          timeout 30 nak req $COORDINATION_RELAYS "$FILTER" > build-results.jsonl || true
+          timeout 30 nak req -k 30078 --tag "r=$BUILD_ID" --limit 50 $COORDINATION_RELAYS > build-results.jsonl || true
           result_count=$(wc -l < build-results.jsonl)
           echo "Fetched $result_count build result(s) from relays."
           if [ "$result_count" -eq 0 ]; then
