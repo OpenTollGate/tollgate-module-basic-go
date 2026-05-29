@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// askConfirmation prompts the user for yes/no confirmation
 func askConfirmation(message string) bool {
 	fmt.Printf("%s (y/N): ", message)
 	scanner := bufio.NewScanner(os.Stdin)
@@ -28,7 +27,6 @@ const (
 	SocketPath = "/var/run/tollgate.sock"
 )
 
-// Simple message types to avoid module dependencies
 type CLIMessage struct {
 	Command   string            `json:"command"`
 	Args      []string          `json:"args,omitempty"`
@@ -44,6 +42,8 @@ type CLIResponse struct {
 	Progress  string      `json:"progress,omitempty"`
 	Timestamp time.Time   `json:"timestamp"`
 }
+
+var jsonOutput bool
 
 var rootCmd = &cobra.Command{
 	Use:   "tollgate",
@@ -81,7 +81,10 @@ var drainCashuCmd = &cobra.Command{
 	Short: "Drain wallet to Cashu tokens",
 	Long:  "Create Cashu tokens for each mint containing all available balance",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Show warning and get confirmation
+		if jsonOutput {
+			return sendCommandRaw("wallet", []string{"drain", "cashu"}, nil)
+		}
+
 		fmt.Println("\n⚠️  WARNING: Draining the wallet will remove ALL funds from the wallet!")
 		fmt.Println("The funds will be converted to Cashu tokens that will be saved to a file.")
 		fmt.Println("Once drained, the tokens are OUT of the wallet and must be stored securely.")
@@ -91,7 +94,6 @@ var drainCashuCmd = &cobra.Command{
 			return nil
 		}
 
-		// Generate filename with timestamp
 		filename := fmt.Sprintf("wallet_drain_%s.txt", time.Now().Format("2006-01-02_15-04-05"))
 
 		flags := map[string]string{
@@ -122,18 +124,24 @@ var infoCmd = &cobra.Command{
 }
 
 var fundCmd = &cobra.Command{
-	Use:   "fund",
+	Use:   "fund [cashu-token]",
 	Short: "Fund wallet with a Cashu token",
-	Long:  "Add funds to the wallet by pasting a Cashu token when prompted.",
-	Args:  cobra.NoArgs,
+	Long:  "Add funds to the wallet by providing a Cashu token.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Interactive mode only - prompt for token
-		fmt.Print("Paste your Cashu token: ")
-		scanner := bufio.NewScanner(os.Stdin)
-		if !scanner.Scan() {
-			return fmt.Errorf("failed to read token input")
+		var cashuToken string
+		if len(args) == 1 {
+			cashuToken = strings.TrimSpace(args[0])
+		} else if !jsonOutput {
+			fmt.Print("Paste your Cashu token: ")
+			scanner := bufio.NewScanner(os.Stdin)
+			if !scanner.Scan() {
+				return fmt.Errorf("failed to read token input")
+			}
+			cashuToken = strings.TrimSpace(scanner.Text())
+		} else {
+			return fmt.Errorf("fund command requires a cashu token argument when using --json")
 		}
-		cashuToken := strings.TrimSpace(scanner.Text())
 
 		if cashuToken == "" {
 			return fmt.Errorf("no token provided")
@@ -175,7 +183,10 @@ var privateDisableCmd = &cobra.Command{
 	Short: "Disable private network",
 	Long:  "Disable the private WiFi network on both 2.4GHz and 5GHz radios",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Warn user about potential lockout
+		if jsonOutput {
+			return sendCommandRaw("network", []string{"private", "disable"}, nil)
+		}
+
 		fmt.Println("\n⚠️  WARNING: Disabling the private network may lock you out of the router!")
 		fmt.Println("Make sure you have another way to access the router (e.g., via the public network or physical access).")
 
@@ -205,10 +216,8 @@ var privateSetPasswordCmd = &cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			// Generate random password
 			return sendCommandAndDisplay("network", []string{"private", "set-password"}, nil)
 		}
-		// Set specific password
 		return sendCommandAndDisplay("network", []string{"private", "set-password", args[0]}, nil)
 	},
 }
@@ -308,18 +317,108 @@ var logsCmd = &cobra.Command{
 	},
 }
 
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Configuration management",
+	Long:  "View and manage TollGate configuration. All subcommands route through the running service.",
+}
+
+var configGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get current configuration",
+	Long:  "Display the current configuration. With --json, outputs structured JSON.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("config", []string{"get"}, nil)
+	},
+}
+
+var configSetCmd = &cobra.Command{
+	Use:   "set [key] [value]",
+	Short: "Set a configuration value",
+	Long: `Set a configuration value by dot-path key. Changes are persisted immediately.
+Examples:
+  tollgate config set metric milliseconds
+  tollgate config set step_size 44040192
+  tollgate config set accepted_mints.0.price_per_step 2
+  tollgate config set show_setup false`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("config", []string{"set", args[0], args[1]}, nil)
+	},
+}
+
+var configSchemaCmd = &cobra.Command{
+	Use:   "schema",
+	Short: "Get configuration schema",
+	Long:  "Output the configuration schema describing all fields, types, defaults, and validation rules.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("config", []string{"schema"}, nil)
+	},
+}
+
+var configSaveCmd = &cobra.Command{
+	Use:   "save [json]",
+	Short: "Save full configuration from JSON string",
+	Long:  "Replace the entire config.json with the provided JSON string. Use with caution.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("config", []string{"save", args[0]}, nil)
+	},
+}
+
+var configSaveIdentitiesCmd = &cobra.Command{
+	Use:   "save-identities [json]",
+	Short: "Save full identities from JSON string",
+	Long:  "Replace the entire identities.json with the provided JSON string. Use with caution.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("config", []string{"save-identities", args[0]}, nil)
+	},
+}
+
+var healthCmd = &cobra.Command{
+	Use:   "health",
+	Short: "Check service health",
+	Long:  "Check the health of TollGate service components.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		response, err := sendCommand(CLIMessage{
+			Command:   "health",
+			Args:      []string{},
+			Timestamp: time.Now(),
+		})
+		if err != nil {
+			if jsonOutput {
+				return printJSON(map[string]interface{}{
+					"success":   false,
+					"running":   false,
+					"socket_ok": false,
+					"error":     fmt.Sprintf("Service not reachable: %v", err),
+					"timestamp": time.Now().Format(time.RFC3339),
+				})
+			}
+			return fmt.Errorf("Service not reachable: %v", err)
+		}
+		if jsonOutput {
+			return printJSON(response)
+		}
+		displayResponse(response)
+		return nil
+	},
+}
+
 func init() {
-	// Add flags to logs command
+	rootCmd.PersistentFlags().BoolVarP(&jsonOutput, "json", "j", false, "Output results as JSON")
+
 	logsCmd.Flags().IntP("tail", "n", 0, "Number of lines to show from the end (0 = all)")
 	logsCmd.Flags().BoolP("follow", "f", false, "Follow log output (like tail -f)")
 
-	// Build command tree
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
 	networkCmd.AddCommand(privateCmd)
 	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd)
-	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd)
+	configCmd.AddCommand(configGetCmd, configSetCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)
+	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd, configCmd, healthCmd)
 }
 
 func main() {
@@ -330,7 +429,6 @@ func main() {
 }
 
 func sendCommandAndDisplay(command string, args []string, flags map[string]string) error {
-	// Create CLI message
 	msg := CLIMessage{
 		Command:   command,
 		Args:      args,
@@ -338,13 +436,22 @@ func sendCommandAndDisplay(command string, args []string, flags map[string]strin
 		Timestamp: time.Now(),
 	}
 
-	// Send command to service
 	response, err := sendCommand(msg)
 	if err != nil {
+		if jsonOutput {
+			return printJSON(&CLIResponse{
+				Success:   false,
+				Error:     fmt.Sprintf("Failed to communicate with TollGate service: %v", err),
+				Timestamp: time.Now(),
+			})
+		}
 		return fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err)
 	}
 
-	// Display response
+	if jsonOutput {
+		return printJSON(response)
+	}
+
 	displayResponse(response)
 
 	if !response.Success {
@@ -354,15 +461,42 @@ func sendCommandAndDisplay(command string, args []string, flags map[string]strin
 	return nil
 }
 
+func sendCommandRaw(command string, args []string, flags map[string]string) error {
+	msg := CLIMessage{
+		Command:   command,
+		Args:      args,
+		Flags:     flags,
+		Timestamp: time.Now(),
+	}
+
+	response, err := sendCommand(msg)
+	if err != nil {
+		return printJSON(&CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to communicate with TollGate service: %v", err),
+			Timestamp: time.Now(),
+		})
+	}
+
+	return printJSON(response)
+}
+
+func printJSON(v interface{}) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
 func sendCommand(msg CLIMessage) (*CLIResponse, error) {
-	// Connect to Unix socket
 	conn, err := net.Dial("unix", SocketPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to TollGate service: %v", err)
 	}
 	defer conn.Close()
 
-	// Send message
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode message: %v", err)
@@ -378,7 +512,6 @@ func sendCommand(msg CLIMessage) (*CLIResponse, error) {
 		return nil, fmt.Errorf("failed to send newline: %v", err)
 	}
 
-	// Read response
 	scanner := bufio.NewScanner(conn)
 	if !scanner.Scan() {
 		return nil, fmt.Errorf("no response from service")
@@ -443,8 +576,11 @@ func sendCommandStreaming(command string, args []string, flags map[string]string
 	return fmt.Errorf("no response from service")
 }
 
-// executeServiceCommand executes service control commands directly via init scripts
 func executeServiceCommand(action string) error {
+	if jsonOutput {
+		return executeServiceCommandJSON(action)
+	}
+
 	var cmds []struct {
 		name string
 		cmd  *exec.Cmd
@@ -479,7 +615,6 @@ func executeServiceCommand(action string) error {
 		return fmt.Errorf("unknown service action: %s", action)
 	}
 
-	// Execute commands in sequence
 	for _, c := range cmds {
 		fmt.Printf("Executing: %s %s...\n", c.name, action)
 		output, err := c.cmd.CombinedOutput()
@@ -499,30 +634,80 @@ func executeServiceCommand(action string) error {
 	return nil
 }
 
-// executeLogsCommand executes logread directly to show TollGate logs
+func executeServiceCommandJSON(action string) error {
+	var cmds []struct {
+		name string
+		cmd  *exec.Cmd
+	}
+
+	switch action {
+	case "start":
+		cmds = []struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			{"NoDogSplash", exec.Command("/etc/init.d/nodogsplash", "start")},
+			{"TollGate", exec.Command("/etc/init.d/tollgate-wrt", "start")},
+		}
+	case "stop":
+		cmds = []struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			{"TollGate", exec.Command("/etc/init.d/tollgate-wrt", "stop")},
+			{"NoDogSplash", exec.Command("/etc/init.d/nodogsplash", "stop")},
+		}
+	case "restart":
+		cmds = []struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			{"NoDogSplash", exec.Command("/etc/init.d/nodogsplash", "restart")},
+			{"TollGate", exec.Command("/etc/init.d/tollgate-wrt", "restart")},
+		}
+	default:
+		return printJSON(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("unknown service action: %s", action),
+		})
+	}
+
+	for _, c := range cmds {
+		output, err := c.cmd.CombinedOutput()
+		if err != nil {
+			return printJSON(map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("failed to %s %s: %v", action, c.name, err),
+				"output":  string(output),
+			})
+		}
+	}
+
+	return printJSON(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Successfully %sed services", action),
+	})
+}
+
 func executeLogsCommand(tail int, follow bool) error {
 	args := []string{"-e", "tollgate"}
 
-	// Add follow flag if specified
 	if follow {
 		args = append(args, "-f")
 	}
 
-	// Add tail flag if specified
 	if tail > 0 {
 		args = append(args, "-l", fmt.Sprintf("%d", tail))
 	}
 
 	cmd := exec.Command("logread", args...)
 
-	// If following, connect stdout/stderr directly for real-time output
 	if follow {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
 
-	// Otherwise, capture and print output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to read logs: %v", err)
@@ -615,7 +800,6 @@ func displayWalletDrainResult(data map[string]interface{}) {
 		fmt.Printf("Total drained: %.0f sats\n\n", total)
 	}
 
-	// Check if we need to save to file
 	var filename string
 	if saveToFile, ok := data["save_to_file"].(string); ok && saveToFile != "" {
 		filename = saveToFile
@@ -627,7 +811,6 @@ func displayWalletDrainResult(data map[string]interface{}) {
 			return
 		}
 
-		// If filename is specified, save to file
 		if filename != "" {
 			err := saveTokensToFile(filename, tokensData, data)
 			if err != nil {
@@ -637,7 +820,6 @@ func displayWalletDrainResult(data map[string]interface{}) {
 			}
 		}
 
-		// Display tokens
 		for i, tokenData := range tokensData {
 			if tokenMap, ok := tokenData.(map[string]interface{}); ok {
 				fmt.Printf("Token %d:\n", i+1)
@@ -648,7 +830,6 @@ func displayWalletDrainResult(data map[string]interface{}) {
 					fmt.Printf("  Balance: %.0f sats\n", balance)
 				}
 				if token, ok := tokenMap["token"].(string); ok {
-					// Print full token - user needs complete token to spend
 					fmt.Printf("  Token: %s\n", token)
 				}
 				fmt.Println()
@@ -657,7 +838,6 @@ func displayWalletDrainResult(data map[string]interface{}) {
 	}
 }
 
-// saveTokensToFile saves the drained tokens to a file in the current directory
 func saveTokensToFile(filename string, tokensData []interface{}, data map[string]interface{}) error {
 	file, err := os.Create(filename)
 	if err != nil {
@@ -665,7 +845,6 @@ func saveTokensToFile(filename string, tokensData []interface{}, data map[string
 	}
 	defer file.Close()
 
-	// Write header
 	_, err = file.WriteString("# TollGate Wallet Drain\n")
 	if err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
@@ -682,7 +861,6 @@ func saveTokensToFile(filename string, tokensData []interface{}, data map[string
 		}
 	}
 
-	// Write each token
 	for i, tokenData := range tokensData {
 		if tokenMap, ok := tokenData.(map[string]interface{}); ok {
 			_, err = file.WriteString(fmt.Sprintf("## Token %d\n", i+1))
