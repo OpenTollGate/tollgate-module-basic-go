@@ -386,8 +386,9 @@ jobs:
           retention-days: 5
 
   # Single-job batched publish: one container start, one nak install,
-  # one websocket connection per relay (not one per package). Fails fast
-  # if any Blossom upload fails after retries.
+  # one websocket connection per relay (not one per package). Each artifact
+  # is uploaded to every Blossom mirror; the step fails only if fewer than
+  # BLOSSOM_MIN_SUCCESS mirrors accept a given file.
   publish-metadata:
     needs: [determine-versioning, package-ipk, package-apk, define-package-matrix]
     runs-on: ubuntu-latest
@@ -399,8 +400,14 @@ jobs:
       run:
         shell: bash
     env:
-      BLOSSOM_SERVER: "https://cmbethpcg000e5el0ehhk5933-blossom.eggstr.com"
-      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me"
+      # Blossom mirrors, in preference order. Each artifact is uploaded to all
+      # of them; the build fails unless at least BLOSSOM_MIN_SUCCESS uploads
+      # succeed (content-addressed, so the sha256 is identical across mirrors).
+      # The NIP-94 url tag points at the first server that succeeded, in this
+      # order — keep blossom.tollgate.me first so the canonical url stays stable.
+      BLOSSOM_SERVERS: "https://blossom.tollgate.me https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech"
+      BLOSSOM_MIN_SUCCESS: "2"
+      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
       PUBLISH_MATRIX: ${{ needs.define-package-matrix.outputs.matrix }}
       PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
       RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
@@ -429,20 +436,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          upload_one() {
-            local file="$1"
-            local attempt=1 delay=2
+          # Upload a single file to one Blossom server, with retry + backoff.
+          # Echoes the sha256 on success; non-zero exit on failure.
+          upload_to_server() {
+            local file="$1" server="$2"
+            local attempt=1 delay=2 resp hash
             while [ $attempt -le 3 ]; do
-              if resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1); then
-                local hash
+              if resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1); then
                 hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
                 if [ -n "$hash" ] && [ "$hash" != "null" ]; then
                   printf '%s' "$hash"
                   return 0
                 fi
               fi
-              echo "  attempt ${attempt} failed for $(basename "$file"); retrying in ${delay}s..." >&2
-              echo "  response: $resp" >&2
+              echo "    attempt ${attempt} to ${server} failed for $(basename "$file"); retrying in ${delay}s..." >&2
+              echo "    response: $resp" >&2
               sleep $delay
               delay=$((delay * 2))
               attempt=$((attempt + 1))
@@ -450,9 +458,44 @@ jobs:
             return 1
           }
 
+          # Upload a file to every Blossom mirror. Requires >= BLOSSOM_MIN_SUCCESS
+          # successful uploads or it fails the whole build. Emits the sha256 on
+          # the first line, then one successful server base-URL per subsequent
+          # line, in BLOSSOM_SERVERS preference order (first = canonical).
+          upload_redundant() {
+            local file="$1"
+            local hash="" ok=0
+            local servers_ok=()
+            for server in $BLOSSOM_SERVERS; do
+              if srv_hash=$(upload_to_server "$file" "$server"); then
+                ok=$((ok + 1))
+                echo "    ok: ${server} -> ${srv_hash}" >&2
+                if [ -z "$hash" ]; then hash="$srv_hash"; fi
+                # Content addressing means every mirror must return the same hash.
+                if [ "$srv_hash" != "$hash" ]; then
+                  echo "    WARNING: ${server} returned ${srv_hash}, expected ${hash}" >&2
+                fi
+                servers_ok+=("$server")
+              else
+                echo "    FAILED: ${server} (after retries)" >&2
+              fi
+            done
+            if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+              echo "  ERROR: only ${ok} of $(echo $BLOSSOM_SERVERS | wc -w) blossom uploads succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
+              return 1
+            fi
+            echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
+            printf '%s\n' "$hash"
+            printf '%s\n' "${servers_ok[@]}"
+          }
+
           : > manifest.jsonl
-          failures=0
-          printf '%s\n' "$PUBLISH_MATRIX" | jq -c '.include[]' | while read -r cell; do
+          # Subshell pipelines run in their own process, so a bare `exit 1`
+          # inside the `while read` below would not fail the step. Drive the
+          # loop from a process-substitution fed array instead, so failures
+          # propagate to the step's exit code.
+          mapfile -t cells < <(printf '%s\n' "$PUBLISH_MATRIX" | jq -c '.include[]')
+          for cell in "${cells[@]}"; do
             arch=$(printf '%s' "$cell" | jq -r '.architecture')
             fmt=$(printf '%s' "$cell" | jq -r '.format')
             compression=$(printf '%s' "$cell" | jq -r '.compression // empty')
@@ -464,21 +507,29 @@ jobs:
               exit 1
             fi
 
-            echo "Uploading $filename..."
-            if ! hash=$(upload_one "$file"); then
-              echo "ERROR: blossom upload failed for $filename after 3 attempts" >&2
+            echo "Uploading $filename to all blossom mirrors..."
+            if ! result=$(upload_redundant "$file"); then
+              echo "ERROR: blossom upload failed for $filename" >&2
               exit 1
             fi
+            hash=$(printf '%s' "$result" | sed -n '1p')
+            # Remaining lines are the successful mirror base-URLs (canonical first).
             compression_type="${compression:-none}"
             # Blossom serves content by hash regardless of suffix, but
-            # downloaders (opkg/apk) use the URL extension to infer format —
-            # so we append .${fmt} to the URL.
+            # downloaders (opkg/apk) use the URL extension to infer format — so
+            # we append .${fmt} to each URL. We record one full download URL per
+            # successful mirror, canonical (first successful) first; the blob is
+            # content-addressed so every mirror serves it under the same hash.
+            urls_json=$(printf '%s' "$result" | sed -n '2,$p' \
+              | jq -R --arg hash "$hash" --arg fmt "$fmt" 'select(length>0) | . + "/" + $hash + "." + $fmt' \
+              | jq -sc '.')
             jq -cn \
               --arg filename "$filename" --arg arch "$arch" --arg fmt "$fmt" \
               --arg compression "$compression_type" --arg hash "$hash" \
-              '{filename:$filename, architecture:$arch, format:$fmt, compression:$compression, hash:$hash, url:("'"$BLOSSOM_SERVER"'/" + $hash + "." + $fmt)}' \
+              --argjson urls "$urls_json" \
+              '{filename:$filename, architecture:$arch, format:$fmt, compression:$compression, hash:$hash, urls:$urls, url:$urls[0]}' \
               >> manifest.jsonl
-            echo "  uploaded: $hash"
+            echo "  uploaded: $hash ($(printf '%s' "$urls_json" | jq -r 'length') mirrors)"
           done
 
           echo "---"
@@ -497,7 +548,15 @@ jobs:
             fmt=$(printf '%s' "$entry" | jq -r '.format')
             compression=$(printf '%s' "$entry" | jq -r '.compression')
             hash=$(printf '%s' "$entry" | jq -r '.hash')
-            url=$(printf '%s' "$entry" | jq -r '.url')
+
+            # One url tag per Blossom mirror (canonical first). The blob is
+            # content-addressed (x/ox = sha256), so every url serves the same
+            # bytes — consumers may fail over across them. Consumers that only
+            # read the first url tag keep working unchanged.
+            url_tags=()
+            while IFS= read -r u; do
+              url_tags+=(--tag "url=$u")
+            done < <(printf '%s' "$entry" | jq -r '.urls[]')
 
             # nak detects a piped stdin and tries to parse it as events to
             # sign. The 'while read ... done < manifest.jsonl' redirection
@@ -508,7 +567,7 @@ jobs:
             # Then jq -c collapses the pretty-printed output to one line.
             nak event --sec "$NSEC_HEX" -k 1063 \
               -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
-              --tag url="$url" \
+              "${url_tags[@]}" \
               --tag m="application/octet-stream" \
               --tag x="$hash" \
               --tag ox="$hash" \
@@ -540,7 +599,7 @@ jobs:
       - name: Build summary
         run: |
           echo "Published $(wc -l < events.jsonl) NIP-94 events across $(echo $RELAYS | wc -w) relays."
-          jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.url)"' manifest.jsonl
+          jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.urls | length) mirror(s)\n" + (.urls | map("      " + .) | join("\n"))' manifest.jsonl
 
   trigger-build-os:
     name: Trigger TollGate OS build
