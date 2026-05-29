@@ -415,6 +415,7 @@ jobs:
           nak --version
 
       - name: Download prebuilt binaries from Blossom
+        shell: bash
         env:
           HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
         run: |
@@ -491,6 +492,7 @@ jobs:
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
 
       - name: Collect, upload to Blossom, and announce
+        shell: bash
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
           BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
