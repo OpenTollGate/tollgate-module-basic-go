@@ -9,8 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -263,16 +263,18 @@ func initCLIServer() {
 }
 
 func getMacAddress(ipAddress string) (string, error) {
-	cmdIn := `cat /tmp/dhcp.leases | cut -f 2,3,4 -s -d" " | grep -i ` + ipAddress + ` | cut -f 1 -s -d" "`
-	commandOutput, err := exec.Command("sh", "-c", cmdIn).Output()
-
-	var commandOutputString = string(commandOutput)
+	data, err := os.ReadFile("/tmp/dhcp.leases")
 	if err != nil {
-		fmt.Println(err, "Error when getting client's mac address. Command output: "+commandOutputString)
-		return "nil", err
+		return "", fmt.Errorf("reading dhcp leases: %w", err)
 	}
-
-	return strings.Trim(commandOutputString, "\n"), nil
+	ipLower := strings.ToLower(strings.TrimSpace(ipAddress))
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && strings.ToLower(fields[2]) == ipLower {
+			return strings.TrimSpace(fields[1]), nil
+		}
+	}
+	return "", fmt.Errorf("MAC not found for IP %s", ipAddress)
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
@@ -284,9 +286,14 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}).Debug("CORS middleware processing request")
 
 		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin, or specify domains like "https://yourdomain.com"
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		if origin == "" || isLocalOrigin(origin) {
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+		}
 
 		// Handle preflight OPTIONS requests
 		if r.Method == "OPTIONS" {
@@ -309,7 +316,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println("mac", mac)
+	mainLogger.WithField("mac", mac).Debug("MAC address resolved")
 	fmt.Fprint(w, "mac=", mac)
 }
 
@@ -760,4 +767,40 @@ func getIP(r *http.Request) string {
 	}
 
 	return ip
+}
+
+var privateCIDRs []net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"192.168.0.0/16",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"127.0.0.0/8",
+		"fd00::/8",
+		"::1/128",
+	} {
+		_, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid CIDR %s: %v", cidr, err))
+		}
+		privateCIDRs = append(privateCIDRs, *n)
+	}
+}
+
+func isLocalOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		return u.Hostname() == "localhost"
+	}
+	for _, n := range privateCIDRs {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
