@@ -128,7 +128,7 @@ jobs:
     needs: [determine-versioning]
     runs-on: ubuntu-latest
     outputs:
-      binaries_hash: ${{ steps.blossom-upload.outputs.hash }}
+      hashes: ${{ steps.blossom-upload.outputs.hashes }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -187,31 +187,43 @@ jobs:
           chmod +x /usr/local/bin/nak
           nak --version
 
-      - name: Upload binaries to Blossom
+      - name: Upload binaries to Blossom (per-arch)
         id: blossom-upload
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
           set -euo pipefail
-          tar czf binaries-all.tar.gz -C bin .
 
-          attempt=1; delay=2
-          while [ $attempt -le 3 ]; do
-            resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" binaries-all.tar.gz < /dev/null 2>&1) || true
-            hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-            if [ -n "$hash" ] && [ "$hash" != "null" ]; then
-              echo "hash=$hash" >> $GITHUB_OUTPUT
-              echo "Uploaded binaries to Blossom: $hash"
-              exit 0
-            fi
-            echo "attempt $attempt failed; retrying in ${delay}s..." >&2
-            echo "response: $resp" >&2
-            sleep $delay
-            delay=$((delay * 2))
-            attempt=$((attempt + 1))
+          blossom_upload() {
+            local file="$1" attempt=1 delay=2
+            while [ $attempt -le 3 ]; do
+              resp=$(nak blossom upload --server "$BLOSSOM_SERVER" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1) || true
+              hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$hash" ] && [ "$hash" != "null" ]; then
+                printf '%s' "$hash"
+                return 0
+              fi
+              echo "  attempt $attempt failed for $(basename "$file"); retrying in ${delay}s..." >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+            echo "ERROR: Blossom upload failed for $file after 3 attempts" >&2
+            return 1
+          }
+
+          HASH_JSON="{}"
+          for key_dir in bin/*/; do
+            key=$(basename "$key_dir")
+            tar czf "binaries-${key}.tar.gz" -C "bin/$key" .
+            echo "Uploading binaries-${key}.tar.gz ($(stat -c%s "binaries-${key}.tar.gz") bytes)..."
+            hash=$(blossom_upload "binaries-${key}.tar.gz")
+            echo "  → $hash"
+            HASH_JSON=$(printf '%s' "$HASH_JSON" | jq -c --arg k "$key" --arg h "$hash" '. + {($k): $h}')
           done
-          echo "ERROR: Blossom upload failed after 3 attempts" >&2
-          exit 1
+
+          echo "hashes=$HASH_JSON" >> $GITHUB_OUTPUT
+          echo "All uploads complete: $HASH_JSON"
 
   package-ipk:
     needs: [define-package-matrix, determine-versioning, compile-binaries]
@@ -226,14 +238,17 @@ jobs:
 
       - name: Download prebuilt binaries from Blossom
         env:
-          BINARIES_HASH: ${{ needs.compile-binaries.outputs.binaries_hash }}
+          HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
         run: |
           set -euo pipefail
-          curl -L -o binaries-all.tar.gz "${BLOSSOM_SERVER}/${BINARIES_HASH}"
-          mkdir -p /tmp/all-bins bin
-          tar xzf binaries-all.tar.gz -C /tmp/all-bins
-          cp "/tmp/all-bins/${{ matrix.compile_key }}/tollgate-wrt" bin/tollgate-wrt
-          cp "/tmp/all-bins/${{ matrix.compile_key }}/tollgate" bin/tollgate
+          BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
+          if [ -z "$BINARIES_HASH" ] || [ "$BINARIES_HASH" = "null" ]; then
+            echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
+            exit 1
+          fi
+          curl -L -o binaries.tar.gz "${BLOSSOM_SERVER}/${BINARIES_HASH}"
+          mkdir -p bin
+          tar xzf binaries.tar.gz -C bin
           ls -lh bin/
 
       - name: Install UPX
@@ -374,14 +389,17 @@ jobs:
 
       - name: Download prebuilt binaries from Blossom
         env:
-          BINARIES_HASH: ${{ needs.compile-binaries.outputs.binaries_hash }}
+          HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
         run: |
           set -euo pipefail
-          curl -L -o binaries-all.tar.gz "${BLOSSOM_SERVER}/${BINARIES_HASH}"
-          mkdir -p /tmp/all-bins bin
-          tar xzf binaries-all.tar.gz -C /tmp/all-bins
-          cp "/tmp/all-bins/${{ matrix.compile_key }}/tollgate-wrt" bin/tollgate-wrt
-          cp "/tmp/all-bins/${{ matrix.compile_key }}/tollgate" bin/tollgate
+          BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
+          if [ -z "$BINARIES_HASH" ] || [ "$BINARIES_HASH" = "null" ]; then
+            echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
+            exit 1
+          fi
+          curl -L -o binaries.tar.gz "${BLOSSOM_SERVER}/${BINARIES_HASH}"
+          mkdir -p bin
+          tar xzf binaries.tar.gz -C bin
           ls -lh bin/
 
       - name: Install UPX
