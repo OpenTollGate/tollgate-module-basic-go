@@ -85,12 +85,12 @@ func validateAgainstSchema(key, value string) error {
 			}
 		}
 		if !found {
-			return nil
+			return fmt.Errorf("unknown config key %q", strings.Join(parts[:i+1], "."))
 		}
 	}
 
 	if field == nil {
-		return nil
+		return fmt.Errorf("unknown config key %q", key)
 	}
 
 	if len(field.Enum) > 0 {
