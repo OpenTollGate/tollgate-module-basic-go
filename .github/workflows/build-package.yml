@@ -505,6 +505,7 @@ jobs:
             exit 1
           fi
           ls -lh "$PACKAGE_PATH"
+          mkdir -p /github/workspace
           cp "$PACKAGE_PATH" "/github/workspace/${PACKAGE_FILENAME}"
 
           PKG_FILE="/github/workspace/${PACKAGE_FILENAME}"
