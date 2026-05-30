@@ -8,7 +8,10 @@ require (
 	github.com/stretchr/testify v1.10.0
 )
 
-replace github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+replace (
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+	github.com/Origami74/gonuts-tollgate => github.com/Amperstrand/gonuts-tollgate v0.7.0
+)
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
@@ -18,7 +21,9 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
-	github.com/btcsuite/btcwallet v0.16.13 // indirect
+	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084 // indirect
+	github.com/btcsuite/btcwallet v0.16.14 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5 // indirect
@@ -34,7 +39,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
@@ -43,6 +47,8 @@ require (
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
+	github.com/lightningnetwork/lnd v0.19.1-beta.rc1 // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
@@ -51,7 +57,7 @@ require (
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
-	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/nbd-wtf/ln-decodepay v1.12.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
