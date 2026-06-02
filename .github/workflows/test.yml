@@ -16,6 +16,17 @@ jobs:
           - src/config_manager
           - src/utils
           - src/cmd/tollgate-cli
+          - src/lightning
+          - src/tollgate_protocol
+          - src/tollwallet
+          - src/valve
+          - src/wireless_gateway_manager
+          # NOTE: src/merchant, src/cli, src/upstream_detector and
+          # src/upstream_session_manager are intentionally omitted. They
+          # transitively pull in the lnd -> ltcsuite/ltcd chain, which only
+          # builds standalone after an invasive go.mod rewrite (an `exclude`
+          # directive plus a full re-tidy). They still build/test as part of
+          # the root module's build; adding them here is tracked separately.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
