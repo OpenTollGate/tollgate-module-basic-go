@@ -80,28 +80,28 @@ func TestMockMerchantProvider_ConcurrentSwapAndRead(t *testing.T) {
 func TestUpstreamSessionManager_StoresMerchantProvider(t *testing.T) {
 	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "test"})
 	usm := &UpstreamSessionManager{
-		merchant: p,
+		merchantProvider: p,
 	}
 
-	if providerMerchantName(usm.merchant) != "test" {
-		t.Fatalf("expected test, got %s", providerMerchantName(usm.merchant))
+	if providerMerchantName(usm.merchantProvider) != "test" {
+		t.Fatalf("expected test, got %s", providerMerchantName(usm.merchantProvider))
 	}
 }
 
 func TestUpstreamSessionManager_SwapPropagates(t *testing.T) {
 	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 	usm := &UpstreamSessionManager{
-		merchant: p,
+		merchantProvider: p,
 	}
 
-	if providerMerchantName(usm.merchant) != "degraded" {
-		t.Fatalf("expected degraded, got %s", providerMerchantName(usm.merchant))
+	if providerMerchantName(usm.merchantProvider) != "degraded" {
+		t.Fatalf("expected degraded, got %s", providerMerchantName(usm.merchantProvider))
 	}
 
 	p.SetMerchant(&namedMerchant{name: "full"})
 
-	if providerMerchantName(usm.merchant) != "full" {
-		t.Fatalf("expected full after swap, got %s", providerMerchantName(usm.merchant))
+	if providerMerchantName(usm.merchantProvider) != "full" {
+		t.Fatalf("expected full after swap, got %s", providerMerchantName(usm.merchantProvider))
 	}
 }
 
@@ -110,39 +110,39 @@ func TestUpstreamSession_MerchantProviderPropagates(t *testing.T) {
 
 	session := &UpstreamSession{
 		GatewayIP: "192.168.1.1",
-		merchant:  p,
+		merchantProvider:  p,
 	}
 
-	if providerMerchantName(session.merchant) != "degraded" {
-		t.Fatalf("expected degraded, got %s", providerMerchantName(session.merchant))
+	if providerMerchantName(session.merchantProvider) != "degraded" {
+		t.Fatalf("expected degraded, got %s", providerMerchantName(session.merchantProvider))
 	}
 
 	p.SetMerchant(&namedMerchant{name: "full"})
 
-	if providerMerchantName(session.merchant) != "full" {
-		t.Fatalf("expected full after swap, got %s", providerMerchantName(session.merchant))
+	if providerMerchantName(session.merchantProvider) != "full" {
+		t.Fatalf("expected full after swap, got %s", providerMerchantName(session.merchantProvider))
 	}
 }
 
 func TestUpstreamSession_MultipleSessionsShareProvider(t *testing.T) {
 	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 
-	s1 := &UpstreamSession{GatewayIP: "192.168.1.1", merchant: p}
-	s2 := &UpstreamSession{GatewayIP: "192.168.1.2", merchant: p}
+	s1 := &UpstreamSession{GatewayIP: "192.168.1.1", merchantProvider: p}
+	s2 := &UpstreamSession{GatewayIP: "192.168.1.2", merchantProvider: p}
 
-	if providerMerchantName(s1.merchant) != "degraded" {
-		t.Fatalf("s1: expected degraded, got %s", providerMerchantName(s1.merchant))
+	if providerMerchantName(s1.merchantProvider) != "degraded" {
+		t.Fatalf("s1: expected degraded, got %s", providerMerchantName(s1.merchantProvider))
 	}
-	if providerMerchantName(s2.merchant) != "degraded" {
-		t.Fatalf("s2: expected degraded, got %s", providerMerchantName(s2.merchant))
+	if providerMerchantName(s2.merchantProvider) != "degraded" {
+		t.Fatalf("s2: expected degraded, got %s", providerMerchantName(s2.merchantProvider))
 	}
 
 	p.SetMerchant(&namedMerchant{name: "full"})
 
-	if providerMerchantName(s1.merchant) != "full" {
-		t.Fatalf("s1: expected full, got %s", providerMerchantName(s1.merchant))
+	if providerMerchantName(s1.merchantProvider) != "full" {
+		t.Fatalf("s1: expected full, got %s", providerMerchantName(s1.merchantProvider))
 	}
-	if providerMerchantName(s2.merchant) != "full" {
-		t.Fatalf("s2: expected full, got %s", providerMerchantName(s2.merchant))
+	if providerMerchantName(s2.merchantProvider) != "full" {
+		t.Fatalf("s2: expected full, got %s", providerMerchantName(s2.merchantProvider))
 	}
 }

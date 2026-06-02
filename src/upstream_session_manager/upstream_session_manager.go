@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -27,14 +27,14 @@ type Gateway struct {
 // UpstreamSessionManager manages upstream TollGate sessions
 type UpstreamSessionManager struct {
 	configManager    *config_manager.ConfigManager
-	merchantProvider merchant.MerchantProvider
+	merchantProvider merchant_types.MerchantProvider
 	gateways         map[string]*Gateway // keyed by gateway IP
 	tollGateProber   TollGateProber
 	mu               sync.RWMutex
 }
 
 // NewUpstreamSessionManager creates a new upstream_session_manager instance
-func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider) (UpstreamSessionManagerInterface, error) {
+func NewUpstreamSessionManager(configManager *config_manager.ConfigManager, merchantProvider merchant_types.MerchantProvider) (UpstreamSessionManagerInterface, error) {
 	if merchantProvider == nil {
 		return nil, fmt.Errorf("merchantProvider is nil")
 	}

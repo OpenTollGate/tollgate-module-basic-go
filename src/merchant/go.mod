@@ -9,6 +9,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/Origami74/gonuts-tollgate v0.6.1
 	github.com/nbd-wtf/go-nostr v0.51.11
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
@@ -87,15 +88,14 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
 	github.com/lightningnetwork/lnd v0.19.1-beta.rc1 // indirect
-	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
+	github.com/ltcsuite/ltcd v0.23.6-0.20250505084124-c37ac1524e04 // indirect
 	github.com/ltcsuite/ltcd/ltcutil v1.1.4 // indirect
-	github.com/ltcsuite/secp256k1 v0.1.1 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/nbd-wtf/ln-decodepay v1.12.1 // indirect
+	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
