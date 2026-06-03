@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -44,6 +45,9 @@ func NewTollGateProber(config *config_manager.UpstreamDetectorConfig) TollGatePr
 func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interfaceName, gatewayIP string) ([]byte, error) {
 	if gatewayIP == "" {
 		return nil, fmt.Errorf("gateway IP is empty")
+	}
+	if net.ParseIP(gatewayIP) == nil {
+		return nil, fmt.Errorf("invalid gateway IP: %s", gatewayIP)
 	}
 
 	// Store the cancel function for this interface
@@ -216,6 +220,9 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatewayIP string) error {
 	if gatewayIP == "" {
 		return fmt.Errorf("gateway IP is empty")
+	}
+	if net.ParseIP(gatewayIP) == nil {
+		return fmt.Errorf("invalid gateway IP: %s", gatewayIP)
 	}
 
 	// Make HTTP GET request to port 80 (standard captive portal)

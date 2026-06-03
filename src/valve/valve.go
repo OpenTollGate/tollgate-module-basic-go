@@ -3,12 +3,20 @@ package valve
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os/exec"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
+
+// isValidMAC checks that the input is a well-formed MAC address (e.g. "aa:bb:cc:dd:ee:ff").
+// Rejects malformed strings before they reach ndsctl.
+func isValidMAC(mac string) bool {
+	_, err := net.ParseMAC(mac)
+	return err == nil
+}
 
 // Module-level logger with pre-configured module field
 var logger = logrus.WithField("module", "valve")
@@ -69,6 +77,10 @@ func deauthorizeMAC(macAddress string) error {
 // OpenGateUntil opens the gate (if not opened yet) and sets a timer until the timestamp.
 // If there is already a timer running, it will extend the timer.
 func OpenGateUntil(macAddress string, untilTimestamp int64) error {
+	if !isValidMAC(macAddress) {
+		return fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+
 	now := time.Now().Unix()
 
 	// Calculate duration until the target timestamp
@@ -91,17 +103,23 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 	// Check if the MAC is already in openGates
 	existingTimer, exists := openGates[macAddress]
 
-	if !exists {
-		// MAC not in openGates, authorize it
-		err := authorizeMAC(macAddress)
-		if err != nil {
+	// Always authorize with ndsctl even if we think it's already authorized
+	// (ndsctl state can get out of sync with our in-memory map)
+	err := authorizeMAC(macAddress)
+	if err != nil {
+		if !exists {
 			return fmt.Errorf("error authorizing MAC: %w", err)
 		}
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
+		}).Warn("ndsctl re-auth failed for known client, continuing with timer")
+	}
+
+	if !exists {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
 		}).Debug("New authorization for MAC")
 	} else {
-		// MAC already in openGates, stop the existing timer
 		if existingTimer != nil {
 			existingTimer.Stop()
 		}
@@ -141,6 +159,10 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 // It's used for data-based sessions that are closed by a tracker.
 // It captures the current data usage as a baseline for tracking.
 func OpenGate(macAddress string) error {
+	if !isValidMAC(macAddress) {
+		return fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+
 	gatesMutex.Lock()
 	defer gatesMutex.Unlock()
 
@@ -173,6 +195,10 @@ func OpenGate(macAddress string) error {
 
 // CloseGate deauthorizes a MAC address and removes it from the active gates.
 func CloseGate(macAddress string) error {
+	if !isValidMAC(macAddress) {
+		return fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+
 	gatesMutex.Lock()
 	defer gatesMutex.Unlock()
 
@@ -213,6 +239,10 @@ type ClientStats struct {
 // Returns error if client not found or command fails
 // This function is thread-safe and serializes ndsctl calls
 func GetClientStats(macAddress string) (downloaded uint64, uploaded uint64, err error) {
+	if !isValidMAC(macAddress) {
+		return 0, 0, fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+
 	// Serialize ndsctl calls to prevent concurrent execution issues
 	ndsctlMutex.Lock()
 	cmd := exec.Command("ndsctl", "json", macAddress)

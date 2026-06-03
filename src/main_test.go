@@ -11,22 +11,40 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetIP_XRealIP(t *testing.T) {
+func TestGetIP_XRealIP_FromLocalhost(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("X-Real-Ip", "1.2.3.4")
-	r.RemoteAddr = "5.6.7.8:1234"
+	r.RemoteAddr = "127.0.0.1:1234"
 
 	ip := getIP(r)
 	assert.Equal(t, "1.2.3.4", ip)
 }
 
-func TestGetIP_XForwardedFor(t *testing.T) {
+func TestGetIP_XRealIP_IgnoredFromNonLocalhost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("X-Real-Ip", "1.2.3.4")
+	r.RemoteAddr = "5.6.7.8:1234"
+
+	ip := getIP(r)
+	assert.Equal(t, "5.6.7.8", ip, "X-Real-Ip should be ignored for non-localhost requests")
+}
+
+func TestGetIP_XForwardedFor_FromLocalhost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	r.RemoteAddr = "127.0.0.1:1234"
+
+	ip := getIP(r)
+	assert.Equal(t, "10.0.0.1", ip)
+}
+
+func TestGetIP_XForwardedFor_IgnoredFromNonLocalhost(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
 	r.RemoteAddr = "5.6.7.8:1234"
 
 	ip := getIP(r)
-	assert.Equal(t, "10.0.0.1", ip)
+	assert.Equal(t, "5.6.7.8", ip, "X-Forwarded-For should be ignored for non-localhost requests")
 }
 
 func TestGetIP_RemoteAddr(t *testing.T) {
