@@ -9,6 +9,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/Origami74/gonuts-tollgate v0.6.1
 	github.com/nbd-wtf/go-nostr v0.51.11
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
@@ -18,7 +19,7 @@ require (
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
-	github.com/btcsuite/btcwallet v0.16.13 // indirect
+	github.com/btcsuite/btcwallet v0.16.14 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5 // indirect
@@ -74,6 +75,8 @@ require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
+	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
@@ -85,9 +88,12 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
+	github.com/lightningnetwork/lnd v0.19.1-beta.rc1 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/nbd-wtf/ln-decodepay v1.12.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
