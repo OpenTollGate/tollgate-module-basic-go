@@ -477,6 +477,10 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 		return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
 	}
 
+	if mintConfig.PricePerStep == 0 {
+		return 0, fmt.Errorf("price_per_step is 0 for mint %s (division by zero)", mintURL)
+	}
+
 	steps := amountSats / mintConfig.PricePerStep
 
 	// Check if payment meets minimum purchase requirement
