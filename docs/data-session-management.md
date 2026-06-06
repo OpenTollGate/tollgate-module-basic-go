@@ -188,6 +188,29 @@ The architecture maintains clear separation:
 
 The Merchant works independently for downstream customers without requiring UpstreamSessionManager dependencies.
 
+### Degraded Mode Caveat
+
+When the merchant is in degraded mode (all mints unreachable), the following
+behaviors change:
+
+- `StartDataUsageMonitoring()` is a no-op — no background goroutine is started.
+  Existing sessions continue until they exhaust their allotment, but no new
+  usage checks are performed.
+- `PurchaseSession()` returns a signed notice event instead of a session event,
+  so new customers cannot purchase access.
+- `AddAllotment()` returns an error — existing sessions cannot be extended.
+- `GetSession()` returns an error — no session state is maintained.
+
+When the health tracker detects a reachable mint and the merchant upgrades to
+full mode, `StartDataUsageMonitoring()` is called on the new full merchant and
+monitoring resumes. However, any sessions that were active before the downgrade
+are lost — customers must re-authenticate.
+
+See the [merchant documentation](merchant.md) for the full degraded-mode
+lifecycle and the [MintHealthTracker](merchant.md#mint-health-tracker) section
+for probe interval and recovery thresholds
+([PR #140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140)).
+
 ## Key Benefits
 
 1. **Accurate Tracking**: Per-customer statistics from NoDogSplash

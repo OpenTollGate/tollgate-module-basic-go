@@ -14,6 +14,39 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
 
 ### Added
 
+- **Degraded mode with dynamic upgrade/downgrade.** When no Cashu mints are
+  reachable at startup, the router boots into a degraded merchant that keeps the
+  HTTP API alive (returning signed notice events asking clients to retry) and
+  can spend existing ecash from the cached BoltDB wallet. When the health
+  tracker detects a reachable mint, the merchant upgrades in-process to a full
+  merchant with payout and data-usage monitoring — no service restart required.
+  If all mints go offline mid-operation, the merchant downgrades dynamically
+  back to degraded mode
+  ([#140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140)).
+- **Mint health tracker.** Probes each configured mint via `GET /v1/info` on a
+  5-minute interval with hysteresis: a mint is marked unreachable after a
+  single probe failure, but requires 3 consecutive successes to recover. Fires
+  `onFirstReachable` (for degraded→full upgrade) and `onReachableSetChanged`
+  (for full→degraded downgrade) callbacks
+  ([#139](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/139)).
+- **Merchant provider with atomic swap.** `MutexMerchantProvider` wraps the
+  current merchant behind an RWMutex so all HTTP handlers, CLI commands, and
+  the upstream session manager see a consistent merchant — even during
+  degraded↔full transitions. Replaces direct `merchant` variable access
+  throughout `main.go`
+  ([#139](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/139),
+   [#140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140)).
+- **`merchant_types` package.** Zero-dependency Go module
+  (`src/merchant_types/`) defining the `PaymentMerchant` and
+  `MerchantProvider` interfaces. Decouples `upstream_session_manager` from the
+  full `merchant` package, eliminating ~490 lines of transitive dependencies
+  from the USM dependency tree
+  ([#138](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/138)).
+- **Sentinel error for spent tokens.** `tollwallet.ErrTokenAlreadySpent` wraps
+  the upstream Cashu library's spent-token error at the package boundary.
+  `merchant.PurchaseSession()` uses `errors.Is()` to detect duplicate spends
+  and returns a proper notice event instead of a generic error
+  ([#140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140)).
 - **Upstream WiFi management.** New manager that detects and connects to
   upstream gateways, with a startup connectivity check, TollGate-aware probing,
   and a cross-radio DHCP nudge to recover stuck links
@@ -47,7 +80,8 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
 
 - **Transport reliability on OpenWrt:** force TLS 1.2 and set HTTP client
   timeouts so requests no longer hang on constrained routers
-  ([#137](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/137)).
+  ([#137](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/137),
+   [#139](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/139)).
 - **Security:** generate passwords with `crypto/rand` instead of time-based
   (`math/rand`) entropy
   ([#111](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/111)).

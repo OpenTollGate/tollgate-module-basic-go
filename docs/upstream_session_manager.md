@@ -12,6 +12,20 @@ The `upstream_session_manager` module manages upstream TollGate sessions on beha
 - Manage session lifecycle (active, paused, expired)
 - Coordinate with [`merchant`](merchant.md) for wallet operations
 
+## Merchant Provider Indirection
+
+The USM does **NOT** hold a direct reference to a `Merchant` or `MerchantInterface`. Instead, it holds a `merchant.MerchantProvider` — a zero-dependency interface (from the `merchant_types` package, introduced in [PR #138](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/138)) with `GetMerchant()` and `SetMerchant()` methods.
+
+**Why the indirection exists**: The merchant can be in one of two states at runtime — a fully functional `Merchant` with live mint connections, or a `MerchantDegraded` that keeps the HTTP API alive but returns errors for wallet operations. The provider enables the degraded-mode lifecycle: when mints are unreachable at boot, a degraded merchant is created; when mints recover, the provider atomically swaps in a full merchant. This swap is transparent to the USM — no restart, no code changes, no session interruption.
+
+**How it works in practice**:
+- `main.go` creates a `MutexMerchantProvider` (RWMutex-protected) and passes it to `NewUpstreamSessionManager()`
+- Every time the USM needs to create a payment token or check a balance, it calls `merchantProvider.GetMerchant()` to resolve the current merchant
+- During degraded mode, `GetMerchant()` returns a `MerchantDegraded` — `CreatePaymentToken()` returns an error, so upstream session creation fails gracefully
+- When the health tracker detects a reachable mint, the provider swaps in a full `Merchant` via `SetMerchant()` — the next `GetMerchant()` call returns the new instance
+
+**References**: [PR #138](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/138) (merchant_types package), [PR #139](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/139) (USM decoupling), [PR #140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140) (degraded mode).
+
 ## Cross-component flow
 
 This section gives the end-to-end picture of how an upstream connection
@@ -26,7 +40,7 @@ zooms into `upstream_session_manager`'s internals.
 | **wireless_gateway_manager** | WiFi network scanning and connection | Scans for and connects to upstream TollGate WiFi networks (reseller mode) |
 | **upstream_detector** | Network change detection and TollGate discovery | Detects new network connections and probes gateways for TollGate advertisements |
 | **upstream_session_manager** | Upstream session management | Creates and maintains payment sessions with upstream TollGates |
-| **merchant** | Wallet and payment provider | Provides wallet functionality for upstream_session_manager to make upstream payments |
+| **merchant** | Wallet and payment provider, accessed via MerchantProvider for dynamic degraded-to-full transitions | Provides wallet functionality for upstream_session_manager to make upstream payments |
 
 ### Component interaction map
 
@@ -35,7 +49,7 @@ graph TB
     WGM[wireless_gateway_manager]
     CS[upstream_detector]
     CH[upstream_session_manager]
-    MR[merchant]
+    MP[MerchantProvider]
     NL[Netlink Events]
     GW[Upstream Gateway]
 
@@ -45,14 +59,14 @@ graph TB
     CS -->|Probes :2121| GW
     GW -->|Advertisement| CS
     CS -->|HandleUpstreamTollgate| CH
-    CH -->|CreatePaymentToken| MR
+    CH -->|GetMerchant → CreatePaymentToken| MP
     CH -->|POST payment| GW
     GW -->|Session event| CH
 
     style WGM fill:#e1f5ff
     style CS fill:#fff4e1
     style CH fill:#ffe1f5
-    style MR fill:#e1ffe1
+    style MP fill:#e1ffe1
 ```
 
 ### Sequence: WiFi connection to session creation
@@ -64,7 +78,7 @@ sequenceDiagram
     participant CS as upstream_detector
     participant GW as Upstream Gateway
     participant CH as upstream_session_manager
-    participant MR as merchant
+    participant MP as MerchantProvider
 
     Note over WGM: Reseller Mode Enabled
     WGM->>WGM: Periodic scan (30s)
@@ -91,8 +105,8 @@ sequenceDiagram
     CH->>CH: Check trust policy
     CH->>CH: Select pricing option
     CH->>CH: Calculate payment steps
-    CH->>MR: CreatePaymentToken()
-    MR-->>CH: Cashu token
+    CH->>MP: GetMerchant() → CreatePaymentToken()
+    MP-->>CH: Cashu token
     CH->>CH: Create payment event (kind 21000)
     CH->>GW: POST payment to :2121/
     GW-->>CH: Session event (kind 1022)
@@ -112,7 +126,7 @@ sequenceDiagram
     participant CS as upstream_detector
     participant GW as Upstream Gateway
     participant CH as upstream_session_manager
-    participant MR as merchant
+    participant MP as MerchantProvider
 
     Cable->>OS: Physical connection
     OS->>CS: InterfaceUp event (eth0, netlink)
@@ -126,8 +140,8 @@ sequenceDiagram
     Note over CH: Session Creation (same as WiFi)
     CH->>CH: Check trust policy
     CH->>CH: Select pricing option
-    CH->>MR: CreatePaymentToken()
-    MR-->>CH: Cashu token
+    CH->>MP: GetMerchant() → CreatePaymentToken()
+    MP-->>CH: Cashu token
     CH->>GW: POST payment to :2121/
     GW-->>CH: Session event (kind 1022)
     CH->>CH: Start usage tracker
@@ -140,7 +154,7 @@ sequenceDiagram
     participant UT as UsageTracker
     participant GW as Upstream Gateway
     participant CH as upstream_session_manager
-    participant MR as merchant
+    participant MP as MerchantProvider
 
     Note over UT: Monitoring usage (every 1s for data)
     UT->>GW: GET :2121/usage
@@ -152,8 +166,8 @@ sequenceDiagram
         UT->>CH: HandleUpcomingRenewal()
         CH->>CH: Check budget constraints
         CH->>CH: Create renewal proposal
-        CH->>MR: CreatePaymentToken()
-        MR-->>CH: Cashu token
+        CH->>MP: GetMerchant() → CreatePaymentToken()
+        MP-->>CH: Cashu token
         CH->>CH: Create payment event
         CH->>GW: POST renewal payment
         GW-->>CH: Updated session event
@@ -176,7 +190,7 @@ graph TB
     
     subgraph External
         CS[upstream_detector]
-        MR[merchant]
+        MP[MerchantProvider]
         GW[Upstream Gateway]
         CFG[ConfigManager]
     end
@@ -185,8 +199,8 @@ graph TB
     CS -->|HandleDisconnect| CH
     CH -->|Check trust| CFG
     CH -->|Check budget| CFG
-    CH -->|CreatePaymentToken| MR
-    CH -->|GetBalanceByMint| MR
+    CH -->|GetMerchant → CreatePaymentToken| MP
+    CH -->|GetMerchant → GetBalanceByMint| MP
     CH -->|POST payment| GW
     GW -->|Session event| CH
     CH -->|Store session| SM
@@ -199,6 +213,8 @@ graph TB
     style PD fill:#fff4e1
     style UT fill:#e1ffe1
 ```
+
+> **Note**: The USM does not hold a direct reference to a `Merchant`. It holds a `MerchantProvider` and calls `GetMerchant()` at operation time to resolve the current merchant instance. This enables transparent degraded-to-full merchant swaps without restarting the USM.
 
 ## Behavioral Flow Descriptions
 
@@ -457,7 +473,7 @@ sequenceDiagram
     participant CS as upstream_detector
     participant CH as upstream_session_manager
     participant CFG as ConfigManager
-    participant MR as merchant
+    participant MP as MerchantProvider
     participant GW as Upstream Gateway
     participant UT as UsageTracker
     
@@ -478,8 +494,8 @@ sequenceDiagram
         CH-->>CS: Error: No matching mints
     end
     
-    CH->>MR: GetBalanceByMint(mint_url)
-    MR-->>CH: Balance
+    CH->>MP: GetMerchant() → GetBalanceByMint(mint_url)
+    MP-->>CH: Balance
     
     alt Insufficient balance
         CH-->>CS: Error: Insufficient funds
@@ -495,8 +511,8 @@ sequenceDiagram
     end
     
     CH->>CH: Generate customer private key
-    CH->>MR: CreatePaymentToken(mint, amount)
-    MR-->>CH: Cashu token
+    CH->>MP: GetMerchant() → CreatePaymentToken(mint, amount)
+    MP-->>CH: Cashu token
     
     CH->>CH: Create payment event (kind 21000)
     CH->>GW: POST payment to :2121/
@@ -527,7 +543,7 @@ sequenceDiagram
     participant UT as UsageTracker
     participant CH as upstream_session_manager
     participant CFG as ConfigManager
-    participant MR as merchant
+    participant MP as MerchantProvider
     participant GW as Upstream Gateway
     
     Note over UT: Monitoring usage
@@ -549,8 +565,8 @@ sequenceDiagram
         CH-->>UT: Error: Budget exhausted
     end
     
-    CH->>MR: CreatePaymentToken(mint, amount)
-    MR-->>CH: Cashu token
+    CH->>MP: GetMerchant() → CreatePaymentToken(mint, amount)
+    MP-->>CH: Cashu token
     
     CH->>CH: Create payment event
     CH->>GW: POST renewal payment
@@ -604,12 +620,12 @@ sequenceDiagram
 
 ## Events Sent to Other Components
 
-### To Merchant
+### To Merchant (via MerchantProvider)
 
 | Event | Trigger | Data | Purpose |
 |-------|---------|------|---------|
-| `CreatePaymentToken()` | Payment needed | mint URL, amount | Get Cashu token for payment |
-| `GetBalanceByMint()` | Before payment | mint URL | Check available balance |
+| `GetMerchant() → CreatePaymentToken()` | Payment needed | mint URL, amount | Get Cashu token for payment |
+| `GetMerchant() → GetBalanceByMint()` | Before payment | mint URL | Check available balance |
 
 ### To Usage Tracker
 
@@ -749,6 +765,8 @@ func (c *UpstreamSessionManager) createPayment() error {
     // Create payment...
 }
 ```
+
+> **Note on MerchantProvider's RWMutex**: The `MerchantProvider`'s `RWMutex` protects the merchant *swap* itself (preventing reads of a half-initialized merchant during degraded-to-full transitions), but does **NOT** protect the balance-check-then-pay race described in this issue. That race is between concurrent wallet operations within the same merchant instance and requires its own synchronization (e.g., a wallet reservation system as shown above).
 
 ### Issue 3: Renewal Failure Handling
 
@@ -1185,20 +1203,31 @@ upstream_detector detects disconnect
 
 ### Relationship with Merchant
 
-**Connection**: Direct function calls (wallet provider)
+**Connection**: Indirect via `MerchantProvider` interface
+
+The USM does NOT hold a direct reference to a `Merchant` or `MerchantInterface`. It holds a `merchant.MerchantProvider` — an interface with `GetMerchant()` and `SetMerchant()` methods — injected at construction time. Each operation that needs wallet access calls `GetMerchant()` to resolve the current merchant instance.
 
 **Flow**:
 ```
 upstream_session_manager needs payment
+  → merchantProvider.GetMerchant()
+    → returns current merchant (full or degraded)
   → merchant.CreatePaymentToken()
-    → Cashu token returned
+    → Cashu token returned (or error if degraded)
 
 upstream_session_manager checks balance
+  → merchantProvider.GetMerchant()
+    → returns current merchant (full or degraded)
   → merchant.GetBalanceByMint()
     → Balance returned
 ```
 
-**Dependency**: Merchant must be initialized before upstream_session_manager
+**Degraded mode behavior**:
+- During degraded mode, `GetMerchant()` returns a `MerchantDegraded` whose `CreatePaymentToken()` returns an error, so upstream session creation fails gracefully
+- When mints recover, the provider atomically swaps in a full `Merchant` — no USM code changes or restarts required
+- The `MerchantProvider`'s RWMutex protects the swap itself (prevents reading a half-initialized merchant)
+
+**Dependency**: MerchantProvider must be initialized before upstream_session_manager. In `main.go`, a `MutexMerchantProvider` is created and passed to `NewUpstreamSessionManager()`.
 
 ### Relationship with Usage Trackers
 

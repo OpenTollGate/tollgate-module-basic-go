@@ -30,6 +30,11 @@ is generated from
 ## Feature highlights
 
 - Accept Cashu tokens for internet access, by time **or** by data.
+- **Degraded-mode boot and automatic recovery.** If mints are unreachable at
+  startup, the router boots into degraded mode (keeps the API alive, returns
+  signed notice events asking clients to retry) and upgrades in-process when
+  the health tracker detects a reachable mint — no service restart required
+  ([#140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140)).
 - Automatic Lightning payouts split across any number of profit-share
   identities.
 - Upstream autopay — a TollGate can detect an upstream TollGate and
@@ -45,12 +50,13 @@ Source lives under [src/](src/). Go tooling runs from there
 
 | Module | Role |
 |---|---|
-| [merchant](src/merchant/) | Prices advertisements, validates incoming Cashu payments, and hands off started sessions to the session manager. Also drives Lightning payouts. See [docs/merchant.md](docs/merchant.md). |
+| [merchant](src/merchant/) | Prices advertisements, validates incoming Cashu payments, and hands off started sessions to the session manager. Also drives Lightning payouts. Boots into degraded mode when mints are unreachable and upgrades dynamically when they recover. See [docs/merchant.md](docs/merchant.md). |
 | [upstream_session_manager](src/upstream_session_manager/) | Owns the customer session lifecycle on this router — creates usage trackers (time or bytes), instructs the Valve when to open/close, handles renewal near limit. Formerly the `chandler` package. See [docs/upstream_session_manager.md](docs/upstream_session_manager.md). |
 | [upstream_detector](src/upstream_detector/) | Probes WAN interfaces to discover an upstream TollGate, decides whether to buy from it, and coordinates the reseller flow. Formerly `crowsnest`. The cross-component flow is documented under "Cross-component flow" in [docs/upstream_session_manager.md](docs/upstream_session_manager.md). |
 | [wireless_gateway_manager](src/wireless_gateway_manager/) | Wi-Fi gateway selection, connection/reconnection, scanning, reseller-mode network orchestration. See [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md). |
 | [valve](src/valve/) | Thin wrapper over `ndsctl` that opens/closes gates and authorizes/deauthorizes MACs. |
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
+| [merchant_types](src/merchant_types/) | Zero-dependency package defining the `PaymentMerchant` and `MerchantProvider` interfaces. Decouples `upstream_session_manager` from the full `merchant` package. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
 | [cli](src/cli/) | `tollgate` CLI for `status`, `start`/`stop`/`restart`, `logs`, `version`. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). |

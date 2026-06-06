@@ -1,757 +1,857 @@
-# Merchant - Wallet Provider for Upstream Payments
+# Merchant — Wallet Provider, Payment Processor, and Session Manager
 
 ## Overview
 
-The `merchant` module serves as the wallet provider for the [`upstream_session_manager`](upstream_session_manager.md) module when making upstream payments. While its primary purpose is managing downstream customer payments and sessions, this document focuses on its role in supporting upstream TollGate connections.
+The `merchant` module is the financial core of the TollGate router. It handles three
+concerns:
 
-**Key Responsibilities (Upstream Context)**:
-- Provide wallet functionality for upstream_session_manager
-- Create Cashu payment tokens for upstream payments
-- Manage wallet balance across multiple mints
-- Handle automatic payouts to configured recipients
-- Coordinate wallet operations with upstream_session_manager's payment needs
+1. **Customer-facing payment processing** — accepts Cashu tokens, validates them with
+   mints, calculates allotments (time or data), and authorizes network access via the
+   valve (ndsctl).
+2. **Wallet operations** — manages Cashu wallet balances across multiple mints, creates
+   payment tokens for upstream TollGate purchases, and funds the wallet from external
+   sources.
+3. **Lightning payouts** — automatically sweeps accumulated balances to configured
+   Lightning addresses on a per-mint schedule, split according to profit-share
+   configuration.
+
+### Degraded Mode
+
+When mints are unreachable at startup (or during runtime), the merchant boots into
+**degraded mode** (`MerchantDegraded`) instead of crashing. In degraded mode:
+
+- The HTTP API stays alive — clients receive signed notice events (kind 21023) asking
+  them to retry later.
+- `GetAdvertisement()` and `CreateNoticeEvent()` work normally (they only need the
+  merchant private key, not wallet access).
+- All wallet and session operations return errors or zero values.
+- A background `MintHealthTracker` probes mints every 5 minutes. When a mint recovers
+  (3 consecutive successful probes), the tracker fires a callback that upgrades the
+  process to a full merchant — **no service restart required**.
+
+This degraded-mode architecture was introduced in three PRs:
+
+- [PR #138](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/138) —
+  `merchant_types` package: zero-dependency interfaces (`PaymentMerchant`,
+  `MerchantProvider`) to decouple `upstream_session_manager` from the full merchant.
+- [PR #139](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/139) —
+  `MintHealthTracker` and `MutexMerchantProvider`: health probing and atomic merchant
+  swap.
+- [PR #140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140) —
+  `MerchantDegraded`: degraded-mode boot, dynamic upgrade/downgrade lifecycle.
 
 ## Component Architecture
 
 ```mermaid
 graph TB
-    subgraph merchant
-        MR[Merchant Core]
-        TW[TollWallet]
-        PO[Payout Routine]
+    subgraph "merchant package"
+        MI["MerchantInterface<br/>(18 methods)"]
+        M["Merchant<br/>(full)"]
+        MD["MerchantDegraded"]
+        MP["MutexMerchantProvider"]
+        MHT["MintHealthTracker"]
     end
-    
-    subgraph External
-        CH[upstream_session_manager]
-        CFG[ConfigManager]
-        MINT[Cashu Mints]
-        LN[Lightning Network]
+
+    subgraph "Consumers"
+        HTTP["HTTP Handlers"]
+        CLI["CLI Commands"]
+        USM["Upstream Session Manager"]
     end
-    
-    CH -->|CreatePaymentToken| MR
-    CH -->|GetBalanceByMint| MR
-    MR -->|Manage tokens| TW
-    TW -->|Swap/Receive| MINT
-    TW -->|Melt| LN
-    MR -->|Get config| CFG
-    PO -->|Check balance| TW
-    PO -->|Trigger payout| TW
-    
-    style MR fill:#e1ffe1
-    style TW fill:#e1f5ff
-    style PO fill:#fff4e1
+
+    subgraph "Internal Dependencies"
+        TW["TollWallet"]
+        CFG["ConfigManager"]
+        V["Valve (ndsctl)"]
+    end
+
+    subgraph "External"
+        MINT["Cashu Mints"]
+        LN["Lightning Network"]
+    end
+
+    MI -.->|implemented by| M
+    MI -.->|implemented by| MD
+
+    MP -->|wraps| MI
+    HTTP -->|GetMerchant()| MP
+    CLI -->|GetMerchant()| MP
+    USM -->|GetMerchant()| MP
+
+    M --> TW
+    M --> CFG
+    M --> V
+    TW -->|swap/receive/melt| MINT
+    TW -->|melt| LN
+
+    MHT -->|probes| MINT
+    MHT -->|onFirstReachable| MP
+    MHT -->|onReachableSetChanged| MP
+
+    style MI fill:#e1ffe1
+    style M fill:#c8f7c8
+    style MD fill:#ffe1e1
+    style MP fill:#e1f5ff
+    style MHT fill:#fff4e1
 ```
 
-## Behavioral Flow Descriptions
+### Relationship Between Components
 
-### 1. Payment Token Creation for UpstreamSessionManager
+| Component | Role | File |
+|---|---|---|
+| `MerchantInterface` | 18-method interface all consumers call | `merchant.go` |
+| `Merchant` | Full implementation with wallet, sessions, payouts | `merchant.go` |
+| `MerchantDegraded` | Stub implementation when mints are unreachable | `merchant_degraded.go` |
+| `MutexMerchantProvider` | RWMutex-protected atomic swap of the current merchant | `merchant_provider.go` |
+| `MintHealthTracker` | Background health probes with hysteresis | `mint_health_tracker.go` |
 
-**Trigger**: `upstream_session_manager.CreatePaymentToken()` called during session creation or renewal
+## Merchant Lifecycle
 
-**Purpose**: Generate Cashu token for upstream payment
-
-**Flow**:
-1. Receive request with mint URL and amount
-2. Check wallet balance for specified mint
-3. If insufficient balance, return error
-4. Create Cashu token from wallet:
-   - Select proofs totaling requested amount
-   - May include overpayment if exact amount unavailable
-   - Create token string
-5. Return token to upstream_session_manager
-6. Wallet balance decreased by token amount
-
-**State Changes**:
-- Wallet proofs consumed
-- Balance decreased for mint
-- Token created (not yet spent)
-
-**Error Conditions**:
-- Insufficient balance
-- Mint not available
-- Token creation failure
-
-### 2. Balance Checking
-
-**Trigger**: UpstreamSessionManager checks balance before payment
-
-**Purpose**: Verify sufficient funds available
-
-**Flow**:
-1. Receive mint URL from upstream_session_manager
-2. Query tollwallet for balance at that mint
-3. Return current balance
-4. No state changes (read-only)
-
-**Balance Calculation**:
-- Sum of all unspent proofs for the mint
-- Does not include pending/reserved funds
-- Real-time calculation
-
-### 3. Automatic Payout Routine
-
-**Trigger**: Timer tick every 1 minute (per mint)
-
-**Purpose**: Automatically pay out profits to configured recipients
-
-**Flow**:
-1. For each configured mint:
-   - Get current balance
-   - Check if balance >= minimum payout amount
-   - If below threshold, skip
-   - Calculate payout amount: `balance - min_balance`
-   - For each profit share recipient:
-     - Calculate share: `payout_amount * factor`
-     - Get Lightning address from identities
-     - Melt tokens to Lightning
-     - Send to recipient's Lightning address
-   - Log payout completion
-
-**State Changes**:
-- Wallet balance decreased
-- Tokens melted to Lightning
-- Funds sent to recipients
-
-**Coordination Issue**: Runs independently of upstream_session_manager payment needs
-
-### 4. Wallet Funding (Receiving Tokens)
-
-**Trigger**: Receiving Cashu tokens (from downstream customers or external sources)
-
-**Purpose**: Add funds to wallet
-
-**Flow**:
-1. Receive Cashu token string
-2. Decode token
-3. Swap with mint (verify proofs not spent)
-4. Store new proofs in wallet
-5. Return amount received
-6. Balance increased
-
-**State Changes**:
-- New proofs added to wallet
-- Balance increased for mint
-
-**Note**: This is primarily for downstream customer payments, but affects balance available for upstream payments
-
-## Sequence Diagrams
-
-### Payment Token Creation Flow
+The merchant goes through a well-defined lifecycle at boot and during runtime. This is
+orchestrated by `init()` in `src/main.go`.
 
 ```mermaid
-sequenceDiagram
-    participant CH as upstream_session_manager
-    participant MR as merchant
-    participant TW as TollWallet
-    participant MINT as Cashu Mint
-    
-    CH->>MR: CreatePaymentToken(mint_url, amount)
-    MR->>TW: GetBalanceByMint(mint_url)
-    TW-->>MR: current_balance
-    
-    alt Insufficient balance
-        MR-->>CH: Error: Insufficient funds
-    end
-    
-    MR->>TW: CreateToken(mint_url, amount)
-    TW->>TW: Select proofs >= amount
-    TW->>TW: Create token string
-    TW-->>MR: cashu_token
-    
-    MR-->>CH: cashu_token
-    
-    Note over TW: Balance decreased
+stateDiagram-v2
+    [*] --> Boot: config loaded
+
+    Boot --> ProbeMints: merchant.New(configManager)
+    ProbeMints --> FullMerchant: wallet init succeeds
+    ProbeMints --> DegradedMerchant: wallet init fails
+
+    FullMerchant --> Runtime: StartPayoutRoutine()<br/>StartDataUsageMonitoring()
+    DegradedMerchant --> WaitForRecovery: healthTracker.Start()
+
+    WaitForRecovery --> UpgradeAttempt: onFirstReachable fires<br/>(3 consecutive successes)
+    UpgradeAttempt --> FullMerchant: merchant.New() succeeds
+    UpgradeAttempt --> WaitForRecovery: merchant.New() fails or<br/>returns degraded again
+
+    Runtime --> Runtime: payout ticks,<br/>data monitoring,<br/>payment processing
+
+    Runtime --> DowngradeCheck: onReachableSetChanged fires<br/>(reachable count changes)
+
+    DowngradeCheck --> Runtime: mints still reachable
+    DowngradeCheck --> DegradedMerchant: all mints go down
+
+    Runtime --> [*]
+    DegradedMerchant --> [*]
 ```
 
-### Balance Check Flow
+### Boot Sequence
 
-```mermaid
-sequenceDiagram
-    participant CH as upstream_session_manager
-    participant MR as merchant
-    participant TW as TollWallet
-    
-    CH->>MR: GetBalanceByMint(mint_url)
-    MR->>TW: GetBalanceByMint(mint_url)
-    TW->>TW: Sum unspent proofs
-    TW-->>MR: balance
-    MR-->>CH: balance
-    
-    Note over MR,TW: Read-only, no state change
+The boot sequence in `init()` (lines 96-186 of `src/main.go`):
+
+1. **Load configuration** — `ConfigManager` reads `/etc/tollgate/config.json` and
+   `/etc/tollgate/identities.json`.
+2. **Attempt full merchant** — `merchant.New()` tries to initialize the TollWallet by
+   connecting to all configured mints. If the wallet initializes, a full `Merchant` is
+   returned.
+3. **Fallback to degraded** — If `tollwallet.New()` fails (mints unreachable), `New()`
+   internally calls `NewDegraded()` which returns a `MerchantDegraded`. This does not
+   return an error — the caller receives `MerchantDegraded` as a `MerchantInterface`.
+4. **Create provider** — `NewMerchantProvider()` wraps the merchant instance in a
+   `MutexMerchantProvider`.
+5. **Create health tracker** — `NewMintHealthTracker()` is created with the configured
+   mint URLs.
+6. **Run initial probe** — `RunInitialProbe()` checks all mints synchronously to
+   populate initial state.
+7. **Wire callbacks** (degraded path only) — If the merchant is `MerchantDegraded`:
+   - `onFirstReachable` callback is set to create a new full merchant and swap it via
+     `merchantProvider.SetMerchant()`.
+8. **Start routines** (full path only) — If the merchant is full `Merchant`:
+   - `StartPayoutRoutine()` and `StartDataUsageMonitoring()` are called immediately.
+9. **Start health tracker** — `healthTracker.Start()` begins background probing every 5
+   minutes.
+10. **Initialize subsystems** — `initUpstreamManager()`, `initUpstreamDetector()`,
+    `initCLIServer()`.
+
+### Upgrade: Degraded → Full
+
+When the health tracker detects the first mint becoming reachable (3 consecutive
+successful probes):
+
+1. `onFirstReachable` callback fires on the timer goroutine.
+2. `merchant.New(configManager)` is called to attempt creating a full merchant.
+3. If the new merchant is also degraded (wallet still can't connect), the callback calls
+   `healthTracker.ResetFirstReachable()` and returns — the upgrade is retried on the next
+   probe cycle.
+4. If the new merchant is a full `Merchant`:
+   - `merchantProvider.SetMerchant(newMerchant)` atomically swaps the merchant under an
+     RWMutex write lock.
+   - `newMerchant.StartPayoutRoutine()` starts Lightning payout goroutines.
+   - `newMerchant.StartDataUsageMonitoring()` starts data usage checking.
+   - All subsequent `GetMerchant()` calls from HTTP handlers, CLI, and USM see the new
+     full merchant.
+
+### Downgrade: Full → Degraded
+
+When the health tracker detects that the reachable set has changed (e.g., all mints go
+down), `onReachableSetChanged` fires. In the current implementation, this callback is
+available but the downgrade path is less developed than the upgrade path. A future
+improvement could create a new `MerchantDegraded` and swap it in.
+
+### BoltDB Lock Consideration
+
+When upgrading from degraded to full, the degraded merchant does **not** hold a BoltDB
+lock (it has no wallet). The new full merchant opens the wallet fresh. This means there
+is no lock contention during upgrade. However, the old degraded merchant is not
+explicitly shut down — it simply becomes garbage-collectable once no goroutine holds a
+reference.
+
+## MerchantInterface
+
+The `MerchantInterface` defines 18 methods. Both `Merchant` and `MerchantDegraded`
+implement this interface.
+
+```go
+type MerchantInterface interface {
+    // Token creation
+    CreatePaymentToken(mintURL string, amount uint64) (string, error)
+    CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+    DrainMint(mintURL string) (string, uint64, error)
+
+    // Lightning invoices
+    RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error)
+    GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error)
+
+    // Mint and balance info
+    GetAcceptedMints() []config_manager.MintConfig
+    GetBalance() uint64
+    GetBalanceByMint(mintURL string) uint64
+    GetAllMintBalances() map[string]uint64
+
+    // Payment processing
+    PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
+    GetAdvertisement() string
+
+    // Background routines
+    StartPayoutRoutine()
+    StartDataUsageMonitoring()
+
+    // Notice events
+    CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
+
+    // Session management
+    GetSession(macAddress string) (*CustomerSession, error)
+    AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
+    GetUsage(macAddress string) (string, error)
+
+    // Wallet funding
+    Fund(cashuToken string) (uint64, error)
+}
 ```
 
-### Payout Routine Flow
+### Method Behavior Comparison
+
+| Method | `Merchant` (full) | `MerchantDegraded` |
+|---|---|---|
+| `CreatePaymentToken` | Creates Cashu token from wallet | Returns `errDegraded` |
+| `CreatePaymentTokenWithOverpayment` | Creates token with overpayment tolerance | Returns `errDegraded` |
+| `DrainMint` | Drains all balance from a mint | Returns `errDegraded` |
+| `RequestLightningInvoice` | Creates Lightning invoice via mint | Returns `errDegraded` |
+| `GetLightningInvoiceStatus` | Checks invoice status | Returns `errDegraded` |
+| `GetAcceptedMints` | Returns configured mints | Returns `nil` |
+| `GetBalance` | Returns total wallet balance | Returns `0` |
+| `GetBalanceByMint` | Returns per-mint balance | Returns `0` |
+| `GetAllMintBalances` | Returns all mint balances | Returns `nil` |
+| `PurchaseSession` | Full payment processing flow | Returns `errDegraded` |
+| `GetAdvertisement` | Returns signed kind 10021 ad | Returns signed kind 10021 ad |
+| `StartPayoutRoutine` | Starts payout goroutines | No-op |
+| `StartDataUsageMonitoring` | Starts data usage checking | No-op |
+| `CreateNoticeEvent` | Creates signed kind 21023 notice | Creates signed kind 21023 notice |
+| `GetSession` | Returns session or expiry error | Returns "no active sessions" error |
+| `AddAllotment` | Creates/extends session | Returns `errDegraded` |
+| `GetUsage` | Returns "usage/allotment" string | Returns `errDegraded` |
+| `Fund` | Receives token into wallet | Returns `errDegraded` |
+
+**Key insight**: `GetAdvertisement()` and `CreateNoticeEvent()` work in both modes
+because they only need the merchant private key from `identities.json`, not wallet
+access. This is what allows the HTTP API to stay alive and return meaningful responses
+during degraded mode.
+
+## MerchantDegraded
+
+`MerchantDegraded` is a lightweight stub that satisfies `MerchantInterface` without any
+wallet, network, or session state.
+
+### Construction
+
+```go
+func NewDegraded(configManager *config_manager.ConfigManager) (MerchantInterface, error)
+```
+
+- Creates an advertisement using the same `CreateAdvertisement()` function as the full
+  merchant (only needs identities, not wallet).
+- Initializes an empty (unused) sessions map.
+- Logs a warning: `"Merchant starting in DEGRADED mode (mints unreachable)"`.
+
+### Error Returned
+
+All wallet and session operations return a sentinel error:
+
+```go
+var errDegraded = fmt.Errorf("service degraded: wallet unavailable, mints unreachable")
+```
+
+Consumers that receive this error can present it to the user as a temporary condition.
+
+### What Works
+
+- **`GetAdvertisement()`** — Returns a valid signed kind 10021 advertisement. Clients
+  can see pricing and mint URLs even in degraded mode.
+- **`CreateNoticeEvent()`** — Creates signed kind 21023 notice events. Used by HTTP
+  handlers to tell clients "service temporarily unavailable, retry later."
+- **`GetBalance()`, `GetBalanceByMint()`** — Return `0` (not errors). Allows balance
+  queries to succeed without misleading clients.
+
+### What Is Stubbed
+
+- **All token operations** (`CreatePaymentToken`, `CreatePaymentTokenWithOverpayment`,
+  `DrainMint`) — return `errDegraded`.
+- **`PurchaseSession()`** — returns `errDegraded`. No payment processing occurs.
+- **`StartPayoutRoutine()`, `StartDataUsageMonitoring()`** — no-ops. No goroutines
+  started.
+- **Session management** (`GetSession`, `AddAllotment`, `GetUsage`) — return errors.
+- **`Fund()`** — returns `errDegraded`. Wallet cannot receive tokens.
+- **`GetAcceptedMints()`** — returns `nil`. No mints available.
+
+## MintHealthTracker
+
+`MintHealthTracker` probes all configured mints in the background and fires callbacks
+when reachability changes.
+
+### Construction and Configuration
+
+```go
+func NewMintHealthTracker(mintConfigs []config_manager.MintConfig) *MintHealthTracker
+```
+
+| Parameter | Value | Notes |
+|---|---|---|
+| Probe interval | 5 minutes | `probeInterval: 5 * time.Minute` |
+| Probe timeout | 5 seconds | `probeTimeout: 5 * time.Second` |
+| Required consecutive successes | 3 | `requiredConsecutive: 3` |
+| Probe endpoint | `{mintURL}/v1/info` | HTTP GET, expects 200 OK |
+
+### Hysteresis
+
+The tracker uses a consecutive-success counter with hysteresis to avoid flapping:
+
+- **Recovery** (unreachable → reachable): Requires **3 consecutive** successful probes.
+  A single failure resets the counter to 0.
+- **Downgrade** (reachable → unreachable): A **single failure** resets the counter to
+  0, which immediately marks the mint as unreachable.
+
+This asymmetric hysteresis means recovery is slow (conservative) but failure detection
+is fast. See [follow-up issue #26](https://github.com/Amperstrand/tollgate-module-basic-go/issues/26)
+for concerns about 1-failure downgrade causing flapping.
+
+### Initial Probe
+
+`RunInitialProbe()` probes all mints synchronously before starting background checks.
+It populates the `reachable` map and sets `hadReachableMint = true` if any mint
+responds. This method must be called before `Start()` — it is not thread-safe.
+
+### Background Probing
+
+`Start()` launches a goroutine that probes all mints every 5 minutes. The probe
+sequence:
+
+1. Probe all mints concurrently (HTTP GET to `{mintURL}/v1/info`, 5s timeout).
+2. Lock the mutex and update `consecutiveSuccess` counters.
+3. Determine reachability transitions:
+   - If `consecutiveSuccess >= 3` and was unreachable → mark reachable, log.
+   - If `consecutiveSuccess < 3` and was reachable → mark unreachable, log.
+4. Check if `reachableCount` changed.
+5. Check if `hadReachableMint` was false and is now true → fire `onFirstReachable`.
+6. If reachable count changed → fire `onReachableSetChanged`.
+7. Unlock, then fire collected callbacks outside the lock.
+
+### Callbacks
+
+| Callback | Trigger | Used For |
+|---|---|---|
+| `onFirstReachable` | First mint comes back after total outage | Upgrade from degraded to full merchant |
+| `onReachableSetChanged` | Number of reachable mints changes | Downgrade detection, logging |
+
+`SetOnFirstReachable(fn)` and `SetOnReachableSetChanged(fn)` set these callbacks. They
+are called under the mutex, so they must be set before `Start()`.
+
+`ResetFirstReachable()` resets the `hadReachableMint` flag, allowing the
+`onFirstReachable` callback to fire again on the next successful probe. This is used
+when an upgrade attempt fails (e.g., `merchant.New()` returns degraded again).
+
+### State Query
+
+- `GetReachableMintConfigs()` — returns `[]MintConfig` of currently reachable mints.
+- `GetReachableCount()` — returns the number of reachable mints.
+- `String()` — returns `"MintHealthTracker{url1=reachable, url2=unreachable, ...}"`.
+
+## MutexMerchantProvider
+
+`MutexMerchantProvider` provides thread-safe access to the current merchant with atomic
+swap capability.
+
+### Interface
+
+```go
+type MerchantProvider interface {
+    GetMerchant() MerchantInterface
+    SetMerchant(MerchantInterface)
+}
+```
+
+### Implementation
+
+```go
+type MutexMerchantProvider struct {
+    mu       sync.RWMutex
+    merchant MerchantInterface
+}
+```
+
+- `GetMerchant()` takes an `RLock` — multiple concurrent readers can access the merchant
+  simultaneously.
+- `SetMerchant()` takes a full `Lock` — blocks all readers during the swap.
+
+### Why All Consumers Use `GetMerchant()`
+
+Long-lived consumers (HTTP handlers, CLI commands, the upstream session manager) hold a
+reference to the `MerchantProvider`, not to a specific merchant. At operation time, they
+call `GetMerchant()` to get the current merchant. This means:
+
+- Before upgrade: `GetMerchant()` returns `MerchantDegraded` — operations fail with
+  `errDegraded`.
+- After upgrade: `GetMerchant()` returns the new full `Merchant` — operations succeed.
+- No restart, no reconnection, no stale references.
+
+### Thread Safety
+
+The swap is atomic from the perspective of consumers. A goroutine calling
+`GetMerchant()` during an upgrade will either see the old degraded merchant or the new
+full merchant — never a partially initialized one. The `merchant.New()` call creates a
+fully initialized merchant before `SetMerchant()` is called.
+
+## Payout Routine
+
+The payout routine automatically sweeps accumulated balances to configured Lightning
+addresses. It only runs on a full `Merchant` — `MerchantDegraded.StartPayoutRoutine()`
+is a no-op.
+
+### Flow
 
 ```mermaid
 sequenceDiagram
     participant Timer as 1min Timer
-    participant MR as merchant
+    participant M as Merchant
     participant TW as TollWallet
     participant CFG as ConfigManager
     participant LN as Lightning Network
-    
-    Timer->>MR: Tick (per mint)
-    MR->>TW: GetBalanceByMint(mint_url)
-    TW-->>MR: balance
-    
+
+    Timer->>M: Tick (per mint)
+    M->>TW: GetBalanceByMint(mintURL)
+    TW-->>M: balance
+
     alt Balance < min_payout_amount
-        MR->>MR: Skip payout
+        M->>M: Skip payout
     end
-    
-    MR->>MR: Calculate payout amount
-    MR->>CFG: Get profit share config
-    CFG-->>MR: profit_shares[]
-    
+
+    M->>M: Calculate payout: balance - min_balance
+    M->>CFG: GetIdentities()
+    CFG-->>M: identities
+
     loop For each profit share
-        MR->>MR: Calculate share amount
-        MR->>CFG: Get Lightning address
-        CFG-->>MR: lightning_address
-        
-        MR->>TW: MeltToLightning(mint, amount, max_cost, ln_addr)
-        TW->>TW: Select proofs
-        TW->>TW: Create melt request
+        M->>M: share = payout * factor
+        M->>CFG: GetPublicIdentity(name)
+        CFG-->>M: lightning_address
+        M->>TW: MeltToLightning(mint, amount, max_cost, ln_addr)
         TW->>LN: Pay Lightning invoice
-        LN-->>TW: Payment success
-        TW-->>MR: Success
+        LN-->>TW: Result
     end
-    
-    Note over TW: Balance decreased by payout
+end
 ```
 
-### Race Condition Scenario
-
-```mermaid
-sequenceDiagram
-    participant CH as upstream_session_manager
-    participant MR as merchant
-    participant TW as TollWallet
-    participant PO as Payout Routine
-    
-    Note over CH: Session creation starting
-    CH->>MR: GetBalanceByMint(mint)
-    MR->>TW: GetBalanceByMint(mint)
-    TW-->>MR: 10000 sats
-    MR-->>CH: 10000 sats
-    
-    Note over CH: Balance sufficient, proceeding
-    
-    Note over PO: Timer tick
-    PO->>TW: GetBalanceByMint(mint)
-    TW-->>PO: 10000 sats
-    PO->>PO: Calculate payout: 9000 sats
-    PO->>TW: MeltToLightning(9000 sats)
-    TW->>TW: Balance now 1000 sats
-    
-    Note over CH: Creating payment
-    CH->>MR: CreatePaymentToken(mint, 5000)
-    MR->>TW: CreateToken(5000)
-    TW-->>MR: Error: Insufficient balance
-    MR-->>CH: Error: Insufficient funds
-    
-    Note over CH: Session creation failed!
-```
-
-## Events Sent to Other Components
-
-### To UpstreamSessionManager (via function returns)
-
-| Event | Trigger | Data | Purpose |
-|-------|---------|------|---------|
-| Token created | `CreatePaymentToken()` | Cashu token string | Provide payment token |
-| Balance returned | `GetBalanceByMint()` | Balance amount | Inform available funds |
-| Error returned | Insufficient funds | Error message | Indicate payment impossible |
-
-### From UpstreamSessionManager
-
-| Event | Trigger | Data | Purpose |
-|-------|---------|------|---------|
-| `CreatePaymentToken()` | Payment needed | mint URL, amount | Request payment token |
-| `GetBalanceByMint()` | Before payment | mint URL | Check available balance |
-
-## Edge Cases & State Issues
-
-### Issue 1: Race Condition Between Payout and Payment
-
-**Scenario**: Payout routine drains wallet while upstream_session_manager is creating payment
-
-**Root Cause**:
-- Payout runs every 1 minute independently
-- UpstreamSessionManager checks balance, then creates payment
-- Payout happens between check and creation
-- No locking or coordination mechanism
-- No fund reservation system
-
-**Current Behavior**:
-- UpstreamSessionManager: Balance check shows sufficient funds
-- Payout: Drains wallet to minimum balance
-- UpstreamSessionManager: Payment creation fails
-- Session creation fails
-- No retry mechanism
-
-**Impact**:
-- Upstream session creation fails
-- Device connected but not paying
-- User experience degraded
-- Requires manual intervention or wait for next discovery
-
-**Detection**:
-```bash
-# Check logs for timing
-logread | grep -E "(upstream_session_manager|merchant)" | grep -E "(balance|payout)"
-
-# Look for pattern:
-# 1. UpstreamSessionManager balance check: 10000 sats
-# 2. Merchant payout: 9000 sats
-# 3. UpstreamSessionManager payment creation: Error insufficient funds
-```
-
-**Potential Fixes**:
-
-1. **Fund Reservation System** (Recommended):
-```go
-// In merchant
-type FundReservation struct {
-    MintURL   string
-    Amount    uint64
-    ExpiresAt time.Time
-}
-
-func (m *Merchant) ReserveFunds(mintURL string, amount uint64) error {
-    // Reserve funds for 30 seconds
-    // Payout routine checks reserved funds
-}
-
-func (m *Merchant) GetAvailableBalance(mintURL string) uint64 {
-    total := m.GetBalanceByMint(mintURL)
-    reserved := m.getReservedFunds(mintURL)
-    return total - reserved
-}
-```
-
-2. **Mutex Locking**:
-```go
-// Add mutex around balance operations
-var walletMutex sync.Mutex
-
-func (m *Merchant) CreatePaymentToken(...) {
-    walletMutex.Lock()
-    defer walletMutex.Unlock()
-    // Create token...
-}
-
-func (m *Merchant) processPayout(...) {
-    walletMutex.Lock()
-    defer walletMutex.Unlock()
-    // Process payout...
-}
-```
-
-3. **Payout Coordination**:
-```go
-// Check for active sessions before payout
-func (m *Merchant) processPayout(mintConfig) {
-    // Check if upstream_session_manager has active sessions needing this mint
-    if m.upstream_session_manager.HasActiveSessionsForMint(mintConfig.URL) {
-        // Skip payout or reduce amount
-        return
-    }
-    // Proceed with payout...
-}
-```
-
-4. **Two-Phase Commit**:
-```go
-// Reserve, then commit
-func (m *Merchant) CreatePaymentToken(...) {
-    // Phase 1: Reserve
-    reservation := m.reserveFunds(mintURL, amount)
-    defer m.releaseFunds(reservation)
-    
-    // Phase 2: Create token
-    token := m.createToken(...)
-    
-    // Phase 3: Commit
-    m.commitReservation(reservation)
-    return token
-}
-```
-
-### Issue 2: Insufficient Balance for Minimum Purchase
-
-**Scenario**: Wallet has funds but not enough for upstream minimum purchase
-
-**Root Cause**:
-- Upstream requires minimum purchase (e.g., 1000 sats)
-- Wallet has 500 sats
-- UpstreamSessionManager checks balance, sees insufficient
-- Session creation fails
-- No notification or alert
-
-**Current Behavior**:
-- Balance check fails
-- Session creation aborted
-- Error logged
-- No user notification
-- No automatic funding mechanism
-
-**Detection**:
-```bash
-# Check upstream_session_manager logs
-logread | grep "Insufficient funds for minimum purchase"
-
-# Shows:
-# Required: 1000 sats
-# Available: 500 sats
-```
-
-**Potential Fixes**:
-1. Add balance monitoring and alerts
-2. Implement automatic funding from external source
-3. Add user notification for low balance
-4. Support partial payments if upstream allows
-5. Add balance threshold warnings
-
-### Issue 3: Payout Timing Configuration
-
-**Scenario**: Payout interval too frequent for usage patterns
-
-**Root Cause**:
-- Payout runs every 1 minute
-- May be too frequent for low-volume usage
-- Increases Lightning network fees
-- May interfere with upstream payments
-
-**Current Behavior**:
-- Frequent payout attempts
-- Higher transaction costs
-- Potential payment conflicts
-- Inefficient use of funds
-
-**Potential Fixes**:
-1. Make payout interval configurable
-2. Implement adaptive payout timing
-3. Coordinate with session activity
-4. Add payout scheduling logic
-5. Implement batch payouts
-
-### Issue 4: Multiple Mint Balance Fragmentation
-
-**Scenario**: Funds spread across multiple mints, none sufficient alone
-
-**Root Cause**:
-- Wallet supports multiple mints
-- Funds distributed across mints
-- Upstream requires specific mint
-- No cross-mint consolidation
-
-**Current Behavior**:
-- Total balance sufficient
-- Per-mint balance insufficient
-- Payment fails
-- No automatic consolidation
-
-**Detection**:
-```bash
-# Check all mint balances
-tollgate-cli wallet balance
-
-# Shows:
-# Mint A: 300 sats
-# Mint B: 400 sats
-# Mint C: 300 sats
-# Total: 1000 sats
-
-# But upstream requires 800 sats from Mint A
-# Payment fails despite total balance
-```
-
-**Potential Fixes**:
-1. Implement cross-mint swapping
-2. Add balance consolidation
-3. Support multiple mint payments
-4. Add mint selection logic
-5. Implement automatic rebalancing
-
-### Issue 5: Payout Configuration Errors
-
-**Scenario**: Profit share configuration invalid or missing
-
-**Root Cause**:
-- Lightning address not configured
-- Identity not found
-- Profit share factors don't sum to 1.0
-- Configuration errors
-
-**Current Behavior**:
-- Payout routine logs error
-- Continues to next profit share
-- Funds may not be distributed correctly
-- No alerts or notifications
-
-**Detection**:
-```bash
-# Check merchant logs
-logread | grep "Could not find public identity"
-
-# Or check for payout errors
-logread | grep "Error during payout"
-```
-
-**Potential Fixes**:
-1. Validate configuration on startup
-2. Add configuration health checks
-3. Implement fallback payout addresses
-4. Add configuration validation
-5. Alert on payout failures
-
-### Issue 6: Wallet State Persistence
-
-**Scenario**: Wallet state lost on restart
-
-**Root Cause**:
-- Wallet stores proofs in memory or file
-- File corruption or loss
-- Restart loses pending operations
-- No transaction log
-
-**Current Behavior**:
-- Wallet state may be inconsistent
-- Proofs may be lost
-- Balance may be incorrect
-- No recovery mechanism
-
-**Potential Fixes**:
-1. Implement robust persistence
-2. Add transaction logging
-3. Implement wallet backup
-4. Add state recovery
-5. Implement proof verification on startup
-
-## Integration with Other Components
-
-### Relationship with UpstreamSessionManager
-
-**Connection**: Direct function calls (wallet provider)
-
-**Flow**:
-```
-upstream_session_manager needs payment
-  → merchant.CreatePaymentToken()
-    → Token created and returned
-
-upstream_session_manager checks balance
-  → merchant.GetBalanceByMint()
-    → Balance returned
-```
-
-**Dependency**: Merchant must be initialized before upstream_session_manager
-
-**Critical Path**: Payment token creation is blocking operation
-
-### Relationship with TollWallet
-
-**Connection**: Internal component
-
-**Flow**:
-```
-merchant operations
-  → tollwallet.CreateToken()
-  → tollwallet.GetBalance()
-  → tollwallet.MeltToLightning()
-  → tollwallet.Receive()
-```
-
-**Dependency**: TollWallet manages actual Cashu operations
-
-### Relationship with ConfigManager
-
-**Connection**: Configuration access
-
-**Flow**:
-```
-merchant initialization
-  → configManager.GetConfig()
-    → Accepted mints
-    → Profit share config
-    → Payout settings
-```
-
-**Dependency**: Configuration must be loaded before merchant
-
-## Configuration
-
-### Merchant Config (Relevant to Upstream Payments)
+### Per-Mint Processing
+
+For each configured mint, a separate goroutine runs:
+
+1. **Check balance** — `GetBalanceByMint(mintURL)` returns the sum of unspent proofs.
+2. **Threshold check** — Skip if balance < `min_payout_amount`.
+3. **Calculate payout** — `aimedPaymentAmount = balance - min_balance`.
+4. **Split by profit share** — For each entry in `profit_share` config:
+   - `shareAmount = aimedPaymentAmount * factor`
+   - Look up Lightning address from `identities.json`.
+   - `MeltToLightning(mintURL, shareAmount, maxCost, lightningAddress)`.
+5. **Tolerance** — `maxCost = shareAmount + (shareAmount * tolerancePercent / 100)`.
+
+### Configuration
 
 ```json
 {
-  "accepted_mints": [
-    {
-      "url": "https://mint.example.com",
-      "price_per_step": 100,
-      "price_unit": "sat",
-      "min_purchase_steps": 10,
-      "min_payout_amount": 5000,
-      "min_balance": 1000,
-      "balance_tolerance_percent": 10
-    }
-  ],
+  "accepted_mints": [{
+    "min_payout_amount": 128,
+    "min_balance": 64,
+    "balance_tolerance_percent": 10
+  }],
   "profit_share": [
-    {
-      "identity": "owner",
-      "factor": 1.0
-    }
+    { "factor": 0.79, "identity": "owner" },
+    { "factor": 0.21, "identity": "developer" }
   ]
 }
 ```
 
-**Key Parameters**:
-- `accepted_mints`: Mints the wallet can use
-- `min_payout_amount`: Minimum balance before payout
-- `min_balance`: Minimum balance to maintain after payout
-- `balance_tolerance_percent`: Overpayment tolerance for melting
+- `min_payout_amount` — minimum balance before any payout is attempted (per mint).
+- `min_balance` — minimum balance to retain after payout.
+- `balance_tolerance_percent` — overpayment tolerance for melt operations (Lightning
+  routing fees).
+- `profit_share[].factor` — share of payout for each recipient. Should sum to 1.0.
+- `profit_share[].identity` — maps to an entry in `identities.json` with a
+  `lightning_address` field.
 
-### Payout Timing
+### Payout Interval
 
-**Current**: Hardcoded 1 minute interval per mint
-
-**Location**: `merchant.go` in `StartPayoutRoutine()`
+Hardcoded at 1 minute per mint:
 
 ```go
 ticker := time.NewTicker(1 * time.Minute)
 ```
 
-**Recommendation**: Make configurable
+### Degraded Mode Behavior
 
----
+In degraded mode, `StartPayoutRoutine()` is a no-op. No payout goroutines are started.
+After upgrade, the new full merchant starts its own payout routines.
 
-## Technical Implementation Details
+## Data Usage Monitoring
 
-### Key Functions
+The data usage monitoring routine checks active data-based sessions every 2 seconds and
+closes the gate when allotment is reached. It only runs on a full `Merchant` —
+`MerchantDegraded.StartDataUsageMonitoring()` is a no-op.
 
-#### CreatePaymentToken()
+### Flow
+
+1. Every 2 seconds, iterate all sessions with `metric == "bytes"`.
+2. For each session, check if a data baseline exists (gate is open).
+3. `valve.GetDataUsageSinceBaseline(mac)` returns bytes consumed since gate opened.
+4. If `usage >= allotment`:
+   - `valve.CloseGate(mac)` deauthorizes the MAC via ndsctl.
+   - Remove the session from the map.
+5. Otherwise, log progress periodically (~every 10 MB).
+
+### Degraded Mode Behavior
+
+In degraded mode, `StartDataUsageMonitoring()` is a no-op. No monitoring goroutine is
+started. After upgrade, the new full merchant starts its own monitoring routine.
+
+## Payment Processing (PurchaseSession)
+
+`PurchaseSession()` is the main customer-facing operation. It processes a Cashu payment
+and grants network access.
+
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant M as Merchant
+    participant TW as TollWallet
+    participant V as Valve (ndsctl)
+    participant MINT as Cashu Mint
+
+    Client->>M: PurchaseSession(cashuToken, macAddress)
+    M->>M: Validate MAC address
+    M->>M: Decode Cashu token
+    M->>TW: Receive(token)
+    TW->>MINT: Swap proofs (verify not spent)
+    MINT-->>TW: New proofs
+    TW-->>M: amountReceived
+
+    M->>M: calculateAllotment(amount, mintURL)
+    Note over M: steps = amount / price_per_step<br/>allotment = steps * step_size
+
+    M->>M: grantSessionAccess(mac, allotment)
+    M->>V: OpenGate(mac)
+    V->>V: ndsctl auth mac
+    V-->>M: Success
+
+    M->>M: createSessionEvent(session, mac)
+    M-->>Client: nostr Event (kind 1022)
+```
+
+### Allotment Calculation
+
+1. `steps = amountSats / pricePerStep`
+2. Check `steps >= minPurchaseSteps` (minimum purchase requirement).
+3. Based on configured metric:
+   - `"milliseconds"`: `allotment = steps * stepSize`
+   - `"bytes"`: `allotment = steps * stepSize`
+
+### Session Management
+
+Sessions are stored in-memory (`map[string]*CustomerSession`). Each session tracks:
+- `MacAddress` — device identifier.
+- `StartTime` — Unix timestamp when session was created/extended.
+- `Metric` — `"milliseconds"` or `"bytes"`.
+- `Allotment` — total allotment for this session.
+
+`AddAllotment()` extends an existing session or creates a new one. For existing sessions,
+the allotment is added and the start time is reset to now.
+
+`GetSession()` returns the session or an error if not found. For time-based sessions, it
+checks if the allotment has been exceeded and auto-expires the session.
+
+`GetUsage()` returns a string `"usage/allotment"` for display. For data sessions, it
+queries `valve.GetDataUsageSinceBaseline()`. For time sessions, it calculates elapsed
+milliseconds since session start.
+
+### Error Handling
+
+`PurchaseSession()` returns Nostr events (not Go errors) for user-facing errors:
+- Invalid MAC address → kind 21023 notice with code `"invalid-mac-address"`.
+- Invalid token → kind 21023 notice with code `"payment-error-invalid-token"`.
+- Already-spent token → kind 21023 notice with code `"payment-error-token-spent"`.
+- Receive failure → kind 21023 notice with code `"payment-processing-failed"`.
+- Gate open failure → kind 21023 notice with code `"gate-open-failed"`.
+
+## Wallet Operations
+
+### CreatePaymentToken
+
 ```go
 func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, error)
 ```
 
-**Purpose**: Create Cashu token for upstream payment
+Creates a Cashu token for upstream payment. Checks balance, calls
+`tollwallet.Send()`, serializes the token.
 
-**Call Path**:
-```
-CreatePaymentToken()
-  → tollwallet.GetBalanceByMint()
-  → tollwallet.CreateToken()
-    → Select proofs
-    → Create token string
-  → Return token
-```
+### CreatePaymentTokenWithOverpayment
 
-**Error Conditions**:
-- Insufficient balance
-- Mint not available
-- Token creation failure
-
-#### GetBalanceByMint()
 ```go
-func (m *Merchant) GetBalanceByMint(mintURL string) uint64
+func (m *Merchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
 ```
 
-**Purpose**: Get current balance for specific mint
+Creates a payment token with overpayment tolerance. Used when exact amounts are
+unavailable and the caller can accept slight overpayment.
 
-**Call Path**:
-```
-GetBalanceByMint()
-  → tollwallet.GetBalanceByMint()
-    → Sum unspent proofs
-  → Return balance
-```
+### DrainMint
 
-**Note**: Read-only, no state changes
-
-#### StartPayoutRoutine()
 ```go
-func (m *Merchant) StartPayoutRoutine()
+func (m *Merchant) DrainMint(mintURL string) (string, uint64, error)
 ```
 
-**Purpose**: Start automatic payout goroutines
+Drains all available balance from a specific mint. Unlike `CreatePaymentToken`, this does
+not include fees — it extracts the full balance. Used for wallet migration or
+administrative purposes.
 
-**Call Path**:
-```
-StartPayoutRoutine()
-  → For each mint:
-    → go payoutRoutine()
-      → ticker.Tick (1 minute)
-        → processPayout()
-          → GetBalanceByMint()
-          → Calculate payout
-          → MeltToLightning()
-```
+### Fund
 
-**Runs**: Continuously in background goroutines
-
-#### processPayout()
 ```go
-func (m *Merchant) processPayout(mintConfig config_manager.MintConfig)
+func (m *Merchant) Fund(cashuToken string) (uint64, error)
 ```
 
-**Purpose**: Process payout for single mint
+Receives a Cashu token into the wallet. Decodes the token, calls
+`tollwallet.Receive()`, and returns the amount received.
 
-**Operations**:
-1. Get current balance
-2. Check minimum payout threshold
-3. Calculate payout amount
-4. For each profit share:
-   - Calculate share amount
-   - Get Lightning address
-   - Melt to Lightning
-5. Log completion
+## Edge Cases
 
-### Data Structures
+### Race Condition Between Payout and Payment
 
-#### MintConfig
-```go
-type MintConfig struct {
-    URL                      string
-    PricePerStep             uint64
-    PriceUnit                string
-    MinPurchaseSteps         uint64
-    MinPayoutAmount          uint64
-    MinBalance               uint64
-    BalanceTolerancePercent  uint64
+**Scenario**: Payout routine drains wallet while a customer payment is being processed.
+
+**Root Cause**: No locking or fund reservation between balance check and token creation.
+
+```
+1. USM checks balance: 10000 sats (sufficient)
+2. Payout routine melts 9000 sats to Lightning
+3. USM tries to create 5000 sat token → fails: insufficient balance
+```
+
+**Current Mitigation**: None. The `min_balance` parameter reduces but does not eliminate
+this window.
+
+**Potential Fixes**:
+1. Fund reservation system (reserve funds for 30s before payout can touch them).
+2. Mutex around balance + token creation operations.
+3. Payout coordination (skip payout if active sessions need the mint).
+
+### BoltDB Lock During Upgrade
+
+When upgrading from degraded to full, the degraded merchant has no wallet and thus no
+BoltDB lock. The new full merchant opens the wallet fresh. There is no lock contention.
+However, if the old merchant had been a full merchant that was downgraded mid-operation,
+the old BoltDB file would need to be cleanly closed first. The current code does not
+call `Shutdown()` on the old merchant during upgrade.
+
+### Wallet Drain in Degraded Mode
+
+There is no guardrail preventing the wallet from being fully drained during degraded
+mode if `CreatePaymentTokenWithOverpayment()` were called with large overpayment
+tolerances. In practice this is mitigated by the degraded merchant returning
+`errDegraded` for all token operations, but if a future change allows limited offline
+spending, this could become an issue. See
+[follow-up issue #29](https://github.com/Amperstrand/tollgate-module-basic-go/issues/29).
+
+### Health Tracker Callbacks on Timer Goroutine
+
+`onFirstReachable` and `onReachableSetChanged` fire on the timer goroutine. If
+`onFirstReachable` performs heavy work (e.g., `merchant.New()` which does wallet loading
+and network I/O), the timer goroutine blocks until recovery completes. This prevents
+subsequent proactive checks. Acceptable today because the callback is one-shot and the
+probe interval is 5 minutes.
+
+### RunInitialProbe Thread Safety
+
+`RunInitialProbe()` is not thread-safe — it modifies internal state without holding the
+mutex. It must be called before `Start()`. Currently safe because `init()` calls
+`RunInitialProbe() → SetOnFirstReachable() → Start()` in strict sequence.
+
+### Shutdown Gap
+
+`Merchant.Shutdown()` cleanly stops the wallet DB, but is not wired into any signal
+handler or defer. On process exit, the wallet DB may not get a clean shutdown. Adding a
+SIGTERM/SIGINT handler that calls `Shutdown()` on the current merchant (obtained via
+`MerchantProvider`) should be a follow-up.
+
+## Known Follow-Ups
+
+Filed on [Amperstrand/tollgate-module-basic-go](https://github.com/Amperstrand/tollgate-module-basic-go):
+
+| Issue | Title | Description |
+|---|---|---|
+| [#26](https://github.com/Amperstrand/tollgate-module-basic-go/issues/26) | 1-failure downgrade may cause flapping | Consider sliding window or increased threshold instead of immediate downgrade on single probe failure. |
+| [#27](https://github.com/Amperstrand/tollgate-module-basic-go/issues/27) | `PayoutShare()` calls `MarkUnreachable()` on non-connectivity errors | Scope to transport errors only — a 4xx response should not mark a mint unreachable. |
+| [#28](https://github.com/Amperstrand/tollgate-module-basic-go/issues/28) | Degraded mode returns kind 21023 instead of 10021 | May break clients expecting the standard advertisement kind. |
+| [#29](https://github.com/Amperstrand/tollgate-module-basic-go/issues/29) | Offline wallet spending has no drain guardrail | Add reserve floor, max offline spend per outage window. |
+
+## Configuration
+
+### Merchant Config (Relevant Fields)
+
+```json
+{
+  "metric": "bytes",
+  "step_size": 22020096,
+  "margin": 0.1,
+  "accepted_mints": [
+    {
+      "url": "https://mint.coinos.io",
+      "price_per_step": 1,
+      "price_unit": "sats",
+      "purchase_min_steps": 0,
+      "min_payout_amount": 128,
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60
+    }
+  ],
+  "profit_share": [
+    { "factor": 0.79, "identity": "owner" },
+    { "factor": 0.21, "identity": "developer" }
+  ]
 }
 ```
 
-#### ProfitShare
-```go
-type ProfitShare struct {
-    Identity string  // Identity name in identities.json
-    Factor   float64 // Percentage of profits (0.0-1.0)
-}
+| Field | Location | Description |
+|---|---|---|
+| `metric` | Top-level | `"bytes"` for data-based, `"milliseconds"` for time-based sessions. |
+| `step_size` | Top-level | Units per step (bytes or ms). |
+| `margin` | Top-level | Margin applied to pricing. |
+| `accepted_mints[].url` | Per-mint | Cashu mint URL. |
+| `accepted_mints[].price_per_step` | Per-mint | Satoshis per step. |
+| `accepted_mints[].purchase_min_steps` | Per-mint | Minimum number of steps per purchase. |
+| `accepted_mints[].min_payout_amount` | Per-mint | Minimum balance before payout triggers. |
+| `accepted_mints[].min_balance` | Per-mint | Minimum balance to retain after payout. |
+| `accepted_mints[].balance_tolerance_percent` | Per-mint | Overpayment tolerance for melt operations (%). |
+| `accepted_mints[].payout_interval_seconds` | Per-mint | Interval between payout checks (currently hardcoded to 60s). |
+| `profit_share[].factor` | Per-recipient | Share of payout (0.0-1.0, should sum to 1.0). |
+| `profit_share[].identity` | Per-recipient | Identity name in `identities.json` with `lightning_address`. |
+
+### Health Tracker Constants (Hardcoded)
+
+| Constant | Value | Description |
+|---|---|---|
+| `probeInterval` | 5 minutes | Time between background probe cycles. |
+| `probeTimeout` | 5 seconds | HTTP timeout for each probe. |
+| `requiredConsecutive` | 3 | Consecutive successes needed to mark a mint reachable. |
+
+## Integration with Other Components
+
+### Relationship with UpstreamSessionManager
+
+The USM uses the merchant as a wallet provider for upstream TollGate payments:
+
+```
+USM needs to pay upstream TollGate
+  → merchantProvider.GetMerchant()
+  → merchant.CreatePaymentTokenWithOverpayment()
+  → Cashu token created and sent upstream
 ```
 
-### Wallet Operations
+The USM holds a `MerchantProvider` (from the `merchant_types` package), not a direct
+`MerchantInterface`. This decouples the USM from the full `merchant` package.
 
-**Balance Check**:
-```go
-balance := merchant.GetBalanceByMint(mintURL)
+### Relationship with TollWallet
+
+The full `Merchant` wraps a `TollWallet` instance for all Cashu operations:
+
+- `tollwallet.Send()` / `SendWithOverpayment()` — create payment tokens.
+- `tollwallet.Receive()` — receive tokens into wallet.
+- `tollwallet.MeltToLightning()` — pay to Lightning addresses.
+- `tollwallet.GetBalance()` / `GetBalanceByMint()` — query balances.
+- `tollwallet.Drain()` — drain all balance from a mint.
+
+The `MerchantDegraded` has no `TollWallet` instance.
+
+### Relationship with ConfigManager
+
+Both `Merchant` and `MerchantDegraded` hold a reference to `ConfigManager` for:
+- Configuration access (`GetConfig()` — mints, pricing, profit share).
+- Identity resolution (`GetIdentities()` — merchant private key, Lightning addresses).
+
+### Relationship with Valve
+
+The full `Merchant` uses the `valve` package for gate operations:
+- `valve.OpenGate(mac)` — authorize a MAC via ndsctl.
+- `valve.CloseGate(mac)` — deauthorize a MAC.
+- `valve.GetDataUsageSinceBaseline(mac)` — get bytes consumed.
+- `valve.HasDataBaseline(mac)` — check if gate is open.
+
+## Debugging
+
+### Check Merchant Mode
+
+```bash
+# Boot logs show which mode was selected
+logread | grep -E "(DEGRADED|Merchant ready)"
+# "Merchant starting in DEGRADED mode" = degraded
+# "=== Merchant ready ===" = full
 ```
 
-**Token Creation**:
-```go
-token, err := merchant.CreatePaymentToken(mintURL, amount)
+### Check Health Tracker State
+
+```bash
+# Health tracker logs reachability transitions
+logread | grep "MintHealthTracker"
+# "mint X became reachable" = recovery
+# "mint X became unreachable" = downgrade
 ```
 
-**Payout**:
-```go
-err := tollwallet.MeltToLightning(mintURL, amount, maxCost, lightningAddress)
+### Check Upgrade Events
+
+```bash
+# Upgrade from degraded to full
+logread | grep -E "(upgraded|recovery|degraded)"
+# "Mint became reachable — attempting to upgrade from degraded mode"
+# "Upgraded from degraded to full merchant"
 ```
 
-### Coordination Points
+### Check Payout Status
 
-**Critical Sections** (need protection):
-1. Balance check + token creation
-2. Payout calculation + execution
-3. Token reception + balance update
+```bash
+logread | grep -E "(payout|Skipping payout|Payout completed)"
+```
 
-**Current Protection**: None (race conditions possible)
+### Check Session Status
 
-**Recommended Protection**: Mutex or reservation system
+```bash
+# Via CLI
+tollgate status
+
+# Via logs
+logread | grep -E "(session|allotment|gate)"
+```
