@@ -307,6 +307,10 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 
 	// Get the amount we intend to payout to the owner.
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
+	if balance <= mintConfig.MinBalance {
+		log.Printf("Skipping payout %s, Balance %d does not exceed min_balance %d", mintConfig.URL, balance, mintConfig.MinBalance)
+		return
+	}
 	aimedPaymentAmount := balance - mintConfig.MinBalance
 
 	identities := m.configManager.GetIdentities()
