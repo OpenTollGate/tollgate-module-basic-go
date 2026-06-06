@@ -128,9 +128,11 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 		}).Debug("Extending access for already authorized MAC")
 	}
 
-	// Create a new timer that will call deauthorizeMAC when it expires
+	// Self-referential timer: callback captures its own pointer to guard
+	// against stale callbacks clobbering a replacement timer after extension.
 	duration := time.Duration(durationSeconds) * time.Second
-	timer := time.AfterFunc(duration, func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(duration, func() {
 		err := deauthorizeMAC(macAddress)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -143,9 +145,10 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 			}).Debug("Successfully deauthorized MAC after timeout")
 		}
 
-		// Remove the MAC from openGates once timer expires
 		gatesMutex.Lock()
-		delete(openGates, macAddress)
+		if openGates[macAddress] == timer {
+			delete(openGates, macAddress)
+		}
 		gatesMutex.Unlock()
 	})
 
