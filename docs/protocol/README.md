@@ -39,29 +39,31 @@ The TollGate protocol is organized into three layers. A working TollGate combine
 
 The abstract data model. Event kinds, tag structures, payment asset definitions, session semantics. Protocol specs never mention how messages are delivered — only what they contain.
 
-| # | Description |
-|---|-------------|
-| [TIP-01](TIP-01.md) | Base Events (Advertisement, Session, Notice) |
-| [TIP-02](TIP-02.md) | Cashu payments |
+| TIP | Upstream name | Description |
+|-----|---------------|-------------|
+| [TIP-01](TIP-01.md) | — | Base Events (Advertisement, Session, Notice) |
+| [TIP-02](TIP-02.md) | — | Cashu payments |
 
 ### Interface — *how* do customer and TollGate talk?
 
 The communication method used for negotiation (advertisement, payment, session management) between customer and TollGate. An interface runs over a medium, but the relationship is not 1:1. A single medium can support multiple interfaces — an Ethernet link can carry HTTP requests, Nostr relay messages, or raw UDP packets. And a single interface (like HTTP) can run over different media.
 
-| # | Description |
-|---|-------------|
-| [HTTP-01](HTTP-01.md) | HTTP server |
-| [HTTP-02](HTTP-02.md) | Restrictive OS compatibility |
-| [HTTP-03](HTTP-03.md) | Usage endpoint |
-| [NOSTR-01](NOSTR-01.md) | Nostr relay |
+| TIP | Upstream name | Description |
+|-----|---------------|-------------|
+| [TIP-03](HTTP-01.md) | HTTP-01 | HTTP server |
+| [TIP-04](HTTP-02.md) | HTTP-02 | Restrictive OS compatibility |
+| [TIP-11](HTTP-03.md) | HTTP-03 | Usage endpoint |
+| [TIP-06](NOSTR-01.md) | NOSTR-01 | Nostr relay |
 
 ### Medium — *what physical link* carries the sold data?
 
 The physical or link-layer technology over which the TollGate sells connectivity. A medium may constrain which interfaces are available, but the medium itself is not the interface.
 
-| # | Description |
-|---|-------------|
-| [WIFI-01](WIFI-01.md) | Discovery through Beacon Frames |
+| TIP | Upstream name | Description |
+|-----|---------------|-------------|
+| [TIP-10](WIFI-01.md) | WIFI-01 | Discovery through Beacon Frames |
+
+> **Naming note**: Specs were originally numbered as TIPs (TollGate Improvement Proposals). The upstream spec repo (`OpenTollGate/tollgate`) introduced categorized names (HTTP-01, NOSTR-01, etc.) in March 2026. Implementations still advertise TIP numbers in the `tips` discovery tag. This index uses TIP numbers as the primary identifier with upstream names as aliases.
 
 ---
 

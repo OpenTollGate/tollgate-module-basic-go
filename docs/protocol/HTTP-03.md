@@ -1,4 +1,4 @@
-# HTTP-03 - Usage endpoint
+# TIP-11 (HTTP-03) - Usage endpoint
 
 ---
 

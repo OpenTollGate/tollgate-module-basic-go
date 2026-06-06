@@ -1,4 +1,4 @@
-# HTTP-02 - Restrictive OS compatibility
+# TIP-04 (HTTP-02) - Restrictive OS compatibility
 
 ---
 

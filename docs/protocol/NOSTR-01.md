@@ -1,4 +1,4 @@
-# NOSTR-01 - Nostr Relay
+# TIP-06 (NOSTR-01) - Nostr Relay
 
 ---
 

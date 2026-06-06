@@ -46,7 +46,7 @@ Important: the interface used for negotiation does not have to run over the same
 │  Event kinds, tags, payment assets           │
 ├─────────────────────────────────────────────┤
 │  Interface                                  │
-│  (TIP-03, TIP-06, future BLE/UDP TIPs)      │
+│  (HTTP-01, NOSTR-01, future BLE/UDP)         │
 │  How messages are sent/received              │
 ├─────────────────────────────────────────────┤
 │  Medium                                     │
@@ -64,12 +64,12 @@ A TollGate implementation picks:
 
 | Scenario | Medium (sold) | Interface (negotiation) | In-band? |
 |----------|---------------|------------------------|----------|
-| WiFi hotspot with captive portal | WiFi | HTTP server (TIP-03) | Yes |
-| WiFi hotspot with relay | WiFi | Nostr relay (TIP-06) | No (relay is on the internet) |
+| WiFi hotspot with captive portal | WiFi | HTTP server (HTTP-01) | Yes |
+| WiFi hotspot with relay | WiFi | Nostr relay (NOSTR-01) | No (relay is on the internet) |
 | WiFi hotspot with both | WiFi | HTTP + Nostr relay | Mixed |
 | BLE-tethered internet | Bluetooth | BLE GATT | Yes |
 | LoRa mesh node | LoRa | Raw UDP or custom | Yes |
-| Ethernet port at a café | Ethernet | HTTP server (TIP-03) | Yes |
+| Ethernet port at a café | Ethernet | HTTP server (HTTP-01) | Yes |
 
 ## In-band vs out-of-band
 
@@ -88,22 +88,24 @@ In-band interfaces have a device identification advantage — the TollGate can d
 | Term | Meaning | TIP examples |
 |------|---------|-------------|
 | **Protocol** | Data model and semantics | TIP-01 (events), TIP-02 (Cashu) |
-| **Interface** | Negotiation method between customer and TollGate | TIP-03 (HTTP), TIP-06 (Nostr relay) |
-| **Medium** | Physical link over which data is sold | Not currently TIP-scoped |
+| **Interface** | Negotiation method between customer and TollGate | HTTP-01 (HTTP server), HTTP-02 (/whoami), NOSTR-01 (Nostr relay) |
+| **Medium** | Physical link over which data is sold | WIFI-01 (beacon frames) |
 
 The word "transport" is ambiguous — it could mean the physical medium or the interface. TIPs should avoid it in favor of the specific term.
 
 ## Mapping current TIPs
 
-| TIP | Layer | Description |
-|-----|-------|-------------|
-| 01  | Protocol | Base events (Discovery, Session, Notice) |
-| 02  | Protocol | Cashu payment asset |
-| 03  | Interface | HTTP server |
-| 04  | Interface | HTTP `/whoami` (extends TIP-03) |
-| 05  | Protocol | Encrypted events (reserved) |
-| 06  | Interface | Nostr relay |
-| 10  | Interface | Beacon frame advertisement |
+| TIP | Upstream name | Layer | Description |
+|-----|---------------|-------|-------------|
+| 01  | — | Protocol | Base events (Discovery, Session, Notice) |
+| 02  | — | Protocol | Cashu payment asset |
+| 03  | HTTP-01 | Interface | HTTP server |
+| 04  | HTTP-02 | Interface | HTTP `/whoami` (extends HTTP-01) |
+| 11  | HTTP-03 | Interface | HTTP `/usage` endpoint |
+| 06  | NOSTR-01 | Interface | Nostr relay |
+| 10  | WIFI-01 | Medium | Beacon frame advertisement |
+
+> **Naming note**: Specs were originally numbered as TIPs. The upstream spec repo introduced categorized names in March 2026. This table uses TIP numbers as primary identifiers with upstream names as aliases.
 
 ## What each Interface TIP must define
 
@@ -117,7 +119,7 @@ An Interface TIP is responsible for specifying:
 ## Open questions
 
 - Should TIPs explicitly label themselves `protocol` or `interface` in their header metadata?
-- Should TIP-04 (`/whoami`) fold into TIP-03 as an HTTP interface detail?
-- Does TIP-10 (beacon frames) belong to Interface or is it a discovery-only mechanism that crosses layers?
+- Should HTTP-02 (`/whoami`) fold into HTTP-01 as an HTTP interface detail?
+- Does WIFI-01 (beacon frames) belong to Interface or is it a discovery-only mechanism that crosses layers?
 - Should there be Medium TIPs, or is the medium always implicit / out of scope?
 - How to handle the bootstrapping problem for out-of-band interfaces?
