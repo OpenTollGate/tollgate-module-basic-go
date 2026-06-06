@@ -320,6 +320,10 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 
 	for _, profitShare := range m.config.ProfitShare {
 		aimedAmount := uint64(math.Round(float64(aimedPaymentAmount) * profitShare.Factor))
+		if aimedAmount == 0 {
+			log.Printf("Skipping payout for %s: aimedAmount rounded to 0 (aimedPaymentAmount=%d, factor=%.4f)", profitShare.Identity, aimedPaymentAmount, profitShare.Factor)
+			continue
+		}
 		// Lookup lightning address from identities based on the profitShare.Identity name
 		profitShareIdentity, err := identities.GetPublicIdentity(profitShare.Identity)
 		if err != nil {

@@ -1,6 +1,7 @@
 package valve
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -10,6 +11,21 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
+
+// ndsctlTimeout is the maximum time to wait for an ndsctl command to complete.
+// ndsctl typically responds in 230-350ms; this guards against NoDogSplash
+// deadlocks (issue #387) that can cause ndsctl to hang indefinitely.
+const ndsctlTimeout = 5 * time.Second
+
+// runNdsctl executes an ndsctl command with a timeout.
+// It returns the combined stdout+stderr output and any error.
+func runNdsctl(args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ndsctlTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ndsctl", args...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
 
 // isValidMAC checks that the input is a well-formed MAC address (e.g. "aa:bb:cc:dd:ee:ff").
 // Rejects malformed strings before they reach ndsctl.
@@ -33,8 +49,7 @@ var ndsctlMutex = &sync.Mutex{}
 // authorizeMAC authorizes a MAC address using ndsctl
 func authorizeMAC(macAddress string) error {
 	ndsctlMutex.Lock()
-	cmd := exec.Command("ndsctl", "auth", macAddress)
-	output, err := cmd.Output()
+	output, err := runNdsctl("auth", macAddress)
 	ndsctlMutex.Unlock()
 
 	if err != nil {
@@ -47,7 +62,7 @@ func authorizeMAC(macAddress string) error {
 
 	logger.WithFields(logrus.Fields{
 		"mac_address": macAddress,
-		"output":      string(output),
+		"output":      output,
 	}).Info("Authorization successful for MAC")
 	return nil
 }
@@ -55,8 +70,7 @@ func authorizeMAC(macAddress string) error {
 // deauthorizeMAC deauthorizes a MAC address using ndsctl
 func deauthorizeMAC(macAddress string) error {
 	ndsctlMutex.Lock()
-	cmd := exec.Command("ndsctl", "deauth", macAddress)
-	output, err := cmd.Output()
+	output, err := runNdsctl("deauth", macAddress)
 	ndsctlMutex.Unlock()
 
 	if err != nil {
@@ -69,7 +83,7 @@ func deauthorizeMAC(macAddress string) error {
 
 	logger.WithFields(logrus.Fields{
 		"mac_address": macAddress,
-		"output":      string(output),
+		"output":      output,
 	}).Debug("Deauthorization successful for MAC")
 	return nil
 }
@@ -248,8 +262,7 @@ func GetClientStats(macAddress string) (downloaded uint64, uploaded uint64, err 
 
 	// Serialize ndsctl calls to prevent concurrent execution issues
 	ndsctlMutex.Lock()
-	cmd := exec.Command("ndsctl", "json", macAddress)
-	output, err := cmd.Output()
+	output, err := runNdsctl("json", macAddress)
 	ndsctlMutex.Unlock() // Unlock immediately after command completes
 
 	if err != nil {
@@ -261,18 +274,18 @@ func GetClientStats(macAddress string) (downloaded uint64, uploaded uint64, err 
 	}
 
 	// Check for empty response (client not found)
-	trimmed := string(output)
+	trimmed := output
 	if trimmed == "{}" || trimmed == "{}\n" {
 		return 0, 0, fmt.Errorf("client with MAC %s not found in ndsctl", macAddress)
 	}
 
 	var stats ClientStats
-	err = json.Unmarshal(output, &stats)
+	err = json.Unmarshal([]byte(output), &stats)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
 			"error":       err,
-			"output":      string(output),
+			"output":      output,
 		}).Error("Error parsing ndsctl json output")
 		return 0, 0, fmt.Errorf("failed to parse ndsctl json for MAC %s: %w", macAddress, err)
 	}
