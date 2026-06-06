@@ -171,6 +171,17 @@ fi
 EOF
 }
 
+# Nodogsplash only manages IPv4 iptables. If IPv6 Router Advertisements are
+# active on LAN, WiFi clients get global IPv6 addresses and Android validates
+# connectivity over IPv6 — completely bypassing the captive portal.
+# https://github.com/OpenTollGate/tollgate-module-basic-go/issues/148
+setup_disable_ipv6_lan() {
+    uci set dhcp.lan.ra='disabled'
+    uci set dhcp.lan.dhcpv6='disabled'
+    uci set network.lan.ip6assign='0'
+    log "IPv6 disabled on LAN (captive portal bypass prevention)"
+}
+
 enable_modems() {
     local section
     for section in $(uci show network 2>/dev/null | awk -F'[.=]' '/^network\.modem_/ {print $2}' | sort -u); do
@@ -277,6 +288,7 @@ setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook
+setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX
 commit_all
