@@ -917,21 +917,27 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 	}
 
 	if session.Metric == "milliseconds" {
-		elapsedMs := uint64(time.Since(time.Unix(session.StartTime, 0)).Milliseconds())
-		if elapsedMs >= session.Allotment {
-			m.sessionMu.Lock()
-			if currentSession, exists := m.customerSessions[macAddress]; exists {
-				currentElapsedMs := uint64(time.Since(time.Unix(currentSession.StartTime, 0)).Milliseconds())
-				if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
-					delete(m.customerSessions, macAddress)
+		elapsedDuration := time.Since(time.Unix(session.StartTime, 0))
+		if elapsedDuration >= 0 {
+			elapsedMs := uint64(elapsedDuration.Milliseconds())
+			if elapsedMs >= session.Allotment {
+				m.sessionMu.Lock()
+				if currentSession, exists := m.customerSessions[macAddress]; exists {
+					currentElapsedDuration := time.Since(time.Unix(currentSession.StartTime, 0))
+					if currentElapsedDuration >= 0 {
+						currentElapsedMs := uint64(currentElapsedDuration.Milliseconds())
+						if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
+							delete(m.customerSessions, macAddress)
+						}
+					}
 				}
+				m.sessionMu.Unlock()
+				return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
 			}
-			m.sessionMu.Unlock()
-			return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
 		}
 	}
 
-	return session, nil
+	return cloneCustomerSession(session), nil
 }
 
 func cloneCustomerSession(session *CustomerSession) *CustomerSession {
