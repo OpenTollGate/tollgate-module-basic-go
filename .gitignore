@@ -41,3 +41,8 @@ reference/
 
 # Planning docs — internal, not for release
 docs/tmp/
+*-plan.md
+*-PLAN*.md
+*-Plan.md
+TODO-*.md
+docs/configurationwizzard-integration.md

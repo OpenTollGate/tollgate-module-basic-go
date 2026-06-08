@@ -1,11 +1,11 @@
 package tollwallet
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"strings"
-	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -13,12 +13,13 @@ import (
 	"github.com/Origami74/gonuts-tollgate/wallet"
 )
 
+var ErrTokenAlreadySpent = errors.New("Token already spent")
+
 // TollWallet represents a Cashu wallet that can receive, swap, and send tokens
 type TollWallet struct {
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
 	allowAndSwapUntrustedMints bool
-	shutdownOnce               sync.Once
 }
 
 // New creates a new Cashu wallet instance
@@ -33,34 +34,16 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		return nil, fmt.Errorf("No mints provided. Wallet requires at least 1 accepted mint, none were provided")
 	}
 
-	var cashuWallet *wallet.Wallet
-	var lastErr error
+	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
+	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
 
-	for _, mintURL := range acceptedMints {
-		config := wallet.Config{WalletPath: walletPath, CurrentMintURL: mintURL}
-		log.Printf("TollWallet.New: Trying to load wallet with mint: %s", mintURL)
+	// TODO: Fix issue where wallet db is not unlocked if it doesn't get a nework connection when the tollgate application boots.
+	// This causes issues when receiving later (aka, after first connect to upstream AFTER tollgate starts).
+	// The issue arises because of our hacky fork of gonuts for the offline functionatlity we need. Long term fix is switching to CDK.
+	cashuWallet, err := wallet.LoadWallet(config)
 
-		w, err := wallet.LoadWallet(config)
-		if err != nil {
-			if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
-				log.Printf("TollWallet.New: Mint %s unreachable: %v", mintURL, err)
-				lastErr = err
-				continue
-			}
-			if w != nil {
-				w.Shutdown()
-			}
-			lastErr = err
-			continue
-		}
-
-		cashuWallet = w
-		log.Printf("Wallet loaded successfully with mint: %s (tried %d mints)", mintURL, len(acceptedMints))
-		break
-	}
-
-	if cashuWallet == nil {
-		return nil, fmt.Errorf("failed to create wallet: all %d mints failed, last error: %w", len(acceptedMints), lastErr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
 	return &TollWallet{
@@ -70,33 +53,40 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}, nil
 }
 
+func (w *TollWallet) Shutdown() error {
+	if w.wallet != nil {
+		return w.wallet.Shutdown()
+	}
+	return nil
+}
+
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
-	log.Printf("TollWallet.Receive: Starting token reception")
 	mint := token.Mint()
-	log.Printf("TollWallet.Receive: Token mint: %s", mint)
 
 	swapToTrusted := false
 
-	// If mint is untrusted, check if operator allows swapping or rejects untrusted mints.
 	if !contains(w.acceptedMints, mint) {
 		if !w.allowAndSwapUntrustedMints {
-			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints.", mint)
-			log.Printf("TollWallet.Receive: %v", err)
+			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints. Accepted: %v", mint, w.acceptedMints)
 			return 0, err
 		}
 		swapToTrusted = true
-		log.Printf("TollWallet.Receive: Token will be swapped to trusted mint")
 	}
 
-	log.Printf("TollWallet.Receive: Calling wallet.Receive")
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
 	if err != nil {
-		log.Printf("TollWallet.Receive: wallet.Receive failed: %v", err)
+		// The upstream cashu library does not export a typed error for
+		// "token already spent", so we match on the error string at this
+		// boundary and wrap it with our own sentinel (ErrTokenAlreadySpent).
+		// Callers should use errors.Is(err, ErrTokenAlreadySpent) — no
+		// further string matching needed downstream.
+		if strings.Contains(err.Error(), "Token already spent") {
+			return 0, fmt.Errorf("%w: %v", ErrTokenAlreadySpent, err)
+		}
 		return 0, err
 	}
-	log.Printf("TollWallet.Receive: Successfully received %d sats", amountAfterSwap)
 
-	return amountAfterSwap, err
+	return amountAfterSwap, nil
 }
 
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {
@@ -338,12 +328,4 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 
 	// If we get here, all attempts failed
 	return fmt.Errorf("failed to melt after %d attempts: %w", attempts, meltError)
-}
-
-func (w *TollWallet) Shutdown() error {
-	var err error
-	w.shutdownOnce.Do(func() {
-		err = w.wallet.Shutdown()
-	})
-	return err
 }
