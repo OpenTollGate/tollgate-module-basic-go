@@ -1,0 +1,161 @@
+name: Validate OpenWrt Feed
+
+on:
+  push:
+    paths:
+      - 'packaging/openwrt-feed/**'
+      - 'cmd/**'
+      - 'cli/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/validate-openwrt-feed.yml'
+  pull_request:
+    paths:
+      - 'packaging/openwrt-feed/**'
+      - 'cmd/**'
+      - 'cli/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/validate-openwrt-feed.yml'
+
+env:
+  OPENWRT_TARGET: x86/64
+
+jobs:
+  validate-feed-makefile:
+    name: Lint feed Makefile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check Makefile syntax
+        run: |
+          MAKEFILE="packaging/openwrt-feed/net/tollgate-wrt/Makefile"
+          if [ ! -f "$MAKEFILE" ]; then
+            echo "ERROR: $MAKEFILE not found"
+            exit 1
+          fi
+
+          grep -q '^PKG_NAME:' "$MAKEFILE"    || { echo "FAIL: missing PKG_NAME"; exit 1; }
+          grep -q '^PKG_VERSION:' "$MAKEFILE"  || { echo "FAIL: missing PKG_VERSION"; exit 1; }
+          grep -q '^PKG_RELEASE:' "$MAKEFILE"  || { echo "FAIL: missing PKG_RELEASE"; exit 1; }
+          grep -q '^PKG_SOURCE_URL:' "$MAKEFILE" || { echo "FAIL: missing PKG_SOURCE_URL"; exit 1; }
+          grep -q '^PKG_HASH:' "$MAKEFILE"     || { echo "FAIL: missing PKG_HASH"; exit 1; }
+          grep -q '^PKG_LICENSE:' "$MAKEFILE"  || { echo "FAIL: missing PKG_LICENSE"; exit 1; }
+          grep -q '^GO_PKG:' "$MAKEFILE"       || { echo "FAIL: missing GO_PKG"; exit 1; }
+          grep -q '^GO_PKG_BUILD_PKG:' "$MAKEFILE" || { echo "FAIL: missing GO_PKG_BUILD_PKG"; exit 1; }
+          grep -q 'BuildPackage' "$MAKEFILE"   || { echo "FAIL: missing BuildPackage"; exit 1; }
+
+          grep -q 'REPLACES' "$MAKEFILE"       && { echo "FAIL: REPLACES not allowed upstream"; exit 1; }
+
+          echo "Makefile lint passed."
+
+      - name: Verify PKG_HASH is not 'skip'
+        run: |
+          MAKEFILE="packaging/openwrt-feed/net/tollgate-wrt/Makefile"
+          HASH=$(grep '^PKG_HASH:' "$MAKEFILE" | sed 's/PKG_HASH:=//')
+          if [ "$HASH" = "skip" ]; then
+            echo "FAIL: PKG_HASH must be a real sha256, not 'skip'"
+            exit 1
+          fi
+          echo "PKG_HASH=$HASH"
+
+      - name: Verify source tarball is fetchable
+        run: |
+          MAKEFILE="packaging/openwrt-feed/net/tollgate-wrt/Makefile"
+          PKG_VERSION=$(grep '^PKG_VERSION:' "$MAKEFILE" | sed 's/PKG_VERSION:=//')
+          URL="https://codeload.github.com/OpenTollGate/tollgate-module-basic-go/tar.gz/v${PKG_VERSION}"
+          echo "Fetching $URL ..."
+          HTTP_CODE=$(curl -sI -o /dev/null -w '%{http_code}' "$URL")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "FAIL: source tarball returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Source tarball fetchable (HTTP $HTTP_CODE)."
+
+      - name: Verify PKG_HASH matches tarball
+        run: |
+          MAKEFILE="packaging/openwrt-feed/net/tollgate-wrt/Makefile"
+          EXPECTED=$(grep '^PKG_HASH:' "$MAKEFILE" | sed 's/PKG_HASH:=//')
+          PKG_VERSION=$(grep '^PKG_VERSION:' "$MAKEFILE" | sed 's/PKG_VERSION:=//')
+          URL="https://codeload.github.com/OpenTollGate/tollgate-module-basic-go/tar.gz/v${PKG_VERSION}"
+          ACTUAL=$(curl -sL "$URL" | sha256sum | awk '{print $1}')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "FAIL: PKG_HASH mismatch"
+            echo "  expected: $EXPECTED"
+            echo "  actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "PKG_HASH verified."
+
+      - name: Verify files/ directory structure
+        run: |
+          BASE="packaging/openwrt-feed/net/tollgate-wrt"
+          for f in \
+            files/etc/init.d/tollgate-wrt \
+            files/etc/config/firewall-tollgate \
+            files/etc/uci-defaults/99-tollgate-setup \
+            files/etc/hotplug.d/iface/95-tollgate-restart \
+            files/lib/upgrade/keep.d/tollgate; do
+            if [ ! -f "$BASE/$f" ]; then
+              echo "FAIL: missing $f"
+              exit 1
+            fi
+          done
+          echo "All required files present."
+
+      - name: Verify referenced paths exist in Makefile install section
+        run: |
+          BASE="packaging/openwrt-feed/net/tollgate-wrt"
+          MAKEFILE="$BASE/Makefile"
+          grep -oP '\./files/\S+' "$MAKEFILE" | sed 's/\*$//' | while read -r ref; do
+            path="$BASE/${ref#./}"
+            if [ ! -e "$path" ]; then
+              echo "FAIL: Makefile references $ref but $path does not exist"
+              exit 1
+            fi
+          done
+          echo "All referenced files exist."
+
+  validate-go-build:
+    name: Go cross-compile check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Verify Go module
+        run: |
+          go mod verify
+          go vet ./...
+
+      - name: Cross-compile for linux/amd64
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -o /dev/null ./cmd/tollgate-wrt
+          go build -o /dev/null ./cmd/tollgate-cli
+
+      - name: Cross-compile for linux/arm64
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          go build -o /dev/null ./cmd/tollgate-wrt
+          go build -o /dev/null ./cmd/tollgate-cli
+
+      - name: Cross-compile for linux/mipsle
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: mipsle
+          GOMIPS: softfloat
+        run: |
+          go build -o /dev/null ./cmd/tollgate-wrt
+          go build -o /dev/null ./cmd/tollgate-cli

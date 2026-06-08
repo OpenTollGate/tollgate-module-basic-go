@@ -93,16 +93,16 @@ printf 'Build log path=%s\n' "$HOST_LOG_PATH"
 
 BUILD_TIME="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown\n')"
-LDFLAGS="-s -w -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+LDFLAGS="-s -w -X 'github.com/OpenTollGate/tollgate-module-basic-go/cli.Version=$PACKAGE_VERSION' -X 'github.com/OpenTollGate/tollgate-module-basic-go/cli.GitCommit=$GIT_COMMIT' -X 'github.com/OpenTollGate/tollgate-module-basic-go/cli.BuildTime=$BUILD_TIME'"
 
 printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.'
 (
-    cd "$REPO_ROOT/src"
+    cd "$REPO_ROOT/cmd/tollgate-wrt"
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
-        go build -o "$STAGE_DIR/tollgate-wrt" -trimpath -ldflags="$LDFLAGS" main.go
+        go build -o "$STAGE_DIR/tollgate-wrt" -trimpath -ldflags="$LDFLAGS"
 )
 (
-    cd "$REPO_ROOT/src/cmd/tollgate-cli"
+    cd "$REPO_ROOT/cmd/tollgate-cli"
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
         go build -o "$STAGE_DIR/tollgate" -trimpath -ldflags="$LDFLAGS"
 )
