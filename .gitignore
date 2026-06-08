@@ -38,11 +38,10 @@ memory-project/
 reference/
 .opencode/
 
-# LLM planning documents — not for release
-*-plan.md
-PLAN-*.md
-TODO-*.md
-MOCK-*.md
-TEST-COVERAGE-*.md
-PR*-DECOMPOSITION-*.md
+# Planning docs — internal, not for release
 docs/tmp/
+*-plan.md
+*-PLAN*.md
+*-Plan.md
+TODO-*.md
+docs/configurationwizzard-integration.md
