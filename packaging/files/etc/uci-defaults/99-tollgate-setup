@@ -134,8 +134,11 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -q "port 8080"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
     fi
+    if ! echo "$nds_users" | grep -q "port 2050"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
+    fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
-    uci set nodogsplash.@nodogsplash[0].gatewayport='80'
+    uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
 }
 
 setup_tollgate_firewall_rules() {

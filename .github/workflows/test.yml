@@ -16,31 +16,42 @@ jobs:
           - src/config_manager
           - src/utils
           - src/cmd/tollgate-cli
+          - src/lightning
+          - src/tollgate_protocol
+          - src/tollwallet
+          - src/valve
+          - src/wireless_gateway_manager
+          # NOTE: src/merchant, src/cli, src/upstream_detector and
+          # src/upstream_session_manager are intentionally omitted. They
+          # transitively pull in the lnd -> ltcsuite/ltcd chain, which only
+          # builds standalone after an invasive go.mod rewrite (an `exclude`
+          # directive plus a full re-tidy). They still build/test as part of
+          # the root module's build; adding them here is tracked separately.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: src/go.mod
       - name: Run tests
         working-directory: ${{ matrix.module }}
-        run: go test ./... -v -count=1 -race
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "${{ matrix.module }}" ./... -v -count=1 -race
 
   main-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: src/go.mod
       - name: Run main package tests
         working-directory: src
-        run: go test -v -count=1 -race -tags testenv .
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "main package (testenv)" -v -count=1 -race -tags testenv .
 
   contract-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
       - name: Schema lint
@@ -49,8 +60,8 @@ jobs:
   build-purity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: src/go.mod
       - name: Build purity check

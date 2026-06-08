@@ -322,8 +322,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		var errorCode string
 		var errorMessage string
 
-		// Check for specific error types
-		if strings.Contains(err.Error(), "Token already spent") {
+		if strings.Contains(strings.ToLower(err.Error()), "proof already used") {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
 		} else {
