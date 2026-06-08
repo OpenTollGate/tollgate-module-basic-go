@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -48,7 +48,7 @@ type UpstreamSession struct {
 
 	// Dependencies
 	configManager    *config_manager.ConfigManager
-	merchantProvider merchant.MerchantProvider
+	merchantProvider merchant_types.MerchantProvider
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -61,7 +61,7 @@ func NewUpstreamSession(
 	advertisement *nostr.Event,
 	adInfo *tollgate_protocol.AdvertisementInfo,
 	configManager *config_manager.ConfigManager,
-	merchantProvider merchant.MerchantProvider,
+	merchantProvider merchant_types.MerchantProvider,
 ) (*UpstreamSession, error) {
 	// Get config for renewal offsets
 	config := configManager.GetConfig()
@@ -430,7 +430,7 @@ func (s *UpstreamSession) Stop() {
 // and has sufficient balance to make the desired payment
 func selectCompatiblePricingWithFunds(
 	options []tollgate_protocol.PricingOption,
-	merchantImpl merchant.MerchantInterface,
+	merchantImpl merchant_types.PaymentMerchant,
 	preferredAllotment uint64,
 	stepSize uint64,
 ) (*tollgate_protocol.PricingOption, error) {

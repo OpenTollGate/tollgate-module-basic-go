@@ -164,33 +164,62 @@ func SaveConfig(filePath string, config *Config) error {
 	return os.WriteFile(filePath, data, 0644)
 }
 
+func defaultProductionMints() []MintConfig {
+	return []MintConfig{
+		{
+			URL:                     "https://mint.coinos.io",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sats",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://mint.minibits.cash/Bitcoin",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sats",
+			MinPurchaseSteps:        0,
+		},
+	}
+}
+
+func defaultTestMint() MintConfig {
+	return MintConfig{
+		URL:                     "https://nofee.testnut.cashu.space",
+		MinBalance:              0,
+		BalanceTolerancePercent: 0,
+		PayoutIntervalSeconds:   999999,
+		MinPayoutAmount:         999999,
+		PricePerStep:            1,
+		PriceUnit:               "sats",
+		MinPurchaseSteps:        0,
+	}
+}
+
+// IsDevBuild returns true when the binary was built from a non-main branch.
+func IsDevBuild() bool {
+	return GitBranch != "main"
+}
+
 // NewDefaultConfig creates a Config with default values.
 func NewDefaultConfig() *Config {
+	mints := defaultProductionMints()
+	if IsDevBuild() {
+		testMint := defaultTestMint()
+		log.Printf("WARN: dev build detected (branch=%s), injecting test mint: %s", GitBranch, testMint.URL)
+		mints = append(mints, testMint)
+	}
+
 	return &Config{
 		ConfigVersion: "v0.0.7",
 		LogLevel:      "info",
-		AcceptedMints: []MintConfig{
-			{
-				URL:                     "https://mint.coinos.io",
-				MinBalance:              64,
-				BalanceTolerancePercent: 10,
-				PayoutIntervalSeconds:   60,
-				MinPayoutAmount:         128,
-				PricePerStep:            1,
-				PriceUnit:               "sats",
-				MinPurchaseSteps:        0,
-			},
-			{
-				URL:                     "https://mint.minibits.cash/Bitcoin",
-				MinBalance:              64,
-				BalanceTolerancePercent: 10,
-				PayoutIntervalSeconds:   60,
-				MinPayoutAmount:         128,
-				PricePerStep:            1,
-				PriceUnit:               "sats",
-				MinPurchaseSteps:        0,
-			},
-		},
+		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
 			{
 				Factor:   0.79,

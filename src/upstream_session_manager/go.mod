@@ -6,10 +6,10 @@ toolchain go1.24.5
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
-	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
-	github.com/nbd-wtf/go-nostr v0.51.10
+	github.com/nbd-wtf/go-nostr v0.51.11
 	github.com/sirupsen/logrus v1.9.3
 )
 
@@ -17,7 +17,7 @@ replace github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol =
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
 
-replace github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ../merchant
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ../merchant_types
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 
@@ -31,7 +31,6 @@ require (
 	github.com/coder/websocket v1.8.13 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
-	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
@@ -45,5 +44,6 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
+	golang.org/x/net v0.40.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 )

@@ -19,6 +19,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
@@ -55,6 +56,18 @@ var cliServer *cli.CLIServer
 
 func getMerchant() merchant.MerchantInterface {
 	return merchantProvider.GetMerchant()
+}
+
+// merchantTypesProvider adapts a merchant.MerchantProvider to the
+// dependency-light merchant_types.MerchantProvider expected by the upstream
+// session manager. merchant.MerchantInterface already satisfies
+// merchant_types.PaymentMerchant, so the wrapped value is returned as-is.
+type merchantTypesProvider struct {
+	inner merchant.MerchantProvider
+}
+
+func (p merchantTypesProvider) GetMerchant() merchant_types.PaymentMerchant {
+	return p.inner.GetMerchant()
 }
 
 // getTollgatePaths returns the configuration file paths based on the environment.
@@ -191,7 +204,7 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream detector instance")
 	}
 
-	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantProvider)
+	usmInstance, err := upstream_session_manager.NewUpstreamSessionManager(configManager, merchantTypesProvider{merchantProvider})
 	if err != nil {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
