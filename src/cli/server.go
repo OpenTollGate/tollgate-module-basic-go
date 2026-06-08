@@ -24,28 +24,31 @@ var cliLogger = logrus.WithField("module", "cli")
 
 // CLIServer handles Unix socket communication for CLI commands
 type CLIServer struct {
-	configManager    *config_manager.ConfigManager
+	configManager   *config_manager.ConfigManager
 	merchantProvider merchant.MerchantProvider
-	connector        wireless_gateway_manager.ConnectorInterface
-	scanner          wireless_gateway_manager.ScannerInterface
-	upstreamManager  *wireless_gateway_manager.UpstreamManager
-	startTime        time.Time
-	listener         net.Listener
-	running          bool
+	connector       wireless_gateway_manager.ConnectorInterface
+	scanner         wireless_gateway_manager.ScannerInterface
+	upstreamManager *wireless_gateway_manager.UpstreamManager
+	startTime       time.Time
+	listener        net.Listener
+	running         bool
 }
 
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
-		configManager:    configManager,
+		configManager:   configManager,
 		merchantProvider: merchantProvider,
-		connector:        connector,
-		scanner:          scanner,
-		upstreamManager:  upstreamManager,
-		startTime:        time.Now(),
+		connector:       connector,
+		scanner:         scanner,
+		upstreamManager: upstreamManager,
+		startTime:       time.Now(),
 	}
 }
 
 func (s *CLIServer) manualPauseDuration() time.Duration {
+	if s.configManager == nil {
+		return 120 * time.Second
+	}
 	cfg := s.configManager.GetConfig()
 	if cfg != nil && cfg.UpstreamWifi.ManualPauseSeconds > 0 {
 		return time.Duration(cfg.UpstreamWifi.ManualPauseSeconds) * time.Second
@@ -468,11 +471,6 @@ func (s *CLIServer) handleWalletFund(fundArgs []string, flags map[string]string)
 func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) CLIResponse {
 	uptime := time.Since(s.startTime)
 
-	// TODO(c1): WalletOK intentionally stays true even in degraded mode. Unknown
-	// downstream consumers may depend on this field being true for the service to
-	// be considered healthy. A future iteration should add a separate DegradedMode
-	// field to ServiceStatus and/or make WalletOK reflect actual wallet usability.
-	// For now we log the degraded state so operators can see it in the journal.
 	m := s.merchantProvider.GetMerchant()
 	walletOK := s.merchantProvider != nil && m != nil
 	if walletOK {
@@ -510,11 +508,11 @@ func (s *CLIServer) handleVersionCommand() CLIResponse {
 
 func (s *CLIServer) handleHealthCommand() CLIResponse {
 	health := map[string]interface{}{
-		"status":     "ok",
-		"version":    GetVersionInfo(),
-		"config_ok":  s.configManager != nil,
-		"wallet_ok":  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
-		"uptime":     time.Since(s.startTime).String(),
+		"status":    "ok",
+		"version":   GetVersionInfo(),
+		"config_ok": s.configManager != nil,
+		"wallet_ok": s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
+		"uptime":    time.Since(s.startTime).String(),
 	}
 	return CLIResponse{
 		Success:   true,
