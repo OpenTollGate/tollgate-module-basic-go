@@ -272,8 +272,8 @@ github.com/lightningnetwork/lnd/tlv v1.3.1 h1:o7CZg06y+rJZfUMAo0WzBLr0pgBWCzrt0f
 github.com/lightningnetwork/lnd/tlv v1.3.1/go.mod h1:pJuiBj1ecr1WWLOtcZ+2+hu9Ey25aJWFIsjmAoPPnmc=
 github.com/lightningnetwork/lnd/tor v1.1.6 h1:WHUumk7WgU6BUFsqHuqszI9P6nfhMeIG+rjJBlVE6OE=
 github.com/lightningnetwork/lnd/tor v1.1.6/go.mod h1:qSRB8llhAK+a6kaTPWOLLXSZc6Hg8ZC0mq1sUQ/8JfI=
-github.com/ltcsuite/ltcd v0.23.6-0.20250505084124-c37ac1524e04 h1:4NXGT0DMvQja5jjUFEpzXkw7tp17lYK/lsq2AkM/3ds=
-github.com/ltcsuite/ltcd v0.23.6-0.20250505084124-c37ac1524e04/go.mod h1:G+n5773LWpLdBn1gL//fZVpgkeM/YzkIGlYMaCYStM8=
+github.com/ltcsuite/ltcd v0.23.6 h1:/9Vwf5geNzmafstaOyPokGGn3OdfVyXWelLPZcn8aXE=
+github.com/ltcsuite/ltcd v0.23.6/go.mod h1:WOJAEfAPrlW/c/XFNeaEyFpbnglVGFrmRcRaNvuYo2k=
 github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 h1:xuWxvRKxLvOKuS7/Q/7I3tpc3cWAB0+hZpU8YdVqkzg=
 github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2/go.mod h1:nkLkAFGhursWf2U68gt61hPieK1I+0m78e+2aevNyD8=
 github.com/ltcsuite/ltcd/ltcutil v1.1.4 h1:EctDzQ05lYnxiinm2B0aTZJ6j4iUlZ2fJl47dxZzxDs=

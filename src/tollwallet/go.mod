@@ -55,9 +55,10 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
-	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
+	github.com/ltcsuite/ltcd v0.23.6 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/nbd-wtf/ln-decodepay v1.12.1 // indirect
+	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
@@ -75,3 +76,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	pgregory.net/rapid v1.2.0 // indirect
 )
+
+exclude github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796

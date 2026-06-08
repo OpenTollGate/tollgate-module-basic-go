@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -15,20 +15,18 @@ import (
 // Module-level logger with pre-configured module field
 var logger = logrus.WithField("module", "upstream_session_manager")
 
-// Gateway represents a discovered gateway with optional session
 type Gateway struct {
 	InterfaceName string
 	MacAddress    string
 	GatewayIP     string
-	Session       *UpstreamSession // nil if no session
+	Session       *UpstreamSession
 	mu            sync.RWMutex
 }
 
-// UpstreamSessionManager manages upstream TollGate sessions
 type UpstreamSessionManager struct {
 	configManager    *config_manager.ConfigManager
 	merchantProvider merchant_types.MerchantProvider
-	gateways         map[string]*Gateway // keyed by gateway IP
+	gateways         map[string]*Gateway
 	tollGateProber   TollGateProber
 	mu               sync.RWMutex
 }

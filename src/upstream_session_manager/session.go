@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
+	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
@@ -219,8 +219,6 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	s.paymentMu.Lock()
 	defer s.paymentMu.Unlock()
 
-	m := s.merchantProvider.GetMerchant()
-
 	// Throttle payment attempts (minimum 5 seconds between attempts)
 	// Check this FIRST, before checking paymentInProgress
 	if time.Since(s.lastPaymentAttempt) < 5*time.Second {
@@ -260,7 +258,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 	// Select pricing option with sufficient funds for our desired payment
 	selectedPricing, err := selectCompatiblePricingWithFunds(
 		s.AdvertisementInfo.PricingOptions,
-		m,
+		s.merchantProvider.GetMerchant(),
 		preferredAllotment,
 		s.AdvertisementInfo.StepSize,
 	)
@@ -302,7 +300,7 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 		"new_allotment": allotment,
 		"payment_count": s.PaymentCount,
 		"total_spent":   s.TotalSpent,
-	}).Info("✅ Payment successful, session updated")
+	}).Info("Payment successful, session updated")
 
 	return nil
 }
@@ -310,10 +308,9 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 // sendPayment sends a payment (initial or renewal) and returns the allotment
 // Uses new simplified protocol: POST plain text Cashu token
 func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
-	m := s.merchantProvider.GetMerchant()
 	// Create payment token
 	amount := steps * s.SelectedPricing.PricePerStep
-	token, err := m.CreatePaymentTokenWithOverpayment(
+	token, err := s.merchantProvider.GetMerchant().CreatePaymentTokenWithOverpayment(
 		s.SelectedPricing.MintURL,
 		amount,
 		10000, // overpayment tolerance

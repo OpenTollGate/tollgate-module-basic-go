@@ -109,8 +109,8 @@ func TestUpstreamSession_MerchantProviderPropagates(t *testing.T) {
 	p := merchant_types.NewMutexMerchantProvider(&namedMerchant{name: "degraded"})
 
 	session := &UpstreamSession{
-		GatewayIP: "192.168.1.1",
-		merchantProvider:  p,
+		GatewayIP:        "192.168.1.1",
+		merchantProvider: p,
 	}
 
 	if providerMerchantName(session.merchantProvider) != "degraded" {

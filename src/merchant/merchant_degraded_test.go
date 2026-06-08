@@ -1,0 +1,1243 @@
+package merchant
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
+)
+
+func newDegradedMerchantWithConfig(t *testing.T) (*MerchantDegraded, *config_manager.ConfigManager) {
+	t.Helper()
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	return ds.Degraded(), ds.CM
+}
+
+func TestMerchantDegraded_CreatePaymentToken_ReturnsError(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	_, err := deg.CreatePaymentToken("https://mint.test", 100)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMerchantDegraded_CreatePaymentTokenWithOverpayment_ReturnsError(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	_, err := deg.CreatePaymentTokenWithOverpayment("https://mint.test", 100, 10, 5)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMerchantDegraded_DrainMint_ReturnsError(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	_, _, err := deg.DrainMint("https://mint.test")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMerchantDegraded_GetBalance_ReturnsZero(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	if deg.GetBalance() != 0 {
+		t.Errorf("expected 0, got %d", deg.GetBalance())
+	}
+	if deg.GetBalanceByMint("https://mint.test") != 0 {
+		t.Errorf("expected 0, got %d", deg.GetBalanceByMint("https://mint.test"))
+	}
+	balances := deg.GetAllMintBalances()
+	if len(balances) != 0 {
+		t.Errorf("expected empty map, got %v", balances)
+	}
+}
+
+func TestMerchantDegraded_GetAcceptedMints_ReturnsAllConfigured(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 1 {
+		t.Errorf("expected 1 configured mint (all configured, not just reachable), got %d", len(mints))
+	}
+}
+
+func TestMerchantDegraded_PurchaseSession_ReturnsNoticeEvent(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	event, err := deg.PurchaseSession("cashuToken", "AA:BB:CC:DD:EE:FF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if event.Kind != 21023 {
+		t.Errorf("expected kind 21023, got %d", event.Kind)
+	}
+
+	hasCodeTag := false
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 && tag[0] == "code" && tag[1] == "service-unavailable" {
+			hasCodeTag = true
+			break
+		}
+	}
+	if !hasCodeTag {
+		t.Error("expected code=service-unavailable tag")
+	}
+}
+
+func TestMerchantDegraded_GetAdvertisement_ReturnsNoticeJSON(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	adv := deg.GetAdvertisement()
+	if adv == "" {
+		t.Fatal("expected non-empty advertisement string")
+	}
+
+	var event map[string]interface{}
+	if err := json.Unmarshal([]byte(adv), &event); err != nil {
+		t.Fatalf("failed to unmarshal advertisement as JSON: %v", err)
+	}
+
+	if kind, ok := event["kind"].(float64); !ok || int(kind) != 21023 {
+		t.Errorf("expected kind 21023 in advertisement, got %v", event["kind"])
+	}
+}
+
+func TestMerchantDegraded_StartPayoutRoutine_NoPanic(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+	deg.StartPayoutRoutine()
+}
+
+func TestMerchantDegraded_StartDataUsageMonitoring_NoPanic(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+	deg.StartDataUsageMonitoring()
+}
+
+func TestMerchantDegraded_GetSession_ReturnsError(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	_, err := deg.GetSession("AA:BB:CC:DD:EE:FF")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMerchantDegraded_AddAllotment_ReturnsError(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	_, err := deg.AddAllotment("AA:BB:CC:DD:EE:FF", "bytes", 1000)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMerchantDegraded_GetUsage_ReturnsDefault(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	usage, err := deg.GetUsage("AA:BB:CC:DD:EE:FF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if usage != "-1/-1" {
+		t.Errorf("expected '-1/-1', got %s", usage)
+	}
+}
+
+func TestMerchantDegraded_Fund_ReturnsError(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	_, err := deg.Fund("cashuToken")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+	identitiesPath := filepath.Join(testDir, "identities.json")
+
+	noMerchantIdentities := []byte(`{
+		"config_version": "v0.0.1",
+		"owned_identities": [],
+		"public_identities": []
+	}`)
+	if err := os.WriteFile(identitiesPath, noMerchantIdentities, 0644); err != nil {
+		t.Fatalf("failed to write identities: %v", err)
+	}
+
+	cm, err := config_manager.NewConfigManager(
+		filepath.Join(testDir, "config.json"),
+		filepath.Join(testDir, "install.json"),
+		identitiesPath,
+	)
+	if err != nil {
+		t.Fatalf("failed to create config manager: %v", err)
+	}
+
+	srvFail := newUnreachableServer(t)
+
+	tracker := newTestTracker(&config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
+		},
+	}, nil)
+
+	deg := &MerchantDegraded{
+		configManager:     cm,
+		mintHealthTracker: tracker,
+	}
+
+	_, err = deg.CreateNoticeEvent("error", "test", "test message", "")
+	if err == nil {
+		t.Fatal("expected error when no merchant identity exists")
+	}
+}
+
+func TestMerchantDegraded_OnUpgrade_FiresCallback(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	var callbackFired bool
+	deg.OnUpgrade(func(m MerchantInterface) {
+		callbackFired = true
+	})
+
+	if deg.onUpgrade == nil {
+		t.Fatal("expected onUpgrade to be set")
+	}
+
+	deg.onUpgrade(nil)
+	if !callbackFired {
+		t.Error("expected OnUpgrade callback to fire")
+	}
+}
+
+func TestMerchantDegraded_ImplementsMerchantInterface(t *testing.T) {
+	var _ MerchantInterface = &MerchantDegraded{}
+}
+
+func TestOnFirstReachable_FiredOnce(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+
+	var callCount int
+	var mu sync.Mutex
+	done := make(chan struct{})
+
+	tracker.SetOnFirstReachableForDegraded(func() {
+		mu.Lock()
+		callCount++
+		mu.Unlock()
+		done <- struct{}{}
+	})
+
+	for i := 0; i < 3; i++ {
+		tracker.RunProactiveCheck()
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected onFirstReachable to fire within 2 seconds")
+	}
+
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected callback to fire exactly once, got %d", count)
+	}
+
+	for i := 0; i < 5; i++ {
+		tracker.RunProactiveCheck()
+	}
+
+	mu.Lock()
+	count = callCount
+	mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected callback to still be 1 after additional checks, got %d", count)
+	}
+}
+
+func TestOnFirstReachable_NotFiredIfInitiallyReachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+
+	done := make(chan struct{})
+	tracker.SetOnFirstReachableForDegraded(func() {
+		close(done)
+	})
+
+	tracker.RunInitialProbe()
+
+	if !tracker.IsReachable(srv.URL) {
+		t.Fatal("expected mint to be reachable after initial probe")
+	}
+
+	tracker.mu.RLock()
+	hadMint := tracker.hadReachableMint
+	tracker.mu.RUnlock()
+	if !hadMint {
+		t.Fatal("expected hadReachableMint to be true after initial probe with reachable mints")
+	}
+
+	for i := 0; i < 5; i++ {
+		tracker.RunProactiveCheck()
+	}
+
+	select {
+	case <-done:
+		t.Error("expected onFirstReachable to NOT fire when callback was set before initial probe and mints were reachable")
+	default:
+	}
+}
+
+func TestNew_ReturnsDegradedWhenNoMintsReachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	cfg := &config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+		},
+	}
+
+	tracker := newTestTracker(cfg, nil)
+	tracker.RunInitialProbe()
+
+	if len(tracker.GetReachableMintConfigs()) != 0 {
+		t.Fatal("test setup: expected 0 reachable mints")
+	}
+
+	if tracker.hadReachableMint {
+		t.Fatal("expected hadReachableMint to be false after initial probe with no reachable mints")
+	}
+}
+
+func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 3
+
+	tracker.RunInitialProbe()
+
+	tracker.mu.RLock()
+	hadMint := tracker.hadReachableMint
+	tracker.mu.RUnlock()
+	if !hadMint {
+		t.Fatal("expected hadReachableMint to be true after initial probe")
+	}
+
+	tracker.SetOnFirstReachableForDegraded(func() {})
+
+	tracker.mu.RLock()
+	hadMint = tracker.hadReachableMint
+	tracker.mu.RUnlock()
+	if hadMint {
+		t.Error("expected hadReachableMint to be reset to false after SetOnFirstReachableForDegraded")
+	}
+}
+
+func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.recoveryThreshold = 1
+
+	tracker.RunInitialProbe()
+
+	tracker.mu.RLock()
+	hadMint := tracker.hadReachableMint
+	tracker.mu.RUnlock()
+	if !hadMint {
+		t.Fatal("expected hadReachableMint to be true after initial probe")
+	}
+
+	done := make(chan struct{})
+	tracker.SetOnFirstReachableForDegraded(func() {
+		close(done)
+	})
+
+	tracker.RunProactiveCheck()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Error("expected onFirstReachable to fire after SetOnFirstReachableForDegraded reset and proactive check")
+	}
+}
+
+type mockWallet struct {
+	balance         uint64
+	balanceByMint   map[string]uint64
+	overpaymentErr  error
+	overpaymentResult string
+	shutdownCalled  bool
+}
+
+func (w *mockWallet) GetBalance() uint64 {
+	return w.balance
+}
+
+func (w *mockWallet) GetBalanceByMint(mintUrl string) uint64 {
+	if w.balanceByMint != nil {
+		return w.balanceByMint[mintUrl]
+	}
+	return 0
+}
+
+func (w *mockWallet) GetAllMintBalances() map[string]uint64 {
+	if w.balanceByMint != nil {
+		result := make(map[string]uint64, len(w.balanceByMint))
+		for k, v := range w.balanceByMint {
+			result[k] = v
+		}
+		return result
+	}
+	return make(map[string]uint64)
+}
+
+func (w *mockWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
+	if w.overpaymentErr != nil {
+		return "", w.overpaymentErr
+	}
+	return w.overpaymentResult, nil
+}
+
+func (w *mockWallet) Shutdown() error {
+	w.shutdownCalled = true
+	return nil
+}
+
+func newDegradedMerchantWithMockWallet(t *testing.T, wallet Wallet, walletFactoryErr error) (*MerchantDegraded, *config_manager.ConfigManager, *MintHealthTracker) {
+	t.Helper()
+	ds, _ := newDegradedSetupWithServer(t, []config_manager.MintConfig{
+		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sats"},
+	})
+	deg := ds.DegradedWithWallet(wallet, walletFactoryErr)
+	return deg, ds.CM, ds.Tracker
+}
+
+func TestKickstart_WalletLoaded_OfflineBalanceAvailable(t *testing.T) {
+	mw := &mockWallet{
+		balance: 500,
+		balanceByMint: map[string]uint64{
+			"https://mint2.test": 300,
+		},
+	}
+
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	if !deg.WalletLoaded() {
+		t.Fatal("expected wallet to be loaded")
+	}
+	if deg.GetBalance() != 500 {
+		t.Errorf("expected balance 500, got %d", deg.GetBalance())
+	}
+	if deg.GetBalanceByMint("https://mint2.test") != 300 {
+		t.Errorf("expected balance 300 for mint2, got %d", deg.GetBalanceByMint("https://mint2.test"))
+	}
+	if deg.GetBalanceByMint("https://unknown.test") != 0 {
+		t.Errorf("expected 0 for unknown mint, got %d", deg.GetBalanceByMint("https://unknown.test"))
+	}
+	balances := deg.GetAllMintBalances()
+	if len(balances) != 1 || balances["https://mint2.test"] != 300 {
+		t.Errorf("expected balances map with mint2=300, got %v", balances)
+	}
+}
+
+func TestKickstart_WalletLoaded_GetAcceptedMintsReturnsAllConfigured(t *testing.T) {
+	mw := &mockWallet{balance: 100}
+	deg, _, tracker := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 2 {
+		t.Fatalf("expected 2 configured mints, got %d", len(mints))
+	}
+
+	allMints := tracker.GetAllConfiguredMintConfigs()
+	if len(allMints) != 2 {
+		t.Fatalf("expected 2 all configured mints, got %d", len(allMints))
+	}
+
+	reachableMints := tracker.GetReachableMintConfigs()
+	if len(reachableMints) != 0 {
+		t.Fatalf("expected 0 reachable mints (all down), got %d", len(reachableMints))
+	}
+}
+
+func TestKickstart_WalletLoaded_CreatePaymentTokenWithOverpayment(t *testing.T) {
+	mw := &mockWallet{
+		balance:           1000,
+		overpaymentResult: "cashuAmocktoken123",
+	}
+
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	token, err := deg.CreatePaymentTokenWithOverpayment("https://mint2.test", 100, 10000, 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != "cashuAmocktoken123" {
+		t.Errorf("expected mock token, got %s", token)
+	}
+}
+
+func TestKickstart_WalletLoaded_CreatePaymentTokenWithOverpayment_Error(t *testing.T) {
+	mw := &mockWallet{
+		balance:        1000,
+		overpaymentErr: fmt.Errorf("insufficient funds"),
+	}
+
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	_, err := deg.CreatePaymentTokenWithOverpayment("https://mint2.test", 100, 10000, 100)
+	if err == nil {
+		t.Fatal("expected error from mock wallet")
+	}
+	if !strings.Contains(err.Error(), "insufficient funds") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestKickstart_WalletNotLoaded_FirstBoot_NoPanic(t *testing.T) {
+	_, _, _ = newDegradedMerchantWithMockWallet(t, nil, fmt.Errorf("wallet db does not exist"))
+}
+
+func TestKickstart_WalletNotLoaded_StubsReturnZero(t *testing.T) {
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, nil, fmt.Errorf("no wallet on disk"))
+
+	if deg.WalletLoaded() {
+		t.Fatal("expected wallet to NOT be loaded")
+	}
+	if deg.GetBalance() != 0 {
+		t.Errorf("expected 0 balance, got %d", deg.GetBalance())
+	}
+	if deg.GetBalanceByMint("https://mint2.test") != 0 {
+		t.Errorf("expected 0 balance by mint, got %d", deg.GetBalanceByMint("https://mint2.test"))
+	}
+	balances := deg.GetAllMintBalances()
+	if len(balances) != 0 {
+		t.Errorf("expected empty balances map, got %v", balances)
+	}
+}
+
+func TestKickstart_WalletNotLoaded_PaymentTokenFails(t *testing.T) {
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, nil, fmt.Errorf("no wallet on disk"))
+
+	_, err := deg.CreatePaymentTokenWithOverpayment("https://mint2.test", 100, 10000, 100)
+	if err == nil {
+		t.Fatal("expected error when wallet not loaded")
+	}
+	if !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	_, err = deg.CreatePaymentToken("https://mint2.test", 100)
+	if err == nil {
+		t.Fatal("expected error when wallet not loaded")
+	}
+}
+
+func TestKickstart_WalletNotLoaded_GetAcceptedMintsStillReturnsAllConfigured(t *testing.T) {
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, nil, fmt.Errorf("no wallet on disk"))
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 2 {
+		t.Errorf("expected 2 configured mints even without wallet, got %d", len(mints))
+	}
+}
+
+func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
+	ds := newDegradedSetup(t, []config_manager.MintConfig{})
+
+	factoryCalled := false
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		factoryCalled = true
+		return &mockWallet{balance: 100}, nil
+	}
+
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+
+	if deg.WalletLoaded() {
+		t.Error("expected wallet to NOT be loaded when no mints configured")
+	}
+	if factoryCalled {
+		t.Error("expected wallet factory to NOT be called when no mints configured")
+	}
+}
+
+func TestKickstart_WalletFactoryReceivesAllConfiguredMintURLs(t *testing.T) {
+	var receivedURLs []string
+
+	ds, _ := newDegradedSetupWithServer(t, []config_manager.MintConfig{
+		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sats"},
+	})
+
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		receivedURLs = make([]string, len(mintURLs))
+		copy(receivedURLs, mintURLs)
+		return &mockWallet{balance: 0}, nil
+	}
+
+	NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+
+	allConfigs := ds.Tracker.GetAllConfiguredMintConfigs()
+	expectedURLs := make([]string, len(allConfigs))
+	for i, c := range allConfigs {
+		expectedURLs[i] = c.URL
+	}
+
+	if len(receivedURLs) != len(expectedURLs) {
+		t.Fatalf("expected %d mint URLs, got %d", len(expectedURLs), len(receivedURLs))
+	}
+
+	for i, url := range receivedURLs {
+		if url != expectedURLs[i] {
+			t.Errorf("expected URL %s at index %d, got %s", expectedURLs[i], i, url)
+		}
+	}
+}
+
+func TestKickstart_WalletLoaded_OtherStubsStillWork(t *testing.T) {
+	mw := &mockWallet{balance: 100}
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	deg.StartPayoutRoutine()
+	deg.StartDataUsageMonitoring()
+
+	usage, err := deg.GetUsage("AA:BB:CC:DD:EE:FF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if usage != "-1/-1" {
+		t.Errorf("expected '-1/-1', got %s", usage)
+	}
+
+	_, err = deg.GetSession("AA:BB:CC:DD:EE:FF")
+	if err == nil || !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("expected wallet not initialized error for GetSession, got %v", err)
+	}
+
+	_, _, err = deg.DrainMint("https://mint2.test")
+	if err == nil || !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("expected wallet not initialized error for DrainMint, got %v", err)
+	}
+
+	_, err = deg.Fund("cashuToken")
+	if err == nil || !strings.Contains(err.Error(), "wallet not initialized") {
+		t.Errorf("expected wallet not initialized error for Fund, got %v", err)
+	}
+}
+
+func TestKickstart_ImplementsWalletInterface(t *testing.T) {
+	var _ Wallet = &mockWallet{}
+}
+
+func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	ds.Tracker.recoveryThreshold = 1
+
+	mw := &mockWallet{balance: 200, balanceByMint: map[string]uint64{ds.Server.URL: 200}}
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		return mw, nil
+	}
+
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+
+	if !deg.WalletLoaded() {
+		t.Fatal("expected offline wallet to be loaded")
+	}
+	if deg.GetBalance() != 200 {
+		t.Fatalf("expected balance 200, got %d", deg.GetBalance())
+	}
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 1 || mints[0].URL != ds.Server.URL {
+		t.Fatalf("expected 1 configured mint, got %d", len(mints))
+	}
+
+	reachable := ds.Tracker.GetReachableMintConfigs()
+	if len(reachable) != 0 {
+		t.Fatal("expected 0 reachable mints (server is down)")
+	}
+
+	var upgraded MerchantInterface
+	done := make(chan struct{})
+	ds.Tracker.SetOnFirstReachableForDegraded(func() {
+		close(done)
+	})
+
+	provider := ds.Tracker.configProvider.(*mockConfigProvider)
+	provider.config = &config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+		},
+	}
+
+	ds.Tracker.RunProactiveCheck()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected onFirstReachable to fire")
+	}
+
+	if !ds.Tracker.IsReachable(srv.URL) {
+		t.Fatal("expected mint to be reachable after proactive check")
+	}
+
+	_ = upgraded
+}
+
+func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
+	srvDown := newUnreachableServer(t)
+
+	ds := newDegradedSetup(t, []config_manager.MintConfig{
+		{URL: srvDown.URL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: "https://mint2.example.com", PricePerStep: 2, PriceUnit: "sats"},
+	})
+
+	mw := &mockWallet{
+		balance: 5000,
+		balanceByMint: map[string]uint64{
+			srvDown.URL:                 3000,
+			"https://mint2.example.com": 2000,
+		},
+		overpaymentResult: "cashuAofflinepaymenttoken",
+	}
+
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		return mw, nil
+	}
+
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+
+	if !deg.WalletLoaded() {
+		t.Fatal("expected wallet loaded from disk")
+	}
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 2 {
+		t.Fatalf("expected 2 configured mints, got %d", len(mints))
+	}
+
+	if deg.GetBalance() != 5000 {
+		t.Errorf("expected total balance 5000, got %d", deg.GetBalance())
+	}
+	if deg.GetBalanceByMint(srvDown.URL) != 3000 {
+		t.Errorf("expected 3000 for mint1, got %d", deg.GetBalanceByMint(srvDown.URL))
+	}
+	if deg.GetBalanceByMint("https://mint2.example.com") != 2000 {
+		t.Errorf("expected 2000 for mint2, got %d", deg.GetBalanceByMint("https://mint2.example.com"))
+	}
+
+	token, err := deg.CreatePaymentTokenWithOverpayment("https://mint2.example.com", 500, 10000, 100)
+	if err != nil {
+		t.Fatalf("failed to create payment token: %v", err)
+	}
+	if token != "cashuAofflinepaymenttoken" {
+		t.Errorf("expected mock token, got %s", token)
+	}
+
+	event, err := deg.PurchaseSession("cashuToken", "AA:BB:CC:DD:EE:FF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event == nil || event.Kind != 21023 {
+		t.Error("expected notice event (kind 21023) for PurchaseSession in degraded mode")
+	}
+
+	adv := deg.GetAdvertisement()
+	var advMap map[string]interface{}
+	if err := json.Unmarshal([]byte(adv), &advMap); err != nil {
+		t.Fatalf("failed to parse advertisement: %v", err)
+	}
+	if kind, ok := advMap["kind"].(float64); !ok || int(kind) != 21023 {
+		t.Errorf("expected advertisement kind 21023, got %v", advMap["kind"])
+	}
+}
+
+func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
+	ds, _ := newDegradedSetupWithServer(t, nil)
+
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		return nil, fmt.Errorf("bolt db does not exist: first boot")
+	}
+
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+
+	if deg.WalletLoaded() {
+		t.Fatal("expected wallet to NOT be loaded on first boot")
+	}
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 1 {
+		t.Fatalf("expected 1 configured mint even without wallet, got %d", len(mints))
+	}
+
+	if deg.GetBalance() != 0 {
+		t.Errorf("expected 0 balance, got %d", deg.GetBalance())
+	}
+
+	_, err := deg.CreatePaymentTokenWithOverpayment(ds.Server.URL, 100, 10000, 100)
+	if err == nil {
+		t.Fatal("expected error when no wallet loaded")
+	}
+
+	event, err := deg.PurchaseSession("cashuToken", "AA:BB:CC:DD:EE:FF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event == nil || event.Kind != 21023 {
+		t.Error("expected notice event for PurchaseSession")
+	}
+}
+
+func TestGetAllConfiguredMintConfigs(t *testing.T) {
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srvA.Close()
+
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srvB.Close()
+
+	config := &config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sats"},
+		},
+	}
+
+	tracker := newTestTracker(config, nil)
+	tracker.RunInitialProbe()
+
+	all := tracker.GetAllConfiguredMintConfigs()
+	if len(all) != 2 {
+		t.Fatalf("expected 2 configured mints, got %d", len(all))
+	}
+
+	reachable := tracker.GetReachableMintConfigs()
+	if len(reachable) != 1 {
+		t.Fatalf("expected 1 reachable mint, got %d", len(reachable))
+	}
+
+	if reachable[0].URL != srvA.URL {
+		t.Errorf("expected reachable mint A, got %s", reachable[0].URL)
+	}
+
+	allURLs := make(map[string]bool)
+	for _, m := range all {
+		allURLs[m.URL] = true
+	}
+	if !allURLs[srvA.URL] || !allURLs[srvB.URL] {
+		t.Error("expected both mints in GetAllConfiguredMintConfigs")
+	}
+}
+
+func TestWalletBridge_ImplementsWallet(t *testing.T) {
+	var _ Wallet = (*tollwallet.TollWallet)(nil)
+}
+
+func TestMerchantDegraded_Shutdown_ReleasesWallet(t *testing.T) {
+	mw := &mockWallet{
+		balance: 500,
+		balanceByMint: map[string]uint64{
+			"https://mint.test": 500,
+		},
+	}
+
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	if !deg.WalletLoaded() {
+		t.Fatal("expected wallet to be loaded before shutdown")
+	}
+	if deg.GetBalance() != 500 {
+		t.Fatalf("expected balance 500 before shutdown, got %d", deg.GetBalance())
+	}
+
+	err := deg.Shutdown()
+	if err != nil {
+		t.Fatalf("unexpected error from Shutdown: %v", err)
+	}
+
+	if !mw.shutdownCalled {
+		t.Error("expected wallet.Shutdown() to be called")
+	}
+	if deg.WalletLoaded() {
+		t.Error("expected walletLoaded to be false after shutdown")
+	}
+	if deg.GetBalance() != 0 {
+		t.Errorf("expected balance 0 after shutdown, got %d", deg.GetBalance())
+	}
+	if deg.GetBalanceByMint("https://mint.test") != 0 {
+		t.Errorf("expected 0 balance by mint after shutdown, got %d", deg.GetBalanceByMint("https://mint.test"))
+	}
+	balances := deg.GetAllMintBalances()
+	if len(balances) != 0 {
+		t.Errorf("expected empty balances map after shutdown, got %v", balances)
+	}
+}
+
+func TestMerchantDegraded_Shutdown_Idempotent(t *testing.T) {
+	mw := &mockWallet{balance: 100}
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, mw, nil)
+
+	err := deg.Shutdown()
+	if err != nil {
+		t.Fatalf("first shutdown: %v", err)
+	}
+
+	err = deg.Shutdown()
+	if err != nil {
+		t.Fatalf("second shutdown: %v", err)
+	}
+
+	if deg.WalletLoaded() {
+		t.Error("expected walletLoaded to be false after double shutdown")
+	}
+}
+
+func TestMerchantDegraded_Shutdown_NoWallet_NoPanic(t *testing.T) {
+	deg, _, _ := newDegradedMerchantWithMockWallet(t, nil, fmt.Errorf("no wallet on disk"))
+
+	if deg.WalletLoaded() {
+		t.Fatal("expected wallet to NOT be loaded")
+	}
+
+	err := deg.Shutdown()
+	if err != nil {
+		t.Fatalf("unexpected error from Shutdown with no wallet: %v", err)
+	}
+
+	if deg.WalletLoaded() {
+		t.Error("expected walletLoaded to remain false")
+	}
+}
+
+func TestMerchantDegraded_Shutdown_NotOnMerchantInterface(t *testing.T) {
+	deg, _ := newDegradedMerchantWithConfig(t)
+
+	var _ MerchantInterface = deg
+
+	var iface MerchantInterface = deg
+
+	switch iface.(type) {
+	case *MerchantDegraded:
+		shutdownpable, ok := iface.(*MerchantDegraded)
+		if !ok {
+			t.Fatal("type assertion failed")
+		}
+		_ = shutdownpable.Shutdown()
+	default:
+		t.Log("Shutdown is only available on the concrete *MerchantDegraded type, not on MerchantInterface")
+	}
+}
+
+func TestMockWallet_ImplementsWalletWithShutdown(t *testing.T) {
+	var _ Wallet = &mockWallet{}
+}
+
+func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	ds.Tracker.recoveryThreshold = 1
+
+	mw := &mockWallet{balance: 200, balanceByMint: map[string]uint64{ds.Server.URL: 200}}
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		return mw, nil
+	}
+
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+
+	if !deg.WalletLoaded() {
+		t.Fatal("expected offline wallet to be loaded")
+	}
+
+	shutdownDone := make(chan struct{}, 1)
+	ds.Tracker.SetOnFirstReachableForDegraded(func() {
+		if err := deg.Shutdown(); err != nil {
+			t.Errorf("Shutdown failed: %v", err)
+		}
+		if deg.WalletLoaded() {
+			t.Error("expected wallet to be unloaded after Shutdown in callback")
+		}
+		shutdownDone <- struct{}{}
+	})
+
+	provider := ds.Tracker.configProvider.(*mockConfigProvider)
+	provider.config = &config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+		},
+	}
+
+	ds.Tracker.RunProactiveCheck()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected onFirstReachable callback to fire and complete shutdown")
+	}
+
+	if !mw.shutdownCalled {
+		t.Error("expected underlying wallet.Shutdown() to be called")
+	}
+	if deg.WalletLoaded() {
+		t.Error("expected degraded merchant wallet to be unloaded after shutdown")
+	}
+
+	mints := deg.GetAcceptedMints()
+	if len(mints) != 1 {
+		t.Errorf("expected GetAcceptedMints to still work after shutdown, got %d mints", len(mints))
+	}
+}
+
+func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	ds.Tracker.recoveryThreshold = 1
+
+	oldWallet := &mockWallet{balance: 200, balanceByMint: map[string]uint64{ds.Server.URL: 200}}
+	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
+		return oldWallet, nil
+	}
+
+	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	provider := NewMutexMerchantProvider(deg)
+
+	if !deg.WalletLoaded() {
+		t.Fatal("expected degraded wallet to be loaded")
+	}
+
+	upgradeDone := make(chan struct{}, 1)
+	ds.Tracker.SetOnFirstReachableForDegraded(func() {
+		deg.Shutdown()
+
+		newWallet := &mockWallet{balance: 1000, balanceByMint: map[string]uint64{srv.URL: 1000}}
+		newDeg := &MerchantDegraded{
+			configManager:     ds.CM,
+			mintHealthTracker: ds.Tracker,
+			wallet:            newWallet,
+			walletLoaded:      true,
+		}
+
+		provider.SetMerchant(newDeg)
+		upgradeDone <- struct{}{}
+	})
+
+	configProvider := ds.Tracker.configProvider.(*mockConfigProvider)
+	configProvider.config = &config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+		},
+	}
+
+	ds.Tracker.RunProactiveCheck()
+
+	select {
+	case <-upgradeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected upgrade callback to fire")
+	}
+
+	if !oldWallet.shutdownCalled {
+		t.Error("expected old wallet to be shut down before upgrade")
+	}
+	if deg.WalletLoaded() {
+		t.Error("expected old degraded merchant to have wallet unloaded")
+	}
+
+	current := provider.GetMerchant()
+	if current == nil {
+		t.Fatal("expected non-nil merchant after upgrade")
+	}
+
+	newDeg, ok := current.(*MerchantDegraded)
+	if !ok {
+		t.Fatal("expected upgraded merchant to be *MerchantDegraded (mock)")
+	}
+	if !newDeg.WalletLoaded() {
+		t.Error("expected new merchant to have wallet loaded")
+	}
+	if newDeg.GetBalance() != 1000 {
+		t.Errorf("expected new merchant balance 1000, got %d", newDeg.GetBalance())
+	}
+}
+
+func TestE2E_BoltDBLock_ReleasedOnShutdown(t *testing.T) {
+	testDir := t.TempDir()
+
+	wallet1, err := tollwallet.New(testDir, []string{"https://mint1.test"}, false)
+	if err != nil {
+		t.Fatalf("first wallet open failed: %v", err)
+	}
+
+	if err := wallet1.Shutdown(); err != nil {
+		t.Fatalf("wallet1.Shutdown() failed: %v", err)
+	}
+
+	wallet2, err := tollwallet.New(testDir, []string{"https://mint2.test"}, false)
+	if err != nil {
+		t.Fatalf("expected wallet open to SUCCEED after Shutdown released lock: %v", err)
+	}
+	t.Log("successfully opened wallet after Shutdown() released BoltDB lock")
+
+	wallet2.Shutdown()
+}
+
+func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
+	testDir := t.TempDir()
+
+	_, err := tollwallet.New(testDir, []string{"https://mint1.test"}, false)
+	if err != nil {
+		t.Fatalf("initial wallet seed creation failed: %v", err)
+	}
+
+	shortClient := &http.Client{Timeout: 1 * time.Second}
+	cfg := &config_manager.Config{
+		AcceptedMints: []config_manager.MintConfig{
+			{URL: "http://127.0.0.1:1", PricePerStep: 1, PriceUnit: "sats"},
+		},
+	}
+
+	tracker := newTestTracker(cfg, shortClient)
+	tracker.recoveryThreshold = 1
+	tracker.RunInitialProbe()
+
+	deg := NewMerchantDegradedWithWallet(nil, tracker, DefaultWalletFactory, testDir)
+	if !deg.WalletLoaded() {
+		t.Fatal("expected degraded merchant to load wallet from disk")
+	}
+	t.Logf("degraded wallet loaded, balance=%d", deg.GetBalance())
+
+	if err := deg.Shutdown(); err != nil {
+		t.Fatalf("degraded.Shutdown() failed: %v", err)
+	}
+	if deg.WalletLoaded() {
+		t.Fatal("expected wallet to be unloaded after Shutdown")
+	}
+	t.Log("degraded wallet shut down, BoltDB lock released")
+
+	_, err = tollwallet.New(testDir, []string{"https://mint2.test"}, false)
+	if err != nil {
+		t.Fatalf("failed to re-open wallet after degraded shutdown (BoltDB lock should be released): %v", err)
+	}
+	t.Log("successfully re-opened wallet after degraded Shutdown() — BoltDB lock was properly released")
+}
+
+func TestNewMerchantDegradedFromFull(t *testing.T) {
+	ds, _ := newDegradedSetupWithServer(t, nil)
+
+	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
+	if deg == nil {
+		t.Fatal("NewMerchantDegradedFromFull returned nil")
+	}
+	if deg.mintHealthTracker != ds.Tracker {
+		t.Error("expected tracker to be set on degraded merchant")
+	}
+}
+
+func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
+	ds, _ := newDegradedSetupWithServer(t, nil)
+
+	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
+
+	callbackCalled := false
+	deg.SetOnReachableSetChanged(func() {
+		callbackCalled = true
+	})
+
+	ds.Tracker.mu.RLock()
+	cb := ds.Tracker.onReachableSetChanged
+	ds.Tracker.mu.RUnlock()
+
+	if cb == nil {
+		t.Fatal("expected onReachableSetChanged callback to be set on tracker")
+	}
+	cb()
+	if !callbackCalled {
+		t.Error("expected callback to be called")
+	}
+}
+
+func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
+	ds := newDegradedSetup(t, []config_manager.MintConfig{
+		{URL: "https://mint.test", PricePerStep: 1, PriceUnit: "sats"},
+	})
+
+	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
+
+	returnedTracker := deg.GetMintHealthTracker()
+	if returnedTracker != ds.Tracker {
+		t.Error("GetMintHealthTracker should return the same tracker instance")
+	}
+}

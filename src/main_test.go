@@ -8,6 +8,8 @@ import (
 	"unsafe"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -117,3 +119,89 @@ func setMainConfigField(cm *config_manager.ConfigManager, config *config_manager
 	}
 	configField.Set(reflect.ValueOf(config))
 }
+
+func TestMerchantTypesProvider_DelegatesToInner(t *testing.T) {
+	inner := merchant.NewMutexMerchantProvider(nil)
+	p := &merchantTypesProvider{inner: inner}
+
+	assert.Nil(t, p.GetMerchant())
+
+	mock := &namedMerchant{name: "test"}
+	inner.SetMerchant(mock)
+
+	got := p.GetMerchant()
+	assert.NotNil(t, got)
+}
+
+func TestSwapMerchant_ValidMerchantInterface_Succeeds(t *testing.T) {
+	inner := merchant.NewMutexMerchantProvider(nil)
+	merchantProvider = &merchantTypesProvider{inner: inner}
+
+	mock := &namedMerchant{name: "swapped"}
+	swapMerchant(mock)
+
+	got := merchantProvider.inner.GetMerchant()
+	assert.NotNil(t, got)
+	if n, ok := got.(*namedMerchant); ok {
+		assert.Equal(t, "swapped", n.name)
+	} else {
+		t.Fatal("expected *namedMerchant")
+	}
+}
+
+func TestSwapMerchant_PreservesMerchantOnSuccess(t *testing.T) {
+	original := &namedMerchant{name: "original"}
+	inner := merchant.NewMutexMerchantProvider(original)
+	merchantProvider = &merchantTypesProvider{inner: inner}
+
+	replacement := &namedMerchant{name: "replacement"}
+	swapMerchant(replacement)
+
+	got := merchantProvider.inner.GetMerchant()
+	if n, ok := got.(*namedMerchant); !ok || n.name != "replacement" {
+		t.Fatal("swapMerchant should replace with new merchant")
+	}
+}
+
+type namedMerchant struct {
+	name string
+}
+
+func (m *namedMerchant) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
+	return "", nil
+}
+func (m *namedMerchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
+	return "", nil
+}
+func (m *namedMerchant) DrainMint(mintURL string) (string, uint64, error) {
+	return "", 0, nil
+}
+func (m *namedMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
+func (m *namedMerchant) GetBalance() uint64                             { return 0 }
+func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64         { return 0 }
+func (m *namedMerchant) GetAllMintBalances() map[string]uint64          { return nil }
+func (m *namedMerchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
+	return nil, nil
+}
+func (m *namedMerchant) GetAdvertisement() string { return "" }
+func (m *namedMerchant) StartPayoutRoutine()     {}
+func (m *namedMerchant) StartDataUsageMonitoring() {}
+func (m *namedMerchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
+	return nil, nil
+}
+func (m *namedMerchant) GetSession(macAddress string) (*merchant.CustomerSession, error) {
+	return nil, nil
+}
+func (m *namedMerchant) AddAllotment(macAddress, metric string, amount uint64) (*merchant.CustomerSession, error) {
+	return nil, nil
+}
+func (m *namedMerchant) GetUsage(macAddress string) (string, error) { return "", nil }
+func (m *namedMerchant) Fund(cashuToken string) (uint64, error)     { return 0, nil }
+func (m *namedMerchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*merchant.LightningInvoice, error) {
+	return nil, nil
+}
+func (m *namedMerchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*merchant.LightningQuoteStatus, error) {
+	return nil, nil
+}
+func (m *namedMerchant) SetOnReachableSetChanged(func()) {}
+func (m *namedMerchant) Shutdown() error                  { return nil }

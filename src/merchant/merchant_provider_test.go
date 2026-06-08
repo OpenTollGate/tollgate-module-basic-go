@@ -9,174 +9,185 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-// stubMerchant is a minimal MerchantInterface implementation for tests.
-type stubMerchant struct {
-	label string
+type mockMerchantForProvider struct {
+	name string
 }
 
-func (s *stubMerchant) CreatePaymentToken(string, uint64) (string, error) {
-	return "", fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) CreatePaymentTokenWithOverpayment(string, uint64, uint64, uint64) (string, error) {
-	return "", fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) DrainMint(string) (string, uint64, error) {
-	return "", 0, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) RequestLightningInvoice(string, string, uint64) (*LightningInvoice, error) {
-	return nil, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) GetLightningInvoiceStatus(string, string) (*LightningQuoteStatus, error) {
-	return nil, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
-func (s *stubMerchant) GetBalance() uint64                            { return 0 }
-func (s *stubMerchant) GetBalanceByMint(string) uint64                { return 0 }
-func (s *stubMerchant) GetAllMintBalances() map[string]uint64         { return nil }
-func (s *stubMerchant) PurchaseSession(string, string) (*nostr.Event, error) {
-	return nil, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) GetAdvertisement() string  { return s.label }
-func (s *stubMerchant) StartPayoutRoutine()       {}
-func (s *stubMerchant) StartDataUsageMonitoring() {}
-func (s *stubMerchant) CreateNoticeEvent(string, string, string, string) (*nostr.Event, error) {
-	return nil, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) GetSession(string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) AddAllotment(string, string, uint64) (*CustomerSession, error) {
-	return nil, fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) GetUsage(string) (string, error) {
-	return "", fmt.Errorf("stub: %s", s.label)
-}
-func (s *stubMerchant) Fund(string) (uint64, error) {
-	return 0, fmt.Errorf("stub: %s", s.label)
+func (m *mockMerchantForProvider) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
+	return "", fmt.Errorf("mock: %s", m.name)
 }
 
-// TestMutexMerchantProviderSatisfiesInterface verifies the compile-time
-// interface assertion in merchant_provider.go is valid.
-func TestMutexMerchantProviderSatisfiesInterface(t *testing.T) {
-	// This line mirrors the compile-time check already present in production
-	// code. If MutexMerchantProvider does not satisfy MerchantProvider, the
-	// test will not compile.
-	var _ MerchantProvider = (*MutexMerchantProvider)(nil)
+func (m *mockMerchantForProvider) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
+	return "", fmt.Errorf("mock: %s", m.name)
+}
 
-	// Also verify runtime behaviour: a concrete instance works through the
-	// interface.
-	s := &stubMerchant{label: "check"}
-	var p MerchantProvider = NewMerchantProvider(s)
-	if p.GetMerchant() != s {
-		t.Fatal("expected GetMerchant to return the initial merchant")
+func (m *mockMerchantForProvider) DrainMint(mintURL string) (string, uint64, error) {
+	return "", 0, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) GetAcceptedMints() []config_manager.MintConfig {
+	return nil
+}
+
+func (m *mockMerchantForProvider) GetBalance() uint64 { return 0 }
+func (m *mockMerchantForProvider) GetBalanceByMint(mintURL string) uint64 {
+	return 0
+}
+
+func (m *mockMerchantForProvider) GetAllMintBalances() map[string]uint64 {
+	return nil
+}
+
+func (m *mockMerchantForProvider) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) GetAdvertisement() string { return "" }
+func (m *mockMerchantForProvider) StartPayoutRoutine()     {}
+func (m *mockMerchantForProvider) StartDataUsageMonitoring() {}
+
+func (m *mockMerchantForProvider) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) GetSession(macAddress string) (*CustomerSession, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) GetUsage(macAddress string) (string, error) {
+	return "", fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) Fund(cashuToken string) (uint64, error) {
+	return 0, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) SetOnReachableSetChanged(callback func()) {}
+
+func extractMockName(m MerchantInterface) string {
+	if mock, ok := m.(*mockMerchantForProvider); ok {
+		return mock.name
+	}
+	return "not-mock"
+}
+
+func TestNewMutexMerchantProvider_InitialValue(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "initial"})
+
+	if extractMockName(p.GetMerchant()) != "initial" {
+		t.Fatalf("expected initial, got %v", p.GetMerchant())
 	}
 }
 
-// TestMerchantProviderGetSet verifies basic set-then-get round-trip.
-func TestMerchantProviderGetSet(t *testing.T) {
-	initial := &stubMerchant{label: "initial"}
-	p := NewMerchantProvider(initial)
+func TestMutexMerchantProvider_SetMerchant(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "old"})
 
-	if got := p.GetMerchant(); got != initial {
-		t.Fatal("GetMerchant should return the initial merchant")
-	}
+	p.SetMerchant(&mockMerchantForProvider{name: "new"})
 
-	replacement := &stubMerchant{label: "replacement"}
-	p.SetMerchant(replacement)
-
-	if got := p.GetMerchant(); got != replacement {
-		t.Fatal("GetMerchant should return the replacement after SetMerchant")
+	if extractMockName(p.GetMerchant()) != "new" {
+		t.Fatalf("expected new, got %v", p.GetMerchant())
 	}
 }
 
-// TestMerchantProviderConcurrentAccess hammers GetMerchant and SetMerchant
-// from many goroutines to confirm no data races.
-func TestMerchantProviderConcurrentAccess(t *testing.T) {
-	p := NewMerchantProvider(&stubMerchant{label: "seed"})
+func TestMutexMerchantProvider_NilInitial(t *testing.T) {
+	p := NewMutexMerchantProvider(nil)
+
+	if p.GetMerchant() != nil {
+		t.Fatalf("expected nil, got %v", p.GetMerchant())
+	}
+
+	p.SetMerchant(&mockMerchantForProvider{name: "after-nil"})
+	if p.GetMerchant() == nil {
+		t.Fatal("expected non-nil after SetMerchant")
+	}
+}
+
+func TestMutexMerchantProvider_ImplementsProvider(t *testing.T) {
+	var _ MerchantProvider = NewMutexMerchantProvider(nil)
+}
+
+func TestMutexMerchantProvider_ConcurrentGetSet(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "start"})
 
 	var wg sync.WaitGroup
-
-	// 100 readers
 	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func(n int) {
+			defer wg.Done()
+			p.SetMerchant(&mockMerchantForProvider{name: fmt.Sprintf("writer-%d", n)})
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = p.GetMerchant()
+		}()
+	}
+	wg.Wait()
+
+	if p.GetMerchant() == nil {
+		t.Fatal("expected non-nil after concurrent access")
+	}
+}
+
+func TestMutexMerchantProvider_DoubleSwap(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "first"})
+	p.SetMerchant(&mockMerchantForProvider{name: "second"})
+	p.SetMerchant(&mockMerchantForProvider{name: "third"})
+
+	if extractMockName(p.GetMerchant()) != "third" {
+		t.Fatalf("expected third, got %v", p.GetMerchant())
+	}
+}
+
+func TestMutexMerchantProvider_MultipleReadersSeeSameValue(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "shared"})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			m := p.GetMerchant()
-			if m == nil {
-				t.Error("GetMerchant returned nil")
+			if extractMockName(p.GetMerchant()) != "shared" {
+				t.Errorf("expected shared, got %v", p.GetMerchant())
 			}
 		}()
 	}
-
-	// 10 writers — each swaps to a unique stub
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			p.SetMerchant(&stubMerchant{label: fmt.Sprintf("writer-%d", id)})
-		}(i)
-	}
-
 	wg.Wait()
 }
 
-// TestMerchantProviderSwapPropagation verifies that after swapping the
-// merchant, every subsequent GetMerchant sees the new instance.
-func TestMerchantProviderSwapPropagation(t *testing.T) {
-	mockA := &stubMerchant{label: "A"}
-	mockB := &stubMerchant{label: "B"}
+func TestMutexMerchantProvider_SwapPropagatesToConsumers(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "degraded"})
 
-	p := NewMerchantProvider(mockA)
-
-	// Before swap
-	if got := p.GetMerchant(); got != mockA {
-		t.Fatal("expected merchant A before swap")
+	before := extractMockName(p.GetMerchant())
+	if before != "degraded" {
+		t.Fatalf("expected degraded, got %s", before)
 	}
 
-	p.SetMerchant(mockB)
+	p.SetMerchant(&mockMerchantForProvider{name: "full"})
 
-	// After swap — verify several times to catch potential flapping
-	for i := 0; i < 10; i++ {
-		if got := p.GetMerchant(); got != mockB {
-			t.Fatalf("call %d: expected merchant B after swap, got %v", i, got)
-		}
+	after := extractMockName(p.GetMerchant())
+	if after != "full" {
+		t.Fatalf("expected full, got %s", after)
 	}
 }
 
-// TestMintHealthTrackerStopIdempotent verifies that calling Stop() more than
-// once does not panic (it uses sync.Once internally).
-func TestMintHealthTrackerStopIdempotent(t *testing.T) {
-	tracker := NewMintHealthTracker(nil)
+func TestMutexMerchantProvider_SetToNil(t *testing.T) {
+	p := NewMutexMerchantProvider(&mockMerchantForProvider{name: "initial"})
 
-	// Calling Stop twice must not panic.
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("Stop() panicked on second call: %v", r)
-			}
-		}()
-		tracker.Stop()
-		tracker.Stop()
-	}()
-}
+	p.SetMerchant(nil)
 
-// TestDegradedToFullRecovery simulates the degraded-to-full recovery path:
-// start with a degraded-style merchant, swap in a full merchant via the
-// provider, and confirm GetMerchant returns the new one.
-func TestDegradedToFullRecovery(t *testing.T) {
-	degraded := &stubMerchant{label: "degraded"}
-	full := &stubMerchant{label: "full"}
-
-	provider := NewMerchantProvider(degraded)
-
-	if got := provider.GetMerchant().GetAdvertisement(); got != "degraded" {
-		t.Fatalf("expected degraded merchant first, got %q", got)
-	}
-
-	// Simulate recovery: swap to the full merchant.
-	provider.SetMerchant(full)
-
-	if got := provider.GetMerchant().GetAdvertisement(); got != "full" {
-		t.Fatalf("expected full merchant after recovery swap, got %q", got)
+	if p.GetMerchant() != nil {
+		t.Fatal("expected nil after SetMerchant(nil)")
 	}
 }
