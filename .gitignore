@@ -30,7 +30,6 @@ routers.lock
 
 # AI tooling — shared skills are symlinked, local memory is per-repo
 .claude/
-AGENTS.md
 CLAUDE.md
 agents/
 skills
