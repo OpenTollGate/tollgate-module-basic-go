@@ -14,6 +14,14 @@ const (
 	defaultRecoveryThreshold uint8 = 3
 	probeTimeout            = 30 * time.Second
 	probeInterval           = 5 * time.Minute
+
+	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
+	// not yet connected), probe every 15s with immediate recovery (threshold=1)
+	// for up to 5 minutes. This complements the OpenWrt hotplug script that
+	// restarts tollgate when the wwan interface comes up.
+	aggressiveProbeInterval = 15 * time.Second
+	aggressiveProbeTimeout  = 10 * time.Second
+	aggressiveDuration      = 5 * time.Minute
 )
 
 type mintConfigProvider interface {
@@ -54,9 +62,20 @@ func (t *MintHealthTracker) StartProactiveChecks() {
 	}
 	t.stopCh = make(chan struct{})
 	stopCh := t.stopCh
+	needAggressive := t.reachableCount == 0
 	t.mu.Unlock()
 
 	go func() {
+		var aggressiveDone chan struct{}
+		if needAggressive {
+			log.Printf("StartProactiveChecks: starting aggressive retry (no reachable mints at startup)")
+			aggressiveDone = t.runAggressiveRetry(stopCh)
+			go func() {
+				<-aggressiveDone
+				log.Printf("StartProactiveChecks: aggressive retry completed")
+			}()
+		}
+
 		ticker := time.NewTicker(probeInterval)
 		defer ticker.Stop()
 
@@ -69,6 +88,34 @@ func (t *MintHealthTracker) StartProactiveChecks() {
 			}
 		}
 	}()
+}
+
+func (t *MintHealthTracker) runAggressiveRetry(stopCh chan struct{}) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		aggressiveClient := &http.Client{Timeout: aggressiveProbeTimeout}
+		ticker := time.NewTicker(aggressiveProbeInterval)
+		defer ticker.Stop()
+		timer := time.NewTimer(aggressiveDuration)
+		defer timer.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if t.runAggressiveCheck(aggressiveClient) {
+					log.Printf("runAggressiveRetry: mint became reachable, stopping aggressive mode")
+					return
+				}
+			case <-timer.C:
+				log.Printf("runAggressiveRetry: aggressive period ended (%v), falling back to normal interval", aggressiveDuration)
+				return
+			case <-stopCh:
+				return
+			}
+		}
+	}()
+	return done
 }
 
 func (t *MintHealthTracker) Stop() {
@@ -239,11 +286,81 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	}
 }
 
+// runAggressiveCheck probes mints with immediate recovery (threshold=1).
+// Returns true if a previously-unreachable mint became reachable.
+func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bool {
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return false
+	}
+
+	log.Printf("runAggressiveCheck: probing %d mint(s) with immediate recovery", len(config.AcceptedMints))
+	results := make(map[string]bool, len(config.AcceptedMints))
+	for _, mint := range config.AcceptedMints {
+		results[mint.URL] = t.probeMintWith(mint.URL, aggressiveClient)
+	}
+
+	t.mu.Lock()
+
+	recovered := false
+	for _, mint := range config.AcceptedMints {
+		if results[mint.URL] {
+			t.consecutiveSuccesses[mint.URL]++
+			if !t.reachableMints[mint.URL] {
+				t.reachableMints[mint.URL] = true
+				recovered = true
+			}
+		} else {
+			t.consecutiveSuccesses[mint.URL] = 0
+			t.reachableMints[mint.URL] = false
+		}
+	}
+
+	newCount := 0
+	for _, mint := range config.AcceptedMints {
+		if t.reachableMints[mint.URL] {
+			newCount++
+		}
+	}
+
+	setChanged := newCount != t.reachableCount
+	t.reachableCount = newCount
+
+	var callbacks []func()
+
+	if !t.hadReachableMint && t.onFirstReachable != nil {
+		for _, mint := range config.AcceptedMints {
+			if t.reachableMints[mint.URL] {
+				t.hadReachableMint = true
+				callbacks = append(callbacks, t.onFirstReachable)
+				break
+			}
+		}
+	}
+
+	if setChanged && t.onReachableSetChanged != nil {
+		callbacks = append(callbacks, t.onReachableSetChanged)
+	}
+
+	t.mu.Unlock()
+
+	for _, cb := range callbacks {
+		log.Printf("runAggressiveCheck: firing callback (hadReachable=%v, setChanged=%v)", t.hadReachableMint, setChanged)
+		go cb()
+	}
+
+	return recovered
+}
+
 func (t *MintHealthTracker) probeMint(mintURL string) bool {
+	return t.probeMintWith(mintURL, t.httpClient)
+}
+
+func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) bool {
 	url := strings.TrimRight(mintURL, "/") + "/v1/info"
 
 	start := time.Now()
-	resp, err := t.httpClient.Get(url)
+	resp, err := client.Get(url)
 	elapsed := time.Since(start)
 	if err != nil {
 		log.Printf("mint probe FAILED: url=%s elapsed=%s error=%v", url, elapsed, err)
