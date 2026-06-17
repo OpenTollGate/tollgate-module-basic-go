@@ -44,7 +44,7 @@ jobs:
         with:
           go-version-file: src/go.mod
       - name: Run main package tests
-        working-directory: src
+        working-directory: src/cmd/tollgate-wrt
         run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "main package (testenv)" -v -count=1 -race -tags testenv .
 
   contract-lint:

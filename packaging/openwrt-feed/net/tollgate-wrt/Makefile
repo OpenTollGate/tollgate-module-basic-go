@@ -18,10 +18,13 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
-GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go/src
+GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
+# src/go.mod declares module .../basic-go (so the main package is
+# .../basic-go/cmd/tollgate-wrt). tollgate-cli is a SEPARATE module
+# (src/cmd/tollgate-cli/go.mod = "tollgate-cli") and cannot be built in this
+# module context — package it separately or merge its module later.
 GO_PKG_BUILD_PKG:= \
-  $(GO_PKG)/cmd/tollgate-wrt \
-  $(GO_PKG)/cmd/tollgate-cli
+  $(GO_PKG)/cmd/tollgate-wrt
 
 GO_PKG_LDFLAGS_X:= \
   $(GO_PKG)/cli.Version=v$(PKG_VERSION) \
@@ -96,7 +99,6 @@ endef
 define Package/tollgate-wrt/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/tollgate-wrt $(1)/usr/bin/
-	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/tollgate-cli $(1)/usr/bin/tollgate
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
