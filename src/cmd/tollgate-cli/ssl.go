@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
+var (
 	sslDir    = "/etc/tollgate/ssl"
 	backupDir = sslDir + "/backup"
 	certDest  = sslDir + "/server.crt"
@@ -26,6 +26,21 @@ const (
 )
 
 var sslYesFlag bool
+
+func runCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func runCommandChecked(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
 
 var sslCmd = &cobra.Command{
 	Use:   "ssl",
@@ -790,21 +805,6 @@ func filterLines(input, contains string) []string {
 		}
 	}
 	return result
-}
-
-func runCommand(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
-func runCommandChecked(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
-	}
-	return nil
 }
 
 func uciGet(key string) (string, error) {
