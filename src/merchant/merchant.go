@@ -307,6 +307,10 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 
 	// Get the amount we intend to payout to the owner.
 	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
+	if balance <= mintConfig.MinBalance {
+		log.Printf("Skipping payout %s, Balance %d does not exceed min_balance %d", mintConfig.URL, balance, mintConfig.MinBalance)
+		return
+	}
 	aimedPaymentAmount := balance - mintConfig.MinBalance
 
 	identities := m.configManager.GetIdentities()
@@ -557,6 +561,10 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 
 	if mintConfig == nil {
 		return 0, fmt.Errorf("mint configuration not found for URL: %s", mintURL)
+	}
+
+	if mintConfig.PricePerStep == 0 {
+		return 0, fmt.Errorf("price_per_step is 0 for mint %s (division by zero)", mintURL)
 	}
 
 	steps := amountSats / mintConfig.PricePerStep
