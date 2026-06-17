@@ -838,13 +838,32 @@ func isLocalOrigin(origin string) bool {
 	if err != nil {
 		return false
 	}
-	ip := net.ParseIP(u.Hostname())
-	if ip == nil {
-		return u.Hostname() == "localhost"
+	host := u.Hostname()
+
+	if ip := net.ParseIP(host); ip != nil {
+		for _, n := range privateCIDRs {
+			if n.Contains(ip) {
+				return true
+			}
+		}
+		return false
 	}
-	for _, n := range privateCIDRs {
-		if n.Contains(ip) {
-			return true
+
+	if host == "localhost" {
+		return true
+	}
+
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip != nil {
+			for _, n := range privateCIDRs {
+				if n.Contains(ip) {
+					return true
+				}
+			}
 		}
 	}
 	return false

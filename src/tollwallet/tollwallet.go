@@ -110,7 +110,7 @@ func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cash
 	totalProofAmount := uint64(0)
 	for i, proof := range proofs {
 		totalProofAmount += proof.Amount
-		log.Printf("TollWallet.Send: proof[%d]: amount=%d, secret=%s...", i, proof.Amount, proof.Secret[:min(10, len(proof.Secret))])
+		log.Printf("TollWallet.Send: proof[%d]: amount=%d", i, proof.Amount)
 	}
 	log.Printf("TollWallet.Send: total proof amount=%d (requested=%d)", totalProofAmount, amount)
 
@@ -159,7 +159,7 @@ func (w *TollWallet) Drain(mintUrl string) (cashu.Token, uint64, error) {
 	totalProofAmount := uint64(0)
 	for i, proof := range proofs {
 		totalProofAmount += proof.Amount
-		log.Printf("TollWallet.Drain: proof[%d]: amount=%d, secret=%s...", i, proof.Amount, proof.Secret[:min(10, len(proof.Secret))])
+		log.Printf("TollWallet.Drain: proof[%d]: amount=%d", i, proof.Amount)
 	}
 	log.Printf("TollWallet.Drain: total proof amount=%d (balance was=%d)", totalProofAmount, balance)
 

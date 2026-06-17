@@ -42,13 +42,13 @@ func recoverFailedPaymentToken(merchant merchant_types.PaymentMerchant, token, m
 func saveTokenForRecovery(token, mintURL string, originalErr error) {
 	// Ensure directory exists
 	dir := "/etc/tollgate"
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		logger.WithError(err).Error("Failed to create token recovery directory")
 		return
 	}
 
 	// Open file in append mode
-	f, err := os.OpenFile(tokenRecoveryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(tokenRecoveryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		logger.WithError(err).Error("Failed to open token recovery file")
 		return
