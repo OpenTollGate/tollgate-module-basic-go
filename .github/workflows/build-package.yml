@@ -14,35 +14,16 @@ env:
   PACKAGE_NAME: "tollgate-wrt"
   GO_VERSION: "1.24.2"
   DEBUG: "true"
+  BLOSSOM_SERVERS: "https://blossom.psbt.me/ https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech"
+  BLOSSOM_MIN_SUCCESS: "2"
+  COORDINATION_RELAYS: >-
+    wss://relay.damus.io
+    wss://nos.lol
+    wss://nostr.mom
+    wss://relay1.orangesync.tech
+    wss://relay2.orangesync.tech
 
 jobs:
-  # Unique Go build tuples. Each row produces one binary artifact that may
-  # be consumed by multiple package-matrix cells (e.g. aarch64_cortex-a53
-  # and aarch64_cortex-a72 share the same arm64 binary).
-  define-compile-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          : ${GITHUB_OUTPUT:=/tmp/github_output}
-          cat > matrix.json << 'EOF'
-          {
-            "include": [
-              { "compile_key": "arm64",           "goarch": "arm64" },
-              { "compile_key": "armv7",           "goarch": "arm",    "goarm": "7" },
-              { "compile_key": "mipsle-softfloat","goarch": "mipsle", "gomips": "softfloat" },
-              { "compile_key": "mips-softfloat",  "goarch": "mips",   "gomips": "softfloat" },
-              { "compile_key": "amd64",           "goarch": "amd64" }
-            ]
-          }
-          EOF
-          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
-
-  # Package matrix. Each cell declares which compile_key it consumes, which
-  # SDK image to run in, and the output package format (ipk for 24.10.x,
-  # apk for 25.12.x). Compression variants fan out here — not in compile.
   define-package-matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -53,10 +34,6 @@ jobs:
       - id: set-matrix
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          # One row per (arch, sdk, compression); set ipk/apk flags to
-          # declare which formats to produce for that row. Rows with both
-          # flags build both formats (currently only cortex-a53/mediatek-
-          # filogic has apk support).
           cat > matrix.json << 'EOF'
           {
             "include": [
@@ -68,7 +45,6 @@ jobs:
               { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
               { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "ipk": true, "apk": false },
               { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "sdk": "ramips-mt7621",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
-              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": false },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-fast" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
@@ -78,18 +54,7 @@ jobs:
             ]
           }
           EOF
-          # OpenWrt versions are pinned per format in the package jobs below:
-          # ipk -> 24.10.1, apk -> 25.12.0. Matrix entries stay version-free
-          # so the output filenames and NIP-94 tags don't carry what's really
-          # a build-time detail.
-          #
 
-          # Compression gate: UPX variants (esp. --brute, --ultra-brute) are
-          # expensive and only meaningful for shipped artifacts. Keep them
-          # on main, v* tags, and any pull_request run (so reviewers can
-          # inspect the final payload). Strip them on day-to-day branch
-          # pushes. A workflow_dispatch with full_compression=true forces
-          # them on regardless of ref. Uncompressed cells always run.
           if [[ "${{ github.event.inputs.full_compression }}" == "true" ]]; then
             echo "full_compression=true — keeping all variants."
           elif [[ "$GITHUB_REF" != "refs/heads/main" \
@@ -100,9 +65,6 @@ jobs:
             mv matrix.filtered.json matrix.json
           fi
 
-          # matrix: flat (format-expanded) list consumed by publish-metadata,
-          # one row per (arch, compression, format). Derived from the
-          # flag-based source by cloning each ipk/apk row it applies to.
           echo "matrix=$(jq -c '{include: [
             (.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}),
             (.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"})
@@ -115,6 +77,7 @@ jobs:
     outputs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
+      build_id: ${{ steps.build-id.outputs.build_id }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -125,6 +88,12 @@ jobs:
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
           echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - id: build-id
+        shell: bash
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          echo "build_id=${{ steps.commit-hash.outputs.short }}-$(date +%s)" >> $GITHUB_OUTPUT
 
       - name: Set package_version variable
         id: determine-package-version
@@ -155,14 +124,11 @@ jobs:
             echo "release_channel=dev" >> $GITHUB_OUTPUT
           fi
 
-  # Native cross-compile of tollgate-wrt + tollgate CLI. One job per unique
-  # Go tuple. Produces a tarball consumed by every package-matrix cell that
-  # declares the same compile_key.
   compile-binaries:
-    needs: [define-compile-matrix, determine-versioning]
+    needs: [determine-versioning]
     runs-on: ubuntu-latest
-    strategy:
-      matrix: ${{ fromJson(needs.define-compile-matrix.outputs.matrix) }}
+    outputs:
+      hashes: ${{ steps.blossom-upload.outputs.hashes }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -174,16 +140,12 @@ jobs:
           cache: true
           cache-dependency-path: src/go.sum
 
-      - name: Cross-compile binaries
+      - name: Cross-compile all binaries
         env:
           CGO_ENABLED: "0"
-          GOARCH: ${{ matrix.goarch }}
-          GOARM:  ${{ matrix.goarm }}
-          GOMIPS: ${{ matrix.gomips }}
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
         run: |
-          set -eu
-          mkdir -p bin
+          set -euo pipefail
           BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           GIT_COMMIT=$(git rev-parse --short HEAD)
           LDFLAGS="-s -w \
@@ -191,24 +153,88 @@ jobs:
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
 
-          echo "Building service for GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS"
-          env GOOS=linux go build -C src -o "$GITHUB_WORKSPACE/bin/tollgate-wrt" -trimpath -ldflags="$LDFLAGS" main.go
+          TARGETS='[
+            {"key":"arm64","goarch":"arm64"},
+            {"key":"armv7","goarch":"arm","goarm":"7"},
+            {"key":"mipsle-softfloat","goarch":"mipsle","gomips":"softfloat"},
+            {"key":"mips-softfloat","goarch":"mips","gomips":"softfloat"},
+            {"key":"amd64","goarch":"amd64"}
+          ]'
 
-          echo "Building CLI..."
-          env GOOS=linux go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/tollgate" -trimpath -ldflags="$LDFLAGS"
+          while IFS= read -r t; do
+            key=$(printf '%s' "$t" | jq -r '.key')
+            goarch=$(printf '%s' "$t" | jq -r '.goarch')
+            goarm=$(printf '%s' "$t" | jq -r '.goarm // empty')
+            gomips=$(printf '%s' "$t" | jq -r '.gomips // empty')
 
-          ls -lh bin/
+            echo "=== Building key=$key GOARCH=$goarch GOARM=$goarm GOMIPS=$gomips ==="
+            mkdir -p "bin/$key"
 
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: binaries-${{ matrix.compile_key }}
-          path: bin/
-          retention-days: 5
+            GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
+              go build -C src -o "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" \
+              -trimpath -ldflags="$LDFLAGS" main.go
 
-  # Native ipk assembly on ubuntu-latest — no openwrt/sdk container.
-  # Uses packaging/build-ipk.sh (ar + tar) to wrap the prebuilt binary.
-  # Fans out per architecture + compression variant.
+            GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
+              go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/$key/tollgate" \
+              -trimpath -ldflags="$LDFLAGS"
+
+            ls -lh "bin/$key/"
+          done < <(printf '%s' "$TARGETS" | jq -c '.[]')
+
+      - name: Install nak
+        run: |
+          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Upload binaries to Blossom (per-arch, mirrored)
+        id: blossom-upload
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+        run: |
+          set -euo pipefail
+
+          blossom_upload() {
+            local file="$1"
+            local hash="" ok=0
+            for server in $BLOSSOM_SERVERS; do
+              local attempt=1 delay=2
+              while [ $attempt -le 3 ]; do
+                resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1) || true
+                srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+                if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                  ok=$((ok + 1))
+                  [ -z "$hash" ] && hash="$srv_hash"
+                  echo "  ok: ${server} -> ${srv_hash}" >&2
+                  break
+                fi
+                echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+                sleep $delay
+                delay=$((delay * 2))
+                attempt=$((attempt + 1))
+              done
+            done
+            if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+              echo "ERROR: only ${ok} mirrors succeeded for $(basename "$file") (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
+              return 1
+            fi
+            echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
+            printf '%s' "$hash"
+          }
+
+          HASH_JSON="{}"
+          for key_dir in bin/*/; do
+            key=$(basename "$key_dir")
+            tar czf "binaries-${key}.tar.gz" -C "bin/$key" .
+            echo "Uploading binaries-${key}.tar.gz ($(stat -c%s "binaries-${key}.tar.gz") bytes)..."
+            hash=$(blossom_upload "binaries-${key}.tar.gz")
+            echo "  → $hash"
+            HASH_JSON=$(printf '%s' "$HASH_JSON" | jq -c --arg k "$key" --arg h "$hash" '. + {($k): $h}')
+          done
+
+          echo "hashes=$HASH_JSON" >> $GITHUB_OUTPUT
+          echo "All uploads complete: $HASH_JSON"
+
   package-ipk:
     needs: [define-package-matrix, determine-versioning, compile-binaries]
     runs-on: ubuntu-latest
@@ -220,11 +246,31 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Download prebuilt binaries
-        uses: actions/download-artifact@v8
-        with:
-          name: binaries-${{ matrix.compile_key }}
-          path: bin/
+      - name: Download prebuilt binaries from Blossom
+        env:
+          HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
+        run: |
+          set -euo pipefail
+          BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
+          if [ -z "$BINARIES_HASH" ] || [ "$BINARIES_HASH" = "null" ]; then
+            echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
+            exit 1
+          fi
+          DOWNLOADED=false
+          for server in $BLOSSOM_SERVERS; do
+            if curl -fsSL -o binaries.tar.gz "${server}/${BINARIES_HASH}"; then
+              DOWNLOADED=true
+              echo "Downloaded from ${server}"
+              break
+            fi
+          done
+          if [ "$DOWNLOADED" != "true" ]; then
+            echo "ERROR: failed to download binaries from any mirror" >&2
+            exit 1
+          fi
+          mkdir -p bin
+          tar xzf binaries.tar.gz -C bin
+          ls -lh bin/
 
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
@@ -240,7 +286,6 @@ jobs:
           PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> $GITHUB_ENV
 
-          # Assemble the payload tree mirroring what Package/install produced.
           PAYLOAD=$(mktemp -d)
           install -D -m 0755 bin/tollgate-wrt "$PAYLOAD/usr/bin/tollgate-wrt"
           install -D -m 0755 bin/tollgate     "$PAYLOAD/usr/bin/tollgate"
@@ -261,7 +306,6 @@ jobs:
           cp -r packaging/files/tollgate-captive-portal-site/. "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site/"
           install -D -m 0644 LICENSE "$PAYLOAD/usr/share/doc/${PACKAGE_NAME}/LICENSE"
 
-          # Apply UPX on the staged binaries (before packing).
           if [ -n "${{ matrix.compression }}" ]; then
             COMP="${{ matrix.compression }}"
             UPX_FLAGS="--${COMP#upx-}"
@@ -284,21 +328,69 @@ jobs:
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.PACKAGE_FILENAME }}
-          path: artifacts/${{ env.PACKAGE_FILENAME }}
-          retention-days: 5
+      - name: Install nak
+        run: |
+          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
 
-  # apk packaging still goes through the openwrt SDK container — the
-  # SDK-25.12 apk-tools binary produces the OpenWrt-specific apk format,
-  # and reimplementing that outside the SDK is out of scope for this PR.
+      - name: Upload to Blossom and announce
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
+        run: |
+          set -euo pipefail
+
+          PKG_FILE="artifacts/$PACKAGE_FILENAME"
+          PKG_HASH="" CANONICAL="" ok=0
+          for server in $BLOSSOM_SERVERS; do
+            attempt=1; delay=2
+            while [ $attempt -le 3 ]; do
+              resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
+              srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                ok=$((ok + 1))
+                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash" && CANONICAL="$server"
+                echo "  ok: ${server} -> ${srv_hash}" >&2
+                break
+              fi
+              echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+          done
+          if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+            echo "ERROR: only ${ok} mirrors succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
+            exit 1
+          fi
+          echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
+
+          PKG_URL="${CANONICAL}/${PKG_HASH}.ipk"
+          compression_tag="${{ matrix.compression }}"
+          [ -z "$compression_tag" ] && compression_tag="none"
+
+          COORD_CONTENT=$(jq -cn \
+            --arg sha256 "$PKG_HASH" \
+            --arg filename "$PACKAGE_FILENAME" \
+            --arg url "$PKG_URL" \
+            --arg arch "${{ matrix.architecture }}" \
+            --arg fmt "ipk" \
+            --arg compression "$compression_tag" \
+            '{sha256:$sha256, filename:$filename, url:$url, architecture:$arch, format:$fmt, compression:$compression}')
+
+          nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build/${BUILD_ID}/${{ matrix.architecture }}/ipk/${compression_tag}" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build" \
+            -c "$COORD_CONTENT" \
+            $COORDINATION_RELAYS < /dev/null
+
+          echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
+
   package-apk:
     needs: [define-package-matrix, determine-versioning, compile-binaries]
     runs-on: ubuntu-latest
     container:
-      # apk is OpenWrt 25.12 only — pinned here, not in the matrix.
       image: openwrt/sdk:${{ matrix.sdk }}-25.12.0
       options: --user root
     strategy:
@@ -310,16 +402,47 @@ jobs:
           path: src-checkout
           fetch-depth: 1
 
-      - name: Download prebuilt binaries
-        uses: actions/download-artifact@v8
-        with:
-          name: binaries-${{ matrix.compile_key }}
-          path: bin/
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y curl jq
+
+      - name: Install nak
+        run: |
+          curl -L "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Download prebuilt binaries from Blossom
+        shell: bash
+        env:
+          HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
+        run: |
+          set -euo pipefail
+          BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
+          if [ -z "$BINARIES_HASH" ] || [ "$BINARIES_HASH" = "null" ]; then
+            echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
+            exit 1
+          fi
+          DOWNLOADED=false
+          for server in $BLOSSOM_SERVERS; do
+            if curl -fsSL -o binaries.tar.gz "${server}/${BINARIES_HASH}"; then
+              DOWNLOADED=true
+              echo "Downloaded from ${server}"
+              break
+            fi
+          done
+          if [ "$DOWNLOADED" != "true" ]; then
+            echo "ERROR: failed to download binaries from any mirror" >&2
+            exit 1
+          fi
+          mkdir -p bin
+          tar xzf binaries.tar.gz -C bin
+          ls -lh bin/
 
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
         run: |
-          apt-get update
           apt-get install -y upx-ucl
 
       - name: Stage SDK package tree
@@ -367,8 +490,13 @@ jobs:
             UPX_FLAGS="$UPX_FLAGS" \
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
 
-      - name: Collect artifact
+      - name: Collect, upload to Blossom, and announce
+        shell: bash
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
         run: |
+          set -euo pipefail
           PACKAGE_PATH=$(find /builder/bin/packages -name "*.apk" -type f | head -n1)
           if [ -z "$PACKAGE_PATH" ]; then
             echo "No .apk package found" >&2
@@ -376,22 +504,58 @@ jobs:
             exit 1
           fi
           ls -lh "$PACKAGE_PATH"
-          mkdir -p /github/workspace/artifacts
-          cp "$PACKAGE_PATH" "/github/workspace/artifacts/${PACKAGE_FILENAME}"
+          mkdir -p /github/workspace
+          cp "$PACKAGE_PATH" "/github/workspace/${PACKAGE_FILENAME}"
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.PACKAGE_FILENAME }}
-          path: /github/workspace/artifacts/${{ env.PACKAGE_FILENAME }}
-          retention-days: 5
+          PKG_FILE="/github/workspace/${PACKAGE_FILENAME}"
+          PKG_HASH="" CANONICAL="" ok=0
+          for server in $BLOSSOM_SERVERS; do
+            attempt=1; delay=2
+            while [ $attempt -le 3 ]; do
+              resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
+              srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                ok=$((ok + 1))
+                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash" && CANONICAL="$server"
+                echo "  ok: ${server} -> ${srv_hash}" >&2
+                break
+              fi
+              echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+              sleep $delay
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+          done
+          if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+            echo "ERROR: only ${ok} mirrors succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
+            exit 1
+          fi
+          echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
 
-  # Single-job batched publish: one container start, one nak install,
-  # one websocket connection per relay (not one per package). Each artifact
-  # is uploaded to every Blossom mirror; the step fails only if fewer than
-  # BLOSSOM_MIN_SUCCESS mirrors accept a given file.
+          PKG_URL="${CANONICAL}/${PKG_HASH}.apk"
+          compression_tag="${{ matrix.compression }}"
+          [ -z "$compression_tag" ] && compression_tag="none"
+
+          COORD_CONTENT=$(jq -cn \
+            --arg sha256 "$PKG_HASH" \
+            --arg filename "$PACKAGE_FILENAME" \
+            --arg url "$PKG_URL" \
+            --arg arch "${{ matrix.architecture }}" \
+            --arg fmt "apk" \
+            --arg compression "$compression_tag" \
+            '{sha256:$sha256, filename:$filename, url:$url, architecture:$arch, format:$fmt, compression:$compression}')
+
+          nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build/${BUILD_ID}/${{ matrix.architecture }}/apk/${compression_tag}" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build" \
+            -c "$COORD_CONTENT" \
+            $COORDINATION_RELAYS < /dev/null
+
+          echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
+
   publish-metadata:
-    needs: [determine-versioning, package-ipk, package-apk, define-package-matrix]
+    needs: [determine-versioning, package-ipk, package-apk]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
@@ -401,17 +565,10 @@ jobs:
       run:
         shell: bash
     env:
-      # Blossom mirrors, in preference order. Each artifact is uploaded to all
-      # of them; the build fails unless at least BLOSSOM_MIN_SUCCESS uploads
-      # succeed (content-addressed, so the sha256 is identical across mirrors).
-      # The NIP-94 url tag points at the first server that succeeded, in this
-      # order — keep blossom.tollgate.me first so the canonical url stays stable.
-      BLOSSOM_SERVERS: "https://blossom.tollgate.me https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech"
-      BLOSSOM_MIN_SUCCESS: "2"
-      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay.tollgate.me wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
-      PUBLISH_MATRIX: ${{ needs.define-package-matrix.outputs.matrix }}
+      BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
       PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
       RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
+      RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
     steps:
       - name: Install required tools
         run: |
@@ -421,121 +578,16 @@ jobs:
           chmod +x /usr/local/bin/nak
           nak --version
 
-      - name: Download all package artifacts
-        uses: actions/download-artifact@v8
-        with:
-          # Matches both ipk and apk artifacts uploaded by package-ipk
-          # and package-apk.
-          pattern: "${{ env.PACKAGE_NAME }}_*"
-          path: ./artifacts
-          merge-multiple: true
-
-      - name: Upload to Blossom (batched with retry + backoff)
-        id: blossom
-        env:
-          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+      - name: Fetch build results from relays
         run: |
           set -euo pipefail
-
-          # Upload a single file to one Blossom server, with retry + backoff.
-          # Echoes the sha256 on success; non-zero exit on failure.
-          upload_to_server() {
-            local file="$1" server="$2"
-            local attempt=1 delay=2 resp hash
-            while [ $attempt -le 3 ]; do
-              if resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1); then
-                hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-                if [ -n "$hash" ] && [ "$hash" != "null" ]; then
-                  printf '%s' "$hash"
-                  return 0
-                fi
-              fi
-              echo "    attempt ${attempt} to ${server} failed for $(basename "$file"); retrying in ${delay}s..." >&2
-              echo "    response: $resp" >&2
-              sleep $delay
-              delay=$((delay * 2))
-              attempt=$((attempt + 1))
-            done
-            return 1
-          }
-
-          # Upload a file to every Blossom mirror. Requires >= BLOSSOM_MIN_SUCCESS
-          # successful uploads or it fails the whole build. Emits the sha256 on
-          # the first line, then one successful server base-URL per subsequent
-          # line, in BLOSSOM_SERVERS preference order (first = canonical).
-          upload_redundant() {
-            local file="$1"
-            local hash="" ok=0
-            local servers_ok=()
-            for server in $BLOSSOM_SERVERS; do
-              if srv_hash=$(upload_to_server "$file" "$server"); then
-                ok=$((ok + 1))
-                echo "    ok: ${server} -> ${srv_hash}" >&2
-                if [ -z "$hash" ]; then hash="$srv_hash"; fi
-                # Content addressing means every mirror must return the same hash.
-                if [ "$srv_hash" != "$hash" ]; then
-                  echo "    WARNING: ${server} returned ${srv_hash}, expected ${hash}" >&2
-                fi
-                servers_ok+=("$server")
-              else
-                echo "    FAILED: ${server} (after retries)" >&2
-              fi
-            done
-            if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
-              echo "  ERROR: only ${ok} of $(echo $BLOSSOM_SERVERS | wc -w) blossom uploads succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
-              return 1
-            fi
-            echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
-            printf '%s\n' "$hash"
-            printf '%s\n' "${servers_ok[@]}"
-          }
-
-          : > manifest.jsonl
-          # Subshell pipelines run in their own process, so a bare `exit 1`
-          # inside the `while read` below would not fail the step. Drive the
-          # loop from a process-substitution fed array instead, so failures
-          # propagate to the step's exit code.
-          mapfile -t cells < <(printf '%s\n' "$PUBLISH_MATRIX" | jq -c '.include[]')
-          for cell in "${cells[@]}"; do
-            arch=$(printf '%s' "$cell" | jq -r '.architecture')
-            fmt=$(printf '%s' "$cell" | jq -r '.format')
-            compression=$(printf '%s' "$cell" | jq -r '.compression // empty')
-            suffix=""; [ -n "$compression" ] && suffix="-${compression}"
-            filename="${PACKAGE_NAME}_${PACKAGE_VERSION}_${arch}${suffix}.${fmt}"
-            file="./artifacts/${filename}"
-            if [ ! -f "$file" ]; then
-              echo "ERROR: expected artifact missing: $file" >&2
-              exit 1
-            fi
-
-            echo "Uploading $filename to all blossom mirrors..."
-            if ! result=$(upload_redundant "$file"); then
-              echo "ERROR: blossom upload failed for $filename" >&2
-              exit 1
-            fi
-            hash=$(printf '%s' "$result" | sed -n '1p')
-            # Remaining lines are the successful mirror base-URLs (canonical first).
-            compression_type="${compression:-none}"
-            # Blossom serves content by hash regardless of suffix, but
-            # downloaders (opkg/apk) use the URL extension to infer format — so
-            # we append .${fmt} to each URL. We record one full download URL per
-            # successful mirror, canonical (first successful) first; the blob is
-            # content-addressed so every mirror serves it under the same hash.
-            urls_json=$(printf '%s' "$result" | sed -n '2,$p' \
-              | jq -R --arg hash "$hash" --arg fmt "$fmt" 'select(length>0) | . + "/" + $hash + "." + $fmt' \
-              | jq -sc '.')
-            jq -cn \
-              --arg filename "$filename" --arg arch "$arch" --arg fmt "$fmt" \
-              --arg compression "$compression_type" --arg hash "$hash" \
-              --argjson urls "$urls_json" \
-              '{filename:$filename, architecture:$arch, format:$fmt, compression:$compression, hash:$hash, urls:$urls, url:$urls[0]}' \
-              >> manifest.jsonl
-            echo "  uploaded: $hash ($(printf '%s' "$urls_json" | jq -r 'length') mirrors)"
-          done
-
-          echo "---"
-          echo "Manifest:"
-          cat manifest.jsonl
+          timeout 30 nak req -k 30078 --tag "r=$BUILD_ID" --limit 50 $COORDINATION_RELAYS > build-results.jsonl || true
+          result_count=$(wc -l < build-results.jsonl)
+          echo "Fetched $result_count build result(s) from relays."
+          if [ "$result_count" -eq 0 ]; then
+            echo "ERROR: no build results found for BUILD_ID=$BUILD_ID" >&2
+            exit 1
+          fi
 
       - name: Build NIP-94 events
         env:
@@ -543,32 +595,18 @@ jobs:
         run: |
           set -euo pipefail
           : > events.jsonl
-          while read -r entry; do
-            filename=$(printf '%s' "$entry" | jq -r '.filename')
-            arch=$(printf '%s' "$entry" | jq -r '.architecture')
-            fmt=$(printf '%s' "$entry" | jq -r '.format')
-            compression=$(printf '%s' "$entry" | jq -r '.compression')
-            hash=$(printf '%s' "$entry" | jq -r '.hash')
+          while IFS= read -r evt; do
+            content=$(printf '%s' "$evt" | jq -r '.content')
+            arch=$(printf '%s' "$content" | jq -r '.architecture')
+            fmt=$(printf '%s' "$content" | jq -r '.format')
+            filename=$(printf '%s' "$content" | jq -r '.filename')
+            hash=$(printf '%s' "$content" | jq -r '.sha256')
+            url=$(printf '%s' "$content" | jq -r '.url')
+            compression=$(printf '%s' "$content" | jq -r '.compression')
 
-            # One url tag per Blossom mirror (canonical first). The blob is
-            # content-addressed (x/ox = sha256), so every url serves the same
-            # bytes — consumers may fail over across them. Consumers that only
-            # read the first url tag keep working unchanged.
-            url_tags=()
-            while IFS= read -r u; do
-              url_tags+=(--tag "url=$u")
-            done < <(printf '%s' "$entry" | jq -r '.urls[]')
-
-            # nak detects a piped stdin and tries to parse it as events to
-            # sign. The 'while read ... done < manifest.jsonl' redirection
-            # makes our loop's stdin the manifest file, so without an
-            # explicit </dev/null nak would read manifest lines and fail
-            # with 'invalid event received from stdin'. Feed /dev/null so
-            # nak falls back to building the event purely from flags.
-            # Then jq -c collapses the pretty-printed output to one line.
             nak event --sec "$NSEC_HEX" -k 1063 \
               -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
-              "${url_tags[@]}" \
+              --tag url="$url" \
               --tag m="application/octet-stream" \
               --tag x="$hash" \
               --tag ox="$hash" \
@@ -581,7 +619,7 @@ jobs:
               --tag format="$fmt" \
               < /dev/null \
               | jq -c . >> events.jsonl
-          done < manifest.jsonl
+          done < build-results.jsonl
 
           event_count=$(wc -l < events.jsonl)
           echo "Built $event_count NIP-94 events."
@@ -593,14 +631,30 @@ jobs:
       - name: Publish events (one connection per relay)
         run: |
           set -euo pipefail
-          # nak event reads JSON events from stdin and publishes each to the
-          # given relays over a single websocket connection per relay.
           cat events.jsonl | nak event $RELAYS
+
+      - name: Cleanup coordination events
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r evt; do
+            event_id=$(printf '%s' "$evt" | jq -r '.id')
+            nak event --sec "$NSEC_HEX" -k 5 \
+              --tag e="$event_id" \
+              -c "build coordination cleanup" \
+              $COORDINATION_RELAYS < /dev/null || true
+          done < build-results.jsonl
+          echo "Cleaned up 30078 coordination events."
 
       - name: Build summary
         run: |
+          set -euo pipefail
           echo "Published $(wc -l < events.jsonl) NIP-94 events across $(echo $RELAYS | wc -w) relays."
-          jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.urls | length) mirror(s)\n" + (.urls | map("      " + .) | join("\n"))' manifest.jsonl
+          while IFS= read -r evt; do
+            content=$(printf '%s' "$evt" | jq -r '.content')
+            printf '%s' "$content" | jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.url)"'
+          done < build-results.jsonl
 
   trigger-build-os:
     name: Trigger TollGate OS build
