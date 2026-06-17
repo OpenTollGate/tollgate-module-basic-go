@@ -42,6 +42,19 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
   off-CI
   ([#105](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/105),
   [#79](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/79)).
+- **Merchant degraded mode.** A zero-dependency `PaymentMerchant` interface
+  ([#138](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/138)),
+  mint health tracking with a provider and sentinel error plus USM decoupling
+  ([#139](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/139)),
+  and dynamic upgrade/downgrade between full and degraded operation
+  ([#140](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/140)),
+  surfaced through a captive-portal degraded-mode UI
+  ([#141](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/141)).
+- **SSL management rewritten in Go** with wrapper scripts, replacing the earlier
+  shell-driven approach
+  ([#142](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/142)).
+- **V2 keyset ID support** for CDK 0.16.0+ compatibility
+  ([#126](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/126)).
 
 ### Fixed
 
@@ -67,6 +80,26 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
 - **Packaging:** wrap the `.ipk` as a gzipped tar instead of an `ar` archive so
   it installs on stock OpenWrt
   ([#100](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/100)).
+- **Payment correctness:** case-insensitive mint URL comparison, proper
+  spent-token detection, valve re-auth without a stale in-memory cache, and
+  trust `X-Forwarded-For` only from localhost, plus IP/MAC input validation and
+  a 1 MB request-body cap
+  ([#104](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/104)).
+- **Merchant payout safety / valve timer race:** guard against `PricePerStep=0`
+  division-by-zero, prevent a `uint64` underflow in payout, and stop a stale
+  valve timer callback from deleting its replacement
+  ([#161](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/161)).
+- **BOLT11 / NoDogSplash:** make BOLT11 decode non-fatal and set the NoDogSplash
+  gateway port to 2050
+  ([#158](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/158)).
+- **Captive-portal bypass:** disable IPv6 on the LAN during installation so
+  clients cannot route around the portal
+  ([#148](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/148),
+  [#160](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/160)).
+- **Session lifecycle:** evict expired timed sessions and start the scan loop
+  ([#106](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/106)).
+- **Additional security hardening and correctness guards**
+  ([#163](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/163)).
 
 ### Changed / Internal
 
@@ -85,6 +118,13 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
   ([#92](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/92)).
 - Dead-code and docs cleanup sweep
   ([#81](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/81)).
+- **CI:** replace artifact actions with Blossom + Nostr coordination
+  ([#155](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/155))
+  and expand the test matrix to cover standalone-buildable modules
+  ([#157](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/157)).
+- Add `AGENTS.md` with LLM contributor rules and tighten `.gitignore` for
+  planning docs
+  ([#159](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/159)).
 
 ## [v0.4.0] - 2026-04-06
 
