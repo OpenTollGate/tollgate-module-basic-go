@@ -171,8 +171,8 @@ jobs:
             mkdir -p "bin/$key"
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
-              go build -C src -o "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" \
-              -trimpath -ldflags="$LDFLAGS" main.go
+              go build -C src/cmd/tollgate-wrt -o "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" \
+              -trimpath -ldflags="$LDFLAGS"
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/$key/tollgate" \
