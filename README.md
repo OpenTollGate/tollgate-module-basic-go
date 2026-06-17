@@ -104,7 +104,9 @@ The current schema version is **`v0.0.7`**. An abridged example:
   ],
   "profit_share": [
     { "factor": 0.79, "identity": "owner" },
-    { "factor": 0.21, "identity": "developer" }
+    { "factor": 0.07, "identity": "c08r4d0r" },
+    { "factor": 0.07, "identity": "amperstrand" },
+    { "factor": 0.07, "identity": "origami74" }
   ],
   "upstream_detector": {
     "probe_timeout": "10s",

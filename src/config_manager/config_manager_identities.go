@@ -43,9 +43,19 @@ func NewDefaultIdentitiesConfig() *IdentitiesConfig {
 		},
 		PublicIdentities: []PublicIdentity{
 			{
-				Name:             "developer",
+				Name:             "c08r4d0r",
 				PubKey:           "not currently used",
-				LightningAddress: "tollgate@minibits.cash",
+				LightningAddress: "c3e23eb5e3d00f18b2f4f588@coinos.io",
+			},
+			{
+				Name:             "amperstrand",
+				PubKey:           "not currently used",
+				LightningAddress: "f1cf0dbfae878ab4ff1a24fab1c6b2712a93ef8b5d8090fde6de738b1f62f16a@lnurl.psbt.me",
+			},
+			{
+				Name:             "origami74",
+				PubKey:           "not currently used",
+				LightningAddress: "iwillnot@getalby.com",
 			},
 			{
 				Name:             "owner",
