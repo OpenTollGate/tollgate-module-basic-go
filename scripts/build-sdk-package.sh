@@ -160,16 +160,6 @@ make defconfig
 JOBS=$(nproc)
 printf '[preflight] Using parallel jobs=%s\n' "$JOBS"
 
-# Provision feed packages before compiling. The OpenWrt 25.12 (apk) SDK
-# container does NOT pre-install them, unlike the 24.10.1 (ipk) SDK — without
-# this, `golang/host` "does not exist", Go never builds, and the feed compile
-# fails with "go: command not found" (Error 127). golang provides the Go
-# toolchain; nodogsplash/jq/luci are the package's runtime DEPENDS.
-printf '%s\n' '[preflight] Provisioning feed packages (golang, nodogsplash, jq, luci)'
-cp /builder/feeds.conf.default /builder/feeds.conf 2>/dev/null || true
-./scripts/feeds update -a
-./scripts/feeds install golang nodogsplash jq luci
-
 env PACKAGE_VERSION="$PACKAGE_VERSION" make -j"$JOBS" V=s package/tollgate-wrt/compile
 
 if [ "$PACKAGE_FORMAT" = "ipk" ]; then
