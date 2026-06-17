@@ -125,12 +125,12 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: src/go.mod
 
       - name: Verify Go module
         run: |
-          go mod verify
-          go vet ./...
+          (cd src && go mod verify && go vet ./...)
+          (cd src/cmd/tollgate-cli && go mod verify)
 
       - name: Cross-compile for linux/amd64
         env:
@@ -138,8 +138,8 @@ jobs:
           GOOS: linux
           GOARCH: amd64
         run: |
-          go build -o /dev/null ./cmd/tollgate-wrt
-          go build -o /dev/null ./cmd/tollgate-cli
+          (cd src && go build -o /dev/null .)
+          (cd src/cmd/tollgate-cli && go build -o /dev/null .)
 
       - name: Cross-compile for linux/arm64
         env:
@@ -147,8 +147,8 @@ jobs:
           GOOS: linux
           GOARCH: arm64
         run: |
-          go build -o /dev/null ./cmd/tollgate-wrt
-          go build -o /dev/null ./cmd/tollgate-cli
+          (cd src && go build -o /dev/null .)
+          (cd src/cmd/tollgate-cli && go build -o /dev/null .)
 
       - name: Cross-compile for linux/mipsle
         env:
@@ -157,5 +157,5 @@ jobs:
           GOARCH: mipsle
           GOMIPS: softfloat
         run: |
-          go build -o /dev/null ./cmd/tollgate-wrt
-          go build -o /dev/null ./cmd/tollgate-cli
+          (cd src && go build -o /dev/null .)
+          (cd src/cmd/tollgate-cli && go build -o /dev/null .)

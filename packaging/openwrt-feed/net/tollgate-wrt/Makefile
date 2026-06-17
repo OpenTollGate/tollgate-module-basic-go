@@ -20,7 +20,7 @@ PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go/src
 GO_PKG_BUILD_PKG:= \
-  $(GO_PKG)/cmd/tollgate-wrt \
+  $(GO_PKG) \
   $(GO_PKG)/cmd/tollgate-cli
 
 GO_PKG_LDFLAGS_X:= \
