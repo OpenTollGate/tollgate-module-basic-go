@@ -369,10 +369,12 @@ func openGateForSession(macAddress string, session *CustomerSession) error {
 			return fmt.Errorf("failed to open gate: %w", err)
 		}
 	case "bytes":
-		if !valve.HasDataBaseline(macAddress) {
-			if err := valve.OpenGate(macAddress); err != nil {
-				return fmt.Errorf("failed to open gate: %w", err)
-			}
+		// Always call OpenGate — ndsctl auth is idempotent.
+		// Previous code skipped this when a data baseline existed, but after
+		// a deauth the gate is closed while the baseline persists, causing
+		// Cashu payments to return success without actually opening the gate.
+		if err := valve.OpenGate(macAddress); err != nil {
+			return fmt.Errorf("failed to open gate: %w", err)
 		}
 	default:
 		return fmt.Errorf("unsupported metric: %s", session.Metric)
