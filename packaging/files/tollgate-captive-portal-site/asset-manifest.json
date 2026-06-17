@@ -1,15 +1,15 @@
 {
   "assets": {
     "js": [
-      "assets/balance-Dc5tzDEA.js",
-      "assets/browser-ponyfill-CaxIvSYp.js",
-      "assets/index-D4N0VKD5.js",
-      "assets/portal-DomINKD1.js",
+      "assets/balance-BqACpvtq.js",
+      "assets/browser-ponyfill-BpyZbfea.js",
+      "assets/index-DxBkINUB.js",
+      "assets/portal-BQ7wV0jU.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js"
     ],
     "css": [
       "assets/balance-5KSP87Gz.css",
-      "assets/index-Di_2ftDS.css"
+      "assets/index-D9l7TVHN.css"
     ],
     "images": [
       "assets/TollGate_Logo-C-white-D93CsdZc.png",
@@ -19,6 +19,7 @@
       "locales/en.json"
     ],
     "html": [
+      "404.html",
       "balance.html",
       "splash.html"
     ],
