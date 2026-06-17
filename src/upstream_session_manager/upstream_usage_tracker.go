@@ -188,10 +188,13 @@ func (u *UpstreamUsageTracker) fetchUpstreamUsage() (usage, allotment uint64, er
 		return 0, 0, err
 	}
 
-	// Parse "usage/allotment" format (e.g., "1048576/10485760" or "-1/-1")
-	parts := strings.Split(strings.TrimSpace(string(body)), "/")
+	return parseUsageResponse(string(body))
+}
+
+func parseUsageResponse(body string) (usage, allotment uint64, err error) {
+	parts := strings.Split(strings.TrimSpace(body), "/")
 	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("invalid usage response format: %s", string(body))
+		return 0, 0, fmt.Errorf("invalid usage response format: %s", body)
 	}
 
 	usageInt, err := strconv.ParseInt(parts[0], 10, 64)
@@ -204,9 +207,13 @@ func (u *UpstreamUsageTracker) fetchUpstreamUsage() (usage, allotment uint64, er
 		return 0, 0, fmt.Errorf("invalid allotment value: %s", parts[1])
 	}
 
-	// Handle -1/-1 (no session)
 	if usageInt == -1 && allotmentInt == -1 {
-		return 0, 0, nil // Return 0/0 to trigger initial payment
+		return 0, 0, nil
+	}
+
+	// Guard against negative values that would underflow on uint64 cast
+	if usageInt < 0 || allotmentInt < 0 {
+		return 0, 0, fmt.Errorf("negative usage/allotment from upstream: %d/%d", usageInt, allotmentInt)
 	}
 
 	return uint64(usageInt), uint64(allotmentInt), nil

@@ -17,7 +17,7 @@ import (
 
 const (
 	SocketPath        = "/var/run/tollgate.sock"
-	SocketPermissions = 0666
+	SocketPermissions = 0660
 )
 
 var cliLogger = logrus.WithField("module", "cli")

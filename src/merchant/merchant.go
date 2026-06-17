@@ -320,6 +320,10 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 
 	for _, profitShare := range m.config.ProfitShare {
 		aimedAmount := uint64(math.Round(float64(aimedPaymentAmount) * profitShare.Factor))
+		if aimedAmount == 0 {
+			log.Printf("Skipping payout for %s: aimedAmount rounded to 0 (aimedPaymentAmount=%d, factor=%.4f)", profitShare.Identity, aimedPaymentAmount, profitShare.Factor)
+			continue
+		}
 		// Lookup lightning address from identities based on the profitShare.Identity name
 		profitShareIdentity, err := identities.GetPublicIdentity(profitShare.Identity)
 		if err != nil {
@@ -913,21 +917,27 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 	}
 
 	if session.Metric == "milliseconds" {
-		elapsedMs := uint64(time.Since(time.Unix(session.StartTime, 0)).Milliseconds())
-		if elapsedMs >= session.Allotment {
-			m.sessionMu.Lock()
-			if currentSession, exists := m.customerSessions[macAddress]; exists {
-				currentElapsedMs := uint64(time.Since(time.Unix(currentSession.StartTime, 0)).Milliseconds())
-				if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
-					delete(m.customerSessions, macAddress)
+		elapsedDuration := time.Since(time.Unix(session.StartTime, 0))
+		if elapsedDuration >= 0 {
+			elapsedMs := uint64(elapsedDuration.Milliseconds())
+			if elapsedMs >= session.Allotment {
+				m.sessionMu.Lock()
+				if currentSession, exists := m.customerSessions[macAddress]; exists {
+					currentElapsedDuration := time.Since(time.Unix(currentSession.StartTime, 0))
+					if currentElapsedDuration >= 0 {
+						currentElapsedMs := uint64(currentElapsedDuration.Milliseconds())
+						if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
+							delete(m.customerSessions, macAddress)
+						}
+					}
 				}
+				m.sessionMu.Unlock()
+				return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
 			}
-			m.sessionMu.Unlock()
-			return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
 		}
 	}
 
-	return session, nil
+	return cloneCustomerSession(session), nil
 }
 
 func cloneCustomerSession(session *CustomerSession) *CustomerSession {
