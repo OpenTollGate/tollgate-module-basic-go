@@ -126,6 +126,12 @@ jobs:
 
   compile-binaries:
     needs: [determine-versioning]
+    # The publish pipeline (Blossom upload + Nostr publish) needs the NSEC_HEX
+    # secret, which GitHub withholds from fork PRs. Skip the whole pipeline for
+    # fork PRs so they don't go red on an empty NSEC_HEX; same-repo PRs and
+    # pushes run as normal. Downstream jobs (package-ipk/apk, publish-metadata,
+    # trigger-build-os) inherit this via `needs:`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
       hashes: ${{ steps.blossom-upload.outputs.hashes }}
