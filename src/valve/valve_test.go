@@ -2,6 +2,7 @@ package valve
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"sync"
 	"testing"
@@ -195,5 +196,58 @@ func TestGetClientStatsRejectsInvalidMAC(t *testing.T) {
 	_, _, err := GetClientStats("not-a-mac")
 	if err == nil {
 		t.Fatal("expected error for invalid MAC")
+	}
+}
+
+// TestAuthorizeMACRetriesThenSucceeds verifies that authorizeMAC tolerates the
+// transient "client not registered yet" condition (the two-router autopay race)
+// by retrying until ndsctl succeeds.
+func TestAuthorizeMACRetriesThenSucceeds(t *testing.T) {
+	origNdsctl, origDelay := runNdsctl, authRetryDelay
+	defer func() {
+		runNdsctl = origNdsctl
+		authRetryDelay = origDelay
+	}()
+	authRetryDelay = time.Millisecond // keep the test fast
+
+	calls := 0
+	runNdsctl = func(args ...string) (string, error) {
+		calls++
+		if args[0] == "auth" && calls < 3 {
+			return "Client not found", fmt.Errorf("exit status 1")
+		}
+		return "ok", nil
+	}
+
+	if err := authorizeMAC("aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("expected authorizeMAC to succeed after retry, got %v", err)
+	}
+	if calls < 3 {
+		t.Fatalf("expected at least 3 attempts (fail,fail,ok), got %d", calls)
+	}
+}
+
+// TestAuthorizeMACFailsAfterMaxAttempts verifies authorizeMAC gives up after
+// authMaxAttempts and returns the last error rather than retrying forever.
+func TestAuthorizeMACFailsAfterMaxAttempts(t *testing.T) {
+	origNdsctl, origDelay := runNdsctl, authRetryDelay
+	defer func() {
+		runNdsctl = origNdsctl
+		authRetryDelay = origDelay
+	}()
+	authRetryDelay = time.Millisecond
+
+	calls := 0
+	runNdsctl = func(args ...string) (string, error) {
+		calls++
+		return "", fmt.Errorf("exit status 1")
+	}
+
+	err := authorizeMAC("aa:bb:cc:dd:ee:01")
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if calls != authMaxAttempts {
+		t.Fatalf("expected exactly %d attempts, got %d", authMaxAttempts, calls)
 	}
 }
