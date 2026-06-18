@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
@@ -15,11 +16,12 @@ import (
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")
 
-// TollWallet represents a Cashu wallet that can receive, swap, and send tokens
 type TollWallet struct {
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
 	allowAndSwapUntrustedMints bool
+	registeredMints            map[string]bool
+	mu                         sync.Mutex
 }
 
 // New creates a new Cashu wallet instance
@@ -46,11 +48,58 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	return &TollWallet{
+	tw := &TollWallet{
 		wallet:                     cashuWallet,
 		acceptedMints:              acceptedMints,
 		allowAndSwapUntrustedMints: allowAndSwapUntrustedMints,
-	}, nil
+		registeredMints:            map[string]bool{normalizeMintURL(acceptedMints[0]): true},
+	}
+
+	for _, mintURL := range acceptedMints[1:] {
+		tw.registerMint(mintURL)
+	}
+
+	return tw, nil
+}
+
+func normalizeMintURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return u.String()
+}
+
+func (w *TollWallet) registerMint(mintURL string) {
+	normalized := normalizeMintURL(mintURL)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.registeredMints[normalized] {
+		return
+	}
+
+	if _, err := w.wallet.AddMint(mintURL); err != nil {
+		log.Printf("TollWallet: failed to register mint %s: %v", mintURL, err)
+		return
+	}
+
+	w.registeredMints[normalized] = true
+	log.Printf("TollWallet: registered mint %s", mintURL)
+}
+
+func (w *TollWallet) ensureMintRegistered(mintURL string) {
+	normalized := normalizeMintURL(mintURL)
+
+	w.mu.Lock()
+	if w.registeredMints[normalized] {
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Unlock()
+
+	w.registerMint(mintURL)
 }
 
 func (w *TollWallet) Shutdown() error {
@@ -72,6 +121,8 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		}
 		swapToTrusted = true
 	}
+
+	w.ensureMintRegistered(mint)
 
 	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
 	if err != nil {
@@ -208,6 +259,7 @@ func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverp
 }
 
 func (w *TollWallet) RequestMintQuote(amount uint64, mintURL string) (*nut04.PostMintQuoteBolt11Response, error) {
+	w.ensureMintRegistered(mintURL)
 	return w.wallet.RequestMint(amount, mintURL)
 }
 
