@@ -10,7 +10,7 @@ require (
 
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
-	github.com/Origami74/gonuts-tollgate => github.com/Amperstrand/gonuts-tollgate v0.7.0
+	github.com/Origami74/gonuts-tollgate => github.com/Amperstrand/gonuts-tollgate v0.7.2
 )
 
 require (
