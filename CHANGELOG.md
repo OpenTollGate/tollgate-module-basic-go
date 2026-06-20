@@ -89,6 +89,10 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
   division-by-zero, prevent a `uint64` underflow in payout, and stop a stale
   valve timer callback from deleting its replacement
   ([#161](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/161)).
+- **Two-router autopay reliability:** retry `ndsctl auth` briefly in the valve
+  so a payment's gate-open no longer fails on the first attempt when NoDogSplash
+  has not yet registered the reseller client (previously failed with "failed to
+  open gate" and recovered only via the token-recovery path ~60–90s later).
 - **BOLT11 / NoDogSplash:** make BOLT11 decode non-fatal and set the NoDogSplash
   gateway port to 2050
   ([#158](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/158)).

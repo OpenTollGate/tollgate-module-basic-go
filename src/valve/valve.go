@@ -17,9 +17,25 @@ import (
 // deadlocks (issue #387) that can cause ndsctl to hang indefinitely.
 const ndsctlTimeout = 5 * time.Second
 
+// authMaxAttempts bounds the number of authorizeMAC attempts.
+//
+// NoDogSplash does not always have a client session registered the instant we
+// try to authorize it — most notably in the two-router reseller flow, where the
+// upstream's NDS creates the client session asynchronously (see
+// upstream_session_manager/tollgate_prober.go's captive-portal trigger). Without
+// a retry the first payment attempt fails with "failed to open gate" and only
+// recovers via the token-recovery path ~60-90s later. The auth operation is
+// idempotent, so a bounded retry is safe.
+const authMaxAttempts = 5
+
+// authRetryDelay is the wait between authorizeMAC retries. It is a var so tests
+// can shrink it to keep the suite fast.
+var authRetryDelay = 400 * time.Millisecond
+
 // runNdsctl executes an ndsctl command with a timeout.
 // It returns the combined stdout+stderr output and any error.
-func runNdsctl(args ...string) (string, error) {
+// It is a var (not a func) so tests can stub it without a real ndsctl binary.
+var runNdsctl = func(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ndsctlTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ndsctl", args...)
@@ -46,25 +62,47 @@ var (
 // ndsctlMutex ensures only one ndsctl command runs at a time
 var ndsctlMutex = &sync.Mutex{}
 
-// authorizeMAC authorizes a MAC address using ndsctl
+// authorizeMAC authorizes a MAC address using ndsctl.
+//
+// It retries up to authMaxAttempts because NoDogSplash may not have registered
+// the client session yet at the moment of the call (e.g. the reseller client's
+// session is still being created by an upstream captive-portal trigger). This
+// removes the transient first-attempt "failed to open gate" observed in the
+// two-router autopay flow.
 func authorizeMAC(macAddress string) error {
-	ndsctlMutex.Lock()
-	output, err := runNdsctl("auth", macAddress)
-	ndsctlMutex.Unlock()
+	var lastErr error
+	for attempt := 1; attempt <= authMaxAttempts; attempt++ {
+		ndsctlMutex.Lock()
+		output, err := runNdsctl("auth", macAddress)
+		ndsctlMutex.Unlock()
 
-	if err != nil {
+		if err == nil {
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"output":      output,
+				"attempts":    attempt,
+			}).Info("Authorization successful for MAC")
+			return nil
+		}
+
+		lastErr = err
+		if attempt == authMaxAttempts {
+			break
+		}
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
+			"attempt":     attempt,
+			"output":      output,
 			"error":       err,
-		}).Error("Error authorizing MAC address")
-		return err
+		}).Debug("ndsctl auth failed, retrying (NoDogSplash may not have registered the client yet)")
+		time.Sleep(authRetryDelay)
 	}
 
 	logger.WithFields(logrus.Fields{
 		"mac_address": macAddress,
-		"output":      output,
-	}).Info("Authorization successful for MAC")
-	return nil
+		"error":       lastErr,
+	}).Error("Error authorizing MAC address")
+	return lastErr
 }
 
 // deauthorizeMAC deauthorizes a MAC address using ndsctl
