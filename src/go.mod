@@ -28,7 +28,7 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager => ./wireless_gateway_manager
-	github.com/Origami74/gonuts-tollgate => github.com/Amperstrand/gonuts-tollgate v0.7.2
+	github.com/Origami74/gonuts-tollgate => github.com/OpenTollGate/gonuts-tollgate v0.7.1
 )
 
 require (
@@ -91,6 +91,8 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
+	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
+	github.com/ltcsuite/secp256k1 v0.1.1 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
