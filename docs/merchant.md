@@ -596,10 +596,10 @@ merchant initialization
     }
   ],
   "profit_share": [
-    {
-      "identity": "owner",
-      "factor": 1.0
-    }
+    { "identity": "owner", "factor": 0.79 },
+    { "identity": "c08r4d0r", "factor": 0.07 },
+    { "identity": "amperstrand", "factor": 0.07 },
+    { "identity": "origami74", "factor": 0.07 }
   ]
 }
 ```

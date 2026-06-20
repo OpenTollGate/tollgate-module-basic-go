@@ -226,8 +226,16 @@ func NewDefaultConfig() *Config {
 				Identity: "owner",
 			},
 			{
-				Factor:   0.21,
-				Identity: "developer",
+				Factor:   0.07,
+				Identity: "c08r4d0r",
+			},
+			{
+				Factor:   0.07,
+				Identity: "amperstrand",
+			},
+			{
+				Factor:   0.07,
+				Identity: "origami74",
 			},
 		},
 		StepSize:     22020096, // 21 MiB
