@@ -217,7 +217,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.7",
+		ConfigVersion: "v0.0.8",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -321,13 +321,21 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		return &config, SaveConfig(filePath, &config)
 	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
-		log.Printf("WARNING: Config version mismatch, backing up and recreating")
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
-			log.Printf("CRITICAL: Failed to backup config: %v", backupErr)
-			return nil, backupErr
+		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
+		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
+			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
-		return defaultConfig, SaveConfig(filePath, defaultConfig)
+		migrateConfig(&config, defaultConfig)
+		return &config, SaveConfig(filePath, &config)
 	}
 
 	return &config, nil
+}
+
+func migrateConfig(config *Config, defaults *Config) {
+	if config.UpstreamWifi.ScanIntervalSeconds == 0 {
+		config.UpstreamWifi = defaults.UpstreamWifi
+		log.Printf("INFO: Populated UpstreamWifi defaults (was missing in v%s)", config.ConfigVersion)
+	}
+	config.ConfigVersion = defaults.ConfigVersion
 }
