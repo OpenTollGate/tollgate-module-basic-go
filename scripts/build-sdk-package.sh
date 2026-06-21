@@ -97,9 +97,9 @@ LDFLAGS="-s -w -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Vers
 
 printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.'
 (
-    cd "$REPO_ROOT/src"
+    cd "$REPO_ROOT/src/cmd/tollgate-wrt"
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
-        go build -o "$STAGE_DIR/tollgate-wrt" -trimpath -ldflags="$LDFLAGS" main.go
+        go build -o "$STAGE_DIR/tollgate-wrt" -trimpath -ldflags="$LDFLAGS"
 )
 (
     cd "$REPO_ROOT/src/cmd/tollgate-cli"
