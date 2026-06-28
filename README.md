@@ -155,8 +155,12 @@ interfaces *the router itself serves on* to prevent self-probing.
 Unit tests, from the [src/](src/) directory:
 
 ```sh
-cd src && go test ./...
+cd src && go test -tags testenv ./...
 ```
+
+The `testenv` build tag provisions a hermetic temp config dir so the main
+package's `init()` does not depend on `/etc/tollgate/config.json` — letting the
+suite run off-router (CI, dev machines). The tag is a no-op for subpackages.
 
 A single package:
 
