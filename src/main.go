@@ -339,13 +339,23 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	var mac, err = getMacAddress(ip)
 
 	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address")
-		w.WriteHeader(http.StatusInternalServerError)
+		// Caller's IP is not in the DHCP lease file or ARP table — this
+		// happens when dnsmasq has just restarted, the lease expired, or the
+		// request comes from a non-DHCP/static-IP client. The captive-portal
+		// SPA parses the /whoami response as JSON; returning HTTP 500 with an
+		// empty body yields undefined on parse and crashes the SPA. Degrade
+		// gracefully instead: HTTP 200 with an empty MAC, mirroring the
+		// no-session behaviour already used by /balance (HandleBalance).
+		mainLogger.WithError(err).Debug("MAC lookup failed for /whoami, returning empty mac")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"mac": ""})
 		return
 	}
 
 	mainLogger.WithField("mac", mac).Debug("MAC address resolved")
-	fmt.Fprint(w, "mac=", mac)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"mac": mac})
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
