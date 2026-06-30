@@ -1,6 +1,8 @@
 package merchant
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -12,8 +14,8 @@ import (
 
 const (
 	defaultRecoveryThreshold uint8 = 3
-	probeTimeout            = 30 * time.Second
-	probeInterval           = 5 * time.Minute
+	probeTimeout                   = 30 * time.Second
+	probeInterval                  = 5 * time.Minute
 
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
 	// not yet connected), probe every 15s with immediate recovery (threshold=1)
@@ -22,6 +24,16 @@ const (
 	aggressiveProbeInterval = 15 * time.Second
 	aggressiveProbeTimeout  = 10 * time.Second
 	aggressiveDuration      = 5 * time.Minute
+
+	// Lightning capability probe. We verify a mint's LN backend is actually
+	// working by requesting a minimal 1-sat mint quote (NUT-04). The mint's
+	// /v1/info only advertises protocol-level NUT-04 support — it does NOT tell
+	// us whether the backing Lightning node (e.g. coinos.io) is reachable, so a
+	// real quote request is the only reliable signal. A 1-sat invoice is the
+	// smallest side effect that proves end-to-end LN availability.
+	lnProbeTimeout  = 15 * time.Second
+	lnProbeAmount   = 1
+	lnQuoteEndpoint = "/v1/mint/quote/bolt11"
 )
 
 type mintConfigProvider interface {
@@ -29,25 +41,31 @@ type mintConfigProvider interface {
 }
 
 type MintHealthTracker struct {
-	mu                   sync.RWMutex
-	reachableMints       map[string]bool
-	consecutiveSuccesses map[string]uint8
-	httpClient           *http.Client
-	configProvider       mintConfigProvider
-	recoveryThreshold    uint8
-	onFirstReachable     func()
-	hadReachableMint     bool
+	mu                    sync.RWMutex
+	reachableMints        map[string]bool
+	supportsLN            map[string]bool
+	consecutiveSuccesses  map[string]uint8
+	httpClient            *http.Client
+	lnProbeClient         *http.Client
+	configProvider        mintConfigProvider
+	recoveryThreshold     uint8
+	onFirstReachable      func()
+	hadReachableMint      bool
 	onReachableSetChanged func()
-	reachableCount       int
-	stopCh               chan struct{}
+	reachableCount        int
+	stopCh                chan struct{}
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
 	return &MintHealthTracker{
 		reachableMints:       make(map[string]bool),
+		supportsLN:           make(map[string]bool),
 		consecutiveSuccesses: make(map[string]uint8),
 		httpClient: &http.Client{
 			Timeout: probeTimeout,
+		},
+		lnProbeClient: &http.Client{
+			Timeout: lnProbeTimeout,
 		},
 		configProvider:    configProvider,
 		recoveryThreshold: defaultRecoveryThreshold,
@@ -133,6 +151,30 @@ func (t *MintHealthTracker) IsReachable(mintURL string) bool {
 	return t.reachableMints[mintURL]
 }
 
+// SupportsLN reports whether a mint's Lightning backend was verified working
+// during the most recent probe. It is only meaningful for reachable mints; an
+// unreachable mint is always Lightning-incapable. Lightning capability is
+// probed by requesting a minimal mint quote (NUT-04), which exercises the
+// mint's backing Lightning node (e.g. coinos.io) end-to-end.
+func (t *MintHealthTracker) SupportsLN(mintURL string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.supportsLN[mintURL]
+}
+
+// MarkLNUnavailable reactively degrades a mint's Lightning capability without
+// affecting its reachability. Call this when a real invoice request fails at
+// runtime (e.g. the mint returned an error mid-purchase) so Lightning is no
+// longer advertised until the next proactive probe re-verifies it.
+func (t *MintHealthTracker) MarkLNUnavailable(mintURL string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.supportsLN[mintURL] {
+		log.Printf("MarkLNUnavailable: degrading Lightning capability for mint %s (reactive)", mintURL)
+	}
+	t.supportsLN[mintURL] = false
+}
+
 func (t *MintHealthTracker) GetReachableMintConfigs() []config_manager.MintConfig {
 	config := t.configProvider.GetConfig()
 	if config == nil {
@@ -194,21 +236,41 @@ func (t *MintHealthTracker) RunInitialProbe() {
 	}
 
 	log.Printf("RunInitialProbe: probing %d mint(s)", len(config.AcceptedMints))
-	results := make(map[string]bool, len(config.AcceptedMints))
+	reachable := make(map[string]bool, len(config.AcceptedMints))
+	lnSupported := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMint(mint.URL)
+		ok := t.probeMint(mint.URL)
+		reachable[mint.URL] = ok
+		// Only reachable mints can be Lightning-capable; probing LN for a mint
+		// we can't even reach would just add latency with no signal.
+		if ok {
+			lnSupported[mint.URL] = t.probeLightningCapability(mint.URL, t.lnProbeClient)
+		}
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	for url, ok := range results {
+	for url, ok := range reachable {
 		if ok {
 			t.reachableMints[url] = true
 			t.consecutiveSuccesses[url] = t.recoveryThreshold
 		} else {
 			t.reachableMints[url] = false
 			t.consecutiveSuccesses[url] = 0
+		}
+	}
+
+	for url, lnOK := range lnSupported {
+		if !reachable[url] {
+			t.supportsLN[url] = false
+			continue
+		}
+		t.supportsLN[url] = lnOK
+		if lnOK {
+			log.Printf("RunInitialProbe: mint %s supports Lightning", url)
+		} else {
+			log.Printf("RunInitialProbe: mint %s Lightning backend DEGRADED (reachable but LN quote probe failed) — Lightning will not be advertised", url)
 		}
 	}
 
@@ -232,15 +294,20 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	}
 
 	log.Printf("runProactiveCheck: probing %d mint(s)", len(config.AcceptedMints))
-	results := make(map[string]bool, len(config.AcceptedMints))
+	reachable := make(map[string]bool, len(config.AcceptedMints))
+	lnSupported := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMint(mint.URL)
+		ok := t.probeMint(mint.URL)
+		reachable[mint.URL] = ok
+		if ok {
+			lnSupported[mint.URL] = t.probeLightningCapability(mint.URL, t.lnProbeClient)
+		}
 	}
 
 	t.mu.Lock()
 
 	for _, mint := range config.AcceptedMints {
-		if results[mint.URL] {
+		if reachable[mint.URL] {
 			t.consecutiveSuccesses[mint.URL]++
 
 			if !t.reachableMints[mint.URL] && t.consecutiveSuccesses[mint.URL] >= t.recoveryThreshold {
@@ -249,6 +316,24 @@ func (t *MintHealthTracker) runProactiveCheck() {
 		} else {
 			t.consecutiveSuccesses[mint.URL] = 0
 			t.reachableMints[mint.URL] = false
+		}
+	}
+
+	// Refresh Lightning capability. A mint is only LN-capable when it is both
+	// officially reachable (past the recovery threshold) and its LN probe just
+	// succeeded, so Lightning is automatically re-enabled only after recovery.
+	for _, mint := range config.AcceptedMints {
+		if !t.reachableMints[mint.URL] {
+			t.supportsLN[mint.URL] = false
+			continue
+		}
+		wasLN := t.supportsLN[mint.URL]
+		nowLN := lnSupported[mint.URL]
+		t.supportsLN[mint.URL] = nowLN
+		if nowLN && !wasLN {
+			log.Printf("runProactiveCheck: mint %s Lightning backend recovered — Lightning re-advertised", mint.URL)
+		} else if !nowLN && wasLN {
+			log.Printf("runProactiveCheck: mint %s Lightning backend DEGRADED (reachable but LN quote probe failed) — Lightning will not be advertised", mint.URL)
 		}
 	}
 
@@ -295,16 +380,21 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 	}
 
 	log.Printf("runAggressiveCheck: probing %d mint(s) with immediate recovery", len(config.AcceptedMints))
-	results := make(map[string]bool, len(config.AcceptedMints))
+	reachable := make(map[string]bool, len(config.AcceptedMints))
+	lnSupported := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMintWith(mint.URL, aggressiveClient)
+		ok := t.probeMintWith(mint.URL, aggressiveClient)
+		reachable[mint.URL] = ok
+		if ok {
+			lnSupported[mint.URL] = t.probeLightningCapability(mint.URL, t.lnProbeClient)
+		}
 	}
 
 	t.mu.Lock()
 
 	recovered := false
 	for _, mint := range config.AcceptedMints {
-		if results[mint.URL] {
+		if reachable[mint.URL] {
 			t.consecutiveSuccesses[mint.URL]++
 			if !t.reachableMints[mint.URL] {
 				t.reachableMints[mint.URL] = true
@@ -314,6 +404,14 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 			t.consecutiveSuccesses[mint.URL] = 0
 			t.reachableMints[mint.URL] = false
 		}
+	}
+
+	for _, mint := range config.AcceptedMints {
+		if !t.reachableMints[mint.URL] {
+			t.supportsLN[mint.URL] = false
+			continue
+		}
+		t.supportsLN[mint.URL] = lnSupported[mint.URL]
 	}
 
 	newCount := 0
@@ -370,5 +468,48 @@ func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) b
 
 	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
 	log.Printf("mint probe: url=%s status=%d elapsed=%s ok=%v", url, resp.StatusCode, elapsed, ok)
+	return ok
+}
+
+// probeLightningCapability verifies that a mint can actually issue a Lightning
+// invoice by requesting a minimal mint quote (Cashu NUT-04,
+// POST /v1/mint/quote/bolt11). This exercises the mint's backing Lightning
+// node end-to-end — a mint whose /v1/info is healthy but whose LN backend
+// (e.g. coinos.io) is down will fail here, letting us withhold Lightning as a
+// payment option instead of failing silently at purchase time.
+//
+// The probe creates a real 1-sat invoice on the mint; that is the smallest
+// side effect that proves end-to-end LN availability and is the documented
+// trade-off (per the LN capability probe task). A 2xx response carrying a
+// non-empty bolt11 invoice ("request" field) counts as success.
+func (t *MintHealthTracker) probeLightningCapability(mintURL string, client *http.Client) bool {
+	url := strings.TrimRight(mintURL, "/") + lnQuoteEndpoint
+
+	body := fmt.Sprintf(`{"amount":%d,"unit":"sat"}`, lnProbeAmount)
+
+	start := time.Now()
+	resp, err := client.Post(url, "application/json", strings.NewReader(body))
+	elapsed := time.Since(start)
+	if err != nil {
+		log.Printf("ln probe FAILED: url=%s elapsed=%s error=%v", url, elapsed, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("ln probe: url=%s status=%d elapsed=%s ok=false (non-2xx; LN backend likely down)", url, resp.StatusCode, elapsed)
+		return false
+	}
+
+	var quote struct {
+		Request string `json:"request"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&quote); err != nil {
+		log.Printf("ln probe: url=%s decode error=%v", url, err)
+		return false
+	}
+
+	ok := quote.Request != ""
+	log.Printf("ln probe: url=%s elapsed=%s ok=%v (invoice_len=%d)", url, elapsed, ok, len(quote.Request))
 	return ok
 }

@@ -507,6 +507,19 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 			mintConfig.URL,
 			fmt.Sprintf("%d", mintConfig.MinPurchaseSteps),
 		})
+
+		// Advertise Lightning capability per mint. We only emit a supports_ln
+		// tag when the mint's Lightning backend was verified working by a probe;
+		// its absence tells the captive-portal frontend to hide/grey-out the
+		// Lightning tab for that mint, preventing silent invoice failures when
+		// the mint's LN backend (e.g. coinos.io) is down.
+		if tracker.SupportsLN(mintConfig.URL) {
+			advertisementEvent.Tags = append(advertisementEvent.Tags, nostr.Tag{
+				"supports_ln",
+				mintConfig.URL,
+				"true",
+			})
+		}
 	}
 
 	identities := configManager.GetIdentities()

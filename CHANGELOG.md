@@ -23,6 +23,13 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
   payment, and automatic recovery of mints that come back online, so a single
   failing mint no longer blocks purchases
   ([#120](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/120)).
+- **Lightning capability probing.** Each reachable mint's Lightning backend is
+  now probed at startup (and on every proactive health check) by requesting a
+  minimal 1-sat mint quote. Only mints whose Lightning node answered are
+  advertised with a new `supports_ln` advertisement tag; when a mint's LN
+  backend goes down, Lightning is withheld (and reactively degraded on a live
+  invoice failure) instead of failing silently at purchase time. See
+  [TIP-02](docs/protocol/TIP-02.md).
 - **SSL/HTTPS management for the captive portal**, all new in this release and
   implemented in Go, with a self-signed certificate mode, hostname setup
   (`TollGate`), and captive-portal domain configuration

@@ -203,9 +203,10 @@ func TestRunInitialProbe_NilConfig_NoPanic(t *testing.T) {
 }
 
 func TestProbeMint_TrailingSlashTrimmed(t *testing.T) {
-	var requestedPath string
+	var requestedPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestedPath = r.URL.Path
+		requestedPaths = append(requestedPaths, r.URL.Path)
+		// Reachability probe; the LN capability probe is handled separately.
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -213,8 +214,16 @@ func TestProbeMint_TrailingSlashTrimmed(t *testing.T) {
 	tracker := newTestTracker(mintConfigWithURLs(srv.URL+"/"), nil)
 	tracker.RunInitialProbe()
 
-	if requestedPath != "/v1/info" {
-		t.Errorf("expected /v1/info, got %s", requestedPath)
+	// The trailing-slash trim must produce a /v1/info reachability probe. (The
+	// LN capability probe also runs now and appends /v1/mint/quote/bolt11.)
+	foundInfo := false
+	for _, p := range requestedPaths {
+		if p == "/v1/info" {
+			foundInfo = true
+		}
+	}
+	if !foundInfo {
+		t.Errorf("expected a /v1/info probe, got paths=%v", requestedPaths)
 	}
 
 	if !tracker.IsReachable(srv.URL + "/") {

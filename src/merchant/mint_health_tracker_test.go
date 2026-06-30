@@ -278,11 +278,15 @@ func TestProactiveCheck_RemovesPreviouslyReachableMint(t *testing.T) {
 func TestProactiveCheck_FlapDoesNotRecoverMint(t *testing.T) {
 	var probeCount int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		probeCount++
-		// Fail on the 3rd probe to simulate a flap
-		if probeCount == 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
+		// Only the reachability (/v1/info) probe counts toward the flap
+		// simulation; the LN capability probe must not perturb it.
+		if r.URL.Path == "/v1/info" {
+			probeCount++
+			// Fail on the 3rd reachability probe to simulate a flap
+			if probeCount == 3 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
