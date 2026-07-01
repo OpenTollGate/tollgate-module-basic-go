@@ -149,8 +149,13 @@ func TestProactiveCheck_LNRecoversAfterBackendComesBack(t *testing.T) {
 
 	tracker.RunProactiveCheck()
 
+	// With lnRecoveryThreshold=2, the first proactive check after recovery
+	// increments the counter to 1 but doesn't flip supportsLN yet.
+	// A second check is needed to reach the threshold and re-advertise LN.
+	tracker.RunProactiveCheck()
+
 	if !tracker.SupportsLN(srvOK.URL) {
-		t.Error("expected SupportsLN to flip true after the backend recovers")
+		t.Error("expected SupportsLN to flip true after 2 consecutive successful LN probes")
 	}
 	if *lnHitsOK < 1 {
 		t.Errorf("expected at least 1 LN probe during proactive check, got %d", *lnHitsOK)

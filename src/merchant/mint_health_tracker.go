@@ -14,6 +14,15 @@ import (
 
 const (
 	defaultRecoveryThreshold uint8 = 3
+	// lnRecoveryThreshold controls how many consecutive successful LN probe
+	// responses are required before re-declaring a mint Lightning-capable after
+	// an LN failure. It is lower than defaultRecoveryThreshold (3 for Cashu)
+	// because Cashu failures block ALL payment methods — requiring a higher bar
+	// for recovery. LN failures only affect one payment method (Lightning)
+	// while Cashu payments continue working. A threshold of 2 provides noise
+	// immunity against transient network blips (single-packet-loss false
+	// positives) while still recovering faster than the Cashu path.
+	lnRecoveryThreshold uint8 = 2
 	probeTimeout                   = 30 * time.Second
 	probeInterval                  = 5 * time.Minute
 
@@ -45,6 +54,7 @@ type MintHealthTracker struct {
 	reachableMints        map[string]bool
 	supportsLN            map[string]bool
 	consecutiveSuccesses  map[string]uint8
+	lnConsecutiveSuccesses map[string]uint8
 	httpClient            *http.Client
 	lnProbeClient         *http.Client
 	configProvider        mintConfigProvider
@@ -58,9 +68,10 @@ type MintHealthTracker struct {
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
 	return &MintHealthTracker{
-		reachableMints:       make(map[string]bool),
-		supportsLN:           make(map[string]bool),
-		consecutiveSuccesses: make(map[string]uint8),
+		reachableMints:        make(map[string]bool),
+		supportsLN:            make(map[string]bool),
+		consecutiveSuccesses:  make(map[string]uint8),
+		lnConsecutiveSuccesses: make(map[string]uint8),
 		httpClient: &http.Client{
 			Timeout: probeTimeout,
 		},
@@ -264,12 +275,15 @@ func (t *MintHealthTracker) RunInitialProbe() {
 	for url, lnOK := range lnSupported {
 		if !reachable[url] {
 			t.supportsLN[url] = false
+			t.lnConsecutiveSuccesses[url] = 0
 			continue
 		}
 		t.supportsLN[url] = lnOK
 		if lnOK {
+			t.lnConsecutiveSuccesses[url] = lnRecoveryThreshold
 			log.Printf("RunInitialProbe: mint %s supports Lightning", url)
 		} else {
+			t.lnConsecutiveSuccesses[url] = 0
 			log.Printf("RunInitialProbe: mint %s Lightning backend DEGRADED (reachable but LN quote probe failed) — Lightning will not be advertised", url)
 		}
 	}
@@ -319,20 +333,27 @@ func (t *MintHealthTracker) runProactiveCheck() {
 		}
 	}
 
-	// Refresh Lightning capability. A mint is only LN-capable when it is both
-	// officially reachable (past the recovery threshold) and its LN probe just
-	// succeeded, so Lightning is automatically re-enabled only after recovery.
+	// Refresh Lightning capability. A mint is only LN-capable when it has
+	// accumulated lnRecoveryThreshold consecutive successful LN probes, providing
+	// noise immunity against transient network blips. If the LN probe fails the
+	// counter resets and Lightning is degraded immediately.
 	for _, mint := range config.AcceptedMints {
 		if !t.reachableMints[mint.URL] {
 			t.supportsLN[mint.URL] = false
+			t.lnConsecutiveSuccesses[mint.URL] = 0
 			continue
 		}
 		wasLN := t.supportsLN[mint.URL]
 		nowLN := lnSupported[mint.URL]
-		t.supportsLN[mint.URL] = nowLN
-		if nowLN && !wasLN {
+		if nowLN {
+			t.lnConsecutiveSuccesses[mint.URL]++
+		} else {
+			t.lnConsecutiveSuccesses[mint.URL] = 0
+		}
+		t.supportsLN[mint.URL] = t.lnConsecutiveSuccesses[mint.URL] >= lnRecoveryThreshold
+		if t.supportsLN[mint.URL] && !wasLN {
 			log.Printf("runProactiveCheck: mint %s Lightning backend recovered — Lightning re-advertised", mint.URL)
-		} else if !nowLN && wasLN {
+		} else if !t.supportsLN[mint.URL] && wasLN {
 			log.Printf("runProactiveCheck: mint %s Lightning backend DEGRADED (reachable but LN quote probe failed) — Lightning will not be advertised", mint.URL)
 		}
 	}
@@ -409,9 +430,15 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 	for _, mint := range config.AcceptedMints {
 		if !t.reachableMints[mint.URL] {
 			t.supportsLN[mint.URL] = false
+			t.lnConsecutiveSuccesses[mint.URL] = 0
 			continue
 		}
 		t.supportsLN[mint.URL] = lnSupported[mint.URL]
+		if lnSupported[mint.URL] {
+			t.lnConsecutiveSuccesses[mint.URL] = lnRecoveryThreshold
+		} else {
+			t.lnConsecutiveSuccesses[mint.URL] = 0
+		}
 	}
 
 	newCount := 0
