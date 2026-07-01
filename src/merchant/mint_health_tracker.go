@@ -23,8 +23,8 @@ const (
 	// immunity against transient network blips (single-packet-loss false
 	// positives) while still recovering faster than the Cashu path.
 	lnRecoveryThreshold uint8 = 2
-	probeTimeout                   = 30 * time.Second
-	probeInterval                  = 5 * time.Minute
+	probeTimeout              = 30 * time.Second
+	probeInterval             = 5 * time.Minute
 
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
 	// not yet connected), probe every 15s with immediate recovery (threshold=1)
@@ -50,27 +50,27 @@ type mintConfigProvider interface {
 }
 
 type MintHealthTracker struct {
-	mu                    sync.RWMutex
-	reachableMints        map[string]bool
-	supportsLN            map[string]bool
-	consecutiveSuccesses  map[string]uint8
+	mu                     sync.RWMutex
+	reachableMints         map[string]bool
+	supportsLN             map[string]bool
+	consecutiveSuccesses   map[string]uint8
 	lnConsecutiveSuccesses map[string]uint8
-	httpClient            *http.Client
-	lnProbeClient         *http.Client
-	configProvider        mintConfigProvider
-	recoveryThreshold     uint8
-	onFirstReachable      func()
-	hadReachableMint      bool
-	onReachableSetChanged func()
-	reachableCount        int
-	stopCh                chan struct{}
+	httpClient             *http.Client
+	lnProbeClient          *http.Client
+	configProvider         mintConfigProvider
+	recoveryThreshold      uint8
+	onFirstReachable       func()
+	hadReachableMint       bool
+	onReachableSetChanged  func()
+	reachableCount         int
+	stopCh                 chan struct{}
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
 	return &MintHealthTracker{
-		reachableMints:        make(map[string]bool),
-		supportsLN:            make(map[string]bool),
-		consecutiveSuccesses:  make(map[string]uint8),
+		reachableMints:         make(map[string]bool),
+		supportsLN:             make(map[string]bool),
+		consecutiveSuccesses:   make(map[string]uint8),
 		lnConsecutiveSuccesses: make(map[string]uint8),
 		httpClient: &http.Client{
 			Timeout: probeTimeout,
