@@ -72,6 +72,13 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 
 	quote, err := m.tollwallet.RequestMintQuote(amount, mintURL)
 	if err != nil {
+		// Reactive degradation: if the mint can't produce a Lightning invoice
+		// right now (e.g. its LN backend is down), stop advertising Lightning
+		// for it until the next proactive probe re-verifies capability. This
+		// turns a silent per-purchase failure into an upfront signal.
+		if m.mintHealthTracker != nil {
+			m.mintHealthTracker.MarkLNUnavailable(mintURL)
+		}
 		return nil, err
 	}
 
