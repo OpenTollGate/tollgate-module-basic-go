@@ -28,7 +28,10 @@ Changes on `main` since `v0.4.0` (tagged 2026-04-06).
   minimal 1-sat mint quote. Only mints whose Lightning node answered are
   advertised with a new `supports_ln` advertisement tag; when a mint's LN
   backend goes down, Lightning is withheld (and reactively degraded on a live
-  invoice failure) instead of failing silently at purchase time. See
+  invoice failure) instead of failing silently at purchase time. Reactive
+  degradation resets the LN recovery counter, so re-enabling Lightning after a
+  real purchase failure takes the same `lnRecoveryThreshold` consecutive
+  successful checks as a proactively detected outage. See
   [TIP-02](docs/protocol/TIP-02.md). End-to-end coverage lives behind the
   `integration` build tag: tests probe a live testnut mint
   (`https://nofee.testnut.cashu.space`, which auto-settles invoices) to confirm

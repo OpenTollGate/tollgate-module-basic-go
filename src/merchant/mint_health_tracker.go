@@ -177,6 +177,13 @@ func (t *MintHealthTracker) SupportsLN(mintURL string) bool {
 // affecting its reachability. Call this when a real invoice request fails at
 // runtime (e.g. the mint returned an error mid-purchase) so Lightning is no
 // longer advertised until the next proactive probe re-verifies it.
+//
+// The LN recovery counter is reset so re-enabling Lightning takes the full
+// lnRecoveryThreshold consecutive successful probes — the same conservative
+// window used when a failure is detected proactively. Without the reset, a
+// reactive degradation (a real purchase just failed) would recover after a
+// single successful probe, which would be less conservative than a proactively
+// detected failure that resets the counter to zero.
 func (t *MintHealthTracker) MarkLNUnavailable(mintURL string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -184,6 +191,7 @@ func (t *MintHealthTracker) MarkLNUnavailable(mintURL string) {
 		log.Printf("MarkLNUnavailable: degrading Lightning capability for mint %s (reactive)", mintURL)
 	}
 	t.supportsLN[mintURL] = false
+	t.lnConsecutiveSuccesses[mintURL] = 0
 }
 
 func (t *MintHealthTracker) GetReachableMintConfigs() []config_manager.MintConfig {

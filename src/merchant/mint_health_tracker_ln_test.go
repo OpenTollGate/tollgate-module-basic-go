@@ -131,7 +131,7 @@ func TestRunInitialProbe_MixedLN_MintsAdvertisedIndependently(t *testing.T) {
 
 func TestProactiveCheck_LNRecoversAfterBackendComesBack(t *testing.T) {
 	// Start with a mint whose LN backend is down.
-	srv, lnHits := lnMintServer(false)
+	srv, _ := lnMintServer(false)
 	defer srv.Close()
 
 	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
@@ -160,7 +160,6 @@ func TestProactiveCheck_LNRecoversAfterBackendComesBack(t *testing.T) {
 	if *lnHitsOK < 1 {
 		t.Errorf("expected at least 1 LN probe during proactive check, got %d", *lnHitsOK)
 	}
-	_ = lnHits
 }
 
 func TestMarkLNUnavailable_ReachableButLNDown(t *testing.T) {
@@ -181,6 +180,68 @@ func TestMarkLNUnavailable_ReachableButLNDown(t *testing.T) {
 	}
 	if !tracker.IsReachable(srv.URL) {
 		t.Error("MarkLNUnavailable must not affect reachability")
+	}
+}
+
+// TestMarkLNUnavailable_ResetsRecoveryCounter verifies that a reactive
+// degradation (MarkLNUnavailable) resets the LN recovery counter, so that
+// re-enabling Lightning takes the full lnRecoveryThreshold consecutive
+// successful probes — the same conservative window as a proactively detected
+// failure. Without the reset, recovery after a reactive degradation would take
+// only a single probe because the counter would still be ≥ threshold.
+//
+// The server's LN capability is toggleable in place (via the lnOK pointer) so
+// the mint URL — and therefore the tracker's per-mint counter — stays stable
+// across the healthy → reactive-down → recovered transitions.
+func TestMarkLNUnavailable_ResetsRecoveryCounter(t *testing.T) {
+	lnOK := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/info":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(mintInfoBody))
+		case "/v1/mint/quote/bolt11":
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			if !lnOK {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(mintQuoteResponse))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.RunInitialProbe()
+	if !tracker.SupportsLN(srv.URL) {
+		t.Fatal("expected SupportsLN=true after initial probe with healthy LN backend")
+	}
+
+	// Reactive degradation: a real purchase failed at runtime.
+	tracker.MarkLNUnavailable(srv.URL)
+	if tracker.SupportsLN(srv.URL) {
+		t.Fatal("expected SupportsLN=false immediately after MarkLNUnavailable")
+	}
+
+	// First successful proactive probe: counter 0→1, still < threshold(=2),
+	// so Lightning must NOT be re-advertised yet.
+	tracker.RunProactiveCheck()
+	if tracker.SupportsLN(srv.URL) {
+		t.Fatal("expected SupportsLN=false after only 1 successful probe following reactive degradation (counter should have reset to 0)")
+	}
+
+	// Second consecutive successful probe: counter 1→2, ≥ threshold, LN recovered.
+	tracker.RunProactiveCheck()
+	if !tracker.SupportsLN(srv.URL) {
+		t.Error("expected SupportsLN=true after 2 consecutive successful probes following reactive degradation")
 	}
 }
 
