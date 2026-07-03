@@ -14,7 +14,7 @@ env:
   PACKAGE_NAME: "tollgate-wrt"
   GO_VERSION: "1.24.2"
   DEBUG: "true"
-  BLOSSOM_SERVERS: "https://blossom.psbt.me/ https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech"
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://blossom.psbt.me https://drive.cashu.email"
   BLOSSOM_MIN_SUCCESS: "2"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
@@ -50,7 +50,7 @@ jobs:
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-brute" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
-              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": false }
+              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": true }
             ]
           }
           EOF
@@ -347,7 +347,8 @@ jobs:
           set -euo pipefail
 
           PKG_FILE="artifacts/$PACKAGE_FILENAME"
-          PKG_HASH="" CANONICAL="" ok=0
+          PKG_HASH="" ok=0
+          OK_SERVERS=()
           for server in $BLOSSOM_SERVERS; do
             attempt=1; delay=2
             while [ $attempt -le 3 ]; do
@@ -355,7 +356,8 @@ jobs:
               srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
               if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
                 ok=$((ok + 1))
-                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash" && CANONICAL="$server"
+                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash"
+                OK_SERVERS+=("$server")
                 echo "  ok: ${server} -> ${srv_hash}" >&2
                 break
               fi
@@ -371,18 +373,21 @@ jobs:
           fi
           echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
 
-          PKG_URL="${CANONICAL}/${PKG_HASH}.ipk"
+          PKG_URLS_JSON="[]"
+          for s in "${OK_SERVERS[@]}"; do
+            PKG_URLS_JSON=$(printf '%s' "$PKG_URLS_JSON" | jq -c --arg u "${s}/${PKG_HASH}.ipk" '. + [$u]')
+          done
           compression_tag="${{ matrix.compression }}"
           [ -z "$compression_tag" ] && compression_tag="none"
 
           COORD_CONTENT=$(jq -cn \
             --arg sha256 "$PKG_HASH" \
             --arg filename "$PACKAGE_FILENAME" \
-            --arg url "$PKG_URL" \
+            --argjson urls "$PKG_URLS_JSON" \
             --arg arch "${{ matrix.architecture }}" \
             --arg fmt "ipk" \
             --arg compression "$compression_tag" \
-            '{sha256:$sha256, filename:$filename, url:$url, architecture:$arch, format:$fmt, compression:$compression}')
+            '{sha256:$sha256, filename:$filename, urls:$urls, architecture:$arch, format:$fmt, compression:$compression}')
 
           nak event --sec "$NSEC_HEX" -k 30078 \
             --tag "d=tollgate-build/${BUILD_ID}/${{ matrix.architecture }}/ipk/${compression_tag}" \
@@ -514,7 +519,8 @@ jobs:
           cp "$PACKAGE_PATH" "/github/workspace/${PACKAGE_FILENAME}"
 
           PKG_FILE="/github/workspace/${PACKAGE_FILENAME}"
-          PKG_HASH="" CANONICAL="" ok=0
+          PKG_HASH="" ok=0
+          OK_SERVERS=()
           for server in $BLOSSOM_SERVERS; do
             attempt=1; delay=2
             while [ $attempt -le 3 ]; do
@@ -522,7 +528,8 @@ jobs:
               srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
               if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
                 ok=$((ok + 1))
-                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash" && CANONICAL="$server"
+                [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash"
+                OK_SERVERS+=("$server")
                 echo "  ok: ${server} -> ${srv_hash}" >&2
                 break
               fi
@@ -538,18 +545,21 @@ jobs:
           fi
           echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
 
-          PKG_URL="${CANONICAL}/${PKG_HASH}.apk"
+          PKG_URLS_JSON="[]"
+          for s in "${OK_SERVERS[@]}"; do
+            PKG_URLS_JSON=$(printf '%s' "$PKG_URLS_JSON" | jq -c --arg u "${s}/${PKG_HASH}.apk" '. + [$u]')
+          done
           compression_tag="${{ matrix.compression }}"
           [ -z "$compression_tag" ] && compression_tag="none"
 
           COORD_CONTENT=$(jq -cn \
             --arg sha256 "$PKG_HASH" \
             --arg filename "$PACKAGE_FILENAME" \
-            --arg url "$PKG_URL" \
+            --argjson urls "$PKG_URLS_JSON" \
             --arg arch "${{ matrix.architecture }}" \
             --arg fmt "apk" \
             --arg compression "$compression_tag" \
-            '{sha256:$sha256, filename:$filename, url:$url, architecture:$arch, format:$fmt, compression:$compression}')
+            '{sha256:$sha256, filename:$filename, urls:$urls, architecture:$arch, format:$fmt, compression:$compression}')
 
           nak event --sec "$NSEC_HEX" -k 30078 \
             --tag "d=tollgate-build/${BUILD_ID}/${{ matrix.architecture }}/apk/${compression_tag}" \
@@ -607,12 +617,16 @@ jobs:
             fmt=$(printf '%s' "$content" | jq -r '.format')
             filename=$(printf '%s' "$content" | jq -r '.filename')
             hash=$(printf '%s' "$content" | jq -r '.sha256')
-            url=$(printf '%s' "$content" | jq -r '.url')
             compression=$(printf '%s' "$content" | jq -r '.compression')
+
+            url_tags=()
+            while IFS= read -r u; do
+              url_tags+=(--tag "url=$u")
+            done < <(printf '%s' "$content" | jq -r '.urls[]')
 
             nak event --sec "$NSEC_HEX" -k 1063 \
               -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
-              --tag url="$url" \
+              "${url_tags[@]}" \
               --tag m="application/octet-stream" \
               --tag x="$hash" \
               --tag ox="$hash" \
@@ -659,7 +673,7 @@ jobs:
           echo "Published $(wc -l < events.jsonl) NIP-94 events across $(echo $RELAYS | wc -w) relays."
           while IFS= read -r evt; do
             content=$(printf '%s' "$evt" | jq -r '.content')
-            printf '%s' "$content" | jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.url)"'
+            printf '%s' "$content" | jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.urls[0]) (+\(.urls | length - 1) mirrors)"'
           done < build-results.jsonl
 
   trigger-build-os:
