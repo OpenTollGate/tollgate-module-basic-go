@@ -154,10 +154,13 @@ jobs:
           set -euo pipefail
           BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           GIT_COMMIT=$(git rev-parse --short HEAD)
+          GIT_BRANCH="${GITHUB_REF#refs/heads/}"
+          [ "$GIT_BRANCH" = "$GITHUB_REF" ] && GIT_BRANCH="${GITHUB_REF_NAME:-unknown}"
           LDFLAGS="-s -w \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager.GitBranch=$GIT_BRANCH'"
 
           TARGETS='[
             {"key":"arm64","goarch":"arm64"},

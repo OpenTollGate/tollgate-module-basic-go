@@ -41,6 +41,14 @@ func TestNewDefaultConfig_MintsForBranch(t *testing.T) {
 	original := GitBranch
 	defer func() { GitBranch = original }()
 
+	// Map of test mint URLs that must only appear in dev builds
+	testMintURLs := map[string]bool{
+		"https://testnut.cashu.exchange":     true,
+		"https://testnut.cashu.space":        true,
+		"https://nofee.testnut.cashu.space":  true,
+	}
+	nTestMints := len(testMintURLs)
+
 	t.Run("main branch has only production mints", func(t *testing.T) {
 		GitBranch = "main"
 		cfg := NewDefaultConfig()
@@ -49,44 +57,45 @@ func TestNewDefaultConfig_MintsForBranch(t *testing.T) {
 			t.Fatalf("expected 2 accepted mints on main, got %d", len(cfg.AcceptedMints))
 		}
 		for _, m := range cfg.AcceptedMints {
-			if m.URL == "https://nofee.testnut.cashu.space" {
-				t.Error("test mint should not be present on main branch")
+			if testMintURLs[m.URL] {
+				t.Errorf("test mint %s should not be present on main branch", m.URL)
 			}
 		}
 	})
 
-	t.Run("non-main branch includes test mint", func(t *testing.T) {
+	t.Run("non-main branch includes test mints", func(t *testing.T) {
 		GitBranch = "feature/test-branch"
 		cfg := NewDefaultConfig()
 
-		if len(cfg.AcceptedMints) != 3 {
-			t.Fatalf("expected 3 accepted mints on feature branch, got %d", len(cfg.AcceptedMints))
+		expectedCount := 2 + nTestMints // 2 prod + N test
+		if len(cfg.AcceptedMints) != expectedCount {
+			t.Fatalf("expected %d accepted mints on feature branch, got %d", expectedCount, len(cfg.AcceptedMints))
 		}
 
-		found := false
+		found := 0
 		for _, m := range cfg.AcceptedMints {
-			if m.URL == "https://nofee.testnut.cashu.space" {
-				found = true
+			if testMintURLs[m.URL] {
+				found++
 				if m.MinBalance != 0 {
-					t.Errorf("expected test mint MinBalance=0, got %d", m.MinBalance)
+					t.Errorf("expected test mint %s MinBalance=0, got %d", m.URL, m.MinBalance)
 				}
 				if m.PayoutIntervalSeconds != 999999 {
-					t.Errorf("expected test mint PayoutIntervalSeconds=999999, got %d", m.PayoutIntervalSeconds)
+					t.Errorf("expected test mint %s PayoutIntervalSeconds=999999, got %d", m.URL, m.PayoutIntervalSeconds)
 				}
-				break
 			}
 		}
-		if !found {
-			t.Error("test mint not found in non-main branch config")
+		if found != nTestMints {
+			t.Errorf("expected %d test mints, found %d", nTestMints, found)
 		}
 	})
 
-	t.Run("unknown branch (tests) includes test mint", func(t *testing.T) {
+	t.Run("unknown branch (tests) includes test mints", func(t *testing.T) {
 		GitBranch = "unknown"
 		cfg := NewDefaultConfig()
 
-		if len(cfg.AcceptedMints) != 3 {
-			t.Fatalf("expected 3 accepted mints for unknown branch, got %d", len(cfg.AcceptedMints))
+		expectedCount := 2 + nTestMints
+		if len(cfg.AcceptedMints) != expectedCount {
+			t.Fatalf("expected %d accepted mints for unknown branch, got %d", expectedCount, len(cfg.AcceptedMints))
 		}
 	})
 
@@ -112,16 +121,34 @@ func TestNewDefaultConfig_MintsForBranch(t *testing.T) {
 	})
 }
 
-func TestDefaultTestMint(t *testing.T) {
-	mint := defaultTestMint()
-	if mint.URL != "https://nofee.testnut.cashu.space" {
-		t.Errorf("expected test mint URL, got %s", mint.URL)
+func TestDefaultTestMints(t *testing.T) {
+	mints := defaultTestMints()
+	if len(mints) < 2 {
+		t.Fatalf("expected at least 2 test mints for redundancy, got %d", len(mints))
 	}
-	if mint.PricePerStep != 1 {
-		t.Errorf("expected PricePerStep=1, got %d", mint.PricePerStep)
+
+	// Verify all test mints have sane config
+	for _, m := range mints {
+		if m.PricePerStep != 1 {
+			t.Errorf("expected PricePerStep=1 for %s, got %d", m.URL, m.PricePerStep)
+		}
+		if m.PriceUnit != "sats" {
+			t.Errorf("expected PriceUnit=sats for %s, got %s", m.URL, m.PriceUnit)
+		}
+		if m.MinBalance != 0 {
+			t.Errorf("expected MinBalance=0 for %s, got %d", m.URL, m.MinBalance)
+		}
 	}
-	if mint.PriceUnit != "sats" {
-		t.Errorf("expected PriceUnit=sats, got %s", mint.PriceUnit)
+
+	// Verify testnut.cashu.exchange is present (primary Spilman channel test mint)
+	foundExchange := false
+	for _, m := range mints {
+		if m.URL == "https://testnut.cashu.exchange" {
+			foundExchange = true
+		}
+	}
+	if !foundExchange {
+		t.Error("testnut.cashu.exchange should be in test mints (used for Spilman channels)")
 	}
 }
 

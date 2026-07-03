@@ -189,16 +189,41 @@ func defaultProductionMints() []MintConfig {
 	}
 }
 
-func defaultTestMint() MintConfig {
-	return MintConfig{
-		URL:                     "https://nofee.testnut.cashu.space",
-		MinBalance:              0,
-		BalanceTolerancePercent: 0,
-		PayoutIntervalSeconds:   999999,
-		MinPayoutAmount:         999999,
-		PricePerStep:            1,
-		PriceUnit:               "sats",
-		MinPurchaseSteps:        0,
+// defaultTestMints returns a list of public Cashu testnet mints for
+// development/non-stable builds. Multiple are listed because individual
+// test mints are often unreliable or rate-limited.
+func defaultTestMints() []MintConfig {
+	return []MintConfig{
+		{
+			URL:                     "https://testnut.cashu.exchange",
+			MinBalance:              0,
+			BalanceTolerancePercent: 0,
+			PayoutIntervalSeconds:   999999,
+			MinPayoutAmount:         999999,
+			PricePerStep:            1,
+			PriceUnit:               "sats",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://testnut.cashu.space",
+			MinBalance:              0,
+			BalanceTolerancePercent: 0,
+			PayoutIntervalSeconds:   999999,
+			MinPayoutAmount:         999999,
+			PricePerStep:            1,
+			PriceUnit:               "sats",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://nofee.testnut.cashu.space",
+			MinBalance:              0,
+			BalanceTolerancePercent: 0,
+			PayoutIntervalSeconds:   999999,
+			MinPayoutAmount:         999999,
+			PricePerStep:            1,
+			PriceUnit:               "sats",
+			MinPurchaseSteps:        0,
+		},
 	}
 }
 
@@ -211,9 +236,11 @@ func IsDevBuild() bool {
 func NewDefaultConfig() *Config {
 	mints := defaultProductionMints()
 	if IsDevBuild() {
-		testMint := defaultTestMint()
-		log.Printf("WARN: dev build detected (branch=%s), injecting test mint: %s", GitBranch, testMint.URL)
-		mints = append(mints, testMint)
+		testMints := defaultTestMints()
+		for _, tm := range testMints {
+			log.Printf("WARN: dev build detected (branch=%s), injecting test mint: %s", GitBranch, tm.URL)
+			mints = append(mints, tm)
+		}
 	}
 
 	return &Config{
