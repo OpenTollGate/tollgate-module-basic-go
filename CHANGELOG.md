@@ -163,8 +163,8 @@ Release notes: [RELEASE-NOTES.md](RELEASE-NOTES.md).
 - Add `AGENTS.md` with LLM contributor rules and tighten `.gitignore` for
   planning docs
   ([#159](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/159));
-  contributor policy has since moved to
-  [CONTRIBUTING.md](CONTRIBUTING.md) and [PR-REVIEW.md](PR-REVIEW.md).
+  since expanded alongside the new [CONTRIBUTING.md](CONTRIBUTING.md) and
+  [PR-REVIEW.md](PR-REVIEW.md).
 
 ## [v0.4.0] - 2026-04-06
 
