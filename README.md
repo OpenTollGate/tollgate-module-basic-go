@@ -193,6 +193,29 @@ Design and protocol docs live under [docs/](docs/):
 - [docs/data-session-management.md](docs/data-session-management.md)
 - [docs/wireless_gateway_manager.md](docs/wireless_gateway_manager.md)
 
+## Roadmap
+
+### v0.6.x — Mesh Networking & FIPS Integration
+
+TollGate is moving beyond single-router deployments. The next major
+direction is peer-to-peer mesh networking with
+[FIPS](https://github.com/nicobao/fips):
+
+- **FIPS peering**: TollGate routers become FIPS nodes in a
+  self-organizing mesh. Cryptographic peer IDs (from npubs), end-to-end
+  encrypted forwarding, no centralized addressing.
+- **FIPS internet exit**: FIPS-only nodes route to the legacy internet
+  through GRE tunnels to other TollGate nodes that have WAN connectivity.
+- **Per-FIPS-instance pricing**: Multiple FIPS instances with per-peer
+  pricing profiles (different rates for LoRa vs fiber peers).
+- **Native Android app**: Rust + Kotlin, running FIPS natively (no
+  WebView/Tauri), FIPS-based notifications without central servers.
+- **TollGate Review Club**: Community alpha testing program.
+
+See [ROADMAP.md](ROADMAP.md) for the full versioned roadmap and
+[tollgate-rs](https://github.com/OpenTollGate/tollgate-rs) for the
+FIPS integration design documents.
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).

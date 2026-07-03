@@ -248,6 +248,19 @@ For implementation questions specific to your PR, ask in the PR
 itself. For design or roadmap questions that don't have a clear PR
 home yet, file a GitHub issue.
 
+## TollGate Review Club
+
+Inspired by the [Bitcoin Review Club](https://bitcoincore.reviews/). The
+TollGate Review Club is a community program for TollGate enthusiasts who
+want to go deeper — testing alpha releases, validating features before
+they're marked stable, and learning how TollGate works under the hood.
+
+**What you'll do**: Get hands-on with new features before anyone else, run
+them on real hardware, report bugs, and directly shape what ships in the
+next stable release.
+
+**Join**: [TollGate Review Club on Signal](https://signal.group/#CjQKIBMfNzyL5IXRRG_R6JVl3rFEjDsN7x6ITt_CoFjjePC7EhCg8VnskJZJRNRSNKQ-GR4i)
+
 ## Further reading
 
 - [PR-REVIEW.md](PR-REVIEW.md) — the 13-criteria PR review checklist
