@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/identity v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
@@ -18,6 +19,7 @@ require (
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/identity => ./identity
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ./merchant_types
