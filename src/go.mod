@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/identity v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
@@ -18,6 +19,7 @@ require (
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/identity => ./identity
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ./merchant_types
@@ -91,8 +93,6 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
-	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
-	github.com/ltcsuite/secp256k1 v0.1.1 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

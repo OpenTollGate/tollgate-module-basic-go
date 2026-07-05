@@ -10,7 +10,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Identity package.** New `src/identity/` package that derives stable,
+  router-local identifiers — a deterministic IPv4 address in `10.0.0.0/8`,
+  per-interface locally-administered MAC addresses (`br-lan`, `wlan0`,
+  `wlan1`), and a 24-word BIP-39 recovery mnemonic — all from the existing
+  merchant Nostr key in `identities.json`. Derivation uses domain-separated
+  SHA-256 of the npub. Two new additive API endpoints: `GET /identity`
+  (public npub + derived addresses, no secret material) and
+  `POST /identity/reveal-seed` (mnemonic, loopback-only). Both degrade
+  gracefully to HTTP 503 if the key is missing or malformed — boot is never
+  blocked.
 
 ## [v0.5.0] - 2026-07-03
 

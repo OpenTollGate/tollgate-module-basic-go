@@ -18,6 +18,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
@@ -770,6 +771,16 @@ func main() {
 		fmt.Fprint(w, usageStr)
 	})
 
+	http.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity endpoint")
+		CorsMiddleware(HandleIdentity)(w, r)
+	})
+
+	http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity/reveal-seed endpoint")
+		CorsMiddleware(HandleIdentityRevealSeed)(w, r)
+	})
+
 	mainLogger.Info("Starting HTTP server on all interfaces...")
 	server := &http.Server{
 		Addr: port,
@@ -792,6 +803,133 @@ func isLocalRequest(r *http.Request) bool {
 		return false
 	}
 	return ip.IsLoopback()
+}
+
+// --- Identity endpoints -------------------------------------------------------
+
+// identityResponse is the JSON body returned by GET /identity. It exposes the
+// router's public identity (npub) and the deterministic network identifiers
+// derived from it, but never the seed or private key.
+type identityResponse struct {
+	Npub string            `json:"npub"`
+	IPv4 string            `json:"ipv4"`
+	MACs map[string]string `json:"macs"`
+}
+
+// revealSeedResponse is the JSON body returned by POST /identity/reveal-seed.
+// The Seed field is the 24-word BIP-39 encoding of the raw merchant private key
+// and is therefore equivalent to the key itself — treat accordingly.
+type revealSeedResponse struct {
+	Seed string `json:"seed"`
+}
+
+// HandleIdentity returns the router's derived identity (npub, IPv4, MAC
+// addresses) from the merchant private key in identities.json. The seed /
+// private key is never exposed by this endpoint — use POST /identity/reveal-seed
+// for that. If identities.json is missing or malformed the endpoint returns 503
+// rather than crashing.
+func HandleIdentity(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	privKey, err := getMerchantPrivateKey()
+	if err != nil {
+		mainLogger.WithError(err).Warn("identity: cannot load merchant key")
+		writeJSONError(w, http.StatusServiceUnavailable, "identity-unavailable")
+		return
+	}
+
+	npub, err := identity.NpubFromPrivateKey(privKey)
+	if err != nil {
+		mainLogger.WithError(err).Warn("identity: cannot derive npub")
+		writeJSONError(w, http.StatusServiceUnavailable, "identity-unavailable")
+		return
+	}
+
+	ip, err := identity.DeriveIPv4(npub)
+	if err != nil {
+		mainLogger.WithError(err).Warn("identity: cannot derive IPv4")
+		writeJSONError(w, http.StatusServiceUnavailable, "identity-unavailable")
+		return
+	}
+
+	macs, err := identity.DeriveDefaultMACs(npub)
+	if err != nil {
+		mainLogger.WithError(err).Warn("identity: cannot derive MACs")
+		writeJSONError(w, http.StatusServiceUnavailable, "identity-unavailable")
+		return
+	}
+
+	resp := identityResponse{
+		Npub: npub,
+		IPv4: ip.String(),
+		MACs: macs,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// HandleIdentityRevealSeed returns the 24-word BIP-39 mnemonic that encodes the
+// merchant private key. This is secret material equivalent to the key itself, so
+// the endpoint is restricted to loopback connections only.
+func HandleIdentityRevealSeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !isLocalRequest(r) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).
+			Warn("identity: reveal-seed rejected: non-local request")
+		writeJSONError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	privKey, err := getMerchantPrivateKey()
+	if err != nil {
+		mainLogger.WithError(err).Warn("identity: cannot load merchant key for reveal-seed")
+		writeJSONError(w, http.StatusServiceUnavailable, "identity-unavailable")
+		return
+	}
+
+	mnemonic, err := identity.PrivateKeyToMnemonic(privKey)
+	if err != nil {
+		mainLogger.WithError(err).Warn("identity: cannot encode mnemonic")
+		writeJSONError(w, http.StatusServiceUnavailable, "identity-unavailable")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(revealSeedResponse{Seed: mnemonic})
+}
+
+// getMerchantPrivateKey reads the merchant private key from the loaded
+// identities.json via the config manager (owned_identities[0].privatekey).
+// Returns an error — never panics — if identities are missing, malformed, or the
+// merchant identity is absent. Identity derivation is a bonus, not a boot
+// requirement.
+func getMerchantPrivateKey() (string, error) {
+	ident := configManager.GetIdentities()
+	if ident == nil {
+		return "", errors.New("identities config not loaded")
+	}
+	if len(ident.OwnedIdentities) == 0 {
+		return "", errors.New("no owned identities configured")
+	}
+	key := ident.OwnedIdentities[0].PrivateKey
+	if key == "" {
+		return "", errors.New("merchant private key is empty")
+	}
+	return key, nil
+}
+
+// writeJSONError emits a compact JSON error body: {"error":"<message>"}.
+func writeJSONError(w http.ResponseWriter, code int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 func getIP(r *http.Request) string {
