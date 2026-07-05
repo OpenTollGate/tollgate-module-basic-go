@@ -91,6 +91,7 @@ wait_for_iface() {
 }
 
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
+              /etc/uci-defaults/95-router-identity \
               /etc/uci-defaults/99-tollgate-setup; do
     if [ -x "$$script" ]; then
         echo "Running $$script ..."
@@ -158,6 +159,7 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/95-router-identity $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 
 	$(INSTALL_DIR) $(1)/etc/config
@@ -194,6 +196,7 @@ FILES_$(PKG_NAME) += \
 	/etc/config/firewall-tollgate \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
+	/etc/uci-defaults/95-router-identity \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
