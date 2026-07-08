@@ -6,7 +6,7 @@
 // hex in /etc/tollgate/identities.json at owned_identities[0].privatekey (see
 // config_manager.OwnedIdentity). This package treats that key as the single
 // source of truth and derives everything else from it, so a router that
-// restores its identities.json — or recovers from the 24-word seed — reproduces
+// restores its identities.json — or recovers from the 12-word seed — reproduces
 // the same IPv4 and MAC addresses bit-for-bit.
 //
 // Every derivation hashes the hex-encoded secp256k1 public key (the 32-byte
@@ -16,8 +16,13 @@
 // PUBLIC identity, and two TollGates with different keys never collide on
 // address space. Using the hex pubkey (rather than the bech32 npub encoding)
 // keeps the shell-side uci-defaults script simple: it can extract the same
-// value via openssl without a bech32 dependency. The BIP39 seed is the only
-// derivation that consumes the private key directly.
+// value via openssl without a bech32 dependency.
+//
+// Mnemonic recovery uses NIP-06: a 12-word BIP39 mnemonic (128 bits of entropy)
+// derives the Nostr private key via the standard hierarchical path
+// m/44'/1237'/0'/0/0. 12 words is sufficient because secp256k1 itself provides
+// only ~128 bits of security (Pollard's rho on the 256-bit group). Backing up
+// the 12 words is equivalent to backing up the private key.
 //
 // All functions are pure and side-effect free; failures (bad hex, invalid key,
 // invalid mnemonic) return an error rather than panicking, so callers can
@@ -32,6 +37,7 @@ import (
 	"net"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip06"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/tyler-smith/go-bip39"
 )
@@ -67,7 +73,7 @@ type DerivedIdentity struct {
 // uses POST (intent signalling) rather than GET.
 type FullIdentity struct {
 	DerivedIdentity
-	Mnemonic   string `json:"mnemonic"`   // 24 space-separated BIP39 words
+	Mnemonic   string `json:"mnemonic"`   // 12 space-separated BIP39 words
 	PrivateKey string `json:"privatekey"` // lowercase hex, 64 chars
 }
 
@@ -121,39 +127,29 @@ func DeriveMAC(pubKeyHex, iface string) string {
 	return mac.String()
 }
 
-// PrivateKeyToMnemonic converts a hex private key into a 24-word BIP39
-// mnemonic. The 32-byte key is used directly as the BIP39 entropy (256 bits →
-// 24 words), so the mnemonic is a human-readable encoding of the key itself,
-// not a derivation of it.
-func PrivateKeyToMnemonic(hexPrivKey string) (string, error) {
-	b, err := decodePrivKeyHex(hexPrivKey)
+// GenerateMnemonic generates a 12-word BIP39 mnemonic (128 bits of entropy).
+// The mnemonic is the single backup for the entire device identity — the
+// Nostr private key is derived from it via NIP-06.
+func GenerateMnemonic() (string, error) {
+	entropy, err := bip39.NewEntropy(128)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("identity: generate entropy: %w", err)
 	}
-	mnemonic, err := bip39.NewMnemonic(b)
+	mnemonic, err := bip39.NewMnemonic(entropy)
 	if err != nil {
 		return "", fmt.Errorf("identity: encode mnemonic: %w", err)
 	}
 	return mnemonic, nil
 }
 
-// MnemonicToPrivateKey converts a 24-word BIP39 mnemonic back into the original
-// hex private key. It validates the checksum and word list; an invalid mnemonic
-// returns an error.
+// MnemonicToPrivateKey derives the Nostr private key from a BIP39 mnemonic
+// using NIP-06 hierarchical derivation (m/44'/1237'/0'/0/0).
 func MnemonicToPrivateKey(mnemonic string) (string, error) {
-	if !bip39.IsMnemonicValid(mnemonic) {
+	if !nip06.ValidateWords(mnemonic) {
 		return "", fmt.Errorf("identity: invalid mnemonic")
 	}
-	// raw=true returns the entropy bytes (32 for a 24-word mnemonic) without
-	// the trailing checksum byte.
-	raw, err := bip39.MnemonicToByteArray(mnemonic, true)
-	if err != nil {
-		return "", fmt.Errorf("identity: decode mnemonic: %w", err)
-	}
-	if len(raw) != PrivKeyByteLen {
-		return "", fmt.Errorf("identity: mnemonic entropy is %d bytes, want %d", len(raw), PrivKeyByteLen)
-	}
-	return hex.EncodeToString(raw), nil
+	seed := nip06.SeedFromWords(mnemonic)
+	return nip06.PrivateKeyFromSeed(seed)
 }
 
 // Derive computes the public, non-sensitive identity (npub, IPv4, MACs for the
@@ -181,15 +177,15 @@ func Derive(hexPrivKey string) (*DerivedIdentity, error) {
 	}, nil
 }
 
-// RevealSeed computes the full identity including the 24-word mnemonic and the
-// raw private key. Use this for POST /identity/reveal-seed only — the result
-// contains the secret material needed to fully impersonate the identity.
-func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
-	derived, err := Derive(hexPrivKey)
+// DeriveFromMnemonic recovers the full identity from a 12-word BIP39 mnemonic.
+// The mnemonic is the primary input — the private key and all derived network
+// attributes are computed from it via NIP-06.
+func DeriveFromMnemonic(mnemonic string) (*FullIdentity, error) {
+	hexPrivKey, err := MnemonicToPrivateKey(mnemonic)
 	if err != nil {
 		return nil, err
 	}
-	mnemonic, err := PrivateKeyToMnemonic(hexPrivKey)
+	derived, err := Derive(hexPrivKey)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +194,18 @@ func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
 		Mnemonic:        mnemonic,
 		PrivateKey:      hexPrivKey,
 	}, nil
+}
+
+// GenerateIdentity creates a new identity from scratch: generates a fresh
+// 12-word mnemonic, derives the Nostr private key via NIP-06, and computes
+// all derived network attributes. Use this on first boot or when provisioning
+// a new router.
+func GenerateIdentity() (*FullIdentity, error) {
+	mnemonic, err := GenerateMnemonic()
+	if err != nil {
+		return nil, err
+	}
+	return DeriveFromMnemonic(mnemonic)
 }
 
 // deriveHash returns SHA-256(domainSep || pubKeyHex): the 32-byte deterministic
