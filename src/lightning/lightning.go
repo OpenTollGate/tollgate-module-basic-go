@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -67,6 +68,14 @@ func GetInvoiceFromLightningAddress(lightningAddr string, amountSats uint64) (st
 	callbackURL, err := url.Parse(lnurlPayResp.Callback)
 	if err != nil {
 		return "", fmt.Errorf("invalid callback URL: %w", err)
+	}
+
+	if host := callbackURL.Hostname(); host != "" {
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.IsLoopback() || ip.IsUnspecified() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+				return "", fmt.Errorf("callback URL points to blocked address: %s", host)
+			}
+		}
 	}
 
 	// Add amount parameter
