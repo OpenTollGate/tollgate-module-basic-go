@@ -930,20 +930,26 @@ func handleIdentityDerive(privKey string) http.HandlerFunc {
 	}
 }
 
-// handleIdentityRevealSeed returns an http.HandlerFunc that serves the full
-// identity including the 24-word BIP39 mnemonic and raw private key. POST-only:
-// a non-POST request gets 405 Method Not Allowed. Registered at
-// POST /identity/reveal-seed.
-func handleIdentityRevealSeed(privKey string) http.HandlerFunc {
+// handleIdentityRevealSeed accepts a 12-word BIP39 mnemonic in the POST body
+// and returns the full identity (private key, npub, IPv4, MACs, mnemonic).
+// POST-only: a non-POST request gets 405 Method Not Allowed.
+// Registered at POST /identity/reveal-seed.
+func handleIdentityRevealSeed(_ string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		full, err := identity.RevealSeed(privKey)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			mainLogger.WithError(err).Error("identity: reveal-seed failed")
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		mnemonic := strings.TrimSpace(string(body))
+		full, err := identity.DeriveFromMnemonic(mnemonic)
+		if err != nil {
+			mainLogger.WithError(err).Error("identity: mnemonic recovery failed")
+			http.Error(w, "invalid mnemonic", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
