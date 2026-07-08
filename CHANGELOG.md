@@ -10,7 +10,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed / Internal
+
+- **Protocol spec deprecation.** Removed the stale local `docs/protocol/`
+  copy (HTTP-01–03, NOSTR-01, TIP-01–02, WIFI-01,
+  transport-layer-distinction); the canonical spec now lives in
+  [OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate).
+  Updated all cross-references in README, CONTRIBUTING, and PR-REVIEW
+  ([#192](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/192)).
 
 ## [v0.5.0] - 2026-07-03
 
