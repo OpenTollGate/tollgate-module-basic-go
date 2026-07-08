@@ -234,3 +234,36 @@ func mustPubHex(t *testing.T, hexPrivKey string) string {
 	require.NoError(t, err)
 	return pubHex
 }
+
+func TestDeriveRootPassword_Format(t *testing.T) {
+	pw := DeriveRootPassword(mustPubHex(t, freshKey(t)))
+	assert.Regexp(t, `^[A-Z][a-z]+-[A-Z][a-z]+-[A-Z][a-z]+-\d{2}$`, pw)
+}
+
+func TestDeriveRootPassword_Deterministic(t *testing.T) {
+	pub := mustPubHex(t, freshKey(t))
+	assert.Equal(t, DeriveRootPassword(pub), DeriveRootPassword(pub))
+}
+
+func TestDeriveRootPassword_DistinctPerKey(t *testing.T) {
+	assert.NotEqual(t,
+		DeriveRootPassword(mustPubHex(t, freshKey(t))),
+		DeriveRootPassword(mustPubHex(t, freshKey(t))))
+}
+
+func TestDeriveWiFiPassword_Format(t *testing.T) {
+	pw := DeriveWiFiPassword(mustPubHex(t, freshKey(t)), "private")
+	assert.Regexp(t, `^[A-Z][a-z]+-[A-Z][a-z]+-\d{4}$`, pw)
+}
+
+func TestDeriveWiFiPassword_DistinctPerNetwork(t *testing.T) {
+	pub := mustPubHex(t, freshKey(t))
+	assert.NotEqual(t, DeriveWiFiPassword(pub, "private"), DeriveWiFiPassword(pub, "admin"))
+}
+
+func TestRevealSeed_IncludesPasswords(t *testing.T) {
+	full, err := RevealSeed(goldenPrivKey)
+	require.NoError(t, err)
+	assert.NotEmpty(t, full.RootPassword)
+	assert.NotEmpty(t, full.WifiPassword)
+}

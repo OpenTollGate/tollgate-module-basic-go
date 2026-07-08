@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,4 +98,41 @@ func TestHandleIdentityRevealSeed_RejectsNonLocal(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "mnemonic", "seed must not leak to non-local")
 	assert.NotContains(t, rec.Body.String(), "private", "key must not leak to non-local")
+}
+
+func TestFirstBootSetup_ReturnsSecrets(t *testing.T) {
+	flagPath := filepath.Join(t.TempDir(), "first-boot-done")
+	req := httptest.NewRequest(http.MethodGet, "/first-boot-setup", nil)
+	rec := httptest.NewRecorder()
+	handleFirstBootSetup(testPrivKey, flagPath).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	var full identity.FullIdentity
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&full))
+	assert.NotEmpty(t, full.RootPassword)
+	assert.NotEmpty(t, full.WifiPassword)
+}
+
+func TestFirstBootSetup_GoneAfterComplete(t *testing.T) {
+	flagPath := filepath.Join(t.TempDir(), "first-boot-done")
+	req := httptest.NewRequest(http.MethodPost, "/first-boot-setup/complete", nil)
+	rec := httptest.NewRecorder()
+	handleFirstBootComplete(flagPath).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.FileExists(t, flagPath)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/first-boot-setup", nil)
+	rec2 := httptest.NewRecorder()
+	handleFirstBootSetup(testPrivKey, flagPath).ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusGone, rec2.Code)
+	assert.NotContains(t, rec2.Body.String(), "mnemonic")
+}
+
+func TestFirstBootComplete_DoubleCompleteGone(t *testing.T) {
+	flagPath := filepath.Join(t.TempDir(), "first-boot-done")
+	require.NoError(t, os.WriteFile(flagPath, []byte("done"), 0644))
+	req := httptest.NewRequest(http.MethodPost, "/first-boot-setup/complete", nil)
+	rec := httptest.NewRecorder()
+	handleFirstBootComplete(flagPath).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusGone, rec.Code)
 }

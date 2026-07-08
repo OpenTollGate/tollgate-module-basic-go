@@ -67,8 +67,10 @@ type DerivedIdentity struct {
 // uses POST (intent signalling) rather than GET.
 type FullIdentity struct {
 	DerivedIdentity
-	Mnemonic   string `json:"mnemonic"`   // 24 space-separated BIP39 words
-	PrivateKey string `json:"privatekey"` // lowercase hex, 64 chars
+	Mnemonic     string `json:"mnemonic"`
+	PrivateKey   string `json:"privatekey"`
+	RootPassword string `json:"root_password"`
+	WifiPassword string `json:"wifi_password"`
 }
 
 // NpubFromPrivateKey returns the bech32 npub1… encoding of the public key that
@@ -119,6 +121,30 @@ func DeriveMAC(pubKeyHex, iface string) string {
 	// Locally administered (bit 1) set, multicast (bit 0) cleared.
 	mac[0] = (mac[0] & 0xFC) | 0x02
 	return mac.String()
+}
+
+var natoWords = []string{
+	"Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf",
+	"Hotel", "India", "Juliet", "Kilo", "Lima", "Mike", "November",
+	"Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango", "Uniform",
+	"Victor", "Whiskey", "Xray", "Yankee", "Zulu",
+}
+
+func DeriveRootPassword(pubKeyHex string) string {
+	h := deriveHash("tollgate-root-pw-v1:", pubKeyHex)
+	return fmt.Sprintf("%s-%s-%s-%02d",
+		natoWords[int(h[0])%len(natoWords)],
+		natoWords[int(h[1])%len(natoWords)],
+		natoWords[int(h[2])%len(natoWords)],
+		int(h[3])%100)
+}
+
+func DeriveWiFiPassword(pubKeyHex, network string) string {
+	h := deriveHash("tollgate-wifi-pw-v1:"+network+":", pubKeyHex)
+	return fmt.Sprintf("%s-%s-%04d",
+		natoWords[int(h[0])%len(natoWords)],
+		natoWords[int(h[1])%len(natoWords)],
+		((int(h[2])<<8)|int(h[3]))%10000)
 }
 
 // PrivateKeyToMnemonic converts a hex private key into a 24-word BIP39
@@ -193,10 +219,16 @@ func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
 	if err != nil {
 		return nil, err
 	}
+	pubHex, err := nostr.GetPublicKey(hexPrivKey)
+	if err != nil {
+		return nil, fmt.Errorf("identity: derive public key: %w", err)
+	}
 	return &FullIdentity{
 		DerivedIdentity: *derived,
 		Mnemonic:        mnemonic,
 		PrivateKey:      hexPrivKey,
+		RootPassword:    DeriveRootPassword(pubHex),
+		WifiPassword:    DeriveWiFiPassword(pubHex, "private"),
 	}, nil
 }
 

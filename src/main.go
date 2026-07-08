@@ -696,6 +696,14 @@ func main() {
 		mainLogger.Info("identity: /identity and /identity/reveal-seed routes registered")
 	}
 
+	const firstBootFlag = "/etc/tollgate/.first_boot_complete"
+	http.HandleFunc("/first-boot-setup", func(w http.ResponseWriter, r *http.Request) {
+		CorsMiddleware(handleFirstBootSetup(identityPrivKey, firstBootFlag))(w, r)
+	})
+	http.HandleFunc("/first-boot-setup/complete", func(w http.ResponseWriter, r *http.Request) {
+		CorsMiddleware(handleFirstBootComplete(firstBootFlag))(w, r)
+	})
+
 	mainLogger.Info("Starting HTTP server on all interfaces...")
 	server := &http.Server{
 		Addr: port,
@@ -774,5 +782,51 @@ func handleIdentityRevealSeed(privKey string) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		json.NewEncoder(w).Encode(full)
+	}
+}
+
+func handleFirstBootSetup(privKey, flagPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed: use GET", http.StatusMethodNotAllowed)
+			return
+		}
+		if _, err := os.Stat(flagPath); err == nil {
+			http.Error(w, "gone: first boot already completed", http.StatusGone)
+			return
+		}
+		full, err := identity.RevealSeed(privKey)
+		if err != nil {
+			mainLogger.WithError(err).Error("first-boot: reveal failed")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		json.NewEncoder(w).Encode(full)
+	}
+}
+
+func handleFirstBootComplete(flagPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
+			return
+		}
+		if _, err := os.Stat(flagPath); err == nil {
+			http.Error(w, "gone: first boot already completed", http.StatusGone)
+			return
+		}
+		f, err := os.Create(flagPath)
+		if err != nil {
+			mainLogger.WithError(err).Error("first-boot: failed to create flag")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		f.Close()
+		mainLogger.Info("first-boot: setup completed, secrets endpoint disabled")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
