@@ -66,7 +66,7 @@ PRIVKEY=$(jq -r '.owned_identities[]? | select(.name=="merchant") | .privatekey'
 # nsec1 (bech32) is not handled here; the backend always stores hex.
 if [ "${#PRIVKEY}" -ne 64 ] \
    || ! printf '%s' "$PRIVKEY" | grep -qE '^[0-9a-fA-F]{64}$'; then
-    log "merchant privatekey missing or not 64-char hex (got: ${PRIVKEY:-<empty>}); will retry next boot"
+    log "merchant privatekey invalid (length=${#PRIVKEY}, expected 64 hex chars); will retry next boot"
     exit 1
 fi
 
