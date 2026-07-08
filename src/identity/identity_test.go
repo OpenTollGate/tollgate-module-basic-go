@@ -22,14 +22,16 @@ import (
 var (
 	goldenPrivKey  = "0000000000000000000000000000000000000000000000000000000000000001"
 	goldenNpub     string // set in init below
+	goldenPubHex   string
 	goldenIPv4     string
 	goldenMACBrLan string
 )
 
 func init() {
 	goldenNpub, _ = NpubFromPrivateKey(goldenPrivKey)
-	goldenIPv4 = DeriveIPv4(goldenNpub)
-	goldenMACBrLan = DeriveMAC(goldenNpub, "br-lan")
+	goldenPubHex, _ = nostr.GetPublicKey(goldenPrivKey)
+	goldenIPv4 = DeriveIPv4(goldenPubHex)
+	goldenMACBrLan = DeriveMAC(goldenPubHex, "br-lan")
 }
 
 var (
@@ -110,8 +112,8 @@ func TestNpubFromPrivateKey_RejectsBadKey(t *testing.T) {
 
 func TestDeriveIPv4_CGNATRangeAndHostOne(t *testing.T) {
 	for i := 0; i < 32; i++ {
-		npub := mustNpub(t, freshKey(t))
-		ip := DeriveIPv4(npub)
+		pubHex := mustPubHex(t, freshKey(t))
+		ip := DeriveIPv4(pubHex)
 		require.True(t, ipv4Re.MatchString(ip), "ip %q must be dotted-quad", ip)
 
 		// Must be inside 100.64.0.0/10 with a .1 host octet.
@@ -123,17 +125,17 @@ func TestDeriveIPv4_CGNATRangeAndHostOne(t *testing.T) {
 		assert.Equal(t, byte(1), pi[3], "host octet must be .1")
 	}
 	// Golden pin.
-	assert.Equal(t, goldenIPv4, DeriveIPv4(goldenNpub))
+	assert.Equal(t, goldenIPv4, DeriveIPv4(goldenPubHex))
 }
 
 func TestDeriveIPv4_Deterministic(t *testing.T) {
-	npub := mustNpub(t, freshKey(t))
-	assert.Equal(t, DeriveIPv4(npub), DeriveIPv4(npub))
+	pubHex := mustPubHex(t, freshKey(t))
+	assert.Equal(t, DeriveIPv4(pubHex), DeriveIPv4(pubHex))
 }
 
 func TestDeriveMAC_FormatAndLocallyAdministered(t *testing.T) {
 	for _, iface := range StandardInterfaces {
-		mac := DeriveMAC(goldenNpub, iface)
+		mac := DeriveMAC(goldenPubHex, iface)
 		require.True(t, macRe.MatchString(mac), "mac %q for %s must be aa:bb:..:ff", mac, iface)
 
 		hw, err := net.ParseMAC(mac)
@@ -146,7 +148,7 @@ func TestDeriveMAC_FormatAndLocallyAdministered(t *testing.T) {
 func TestDeriveMAC_DistinctPerInterface(t *testing.T) {
 	macs := map[string]string{}
 	for _, iface := range StandardInterfaces {
-		macs[iface] = DeriveMAC(goldenNpub, iface)
+		macs[iface] = DeriveMAC(goldenPubHex, iface)
 	}
 	// All three standard interface MACs must differ from each other.
 	seen := map[string]string{}
@@ -156,19 +158,19 @@ func TestDeriveMAC_DistinctPerInterface(t *testing.T) {
 		seen[m] = iface
 	}
 	// Different interface NAME → different MAC even for similar names.
-	assert.NotEqual(t, DeriveMAC(goldenNpub, "wlan0"), DeriveMAC(goldenNpub, "wlan1"))
+	assert.NotEqual(t, DeriveMAC(goldenPubHex, "wlan0"), DeriveMAC(goldenPubHex, "wlan1"))
 }
 
 func TestDeriveMAC_DistinctPerKey(t *testing.T) {
-	a := DeriveMAC(mustNpub(t, freshKey(t)), "br-lan")
-	b := DeriveMAC(mustNpub(t, freshKey(t)), "br-lan")
+	a := DeriveMAC(mustPubHex(t, freshKey(t)), "br-lan")
+	b := DeriveMAC(mustPubHex(t, freshKey(t)), "br-lan")
 	assert.NotEqual(t, a, b, "different keys must yield different MACs")
 }
 
 func TestDeriveMAC_Deterministic(t *testing.T) {
-	npub := mustNpub(t, freshKey(t))
-	assert.Equal(t, DeriveMAC(npub, "br-lan"), DeriveMAC(npub, "br-lan"))
-	assert.Equal(t, goldenMACBrLan, DeriveMAC(goldenNpub, "br-lan"))
+	pubHex := mustPubHex(t, freshKey(t))
+	assert.Equal(t, DeriveMAC(pubHex, "br-lan"), DeriveMAC(pubHex, "br-lan"))
+	assert.Equal(t, goldenMACBrLan, DeriveMAC(goldenPubHex, "br-lan"))
 }
 
 func TestDerive_AllFields(t *testing.T) {
@@ -222,4 +224,13 @@ func mustNpub(t *testing.T, hexPrivKey string) string {
 	npub, err := NpubFromPrivateKey(hexPrivKey)
 	require.NoError(t, err)
 	return npub
+}
+
+// mustPubHex is a test helper that returns the hex-encoded secp256k1 public key
+// for the given private key, failing the test if invalid.
+func mustPubHex(t *testing.T, hexPrivKey string) string {
+	t.Helper()
+	pubHex, err := nostr.GetPublicKey(hexPrivKey)
+	require.NoError(t, err)
+	return pubHex
 }
