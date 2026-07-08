@@ -10,7 +10,13 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Allotment based on token face value.** Payments now credit the token'"'"'s
+  face value (sum of proof amounts) rather than the post-fee wallet balance,
+  aligning with the Rust reference implementation. Users receive the full
+  amount they paid for; the mint fee is absorbed as an operator cost
+  ([#197](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/197)).
 
 ## [v0.5.0] - 2026-07-03
 

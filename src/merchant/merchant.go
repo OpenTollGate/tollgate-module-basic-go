@@ -432,11 +432,10 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
-	log.Printf("Amount after swap: %d", amountAfterSwap)
+	log.Printf("Amount after swap: %d, face value: %d", amountAfterSwap, paymentCashuToken.Amount())
 
-	// Calculate allotment using the configured metric and mint-specific pricing
 	mintURL := paymentCashuToken.Mint()
-	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
+	allotment, err := m.calculateAllotment(paymentCashuToken.Amount(), mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "allotment-calculation-failed",
 			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
