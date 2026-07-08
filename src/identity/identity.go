@@ -9,12 +9,15 @@
 // restores its identities.json — or recovers from the 24-word seed — reproduces
 // the same IPv4 and MAC addresses bit-for-bit.
 //
-// Every derivation hashes the bech32-encoded public key (npub) together with a
-// domain separator using SHA-256. Hashing the npub (rather than the raw key
-// bytes) means the publicly-derivable attributes depend only on the PUBLIC
-// identity, and two TollGates with different keys never collide on address
-// space. The 24-word BIP39 seed is the only derivation that consumes the
-// private key directly (it IS the private key entropy).
+// Every derivation hashes the hex-encoded secp256k1 public key (the 32-byte
+// X-coordinate, 64 hex chars — what nostr.GetPublicKey returns) together with a
+// domain separator using SHA-256. Hashing the public key (rather than the
+// private key) means the publicly-derivable attributes depend only on the
+// PUBLIC identity, and two TollGates with different keys never collide on
+// address space. Using the hex pubkey (rather than the bech32 npub encoding)
+// keeps the shell-side uci-defaults script simple: it can extract the same
+// value via openssl without a bech32 dependency. The BIP39 seed is the only
+// derivation that consumes the private key directly.
 //
 // All functions are pure and side-effect free; failures (bad hex, invalid key,
 // invalid mnemonic) return an error rather than panicking, so callers can
@@ -86,8 +89,8 @@ func NpubFromPrivateKey(hexPrivKey string) (string, error) {
 	return npub, nil
 }
 
-// DeriveIPv4 maps the npub into the RFC 6598 CGNAT range (100.64.0.0/10) and
-// returns a dotted-quad address with a .1 host octet (gateway convention).
+// DeriveIPv4 maps the public key into the RFC 6598 CGNAT range (100.64.0.0/10)
+// and returns a dotted-quad address with a .1 host octet (gateway convention).
 //
 //	octet2 = 64 + (hash[0] mod 64)   → 64..127  (stays inside /10)
 //	octet3 = hash[1]                 → 0..255
@@ -95,22 +98,22 @@ func NpubFromPrivateKey(hexPrivKey string) (string, error) {
 //
 // Two different keys produce two different hashes, so collisions across the
 // ~4M usable addresses are negligible for a fleet of routers.
-func DeriveIPv4(npub string) string {
-	h := deriveHash("tollgate-ipv4-v1:", npub)
+func DeriveIPv4(pubKeyHex string) string {
+	h := deriveHash("tollgate-ipv4-v1:", pubKeyHex)
 	octet2 := cgnatSecondBase + int(h[0]%64)
 	octet3 := int(h[1])
 	return fmt.Sprintf("%d.%d.%d.%d", CGNATPrefix, octet2, octet3, 1)
 }
 
 // DeriveMAC returns a colon-separated, locally-administered MAC address for the
-// given interface name, derived from the npub. The first octet has the
+// given interface name, derived from the public key. The first octet has the
 // locally-administered bit set (0x02) and the multicast bit cleared (unicast),
 // per IEEE 802; the remaining five octets come from the hash.
 //
 // Pass one of StandardInterfaces ("br-lan", "wlan0", "wlan1"); each name feeds
 // the domain separator so every interface gets a distinct address.
-func DeriveMAC(npub, iface string) string {
-	h := deriveHash("tollgate-mac-v1:"+iface+":", npub)
+func DeriveMAC(pubKeyHex, iface string) string {
+	h := deriveHash("tollgate-mac-v1:"+iface+":", pubKeyHex)
 	mac := make(net.HardwareAddr, 6)
 	copy(mac, h[:6])
 	// Locally administered (bit 1) set, multicast (bit 0) cleared.
@@ -156,17 +159,24 @@ func MnemonicToPrivateKey(mnemonic string) (string, error) {
 // Derive computes the public, non-sensitive identity (npub, IPv4, MACs for the
 // standard interfaces) from a hex private key. Use this for GET /identity.
 func Derive(hexPrivKey string) (*DerivedIdentity, error) {
-	npub, err := NpubFromPrivateKey(hexPrivKey)
-	if err != nil {
+	if err := validatePrivKeyHex(hexPrivKey); err != nil {
 		return nil, err
+	}
+	pubHex, err := nostr.GetPublicKey(hexPrivKey)
+	if err != nil {
+		return nil, fmt.Errorf("identity: derive public key: %w", err)
+	}
+	npub, err := nip19.EncodePublicKey(pubHex)
+	if err != nil {
+		return nil, fmt.Errorf("identity: encode npub: %w", err)
 	}
 	macs := make(map[string]string, len(StandardInterfaces))
 	for _, iface := range StandardInterfaces {
-		macs[iface] = DeriveMAC(npub, iface)
+		macs[iface] = DeriveMAC(pubHex, iface)
 	}
 	return &DerivedIdentity{
 		Npub: npub,
-		IPv4: DeriveIPv4(npub),
+		IPv4: DeriveIPv4(pubHex),
 		MACs: macs,
 	}, nil
 }
@@ -190,14 +200,15 @@ func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
 	}, nil
 }
 
-// deriveHash returns SHA-256(domainSep || npub): the 32-byte deterministic
-// block every public attribute is sliced from. Writing domainSep before npub
-// (both via io.WriteString, which never errors for a bytes.Buffer-backed
-// hasher) is the domain separation that keeps attribute streams independent.
-func deriveHash(domainSep, npub string) [32]byte {
+// deriveHash returns SHA-256(domainSep || pubKeyHex): the 32-byte deterministic
+// block every public attribute is sliced from. Writing domainSep before
+// pubKeyHex (both via io.WriteString, which never errors for a bytes.Buffer-
+// backed hasher) is the domain separation that keeps attribute streams
+// independent.
+func deriveHash(domainSep, pubKeyHex string) [32]byte {
 	h := sha256.New()
 	_, _ = io.WriteString(h, domainSep)
-	_, _ = io.WriteString(h, npub)
+	_, _ = io.WriteString(h, pubKeyHex)
 	var out [32]byte
 	h.Sum(out[:0])
 	return out
