@@ -32,3 +32,6 @@ reference/
 node_modules/
 .sisyphus/
 src/cmd/tollgate-cli/tollgate-cli
+
+# auto-generated opencode session handover (do not commit)
+HANDOVER.md
