@@ -109,7 +109,8 @@ Step 4.
    (build, vet, race detector, unit-test pass/fail, schema contract
    lint, build purity).
 9. **Documentation impact**. Does this need a CHANGELOG entry,
-   protocol-spec changes ([docs/protocol/](docs/protocol/)), module
+   protocol-spec changes
+   ([OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate)), module
    doc updates ([docs/](docs/)), or README adjustments — particularly
    the config example, which must track the schema?
 10. **Security vulnerabilities**. Any new attack surface on the
@@ -130,7 +131,8 @@ Step 4.
     work that overlaps, duplicates, partially addresses, or is
     unblocked by this PR.
 13. **Other concerns**. Anything not captured above — wire-protocol
-    implications (the TIPs under [docs/protocol/](docs/protocol/)),
+    implications (the TIPs under
+    [OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate)),
     config-schema versioning and migration completeness, packaging
     and first-boot impact (`packaging/`, uci-defaults, postinst),
     OpenWrt-version differences (`.ipk` vs `.apk`), two-router /
