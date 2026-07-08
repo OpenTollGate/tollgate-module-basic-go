@@ -49,26 +49,29 @@ func freshKey(t *testing.T) string {
 	return sk
 }
 
-func TestPrivateKeyToMnemonic_RoundTrip(t *testing.T) {
+func TestMnemonic_RoundTrip(t *testing.T) {
 	for i := 0; i < 16; i++ {
-		sk := freshKey(t)
-		mnemonic, err := PrivateKeyToMnemonic(sk)
+		mnemonic, err := GenerateMnemonic()
 		require.NoError(t, err)
 		words := strings.Fields(mnemonic)
-		assert.Len(t, words, 24, "expected 24 BIP39 words")
+		assert.Len(t, words, 12, "expected 12 BIP39 words")
 
-		back, err := MnemonicToPrivateKey(mnemonic)
+		key, err := MnemonicToPrivateKey(mnemonic)
 		require.NoError(t, err)
-		assert.Equal(t, sk, back, "mnemonic round-trip must recover the original key")
+		assert.Len(t, key, 64, "private key must be 64 hex chars")
+
+		key2, err := MnemonicToPrivateKey(mnemonic)
+		require.NoError(t, err)
+		assert.Equal(t, key, key2, "same mnemonic must yield same key")
 	}
 }
 
 func TestMnemonicToPrivateKey_RejectsInvalid(t *testing.T) {
 	bad := []string{
-		"",                              // empty
-		"abandon abandon abandon",       // too few words
-		strings.Repeat("notaword ", 24), // 24 tokens but not in wordlist
-		"zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong", // valid words, bad checksum
+		"",                        // empty
+		"abandon abandon abandon", // too few words
+		strings.Repeat("notaword ", 12),
+		"zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong", // 12 words, bad checksum
 	}
 	for _, m := range bad {
 		m = strings.TrimSpace(m)
@@ -77,20 +80,51 @@ func TestMnemonicToPrivateKey_RejectsInvalid(t *testing.T) {
 	}
 }
 
-func TestPrivateKeyToMnemonic_RoundTripGolden(t *testing.T) {
-	mnemonic, err := PrivateKeyToMnemonic(goldenPrivKey)
-	require.NoError(t, err)
-	back, err := MnemonicToPrivateKey(mnemonic)
-	require.NoError(t, err)
-	assert.Equal(t, goldenPrivKey, back)
+func TestGenerateMnemonic_TwelveWords(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		mnemonic, err := GenerateMnemonic()
+		require.NoError(t, err)
+		words := strings.Fields(mnemonic)
+		assert.Len(t, words, 12, "mnemonic must be exactly 12 words")
+		for _, w := range words {
+			assert.True(t, mnemonicWordRe.MatchString(w), "word %q must be lowercase letters", w)
+		}
+	}
 }
 
-func TestPrivateKeyToMnemonic_RejectsBadHex(t *testing.T) {
-	bad := []string{"", "nothex", "zz", strings.Repeat("ab", 31), strings.Repeat("ab", 33)}
-	for _, sk := range bad {
-		_, err := PrivateKeyToMnemonic(sk)
-		assert.Error(t, err, "expected error for key %q", sk)
+func TestGenerateIdentity_AllFields(t *testing.T) {
+	full, err := GenerateIdentity()
+	require.NoError(t, err)
+	require.NotNil(t, full)
+	assert.Len(t, strings.Fields(full.Mnemonic), 12)
+	assert.Len(t, full.PrivateKey, 64)
+	assert.Contains(t, full.Npub, "npub1")
+	assert.True(t, ipv4Re.MatchString(full.IPv4))
+	for _, iface := range StandardInterfaces {
+		m, ok := full.MACs[iface]
+		require.True(t, ok, "missing MAC for %s", iface)
+		assert.True(t, macRe.MatchString(m), "mac %q for %s", m, iface)
 	}
+}
+
+func TestDeriveFromMnemonic_Deterministic(t *testing.T) {
+	mnemonic, err := GenerateMnemonic()
+	require.NoError(t, err)
+	a, err := DeriveFromMnemonic(mnemonic)
+	require.NoError(t, err)
+	b, err := DeriveFromMnemonic(mnemonic)
+	require.NoError(t, err)
+	assert.Equal(t, a.PrivateKey, b.PrivateKey)
+	assert.Equal(t, a.IPv4, b.IPv4)
+}
+
+func TestGenerateIdentity_DifferentEachCall(t *testing.T) {
+	a, err := GenerateIdentity()
+	require.NoError(t, err)
+	b, err := GenerateIdentity()
+	require.NoError(t, err)
+	assert.NotEqual(t, a.PrivateKey, b.PrivateKey, "two GenerateIdentity calls must differ")
+	assert.NotEqual(t, a.IPv4, b.IPv4)
 }
 
 func TestNpubFromPrivateKey_FormatAndGolden(t *testing.T) {
@@ -194,28 +228,30 @@ func TestDerive_RejectsBadKey(t *testing.T) {
 	assert.Nil(t, d)
 }
 
-func TestRevealSeed_ContainsMnemonicAndKey(t *testing.T) {
-	full, err := RevealSeed(goldenPrivKey)
+func TestDeriveFromMnemonic_RoundTrip(t *testing.T) {
+	mnemonic, err := GenerateMnemonic()
 	require.NoError(t, err)
-	assert.Equal(t, goldenPrivKey, full.PrivateKey)
-	assert.Equal(t, goldenNpub, full.Npub)
-	assert.Equal(t, goldenIPv4, full.IPv4)
+	full, err := DeriveFromMnemonic(mnemonic)
+	require.NoError(t, err)
 
 	words := strings.Fields(full.Mnemonic)
-	require.Len(t, words, 24, "mnemonic must be 24 words")
-	for _, w := range words {
-		assert.True(t, mnemonicWordRe.MatchString(w), "word %q must be lowercase letters", w)
-	}
+	require.Len(t, words, 12, "mnemonic must be 12 words")
 
-	// The mnemonic must round-trip back to the exact private key.
-	back, err := MnemonicToPrivateKey(full.Mnemonic)
+	key2, err := MnemonicToPrivateKey(full.Mnemonic)
 	require.NoError(t, err)
-	assert.Equal(t, goldenPrivKey, back)
+	assert.Equal(t, full.PrivateKey, key2, "mnemonic must round-trip to same key")
 }
 
-func TestRevealSeed_RejectsBadKey(t *testing.T) {
-	_, err := RevealSeed("not-a-key")
+func TestDeriveFromMnemonic_RejectsBadMnemonic(t *testing.T) {
+	_, err := DeriveFromMnemonic("not a valid mnemonic at all")
 	assert.Error(t, err)
+}
+
+func TestGenerateIdentity_RejectsNothing(t *testing.T) {
+	full, err := GenerateIdentity()
+	require.NoError(t, err)
+	assert.NotEmpty(t, full.PrivateKey)
+	assert.NotEmpty(t, full.Mnemonic)
 }
 
 // mustNpub is a test helper that fails the test if the key is invalid.

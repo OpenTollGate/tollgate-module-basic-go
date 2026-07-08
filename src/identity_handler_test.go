@@ -45,7 +45,6 @@ func TestHandleIdentityDerive_BadKey_500(t *testing.T) {
 }
 
 func TestHandleIdentityRevealSeed_RejectsGET(t *testing.T) {
-	// reveal-seed is POST-only: a GET must return 405, never the seed.
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 		req := httptest.NewRequest(method, "/identity/reveal-seed", nil)
 		rec := httptest.NewRecorder()
@@ -56,7 +55,10 @@ func TestHandleIdentityRevealSeed_RejectsGET(t *testing.T) {
 }
 
 func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", nil)
+	mnemonic, err := identity.GenerateMnemonic()
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader(mnemonic))
 	rec := httptest.NewRecorder()
 
 	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
@@ -66,22 +68,21 @@ func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 
 	var full identity.FullIdentity
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&full))
-	assert.Equal(t, testPrivKey, full.PrivateKey)
+	assert.NotEmpty(t, full.PrivateKey)
 	assert.Contains(t, full.Npub, "npub1")
 	assert.NotEmpty(t, full.IPv4)
 
 	words := strings.Fields(full.Mnemonic)
-	require.Len(t, words, 24, "mnemonic must be 24 words")
+	require.Len(t, words, 12, "mnemonic must be 12 words")
 
-	// The seed must round-trip back to the exact private key.
-	back, err := identity.MnemonicToPrivateKey(full.Mnemonic)
+	key2, err := identity.MnemonicToPrivateKey(full.Mnemonic)
 	require.NoError(t, err)
-	assert.Equal(t, testPrivKey, back)
+	assert.Equal(t, full.PrivateKey, key2, "mnemonic must round-trip to same key")
 }
 
-func TestHandleIdentityRevealSeed_BadKey_500(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", nil)
+func TestHandleIdentityRevealSeed_BadMnemonic_400(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader("not a valid mnemonic"))
 	rec := httptest.NewRecorder()
-	handleIdentityRevealSeed("bad").ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
