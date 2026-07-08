@@ -691,7 +691,7 @@ func main() {
 		// POST-only so the request is intentional and never cached/prefetched.
 		http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Hit /identity/reveal-seed endpoint (sensitive)")
-			CorsMiddleware(handleIdentityRevealSeed(identityPrivKey))(w, r)
+			handleIdentityRevealSeed(identityPrivKey)(w, r)
 		})
 		mainLogger.Info("identity: /identity and /identity/reveal-seed routes registered")
 	}
@@ -743,14 +743,25 @@ func handleIdentityDerive(privKey string) http.HandlerFunc {
 	}
 }
 
+// isLocalRequest returns true if the request originates from loopback.
+func isLocalRequest(r *http.Request) bool {
+	return strings.HasPrefix(r.RemoteAddr, "127.0.0.1") ||
+		strings.HasPrefix(r.RemoteAddr, "[::1]") ||
+		strings.HasPrefix(r.RemoteAddr, "[::ffff:127.0.0.1]")
+}
+
 // handleIdentityRevealSeed returns an http.HandlerFunc that serves the full
-// identity including the 24-word BIP39 mnemonic and raw private key. POST-only:
-// a non-POST request gets 405 Method Not Allowed. Registered at
-// POST /identity/reveal-seed.
+// identity including the BIP39 mnemonic and raw private key. POST-only and
+// loopback-only: non-local requests get 403 Forbidden.
 func handleIdentityRevealSeed(privKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
+			return
+		}
+		if !isLocalRequest(r) {
+			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("identity: reveal-seed rejected (non-local)")
+			http.Error(w, "forbidden: reveal-seed requires local access", http.StatusForbidden)
 			return
 		}
 		full, err := identity.RevealSeed(privKey)
@@ -760,6 +771,8 @@ func handleIdentityRevealSeed(privKey string) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		json.NewEncoder(w).Encode(full)
 	}
 }

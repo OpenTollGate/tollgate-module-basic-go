@@ -57,12 +57,14 @@ func TestHandleIdentityRevealSeed_RejectsGET(t *testing.T) {
 
 func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 
 	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 
 	var full identity.FullIdentity
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&full))
@@ -73,7 +75,6 @@ func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 	words := strings.Fields(full.Mnemonic)
 	require.Len(t, words, 24, "mnemonic must be 24 words")
 
-	// The seed must round-trip back to the exact private key.
 	back, err := identity.MnemonicToPrivateKey(full.Mnemonic)
 	require.NoError(t, err)
 	assert.Equal(t, testPrivKey, back)
@@ -81,7 +82,18 @@ func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 
 func TestHandleIdentityRevealSeed_BadKey_500(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleIdentityRevealSeed("bad").ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestHandleIdentityRevealSeed_RejectsNonLocal(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", nil)
+	req.RemoteAddr = "192.168.1.100:5678"
+	rec := httptest.NewRecorder()
+	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "mnemonic", "seed must not leak to non-local")
+	assert.NotContains(t, rec.Body.String(), "private", "key must not leak to non-local")
 }
