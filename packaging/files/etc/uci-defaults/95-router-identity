@@ -10,10 +10,9 @@
 # is OPT-OUT: it runs on first boot unless identity_opt_out is set.
 #
 # This script mirrors the Go reference implementation in
-# src/identity/identity.go (DeriveIPv4 / DeriveMAC) byte-for-byte, so the
-# admin UI and onboarding wizard display the same IP/MAC the router applies.
-# Golden vector (live GL-MT6000 key ff30f201…e5623b):
-#   npub cfce93a3…c2d6b4  →  IP 10.40.58.1  MAC de:21:90:7d:66:c9
+# src/identity/identity.go (DeriveIPv4 / DeriveMAC), hashing the hex pubkey
+# X-coordinate with domain separators that match the Go package, so the admin
+# UI and onboarding wizard display the same IP/MAC the router applies.
 #
 # Runs from two places:
 #   1. packaging postinst (on `apk add tollgate-wrt`) — alongside 90/99.
@@ -100,30 +99,34 @@ if [ -z "$NPUB" ] || [ "$(printf '%s' "$NPUB" | wc -c)" -ne 64 ]; then
     exit 1
 fi
 
-# -- derive IPv4  (SHA256(npub || "\n" || "tollgate-lan-ipv4")) -------------
-IPV4_DIGEST=$(printf '%s\ntollgate-lan-ipv4' "$NPUB" | sha256sum | cut -d' ' -f1)
+# -- derive IPv4  (SHA256("tollgate-ipv4-v1:" || pubkey) → CGNAT 100.64/10) -
+IPV4_DIGEST=$(printf 'tollgate-ipv4-v1:%s' "$NPUB" | sha256sum | cut -d' ' -f1)
 IP_B0=$(printf '%s' "$IPV4_DIGEST" | cut -c1-2)
 IP_B1=$(printf '%s' "$IPV4_DIGEST" | cut -c3-4)
-IP_2=$(( (0x$IP_B0 % 254) + 1 ))
-IP_3=$(( (0x$IP_B1 % 254) + 1 ))
-DERIVED_IP="10.${IP_2}.${IP_3}.1"
+IP_2=$(( 64 + (0x$IP_B0 % 64) ))
+IP_3=$(( 0x$IP_B1 ))
+DERIVED_IP="100.${IP_2}.${IP_3}.1"
 
-# -- derive MAC   (SHA256(npub || "\n" || "tollgate-lan-mac")) --------------
-MAC_DIGEST=$(printf '%s\ntollgate-lan-mac' "$NPUB" | sha256sum | cut -d' ' -f1)
-# Octet 0: set locally-administered bit (|0x02), clear multicast (clear LSB).
-MAC_0=$(( 0x$(printf '%s' "$MAC_DIGEST" | cut -c1-2)  | 0x02 ))
-MAC_0=$(( MAC_0 - (MAC_0 % 2) ))
-MAC_1=$(( 0x$(printf '%s' "$MAC_DIGEST" | cut -c3-4)  ))
-MAC_2=$(( 0x$(printf '%s' "$MAC_DIGEST" | cut -c5-6)  ))
-MAC_3=$(( 0x$(printf '%s' "$MAC_DIGEST" | cut -c7-8)  ))
-MAC_4=$(( 0x$(printf '%s' "$MAC_DIGEST" | cut -c9-10) ))
-MAC_5=$(( 0x$(printf '%s' "$MAC_DIGEST" | cut -c11-12) ))
-DERIVED_MAC=$(printf '%02x:%02x:%02x:%02x:%02x:%02x' "$MAC_0" "$MAC_1" "$MAC_2" "$MAC_3" "$MAC_4" "$MAC_5")
+# -- derive per-interface MACs (SHA256("tollgate-mac-v1:iface:" || pubkey)) -
+derive_mac() {
+    _digest=$(printf 'tollgate-mac-v1:%s:%s' "$1" "$NPUB" | sha256sum | cut -d' ' -f1)
+    _m0=$(( 0x$(printf '%s' "$_digest" | cut -c1-2) | 0x02 ))
+    _m0=$(( _m0 - (_m0 % 2) ))
+    _m1=$(( 0x$(printf '%s' "$_digest" | cut -c3-4) ))
+    _m2=$(( 0x$(printf '%s' "$_digest" | cut -c5-6) ))
+    _m3=$(( 0x$(printf '%s' "$_digest" | cut -c7-8) ))
+    _m4=$(( 0x$(printf '%s' "$_digest" | cut -c9-10) ))
+    _m5=$(( 0x$(printf '%s' "$_digest" | cut -c11-12) ))
+    printf '%02x:%02x:%02x:%02x:%02x:%02x' "$_m0" "$_m1" "$_m2" "$_m3" "$_m4" "$_m5"
+}
 
-log "derived npub=${NPUB} ip=${DERIVED_IP} mac=${DERIVED_MAC}"
+BR_LAN_MAC=$(derive_mac br-lan)
+WLAN0_MAC=$(derive_mac wlan0)
+WLAN1_MAC=$(derive_mac wlan1)
+
+log "derived npub=${NPUB} ip=${DERIVED_IP} br-lan=${BR_LAN_MAC} wlan0=${WLAN0_MAC} wlan1=${WLAN1_MAC}"
 
 # -- apply LAN IP + DHCP pool -----------------------------------------------
-# Keep br-lan as 10.x.y.1/24; align the dnsmasq pool within that /24.
 uci set network.lan.ipaddr="$DERIVED_IP"
 uci set network.lan.netmask='255.255.255.0'
 uci set dhcp.lan.start='100'
@@ -132,25 +135,23 @@ uci set dhcp.lan.limit='150'
 # -- apply MAC to br-lan -----------------------------------------------------
 # DSA (modern OpenWrt): the LAN bridge is a `device` section of type bridge
 # named br-lan — set macaddr there. Fallback (swconfig / older): network.lan.
-# Runtime best-effort for immediate effect on the postinst path.
 bridge_set=0
 for sect in $(uci -q show network 2>/dev/null | sed -n 's/^network\.\([^=]*\)=device$/\1/p'); do
     if [ "$(uci -q get "network.$sect.name")" = 'br-lan' ] \
        && [ "$(uci -q get "network.$sect.type")" = 'bridge' ]; then
-        uci set "network.$sect.macaddr=$DERIVED_MAC"
+        uci set "network.$sect.macaddr=$BR_LAN_MAC"
         bridge_set=1
     fi
 done
-[ "$bridge_set" -eq 0 ] && uci set "network.lan.macaddr=$DERIVED_MAC"
-ip link set dev br-lan address "$DERIVED_MAC" 2>/dev/null \
-    || ifconfig br-lan hw ether "$DERIVED_MAC" 2>/dev/null || true
+[ "$bridge_set" -eq 0 ] && uci set "network.lan.macaddr=$BR_LAN_MAC"
+ip link set dev br-lan address "$BR_LAN_MAC" 2>/dev/null \
+    || ifconfig br-lan hw ether "$BR_LAN_MAC" 2>/dev/null || true
 
-# -- apply MAC to WLAN radios (BSSID for wlan0/wlan1) -----------------------
-# Per the identity model, all interfaces share one identity-derived address.
-for radio in radio0 radio1; do
-    uci -q get "wireless.$radio" >/dev/null 2>&1 \
-        && uci set "wireless.$radio.macaddr=$DERIVED_MAC"
-done
+# -- apply per-radio MACs (distinct BSSIDs for wlan0/wlan1) -----------------
+uci -q get "wireless.radio0" >/dev/null 2>&1 \
+    && uci set "wireless.radio0.macaddr=$WLAN0_MAC"
+uci -q get "wireless.radio1" >/dev/null 2>&1 \
+    && uci set "wireless.radio1.macaddr=$WLAN1_MAC"
 
 # -- commit -----------------------------------------------------------------
 uci commit network
@@ -158,5 +159,5 @@ uci commit dhcp
 uci commit wireless
 
 touch "$IDENTITY_FLAG"
-log "applied IP=${DERIVED_IP} MAC=${DERIVED_MAC} to br-lan + wlan0 + wlan1"
+log "applied IP=${DERIVED_IP} br-lan=${BR_LAN_MAC} wlan0=${WLAN0_MAC} wlan1=${WLAN1_MAC}"
 exit 0
