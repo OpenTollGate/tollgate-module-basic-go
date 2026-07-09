@@ -108,3 +108,18 @@ func GetInvoiceFromLightningAddress(lightningAddr string, amountSats uint64) (st
 
 	return invoice.PR, nil
 }
+
+func validateCallbackURL(callbackURL *url.URL) error {
+	host := callbackURL.Hostname()
+	if host == "" {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return fmt.Errorf("callback URL points to blocked address: %s", host)
+	}
+	return nil
+}
