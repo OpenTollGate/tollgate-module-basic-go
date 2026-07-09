@@ -48,6 +48,14 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Enable reseller mode for upstream gateway discovery", Default: false, Required: true, Editable: true,
 		},
 		{
+			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
+			Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: true, Editable: true, Min: 0, Max: 300,
+		},
+		{
+			Name: "RedirectURL", JSONKey: "redirect_url", Type: "string",
+			Description: "URL to redirect clients to after payment (empty = no redirect)", Default: "", Required: true, Editable: true,
+		},
+		{
 			Name: "AcceptedMints", JSONKey: "accepted_mints", Type: "array",
 			Description: "List of accepted Cashu mints", Required: true, Editable: true,
 			Children: []FieldSchema{
@@ -130,8 +138,6 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PostSwitchWaitSeconds", JSONKey: "post_switch_wait_seconds", Type: "int", Description: "Seconds to wait after a switch before scoring", Default: 5, Required: true, Editable: true, Min: 1, Max: 60},
 				{Name: "DHCPTimeoutSeconds", JSONKey: "dhcp_timeout_seconds", Type: "int", Description: "Timeout for DHCP after connecting to a network", Default: 180, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
-			{Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int", Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: true, Editable: true, Min: 0, Max: 300},
-			{Name: "RedirectURL", JSONKey: "redirect_url", Type: "string", Description: "URL to redirect clients to after payment (empty = no redirect)", Default: "", Required: true, Editable: true},
 			},
 		},
 	}
