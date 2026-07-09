@@ -49,11 +49,11 @@ func GetConfigSchema() []FieldSchema {
 		},
 		{
 			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
-			Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: true, Editable: true, Min: 0, Max: 300,
+			Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: false, Editable: true, Min: 0, Max: 300,
 		},
 		{
 			Name: "RedirectURL", JSONKey: "redirect_url", Type: "string",
-			Description: "URL to redirect clients to after payment (empty = no redirect)", Default: "", Required: true, Editable: true,
+			Description: "URL to redirect clients to after payment (empty = no redirect)", Default: "", Required: false, Editable: true,
 		},
 		{
 			Name: "AcceptedMints", JSONKey: "accepted_mints", Type: "array",
