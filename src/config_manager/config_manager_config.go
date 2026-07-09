@@ -39,8 +39,9 @@ type UpstreamWifiConfig struct {
 	SwitchCooldownMinutes   int `json:"switch_cooldown_minutes"`
 	StartupGraceSeconds     int `json:"startup_grace_seconds"`
 	PostSwitchWaitSeconds   int `json:"post_switch_wait_seconds"`
-	DHCPTimeoutSeconds      int `json:"dhcp_timeout_seconds"`
-	ManualPauseSeconds      int `json:"manual_pause_seconds"`
+	DHCPTimeoutSeconds      int  `json:"dhcp_timeout_seconds"`
+	ManualPauseSeconds      int  `json:"manual_pause_seconds"`
+	VendorIEDiscovery       bool `json:"vendor_ie_discovery"`
 }
 
 // MintConfig holds configuration for a specific mint.

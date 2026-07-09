@@ -10,7 +10,16 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Vendor IE discovery (802.11 vendor-specific IE).** Re-implemented
+  TollGate vendor IE encoding/decoding from the wire format spec
+  (`DD <len> 212121 01 <version> <flags> [TLV mint_url] [TLV pubkey]`).
+  Includes `EncodeTollGateVendorIE`, `ParseTollGateVendorIE`,
+  `ParseVendorIEsFromScanData`, and `EmitTollGateVendorIE` (ubus
+  emission). Gated behind `vendor_ie_discovery` config flag (default
+  false). Removes the old dead-code bypass from the previous iteration
+  ([#199](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/199)).
 
 ## [v0.5.0] - 2026-07-03
 
