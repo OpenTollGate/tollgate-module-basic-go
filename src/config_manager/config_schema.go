@@ -130,6 +130,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PostSwitchWaitSeconds", JSONKey: "post_switch_wait_seconds", Type: "int", Description: "Seconds to wait after a switch before scoring", Default: 5, Required: true, Editable: true, Min: 1, Max: 60},
 				{Name: "DHCPTimeoutSeconds", JSONKey: "dhcp_timeout_seconds", Type: "int", Description: "Timeout for DHCP after connecting to a network", Default: 180, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
+			{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Enable 802.11 vendor-specific IE for TollGate router-to-router discovery", Default: false, Required: true, Editable: true},
 			},
 		},
 	}
