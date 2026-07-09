@@ -53,14 +53,29 @@ func isValidMAC(mac string) bool {
 // Module-level logger with pre-configured module field
 var logger = logrus.WithField("module", "valve")
 
-// openGates keeps track of MAC addresses that have been authorized
+// AuthDelay controls a delay before ndsctl auth, giving the captive portal
+// time to load a redirect page before Android detects connectivity and
+// closes the WebView. Set to 0 (default) for immediate auth.
+var AuthDelay time.Duration
+
+// stopCh is closed by Stop() to cancel all in-flight delayed auth goroutines.
+var stopCh = make(chan struct{})
+
+// openGates keeps track of MAC addresses that have been authorized.
+// pendingUntil stores target deauth timestamps for MACs awaiting delayed auth,
+// so extensions during the delay window are preserved (fixes concurrent payment bug).
 var (
-	openGates  = make(map[string]*time.Timer)
-	gatesMutex = &sync.Mutex{}
+	openGates    = make(map[string]*time.Timer)
+	gatesMutex   = &sync.Mutex{}
+	pendingUntil = make(map[string]int64)
 )
 
 // ndsctlMutex ensures only one ndsctl command runs at a time
 var ndsctlMutex = &sync.Mutex{}
+
+func Stop() {
+	close(stopCh)
+}
 
 // authorizeMAC authorizes a MAC address using ndsctl.
 //
@@ -128,6 +143,8 @@ func deauthorizeMAC(macAddress string) error {
 
 // OpenGateUntil opens the gate (if not opened yet) and sets a timer until the timestamp.
 // If there is already a timer running, it will extend the timer.
+// When AuthDelay > 0, auth is deferred to a goroutine that reads the latest
+// untilTimestamp from pendingUntil — extensions during the delay are preserved.
 func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 	if !isValidMAC(macAddress) {
 		return fmt.Errorf("invalid MAC address format: %s", macAddress)
@@ -135,10 +152,8 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 
 	now := time.Now().Unix()
 
-	// Calculate duration until the target timestamp
 	durationSeconds := untilTimestamp - now
 
-	// If the timestamp is in the past, return an error
 	if durationSeconds <= 0 {
 		return fmt.Errorf("timestamp %d is in the past (current time: %d)", untilTimestamp, now)
 	}
@@ -152,14 +167,22 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 	gatesMutex.Lock()
 	defer gatesMutex.Unlock()
 
-	// Check if the MAC is already in openGates
 	existingTimer, exists := openGates[macAddress]
 
-	// Always authorize with ndsctl even if we think it's already authorized
-	// (ndsctl state can get out of sync with our in-memory map)
-	err := authorizeMAC(macAddress)
-	if err != nil {
-		if !exists {
+	if !exists {
+		if AuthDelay > 0 {
+			pendingUntil[macAddress] = untilTimestamp
+			openGates[macAddress] = nil
+			go delayedAuth(macAddress)
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"delay":       AuthDelay,
+			}).Info("Scheduled delayed auth for redirect")
+			return nil
+		}
+
+		err := authorizeMAC(macAddress)
+		if err != nil {
 			return fmt.Errorf("error authorizing MAC: %w", err)
 		}
 		logger.WithFields(logrus.Fields{
@@ -171,6 +194,13 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
 		}).Debug("New authorization for MAC")
+	} else if _, pending := pendingUntil[macAddress]; pending {
+		pendingUntil[macAddress] = untilTimestamp
+		logger.WithFields(logrus.Fields{
+			"mac_address":     macAddress,
+			"until_timestamp": untilTimestamp,
+		}).Info("Extended pending delayed auth")
+		return nil
 	} else {
 		if existingTimer != nil {
 			existingTimer.Stop()
@@ -204,7 +234,6 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 		gatesMutex.Unlock()
 	})
 
-	// Store the timer in openGates
 	openGates[macAddress] = timer
 
 	return nil
@@ -221,26 +250,38 @@ func OpenGate(macAddress string) error {
 	gatesMutex.Lock()
 	defer gatesMutex.Unlock()
 
-	// If there's an existing timer, stop it.
-	if existingTimer, exists := openGates[macAddress]; exists {
+	_, exists := openGates[macAddress]
+	if existingTimer, ok := openGates[macAddress]; ok {
 		if existingTimer != nil {
 			existingTimer.Stop()
 		}
 		logger.WithField("mac_address", macAddress).Info("Replacing existing timed gate with indefinite data-based gate.")
 	}
 
-	err := authorizeMAC(macAddress)
-	if err != nil {
-		return err
-	}
+	if AuthDelay > 0 {
+		if !exists {
+			pendingUntil[macAddress] = 1
+			go delayedAuthIndefinite(macAddress)
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"delay":       AuthDelay,
+			}).Info("Scheduled delayed auth for redirect")
+		} else if _, pending := pendingUntil[macAddress]; pending {
+			logger.WithField("mac_address", macAddress).Info("Extending pending delayed indefinite auth")
+		}
+	} else {
+		err := authorizeMAC(macAddress)
+		if err != nil {
+			return err
+		}
 
-	// Set data baseline for tracking
-	err = SetDataBaseline(macAddress)
-	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"mac_address": macAddress,
-			"error":       err,
-		}).Warn("Failed to set data baseline, continuing anyway")
+		err = SetDataBaseline(macAddress)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"error":       err,
+			}).Warn("Failed to set data baseline, continuing anyway")
+		}
 	}
 
 	// Store a nil timer to indicate an indefinite gate
@@ -267,8 +308,9 @@ func CloseGate(macAddress string) error {
 		return err
 	}
 
-	// Clean up from active gates map and data baseline
+	// Clean up from active gates map, pending delays, and data baseline
 	delete(openGates, macAddress)
+	delete(pendingUntil, macAddress)
 	ClearDataBaseline(macAddress)
 	return nil
 }
@@ -352,4 +394,130 @@ func GetClientUsage(macAddress string) (totalBytes uint64, err error) {
 		return 0, err
 	}
 	return downloaded + uploaded, nil
+}
+
+func delayedAuth(macAddress string) {
+	logger.WithFields(logrus.Fields{
+		"mac_address": macAddress,
+		"delay":       AuthDelay,
+	}).Info("Waiting before delayed auth")
+
+	select {
+	case <-time.After(AuthDelay):
+	case <-stopCh:
+		logger.WithField("mac_address", macAddress).Info("Delayed auth cancelled during shutdown")
+		gatesMutex.Lock()
+		delete(pendingUntil, macAddress)
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	gatesMutex.Lock()
+	untilTimestamp, pending := pendingUntil[macAddress]
+	delete(pendingUntil, macAddress)
+	gatesMutex.Unlock()
+
+	if !pending {
+		logger.WithField("mac_address", macAddress).Warn("Delayed auth has no pending entry, aborting")
+		gatesMutex.Lock()
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	if err := authorizeMAC(macAddress); err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Error("Delayed auth failed")
+		gatesMutex.Lock()
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	logger.WithFields(logrus.Fields{
+		"mac_address": macAddress,
+	}).Info("Delayed auth succeeded")
+
+	remaining := time.Until(time.Unix(untilTimestamp, 0))
+	if remaining <= 0 {
+		logger.WithField("mac_address", macAddress).Warn("Session expired during auth delay, deauthorizing immediately")
+		deauthorizeMAC(macAddress)
+		gatesMutex.Lock()
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	timer := time.AfterFunc(remaining, func() {
+		if err := deauthorizeMAC(macAddress); err != nil {
+			logger.WithField("mac_address", macAddress).Error("Error deauthorizing after timeout")
+		}
+		gatesMutex.Lock()
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+	})
+
+	gatesMutex.Lock()
+	openGates[macAddress] = timer
+	gatesMutex.Unlock()
+}
+
+func delayedAuthIndefinite(macAddress string) {
+	logger.WithFields(logrus.Fields{
+		"mac_address": macAddress,
+		"delay":       AuthDelay,
+	}).Info("Waiting before delayed auth")
+
+	select {
+	case <-time.After(AuthDelay):
+	case <-stopCh:
+		logger.WithField("mac_address", macAddress).Info("Delayed indefinite auth cancelled during shutdown")
+		gatesMutex.Lock()
+		delete(pendingUntil, macAddress)
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	gatesMutex.Lock()
+	_, pending := pendingUntil[macAddress]
+	delete(pendingUntil, macAddress)
+	gatesMutex.Unlock()
+
+	if !pending {
+		logger.WithField("mac_address", macAddress).Warn("Delayed indefinite auth has no pending entry, aborting")
+		gatesMutex.Lock()
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	if err := authorizeMAC(macAddress); err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Error("Delayed auth failed")
+		gatesMutex.Lock()
+		delete(openGates, macAddress)
+		gatesMutex.Unlock()
+		return
+	}
+
+	logger.WithFields(logrus.Fields{
+		"mac_address": macAddress,
+	}).Info("Delayed auth succeeded")
+
+	if err := SetDataBaseline(macAddress); err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Warn("Failed to set data baseline, continuing anyway")
+	}
+
+	gatesMutex.Lock()
+	openGates[macAddress] = nil
+	gatesMutex.Unlock()
 }
