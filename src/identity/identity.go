@@ -130,8 +130,8 @@ var natoWords = []string{
 	"Victor", "Whiskey", "Xray", "Yankee", "Zulu",
 }
 
-func DeriveRootPassword(pubKeyHex string) string {
-	h := deriveHash("tollgate-root-pw-v1:", pubKeyHex)
+func DeriveRootPassword(privKeyHex string) string {
+	h := deriveHash("tollgate-root-pw-v1:", privKeyHex)
 	return fmt.Sprintf("%s-%s-%s-%02d",
 		natoWords[int(h[0])%len(natoWords)],
 		natoWords[int(h[1])%len(natoWords)],
@@ -139,8 +139,8 @@ func DeriveRootPassword(pubKeyHex string) string {
 		int(h[3])%100)
 }
 
-func DeriveWiFiPassword(pubKeyHex, network string) string {
-	h := deriveHash("tollgate-wifi-pw-v1:"+network+":", pubKeyHex)
+func DeriveWiFiPassword(privKeyHex, network string) string {
+	h := deriveHash("tollgate-wifi-pw-v1:"+network+":", privKeyHex)
 	return fmt.Sprintf("%s-%s-%04d",
 		natoWords[int(h[0])%len(natoWords)],
 		natoWords[int(h[1])%len(natoWords)],
@@ -219,28 +219,26 @@ func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubHex, err := nostr.GetPublicKey(hexPrivKey)
-	if err != nil {
-		return nil, fmt.Errorf("identity: derive public key: %w", err)
-	}
 	return &FullIdentity{
 		DerivedIdentity: *derived,
 		Mnemonic:        mnemonic,
 		PrivateKey:      hexPrivKey,
-		RootPassword:    DeriveRootPassword(pubHex),
-		WifiPassword:    DeriveWiFiPassword(pubHex, "private"),
+		RootPassword:    DeriveRootPassword(hexPrivKey),
+		WifiPassword:    DeriveWiFiPassword(hexPrivKey, "private"),
 	}, nil
 }
 
-// deriveHash returns SHA-256(domainSep || pubKeyHex): the 32-byte deterministic
-// block every public attribute is sliced from. Writing domainSep before
-// pubKeyHex (both via io.WriteString, which never errors for a bytes.Buffer-
+// deriveHash returns SHA-256(domainSep || keyHex): the 32-byte deterministic
+// block every attribute is sliced from. Writing domainSep before
+// keyHex (both via io.WriteString, which never errors for a bytes.Buffer-
 // backed hasher) is the domain separation that keeps attribute streams
-// independent.
-func deriveHash(domainSep, pubKeyHex string) [32]byte {
+// independent. keyHex is the hex-encoded key material — public key hex for
+// public attributes (IPv4, MAC), private key hex for secret attributes
+// (passwords).
+func deriveHash(domainSep, keyHex string) [32]byte {
 	h := sha256.New()
 	_, _ = io.WriteString(h, domainSep)
-	_, _ = io.WriteString(h, pubKeyHex)
+	_, _ = io.WriteString(h, keyHex)
 	var out [32]byte
 	h.Sum(out[:0])
 	return out
