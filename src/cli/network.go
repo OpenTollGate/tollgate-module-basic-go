@@ -351,6 +351,12 @@ func getUCIValue(key string) (string, error) {
 
 // setUCIValue sets a UCI configuration value
 func setUCIValue(key, value string) error {
+	if strings.ContainsAny(key, "\n\r\x00") {
+		return fmt.Errorf("invalid UCI key: contains control characters")
+	}
+	if strings.ContainsAny(value, "\n\r\x00") {
+		return fmt.Errorf("invalid UCI value: contains control characters")
+	}
 	cmd := exec.Command("uci", "set", fmt.Sprintf("%s=%s", key, value))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to set UCI value: %v", err)
