@@ -161,7 +161,7 @@ func SaveConfig(filePath string, config *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0600)
 }
 
 func defaultProductionMints() []MintConfig {
