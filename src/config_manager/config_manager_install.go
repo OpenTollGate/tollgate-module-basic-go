@@ -59,7 +59,7 @@ func SaveInstallConfig(filePath string, installConfig *InstallConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0600)
 }
 
 // EnsureDefaultInstall ensures a default install.json exists, loading from file if present.
