@@ -751,13 +751,6 @@ func handleIdentityDerive(privKey string) http.HandlerFunc {
 	}
 }
 
-// isLocalRequest returns true if the request originates from loopback.
-func isLocalRequest(r *http.Request) bool {
-	return strings.HasPrefix(r.RemoteAddr, "127.0.0.1") ||
-		strings.HasPrefix(r.RemoteAddr, "[::1]") ||
-		strings.HasPrefix(r.RemoteAddr, "[::ffff:127.0.0.1]")
-}
-
 // handleIdentityRevealSeed returns an http.HandlerFunc that serves the full
 // identity including the BIP39 mnemonic and raw private key. POST-only and
 // loopback-only: non-local requests get 403 Forbidden.
