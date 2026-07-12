@@ -12,7 +12,12 @@ PKG_MAINTAINER:=TollGate <tollgate@tollgate.me>
 PKG_LICENSE:=GPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/tollgate-module-basic-go-$(PKG_VERSION)
+# The Go module root is src/ inside the tarball (src/go.mod). golang-build.sh
+# checks $(BUILD_DIR)/go.mod to enable module mode and copies files relative
+# to BUILD_DIR into $GO_BUILD_DIR/src/$GO_PKG/. If PKG_BUILD_DIR points at the
+# tarball root instead of src/, go.mod is invisible and every file gets an
+# extra src/ prefix that breaks GO_PKG_BUILD_PKG resolution.
+PKG_BUILD_DIR:=$(BUILD_DIR)/tollgate-module-basic-go-$(PKG_VERSION)/src
 
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
@@ -26,10 +31,13 @@ GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go
 GO_PKG_BUILD_PKG:= \
   $(GO_PKG)/cmd/tollgate-wrt
 
+# The cli package is a local replace submodule: go.mod declares
+# module .../src/cli => ./cli, so its import path is .../src/cli.
+# Using .../cli (without /src) would silently skip version injection.
 GO_PKG_LDFLAGS_X:= \
-  $(GO_PKG)/cli.Version=v$(PKG_VERSION) \
-  $(GO_PKG)/cli.GitCommit=$(PKG_VERSION) \
-  $(GO_PKG)/cli.BuildTime=$(SOURCE_DATE_EPOCH)
+  $(GO_PKG)/src/cli.Version=v$(PKG_VERSION) \
+  $(GO_PKG)/src/cli.GitCommit=$(PKG_VERSION) \
+  $(GO_PKG)/src/cli.BuildTime=$(SOURCE_DATE_EPOCH)
 
 include $(INCLUDE_DIR)/package.mk
 include ../../lang/golang/golang-package.mk

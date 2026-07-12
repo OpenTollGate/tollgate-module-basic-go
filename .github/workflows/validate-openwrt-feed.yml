@@ -4,18 +4,14 @@ on:
   push:
     paths:
       - 'packaging/openwrt-feed/**'
-      - 'cmd/**'
-      - 'cli/**'
-      - 'go.mod'
-      - 'go.sum'
+      - 'src/**'
+      - 'tests/validate-golang-pkg-layout.sh'
       - '.github/workflows/validate-openwrt-feed.yml'
   pull_request:
     paths:
       - 'packaging/openwrt-feed/**'
-      - 'cmd/**'
-      - 'cli/**'
-      - 'go.mod'
-      - 'go.sum'
+      - 'src/**'
+      - 'tests/validate-golang-pkg-layout.sh'
       - '.github/workflows/validate-openwrt-feed.yml'
 
 env:
@@ -47,6 +43,20 @@ jobs:
           grep -q 'BuildPackage' "$MAKEFILE"   || { echo "FAIL: missing BuildPackage"; exit 1; }
 
           grep -q 'REPLACES' "$MAKEFILE"       && { echo "FAIL: REPLACES not allowed upstream"; exit 1; }
+
+          # PKG_BUILD_DIR must point at the src/ subdirectory where go.mod lives
+          if ! grep '^PKG_BUILD_DIR:' "$MAKEFILE" | grep -q '/src$'; then
+            echo "FAIL: PKG_BUILD_DIR must end with /src (go.mod is in src/ subdir)"
+            exit 1
+          fi
+
+          # GO_PKG_LDFLAGS_X must use /src/cli not /cli (go.mod: .../src/cli => ./cli)
+          # /cli.Version would match inside /src/cli.Version, so check that
+          # every cli.Version line also contains /src/cli
+          if grep 'GO_PKG_LDFLAGS_X' "$MAKEFILE" -A3 | grep 'cli\.Version' | grep -qv '/src/cli'; then
+            echo "FAIL: GO_PKG_LDFLAGS_X uses cli.Version without /src/ prefix"
+            exit 1
+          fi
 
           echo "Makefile lint passed."
 
@@ -159,3 +169,38 @@ jobs:
         run: |
           (cd src && go build -o /dev/null ./cmd/tollgate-wrt)
           (cd src/cmd/tollgate-cli && go build -o /dev/null .)
+
+  validate-golang-pkg-layout:
+    name: golang-package.mk layout validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+
+      - name: Run golang-package.mk layout validator
+        run: |
+          chmod +x tests/validate-golang-pkg-layout.sh
+          bash tests/validate-golang-pkg-layout.sh
+
+      - name: Cross-compile with feed Makefile ldflags
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          # Prove the corrected GO_PKG_LDFLAGS_X paths actually inject
+          LDFLAGS="-s -w \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=v0.4.0-test' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=deadbeef' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=0'"
+          (cd src && go build -trimpath -ldflags="$LDFLAGS" -o /tmp/tollgate-wrt ./cmd/tollgate-wrt)
+          # Verify version was injected
+          if strings /tmp/tollgate-wrt | grep -q 'v0.4.0-test'; then
+            echo "PASS: version injected via /src/cli ldflags path"
+          else
+            echo "FAIL: version NOT found in binary — ldflags path wrong"
+            exit 1
+          fi
