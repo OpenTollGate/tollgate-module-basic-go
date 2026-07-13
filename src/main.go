@@ -372,6 +372,20 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRootPost handles POST requests to the root endpoint
+func extractCashuToken(body []byte) (token string, event *nostr.Event) {
+	var ev nostr.Event
+	err := json.Unmarshal(body, &ev)
+	if err == nil && ev.Kind == 21000 {
+		for _, tag := range ev.Tags {
+			if len(tag) >= 2 && tag[0] == "payment" {
+				return tag[1], &ev
+			}
+		}
+		return "", &ev
+	}
+	return strings.TrimSpace(string(body)), nil
+}
+
 func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
 	mainLogger.WithFields(logrus.Fields{
@@ -408,42 +422,24 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	bodyStr := string(body)
 	mainLogger.WithField("body", bodyStr).Debug("Received POST request")
 
-	var cashuToken string
+	cashuToken, nostrEvent := extractCashuToken(body)
 
-	// Try to parse as JSON (Nostr event format)
-	var event nostr.Event
-	err = json.Unmarshal(body, &event)
-
-	if err == nil && event.Kind == 21000 {
-		// It's a valid Nostr event (signature validation is now optional)
+	if nostrEvent != nil {
 		mainLogger.WithFields(logrus.Fields{
-			"event_id":   event.ID,
-			"created_at": event.CreatedAt,
-			"kind":       event.Kind,
-			"pubkey":     event.PubKey,
+			"event_id":   nostrEvent.ID,
+			"created_at": nostrEvent.CreatedAt,
+			"kind":       nostrEvent.Kind,
+			"pubkey":     nostrEvent.PubKey,
 		}).Info("Parsed nostr event (signature not validated)")
 
-		// Extract payment token from event
-		var paymentToken string
-		for _, tag := range event.Tags {
-			if len(tag) >= 2 && tag[0] == "payment" {
-				paymentToken = tag[1]
-				break
-			}
-		}
-
-		if paymentToken == "" {
+		if cashuToken == "" {
 			mainLogger.Error("No payment tag found in event")
 			sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-event",
 				"No payment tag found in event", macAddress)
 			return
 		}
-
-		cashuToken = paymentToken
 	} else {
-		// Treat as plain Cashu token string
 		mainLogger.Info("Treating request as plain Cashu token string")
-		cashuToken = strings.TrimSpace(bodyStr)
 	}
 
 	// Process payment with cashu token and MAC address
@@ -492,6 +488,29 @@ func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, sta
 }
 
 // handleRoot routes requests based on method
+func HandleUsage(w http.ResponseWriter, r *http.Request) {
+	ip := getIP(r)
+	macAddress, err := getMacAddress(ip)
+	if err != nil {
+		mainLogger.WithError(err).Error("Error getting MAC address for /usage")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "-1/-1")
+		return
+	}
+	usageStr, err := merchantProvider.inner.GetMerchant().GetUsage(macAddress)
+	if err != nil {
+		mainLogger.WithFields(logrus.Fields{
+			"mac":   macAddress,
+			"error": err,
+		}).Error("Error getting usage")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "-1/-1")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, usageStr)
+}
+
 func HandleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		HandleRootPost(w, r)
@@ -762,31 +781,7 @@ func main() {
 
 	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /usage endpoint")
-
-		// Get MAC address from request
-		ip := getIP(r)
-		macAddress, err := getMacAddress(ip)
-		if err != nil {
-			mainLogger.WithError(err).Error("Error getting MAC address for /usage")
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, "-1/-1")
-			return
-		}
-
-		// Get usage from merchant
-		usageStr, err := merchantProvider.inner.GetMerchant().GetUsage(macAddress)
-		if err != nil {
-			mainLogger.WithFields(logrus.Fields{
-				"mac":   macAddress,
-				"error": err,
-			}).Error("Error getting usage")
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, "-1/-1")
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, usageStr)
+		CorsMiddleware(HandleUsage)(w, r)
 	})
 
 	mainLogger.Info("Starting HTTP server on all interfaces...")
