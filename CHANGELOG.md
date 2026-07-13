@@ -10,7 +10,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Post-payment redirect with configurable auth delay.** Rebased from
+  the pre-v0.5.0 feature branch onto current main. Adds
+  `auth_delay_seconds` and `redirect_url` config fields, delayed-auth
+  goroutine lifecycle in the valve (cancellable on CloseGate), and a
+  `welcome.html` captive-portal page shown after payment
+  ([#200](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/200)).
 
 ## [v0.5.0] - 2026-07-03
 

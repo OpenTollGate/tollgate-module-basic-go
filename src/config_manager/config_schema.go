@@ -48,6 +48,14 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Enable reseller mode for upstream gateway discovery", Default: false, Required: true, Editable: true,
 		},
 		{
+			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
+			Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: false, Editable: true, Min: 0, Max: 300,
+		},
+		{
+			Name: "RedirectURL", JSONKey: "redirect_url", Type: "string",
+			Description: "URL to redirect clients to after payment (empty = no redirect)", Default: "", Required: false, Editable: true,
+		},
+		{
 			Name: "AcceptedMints", JSONKey: "accepted_mints", Type: "array",
 			Description: "List of accepted Cashu mints", Required: true, Editable: true,
 			Children: []FieldSchema{
