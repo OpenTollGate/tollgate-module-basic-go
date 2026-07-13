@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
@@ -123,28 +124,26 @@ func DeriveMAC(pubKeyHex, iface string) string {
 	return mac.String()
 }
 
-var natoWords = []string{
-	"Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf",
-	"Hotel", "India", "Juliet", "Kilo", "Lima", "Mike", "November",
-	"Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango", "Uniform",
-	"Victor", "Whiskey", "Xray", "Yankee", "Zulu",
-}
-
 func DeriveRootPassword(privKeyHex string) string {
-	h := deriveHash("tollgate-root-pw-v1:", privKeyHex)
-	return fmt.Sprintf("%s-%s-%s-%02d",
-		natoWords[int(h[0])%len(natoWords)],
-		natoWords[int(h[1])%len(natoWords)],
-		natoWords[int(h[2])%len(natoWords)],
-		int(h[3])%100)
+	h := deriveHash("tollgate-root-pw-v2:", privKeyHex)
+	words := bip39.GetWordList()
+	parts := make([]string, 6)
+	for i := 0; i < 6; i++ {
+		idx := (int(h[i*2])<<8 | int(h[i*2+1])) % len(words)
+		parts[i] = words[idx]
+	}
+	return strings.Join(parts, "-")
 }
 
 func DeriveWiFiPassword(privKeyHex, network string) string {
-	h := deriveHash("tollgate-wifi-pw-v1:"+network+":", privKeyHex)
-	return fmt.Sprintf("%s-%s-%04d",
-		natoWords[int(h[0])%len(natoWords)],
-		natoWords[int(h[1])%len(natoWords)],
-		((int(h[2])<<8)|int(h[3]))%10000)
+	h := deriveHash("tollgate-wifi-pw-v2:"+network+":", privKeyHex)
+	words := bip39.GetWordList()
+	parts := make([]string, 6)
+	for i := 0; i < 6; i++ {
+		idx := (int(h[i*2])<<8 | int(h[i*2+1])) % len(words)
+		parts[i] = words[idx]
+	}
+	return strings.Join(parts, "-")
 }
 
 // PrivateKeyToMnemonic converts a hex private key into a 24-word BIP39
