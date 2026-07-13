@@ -1,7 +1,7 @@
 dario.cat/mergo v1.0.0 h1:AGCNq9Evsj31mOgNPcLyXc+4PNABt905YmuqPYYpBWk=
 dario.cat/mergo v1.0.0/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
-github.com/Amperstrand/gonuts-tollgate v0.7.0 h1:pp7Cqt3TFH3h7c8tFhNM9aSHJ89D5dUmJ5WqBo3oiF8=
-github.com/Amperstrand/gonuts-tollgate v0.7.0/go.mod h1:2OmCckSDd1YpVTmoeCUYEXWNhN9h3ggeqeQXlqscssY=
+github.com/OpenTollGate/gonuts-tollgate v0.7.1 h1:1D7GRpu1SwyQCbx70wVomOpzMVi6W7E3yGfc/gCxAvM=
+github.com/OpenTollGate/gonuts-tollgate v0.7.1/go.mod h1:2OmCckSDd1YpVTmoeCUYEXWNhN9h3ggeqeQXlqscssY=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 h1:L/gRVlceqvL25UVaW/CKtUDjefjrs0SPonmDGUVOYP0=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
 github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 h1:ClzzXMDDuUbWfNNZqGeYq4PnYOlwlOVIvSyNaIy0ykg=
