@@ -237,7 +237,7 @@ func mustPubHex(t *testing.T, hexPrivKey string) string {
 
 func TestDeriveRootPassword_Format(t *testing.T) {
 	pw := DeriveRootPassword(freshKey(t))
-	assert.Regexp(t, `^[A-Z][a-z]+-[A-Z][a-z]+-[A-Z][a-z]+-\d{2}$`, pw)
+	assert.Regexp(t, `^[a-z]+(-[a-z]+){5}$`, pw)
 }
 
 func TestDeriveRootPassword_Deterministic(t *testing.T) {
@@ -253,7 +253,7 @@ func TestDeriveRootPassword_DistinctPerKey(t *testing.T) {
 
 func TestDeriveWiFiPassword_Format(t *testing.T) {
 	pw := DeriveWiFiPassword(freshKey(t), "private")
-	assert.Regexp(t, `^[A-Z][a-z]+-[A-Z][a-z]+-\d{4}$`, pw)
+	assert.Regexp(t, `^[a-z]+(-[a-z]+){5}$`, pw)
 }
 
 func TestDeriveWiFiPassword_DistinctPerNetwork(t *testing.T) {
