@@ -10,14 +10,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-- **Post-payment redirect with configurable auth delay.** Rebased from
-  the pre-v0.5.0 feature branch onto current main. Adds
-  `auth_delay_seconds` and `redirect_url` config fields, delayed-auth
-  goroutine lifecycle in the valve (cancellable on CloseGate), and a
-  `welcome.html` captive-portal page shown after payment
-  ([#200](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/200)).
+- **Wireless config missing-file guard.** `scanner.GetRadios()` and
+  `connector.getRadiosFromConfig()` now return gracefully when
+  `/etc/config/wireless` does not exist instead of erroring every scan
+  cycle
+  ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196)).
+- **Dead firewall include removed.** The `firewall-tollgate` include file
+  was silently rejected by fw4 (nftables); rules now created directly via
+  UCI named sections with idempotent guards
+  ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196)).
+- **Upstream gateway IP validation.** Loopback, unspecified, and
+  link-local addresses are now rejected in the TollGate prober to prevent
+  SSRF
+  ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196)).
 
 ## [v0.5.0] - 2026-07-03
 

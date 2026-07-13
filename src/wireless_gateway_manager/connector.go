@@ -1225,6 +1225,9 @@ func (c *Connector) EnsureRadiosEnabled() error {
 func (c *Connector) getRadiosFromConfig() ([]string, error) {
 	data, err := os.ReadFile("/etc/config/wireless")
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to read wireless config: %w", err)
 	}
 
