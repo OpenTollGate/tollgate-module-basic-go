@@ -60,6 +60,9 @@ func EncodeTollGateVendorIE(adv TollGateAdvertisement) (string, error) {
 	}
 
 	ie := append([]byte{0xDD, uint8(len(body))}, body...)
+	if len(body) > 255 {
+		return "", fmt.Errorf("vendor IE body too long: %d bytes (max 255)", len(body))
+	}
 
 	return hex.EncodeToString(ie), nil
 }
@@ -76,7 +79,7 @@ func ParseTollGateVendorIE(raw []byte) *TollGateAdvertisement {
 	if len(raw) < 2+bodyLen {
 		return nil
 	}
-	body := raw[2:]
+	body := raw[2 : 2+bodyLen]
 
 	oui := fmt.Sprintf("%02x%02x%02x", body[0], body[1], body[2])
 	if oui != tollgateOUI {
