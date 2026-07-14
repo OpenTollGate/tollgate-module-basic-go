@@ -41,6 +41,15 @@ and [Semantic Versioning](https://semver.org/).
   SSRF
   ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196)).
 
+### Changed / Internal
+
+- **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
+  CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
+  health) with example output, flags, and a troubleshooting section; README
+  modules table and documentation list updated to reflect the full CLI
+  surface
+  ([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
+
 ## [v0.5.0] - 2026-07-03
 
 Everything merged into `main` since `v0.4.0` (tagged 2026-04-06),
