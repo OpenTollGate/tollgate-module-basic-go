@@ -160,8 +160,6 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 
-	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/etc/config/firewall-tollgate $(1)/etc/config/
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
@@ -191,7 +189,6 @@ FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-apply-ssl \
 	/usr/bin/tollgate-remove-ssl \
 	/etc/init.d/tollgate-wrt \
-	/etc/config/firewall-tollgate \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
