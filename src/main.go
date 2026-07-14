@@ -594,7 +594,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).Error("Error getting balance usage")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: err.Error()})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: "failed to retrieve usage data"})
 		return
 	}
 	if usage == "-1/-1" {
@@ -609,7 +609,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "usage": usage, "error": err}).Error("Error parsing usage string")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: err.Error()})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 0, Error: "failed to process usage data"})
 		return
 	}
 
@@ -685,7 +685,7 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithError(err).Warn("Failed to create lightning invoice")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: err.Error()})
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to create lightning invoice"})
 		return
 	}
 
@@ -733,7 +733,7 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithError(err).Warn("Failed to fetch lightning invoice status")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: err.Error()})
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to fetch invoice status"})
 		return
 	}
 
