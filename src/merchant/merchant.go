@@ -438,7 +438,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	mintURL := paymentCashuToken.Mint()
 	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
 	if err != nil {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "allotment-calculation-failed",
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-error",
 			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to calculate allotment and failed to create notice: %w", noticeErr)
@@ -449,10 +449,10 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Add allotment to the session and only persist the update if gate access opens.
 	session, err := m.grantSessionAccess(macAddress, allotment)
 	if err != nil {
-		errorCode := "session-management-failed"
+		errorCode := "session-error"
 		errorMessage := fmt.Sprintf("Failed to manage session: %v", err)
 		if strings.Contains(err.Error(), "failed to open gate:") {
-			errorCode = "gate-open-failed"
+			errorCode = "session-error"
 			errorMessage = err.Error()
 		}
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode,
@@ -493,7 +493,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		Tags: nostr.Tags{
 			{"metric", config.Metric},
 			{"step_size", fmt.Sprintf("%d", config.StepSize)},
-			{"tips", "1", "2", "3", "4"},
+			{"tips", "1", "2"},
 		},
 		Content: "",
 	}
