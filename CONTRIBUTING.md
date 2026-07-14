@@ -37,7 +37,8 @@ handoffs, two-router autopay. A `go test` run is necessary but not
 sufficient for that class of change; the pytest hardware suite in
 [tests/](tests/) is where those regressions actually surface. This
 document covers the workflow assuming that context. Wire-protocol depth
-lives in [docs/protocol/](docs/protocol/), module internals in
+lives in the canonical spec repo
+[OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate), module internals in
 [docs/](docs/).
 
 ## Quick start
@@ -173,7 +174,8 @@ running it yourself saves a review round trip.
   happy path is fine for an initial PR; edge cases can land as
   follow-ups.
 - **Documentation updated alongside the code.** Wire-protocol changes
-  update the relevant spec under [docs/protocol/](docs/protocol/).
+  update the relevant spec in the canonical spec repo
+  [OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate).
   Config changes update the schema in
   [config_manager](src/config_manager/) *with a migration* and the
   example in [README.md](README.md). Behavior visible to operators
@@ -253,8 +255,8 @@ home yet, file a GitHub issue.
 - [PR-REVIEW.md](PR-REVIEW.md) — the 13-criteria PR review checklist
   maintainers run on every incoming PR; run it yourself before opening
   to save a round trip.
-- [docs/protocol/README.md](docs/protocol/README.md) — the TollGate
-  wire-protocol specs (TIPs).
+- [OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate) — the
+  canonical TollGate wire-protocol specs (TIPs, HTTP, NOSTR, WIFI).
 - [docs/](docs/) — module internals: merchant, upstream session
   manager, data-session management, wireless gateway manager.
 - [tests/README.md](tests/README.md) — the hardware test fleet and
