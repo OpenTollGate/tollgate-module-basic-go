@@ -12,6 +12,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Protocol compliance: notice event codes and tips tag.** Map
+  implementation-specific notice event codes to spec-defined codes from
+  TIP-01 (`session-management-failed`, `gate-open-failed`, and
+  `allotment-calculation-failed` → `session-error`;
+  `payment-error-token-spent` already matched). Codes with no spec
+  equivalent (`payment-error-invalid-token`, `invalid-mac-address`,
+  `payment-processing-timeout`, `payment-processing-failed`) are kept
+  as-is with precision in the content string. Also remove non-existent
+  TIP-03 and TIP-04 from the advertisement `tips` tag — only TIP-01 and
+  TIP-02 are defined.
+
 - **Wireless config missing-file guard.** `scanner.GetRadios()` and
   `connector.getRadiosFromConfig()` now return gracefully when
   `/etc/config/wireless` does not exist instead of erroring every scan
