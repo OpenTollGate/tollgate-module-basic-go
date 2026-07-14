@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip06"
@@ -73,8 +74,10 @@ type DerivedIdentity struct {
 // uses POST (intent signalling) rather than GET.
 type FullIdentity struct {
 	DerivedIdentity
-	Mnemonic   string `json:"mnemonic"`   // 12 space-separated BIP39 words
-	PrivateKey string `json:"privatekey"` // lowercase hex, 64 chars
+	Mnemonic     string `json:"mnemonic"`
+	PrivateKey   string `json:"privatekey"`
+	RootPassword string `json:"root_password"`
+	WifiPassword string `json:"wifi_password"`
 }
 
 // NpubFromPrivateKey returns the bech32 npub1… encoding of the public key that
@@ -152,6 +155,28 @@ func MnemonicToPrivateKey(mnemonic string) (string, error) {
 	return nip06.PrivateKeyFromSeed(seed)
 }
 
+func DeriveRootPassword(privKeyHex string) string {
+	h := deriveHash("tollgate-root-pw-v2:", privKeyHex)
+	words := bip39.GetWordList()
+	parts := make([]string, 6)
+	for i := 0; i < 6; i++ {
+		idx := (int(h[i*2])<<8 | int(h[i*2+1])) % len(words)
+		parts[i] = words[idx]
+	}
+	return strings.Join(parts, "-")
+}
+
+func DeriveWiFiPassword(privKeyHex, network string) string {
+	h := deriveHash("tollgate-wifi-pw-v2:"+network+":", privKeyHex)
+	words := bip39.GetWordList()
+	parts := make([]string, 6)
+	for i := 0; i < 6; i++ {
+		idx := (int(h[i*2])<<8 | int(h[i*2+1])) % len(words)
+		parts[i] = words[idx]
+	}
+	return strings.Join(parts, "-")
+}
+
 // Derive computes the public, non-sensitive identity (npub, IPv4, MACs for the
 // standard interfaces) from a hex private key. Use this for GET /identity.
 func Derive(hexPrivKey string) (*DerivedIdentity, error) {
@@ -193,6 +218,8 @@ func DeriveFromMnemonic(mnemonic string) (*FullIdentity, error) {
 		DerivedIdentity: *derived,
 		Mnemonic:        mnemonic,
 		PrivateKey:      hexPrivKey,
+		RootPassword:    DeriveRootPassword(hexPrivKey),
+		WifiPassword:    DeriveWiFiPassword(hexPrivKey, "private"),
 	}, nil
 }
 
@@ -206,6 +233,22 @@ func GenerateIdentity() (*FullIdentity, error) {
 		return nil, err
 	}
 	return DeriveFromMnemonic(mnemonic)
+}
+
+// RevealSeed returns the full identity including secrets (passwords, private key)
+// from a hex private key. Intended for loopback-only endpoints.
+// Mnemonic is empty — it was shown at generation time via GenerateIdentity().
+func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
+	derived, err := Derive(hexPrivKey)
+	if err != nil {
+		return nil, err
+	}
+	return &FullIdentity{
+		DerivedIdentity: *derived,
+		PrivateKey:      hexPrivKey,
+		RootPassword:    DeriveRootPassword(hexPrivKey),
+		WifiPassword:    DeriveWiFiPassword(hexPrivKey, "private"),
+	}, nil
 }
 
 // deriveHash returns SHA-256(domainSep || pubKeyHex): the 32-byte deterministic
