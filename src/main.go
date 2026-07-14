@@ -697,6 +697,24 @@ func main() {
 	}
 
 	const firstBootFlag = "/etc/tollgate/.first_boot_complete"
+
+	// Auto-complete timer: if the operator never calls /first-boot-setup/complete,
+	// the flag file is created automatically after 10 minutes to close the
+	// security window. The endpoint then returns 410 Gone.
+	if _, err := os.Stat(firstBootFlag); err != nil {
+		mainLogger.Info("first-boot: setup window open, auto-completing in 10 minutes")
+		go func() {
+			time.Sleep(10 * time.Minute)
+			if _, err := os.Stat(firstBootFlag); os.IsNotExist(err) {
+				f, err := os.Create(firstBootFlag)
+				if err == nil {
+					f.Close()
+				}
+				mainLogger.Info("first-boot: auto-completed after 10-minute timeout, secrets endpoint disabled")
+			}
+		}()
+	}
+
 	http.HandleFunc("/first-boot-setup", func(w http.ResponseWriter, r *http.Request) {
 		CorsMiddleware(handleFirstBootSetup(identityPrivKey, firstBootFlag))(w, r)
 	})
@@ -714,6 +732,11 @@ func main() {
 	}
 
 	mainLogger.Fatal(server.ListenAndServe())
+}
+
+func isLocalRequest(r *http.Request) bool {
+	ip := getIP(r)
+	return ip == "127.0.0.1" || ip == "::1" || ip == "localhost"
 }
 
 func getIP(r *http.Request) string {
