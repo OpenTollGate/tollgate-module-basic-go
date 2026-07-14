@@ -198,6 +198,24 @@ one commit on `main`, which keeps `git bisect` useful. Your in-PR
 commit history doesn't matter for the final landed history — the
 maintainer rewrites the commit message at merge time.
 
+## Security: never derive secrets from public keys
+
+A Nostr public key (npub) is broadcast to relays and is world-readable.
+Anyone who learns a router's npub can compute anything derived from it.
+**Passwords, API tokens, and any other secret material must be derived
+from the private key (`hexPrivKey`), never from the public key or npub.**
+
+This bug was introduced and fixed in PR #193 (see issue #209): the
+original `DeriveRootPassword` and `DeriveWiFiPassword` took `pubKeyHex`,
+making root and WiFi passwords computable from the npub alone. The fix
+changed both to take `hexPrivKey`. Public attributes (IPv4, MAC) remain
+npub-derived — only secrets moved to the private key.
+
+**Rule of thumb**: if the function name contains "password", "token",
+"secret", or "key" (as output, not input), its input must be the private
+key, not the public key. The same applies to Spilman channel keypairs in
+tollgate-rs and any other Nostr-based identity scheme.
+
 ## AI coding assistant policy
 
 Use of AI coding assistants (Claude Code, Copilot, Cursor, Aider, and
