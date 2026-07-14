@@ -1,0 +1,26 @@
+# tollgate-module-basic-go
+
+> TollGate turns an OpenWRT router into a Cashu-powered payment gateway for
+
+Project orientation for LLMs (see https://llmstxt.org/). Cross-link: AGENTS.md (workflow rules), HANDOVER.md (session state).
+
+## Stack
+
+Languages/build: Go.
+
+## Structure (top file types)
+
+- `.go`: 80 files
+- `.md`: 18 files
+- `.mod`: 15 files
+- `.sum`: 13 files
+- `.py`: 10 files
+- `.sh`: 5 files
+
+## Build & test
+
+- Inspect `Makefile` / `package.json` / `Cargo.toml` / `platformio.ini` for the canonical commands.
+
+## Optional
+
+- [README](./README.md): human readme

@@ -327,7 +327,8 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 
 	// Start with the aimed payment amount
 	currentAmount := targetAmount
-	maxAttempts := 10
+	// Retry the melt up to 5 times.
+	maxAttempts := 5
 	attempts := 0
 
 	var meltError error
