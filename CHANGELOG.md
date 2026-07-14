@@ -21,6 +21,10 @@ and [Semantic Versioning](https://semver.org/).
   was silently rejected by fw4 (nftables); rules now created directly via
   UCI named sections with idempotent guards
   ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196)).
+- **Makefile references to deleted firewall-tollgate.** PR #196 removed
+  `files/etc/config/firewall-tollgate` but two Makefile references (install
+  rule + conffiles list) were left behind, breaking all package builds
+  ([#235](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/235)).
 - **Upstream gateway IP validation.** Loopback, unspecified, and
   link-local addresses are now rejected in the TollGate prober to prevent
   SSRF
