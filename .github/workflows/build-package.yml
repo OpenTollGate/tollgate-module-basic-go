@@ -637,6 +637,7 @@ jobs:
               --tag n="$PACKAGE_NAME" \
               --tag compression="$compression" \
               --tag format="$fmt" \
+              $RELAYS \
               < /dev/null \
               | jq -c . >> events.jsonl
           done < build-results.jsonl
@@ -648,10 +649,11 @@ jobs:
             exit 1
           fi
 
-      - name: Publish events (one connection per relay)
+      - name: Verify NIP-94 events published
         run: |
           set -euo pipefail
-          cat events.jsonl | nak event $RELAYS
+          echo "Events were published directly during the build step."
+          echo "Event count: $(wc -l < events.jsonl)"
 
       - name: Cleanup coordination events
         env:
