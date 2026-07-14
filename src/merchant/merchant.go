@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
@@ -293,20 +294,34 @@ func (m *Merchant) StartPayoutRoutine() {
 	log.Printf("Payout routine started")
 }
 
-// processPayout checks balances and processes payouts for each mint
+// payoutInvoiceRetries is the invoice-fetch retry count for the reachability probe.
+const payoutInvoiceRetries = 5
+
+// fetchInvoiceWithRetry fetches an invoice, retrying up to payoutInvoiceRetries times.
+func fetchInvoiceWithRetry(lightningAddr string, amountSats uint64) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= payoutInvoiceRetries; attempt++ {
+		invoice, err := lightning.GetInvoiceFromLightningAddress(lightningAddr, amountSats)
+		if err == nil {
+			return invoice, nil
+		}
+		lastErr = err
+		log.Printf("fetchInvoiceWithRetry(%s, %d) attempt %d/%d failed: %v", lightningAddr, amountSats, attempt, payoutInvoiceRetries, err)
+	}
+	return "", lastErr
+}
+
+// processPayout pays the owner first, then reachable maintainers. Unreachable
+// recipients are skipped (their share stays in the wallet); the owner must be
+// reachable and paid before any maintainer. Payee failures don't fault the mint.
 func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
-	// Get current balance
-	// Note: The current implementation only returns total balance, not per mint
 	balance := m.tollwallet.GetBalanceByMint(mintConfig.URL)
 
-	// Skip if balance is below minimum payout amount
 	if balance < mintConfig.MinPayoutAmount {
 		log.Printf("Skipping payout %s, Balance %d does not meet threshold of %d", mintConfig.URL, balance, mintConfig.MinPayoutAmount)
 		return
 	}
 
-	// Get the amount we intend to payout to the owner.
-	// The tolerancePaymentAmount is the max amount we're willing to spend on the transaction, most of which should come back as change.
 	if balance <= mintConfig.MinBalance {
 		log.Printf("Skipping payout %s, Balance %d does not exceed min_balance %d", mintConfig.URL, balance, mintConfig.MinBalance)
 		return
@@ -318,37 +333,87 @@ func (m *Merchant) processPayout(mintConfig config_manager.MintConfig) {
 		return
 	}
 
-	for _, profitShare := range m.config.ProfitShare {
-		aimedAmount := uint64(math.Round(float64(aimedPaymentAmount) * profitShare.Factor))
-		if aimedAmount == 0 {
-			log.Printf("Skipping payout for %s: aimedAmount rounded to 0 (aimedPaymentAmount=%d, factor=%.4f)", profitShare.Identity, aimedPaymentAmount, profitShare.Factor)
+	// Build the recipient list in config order.
+	type recipient struct {
+		identity  string
+		amount    uint64
+		lightning string
+		isOwner   bool
+	}
+	var recipients []recipient
+	for _, ps := range m.config.ProfitShare {
+		amt := uint64(math.Round(float64(aimedPaymentAmount) * ps.Factor))
+		if amt == 0 {
+			log.Printf("Skipping payout for %s: aimedAmount rounded to 0 (aimedPaymentAmount=%d, factor=%.4f)", ps.Identity, aimedPaymentAmount, ps.Factor)
 			continue
 		}
-		// Lookup lightning address from identities based on the profitShare.Identity name
-		profitShareIdentity, err := identities.GetPublicIdentity(profitShare.Identity)
+		id, err := identities.GetPublicIdentity(ps.Identity)
 		if err != nil {
-			log.Printf("Warning: Could not find public identity for profit share: %v", err)
-			continue // Skip this profit share if identity not found
+			log.Printf("Warning: Could not find public identity for profit share %q: %v", ps.Identity, err)
+			continue
 		}
-		m.PayoutShare(mintConfig, aimedAmount, profitShareIdentity.LightningAddress)
+		recipients = append(recipients, recipient{
+			identity:  ps.Identity,
+			amount:    amt,
+			lightning: id.LightningAddress,
+			isOwner:   ps.Identity == "owner",
+		})
+	}
+	if len(recipients) == 0 {
+		return
+	}
+
+	// Phase 1 — reachability probe.
+	reachable := make([]recipient, 0, len(recipients))
+	for _, r := range recipients {
+		if _, err := fetchInvoiceWithRetry(r.lightning, r.amount); err != nil {
+			log.Printf("Payout %s: %s unreachable (no invoice after %d attempts: %v) — skipping, share stays in wallet",
+				mintConfig.URL, r.identity, payoutInvoiceRetries, err)
+			continue
+		}
+		reachable = append(reachable, r)
+	}
+
+	// Phase 2 — owner must be reachable and paid first.
+	var owner *recipient
+	for i := range reachable {
+		if reachable[i].isOwner {
+			owner = &reachable[i]
+			break
+		}
+	}
+	if owner == nil {
+		log.Printf("Payout %s: owner is unreachable — aborting all payouts this cycle", mintConfig.URL)
+		return
+	}
+	if err := m.PayoutShare(mintConfig, owner.amount, owner.lightning); err != nil {
+		log.Printf("Payout %s: owner payout failed (%v) — aborting dev-split payouts; e-cash retained", mintConfig.URL, err)
+		return
+	}
+
+	// Phase 3 — reachable maintainers.
+	for _, r := range reachable {
+		if r.isOwner {
+			continue
+		}
+		if err := m.PayoutShare(mintConfig, r.amount, r.lightning); err != nil {
+			log.Printf("Payout %s: payout to %s failed (%v) — e-cash retained for next cycle", mintConfig.URL, r.identity, err)
+			continue
+		}
 	}
 
 	log.Printf("Payout completed for mint %s", mintConfig.URL)
 }
 
-func (m *Merchant) PayoutShare(mintConfig config_manager.MintConfig, aimedPaymentAmount uint64, lightningAddress string) {
+// PayoutShare melts aimedPaymentAmount sats to lightningAddress, retrying the
+// melt up to 5 times. It does not fault the mint on payee failures (resolves #27).
+func (m *Merchant) PayoutShare(mintConfig config_manager.MintConfig, aimedPaymentAmount uint64, lightningAddress string) error {
 	tolerancePaymentAmount := aimedPaymentAmount + (aimedPaymentAmount * mintConfig.BalanceTolerancePercent / 100)
 
 	log.Printf("Processing payout for mint %s: aiming for %d sats with %d sats tolerance", mintConfig.URL, aimedPaymentAmount, tolerancePaymentAmount)
 
 	maxCost := aimedPaymentAmount + tolerancePaymentAmount
-	meltErr := m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, lightningAddress)
-
-	if meltErr != nil {
-		log.Printf("Error during payout for mint %s. Error melting to lightning. Marking unreachable... %v", mintConfig.URL, meltErr)
-		m.mintHealthTracker.MarkUnreachable(mintConfig.URL)
-		return
-	}
+	return m.tollwallet.MeltToLightning(mintConfig.URL, aimedPaymentAmount, maxCost, lightningAddress)
 }
 
 type PurchaseSessionResult struct {
