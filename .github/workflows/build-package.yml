@@ -299,7 +299,6 @@ jobs:
           install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                         "$PAYLOAD/etc/init.d/tollgate-wrt"
           install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
           install -D -m 0755 packaging/files/etc/uci-defaults/99-tollgate-setup              "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
-          install -D -m 0644 packaging/files/etc/config/firewall-tollgate                    "$PAYLOAD/etc/config/firewall-tollgate"
           install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                 "$PAYLOAD/usr/local/bin/first-login-setup"
           install -D -m 0755 packaging/files/usr/bin/check_package_path                      "$PAYLOAD/usr/bin/check_package_path"
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"
