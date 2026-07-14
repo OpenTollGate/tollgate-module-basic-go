@@ -131,6 +131,20 @@ setup_nodogsplash() {
     fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
+
+    # Defense-in-depth: block authenticated WiFi clients from reaching
+    # RFC1918 addresses (complements the fw4 DROP rules in firewall-tollgate).
+    local nds_auth
+    nds_auth=$(uci -q get nodogsplash.@nodogsplash[0].authenticated_users 2>/dev/null || echo "")
+    if ! echo "$nds_auth" | grep -q "10.0.0.0/8"; then
+        uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 10.0.0.0/8'
+    fi
+    if ! echo "$nds_auth" | grep -q "172.16.0.0/12"; then
+        uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 172.16.0.0/12'
+    fi
+    if ! echo "$nds_auth" | grep -q "192.168.0.0/16"; then
+        uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 192.168.0.0/16'
+    fi
 }
 
 setup_tollgate_firewall_rules() {
