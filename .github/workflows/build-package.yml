@@ -12,9 +12,9 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.24.2"
+  GO_VERSION: "1.25"
   DEBUG: "true"
-  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://blossom.psbt.me https://drive.cashu.email"
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
   BLOSSOM_MIN_SUCCESS: "2"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
@@ -215,6 +215,7 @@ jobs:
                   break
                 fi
                 echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+                echo "  nak output: $(printf '%s' "$resp" | tail -1)" >&2
                 sleep $delay
                 delay=$((delay * 2))
                 attempt=$((attempt + 1))
@@ -361,6 +362,7 @@ jobs:
                 break
               fi
               echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+              echo "  nak output: $(printf '%s' "$resp" | tail -1)" >&2
               sleep $delay
               delay=$((delay * 2))
               attempt=$((attempt + 1))
@@ -533,6 +535,7 @@ jobs:
                 break
               fi
               echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+              echo "  nak output: $(printf '%s' "$resp" | tail -1)" >&2
               sleep $delay
               delay=$((delay * 2))
               attempt=$((attempt + 1))
