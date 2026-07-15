@@ -2,12 +2,13 @@
 # TollGate first-boot configuration. Runs once from /etc/init.d/boot before
 # services start. All UCI changes are committed in a single pass at the end;
 # no service restarts here (uci-defaults runs before procd brings services up).
+#
+# The flag file stores the setup version. On reinstall/upgrade:
+# - Same version → verify wireless APs only (belt-and-suspenders)
+# - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
-
-if [ -f "$SETUP_FLAG" ]; then
-    exit 0
-fi
+SETUP_VERSION="v0.5.0"
 
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
@@ -283,8 +284,36 @@ commit_all() {
 
 # -- driver -----------------------------------------------------------------
 
+# Check if full setup is needed (version mismatch or first boot)
+EXISTING_VERSION=""
+if [ -f "$SETUP_FLAG" ]; then
+    EXISTING_VERSION=$(cat "$SETUP_FLAG" 2>/dev/null)
+fi
+
+if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
+    # Same version — verify wireless APs only (fixes #103/#173: APs missing
+    # after reinstall when setup-done flag persisted from a prior install).
+    : > "$LOGFILE"
+    log "Flag matches $SETUP_VERSION — verifying wireless APs only"
+
+    # Recover gateway name from existing config for AP SSID consistency
+    GATEWAY_NAME=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null) || \
+    GATEWAY_NAME=$(uci -q get wireless.default_radio0.ssid 2>/dev/null) || \
+    GATEWAY_NAME="TollGate-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
+    RANDOM_SUFFIX="${GATEWAY_NAME#TollGate-}"
+
+    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
+    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
+    uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
+    uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+    uci commit wireless
+    log "Wireless AP verification completed"
+    exit 0
+fi
+
+# Full setup (first boot or version change)
 : > "$LOGFILE"
-log "Starting TollGate configuration"
+log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
 
 setup_uhttpd
 setup_dns_dnsmasq
@@ -298,6 +327,6 @@ enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX
 commit_all
 
-log "TollGate setup completed"
-touch "$SETUP_FLAG"
+log "TollGate setup completed (version $SETUP_VERSION)"
+echo "$SETUP_VERSION" > "$SETUP_FLAG"
 exit 0
