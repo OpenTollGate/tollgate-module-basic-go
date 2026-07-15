@@ -181,6 +181,9 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
+
+	$(INSTALL_DIR) $(1)/usr/share/man/man8
+	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/man/man8/*.8 $(1)/usr/share/man/man8/
 endef
 
 FILES_$(PKG_NAME) += \
