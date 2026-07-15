@@ -1,6 +1,7 @@
 package lightning
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +10,27 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
+
+var ssrfSafeClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, _ := net.SplitHostPort(addr)
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, ip := range ips {
+				if ip.IP.IsLoopback() || ip.IP.IsUnspecified() || ip.IP.IsPrivate() || ip.IP.IsLinkLocalUnicast() {
+					return nil, fmt.Errorf("SSRF blocked: %s resolves to %s", host, ip.IP)
+				}
+			}
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	},
+}
 
 // LNURLPayResponse represents the response from the LNURL-pay service
 type LNURLPayResponse struct {
@@ -40,7 +61,7 @@ func GetInvoiceFromLightningAddress(lightningAddr string, amountSats uint64) (st
 	wellKnownURL := fmt.Sprintf("https://%s/.well-known/lnurlp/%s", domain, username)
 
 	// 3. Make initial request to the Lightning Address service
-	resp, err := http.Get(wellKnownURL)
+	resp, err := ssrfSafeClient.Get(wellKnownURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to make request to Lightning Address service: %w", err)
 	}
@@ -84,7 +105,7 @@ func GetInvoiceFromLightningAddress(lightningAddr string, amountSats uint64) (st
 	callbackURL.RawQuery = q.Encode()
 
 	// Make request to get the invoice
-	invoiceResp, err := http.Get(callbackURL.String())
+	invoiceResp, err := ssrfSafeClient.Get(callbackURL.String())
 	if err != nil {
 		return "", fmt.Errorf("failed to request invoice: %w", err)
 	}
