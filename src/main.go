@@ -840,7 +840,7 @@ func main() {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity endpoint")
 			CorsMiddleware(handleIdentityDerive(identityPrivKey))(w, r)
 		})
-		// reveal-seed returns the 24-word BIP39 mnemonic and raw private key —
+		// reveal-seed accepts a 12-word BIP39 mnemonic and raw private key —
 		// POST-only so the request is intentional and never cached/prefetched.
 		http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Hit /identity/reveal-seed endpoint (sensitive)")
@@ -970,6 +970,10 @@ func handleIdentityDerive(privKey string) http.HandlerFunc {
 // Registered at POST /identity/reveal-seed.
 func handleIdentityRevealSeed(_ string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalRequest(r) {
+			http.Error(w, "forbidden: loopback only", http.StatusForbidden)
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
 			return
