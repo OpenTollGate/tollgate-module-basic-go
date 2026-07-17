@@ -49,6 +49,17 @@ and [Semantic Versioning](https://semver.org/).
   modules table and documentation list updated to reflect the full CLI
   surface
   ([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
+- **E2E test suite relocated.** The pytest hardware suite under
+  `tests/` (test scripts, `flash_routers.py`, `conftest.py`, and
+  support files) has been removed; physical-router and end-to-end
+  coverage now lives in
+  [physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation),
+  with router flashing handled by
+  [conwrt](https://github.com/Amperstrand/conwrt). Only the contract
+  checks (`tests/contract/`) remain in this repo. Note:
+  `flash_routers.py` contained a default physical-router password that
+  remains in git history; cloud-lab runs use randomized credentials
+  ([#254](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/254)).
 
 ## [v0.5.0] - 2026-07-03
 
