@@ -124,7 +124,23 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 
 	w.ensureMintRegistered(mint)
 
-	amountAfterSwap, err := w.wallet.Receive(token, swapToTrusted)
+	// Strip DLEQ proofs before passing to the upstream wallet.
+	// gonuts-tollgate v0.6.1 verifies DLEQ proofs against the mint's current
+	// active keyset, but proof.Id identifies the keyset that actually signed
+	// the proof. When a mint rotates keysets, tokens minted under the old
+	// keyset fail DLEQ verification with "invalid DLEQ proof" even though
+	// the proofs are valid. The mint validates proof signatures server-side
+	// during the swap operation, so skipping client-side DLEQ verification
+	// does not allow spending invalid tokens.
+	strippedToken, err := stripDLEQProofs(token)
+	if err != nil {
+		// If stripping fails, fall back to the original token — the mint
+		// may not have rotated keysets and DLEQ verification will pass.
+		log.Printf("TollWallet.Receive: failed to strip DLEQ proofs, using original token: %v", err)
+		strippedToken = token
+	}
+
+	amountAfterSwap, err := w.wallet.Receive(strippedToken, swapToTrusted)
 	if err != nil {
 		// The upstream cashu library does not export a typed error for
 		// "token already spent", so we match on the error string at this
@@ -138,6 +154,24 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	}
 
 	return amountAfterSwap, nil
+}
+
+// stripDLEQProofs reconstructs the token with DLEQ proofs removed.
+// This is a workaround for gonuts-tollgate v0.6.1 which verifies DLEQ
+// proofs against the mint's active keyset instead of the keyset
+// identified by proof.Id. When the mint rotates keysets, old tokens
+// fail DLEQ verification. Setting includeDLEQ=false in NewTokenV4
+// omits the DLEQ proof data, causing VerifyProofsDLEQ to skip
+// verification (proof.DLEQ == nil → continue).
+func stripDLEQProofs(token cashu.Token) (cashu.Token, error) {
+	proofs := token.Proofs()
+	mint := token.Mint()
+
+	stripped, err := cashu.NewTokenV4(proofs, mint, cashu.Sat, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconstruct token without DLEQ: %w", err)
+	}
+	return stripped, nil
 }
 
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {

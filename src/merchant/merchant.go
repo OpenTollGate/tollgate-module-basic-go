@@ -485,6 +485,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if strings.Contains(strings.ToLower(err.Error()), "dleq") {
+			errorCode = "payment-error-dleq-keyset-rotation"
+			errorMessage = "This e-cash note uses an outdated mint key. The mint has rotated its security keys since this token was created. Please obtain a fresh token from the mint and try again."
 		} else {
 			errorCode = "payment-processing-failed"
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
