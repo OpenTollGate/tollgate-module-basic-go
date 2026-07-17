@@ -5,6 +5,8 @@ package merchant
 import (
 	"errors"
 	"fmt"
+	"log"
+	"math/rand"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -16,7 +18,9 @@ var ErrQuoteNotFound = errors.New("lightning quote not found")
 
 const (
 	lightningQuoteStateCacheTTL     = 2 * time.Second
-	lightningQuoteMonitorInterval   = 2 * time.Second
+	lightningQuoteMonitorInterval   = 5 * time.Second
+	lightningQuoteMonitorMaxBackoff = 30 * time.Second
+	lightningQuoteMonitorMaxJitter  = 500 * time.Millisecond
 	lightningQuoteCleanupInterval   = 1 * time.Minute
 	lightningQuoteExpiryGracePeriod = 5 * time.Minute
 	lightningQuoteMaxAge            = 30 * time.Minute
@@ -198,32 +202,49 @@ func (m *Merchant) startLightningQuoteJanitor() {
 }
 
 func (m *Merchant) monitorLightningQuote(quoteID string) {
-	ticker := time.NewTicker(lightningQuoteMonitorInterval)
-	defer ticker.Stop()
+	backoff := lightningQuoteMonitorInterval
 
 	for {
 		record, err := m.getLightningQuoteRecord(quoteID)
 		if err != nil {
+			log.Printf("monitorLightningQuote: stopping for %s — record not found: %v", quoteID, err)
 			return
 		}
 
 		now := time.Now()
 		if m.shouldDeleteLightningQuote(record, now) {
 			m.deleteLightningQuote(quoteID)
+			log.Printf("monitorLightningQuote: stopping for %s — quote expired/settled", quoteID)
 			return
 		}
 
 		state, err := m.getLightningQuoteState(quoteID)
-		if err == nil {
-			switch state {
-			case nut04.Paid, nut04.Issued:
-				if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
-					return
-				}
+		if err != nil {
+			log.Printf("monitorLightningQuote: mint state check failed for %s: %v", quoteID, err)
+			backoff *= 2
+			if backoff > lightningQuoteMonitorMaxBackoff {
+				backoff = lightningQuoteMonitorMaxBackoff
+			}
+			jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
+			time.Sleep(backoff + jitter)
+			continue
+		}
+
+		// Success — reset backoff.
+		backoff = lightningQuoteMonitorInterval
+
+		switch state {
+		case nut04.Paid, nut04.Issued:
+			if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
+				log.Printf("monitorLightningQuote: stopping for %s — access granted", quoteID)
+				return
+			} else {
+				log.Printf("monitorLightningQuote: ensureLightningAccessGranted failed for %s: %v", quoteID, err)
 			}
 		}
 
-		<-ticker.C
+		jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
+		time.Sleep(lightningQuoteMonitorInterval + jitter)
 	}
 }
 

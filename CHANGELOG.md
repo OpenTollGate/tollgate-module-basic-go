@@ -12,6 +12,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Lightning quote monitor now uses exponential backoff with jitter**
+  instead of fixed 2s polling. On mint API errors (including HTTP 429
+  rate limiting), the polling interval doubles up to 30s with random
+  jitter to prevent thundering herd. The base interval is increased
+  from 2s to 5s to reduce unnecessary mint API calls while remaining
+  responsive to the portal UX
+  ([#249](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/249)).
+
 - **Protocol compliance: notice event codes and tips tag.** Map
   implementation-specific notice event codes to spec-defined codes from
   TIP-01 (`session-management-failed`, `gate-open-failed`, and
