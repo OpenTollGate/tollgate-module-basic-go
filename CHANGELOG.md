@@ -12,6 +12,16 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **DLEQ proofs now verified against correct keyset via gonuts-tollgate
+  v0.7.3.** gonuts-tollgate v0.6.1 verified DLEQ proofs against the
+  mint's current active keyset, ignoring `proof.Id` which identifies
+  the keyset that actually signed the proof. When a mint rotates
+  keysets, tokens minted under the old keyset failed with "invalid DLEQ
+  proof". gonuts-tollgate v0.7.3 adds `VerifyProofsDLEQWithKeysets()`
+  which groups proofs by keyset ID and fetches the correct keyset per
+  group. Bump replace directive from v0.7.1 to v0.7.3
+  ([Amperstrand/gonuts-tollgate#5](https://github.com/Amperstrand/gonuts-tollgate/pull/5)).
+
 - **Protocol compliance: notice event codes and tips tag.** Map
   implementation-specific notice event codes to spec-defined codes from
   TIP-01 (`session-management-failed`, `gate-open-failed`, and
