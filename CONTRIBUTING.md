@@ -34,8 +34,9 @@ that merchant/client line:
 Most non-trivial changes affect behavior that only shows up on a real
 router — captive-portal gating, firewall and UCI state, Wi-Fi
 handoffs, two-router autopay. A `go test` run is necessary but not
-sufficient for that class of change; the pytest hardware suite in
-[tests/](tests/) is where those regressions actually surface. This
+sufficient for that class of change; the physical-router test suite in
+[physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+is where those regressions actually surface. This
 document covers the workflow assuming that context. Wire-protocol depth
 lives in the canonical spec repo
 [OpenTollGate/tollgate](https://github.com/OpenTollGate/tollgate), module internals in
@@ -64,7 +65,8 @@ cross-compiles the binaries, stages the canonical
 same artifact shape as CI.
 
 For end-to-end runs against real routers, see
-[tests/README.md](tests/README.md) for how to wire up a test fleet.
+[physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+for the hardware test fleet and cloud lab.
 
 ## Choosing a branch to target
 
@@ -148,9 +150,11 @@ bash tests/contract/build-purity.sh
 **Recommended for router-visible changes**: build a real package with
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh), install
 it on a test router, and exercise the affected flow — at minimum the
-purchase path (`tests/test_ecash_payment.py` automates it if you have
-a fleet configured). Captive-portal, firewall, Wi-Fi, and
-session-lifecycle changes cannot be validated any other way.
+purchase path (the
+[physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+suite automates it if you have a fleet configured). Captive-portal,
+firewall, Wi-Fi, and session-lifecycle changes cannot be validated any
+other way.
 
 ### Self-review against the project review checklist
 
@@ -277,7 +281,7 @@ home yet, file a GitHub issue.
   canonical TollGate wire-protocol specs (TIPs, HTTP, NOSTR, WIFI).
 - [docs/](docs/) — module internals: merchant, upstream session
   manager, data-session management, wireless gateway manager.
-- [tests/README.md](tests/README.md) — the hardware test fleet and
-  end-to-end suites.
+- [physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation) —
+  the hardware test fleet and end-to-end suites.
 - [README.md](README.md) — module map, installation, configuration
   reference.

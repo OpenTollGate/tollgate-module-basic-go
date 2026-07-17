@@ -18,9 +18,6 @@ tollgate-cli
 
 # Test artifacts
 **/tollwallet_db/*
-tests/*.bin
-tests/__pycache__/
-tests/.env
 
 # Router credentials (copy from routers.env.example)
 routers.env
