@@ -64,6 +64,7 @@ type Merchant struct {
 	sessionMu         sync.RWMutex
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
+	quoteStore        *quoteStore
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -148,8 +149,10 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		mintHealthTracker: mintHealthTracker,
 		customerSessions:  make(map[string]*CustomerSession),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
+		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
 	}
 
+	m.loadLightningQuotesFromDisk()
 	m.StartPayoutRoutine()
 	m.StartDataUsageMonitoring()
 	m.startLightningQuoteJanitor()
