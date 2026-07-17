@@ -12,6 +12,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Mint URL fuzzy matching in `calculateAllotment()`.** The mint URL
+  from Cashu tokens was compared against configured accepted mints
+  using exact string equality (`==`), causing payments to fail when
+  the URL differed by a trailing slash, uppercase host, or path
+  normalization. `calculateAllotment()` now uses the existing
+  `tollwallet.MintURLMatches()` function which tolerates these
+  differences — the same function already used by the wallet layer
+  during `Receive()`
+  ([#250](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/250),
+  [#251](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/251)).
+
 - **Protocol compliance: notice event codes and tips tag.** Map
   implementation-specific notice event codes to spec-defined codes from
   TIP-01 (`session-management-failed`, `gate-open-failed`, and
