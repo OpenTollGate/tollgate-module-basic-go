@@ -221,31 +221,47 @@ func (m *Merchant) monitorLightningQuote(quoteID string) {
 		state, err := m.getLightningQuoteState(quoteID)
 		if err != nil {
 			log.Printf("monitorLightningQuote: mint state check failed for %s: %v", quoteID, err)
-			backoff *= 2
-			if backoff > lightningQuoteMonitorMaxBackoff {
-				backoff = lightningQuoteMonitorMaxBackoff
-			}
-			jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
-			time.Sleep(backoff + jitter)
+			backoff = nextLightningBackoff(backoff)
+			jitterSleep(backoff)
 			continue
 		}
 
-		// Success — reset backoff.
-		backoff = lightningQuoteMonitorInterval
-
-		switch state {
-		case nut04.Paid, nut04.Issued:
+		// Mint state check succeeded. If the invoice is paid/issued, try to
+		// grant access. If that fails (e.g. ndsctl flaking), back off too —
+		// hammering ndsctl at base interval is the same failure mode as
+		// hammering the mint API.
+		if state == nut04.Paid || state == nut04.Issued {
 			if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
 				log.Printf("monitorLightningQuote: stopping for %s — access granted", quoteID)
 				return
 			} else {
 				log.Printf("monitorLightningQuote: ensureLightningAccessGranted failed for %s: %v", quoteID, err)
+				backoff = nextLightningBackoff(backoff)
+				jitterSleep(backoff)
+				continue
 			}
 		}
 
-		jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
-		time.Sleep(lightningQuoteMonitorInterval + jitter)
+		// Invoice still pending — reset backoff and poll at base interval.
+		backoff = lightningQuoteMonitorInterval
+		jitterSleep(lightningQuoteMonitorInterval)
 	}
+}
+
+// nextLightningBackoff doubles the current backoff interval, capped at
+// lightningQuoteMonitorMaxBackoff.
+func nextLightningBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next > lightningQuoteMonitorMaxBackoff {
+		next = lightningQuoteMonitorMaxBackoff
+	}
+	return next
+}
+
+// jitterSleep sleeps for d plus a random jitter in [0, lightningQuoteMonitorMaxJitter).
+func jitterSleep(d time.Duration) {
+	jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
+	time.Sleep(d + jitter)
 }
 
 func (m *Merchant) cleanupStaleLightningQuotes(now time.Time) {

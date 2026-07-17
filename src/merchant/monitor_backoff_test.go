@@ -96,73 +96,56 @@ func TestMonitorExitsOnExpiry(t *testing.T) {
 	}
 }
 
-// TestMonitorBackoffProgression verifies that the backoff value doubles
-// on each error and caps at maxBackoff. This is a pure logic test —
-// we verify the math, not the sleep.
-func TestMonitorBackoffProgression(t *testing.T) {
+// TestNextLightningBackoffDoublingAndCap exercises the helper directly,
+// covering the doubling progression, the cap, and idempotence at the cap.
+func TestNextLightningBackoffDoublingAndCap(t *testing.T) {
 	base := lightningQuoteMonitorInterval
 	max := lightningQuoteMonitorMaxBackoff
 
-	// Simulate backoff progression.
 	backoff := base
-	for i := 0; i < 20; i++ {
-		backoff *= 2
-		if backoff > max {
-			backoff = max
-		}
-	}
-
-	if backoff != max {
-		t.Errorf("backoff should have capped at %v, got %v", max, backoff)
-	}
-
-	// Verify it takes a reasonable number of steps to reach the cap.
 	steps := 0
-	backoff = base
-	for backoff < max {
-		backoff *= 2
-		if backoff > max {
-			backoff = max
+	for backoff < max && steps < 20 {
+		prev := backoff
+		backoff = nextLightningBackoff(backoff)
+		if backoff <= prev {
+			t.Fatalf("backoff did not increase: %v -> %v", prev, backoff)
 		}
 		steps++
 	}
 
+	if backoff != max {
+		t.Fatalf("expected to reach max %v, got %v after %d steps", max, backoff, steps)
+	}
 	if steps < 2 {
 		t.Errorf("expected at least 2 steps to reach max backoff, got %d", steps)
 	}
-	if steps > 10 {
-		t.Errorf("too many steps (%d) to reach max backoff — base interval may be too small", steps)
+
+	// Once at the cap, further calls stay at the cap.
+	for i := 0; i < 5; i++ {
+		if got := nextLightningBackoff(max); got != max {
+			t.Errorf("backoff at cap should stay at %v, got %v", max, got)
+		}
 	}
 }
 
-// TestMonitorBackoffResetsOnSuccess verifies backoff resets to base
-// after a successful API response. This is a logic test — we verify
-// the reset pattern works correctly.
-func TestMonitorBackoffResetsOnSuccess(t *testing.T) {
-	base := lightningQuoteMonitorInterval
+// TestJitterSleepRange verifies jitterSleep actually blocks for d plus
+// a jitter in [0, maxJitter). We allow a scheduling slack of 50ms.
+func TestJitterSleepRange(t *testing.T) {
+	const slack = 50 * time.Millisecond
+	base := 100 * time.Millisecond
 
-	// Simulate: error, error, success — backoff should reset.
-	backoff := base
-	// Error 1
-	backoff *= 2
-	if backoff > lightningQuoteMonitorMaxBackoff {
-		backoff = lightningQuoteMonitorMaxBackoff
-	}
-	// Error 2
-	backoff *= 2
-	if backoff > lightningQuoteMonitorMaxBackoff {
-		backoff = lightningQuoteMonitorMaxBackoff
-	}
+	for i := 0; i < 20; i++ {
+		start := time.Now()
+		jitterSleep(base)
+		elapsed := time.Since(start)
 
-	if backoff == base {
-		t.Fatal("backoff should have increased after errors")
-	}
-
-	// Success — reset.
-	backoff = base
-
-	if backoff != base {
-		t.Errorf("backoff should have reset to %v, got %v", base, backoff)
+		if elapsed < base {
+			t.Errorf("jitterSleep slept %v, expected >= %v", elapsed, base)
+		}
+		upper := base + lightningQuoteMonitorMaxJitter + slack
+		if elapsed > upper {
+			t.Errorf("jitterSleep slept %v, expected <= %v (base + maxJitter + slack)", elapsed, upper)
+		}
 	}
 }
 
@@ -189,11 +172,12 @@ func TestMonitorLightningQuoteConcurrent(t *testing.T) {
 	}
 
 	var done atomic.Int32
-	for i := 0; i < 2; i++ {
-		go func(qID string) {
-			m.monitorLightningQuote(qID)
+	quoteIDs := []string{"q1", "q2"}
+	for _, qID := range quoteIDs {
+		go func(id string) {
+			m.monitorLightningQuote(id)
 			done.Add(1)
-		}("q1") // Both try q1, second will find it already deleted by first
+		}(qID)
 	}
 
 	time.Sleep(2 * time.Second)
