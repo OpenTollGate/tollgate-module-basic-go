@@ -11,7 +11,6 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
-
 - **Lightning quote persistence across restarts.** Lightning invoice
   quotes are now persisted to disk (`quotes.json` in the wallet
   directory) so they survive process restarts. Previously all pending
@@ -23,6 +22,16 @@ and [Semantic Versioning](https://semver.org/).
   relaunched for unpaid quotes so access is granted if the invoice was
   settled while the process was down
   ([#248](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/248)).
+
+
+- **Lightning quote monitor now uses exponential backoff with jitter**
+  instead of fixed 2s polling. On mint API errors (including HTTP 429
+  rate limiting) and on access-grant failures (e.g. `ndsctl` flaking),
+  the polling interval doubles up to 30s with random jitter to prevent
+  thundering herd. The base interval is increased from 2s to 5s to
+  reduce unnecessary mint API calls while remaining responsive to the
+  portal UX
+  ([#249](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/249)).
 
 - **Protocol compliance: notice event codes and tips tag.** Map
   implementation-specific notice event codes to spec-defined codes from
