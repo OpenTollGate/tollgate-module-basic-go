@@ -2,6 +2,7 @@ package wireless_gateway_manager
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -199,8 +200,12 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 	combinedHex := strings.Join(hexIEs, "")
 
 	for _, iface := range hostapdIfaces {
-		jsonPayload := fmt.Sprintf(`{"vendor_elements":"%s"}`, combinedHex)
-		_, err := v.connector.ExecuteUbus("call", iface, "set_vendor_elements", jsonPayload)
+		payload := map[string]string{"vendor_elements": combinedHex}
+		jsonBytes, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal vendor elements payload: %w", err)
+		}
+		_, err = v.connector.ExecuteUbus("call", iface, "set_vendor_elements", string(jsonBytes))
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"interface": iface,
