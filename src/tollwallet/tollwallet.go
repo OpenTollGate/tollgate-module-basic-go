@@ -16,6 +16,11 @@ import (
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")
 
+// ErrWalletNotInitialized is returned by wallet operations when the underlying
+// cashu wallet has not been initialized (for example on a bare Merchant or in
+// degraded mode), so callers get an error instead of a nil-pointer panic.
+var ErrWalletNotInitialized = errors.New("wallet not initialized")
+
 type TollWallet struct {
 	wallet                     *wallet.Wallet
 	acceptedMints              []string
@@ -264,6 +269,9 @@ func (w *TollWallet) RequestMintQuote(amount uint64, mintURL string) (*nut04.Pos
 }
 
 func (w *TollWallet) GetMintQuoteState(quoteID string) (*nut04.PostMintQuoteBolt11Response, error) {
+	if w.wallet == nil {
+		return nil, ErrWalletNotInitialized
+	}
 	return w.wallet.MintQuoteState(quoteID)
 }
 
