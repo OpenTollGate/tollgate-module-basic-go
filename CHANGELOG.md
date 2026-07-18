@@ -12,6 +12,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Lightning quote persistence across restarts.** Lightning invoice
+  quotes are now persisted to disk (`quotes.json` in the wallet
+  directory) so they survive process restarts. Previously all pending
+  quotes were stored in-memory only; when `tollgate-wrt` restarted
+  (deploy, config change, or crash), users who had already paid saw the
+  portal stuck on "Waiting for payment" because the backend returned
+  `lightning quote not found`. On startup, persisted quotes are loaded,
+  expired/settled ones are pruned, and monitoring goroutines are
+  relaunched for unpaid quotes so access is granted if the invoice was
+  settled while the process was down
+  ([#248](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/248)).
+
 - **Protocol compliance: notice event codes and tips tag.** Map
   implementation-specific notice event codes to spec-defined codes from
   TIP-01 (`session-management-failed`, `gate-open-failed`, and
