@@ -43,6 +43,7 @@ type MerchantInterface interface {
 	GetBalanceByMint(mintURL string) uint64
 	GetAllMintBalances() map[string]uint64
 	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
+	RetryAuth(macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
 	StartDataUsageMonitoring()
@@ -65,6 +66,8 @@ type Merchant struct {
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
 	quoteStore        *quoteStore
+	pendingAuths      map[string]*pendingAuthRecord
+	pendingAuthMu     sync.Mutex
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -150,6 +153,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		customerSessions:  make(map[string]*CustomerSession),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
 		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
+		pendingAuths:      make(map[string]*pendingAuthRecord),
 	}
 
 	m.loadLightningQuotesFromDisk()

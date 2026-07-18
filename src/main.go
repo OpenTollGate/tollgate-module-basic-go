@@ -472,6 +472,46 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func HandleRetryAuth(w http.ResponseWriter, r *http.Request) {
+	mainLogger.WithFields(logrus.Fields{
+		"method":      r.Method,
+		"remote_addr": r.RemoteAddr,
+	}).Info("Received retry-auth request")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	ip := getIP(r)
+	macAddress, err := getMacAddress(ip)
+	if err != nil {
+		mainLogger.WithError(err).Error("retry-auth: MAC lookup failed")
+		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "mac-address-lookup-failed",
+			fmt.Sprintf("Failed to lookup MAC address for IP %s: %v", ip, err), "")
+		return
+	}
+
+	r.Body.Close()
+
+	responseEvent, err := merchantProvider.inner.GetMerchant().RetryAuth(macAddress)
+	w.Header().Set("Content-Type", "application/json")
+
+	if err != nil {
+		mainLogger.WithError(err).Error("retry-auth: internal error")
+		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusInternalServerError, "error", "internal-error",
+			fmt.Sprintf("Internal error during retry-auth: %v", err), macAddress)
+		return
+	}
+
+	if responseEvent.Kind == 21023 {
+		w.WriteHeader(http.StatusBadRequest)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	json.NewEncoder(w).Encode(responseEvent)
+}
+
 // sendNoticeResponse creates and sends a notice event response
 func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, statusCode int, level, code, message, customerPubkey string) {
 	noticeEvent, err := m.CreateNoticeEvent(level, code, message, customerPubkey)
@@ -782,6 +822,11 @@ func main() {
 	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /usage endpoint")
 		CorsMiddleware(HandleUsage)(w, r)
+	})
+
+	http.HandleFunc("/retry-auth", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /retry-auth endpoint")
+		CorsMiddleware(HandleRetryAuth)(w, r)
 	})
 
 	mainLogger.Info("Starting HTTP server on all interfaces...")

@@ -453,10 +453,12 @@ func (m *Merchant) grantSessionAccess(macAddress string, allotment uint64) (*Cus
 	}
 
 	if err := openGateForSession(macAddress, session); err != nil {
+		m.recordPendingAuth(macAddress, allotment)
 		m.restoreSession(macAddress, previousSession, hadSession)
 		return nil, err
 	}
 
+	m.clearPendingAuth(macAddress)
 	return session, nil
 }
 
