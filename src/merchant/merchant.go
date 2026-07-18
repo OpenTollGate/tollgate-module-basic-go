@@ -488,6 +488,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if isRateLimitError(err) {
+			errorCode = "payment-error-mint-rate-limited"
+			errorMessage = "The mint is temporarily rate-limiting requests. Please try again in a moment."
 		} else {
 			errorCode = "payment-processing-failed"
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
@@ -1096,4 +1099,14 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 
 	log.Printf("Successfully funded wallet with %d sats", amountReceived)
 	return amountReceived, nil
+}
+
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "429") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "too many requests")
 }
