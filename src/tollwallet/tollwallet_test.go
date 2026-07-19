@@ -178,10 +178,10 @@ func TestContains(t *testing.T) {
 			"fallback is exact match, not EqualFold")
 	})
 
-	t.Run("Empty path differs from trailing slash", func(t *testing.T) {
+	t.Run("Empty path matches trailing slash (RFC 3986)", func(t *testing.T) {
 		mints := []string{"https://testnut.cashu.exchange"}
 		assert.True(t, contains(mints, "https://TESTNUT.CASHU.EXCHANGE"))
-		assert.False(t, contains(mints, "https://testnut.cashu.exchange/"),
-			"empty path != slash path")
+		assert.True(t, contains(mints, "https://testnut.cashu.exchange/"),
+			"empty path == slash path per RFC 3986")
 	})
 }
