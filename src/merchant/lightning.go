@@ -248,6 +248,7 @@ func (m *Merchant) monitorLightningQuote(quoteID string) {
 
 // nextLightningBackoff doubles the current backoff interval, capped at
 // lightningQuoteMonitorMaxBackoff.
+=======
 func nextLightningBackoff(current time.Duration) time.Duration {
 	next := current * 2
 	if next > lightningQuoteMonitorMaxBackoff {
@@ -257,6 +258,7 @@ func nextLightningBackoff(current time.Duration) time.Duration {
 }
 
 // jitterSleep sleeps for d plus a random jitter in [0, lightningQuoteMonitorMaxJitter).
+=======
 func jitterSleep(d time.Duration) {
 	jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
 	time.Sleep(d + jitter)
