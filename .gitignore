@@ -45,4 +45,4 @@ docs/tmp/
 handover-mint-url-bug.md
 =======
 .omo/
->>>>>>> 99f620c (fix: remove accidentally committed .omo session files + gitignore)
+>>>>>>> abcba2d (fix: eliminate data race in persistLightningQuotes + add fsync before rename)
