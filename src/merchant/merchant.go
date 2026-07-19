@@ -625,7 +625,7 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 	// Find the mint configuration for this mint
 	var mintConfig *config_manager.MintConfig
 	for _, mint := range m.config.AcceptedMints {
-		if mint.URL == mintURL {
+		if tollwallet.MintURLMatches(mint.URL, mintURL) {
 			mintConfig = &mint
 			break
 		}
