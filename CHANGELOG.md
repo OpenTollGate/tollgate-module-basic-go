@@ -23,6 +23,17 @@ and [Semantic Versioning](https://semver.org/).
   `swapWithRetry` path that regenerates fresh blinded messages on
   retry.
 
+- **Mint URL fuzzy matching in `calculateAllotment()`.** The mint URL
+  from Cashu tokens was compared against configured accepted mints
+  using exact string equality (`==`), causing payments to fail when
+  the URL differed by a trailing slash, uppercase host, or path
+  normalization. `calculateAllotment()` now uses the existing
+  `tollwallet.MintURLMatches()` function which tolerates these
+  differences — the same function already used by the wallet layer
+  during `Receive()`
+  ([#250](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/250),
+  [#251](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/251)).
+
 - **Lightning quote persistence across restarts.** Lightning invoice
   quotes are now persisted to disk (`quotes.json` in the wallet
   directory) so they survive process restarts. Previously all pending

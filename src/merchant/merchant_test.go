@@ -192,3 +192,63 @@ func TestProcessPayout_UnderflowGuard(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculateAllotment_TrailingSlashMintURL(t *testing.T) {
+	m := &Merchant{
+		config: &config_manager.Config{
+			Metric:   "milliseconds",
+			StepSize: 1000,
+			AcceptedMints: []config_manager.MintConfig{
+				{URL: "https://mint.example.com/Bitcoin", PricePerStep: 1, MinPurchaseSteps: 1},
+			},
+		},
+	}
+
+	allotment, err := m.calculateAllotment(10, "https://mint.example.com/Bitcoin/")
+	if err != nil {
+		t.Fatalf("trailing slash should match, got error: %v", err)
+	}
+	if allotment != 10000 {
+		t.Errorf("expected allotment 10000, got %d", allotment)
+	}
+}
+
+func TestCalculateAllotment_CaseInsensitiveMintURL(t *testing.T) {
+	m := &Merchant{
+		config: &config_manager.Config{
+			Metric:   "milliseconds",
+			StepSize: 1000,
+			AcceptedMints: []config_manager.MintConfig{
+				{URL: "https://mint.example.com/Bitcoin", PricePerStep: 1, MinPurchaseSteps: 1},
+			},
+		},
+	}
+
+	allotment, err := m.calculateAllotment(10, "https://MINT.EXAMPLE.COM/Bitcoin")
+	if err != nil {
+		t.Fatalf("uppercase host should match, got error: %v", err)
+	}
+	if allotment != 10000 {
+		t.Errorf("expected allotment 10000, got %d", allotment)
+	}
+}
+
+func TestCalculateAllotment_NoPathMintURL(t *testing.T) {
+	m := &Merchant{
+		config: &config_manager.Config{
+			Metric:   "milliseconds",
+			StepSize: 1000,
+			AcceptedMints: []config_manager.MintConfig{
+				{URL: "https://mint.example.com", PricePerStep: 1, MinPurchaseSteps: 1},
+			},
+		},
+	}
+
+	allotment, err := m.calculateAllotment(10, "https://mint.example.com/")
+	if err != nil {
+		t.Fatalf("root path should match no-path config, got error: %v", err)
+	}
+	if allotment != 10000 {
+		t.Errorf("expected allotment 10000, got %d", allotment)
+	}
+}
