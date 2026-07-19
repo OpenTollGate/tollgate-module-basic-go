@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -17,7 +18,9 @@ var ErrQuoteNotFound = errors.New("lightning quote not found")
 
 const (
 	lightningQuoteStateCacheTTL     = 2 * time.Second
-	lightningQuoteMonitorInterval   = 2 * time.Second
+	lightningQuoteMonitorInterval   = 5 * time.Second
+	lightningQuoteMonitorMaxBackoff = 30 * time.Second
+	lightningQuoteMonitorMaxJitter  = 500 * time.Millisecond
 	lightningQuoteCleanupInterval   = 1 * time.Minute
 	lightningQuoteExpiryGracePeriod = 5 * time.Minute
 	lightningQuoteMaxAge            = 30 * time.Minute
@@ -202,8 +205,7 @@ func (m *Merchant) startLightningQuoteJanitor() {
 }
 
 func (m *Merchant) monitorLightningQuote(quoteID string) {
-	ticker := time.NewTicker(lightningQuoteMonitorInterval)
-	defer ticker.Stop()
+	backoff := lightningQuoteMonitorInterval
 
 	for {
 		record, err := m.getLightningQuoteRecord(quoteID)
@@ -222,20 +224,42 @@ func (m *Merchant) monitorLightningQuote(quoteID string) {
 		state, err := m.getLightningQuoteState(quoteID)
 		if err != nil {
 			log.Printf("monitorLightningQuote: mint state check failed for %s: %v", quoteID, err)
-		} else {
-			switch state {
-			case nut04.Paid, nut04.Issued:
-				if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
-					log.Printf("monitorLightningQuote: stopping for %s — access granted", quoteID)
-					return
-				} else {
-					log.Printf("monitorLightningQuote: ensureLightningAccessGranted failed for %s: %v", quoteID, err)
-				}
+			backoff = nextLightningBackoff(backoff)
+			jitterSleep(backoff)
+			continue
+		}
+
+		if state == nut04.Paid || state == nut04.Issued {
+			if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
+				log.Printf("monitorLightningQuote: stopping for %s — access granted", quoteID)
+				return
+			} else {
+				log.Printf("monitorLightningQuote: ensureLightningAccessGranted failed for %s: %v", quoteID, err)
+				backoff = nextLightningBackoff(backoff)
+				jitterSleep(backoff)
+				continue
 			}
 		}
 
-		<-ticker.C
+		backoff = lightningQuoteMonitorInterval
+		jitterSleep(lightningQuoteMonitorInterval)
 	}
+}
+
+// nextLightningBackoff doubles the current backoff interval, capped at
+// lightningQuoteMonitorMaxBackoff.
+func nextLightningBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next > lightningQuoteMonitorMaxBackoff {
+		next = lightningQuoteMonitorMaxBackoff
+	}
+	return next
+}
+
+// jitterSleep sleeps for d plus a random jitter in [0, lightningQuoteMonitorMaxJitter).
+func jitterSleep(d time.Duration) {
+	jitter := time.Duration(rand.Int63n(int64(lightningQuoteMonitorMaxJitter)))
+	time.Sleep(d + jitter)
 }
 
 func (m *Merchant) cleanupStaleLightningQuotes(now time.Time) {
