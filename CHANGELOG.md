@@ -12,6 +12,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Cashu wallet swap-counter race (critical).** Bump `gonuts-tollgate`
+  from v0.7.1 to v0.7.4 to pick up the fix for an unrecoverable
+  "blinded message already signed" error (NUT-02 code 10002). In v0.7.1
+  the keyset counter was incremented only after a successful swap, so
+  a transient mint failure (timeout, DNS hiccup, 5xx) left the counter
+  stuck — every retry reused the same counter, the mint rejected with
+  10002, and the wallet bricked permanently with no self-recovery.
+  v0.7.4 increments the counter before the swap call and adds a
+  `swapWithRetry` path that regenerates fresh blinded messages on
+  retry.
+
 - **Lightning quote persistence across restarts.** Lightning invoice
   quotes are now persisted to disk (`quotes.json` in the wallet
   directory) so they survive process restarts. Previously all pending
