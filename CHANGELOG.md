@@ -12,6 +12,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Lightning quote persistence: data race + crash-safety fix.**
+  `persistLightningQuotes` now deep-copies `lightningQuoteRecord`
+  values under the `RLock` instead of sharing pointers — eliminates a
+  data race where `saveQuotes` read mutable fields
+  (`SessionGranted`, `Allotment`, `CompletedAt`) from shared pointers
+  after the lock was released. `saveQuotes` now calls `tmp.Sync()`
+  before `tmp.Close()` so the rename-atomicity guarantee holds on
+  power-loss. Adds 5 concurrency tests as regression guards.
+
 - **Cashu wallet swap-counter race (critical).** Bump `gonuts-tollgate`
   from v0.7.1 to v0.7.4 to pick up the fix for an unrecoverable
   "blinded message already signed" error (NUT-02 code 10002). In v0.7.1

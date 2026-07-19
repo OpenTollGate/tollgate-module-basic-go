@@ -41,4 +41,8 @@ reference/
 
 # Planning docs — internal, not for release
 docs/tmp/
+<<<<<<< HEAD
 handover-mint-url-bug.md
+=======
+.omo/
+>>>>>>> abcba2d (fix: eliminate data race in persistLightningQuotes + add fsync before rename)

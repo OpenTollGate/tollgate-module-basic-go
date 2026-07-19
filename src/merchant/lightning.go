@@ -309,7 +309,8 @@ func (m *Merchant) persistLightningQuotes() {
 	m.lightningQuoteMu.RLock()
 	snapshot := make(map[string]*lightningQuoteRecord, len(m.lightningQuotes))
 	for id, rec := range m.lightningQuotes {
-		snapshot[id] = rec
+		cp := *rec
+		snapshot[id] = &cp
 	}
 	m.lightningQuoteMu.RUnlock()
 
