@@ -77,6 +77,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **cdk-go evaluation spike.** Standalone Go module under
+  `tests/cdk-go-spike/` that exercises cdk-go (FFI bindings to the
+  Rust Cashu Development Kit) as a possible replacement for
+  `gonuts-tollgate` on the architectures it supports (linux
+  amd64/arm64). The spike is a separate module so cdk-go's CGO
+  dependencies cannot leak into `src/go.mod` and regress MIPS or
+  armv7 builds of the main project. Findings: token API is
+  ergonomic (roundtrip passes with no glue code), but cdk-go's FFI
+  does not propagate network errors as Go errors (unreachable mints
+  panic with EOF), and `Wallet.Destroy()` is manually managed.
+  Primary conclusion: cdk-go cannot replace gonuts across TollGate's
+  full build matrix (3 of 6 arches unsupported). Tracking issue #271
+  captures the full evaluation
+  ([#272](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/272)).
+
 - **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
   CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
   health) with example output, flags, and a troubleshooting section; README
