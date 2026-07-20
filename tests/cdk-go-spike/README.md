@@ -19,4 +19,4 @@ This spike requires `CGO_ENABLED=1` and only works on Linux amd64 and arm64 beca
 
 ## Findings
 
-See tracking issue #XXX
+See tracking issue [#271](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/271) for the full evaluation, including the MIPS/armv7 blocker, POC results, options compared, and recommendation.
