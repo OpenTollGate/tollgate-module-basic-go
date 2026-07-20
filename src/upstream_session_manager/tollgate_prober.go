@@ -191,7 +191,7 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 	}
 
 	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -277,7 +277,7 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 	defer resp.Body.Close()
 
 	// Read and discard response body (we don't need the content)
-	_, _ = io.ReadAll(resp.Body)
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	logger.WithFields(logrus.Fields{
 		"gateway_ip":   gatewayIP,
