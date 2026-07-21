@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
 )
 
@@ -110,7 +111,7 @@ func TestLightningStateMachine(t *testing.T) {
 			t.Fatalf("zero value String() = %q, want %q", zeroState.String(), "UNPAID")
 		}
 		var record lightningQuoteRecord
-		if record.CachedState != nut04.Unpaid {
+		if record.CachedState != tollwallet.StateUnpaid {
 			t.Fatalf("lightningQuoteRecord zero-value CachedState = %d, want Unpaid (0)", record.CachedState)
 		}
 		if record.HasCachedState != false {
@@ -126,7 +127,7 @@ func TestLightningStateMachine(t *testing.T) {
 		m := &Merchant{
 			lightningQuotes: map[string]*lightningQuoteRecord{
 				"cached-quote": {
-					CachedState:    nut04.Paid,
+					CachedState:    tollwallet.StatePaid,
 					CachedStateAt:  time.Now(),
 					HasCachedState: true,
 				},
@@ -136,7 +137,7 @@ func TestLightningStateMachine(t *testing.T) {
 		if err != nil {
 			t.Fatalf("getLightningQuoteState returned error: %v", err)
 		}
-		if state != nut04.Paid {
+		if state != tollwallet.StatePaid {
 			t.Fatalf("getLightningQuoteState returned %d, want Paid (1)", state)
 		}
 		if got, want := state.String(), "PAID"; got != want {

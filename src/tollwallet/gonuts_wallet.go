@@ -43,18 +43,29 @@ type gonutsToken struct {
 
 func (t *gonutsToken) Mint() string   { return t.inner.Mint() }
 func (t *gonutsToken) Amount() uint64 { return t.inner.Amount() }
-func (t *gonutsToken) Close()         {} // no-op: gonuts tokens are GC-managed
+func (t *gonutsToken) Serialize() (string, error) {
+	return t.inner.Serialize()
+}
+func (t *gonutsToken) Close() {} // no-op: gonuts tokens are GC-managed
 
 // --- Token operations ---
 
-// DecodeToken parses a Cashu token string (V3 "cashuA..." or V4 "cashuB...")
-// using gonuts's cashu.DecodeToken, which tries both formats.
-func (w *GonutsWallet) DecodeToken(tokenStr string) (Token, error) {
+// DecodeToken is a package-level convenience that parses a Cashu token string
+// (V3 "cashuA..." or V4 "cashuB...") without requiring a wallet instance.
+// Token decoding is a pure parsing operation (base64 + unmarshal) with no
+// wallet-state dependency, so callers that may not have a wallet yet (e.g.
+// merchant.Fund on a degraded/zero-value Merchant) can use this directly.
+func DecodeToken(tokenStr string) (Token, error) {
 	t, err := cashu.DecodeToken(tokenStr)
 	if err != nil {
 		return nil, err
 	}
 	return &gonutsToken{inner: t}, nil
+}
+
+// DecodeToken on GonutsWallet delegates to the package-level function.
+func (w *GonutsWallet) DecodeToken(tokenStr string) (Token, error) {
+	return DecodeToken(tokenStr)
 }
 
 // Receive unwraps the port Token to a gonutsToken, extracts the inner
@@ -79,6 +90,26 @@ func (w *GonutsWallet) GetAllMintBalances() map[string]uint64 { return w.inner.G
 
 func (w *GonutsWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
 	return w.inner.SendWithOverpayment(amount, mintUrl, maxOverpaymentPercent, maxOverpaymentAbsolute)
+}
+
+func (w *GonutsWallet) Send(amount uint64, mintUrl string, includeFees bool) (Token, error) {
+	t, err := w.inner.Send(amount, mintUrl, includeFees)
+	if err != nil {
+		return nil, err
+	}
+	return &gonutsToken{inner: t}, nil
+}
+
+func (w *GonutsWallet) Drain(mintUrl string) (Token, uint64, error) {
+	t, amount, err := w.inner.Drain(mintUrl)
+	if err != nil {
+		return nil, 0, err
+	}
+	return &gonutsToken{inner: t}, amount, nil
+}
+
+func (w *GonutsWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
+	return w.inner.MeltToLightning(mintUrl, targetAmount, maxCost, lnurl)
 }
 
 // --- Lightning mint quotes (NUT-04) ---
