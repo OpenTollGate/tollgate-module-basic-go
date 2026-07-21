@@ -13,15 +13,35 @@ and [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **Cashu wallet swap-counter race (critical).** Bump `gonuts-tollgate`
-  from v0.7.1 to v0.7.4 to pick up the fix for an unrecoverable
+  from v0.7.1 to v0.7.5 to pick up the fix for an unrecoverable
   "blinded message already signed" error (NUT-02 code 10002). In v0.7.1
   the keyset counter was incremented only after a successful swap, so
   a transient mint failure (timeout, DNS hiccup, 5xx) left the counter
   stuck — every retry reused the same counter, the mint rejected with
   10002, and the wallet bricked permanently with no self-recovery.
-  v0.7.4 increments the counter before the swap call and adds a
+  v0.7.5 increments the counter before the swap call and adds a
   `swapWithRetry` path that regenerates fresh blinded messages on
   retry.
+
+- **Mint URL trailing-slash crash-loop.** A trailing slash in a
+  configured mint URL (e.g. `http://10.99.99.2:8383/`) caused gonuts
+  to construct double-slash paths (`//v1/keysets`) which CDK V2 mints
+  reject with 404, sending the backend into a crash-loop instead of
+  degraded mode. gonuts now normalizes all mint URLs by trimming
+  trailing slashes before path construction
+  ([#275](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/275)).
+
+- **DLEQ verification with rotated keysets.** DLEQ proof verification
+  now looks up the correct historical keyset per proof (by `proof.Id`)
+  instead of always using the active keyset. Previously, tokens
+  minted under a since-rotated keyset failed DLEQ verification and
+  were rejected.
+
+### Changed / Internal
+
+- **Mint response size limits.** All `io.ReadAll` calls on mint HTTP
+  responses in gonuts are now capped at 1 MB via `io.LimitReader`,
+  preventing OOM from malicious or buggy mints.
 
 - **Mint URL fuzzy matching in `calculateAllotment()`.** The mint URL
   from Cashu tokens was compared against configured accepted mints
