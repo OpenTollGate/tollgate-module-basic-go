@@ -29,6 +29,9 @@ type Token interface {
 	// Amount returns the total token value in the token's unit
 	// (typically satoshis).
 	Amount() uint64
+	// Serialize returns the canonical Cashu token string representation
+	// ("cashuA..." for V3, "cashuB..." for V4).
+	Serialize() (string, error)
 	// Close releases any CGO-backed resources. Safe to call multiple
 	// times (implementations must be idempotent).
 	Close()
@@ -200,6 +203,15 @@ type WalletPort interface {
 	// SendWithOverpayment sends tokens from the wallet with overpayment
 	// tolerance. Returns the serialized token string.
 	SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
+
+	// Send creates a Cashu token of the specified amount from wallet funds.
+	Send(amount uint64, mintUrl string, includeFees bool) (Token, error)
+
+	// Drain creates a token for the full balance of a mint.
+	Drain(mintUrl string) (Token, uint64, error)
+
+	// MeltToLightning pays a Lightning address from wallet funds.
+	MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error
 
 	// RequestMintQuote requests a Lightning mint quote from the mint.
 	// The quote contains a bolt11 invoice that the user pays to mint
