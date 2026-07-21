@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
 )
 
@@ -47,27 +48,28 @@ func TestQuotesWireFormat(t *testing.T) {
 		}
 	})
 
-	t.Run("cached_state_in_record_marshals_as_integer", func(t *testing.T) {
-		// Pin that lightningQuoteRecord.CachedState marshals as integer
-		// within the struct (no json tags → PascalCase field name).
-		// Note: this struct is NEVER written to disk directly — only
-		// persistedQuote is persisted.
+	t.Run("cached_state_in_record_marshals_as_string", func(t *testing.T) {
+		// Pin that lightningQuoteRecord.CachedState marshals as a string
+		// within the struct (MintQuoteState.MarshalJSON emits uppercase
+		// strings per Cashu NUT-04 spec, no json tags → PascalCase field
+		// name). Note: this struct is NEVER written to disk directly —
+		// only persistedQuote is persisted.
 		record := lightningQuoteRecord{
 			Bolt11:         "lnbc1u1pj...",
-			CachedState:    nut04.Paid,
+			CachedState:    tollwallet.StatePaid,
 			HasCachedState: true,
 		}
 		got, err := json.Marshal(record)
 		if err != nil {
 			t.Fatalf("Marshal: %v", err)
 		}
-		// CachedState must appear as integer 1 (not string "PAID")
-		if !containsStr(string(got), `"CachedState":1`) {
-			t.Fatalf("expected CachedState as integer 1 in JSON, got: %s", got)
+		// CachedState must appear as string "PAID" (not integer 1)
+		if !containsStr(string(got), `"CachedState":"PAID"`) {
+			t.Fatalf("expected CachedState as string \"PAID\" in JSON, got: %s", got)
 		}
-		// Must NOT contain string representation
-		if containsStr(string(got), `"CachedState":"PAID"`) {
-			t.Fatalf("CachedState should NOT be string 'PAID', got: %s", got)
+		// Must NOT contain integer representation
+		if containsStr(string(got), `"CachedState":1`) {
+			t.Fatalf("CachedState should NOT be integer 1, got: %s", got)
 		}
 	})
 
