@@ -127,7 +127,24 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
+		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		mintHealthTracker.StartProactiveChecks()
+		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
+			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
+			if err := deg.Shutdown(); err != nil {
+				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
+			}
+			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
+			if err != nil {
+				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
+				return
+			}
+			if deg.onUpgrade != nil {
+				deg.onUpgrade(fullMerchant)
+			}
+		})
+		return deg, nil
 	}
 	balance := tw.GetBalance()
 
