@@ -25,3 +25,11 @@ import "fmt"
 func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (WalletPort, error) {
 	return nil, fmt.Errorf("cdk_wallet build tag: CdkWallet adapter not yet implemented — see tracking issue #271 and branch research/wallet-port-cdk-go")
 }
+
+// DecodeToken is the package-level token decoder for the cdk_wallet build.
+// NOT YET IMPLEMENTED — returns an error.
+// The real implementation will call cdk_ffi.TokenDecode(string) (*Token, error)
+// and wrap the result in a cdkToken struct implementing the Token interface.
+func DecodeToken(tokenStr string) (Token, error) {
+	return nil, fmt.Errorf("cdk_wallet build tag: CdkWallet.DecodeToken not yet implemented — see tracking issue #271")
+}
