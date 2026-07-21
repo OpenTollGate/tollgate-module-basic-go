@@ -193,7 +193,7 @@ func defaultProductionMints() []MintConfig {
 
 func defaultTestMint() MintConfig {
 	return MintConfig{
-		URL:                     "https://nofee.testnut.cashu.space",
+		URL:                     "https://testnut.cashu.exchange",
 		MinBalance:              0,
 		BalanceTolerancePercent: 0,
 		PayoutIntervalSeconds:   999999,
