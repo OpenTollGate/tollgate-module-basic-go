@@ -19,7 +19,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -58,7 +57,7 @@ type MerchantInterface interface {
 type Merchant struct {
 	config            *config_manager.Config
 	configManager     *config_manager.ConfigManager
-	tollwallet        tollwallet.TollWallet
+	tollwallet        tollwallet.WalletPort
 	mintHealthTracker *MintHealthTracker
 	customerSessions  map[string]*CustomerSession
 	sessionMu         sync.RWMutex
@@ -125,10 +124,27 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
+	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
+		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		mintHealthTracker.StartProactiveChecks()
+		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
+			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
+			if err := deg.Shutdown(); err != nil {
+				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
+			}
+			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
+			if err != nil {
+				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
+				return
+			}
+			if deg.onUpgrade != nil {
+				deg.onUpgrade(fullMerchant)
+			}
+		})
+		return deg, nil
 	}
 	balance := tw.GetBalance()
 
@@ -145,7 +161,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	m := &Merchant{
 		config:            config,
 		configManager:     configManager,
-		tollwallet:        *tw,
+		tollwallet:        tw,
 		mintHealthTracker: mintHealthTracker,
 		customerSessions:  make(map[string]*CustomerSession),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
@@ -437,7 +453,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 
 	// Process payment
-	paymentCashuToken, err := cashu.DecodeToken(cashuToken)
+	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
 			fmt.Sprintf("Invalid cashu token: %v", err), macAddress)
@@ -1081,13 +1097,17 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 	}
 	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
 
-	parsedToken, err := cashu.DecodeTokenV4(cashuToken)
+	parsedToken, err := tollwallet.DecodeToken(cashuToken)
 	if err != nil {
 		log.Printf("Failed to decode cashu token (length: %d): %v", len(cashuToken), err)
 		return 0, fmt.Errorf("invalid cashu token format: %w", err)
 	}
 
-	// Add token to wallet
+	if m.tollwallet == nil {
+		parsedToken.Close()
+		return 0, fmt.Errorf("failed to receive token: %w", tollwallet.ErrWalletNotInitialized)
+	}
+
 	amountReceived, err := m.tollwallet.Receive(parsedToken)
 	if err != nil {
 		log.Printf("Failed to receive cashu token: %v", err)

@@ -8,9 +8,9 @@ import (
 	"log"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
 )
 
 var ErrQuoteNotFound = errors.New("lightning quote not found")
@@ -54,7 +54,7 @@ type lightningQuoteRecord struct {
 	CompletedAt    time.Time
 	SessionGranted bool
 	Processing     bool
-	CachedState    nut04.State
+	CachedState    tollwallet.MintQuoteState
 	CachedStateAt  time.Time
 	HasCachedState bool
 }
@@ -78,7 +78,7 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 	}
 
 	m.lightningQuoteMu.Lock()
-	m.lightningQuotes[quote.Quote] = &lightningQuoteRecord{
+	m.lightningQuotes[quote.QuoteID] = &lightningQuoteRecord{
 		Bolt11:     quote.Request,
 		MacAddress: macAddress,
 		MintURL:    mintURL,
@@ -89,10 +89,10 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 	m.lightningQuoteMu.Unlock()
 	m.persistLightningQuotes()
 
-	go m.monitorLightningQuote(quote.Quote)
+	go m.monitorLightningQuote(quote.QuoteID)
 
 	return &LightningInvoice{
-		QuoteID: quote.Quote,
+		QuoteID: quote.QuoteID,
 		Invoice: quote.Request,
 		MintURL: mintURL,
 		Amount:  amount,
@@ -113,7 +113,7 @@ func (m *Merchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*Light
 	}
 
 	switch state {
-	case nut04.Paid, nut04.Issued:
+	case tollwallet.StatePaid, tollwallet.StateIssued:
 		if err := m.ensureLightningAccessGranted(quoteID, state); err != nil {
 			return nil, err
 		}
@@ -126,7 +126,7 @@ func (m *Merchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*Light
 
 	statusState := state.String()
 	if record.SessionGranted {
-		statusState = nut04.Issued.String()
+		statusState = tollwallet.StateIssued.String()
 	}
 
 	return &LightningQuoteStatus{
@@ -165,7 +165,7 @@ func (m *Merchant) getLightningQuoteRecordForMAC(quoteID, macAddress string) (*l
 	return record, nil
 }
 
-func (m *Merchant) getLightningQuoteState(quoteID string) (nut04.State, error) {
+func (m *Merchant) getLightningQuoteState(quoteID string) (tollwallet.MintQuoteState, error) {
 	m.lightningQuoteMu.RLock()
 	record, ok := m.lightningQuotes[quoteID]
 	if ok && record.HasCachedState && time.Since(record.CachedStateAt) < lightningQuoteStateCacheTTL {
@@ -175,20 +175,20 @@ func (m *Merchant) getLightningQuoteState(quoteID string) (nut04.State, error) {
 	}
 	m.lightningQuoteMu.RUnlock()
 
-	quote, err := m.tollwallet.GetMintQuoteState(quoteID)
+	state, err := m.tollwallet.GetMintQuoteState(quoteID)
 	if err != nil {
 		return 0, err
 	}
 
 	m.lightningQuoteMu.Lock()
 	if record, ok := m.lightningQuotes[quoteID]; ok {
-		record.CachedState = quote.State
+		record.CachedState = state
 		record.CachedStateAt = time.Now()
 		record.HasCachedState = true
 	}
 	m.lightningQuoteMu.Unlock()
 
-	return quote.State, nil
+	return state, nil
 }
 
 func (m *Merchant) startLightningQuoteJanitor() {
@@ -224,7 +224,7 @@ func (m *Merchant) monitorLightningQuote(quoteID string) {
 			log.Printf("monitorLightningQuote: mint state check failed for %s: %v", quoteID, err)
 		} else {
 			switch state {
-			case nut04.Paid, nut04.Issued:
+			case tollwallet.StatePaid, tollwallet.StateIssued:
 				if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
 					log.Printf("monitorLightningQuote: stopping for %s — access granted", quoteID)
 					return
@@ -378,7 +378,7 @@ func (m *Merchant) loadLightningQuotesFromDisk() {
 	m.persistLightningQuotes()
 }
 
-func (m *Merchant) ensureLightningAccessGranted(quoteID string, state nut04.State) error {
+func (m *Merchant) ensureLightningAccessGranted(quoteID string, state tollwallet.MintQuoteState) error {
 	m.lightningQuoteMu.Lock()
 	record, ok := m.lightningQuotes[quoteID]
 	if !ok {
@@ -394,8 +394,8 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state nut04.Stat
 	m.lightningQuoteMu.Unlock()
 
 	amountToGrant := recordCopy.Amount
-	if state == nut04.Paid {
-		mintedAmount, err := m.tollwallet.MintQuoteTokens(quoteID)
+	if state == tollwallet.StatePaid {
+		mintedAmount, err := m.tollwallet.MintTokens(quoteID)
 		if err != nil {
 			m.lightningQuoteMu.Lock()
 			if record, ok := m.lightningQuotes[quoteID]; ok {

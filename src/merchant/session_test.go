@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 func TestGetSessionRemovesExpiredMillisecondsSession(t *testing.T) {
@@ -82,47 +82,34 @@ func TestGetSessionKeepsBytesSession(t *testing.T) {
 }
 
 func TestSpentTokenErrorCode(t *testing.T) {
-	err := cashu.ProofAlreadyUsedErr
+	err := tollwallet.ErrTokenAlreadySpent
 
-	var cashuErr cashu.Error
-	if !errors.As(err, &cashuErr) {
-		t.Fatal("expected errors.As to match cashu.Error")
-	}
-	if cashuErr.Code != cashu.ProofAlreadyUsedErrCode {
-		t.Fatalf("expected code %d, got %d", cashu.ProofAlreadyUsedErrCode, cashuErr.Code)
+	if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+		t.Fatal("expected errors.Is to match tollwallet.ErrTokenAlreadySpent")
 	}
 }
 
 func TestSpentTokenErrorWithWrappedError(t *testing.T) {
-	inner := fmt.Errorf("swap failed: %w", cashu.ProofAlreadyUsedErr)
+	inner := fmt.Errorf("swap failed: %w", tollwallet.ErrTokenAlreadySpent)
 
-	var cashuErr cashu.Error
-	if !errors.As(inner, &cashuErr) {
-		t.Fatal("expected errors.As to match cashu.Error through wrapped error")
-	}
-	if cashuErr.Code != cashu.ProofAlreadyUsedErrCode {
-		t.Fatalf("expected code %d, got %d", cashu.ProofAlreadyUsedErrCode, cashuErr.Code)
+	if !errors.Is(inner, tollwallet.ErrTokenAlreadySpent) {
+		t.Fatal("expected errors.Is to match tollwallet.ErrTokenAlreadySpent through wrapped error")
 	}
 }
 
 func TestNonCashuErrorNotMatched(t *testing.T) {
 	err := fmt.Errorf("some random error")
 
-	var cashuErr cashu.Error
-	if errors.As(err, &cashuErr) {
-		t.Fatal("expected errors.As to NOT match for non-cashu error")
+	if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+		t.Fatal("expected errors.Is to NOT match for non-spent error")
 	}
 }
 
 func TestOtherCashuErrorCodeNotMatched(t *testing.T) {
-	err := cashu.InvalidProofErr
+	err := errors.New("invalid proof")
 
-	var cashuErr cashu.Error
-	if !errors.As(err, &cashuErr) {
-		t.Fatal("expected errors.As to match cashu.Error")
-	}
-	if cashuErr.Code == cashu.ProofAlreadyUsedErrCode {
-		t.Fatal("expected different error code, not ProofAlreadyUsedErrCode")
+	if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+		t.Fatal("expected different error, not ErrTokenAlreadySpent")
 	}
 }
 
