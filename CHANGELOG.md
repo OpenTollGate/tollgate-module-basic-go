@@ -12,6 +12,38 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Cashu wallet swap-counter race, URL normalization, and DLEQ
+  keyset lookup (critical).** Bump `gonuts-tollgate` from v0.7.1 to
+  v0.7.5, picking up three fixes:
+
+  1. *Swap-counter race* — the keyset counter was incremented only
+     after a successful swap, so a transient mint failure left it
+     stuck. Every retry reused the same counter, the mint rejected
+     with "blinded message already signed" (NUT-02 code 10002), and
+     the wallet bricked permanently. The counter now increments
+     before the swap, and `swapWithRetry` regenerates fresh blinded
+     messages on retry.
+
+  2. *Mint URL trailing-slash crash-loop* — a trailing slash in a
+     configured mint URL (e.g. `http://mint.example.com/`) caused
+     gonuts to construct double-slash paths (`//v1/keysets`) which
+     CDK V2 mints reject with 404, sending the backend into a
+     crash-loop instead of degraded mode. gonuts now trims trailing
+     slashes before all path construction
+     ([#275](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/275)).
+
+  3. *DLEQ verification with rotated keysets* — DLEQ proof
+     verification now looks up the correct historical keyset per
+     proof (by `proof.Id`) instead of always using the active
+     keyset. Tokens minted under a since-rotated keyset no longer
+     fail DLEQ verification.
+
+### Changed / Internal
+
+- **Mint response size limits.** All `io.ReadAll` calls on mint HTTP
+  responses in gonuts are now capped at 1 MB via `io.LimitReader`,
+  preventing OOM from malicious or buggy mints.
+
 - **Wireless config missing-file guard.** `scanner.GetRadios()` and
   `connector.getRadiosFromConfig()` now return gracefully when
   `/etc/config/wireless` does not exist instead of erroring every scan
