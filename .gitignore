@@ -38,7 +38,15 @@ memory-global
 memory-project/
 reference/
 .opencode/
+.omo/
 
 # Planning docs — internal, not for release
 docs/tmp/
 handover-mint-url-bug.md
+*-plan.md
+PLAN-*.md
+TODO-*.md
+MOCK-*.md
+notepad*.md
+handover*.md
+ulw-*.md
