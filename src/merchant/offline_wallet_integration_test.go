@@ -177,7 +177,7 @@ func TestIntegration_FirstBootOffline(t *testing.T) {
 	cm, _ := setupTestConfigManager(t)
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: unreachableMint, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: unreachableMint, PricePerStep: 1, PriceUnit: "sat"},
 	}
 
 	tracker := NewMintHealthTracker(cm)
@@ -369,7 +369,7 @@ func TestIntegration_DegradedMerchantOffline(t *testing.T) {
 	cm, _ := setupTestConfigManager(t)
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sat"},
 	}
 
 	tracker := NewMintHealthTracker(cm)
@@ -472,7 +472,7 @@ func TestIntegration_RecoveryAndUpgrade(t *testing.T) {
 	}
 	cmCfg := cm.GetConfig()
 	cmCfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sat"},
 	}
 
 	// Fund wallet in the same directory as config (newFullMerchant looks here)
@@ -828,7 +828,7 @@ func TestIntegration_FullMerchantDowngradeOnAllMintsDown(t *testing.T) {
 	}
 	cmCfg := cm.GetConfig()
 	cmCfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sat"},
 	}
 
 	fundWallet(t, proxyURL, testDir)
@@ -910,7 +910,7 @@ func TestIntegration_DegradedRecoveryWithSetChangedCallback(t *testing.T) {
 	}
 	cmCfg := cm.GetConfig()
 	cmCfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sat"},
 	}
 
 	fundWallet(t, proxyURL, testDir)
@@ -994,7 +994,7 @@ func TestIntegration_FullMerchantShutdownReleasesBoltDB(t *testing.T) {
 	}
 	cmCfg := cm.GetConfig()
 	cmCfg.AcceptedMints = []config_manager.MintConfig{
-		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: proxyURL, PricePerStep: 1, PriceUnit: "sat"},
 	}
 
 	fundWallet(t, proxyURL, testDir)
