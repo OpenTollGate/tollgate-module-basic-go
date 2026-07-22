@@ -117,7 +117,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 
 	mintURLs := make([]string, len(reachableMints))
 	for i, mint := range reachableMints {
-		mintURLs[i] = mint.URL
+		mintURLs[i] = strings.TrimRight(mint.URL, "/")
 	}
 
 	log.Printf("Setting up wallet...")
