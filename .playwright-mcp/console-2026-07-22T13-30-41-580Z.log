@@ -1,8 +1,0 @@
-[     361ms] [LOG] [PRTA] Initializing… @ https://tests.cashu.email/app.js?v=15:3762
-[     361ms] [LOG] [PRTA] Relays: [wss://relay.cashu.email, wss://relay.damus.io, wss://nos.lol, wss://nostr.mom, wss://relay1.orangesync.tech] @ https://tests.cashu.email/app.js?v=15:3763
-[     361ms] [LOG] [PRTA] Fetching [25910, 1063] + [30078] run summaries from all pubkeys @ https://tests.cashu.email/app.js?v=15:3764
-[   12385ms] [LOG] [PRTA] Connected to 4/5 relays @ https://tests.cashu.email/app.js?v=15:3858
-[   12385ms] [LOG] [PRTA] Aux events: 1212 (25910: 0, 1063: 1212) @ https://tests.cashu.email/app.js?v=15:3859
-[   12385ms] [LOG] [PRTA] Kind 30078 events: 897 @ https://tests.cashu.email/app.js?v=15:3860
-[   12387ms] [LOG] [PRTA] File metadata map: 755 entries @ https://tests.cashu.email/app.js?v=15:3863
-[   12407ms] [LOG] [PRTA] 897 total runs @ https://tests.cashu.email/app.js?v=15:3867
