@@ -50,3 +50,4 @@ MOCK-*.md
 notepad*.md
 handover*.md
 ulw-*.md
+.playwright-mcp/

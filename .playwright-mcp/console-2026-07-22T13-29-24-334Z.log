@@ -1,2 +1,0 @@
-[   43818ms] [ERROR] Access to fetch at 'https://relay.cashu.email/' from origin 'https://tests.tollgate.me' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://tests.tollgate.me/#nut-auditor:0
-[   43819ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://relay.cashu.email/:0
