@@ -12,6 +12,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **V2 keyset swap crash (critical).** Bump `gonuts-tollgate` from v0.7.4
+  to v0.7.6 to pick up the fix for the V2 keyset derivation path bug in
+  NUT-13. The old code called `binary.BigEndian.Uint64(keysetBytes)` on
+  V2 keyset IDs (33 bytes), silently truncating to the first 8 bytes.
+  This produced a wrong deterministic secret derivation path, causing
+  every swap against CDK 0.16+ mints with V2-only keysets to fail with
+  "outputs have already been signed before." V1 keyset IDs (8 bytes) are
+  unaffected — the fix branches on keyset ID length, preserving V1
+  behavior and NUT-13 test vectors
+  ([#176](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/176),
+  [#257](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/257)).
+
 - **Cashu wallet swap-counter race (critical).** Bump `gonuts-tollgate`
   from v0.7.1 to v0.7.4 to pick up the fix for an unrecoverable
   "blinded message already signed" error (NUT-02 code 10002). In v0.7.1
