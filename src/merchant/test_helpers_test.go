@@ -56,7 +56,7 @@ func newDegradedSetupWithServer(t *testing.T, extraMints []config_manager.MintCo
 	t.Helper()
 	srv := newUnreachableServer(t)
 	mints := []config_manager.MintConfig{
-		{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: srv.URL, PricePerStep: 1, PriceUnit: "sat"},
 	}
 	mints = append(mints, extraMints...)
 	ds := newDegradedSetup(t, mints)
@@ -91,7 +91,7 @@ func (ds *degradedSetup) DegradedWithCustomFactory(factory WalletFactory) *Merch
 
 func simpleMintConfig(url string) []config_manager.MintConfig {
 	return []config_manager.MintConfig{
-		{URL: url, PricePerStep: 1, PriceUnit: "sats"},
+		{URL: url, PricePerStep: 1, PriceUnit: "sat"},
 	}
 }
 
