@@ -11,6 +11,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/Origami74/gonuts-tollgate/cashu"
 	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut05"
 	"github.com/Origami74/gonuts-tollgate/wallet"
 )
 
@@ -112,6 +113,20 @@ func (w *TollWallet) Shutdown() error {
 		return w.wallet.Shutdown()
 	}
 	return nil
+}
+
+func (w *TollWallet) RequestMeltQuote(invoice string, mintUrl string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	if w.wallet == nil {
+		return nil, ErrWalletNotInitialized
+	}
+	return w.wallet.RequestMeltQuote(invoice, mintUrl)
+}
+
+func (w *TollWallet) Melt(quoteID string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	if w.wallet == nil {
+		return nil, ErrWalletNotInitialized
+	}
+	return w.wallet.Melt(quoteID)
 }
 
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
