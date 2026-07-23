@@ -100,7 +100,7 @@ func TestSetOnFirstReachableForDegraded_FiresOnRecovery(t *testing.T) {
 
 	cfg := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: reachableSrv.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: reachableSrv.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 	tracker.configProvider = &mockConfigProvider{config: cfg}
@@ -137,7 +137,7 @@ func TestSetOnFirstReachableForDegraded_NotFiredOnSecondRecovery(t *testing.T) {
 
 	cfg := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: reachableSrv.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: reachableSrv.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 	tracker.configProvider = &mockConfigProvider{config: cfg}
@@ -170,8 +170,8 @@ func TestGetAllConfiguredMintConfigs_ReturnsAll(t *testing.T) {
 
 	config := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sats"},
-			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sats"},
+			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sat"},
+			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sat"},
 		},
 	}
 
@@ -228,8 +228,8 @@ func TestMerchant_GetAcceptedMints_ReturnsOnlyReachable(t *testing.T) {
 
 	config := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sats"},
-			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sats"},
+			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sat"},
+			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sat"},
 		},
 	}
 

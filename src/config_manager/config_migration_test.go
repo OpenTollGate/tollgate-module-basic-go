@@ -27,7 +27,7 @@ func TestConfigMigration_v007_to_v008(t *testing.T) {
 				"payout_interval_seconds": 120,
 				"min_payout_amount": 50,
 				"price_per_step": 2,
-				"price_unit": "sats",
+				"price_unit": "sat",
 				"purchase_min_steps": 1
 			}
 		],
