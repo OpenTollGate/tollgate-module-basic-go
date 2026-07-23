@@ -554,7 +554,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		return "", fmt.Errorf("main config is nil")
 	}
 
-	reachableMints := tracker.GetReachableMintConfigs()
+	reachableMints := tracker.GetAllConfiguredMintConfigs()
 
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
