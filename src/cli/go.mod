@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/cli
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
@@ -65,8 +65,6 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
-	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
-	github.com/ltcsuite/secp256k1 v0.1.1 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -84,13 +82,13 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
 	golang.org/x/arch v0.17.0 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/mod v0.24.0 // indirect
-	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/term v0.32.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	pgregory.net/rapid v1.2.0 // indirect

@@ -1,8 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager
 
-go 1.24.2
-
-toolchain go1.24.5
+go 1.25.0
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
@@ -47,7 +45,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
-	golang.org/x/net v0.40.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
