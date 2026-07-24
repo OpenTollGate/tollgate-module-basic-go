@@ -18,6 +18,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
@@ -784,6 +785,36 @@ func main() {
 		CorsMiddleware(HandleUsage)(w, r)
 	})
 
+	// --- Identity derivation (additive, optional) --------------------------
+	// Derive network identity (npub, IPv4, MACs, BIP39 seed) from the existing
+	// merchant private key in identities.json (owned_identities[0].privatekey).
+	// This is a bonus feature: if identities.json is missing, malformed, or has
+	// no usable key, the routes are simply not registered and TollGate boots and
+	// serves all existing endpoints normally. No existing endpoint is touched.
+	identityPrivKey := ""
+	if ids := configManager.GetIdentities(); ids != nil && len(ids.OwnedIdentities) > 0 {
+		identityPrivKey = ids.OwnedIdentities[0].PrivateKey
+	}
+	if identityPrivKey == "" {
+		mainLogger.Warn("identity: no merchant private key in identities.json — /identity routes disabled")
+	} else if _, err := identity.Derive(identityPrivKey); err != nil {
+		mainLogger.WithError(err).Warn("identity: merchant private key invalid — /identity routes disabled")
+		identityPrivKey = ""
+	}
+	if identityPrivKey != "" {
+		http.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
+			mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity endpoint")
+			CorsMiddleware(handleIdentityDerive(identityPrivKey))(w, r)
+		})
+		// reveal-seed returns the 24-word BIP39 mnemonic and raw private key —
+		// POST-only so the request is intentional and never cached/prefetched.
+		http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
+			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Hit /identity/reveal-seed endpoint (sensitive)")
+			CorsMiddleware(handleIdentityRevealSeed(identityPrivKey))(w, r)
+		})
+		mainLogger.Info("identity: /identity and /identity/reveal-seed routes registered")
+	}
+
 	mainLogger.Info("Starting HTTP server on all interfaces...")
 	server := &http.Server{
 		Addr: port,
@@ -881,4 +912,47 @@ func isLocalOrigin(origin string) bool {
 		}
 	}
 	return false
+}
+
+// handleIdentityDerive returns an http.HandlerFunc that serves the public,
+// non-sensitive derived identity (npub, IPv4, MACs) as JSON for the given
+// merchant private key. Registered at GET /identity.
+func handleIdentityDerive(privKey string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		derived, err := identity.Derive(privKey)
+		if err != nil {
+			mainLogger.WithError(err).Error("identity: derive failed")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(derived)
+	}
+}
+
+// handleIdentityRevealSeed accepts a 12-word BIP39 mnemonic in the POST body
+// and returns the full identity (private key, npub, IPv4, MACs, mnemonic).
+// POST-only: a non-POST request gets 405 Method Not Allowed.
+// Registered at POST /identity/reveal-seed.
+func handleIdentityRevealSeed(_ string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		mnemonic := strings.TrimSpace(string(body))
+		full, err := identity.DeriveFromMnemonic(mnemonic)
+		if err != nil {
+			mainLogger.WithError(err).Error("identity: mnemonic recovery failed")
+			http.Error(w, "invalid mnemonic", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(full)
+	}
 }

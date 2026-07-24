@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/identity v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
@@ -19,6 +20,7 @@ require (
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
+	github.com/OpenTollGate/tollgate-module-basic-go/src/identity => ./identity
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ./merchant_types
@@ -33,6 +35,8 @@ replace (
 )
 
 require (
+	github.com/FactomProject/basen v0.0.0-20150613233007-fe3947df716e // indirect
+	github.com/FactomProject/btcutilecc v0.0.0-20130527213604-d3a63a5752ec // indirect
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0 // indirect
@@ -107,6 +111,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/tyler-smith/go-bip32 v1.0.0 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
