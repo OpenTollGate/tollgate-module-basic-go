@@ -98,6 +98,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Safe exec wrapper package.** New `src/sysexec/` package providing a
+  testable `Runner` interface with context, timeout, structured logging,
+  and retry support for `exec.Command` calls. Foundation for refactoring
+  the 37 existing exec.Command call sites (#263). 13 tests, stdlib only
+  ([#265](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/265)).
+
 - **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
   CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
   health) with example output, flags, and a troubleshooting section; README
