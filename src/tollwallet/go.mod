@@ -4,13 +4,13 @@ go 1.24.2
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
-	github.com/Origami74/gonuts-tollgate v0.6.1
+	github.com/Origami74/gonuts-tollgate v0.9.0
 	github.com/stretchr/testify v1.10.0
 )
 
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
-	github.com/Origami74/gonuts-tollgate => github.com/OpenTollGate/gonuts-tollgate v0.8.0
+	github.com/Origami74/gonuts-tollgate => github.com/OpenTollGate/gonuts-tollgate v0.9.0
 )
 
 require (
