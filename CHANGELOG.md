@@ -55,6 +55,14 @@ and [Semantic Versioning](https://semver.org/).
   ([#250](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/250),
   [#251](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/251)).
 
+- **HTTP response body reads now limited to 1 MB.** All `io.ReadAll`
+  calls on HTTP response bodies (LNURL resolve, invoice fetch, gateway
+  probes, usage tracker) now use `io.LimitReader` with a 1 MB cap,
+  matching the existing limit on the main payment handler. Prevents
+  OOM crashes on resource-constrained routers when a malicious or
+  compromised upstream service returns an oversized response
+  ([#267](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/267)).
+
 - **Lightning quote persistence across restarts.** Lightning invoice
   quotes are now persisted to disk (`quotes.json` in the wallet
   directory) so they survive process restarts. Previously all pending
