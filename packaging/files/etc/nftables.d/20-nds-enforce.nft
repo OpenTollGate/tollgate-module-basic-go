@@ -1,16 +1,18 @@
 # NDS fw4/nftables enforcement bridge
 #
 # NDS 5.0.2 inserts enforcement chains in ip filter FORWARD (iptables-nft).
-# On OpenWrt 24.10, fw4's inet fw4 forward chain (priority 0) accepts
-# forwarded traffic before the ip filter FORWARD chain (same priority)
-# ever sees it — leaving NDS's enforcement chain dead (0 packets).
+# Both ip filter FORWARD and fw4's inet fw4 forward chain run at priority 0;
+# nftables does not guarantee ordering between base chains at the same
+# priority across different families, so NDS's enforcement chain may never
+# see forwarded traffic (0 packets).
 #
 # This include hooks into inet fw4 forward at priority -1, BEFORE fw4's
-# accept. It checks marks set by NDS's mangle PREROUTING (priority -150):
-#   0x10000 = pre-authenticated → drop
-#   0x20000 = trusted           → accept
-#   0x30000 = authenticated     → accept
-#   unmarked to WAN             → reject (force captive portal)
+# forward chain at priority 0. It checks marks set by NDS's mangle
+# PREROUTING (priority -150):
+#   0x10000 = blocked (admin)    → drop
+#   0x20000 = trusted            → accept
+#   0x30000 = authenticated      → accept
+#   unmarked (0) = pre-auth      → reject to WAN (force captive portal)
 #
 # Loaded by fw4 on boot and on `fw4 reload` / `/etc/init.d/firewall reload`.
 # Survives NDS restarts (independent of NDS process lifecycle).
@@ -18,15 +20,8 @@
 chain nds_enforce_forward {
     type filter hook forward priority -1; policy accept
 
-    # Pre-authenticated clients — blocked
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00010000 counter drop
-
-    # Trusted clients — allowed
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00020000 counter accept
-
-    # Authenticated clients — allowed
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
-
-    # Unmarked traffic from br-lan to WAN — reject (captive portal redirect)
     meta nfproto ipv4 iifname "br-lan" oifname { "eth0", "phy0-sta0" } counter reject with icmp type port-unreachable
 }
