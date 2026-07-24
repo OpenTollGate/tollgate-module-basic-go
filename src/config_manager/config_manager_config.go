@@ -175,7 +175,7 @@ func defaultProductionMints() []MintConfig {
 			PayoutIntervalSeconds:   60,
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
-			PriceUnit:               "sats",
+			PriceUnit:               "sat",
 			MinPurchaseSteps:        0,
 		},
 		{
@@ -185,7 +185,7 @@ func defaultProductionMints() []MintConfig {
 			PayoutIntervalSeconds:   60,
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
-			PriceUnit:               "sats",
+			PriceUnit:               "sat",
 			MinPurchaseSteps:        0,
 		},
 	}
@@ -199,7 +199,7 @@ func defaultTestMint() MintConfig {
 		PayoutIntervalSeconds:   999999,
 		MinPayoutAmount:         999999,
 		PricePerStep:            1,
-		PriceUnit:               "sats",
+		PriceUnit:               "sat",
 		MinPurchaseSteps:        0,
 	}
 }
