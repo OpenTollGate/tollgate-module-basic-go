@@ -7,10 +7,10 @@
 #
 # This include hooks into inet fw4 forward at priority -1, BEFORE fw4's
 # accept. It checks marks set by NDS's mangle PREROUTING (priority -150):
-#   0x10000 = pre-authenticated → drop
-#   0x20000 = trusted           → accept
-#   0x30000 = authenticated     → accept
-#   unmarked to WAN             → reject (force captive portal)
+#   0x10000 = admin-blocked      → drop
+#   0x20000 = trusted            → accept
+#   0x30000 = authenticated      → accept
+#   unmarked (mark=0) = pre-auth → reject to non-LAN (force captive portal)
 #
 # Loaded by fw4 on boot and on `fw4 reload` / `/etc/init.d/firewall reload`.
 # Survives NDS restarts (independent of NDS process lifecycle).
@@ -18,7 +18,7 @@
 chain nds_enforce_forward {
     type filter hook forward priority -1; policy accept
 
-    # Pre-authenticated clients — blocked
+    # Admin-blocked clients — drop
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00010000 counter drop
 
     # Trusted clients — allowed
@@ -27,6 +27,10 @@ chain nds_enforce_forward {
     # Authenticated clients — allowed
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
 
-    # Unmarked traffic from br-lan to WAN — reject (captive portal redirect)
-    meta nfproto ipv4 iifname "br-lan" oifname { "eth0", "phy0-sta0" } counter reject with icmp type port-unreachable
+    # Pre-authenticated (unmarked) traffic from LAN to non-LAN — reject
+    # Replaces hardcoded oifname { "eth0", "phy0-sta0" } which broke on
+    # non-GL-MT3000 hardware (ath79 WAN=eth1, x86_64 bridge-WAN).
+    # Using oifname != "br-lan" covers all multi-interface deployments.
+    # Single-interface bridge-WAN (QEMU-only) relies on NDS iptables instead.
+    meta nfproto ipv4 iifname "br-lan" oifname != "br-lan" counter reject with icmp type port-unreachable
 }
