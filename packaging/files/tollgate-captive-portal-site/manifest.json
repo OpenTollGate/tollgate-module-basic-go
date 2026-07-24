@@ -1,15 +1,23 @@
 {
-  "short_name": "Tollgate Portal",
-  "name": "Tollgate Captive Portal",
+  "name": "net4sats",
+  "short_name": "net4sats",
+  "description": "net4sats Router Admin Dashboard",
+  "start_url": "/net4sats/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#ff6600",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "72x72",
-      "type": "image/x-icon"
+      "src": "/net4sats/assets/icon/colour/net4sats-icon-colour.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/net4sats/assets/icon/colour/net4sats-icon-colour.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  ]
 }
