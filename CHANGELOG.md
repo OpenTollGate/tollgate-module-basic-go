@@ -12,6 +12,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **NDS fw4/nftables enforcement bridge.** NDS 5.0.2 inserts enforcement
+  chains in `ip filter FORWARD` (iptables-nft), but OpenWrt 24.10's fw4
+  `inet fw4 forward` chain accepts forwarded traffic at the same priority
+  before the ip filter chain runs — leaving NDS's enforcement chain dead
+  (0 packets). Authenticated clients had mangle marks set correctly but
+  traffic was never actually gated. Added `/etc/nftables.d/20-nds-enforce.nft`
+  include file that hooks into `inet fw4 forward` at priority -1 (before
+  fw4's accept) and enforces NDS marks. Bumped setup version to v0.5.1.
+
 - **V2 keyset swap crash (critical).** Bump `gonuts-tollgate` from v0.7.4
   to v0.7.6 to pick up the fix for the V2 keyset derivation path bug in
   NUT-13. The old code called `binary.BigEndian.Uint64(keysetBytes)` on
