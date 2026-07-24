@@ -98,6 +98,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **WalletPort abstraction.** Decouples merchant/lightning code from
+  gonuts via a library-agnostic `WalletPort` interface, enabling mock
+  injection for tests and a build-tag swap to cdk-go
+  (`-tags cdk_wallet`). Includes `GonutsWallet` (default) and
+  `CdkWallet` (cdk-go FFI) adapters, NUT-04 spec-compliant
+  `MintQuoteState` JSON marshaling (uppercase strings, dual-format
+  unmarshal for backward compatibility), and characterization tests
+  for token flow and wire format
+  ([#285](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/285)).
 - **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
   CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
   health) with example output, flags, and a troubleshooting section; README

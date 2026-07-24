@@ -38,11 +38,15 @@ memory-global
 memory-project/
 reference/
 .opencode/
+.omo/
 
 # Planning docs — internal, not for release
 docs/tmp/
-<<<<<<< HEAD
+*-plan.md
+PLAN-*.md
+TODO-*.md
+MOCK-*.md
+notepad*.md
+handover*.md
 handover-mint-url-bug.md
-=======
-.omo/
->>>>>>> 99f620c (fix: remove accidentally committed .omo session files + gitignore)
+ulw-*.md
