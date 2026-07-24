@@ -169,21 +169,13 @@ A single package:
 cd src && go test ./upstream_session_manager/...
 ```
 
-End-to-end tests live in [tests/](tests/) and use pytest against real
-router hardware:
-
-| File | Purpose |
-|---|---|
-| [tests/test_copy_images.py](tests/test_copy_images.py) | Transfer firmware to target routers. |
-| [tests/test_install_images.py](tests/test_install_images.py) | Flash firmware (destructive). |
-| [tests/test_install_packages.py](tests/test_install_packages.py) | Install the `tollgate-wrt` package on a running router. |
-| [tests/test_network_configuration.py](tests/test_network_configuration.py) | Verify upstream gateway connectivity. |
-| [tests/test_ecash_payment.py](tests/test_ecash_payment.py) | End-to-end buy-internet flow. |
-| [tests/test_ecash_functionality.py](tests/test_ecash_functionality.py) | Wallet-level Cashu operations. |
-| [tests/test_data_measurement.py](tests/test_data_measurement.py) | Byte accounting across a data-metered session. |
-| [tests/test_teardown.py](tests/test_teardown.py) | Reset routers between runs. |
-
-See [tests/README.md](tests/README.md) for how to wire up the test fleet.
+End-to-end and physical-router testing lives in the separate
+[physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+repo, which exercises the published `.ipk`/`.apk` against real OpenWrt
+hardware and a GCP cloud lab. Router flashing is handled by
+[conwrt](https://github.com/Amperstrand/conwrt). Only the contract
+checks that gate this repo's CI remain under
+[tests/](tests/) (`build-purity.sh`, `js-schema-lint.mjs`).
 
 ## Documentation
 
