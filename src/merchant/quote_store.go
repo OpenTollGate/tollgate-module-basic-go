@@ -96,6 +96,10 @@ func (qs *quoteStore) saveQuotes(quotes map[string]*lightningQuoteRecord) error 
 		tmp.Close()
 		return fmt.Errorf("chmod temp quotes file: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync temp quotes file: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp quotes file: %w", err)
 	}
