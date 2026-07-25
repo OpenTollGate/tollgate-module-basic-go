@@ -10,7 +10,7 @@
 #   0x10000 = pre-authenticated → drop
 #   0x20000 = trusted           → accept
 #   0x30000 = authenticated     → accept
-#   unmarked to WAN             → reject (force captive portal)
+#   unmarked (0) = pre-auth      → reject to WAN (force captive portal)
 #
 # Loaded by fw4 on boot and on `fw4 reload` / `/etc/init.d/firewall reload`.
 # Survives NDS restarts (independent of NDS process lifecycle).
@@ -28,5 +28,5 @@ chain nds_enforce_forward {
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
 
     # Unmarked traffic from br-lan to WAN — reject (captive portal redirect)
-    meta nfproto ipv4 iifname "br-lan" oifname { "eth0", "phy0-sta0" } counter reject with icmp type port-unreachable
+    meta nfproto ipv4 iifname "br-lan" fib daddr oif != "br-lan" counter reject with icmp type port-unreachable
 }
