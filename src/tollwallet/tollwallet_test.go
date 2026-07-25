@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )

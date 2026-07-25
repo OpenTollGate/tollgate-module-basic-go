@@ -19,7 +19,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
 
