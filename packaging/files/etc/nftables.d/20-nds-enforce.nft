@@ -1,0 +1,36 @@
+# NDS fw4/nftables enforcement bridge
+#
+# NDS 5.0.2 inserts enforcement chains in ip filter FORWARD (iptables-nft).
+# On OpenWrt 24.10, fw4's inet fw4 forward chain (priority 0) accepts
+# forwarded traffic before the ip filter FORWARD chain (same priority)
+# ever sees it — leaving NDS's enforcement chain dead (0 packets).
+#
+# This include hooks into inet fw4 forward at priority -1, BEFORE fw4's
+# accept. It checks marks set by NDS's mangle PREROUTING (priority -150):
+#   0x10000 = admin-blocked      → drop
+#   0x20000 = trusted            → accept
+#   0x30000 = authenticated      → accept
+#   unmarked (mark=0) = pre-auth → reject to non-LAN (force captive portal)
+#
+# Loaded by fw4 on boot and on `fw4 reload` / `/etc/init.d/firewall reload`.
+# Survives NDS restarts (independent of NDS process lifecycle).
+
+chain nds_enforce_forward {
+    type filter hook forward priority -1; policy accept
+
+    # Admin-blocked clients — drop
+    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00010000 counter drop
+
+    # Trusted clients — allowed
+    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00020000 counter accept
+
+    # Authenticated clients — allowed
+    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
+
+    # Pre-authenticated (unmarked) traffic from LAN to non-LAN — reject
+    # Replaces hardcoded oifname { "eth0", "phy0-sta0" } which broke on
+    # non-GL-MT3000 hardware (ath79 WAN=eth1, x86_64 bridge-WAN).
+    # Using oifname != "br-lan" covers all multi-interface deployments.
+    # Single-interface bridge-WAN (QEMU-only) relies on NDS iptables instead.
+    meta nfproto ipv4 iifname "br-lan" oifname != "br-lan" counter reject with icmp type port-unreachable
+}
