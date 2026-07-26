@@ -121,7 +121,7 @@ func TestDefaultTestMint(t *testing.T) {
 		t.Errorf("expected PricePerStep=1, got %d", mint.PricePerStep)
 	}
 	if mint.PriceUnit != "sat" {
-		t.Errorf("expected PriceUnit=sats, got %s", mint.PriceUnit)
+		t.Errorf("expected PriceUnit=sat, got %s", mint.PriceUnit)
 	}
 }
 
