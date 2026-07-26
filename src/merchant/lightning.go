@@ -11,7 +11,7 @@ import (
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
 )
 
 var ErrQuoteNotFound = errors.New("lightning quote not found")
@@ -333,7 +333,8 @@ func (m *Merchant) persistLightningQuotes() {
 	m.lightningQuoteMu.RLock()
 	snapshot := make(map[string]*lightningQuoteRecord, len(m.lightningQuotes))
 	for id, rec := range m.lightningQuotes {
-		snapshot[id] = rec
+		cp := *rec
+		snapshot[id] = &cp
 	}
 	m.lightningQuoteMu.RUnlock()
 
