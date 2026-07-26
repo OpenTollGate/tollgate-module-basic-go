@@ -22,6 +22,37 @@ func newDegradedMerchantWithConfig(t *testing.T) (*MerchantDegraded, *config_man
 	return ds.Degraded(), ds.CM
 }
 
+func TestNewFullMerchant_WalletInitFail_FallsBackToDegraded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/info" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"pubkey":"00","version":"test","nuts":{}}`)
+			return
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	cm, _ := setupTestConfigManager(t)
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: srv.URL, PricePerStep: 1, PriceUnit: "sat"},
+	}
+	tracker := newTestTracker(cfg, nil)
+	tracker.reachableMints[srv.URL] = true
+
+	result, err := newFullMerchant(cm, tracker)
+
+	if err != nil {
+		t.Fatalf("newFullMerchant returned error (should have fallen back to degraded): %v", err)
+	}
+
+	_, isDegraded := result.(*MerchantDegraded)
+	if !isDegraded {
+		t.Fatalf("expected *MerchantDegraded, got %T (wallet init should have failed and triggered degraded fallback)", result)
+	}
+}
+
 func TestMerchantDegraded_CreatePaymentToken_ReturnsError(t *testing.T) {
 	deg, _ := newDegradedMerchantWithConfig(t)
 
