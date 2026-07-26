@@ -371,10 +371,10 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		origin := r.Header.Get("Origin")
-		if origin == "" || isLocalOrigin(origin) {
-			if origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-			}
+		if origin != "" && isLocalOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 
 		// Handle preflight OPTIONS requests
@@ -430,6 +430,14 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	if contentType != "text/plain" && contentType != "application/json" && contentType != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Unsupported Media Type"})
 		return
 	}
 
