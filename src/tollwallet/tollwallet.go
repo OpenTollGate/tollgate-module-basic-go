@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
-	"github.com/Origami74/gonuts-tollgate/cashu"
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
-	"github.com/Origami74/gonuts-tollgate/wallet"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 )
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")

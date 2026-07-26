@@ -3,15 +3,12 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet
 go 1.24.2
 
 require (
+	github.com/OpenTollGate/gonuts-tollgate v0.10.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
-	github.com/Origami74/gonuts-tollgate v0.9.0
 	github.com/stretchr/testify v1.10.0
 )
 
-replace (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
-	github.com/Origami74/gonuts-tollgate => github.com/OpenTollGate/gonuts-tollgate v0.9.0
-)
+replace github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
@@ -43,7 +40,7 @@ require (
 	github.com/jrick/logrotate v1.1.2 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/kr/text v0.2.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
