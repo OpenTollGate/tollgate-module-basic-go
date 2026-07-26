@@ -24,7 +24,7 @@ func mintConfigWithURLs(urls ...string) *config_manager.Config {
 		mints[i] = config_manager.MintConfig{
 			URL:          url,
 			PricePerStep: 1,
-			PriceUnit:    "sats",
+			PriceUnit:    "sat",
 		}
 	}
 	return &config_manager.Config{
@@ -399,8 +399,8 @@ func TestEndToEnd_FullLifecycle(t *testing.T) {
 
 	config := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: mintA.URL, PricePerStep: 1, PriceUnit: "sats", MinPurchaseSteps: 1},
-			{URL: mintB.URL, PricePerStep: 2, PriceUnit: "sats", MinPurchaseSteps: 2},
+			{URL: mintA.URL, PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1},
+			{URL: mintB.URL, PricePerStep: 2, PriceUnit: "sat", MinPurchaseSteps: 2},
 		},
 		Metric:   "milliseconds",
 		StepSize: 1000,
@@ -459,8 +459,8 @@ func TestEndToEnd_FullLifecycle(t *testing.T) {
 	// Update config to use the failing mint A
 	tracker.configProvider.(*mockConfigProvider).config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: mintAFail.URL, PricePerStep: 1, PriceUnit: "sats", MinPurchaseSteps: 1},
-			{URL: mintB.URL, PricePerStep: 2, PriceUnit: "sats", MinPurchaseSteps: 2},
+			{URL: mintAFail.URL, PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1},
+			{URL: mintB.URL, PricePerStep: 2, PriceUnit: "sat", MinPurchaseSteps: 2},
 		},
 		Metric:   "milliseconds",
 		StepSize: 1000,
@@ -489,8 +489,8 @@ func TestEndToEnd_AllMintsDown_NoReachableConfigs(t *testing.T) {
 
 	config := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sats"},
-			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sats"},
+			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sat"},
+			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sat"},
 		},
 	}
 
