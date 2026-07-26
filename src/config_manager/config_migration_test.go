@@ -27,7 +27,7 @@ func TestConfigMigration_v007_to_v008(t *testing.T) {
 				"payout_interval_seconds": 120,
 				"min_payout_amount": 50,
 				"price_per_step": 2,
-				"price_unit": "sats",
+				"price_unit": "sat",
 				"purchase_min_steps": 1
 			}
 		],
@@ -120,5 +120,35 @@ func TestConfigMigration_alreadyCurrent(t *testing.T) {
 
 	if loaded.ConfigVersion != defaults.ConfigVersion {
 		t.Errorf("config_version changed: got %s, want %s", loaded.ConfigVersion, defaults.ConfigVersion)
+	}
+}
+
+func TestConfigMigration_sats_to_sat(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	oldConfigJSON := `{
+		"config_version": "v0.0.7",
+		"accepted_mints": [
+			{"url": "https://mint-a.example.com", "price_per_step": 1, "price_unit": "sats"},
+			{"url": "https://mint-b.example.com", "price_per_step": 2, "price_unit": "sat"}
+		]
+	}`
+
+	if err := os.WriteFile(configPath, []byte(oldConfigJSON), 0644); err != nil {
+		t.Fatalf("failed to write old config: %v", err)
+	}
+
+	migrated, err := EnsureDefaultConfig(configPath)
+	if err != nil {
+		t.Fatalf("EnsureDefaultConfig failed: %v", err)
+	}
+
+	if migrated.AcceptedMints[0].PriceUnit != "sat" {
+		t.Errorf("mint A price_unit: got %s, want sat (migrated from sats)", migrated.AcceptedMints[0].PriceUnit)
+	}
+
+	if migrated.AcceptedMints[1].PriceUnit != "sat" {
+		t.Errorf("mint B price_unit: got %s, want sat (already correct)", migrated.AcceptedMints[1].PriceUnit)
 	}
 }

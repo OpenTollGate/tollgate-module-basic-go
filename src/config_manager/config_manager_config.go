@@ -175,7 +175,7 @@ func defaultProductionMints() []MintConfig {
 			PayoutIntervalSeconds:   60,
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
-			PriceUnit:               "sats",
+			PriceUnit:               "sat",
 			MinPurchaseSteps:        0,
 		},
 		{
@@ -185,7 +185,7 @@ func defaultProductionMints() []MintConfig {
 			PayoutIntervalSeconds:   60,
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
-			PriceUnit:               "sats",
+			PriceUnit:               "sat",
 			MinPurchaseSteps:        0,
 		},
 	}
@@ -199,7 +199,7 @@ func defaultTestMint() MintConfig {
 		PayoutIntervalSeconds:   999999,
 		MinPayoutAmount:         999999,
 		PricePerStep:            1,
-		PriceUnit:               "sats",
+		PriceUnit:               "sat",
 		MinPurchaseSteps:        0,
 	}
 }
@@ -320,7 +320,6 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	if profitShareErr != nil {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
-		return &config, SaveConfig(filePath, &config)
 	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
@@ -328,6 +327,9 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
 		migrateConfig(&config, defaultConfig)
+		return &config, SaveConfig(filePath, &config)
+	}
+	if profitShareErr != nil {
 		return &config, SaveConfig(filePath, &config)
 	}
 
@@ -340,4 +342,10 @@ func migrateConfig(config *Config, defaults *Config) {
 		log.Printf("INFO: Populated UpstreamWifi defaults (was missing in v%s)", config.ConfigVersion)
 	}
 	config.ConfigVersion = defaults.ConfigVersion
+    for i := range config.AcceptedMints {
+        if config.AcceptedMints[i].PriceUnit == "sats" {
+            config.AcceptedMints[i].PriceUnit = "sat"
+            log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
+        }
+    }
 }
