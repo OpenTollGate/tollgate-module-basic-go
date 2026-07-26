@@ -211,7 +211,7 @@ func TestMerchantDegraded_CreateNoticeEvent_NoMerchantIdentity(t *testing.T) {
 
 	tracker := newTestTracker(&config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: srvFail.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}, nil)
 
@@ -343,7 +343,7 @@ func TestNew_ReturnsDegradedWhenNoMintsReachable(t *testing.T) {
 
 	cfg := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 
@@ -464,7 +464,7 @@ func (w *mockWallet) Shutdown() error {
 func newDegradedMerchantWithMockWallet(t *testing.T, wallet Wallet, walletFactoryErr error) (*MerchantDegraded, *config_manager.ConfigManager, *MintHealthTracker) {
 	t.Helper()
 	ds, _ := newDegradedSetupWithServer(t, []config_manager.MintConfig{
-		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sats"},
+		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sat"},
 	})
 	deg := ds.DegradedWithWallet(wallet, walletFactoryErr)
 	return deg, ds.CM, ds.Tracker
@@ -623,7 +623,7 @@ func TestKickstart_WalletFactoryReceivesAllConfiguredMintURLs(t *testing.T) {
 	var receivedURLs []string
 
 	ds, _ := newDegradedSetupWithServer(t, []config_manager.MintConfig{
-		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sats"},
+		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sat"},
 	})
 
 	factory := func(walletPath string, mintURLs []string) (Wallet, error) {
@@ -728,7 +728,7 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 	provider := ds.Tracker.configProvider.(*mockConfigProvider)
 	provider.config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 
@@ -751,8 +751,8 @@ func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
 	srvDown := newUnreachableServer(t)
 
 	ds := newDegradedSetup(t, []config_manager.MintConfig{
-		{URL: srvDown.URL, PricePerStep: 1, PriceUnit: "sats"},
-		{URL: "https://mint2.example.com", PricePerStep: 2, PriceUnit: "sats"},
+		{URL: srvDown.URL, PricePerStep: 1, PriceUnit: "sat"},
+		{URL: "https://mint2.example.com", PricePerStep: 2, PriceUnit: "sat"},
 	})
 
 	mw := &mockWallet{
@@ -864,8 +864,8 @@ func TestGetAllConfiguredMintConfigs(t *testing.T) {
 
 	config := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sats"},
-			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sats"},
+			{URL: srvA.URL, PricePerStep: 1, PriceUnit: "sat"},
+			{URL: srvB.URL, PricePerStep: 2, PriceUnit: "sat"},
 		},
 	}
 
@@ -1032,7 +1032,7 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 	provider := ds.Tracker.configProvider.(*mockConfigProvider)
 	provider.config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 
@@ -1097,7 +1097,7 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	configProvider := ds.Tracker.configProvider.(*mockConfigProvider)
 	configProvider.config = &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sats"},
+			{URL: srv.URL, PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 
@@ -1165,7 +1165,7 @@ func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
 	shortClient := &http.Client{Timeout: 1 * time.Second}
 	cfg := &config_manager.Config{
 		AcceptedMints: []config_manager.MintConfig{
-			{URL: "http://127.0.0.1:1", PricePerStep: 1, PriceUnit: "sats"},
+			{URL: "http://127.0.0.1:1", PricePerStep: 1, PriceUnit: "sat"},
 		},
 	}
 
@@ -1231,7 +1231,7 @@ func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
 
 func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
 	ds := newDegradedSetup(t, []config_manager.MintConfig{
-		{URL: "https://mint.test", PricePerStep: 1, PriceUnit: "sats"},
+		{URL: "https://mint.test", PricePerStep: 1, PriceUnit: "sat"},
 	})
 
 	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
