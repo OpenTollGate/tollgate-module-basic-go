@@ -320,7 +320,6 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	if profitShareErr != nil {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
-		return &config, SaveConfig(filePath, &config)
 	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
@@ -328,6 +327,9 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
 		migrateConfig(&config, defaultConfig)
+		return &config, SaveConfig(filePath, &config)
+	}
+	if profitShareErr != nil {
 		return &config, SaveConfig(filePath, &config)
 	}
 
