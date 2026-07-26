@@ -46,3 +46,5 @@ handover-mint-url-bug.md
 =======
 .omo/
 >>>>>>> 99f620c (fix: remove accidentally committed .omo session files + gitignore)
+packaging/files/tollgate-captive-portal-site/
+.playwright-mcp/
