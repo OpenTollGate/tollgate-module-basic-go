@@ -27,6 +27,8 @@ chain nds_enforce_forward {
     # Authenticated clients — allowed
     meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
 
-    # Unmarked traffic from br-lan to WAN — reject (captive portal redirect)
-    meta nfproto ipv4 iifname "br-lan" oifname { "eth0", "phy0-sta0" } counter reject with icmp type port-unreachable
+    # Pre-authenticated (unmarked) traffic from LAN to non-LAN — reject
+    # Portable WAN detection: works on all architectures.
+    # Old hardcoded oifname { "eth0", "phy0-sta0" } only matched GL-MT3000.
+    meta nfproto ipv4 iifname "br-lan" oifname != "br-lan" counter reject with icmp type port-unreachable
 }
