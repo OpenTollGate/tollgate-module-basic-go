@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -115,4 +116,41 @@ func TestDiscoveryLogger_PriceUpdate(t *testing.T) {
 	summary := dl.Summary()
 	assert.Equal(t, 1, len(summary.KnownTollGates))
 	assert.Equal(t, 5, summary.KnownTollGates[0].PricePerStep, "should track latest price")
+}
+
+func TestDiscoveryLogger_LogProbe(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "discovery.jsonl")
+	dl := NewDiscoveryLogger(logPath)
+
+	dl.LogScan([]NetworkInfo{
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -55, IsTollGate: true},
+	})
+
+	dl.LogProbe("aa:bb:cc:dd:ee:01", ProbeResult{
+		GatewayIP:     "10.0.0.1",
+		RTT:           15 * time.Millisecond,
+		ResponseBytes: 512,
+		Reachable:     true,
+	})
+
+	summary := dl.Summary()
+	assert.Equal(t, 1, len(summary.KnownTollGates))
+	tg := summary.KnownTollGates[0]
+	assert.Equal(t, int64(15), tg.LastRTTMs)
+	assert.Equal(t, int64(15), tg.BestRTTMs)
+	assert.Equal(t, 1, tg.ProbeCount)
+
+	dl.LogProbe("aa:bb:cc:dd:ee:01", ProbeResult{
+		GatewayIP:     "10.0.0.1",
+		RTT:           8 * time.Millisecond,
+		ResponseBytes: 512,
+		Reachable:     true,
+	})
+
+	summary = dl.Summary()
+	tg = summary.KnownTollGates[0]
+	assert.Equal(t, int64(8), tg.LastRTTMs)
+	assert.Equal(t, int64(8), tg.BestRTTMs)
+	assert.Equal(t, 2, tg.ProbeCount)
 }
