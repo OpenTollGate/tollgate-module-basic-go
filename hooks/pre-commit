@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Pre-commit hook: check dependency sync across go.mod files.
+# Pre-commit hook: check dependency sync + stale import paths.
 # Install with: git config core.hooksPath hooks
 set -euo pipefail
 
-# Only run if go.mod files are being committed
 if git diff --cached --name-only | grep -q '\.mod$\|go\.sum$'; then
     echo "🔍 Checking dependency sync across go.mod files..."
     python3 tests/contract/check-deps-sync.py
+fi
+
+if git diff --cached --name-only | grep -q '\.go$'; then
+    echo "🔍 Checking for stale import paths..."
+    python3 tests/contract/check-import-paths.py
 fi
