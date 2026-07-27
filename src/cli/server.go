@@ -24,24 +24,24 @@ var cliLogger = logrus.WithField("module", "cli")
 
 // CLIServer handles Unix socket communication for CLI commands
 type CLIServer struct {
-	configManager   *config_manager.ConfigManager
+	configManager    *config_manager.ConfigManager
 	merchantProvider merchant.MerchantProvider
-	connector       wireless_gateway_manager.ConnectorInterface
-	scanner         wireless_gateway_manager.ScannerInterface
-	upstreamManager *wireless_gateway_manager.UpstreamManager
-	startTime       time.Time
-	listener        net.Listener
-	running         bool
+	connector        wireless_gateway_manager.ConnectorInterface
+	scanner          wireless_gateway_manager.ScannerInterface
+	upstreamManager  *wireless_gateway_manager.UpstreamManager
+	startTime        time.Time
+	listener         net.Listener
+	running          bool
 }
 
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
-		configManager:   configManager,
+		configManager:    configManager,
 		merchantProvider: merchantProvider,
-		connector:       connector,
-		scanner:         scanner,
-		upstreamManager: upstreamManager,
-		startTime:       time.Now(),
+		connector:        connector,
+		scanner:          scanner,
+		upstreamManager:  upstreamManager,
+		startTime:        time.Now(),
 	}
 }
 
@@ -500,11 +500,11 @@ func (s *CLIServer) handleVersionCommand() CLIResponse {
 
 func (s *CLIServer) handleHealthCommand() CLIResponse {
 	health := map[string]interface{}{
-		"status":     "ok",
-		"version":    GetVersionInfo(),
-		"config_ok":  s.configManager != nil,
-		"wallet_ok":  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
-		"uptime":     time.Since(s.startTime).String(),
+		"status":    "ok",
+		"version":   GetVersionInfo(),
+		"config_ok": s.configManager != nil,
+		"wallet_ok": s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
+		"uptime":    time.Since(s.startTime).String(),
 	}
 	return CLIResponse{
 		Success:   true,
@@ -577,10 +577,12 @@ func (s *CLIServer) handleUpstreamCommand(args []string, flags map[string]string
 			}
 		}
 		return s.handleUpstreamRemove(args[1])
+	case "known":
+		return s.handleUpstreamKnown()
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown upstream subcommand: %s (supported: scan, connect, list-upstream, remove-upstream)", subcommand),
+			Error:     fmt.Sprintf("Unknown upstream subcommand: %s (supported: scan, connect, list-upstream, remove-upstream, known)", subcommand),
 			Timestamp: time.Now(),
 		}
 	}
@@ -599,11 +601,14 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 	var result []UpstreamNetwork
 	for _, net := range networks {
 		result = append(result, UpstreamNetwork{
-			SSID:       net.SSID,
-			Signal:     net.Signal,
-			Encryption: net.Encryption,
-			BSSID:      net.BSSID,
-			Radio:      net.Radio,
+			SSID:         net.SSID,
+			Signal:       net.Signal,
+			Encryption:   net.Encryption,
+			BSSID:        net.BSSID,
+			Radio:        net.Radio,
+			IsTollGate:   net.IsTollGate,
+			PricePerStep: net.PricePerStep,
+			StepSize:     net.StepSize,
 		})
 	}
 
@@ -611,6 +616,24 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 		Success:   true,
 		Message:   fmt.Sprintf("Found %d network(s)", len(result)),
 		Data:      result,
+		Timestamp: time.Now(),
+	}
+}
+
+func (s *CLIServer) handleUpstreamKnown() CLIResponse {
+	if s.upstreamManager == nil || s.upstreamManager.DiscoveryLog == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Discovery logging not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	summary := s.upstreamManager.DiscoveryLog.Summary()
+	return CLIResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("%d TollGates discovered across %d scans", summary.TollGateCount, summary.TotalScans),
+		Data:      summary,
 		Timestamp: time.Now(),
 	}
 }
