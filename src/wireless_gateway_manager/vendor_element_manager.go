@@ -169,7 +169,7 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 	// Research across macOS (-75 dBm trigger), iOS (-70 dBm), Android (-73/-70 dBm
 	// thresholds), Cisco (6 dB hysteresis), and Aruba (5-10 dB delta bound) shows
 	// that real-world hysteresis is 8-12 dB. A +200 boost was 17-40x larger than any
-	// production system. See issue #(TBD) for full analysis.
+	// production system. See #311 for full analysis and roadmap.
 	if ni.IsTollGate && ni.Signal > -75 {
 		score += 15
 	}
