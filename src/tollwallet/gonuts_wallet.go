@@ -14,8 +14,8 @@ package tollwallet
 import (
 	"fmt"
 
-	"github.com/Origami74/gonuts-tollgate/cashu"
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
 )
 
 // GonutsWallet wraps a *TollWallet and implements WalletPort by delegation
