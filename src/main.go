@@ -493,7 +493,7 @@ func HandleUsage(w http.ResponseWriter, r *http.Request) {
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error getting MAC address for /usage")
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "-1/-1")
 		return
 	}
@@ -503,7 +503,7 @@ func HandleUsage(w http.ResponseWriter, r *http.Request) {
 			"mac":   macAddress,
 			"error": err,
 		}).Error("Error getting usage")
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "-1/-1")
 		return
 	}
