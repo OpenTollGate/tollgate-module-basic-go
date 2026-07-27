@@ -978,7 +978,7 @@ func handleIdentityRevealSeed(_ string) http.HandlerFunc {
 			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
 		if err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
