@@ -158,12 +158,20 @@ func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]int
 func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
 	score := ni.Signal
 
+	// SSID heuristic: small boost for human-readable TollGate naming.
+	// This is a weak signal (easily spoofed) so the boost is intentionally small.
 	if strings.HasPrefix(ni.SSID, "TollGate-") {
-		score += 100
+		score += 10
 	}
 
-	if ni.IsTollGate {
-		score += 200
+	// Vendor IE (definitive identification via OUI + TLV structure).
+	// Conditional boost: only prefer TollGate APs with usable signal.
+	// Research across macOS (-75 dBm trigger), iOS (-70 dBm), Android (-73/-70 dBm
+	// thresholds), Cisco (6 dB hysteresis), and Aruba (5-10 dB delta bound) shows
+	// that real-world hysteresis is 8-12 dB. A +200 boost was 17-40x larger than any
+	// production system. See issue #(TBD) for full analysis.
+	if ni.IsTollGate && ni.Signal > -75 {
+		score += 15
 	}
 
 	return score
