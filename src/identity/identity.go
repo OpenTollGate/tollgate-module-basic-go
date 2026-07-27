@@ -9,9 +9,9 @@
 // restores its identities.json — or recovers from the 12-word seed — reproduces
 // the same IPv4 and MAC addresses bit-for-bit.
 //
-// Every derivation hashes the hex-encoded secp256k1 public key (the 32-byte
-// X-coordinate, 64 hex chars — what nostr.GetPublicKey returns) together with a
-// domain separator using SHA-256. Hashing the public key (rather than the
+// Every derivation uses HKDF (RFC 5869) with the hex-encoded secp256k1 key as
+// input keying material and a fixed salt, expanding with a per-attribute domain
+// separator. Hashing the public key (rather than the
 // private key) means the publicly-derivable attributes depend only on the
 // PUBLIC identity, and two TollGates with different keys never collide on
 // address space. Using the hex pubkey (rather than the bech32 npub encoding)
@@ -30,10 +30,10 @@
 package identity
 
 import (
+	"crypto/hkdf"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net"
 	"strings"
 
@@ -251,17 +251,15 @@ func RevealSeed(hexPrivKey string) (*FullIdentity, error) {
 	}, nil
 }
 
-// deriveHash returns SHA-256(domainSep || pubKeyHex): the 32-byte deterministic
-// block every public attribute is sliced from. Writing domainSep before
-// pubKeyHex (both via io.WriteString, which never errors for a bytes.Buffer-
-// backed hasher) is the domain separation that keeps attribute streams
-// independent.
-func deriveHash(domainSep, pubKeyHex string) [32]byte {
-	h := sha256.New()
-	_, _ = io.WriteString(h, domainSep)
-	_, _ = io.WriteString(h, pubKeyHex)
+// deriveHash derives a 32-byte pseudo-random key from the merchant key using
+// HKDF (RFC 5869): Extract with a fixed salt ("tollgate-v1"), then Expand with
+// the domain separator as info. This provides formal key separation between
+// attribute derivations (IPv4, MAC, passwords) that simple SHA-256 concatenation
+// lacks.
+func deriveHash(domainSep, keyHex string) [32]byte {
+	okm, _ := hkdf.Key(sha256.New, []byte(keyHex), []byte("tollgate-v1"), domainSep, 32)
 	var out [32]byte
-	h.Sum(out[:0])
+	copy(out[:], okm)
 	return out
 }
 
