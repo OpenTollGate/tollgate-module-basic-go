@@ -402,7 +402,28 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 		"allotment": allotment,
 	}).Info("✅ Payment accepted by upstream")
 
+	go s.triggerNdsSession()
+
 	return allotment, nil
+}
+
+func (s *UpstreamSession) triggerNdsSession() {
+	url := fmt.Sprintf("http://%s:80/", s.GatewayIP)
+	client := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { return nil },
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		logger.WithField("gateway", s.GatewayIP).Debug("NDS session trigger failed (non-critical)")
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
+	logger.WithFields(logrus.Fields{
+		"gateway": s.GatewayIP,
+		"status":  resp.StatusCode,
+	}).Info("NDS session triggered post-payment")
 }
 
 // recoverToken attempts to recover a failed payment token
