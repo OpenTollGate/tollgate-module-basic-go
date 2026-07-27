@@ -14,12 +14,12 @@ import (
 
 	"sync"
 
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -472,7 +472,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 	ch := make(chan receiveResult, 1)
 	go func() {
-		amount, err := m.tollwallet.Receive(paymentCashuToken)
+		amount, err := receiveWithRetry(m.tollwallet, paymentCashuToken)
 		ch <- receiveResult{amount, err}
 	}()
 
@@ -505,6 +505,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if isRateLimitError(err) {
+			errorCode = "mint-rate-limited"
+			errorMessage = "Mint is rate-limiting requests. Please try again in a moment."
 		} else {
 			errorCode = "payment-processing-failed"
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
@@ -555,6 +558,34 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 
 	return sessionEvent, nil
+}
+
+const rateLimitMaxRetries = 3
+
+func receiveWithRetry(tw tollwallet.TollWallet, token cashu.Token) (uint64, error) {
+	delay := 2 * time.Second
+	var lastErr error
+	for i := 0; i < rateLimitMaxRetries; i++ {
+		amount, err := tw.Receive(token)
+		if err == nil {
+			return amount, nil
+		}
+		lastErr = err
+		if !isRateLimitError(err) {
+			return 0, err
+		}
+		log.Printf("receiveWithRetry: mint rate-limited, retrying in %v (attempt %d/%d)", delay, i+1, rateLimitMaxRetries)
+		time.Sleep(delay)
+		delay *= 2
+	}
+	return 0, fmt.Errorf("mint rate-limited after %d retries: %w", rateLimitMaxRetries, lastErr)
+}
+
+func isRateLimitError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "429") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "too many requests")
 }
 
 func (m *Merchant) GetAdvertisement() string {
