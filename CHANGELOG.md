@@ -10,6 +10,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Discovery logging: structured scan history for TollGate AP analysis.**
+  Background scan cycles now log every discovered AP (BSSID, SSID, signal,
+  radio, TollGate flag, price/step) to `/etc/tollgate/discovery_log.jsonl`.
+  An in-memory registry tracks known TollGates across scans with signal
+  range, sample count, and latest pricing. New CLI command
+  `tollgate-cli upstream known` shows the summary. The `upstream scan`
+  output now includes `is_tollgate`, `price_per_step`, and `step_size`
+  fields. Foundation for Phase 2 speed probing and Phase 3 advertised
+  pricing in #311.
+
 ### Fixed
 
 - **Spending condition validation: reject P2PK/HTLC-locked tokens.**
