@@ -228,6 +228,12 @@ func (um *UpstreamManager) checkConnectivityForStartup(staDevice string) bool {
 func (um *UpstreamManager) Start(ctx context.Context) {
 	logger.Info("Starting upstream manager")
 
+	if um.DiscoveryLog != nil {
+		if err := um.DiscoveryLog.LoadExistingLog(); err != nil {
+			logger.WithError(err).Warn("Failed to load discovery log on startup")
+		}
+	}
+
 	if err := um.connector.EnsureRadiosEnabled(); err != nil {
 		logger.WithError(err).Warn("Failed to ensure radios enabled on startup")
 	}
