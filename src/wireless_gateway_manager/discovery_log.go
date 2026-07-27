@@ -9,7 +9,7 @@ import (
 	logrus "github.com/sirupsen/logrus"
 )
 
-const DefaultDiscoveryLogPath = "/etc/tollgate/discovery_log.jsonl"
+const DefaultDiscoveryLogPath = "/tmp/tollgate-discovery.jsonl"
 const DiscoveryLogMaxEntries = 10000
 
 type DiscoveryEntry struct {
@@ -24,6 +24,15 @@ type DiscoveryEntry struct {
 	Encryption   string    `json:"encryption,omitempty"`
 }
 
+type ProbeEntry struct {
+	Timestamp     time.Time `json:"ts"`
+	BSSID         string    `json:"bssid"`
+	GatewayIP     string    `json:"gateway_ip"`
+	RTTMs         int64     `json:"rtt_ms"`
+	ResponseBytes int       `json:"response_bytes"`
+	Reachable     bool      `json:"reachable"`
+}
+
 type KnownTollGate struct {
 	BSSID        string    `json:"bssid"`
 	SSID         string    `json:"ssid"`
@@ -34,6 +43,9 @@ type KnownTollGate struct {
 	SampleCount  int       `json:"sample_count"`
 	PricePerStep int       `json:"price_per_step,omitempty"`
 	StepSize     int       `json:"step_size,omitempty"`
+	LastRTTMs    int64     `json:"last_rtt_ms,omitempty"`
+	BestRTTMs    int64     `json:"best_rtt_ms,omitempty"`
+	ProbeCount   int       `json:"probe_count,omitempty"`
 }
 
 type DiscoverySummary struct {
@@ -102,6 +114,46 @@ func (dl *DiscoveryLogger) LogScan(networks []NetworkInfo) {
 			"tollgates":   tgCount,
 			"scan_number": dl.scans,
 		}).Info("Discovery scan logged")
+	}
+}
+
+func (dl *DiscoveryLogger) LogProbe(bssid string, result ProbeResult) {
+	dl.mu.Lock()
+	defer dl.mu.Unlock()
+
+	entry := ProbeEntry{
+		Timestamp:     time.Now(),
+		BSSID:         bssid,
+		GatewayIP:     result.GatewayIP,
+		RTTMs:         result.RTT.Milliseconds(),
+		ResponseBytes: result.ResponseBytes,
+		Reachable:     result.Reachable,
+	}
+
+	probeLogPath := dl.path + ".probes"
+	f, err := os.OpenFile(probeLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		dl.logger.WithError(err).Warn("Failed to append probe log")
+	} else {
+		enc := json.NewEncoder(f)
+		enc.Encode(entry)
+		f.Close()
+	}
+
+	if existing, ok := dl.registry[bssid]; ok {
+		existing.LastRTTMs = entry.RTTMs
+		existing.ProbeCount++
+		if existing.BestRTTMs == 0 || entry.RTTMs < existing.BestRTTMs {
+			existing.BestRTTMs = entry.RTTMs
+		}
+	}
+
+	if result.Reachable {
+		dl.logger.WithFields(logrus.Fields{
+			"bssid":  bssid,
+			"rtt_ms": entry.RTTMs,
+			"bytes":  entry.ResponseBytes,
+		}).Info("TollGate probed")
 	}
 }
 
