@@ -198,19 +198,25 @@ func TestParseVendorIEsFromScanData_TruncatedAtEnd(t *testing.T) {
 func TestCalculateScore_TollGateSSID(t *testing.T) {
 	v := &VendorElementProcessor{}
 	score := v.calculateScore(NetworkInfo{SSID: "TollGate-ABCD", Signal: -50}, nil)
-	assert.Equal(t, -50+100, score)
+	assert.Equal(t, -50+10, score)
 }
 
 func TestCalculateScore_IsTollGateFlag(t *testing.T) {
 	v := &VendorElementProcessor{}
 	score := v.calculateScore(NetworkInfo{SSID: "RandomNet", Signal: -60, IsTollGate: true}, nil)
-	assert.Equal(t, -60+200, score)
+	assert.Equal(t, -60+15, score)
 }
 
 func TestCalculateScore_TollGateSSIDAndFlag(t *testing.T) {
 	v := &VendorElementProcessor{}
 	score := v.calculateScore(NetworkInfo{SSID: "TollGate-X", Signal: -40, IsTollGate: true}, nil)
-	assert.Equal(t, -40+100+200, score)
+	assert.Equal(t, -40+10+15, score)
+}
+
+func TestCalculateScore_TollGateFlagWeakSignalNoBoost(t *testing.T) {
+	v := &VendorElementProcessor{}
+	score := v.calculateScore(NetworkInfo{SSID: "RandomNet", Signal: -80, IsTollGate: true}, nil)
+	assert.Equal(t, -80, score)
 }
 
 func TestCalculateScore_RegularNetwork(t *testing.T) {
