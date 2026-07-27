@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net/http"
 	"os/exec"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 )
 
 type Candidate struct {
+	BSSID     string
 	Signal    int
 	Radio     string
 	IfaceName string
@@ -208,7 +208,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 
 		um.resetSwitchFailures()
 		um.blacklistSSID(activeSTA.SSID)
-		go um.verifyPostSwitchConnectivity(candidate.SSID)
+		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
 		switched = true
 		break
 	}
@@ -511,7 +511,7 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 			if isEmergency && activeSSID != "" {
 				um.blacklistSSID(activeSSID)
 			}
-			go um.verifyPostSwitchConnectivity(candidate.SSID)
+			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
 		}
 	}
 }
@@ -534,10 +534,10 @@ func (um *UpstreamManager) waitForDefaultRoute(timeout time.Duration) bool {
 	return false
 }
 
-func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string) {
+func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid string) {
 	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
 	if um.waitForDefaultRoute(30 * time.Second) {
-		if um.probeTollGateGateway() {
+		if um.probeTollGateGateway(bssid) {
 			um.isTollGateConnection = true
 			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
 			return
@@ -554,7 +554,7 @@ func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string) {
 	}
 }
 
-func (um *UpstreamManager) probeTollGateGateway() bool {
+func (um *UpstreamManager) probeTollGateGateway(bssid string) bool {
 	cmd := exec.Command("ip", "route", "show", "default")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -574,13 +574,13 @@ func (um *UpstreamManager) probeTollGateGateway() bool {
 		return false
 	}
 
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://" + gatewayIP + ":2121/")
-	if err != nil {
-		return false
+	result := SpeedProbe(gatewayIP)
+
+	if um.DiscoveryLog != nil && bssid != "" {
+		um.DiscoveryLog.LogProbe(bssid, result)
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 500
+
+	return result.Reachable && result.ResponseBytes > 0
 }
 
 func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool, isEmergency bool) (*Candidate, error) {
@@ -618,6 +618,7 @@ func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candida
 		}
 		if best == nil || net.Signal > best.Signal {
 			best = &Candidate{
+				BSSID:     net.BSSID,
 				Signal:    net.Signal,
 				Radio:     net.Radio,
 				IfaceName: ifaceName,
@@ -706,6 +707,7 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo, isEmer
 		if best == nil || score > best.score {
 			best = &scoredCandidate{
 				candidate: &Candidate{
+					BSSID:     net.BSSID,
 					Signal:    net.Signal,
 					Radio:     net.Radio,
 					IfaceName: ifaceName,
