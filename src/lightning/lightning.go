@@ -68,7 +68,7 @@ func GetInvoiceFromLightningAddress(lightningAddr string, amountSats uint64) (st
 	defer resp.Body.Close()
 
 	// 4. Parse the LNURL response
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read Lightning Address response: %w", err)
 	}
@@ -112,7 +112,7 @@ func GetInvoiceFromLightningAddress(lightningAddr string, amountSats uint64) (st
 	defer invoiceResp.Body.Close()
 
 	// 7. Parse the invoice response
-	invoiceBody, err := io.ReadAll(invoiceResp.Body)
+	invoiceBody, err := io.ReadAll(io.LimitReader(invoiceResp.Body, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read invoice response: %w", err)
 	}

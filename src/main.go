@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
@@ -27,10 +28,38 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 )
 
 // Module-level logger with pre-configured module field
 var mainLogger = logrus.WithField("module", "main")
+
+var ipLimiters = make(map[string]*rate.Limiter)
+var ipLimitersMu sync.Mutex
+
+func getIPLimiter(ip string) *rate.Limiter {
+	ipLimitersMu.Lock()
+	defer ipLimitersMu.Unlock()
+	limiter, exists := ipLimiters[ip]
+	if !exists {
+		limiter = rate.NewLimiter(rate.Every(time.Minute/10), 10)
+		ipLimiters[ip] = limiter
+	}
+	return limiter
+}
+
+func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := getIP(r)
+		if !getIPLimiter(ip).Allow() {
+			mainLogger.WithField("ip", ip).Warn("Rate limit exceeded")
+			w.Header().Set("Retry-After", "6")
+			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+			return
+		}
+		next(w, r)
+	}
+}
 
 // Global configuration variable
 // Define configFile at a higher scope
@@ -402,9 +431,9 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	ip := getIP(r)
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address")
+		mainLogger.WithError(err).Error("MAC address lookup failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "mac-address-lookup-failed",
-			fmt.Sprintf("Failed to lookup MAC address for IP %s: %v", ip, err), "")
+			"Failed to identify device", "")
 		return
 	}
 
@@ -412,9 +441,9 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
-		mainLogger.WithError(err).Error("Error reading request body")
+		mainLogger.WithError(err).Error("Request body read failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-request",
-			fmt.Sprintf("Error reading request body: %v", err), macAddress)
+			"Invalid request", macAddress)
 		return
 	}
 
@@ -451,7 +480,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Payment processing failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusInternalServerError, "error", "internal-error",
-			fmt.Sprintf("Internal error during payment processing: %v", err), macAddress)
+			"Payment processing failed", macAddress)
 		return
 	}
 
@@ -760,8 +789,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
-
-		CorsMiddleware(HandleRoot)(w, r)
+		RateLimitMiddleware(CorsMiddleware(HandleRoot))(w, r)
 	})
 
 	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
