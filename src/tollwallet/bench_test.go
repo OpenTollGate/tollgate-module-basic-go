@@ -5,7 +5,7 @@ package tollwallet
 import (
 	"testing"
 
-	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 )
 
 // BenchmarkDecodeToken measures the overhead of the GonutsWallet adapter's
