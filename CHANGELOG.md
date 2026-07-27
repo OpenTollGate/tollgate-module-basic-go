@@ -10,6 +10,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Backend API firewall: port 2121 restricted to LAN interfaces.**
+  New nftables include (`30-backend-firewall.nft`) blocks the backend
+  API from non-br-lan interfaces. WiFi clients still reach the payment
+  endpoint via NDS users_to_router rules. WAN-side and upstream clients
+  can no longer directly probe the backend API. Defense-in-depth for
+  #226 — does not change the listen address or payment flow.
+
 ### Fixed
 
 - **Lightning quote persistence: data race + crash-safety fix.**
