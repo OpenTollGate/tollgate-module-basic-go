@@ -505,6 +505,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if errors.Is(err, tollwallet.ErrLockedToken) {
+			errorCode = "payment-error-locked-token"
+			errorMessage = "Token has spending conditions (P2PK/HTLC) and cannot be spent by the gateway"
 		} else {
 			errorCode = "payment-processing-failed"
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
