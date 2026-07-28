@@ -472,7 +472,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 	ch := make(chan receiveResult, 1)
 	go func() {
-		amount, err := receiveWithRetry(m.tollwallet, paymentCashuToken)
+		amount, err := m.tollwallet.Receive(paymentCashuToken)
 		ch <- receiveResult{amount, err}
 	}()
 
@@ -558,27 +558,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 
 	return sessionEvent, nil
-}
-
-const rateLimitMaxRetries = 3
-
-func receiveWithRetry(tw tollwallet.TollWallet, token cashu.Token) (uint64, error) {
-	delay := 2 * time.Second
-	var lastErr error
-	for i := 0; i < rateLimitMaxRetries; i++ {
-		amount, err := tw.Receive(token)
-		if err == nil {
-			return amount, nil
-		}
-		lastErr = err
-		if !isRateLimitError(err) {
-			return 0, err
-		}
-		log.Printf("receiveWithRetry: mint rate-limited, retrying in %v (attempt %d/%d)", delay, i+1, rateLimitMaxRetries)
-		time.Sleep(delay)
-		delay *= 2
-	}
-	return 0, fmt.Errorf("mint rate-limited after %d retries: %w", rateLimitMaxRetries, lastErr)
 }
 
 func isRateLimitError(err error) bool {
