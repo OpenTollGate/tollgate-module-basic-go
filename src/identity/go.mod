@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/identity
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/nbd-wtf/go-nostr v0.51.12
