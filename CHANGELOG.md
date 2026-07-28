@@ -12,6 +12,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Identity reveal-seed loopback enforcement.** The
+  `/identity/reveal-seed` endpoint had no loopback check — any WiFi
+  client could POST and retrieve the router's private key, root
+  password, and WiFi password. Added `isLocalRequest` guard (403 for
+  non-localhost), capped the request body to 1024 bytes via
+  `io.LimitReader`, and stopped discarding the stored private key in
+  the handler signature
+  ([#242](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/242)).
+
 - **Protocol compliance: notice event codes and tips tag.** Map
   implementation-specific notice event codes to spec-defined codes from
   TIP-01 (`session-management-failed`, `gate-open-failed`, and

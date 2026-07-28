@@ -16,6 +16,19 @@ import (
 // stand-in for the merchant private key in handler tests.
 const testPrivKey = "0000000000000000000000000000000000000000000000000000000000000001"
 
+// newLocalRequest creates a request with RemoteAddr set to loopback so it
+// passes the isLocalRequest check used by identity handlers.
+func newLocalRequest(method, target string, body *strings.Reader) *http.Request {
+	var r *http.Request
+	if body != nil {
+		r = httptest.NewRequest(method, target, body)
+	} else {
+		r = httptest.NewRequest(method, target, nil)
+	}
+	r.RemoteAddr = "127.0.0.1:1234"
+	return r
+}
+
 func TestHandleIdentityDerive_OK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/identity", nil)
 	rec := httptest.NewRecorder()
@@ -46,7 +59,7 @@ func TestHandleIdentityDerive_BadKey_500(t *testing.T) {
 
 func TestHandleIdentityRevealSeed_RejectsGET(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-		req := httptest.NewRequest(method, "/identity/reveal-seed", nil)
+		req := newLocalRequest(method, "/identity/reveal-seed", nil)
 		rec := httptest.NewRecorder()
 		handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, "method %s", method)
@@ -54,11 +67,20 @@ func TestHandleIdentityRevealSeed_RejectsGET(t *testing.T) {
 	}
 }
 
+func TestHandleIdentityRevealSeed_RejectsNonLocal(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader("test"))
+	req.RemoteAddr = "192.168.1.100:5678"
+	rec := httptest.NewRecorder()
+	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "mnemonic", "seed must not leak to non-local")
+}
+
 func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 	mnemonic, err := identity.GenerateMnemonic()
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader(mnemonic))
+	req := newLocalRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader(mnemonic))
 	rec := httptest.NewRecorder()
 
 	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
@@ -81,7 +103,7 @@ func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 }
 
 func TestHandleIdentityRevealSeed_BadMnemonic_400(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader("not a valid mnemonic"))
+	req := newLocalRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader("not a valid mnemonic"))
 	rec := httptest.NewRecorder()
 	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
