@@ -168,8 +168,8 @@ func init() {
 		}
 		valve.AuthDelay = time.Duration(delaySeconds) * time.Second
 		mainLogger.WithFields(logrus.Fields{
-			"redirect_url":      mainConfig.RedirectURL,
-			"auth_delay":        valve.AuthDelay,
+			"redirect_url": mainConfig.RedirectURL,
+			"auth_delay":   valve.AuthDelay,
 			"auth_delay_source": func() string {
 				if mainConfig.AuthDelaySeconds > 0 {
 					return "config"
@@ -934,13 +934,17 @@ func handleIdentityDerive(privKey string) http.HandlerFunc {
 // and returns the full identity (private key, npub, IPv4, MACs, mnemonic).
 // POST-only: a non-POST request gets 405 Method Not Allowed.
 // Registered at POST /identity/reveal-seed.
-func handleIdentityRevealSeed(_ string) http.HandlerFunc {
+func handleIdentityRevealSeed(privKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalRequest(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed: use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
 		if err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
