@@ -342,10 +342,10 @@ func migrateConfig(config *Config, defaults *Config) {
 		log.Printf("INFO: Populated UpstreamWifi defaults (was missing in v%s)", config.ConfigVersion)
 	}
 	config.ConfigVersion = defaults.ConfigVersion
-    for i := range config.AcceptedMints {
-        if config.AcceptedMints[i].PriceUnit == "sats" {
-            config.AcceptedMints[i].PriceUnit = "sat"
-            log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
-        }
-    }
+	for i := range config.AcceptedMints {
+		if config.AcceptedMints[i].PriceUnit == "sats" {
+			config.AcceptedMints[i].PriceUnit = "sat"
+			log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
+		}
+	}
 }
