@@ -10,7 +10,7 @@ import (
 )
 
 const DefaultDiscoveryLogPath = "/tmp/tollgate-discovery.jsonl"
-const DiscoveryLogMaxEntries = 10000
+const DiscoveryLogMaxBytes = 1 << 20
 
 type DiscoveryEntry struct {
 	Timestamp    time.Time `json:"ts"`
@@ -191,6 +191,11 @@ func (dl *DiscoveryLogger) updateRegistry(net NetworkInfo) {
 }
 
 func (dl *DiscoveryLogger) appendJSONL(entries []DiscoveryEntry) error {
+	if info, err := os.Stat(dl.path); err == nil && info.Size() > DiscoveryLogMaxBytes {
+		os.Rename(dl.path, dl.path+".old")
+		dl.logger.WithField("rotated_bytes", info.Size()).Debug("Discovery log rotated")
+	}
+
 	f, err := os.OpenFile(dl.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err
