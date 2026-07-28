@@ -12,6 +12,20 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Spending condition validation: reject P2PK/HTLC-locked tokens.**
+  `tollwallet.Receive()` now checks each proof's secret for spending
+  conditions before crediting the user. Tokens with P2PK or HTLC locks
+  are rejected with `ErrLockedToken`, preventing an attacker from
+  getting free internet access with tokens the gateway can never spend.
+  Found during cashu-audit Layer 3 audit. Fixes #324.
+
+- **Fund() token decode: use generic DecodeToken instead of V4-only.**
+  `merchant.Fund()` called `cashu.DecodeTokenV4()` (V4-only, no V3
+  fallback). Changed to `cashu.DecodeToken()` which tries V4 then V3.
+  Fixes #325.
+
+### Fixed (pre-existing)
+
 - **Lightning quote persistence: data race + crash-safety fix.**
   `persistLightningQuotes` now deep-copies `lightningQuoteRecord`
   values under the `RLock` instead of sharing pointers — eliminates a
