@@ -51,3 +51,6 @@ MOCK-*.md
 notepad*.md
 handover*.md
 ulw-*.md
+
+# Captive portal build output (built at release time from tollgate-captive-portal-site)
+packaging/files/tollgate-captive-portal-site/assets/
