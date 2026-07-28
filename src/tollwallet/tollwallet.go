@@ -114,6 +114,7 @@ func (w *TollWallet) Shutdown() error {
 	return nil
 }
 
+// NUT #00: `Carol` can send `(x, C)` to `Bob` who then checks that `k*hash_to_curve(x) == C` (**verification**), and if so treats it as a valid spend of a token, adding `x` to the list of spent secrets.
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	mint := token.Mint()
 
@@ -145,6 +146,7 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	return amountAfterSwap, nil
 }
 
+// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.).
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {
 	log.Printf("TollWallet.Send: attempting to send %d sats from mint %s (includeFees=%t)", amount, mintUrl, includeFees)
 
