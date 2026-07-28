@@ -94,6 +94,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Captive portal build at release time.** Stop committing minified JS/CSS
+  compiler output from `tollgate-captive-portal-site` into the Go repo.
+  `packaging/files/tollgate-captive-portal-site/assets/` is now gitignored;
+  `packaging/portal-build.sh` (via `make portal-build`) clones the portal
+  repo, runs `npm ci && npm run build`, and copies the output into
+  `packaging/`. Portal source changes are reviewed in the portal repo going
+  forward — Go repo PRs only touch `splash.html`, `balance.html`, `locales/`
+  ([#320](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/320)).
+
 - **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
   CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
   health) with example output, flags, and a troubleshooting section; README
