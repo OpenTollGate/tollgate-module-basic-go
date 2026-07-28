@@ -12,9 +12,8 @@
 #
 # See: https://github.com/OpenTollGate/tollgate-module-basic-go/issues/226
 
-table inet fw4 {
-	chain backend_input_firewall {
-		type filter hook input priority -1; policy accept;
-		meta nfproto ipv4 iifname != "br-lan" tcp dport 2121 counter drop
-	}
+chain backend_input_firewall {
+	type filter hook input priority -1; policy accept
+
+	meta nfproto ipv4 iifname != { "br-lan", "lo" } tcp dport 2121 counter drop
 }
