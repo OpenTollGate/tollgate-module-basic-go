@@ -30,19 +30,19 @@ type Config struct {
 }
 
 type UpstreamWifiConfig struct {
-	ScanIntervalSeconds     int `json:"scan_interval_seconds"`
-	FastCheckSeconds        int `json:"fast_check_seconds"`
-	LostThreshold           int `json:"lost_threshold"`
-	HysteresisDB            int `json:"hysteresis_db"`
-	SignalFloor             int `json:"signal_floor"`
-	BlacklistTTLMinutes     int `json:"blacklist_ttl_minutes"`
-	EmergencyPenalty        int `json:"emergency_penalty"`
-	MaxConsecutiveFailures  int `json:"max_consecutive_failures"`
-	SwitchCooldownMinutes   int `json:"switch_cooldown_minutes"`
-	StartupGraceSeconds     int `json:"startup_grace_seconds"`
-	PostSwitchWaitSeconds   int `json:"post_switch_wait_seconds"`
-	DHCPTimeoutSeconds      int `json:"dhcp_timeout_seconds"`
-	ManualPauseSeconds      int `json:"manual_pause_seconds"`
+	ScanIntervalSeconds    int `json:"scan_interval_seconds"`
+	FastCheckSeconds       int `json:"fast_check_seconds"`
+	LostThreshold          int `json:"lost_threshold"`
+	HysteresisDB           int `json:"hysteresis_db"`
+	SignalFloor            int `json:"signal_floor"`
+	BlacklistTTLMinutes    int `json:"blacklist_ttl_minutes"`
+	EmergencyPenalty       int `json:"emergency_penalty"`
+	MaxConsecutiveFailures int `json:"max_consecutive_failures"`
+	SwitchCooldownMinutes  int `json:"switch_cooldown_minutes"`
+	StartupGraceSeconds    int `json:"startup_grace_seconds"`
+	PostSwitchWaitSeconds  int `json:"post_switch_wait_seconds"`
+	DHCPTimeoutSeconds     int `json:"dhcp_timeout_seconds"`
+	ManualPauseSeconds     int `json:"manual_pause_seconds"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -342,10 +342,10 @@ func migrateConfig(config *Config, defaults *Config) {
 		log.Printf("INFO: Populated UpstreamWifi defaults (was missing in v%s)", config.ConfigVersion)
 	}
 	config.ConfigVersion = defaults.ConfigVersion
-    for i := range config.AcceptedMints {
-        if config.AcceptedMints[i].PriceUnit == "sats" {
-            config.AcceptedMints[i].PriceUnit = "sat"
-            log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
-        }
-    }
+	for i := range config.AcceptedMints {
+		if config.AcceptedMints[i].PriceUnit == "sats" {
+			config.AcceptedMints[i].PriceUnit = "sat"
+			log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
+		}
+	}
 }
