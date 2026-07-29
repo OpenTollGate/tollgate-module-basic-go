@@ -58,7 +58,7 @@ type MerchantInterface interface {
 type Merchant struct {
 	config            *config_manager.Config
 	configManager     *config_manager.ConfigManager
-	tollwallet        tollwallet.TollWallet
+	tollwallet        *tollwallet.TollWallet
 	mintHealthTracker *MintHealthTracker
 	customerSessions  map[string]*CustomerSession
 	sessionMu         sync.RWMutex
@@ -162,7 +162,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	m := &Merchant{
 		config:            config,
 		configManager:     configManager,
-		tollwallet:        *tw,
+		tollwallet:        tw,
 		mintHealthTracker: mintHealthTracker,
 		customerSessions:  make(map[string]*CustomerSession),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
