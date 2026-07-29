@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 )
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")
@@ -146,7 +146,7 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	return amountAfterSwap, nil
 }
 
-// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.).
+// NUT #03: Alice requests swapping proofs she holds for new proofs, signing over her inputs and requesting signatures on her outputs.
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {
 	log.Printf("TollWallet.Send: attempting to send %d sats from mint %s (includeFees=%t)", amount, mintUrl, includeFees)
 
@@ -353,6 +353,7 @@ func (w *TollWallet) GetAllMintBalances() map[string]uint64 {
 	return w.wallet.GetBalanceByMints()
 }
 
+// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.).
 // MeltToLightning melts a token to a lightning invoice using LNURL
 // It attempts to melt for the target amount, reducing by 5% each time if fees are too high
 func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
