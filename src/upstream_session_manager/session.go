@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -411,6 +412,11 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 }
 
 func (s *UpstreamSession) triggerNdsSession() {
+	parsed := net.ParseIP(s.GatewayIP)
+	if parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified() || parsed.IsLinkLocalUnicast() {
+		return
+	}
+
 	port := s.NdsPortalPort
 	if port == 0 {
 		port = 80
