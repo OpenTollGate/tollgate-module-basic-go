@@ -160,6 +160,7 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 
 	// SSID heuristic: small boost for human-readable TollGate naming.
 	// This is a weak signal (easily spoofed) so the boost is intentionally small.
+	// TollGate SSID format: "TollGate-" + random chars (e.g. "TollGate-A1B2").
 	if strings.HasPrefix(ni.SSID, "TollGate-") {
 		score += 10
 	}
