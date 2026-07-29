@@ -8,13 +8,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut10"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 )
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")
+var ErrLockedToken = errors.New("token has spending conditions and cannot be spent by the gateway")
 
 // ErrWalletNotInitialized is returned by wallet operations when the underlying
 // cashu wallet has not been initialized (for example on a bare Merchant or in
@@ -116,6 +118,10 @@ func (w *TollWallet) Shutdown() error {
 
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	mint := token.Mint()
+
+	if hasLockedProofs(token.Proofs()) {
+		return 0, ErrLockedToken
+	}
 
 	swapToTrusted := false
 
@@ -299,6 +305,16 @@ func MintURLMatches(a, b string) bool {
 	return strings.EqualFold(ua.Host, ub.Host) &&
 		ua.Scheme == ub.Scheme &&
 		normalizePath(ua.Path) == normalizePath(ub.Path)
+}
+
+func hasLockedProofs(proofs cashu.Proofs) bool {
+	for _, proof := range proofs {
+		secret, err := nut10.DeserializeSecret(proof.Secret)
+		if err == nil && secret.Kind != nut10.AnyoneCanSpend {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizePath strips a single trailing slash from the path so that

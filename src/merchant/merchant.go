@@ -1098,7 +1098,7 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 	}
 	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
 
-	parsedToken, err := cashu.DecodeTokenV4(cashuToken)
+	parsedToken, err := cashu.DecodeToken(cashuToken)
 	if err != nil {
 		log.Printf("Failed to decode cashu token (length: %d): %v", len(cashuToken), err)
 		return 0, fmt.Errorf("invalid cashu token format: %w", err)
