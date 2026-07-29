@@ -2,6 +2,7 @@ package tollgate_protocol
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -33,6 +34,26 @@ func TestValidateAdvertisement_RightKindBadSig(t *testing.T) {
 	err := ValidateAdvertisement(event)
 	if err == nil {
 		t.Fatal("expected error for unsigned event")
+	}
+}
+
+func TestValidateAdvertisement_ValidSignedEvent(t *testing.T) {
+	sk := nostr.GeneratePrivateKey()
+
+	event := &nostr.Event{
+		Kind:    TollGateAdvertisementKind,
+		Content: "",
+		Tags: nostr.Tags{
+			{"metric", "bytes"},
+			{"step_size", "22020096"},
+		},
+	}
+	if err := event.Sign(sk); err != nil {
+		t.Fatalf("failed to sign event: %v", err)
+	}
+
+	if err := ValidateAdvertisement(event); err != nil {
+		t.Fatalf("expected valid signed event to pass, got: %v", err)
 	}
 }
 
@@ -138,6 +159,21 @@ func TestExtractAdvertisementInfo_MissingStepSize(t *testing.T) {
 	}
 }
 
+func TestExtractAdvertisementInfo_NonNumericStepSize(t *testing.T) {
+	event := &nostr.Event{
+		Kind: TollGateAdvertisementKind,
+		Tags: nostr.Tags{
+			{"metric", "bytes"},
+			{"step_size", "not-a-number"},
+			{"price_per_step", "cashu", "1", "sat", "https://mint.example.com", "1"},
+		},
+	}
+	_, err := ExtractAdvertisementInfo(event)
+	if err == nil {
+		t.Fatal("expected error for non-numeric step_size")
+	}
+}
+
 func TestExtractAdvertisementInfo_NoPricing(t *testing.T) {
 	event := &nostr.Event{
 		Kind: TollGateAdvertisementKind,
@@ -171,11 +207,59 @@ func TestExtractAdvertisementInfo_MalformedPriceTag(t *testing.T) {
 	}
 }
 
-func TestValidateAdvertisementFromBytes_Full(t *testing.T) {
+func TestExtractAdvertisementInfo_NonNumericPrice(t *testing.T) {
+	event := &nostr.Event{
+		Kind: TollGateAdvertisementKind,
+		Tags: nostr.Tags{
+			{"metric", "bytes"},
+			{"step_size", "22020096"},
+			{"price_per_step", "cashu", "not-a-number", "sat", "https://mint.example.com", "1"},
+			{"price_per_step", "cashu", "2", "sat", "https://mint.example.com", "1"},
+		},
+	}
+	info, err := ExtractAdvertisementInfo(event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(info.PricingOptions) != 1 {
+		t.Fatalf("expected 1 valid pricing option (bad price skipped), got %d", len(info.PricingOptions))
+	}
+	if info.PricingOptions[0].PricePerStep != 2 {
+		t.Errorf("expected price 2 from valid option, got %d", info.PricingOptions[0].PricePerStep)
+	}
+}
+
+func TestValidateAdvertisementFromBytes_BadSig(t *testing.T) {
 	raw := `{"kind":10021,"id":"abc","pubkey":"def","created_at":1000,"tags":[["metric","bytes"]],"content":"","sig":"xyz"}`
 	_, err := ValidateAdvertisementFromBytes([]byte(raw))
 	if err == nil {
 		t.Fatal("expected error (sig won't verify without real keys)")
+	}
+}
+
+func TestValidateAdvertisementFromBytes_ValidSigned(t *testing.T) {
+	sk := nostr.GeneratePrivateKey()
+
+	event := &nostr.Event{
+		Kind:    TollGateAdvertisementKind,
+		Content: "",
+		Tags:    nostr.Tags{{"metric", "bytes"}},
+	}
+	if err := event.Sign(sk); err != nil {
+		t.Fatalf("failed to sign: %v", err)
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	parsed, err := ValidateAdvertisementFromBytes(data)
+	if err != nil {
+		t.Fatalf("expected valid signed event to pass, got: %v", err)
+	}
+	if parsed.Kind != TollGateAdvertisementKind {
+		t.Errorf("expected kind %d, got %d", TollGateAdvertisementKind, parsed.Kind)
 	}
 }
 
@@ -186,26 +270,29 @@ func TestValidateAdvertisementFromBytes_BadJSON(t *testing.T) {
 	}
 }
 
-func ensureJSON(t *testing.T, v interface{}) {
-	t.Helper()
-	if _, err := json.Marshal(v); err != nil {
-		t.Fatalf("value not JSON-serializable: %v", err)
-	}
-}
-
 func TestPricingOption_JSONRoundTrip(t *testing.T) {
-	opt := PricingOption{
+	original := PricingOption{
 		AssetType:    "cashu",
 		PricePerStep: 1,
 		PriceUnit:    "sat",
 		MintURL:      "https://mint.example.com",
 		MinSteps:     1,
 	}
-	ensureJSON(t, opt)
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded PricingOption
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("round-trip mismatch:\noriginal: %+v\ndecoded:  %+v", original, decoded)
+	}
 }
 
 func TestAdvertisementInfo_JSONRoundTrip(t *testing.T) {
-	info := AdvertisementInfo{
+	original := AdvertisementInfo{
 		Metric:   "bytes",
 		StepSize: 22020096,
 		PricingOptions: []PricingOption{
@@ -213,5 +300,15 @@ func TestAdvertisementInfo_JSONRoundTrip(t *testing.T) {
 		},
 		TIPs: []string{"01", "02"},
 	}
-	ensureJSON(t, info)
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded AdvertisementInfo
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("round-trip mismatch:\noriginal: %+v\ndecoded:  %+v", original, decoded)
+	}
 }
