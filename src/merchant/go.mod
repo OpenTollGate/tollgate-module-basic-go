@@ -1,18 +1,18 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/merchant
 
-go 1.24.2
+go 1.25.0
 
 require (
+	github.com/OpenTollGate/gonuts-tollgate v0.10.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
-	github.com/Origami74/gonuts-tollgate v0.6.1
 	github.com/nbd-wtf/go-nostr v0.51.11
 )
 
 require (
-	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
@@ -49,11 +49,11 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/mod v0.24.0 // indirect
-	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
-	golang.org/x/term v0.32.0 // indirect
+	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
@@ -64,7 +64,6 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ../valve
-	github.com/Origami74/gonuts-tollgate => github.com/OpenTollGate/gonuts-tollgate v0.7.1
 )
 
 require (
@@ -85,6 +84,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
 	github.com/lightningnetwork/lnd v0.19.1-beta.rc1 // indirect
 	github.com/ltcsuite/ltcd/chaincfg/chainhash v1.0.2 // indirect
@@ -93,7 +93,8 @@ require (
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/nbd-wtf/ln-decodepay v1.12.1 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
@@ -103,7 +104,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 	pgregory.net/rapid v1.2.0 // indirect
 )

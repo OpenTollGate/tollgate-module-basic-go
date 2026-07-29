@@ -19,7 +19,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
-	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -128,7 +128,24 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	tw, walletErr := tollwallet.New(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", walletErr)
+		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		mintHealthTracker.StartProactiveChecks()
+		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
+			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
+			if err := deg.Shutdown(); err != nil {
+				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
+			}
+			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
+			if err != nil {
+				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
+				return
+			}
+			if deg.onUpgrade != nil {
+				deg.onUpgrade(fullMerchant)
+			}
+		})
+		return deg, nil
 	}
 	balance := tw.GetBalance()
 
@@ -554,7 +571,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		return "", fmt.Errorf("main config is nil")
 	}
 
-	reachableMints := tracker.GetReachableMintConfigs()
+	reachableMints := tracker.GetAllConfiguredMintConfigs()
 
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
@@ -625,7 +642,7 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 	// Find the mint configuration for this mint
 	var mintConfig *config_manager.MintConfig
 	for _, mint := range m.config.AcceptedMints {
-		if mint.URL == mintURL {
+		if tollwallet.MintURLMatches(mint.URL, mintURL) {
 			mintConfig = &mint
 			break
 		}
@@ -1081,7 +1098,7 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 	}
 	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
 
-	parsedToken, err := cashu.DecodeTokenV4(cashuToken)
+	parsedToken, err := cashu.DecodeToken(cashuToken)
 	if err != nil {
 		log.Printf("Failed to decode cashu token (length: %d): %v", len(cashuToken), err)
 		return 0, fmt.Errorf("invalid cashu token format: %w", err)

@@ -14,8 +14,8 @@ env:
   PACKAGE_NAME: "tollgate-wrt"
   GO_VERSION: "1.25"
   DEBUG: "true"
-  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
-  BLOSSOM_MIN_SUCCESS: "2"
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
+  BLOSSOM_MIN_SUCCESS: "1"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
     wss://nos.lol

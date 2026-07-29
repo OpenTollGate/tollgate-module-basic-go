@@ -12,6 +12,59 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Spending condition validation: reject P2PK/HTLC-locked tokens.**
+  `tollwallet.Receive()` now checks each proof's secret for spending
+  conditions before crediting the user. Tokens with P2PK or HTLC locks
+  are rejected with `ErrLockedToken`, preventing an attacker from
+  getting free internet access with tokens the gateway can never spend.
+  Found during cashu-audit Layer 3 audit. Fixes #324.
+
+- **Fund() token decode: use generic DecodeToken instead of V4-only.**
+  `merchant.Fund()` called `cashu.DecodeTokenV4()` (V4-only, no V3
+  fallback). Changed to `cashu.DecodeToken()` which tries V4 then V3.
+  Fixes #325.
+
+### Fixed (pre-existing)
+
+- **Lightning quote persistence: data race + crash-safety fix.**
+  `persistLightningQuotes` now deep-copies `lightningQuoteRecord`
+  values under the `RLock` instead of sharing pointers — eliminates a
+  data race where `saveQuotes` read mutable fields
+  (`SessionGranted`, `Allotment`, `CompletedAt`) from shared pointers
+  after the lock was released. `saveQuotes` now calls `tmp.Sync()`
+  before `tmp.Close()` so the rename-atomicity guarantee holds on
+  power-loss. Adds 5 concurrency tests as regression guards.
+
+- **Cashu wallet swap-counter race (critical).** Bump `gonuts-tollgate`
+  from v0.7.1 to v0.7.4 to pick up the fix for an unrecoverable
+  "blinded message already signed" error (NUT-02 code 10002). In v0.7.1
+  the keyset counter was incremented only after a successful swap, so
+  a transient mint failure (timeout, DNS hiccup, 5xx) left the counter
+  stuck — every retry reused the same counter, the mint rejected with
+  10002, and the wallet bricked permanently with no self-recovery.
+  v0.7.4 increments the counter before the swap call and adds a
+  `swapWithRetry` path that regenerates fresh blinded messages on
+  retry.
+
+- **Mint URL fuzzy matching in `calculateAllotment()`.** The mint URL
+  from Cashu tokens was compared against configured accepted mints
+  using exact string equality (`==`), causing payments to fail when
+  the URL differed by a trailing slash, uppercase host, or path
+  normalization. `calculateAllotment()` now uses the existing
+  `tollwallet.MintURLMatches()` function which tolerates these
+  differences — the same function already used by the wallet layer
+  during `Receive()`
+  ([#250](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/250),
+  [#251](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/251)).
+
+- **HTTP response body reads now limited to 1 MB.** All `io.ReadAll`
+  calls on HTTP response bodies (LNURL resolve, invoice fetch, gateway
+  probes, usage tracker) now use `io.LimitReader` with a 1 MB cap,
+  matching the existing limit on the main payment handler. Prevents
+  OOM crashes on resource-constrained routers when a malicious or
+  compromised upstream service returns an oversized response
+  ([#267](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/267)).
+
 - **Lightning quote persistence across restarts.** Lightning invoice
   quotes are now persisted to disk (`quotes.json` in the wallet
   directory) so they survive process restarts. Previously all pending

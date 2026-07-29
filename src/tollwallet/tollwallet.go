@@ -8,13 +8,20 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut10"
+	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
-	"github.com/Origami74/gonuts-tollgate/cashu"
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
-	"github.com/Origami74/gonuts-tollgate/wallet"
 )
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")
+var ErrLockedToken = errors.New("token has spending conditions and cannot be spent by the gateway")
+
+// ErrWalletNotInitialized is returned by wallet operations when the underlying
+// cashu wallet has not been initialized (for example on a bare Merchant or in
+// degraded mode), so callers get an error instead of a nil-pointer panic.
+var ErrWalletNotInitialized = errors.New("wallet not initialized")
 
 type TollWallet struct {
 	wallet                     *wallet.Wallet
@@ -111,6 +118,10 @@ func (w *TollWallet) Shutdown() error {
 
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	mint := token.Mint()
+
+	if hasLockedProofs(token.Proofs()) {
+		return 0, ErrLockedToken
+	}
 
 	swapToTrusted := false
 
@@ -264,6 +275,9 @@ func (w *TollWallet) RequestMintQuote(amount uint64, mintURL string) (*nut04.Pos
 }
 
 func (w *TollWallet) GetMintQuoteState(quoteID string) (*nut04.PostMintQuoteBolt11Response, error) {
+	if w.wallet == nil {
+		return nil, ErrWalletNotInitialized
+	}
 	return w.wallet.MintQuoteState(quoteID)
 }
 
@@ -275,7 +289,11 @@ func ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }
 
-func mintURLMatches(a, b string) bool {
+// MintURLMatches compares two mint URLs for equality, tolerating
+// differences in case (host), trailing slashes, and path normalization.
+// Both URLs must parse successfully; if either fails to parse, a plain
+// string comparison is used as fallback.
+func MintURLMatches(a, b string) bool {
 	ua, err := url.Parse(a)
 	if err != nil {
 		return a == b
@@ -286,12 +304,41 @@ func mintURLMatches(a, b string) bool {
 	}
 	return strings.EqualFold(ua.Host, ub.Host) &&
 		ua.Scheme == ub.Scheme &&
-		ua.Path == ub.Path
+		normalizePath(ua.Path) == normalizePath(ub.Path)
+}
+
+func hasLockedProofs(proofs cashu.Proofs) bool {
+	for _, proof := range proofs {
+		secret, err := nut10.DeserializeSecret(proof.Secret)
+		if err == nil && secret.Kind != nut10.AnyoneCanSpend {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizePath strips a single trailing slash from the path so that
+// "/Bitcoin" and "/Bitcoin/" compare as equal, and treats empty path
+// the same as "/" (root).
+func normalizePath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if len(p) > 1 && p[len(p)-1] == '/' {
+		return p[:len(p)-1]
+	}
+	return p
+}
+
+// mintURLMatches is kept for internal backwards compatibility within
+// the tollwallet package.
+func mintURLMatches(a, b string) bool {
+	return MintURLMatches(a, b)
 }
 
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
-		if mintURLMatches(item, str) {
+		if MintURLMatches(item, str) {
 			return true
 		}
 	}

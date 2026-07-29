@@ -9,6 +9,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/sirupsen/logrus v1.9.3
@@ -28,17 +29,15 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ./utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ./valve
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager => ./wireless_gateway_manager
-	github.com/Origami74/gonuts-tollgate => github.com/OpenTollGate/gonuts-tollgate v0.7.1
 )
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
+	github.com/OpenTollGate/gonuts-tollgate v0.10.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0 // indirect
-	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0 // indirect
-	github.com/Origami74/gonuts-tollgate v0.6.1 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
@@ -80,6 +79,7 @@ require (
 	github.com/kkdai/bstream v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
@@ -126,6 +126,7 @@ require (
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	pgregory.net/rapid v1.2.0 // indirect

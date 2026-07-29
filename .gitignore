@@ -38,6 +38,18 @@ memory-global
 memory-project/
 reference/
 .opencode/
+.omo/
 
 # Planning docs — internal, not for release
 docs/tmp/
+.omo/
+.playwright-mcp/
+*-plan.md
+PLAN-*.md
+TODO-*.md
+MOCK-*.md
+notepad*.md
+handover*.md
+ulw-*.md
+# Captive portal build output (built from source via packaging/portal-build.sh)
+packaging/files/tollgate-captive-portal-site/assets/

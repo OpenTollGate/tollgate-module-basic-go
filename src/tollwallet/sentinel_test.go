@@ -39,3 +39,11 @@ func TestShutdown_NilWallet_NoPanic(t *testing.T) {
 	err := w.Shutdown()
 	assert.NoError(t, err)
 }
+
+func TestGetMintQuoteState_NilWallet_ReturnsError(t *testing.T) {
+	w := &TollWallet{wallet: nil}
+	resp, err := w.GetMintQuoteState("quote-id")
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrWalletNotInitialized,
+		"GetMintQuoteState on an uninitialized wallet must return ErrWalletNotInitialized, not panic")
+}
