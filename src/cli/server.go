@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,32 +17,39 @@ import (
 )
 
 const (
-	SocketPath        = "/var/run/tollgate.sock"
+	DefaultSocketPath = "/var/run/tollgate.sock"
 	SocketPermissions = 0660
 )
+
+func getSocketPath() string {
+	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
+		return filepath.Join(dir, "tollgate.sock")
+	}
+	return DefaultSocketPath
+}
 
 var cliLogger = logrus.WithField("module", "cli")
 
 // CLIServer handles Unix socket communication for CLI commands
 type CLIServer struct {
-	configManager   *config_manager.ConfigManager
+	configManager    *config_manager.ConfigManager
 	merchantProvider merchant.MerchantProvider
-	connector       wireless_gateway_manager.ConnectorInterface
-	scanner         wireless_gateway_manager.ScannerInterface
-	upstreamManager *wireless_gateway_manager.UpstreamManager
-	startTime       time.Time
-	listener        net.Listener
-	running         bool
+	connector        wireless_gateway_manager.ConnectorInterface
+	scanner          wireless_gateway_manager.ScannerInterface
+	upstreamManager  *wireless_gateway_manager.UpstreamManager
+	startTime        time.Time
+	listener         net.Listener
+	running          bool
 }
 
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
-		configManager:   configManager,
+		configManager:    configManager,
 		merchantProvider: merchantProvider,
-		connector:       connector,
-		scanner:         scanner,
-		upstreamManager: upstreamManager,
-		startTime:       time.Now(),
+		connector:        connector,
+		scanner:          scanner,
+		upstreamManager:  upstreamManager,
+		startTime:        time.Now(),
 	}
 }
 
@@ -59,18 +67,18 @@ func (s *CLIServer) manualPauseDuration() time.Duration {
 // Start begins listening on the Unix socket
 func (s *CLIServer) Start() error {
 	// Remove existing socket file if it exists
-	if err := os.Remove(SocketPath); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(getSocketPath()); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove existing socket: %v", err)
 	}
 
 	// Create Unix socket listener
-	listener, err := net.Listen("unix", SocketPath)
+	listener, err := net.Listen("unix", getSocketPath())
 	if err != nil {
 		return fmt.Errorf("failed to create Unix socket: %v", err)
 	}
 
 	// Set socket permissions so CLI can access it
-	if err := os.Chmod(SocketPath, SocketPermissions); err != nil {
+	if err := os.Chmod(getSocketPath(), SocketPermissions); err != nil {
 		listener.Close()
 		return fmt.Errorf("failed to set socket permissions: %v", err)
 	}
@@ -78,7 +86,7 @@ func (s *CLIServer) Start() error {
 	s.listener = listener
 	s.running = true
 
-	cliLogger.WithField("socket_path", SocketPath).Info("CLI server started")
+	cliLogger.WithField("socket_path", getSocketPath()).Info("CLI server started")
 
 	// Accept connections in a goroutine
 	go s.acceptConnections()
@@ -99,7 +107,7 @@ func (s *CLIServer) Stop() error {
 	}
 
 	// Clean up socket file
-	os.Remove(SocketPath)
+	os.Remove(getSocketPath())
 
 	cliLogger.Info("CLI server stopped")
 	return nil
@@ -500,11 +508,11 @@ func (s *CLIServer) handleVersionCommand() CLIResponse {
 
 func (s *CLIServer) handleHealthCommand() CLIResponse {
 	health := map[string]interface{}{
-		"status":     "ok",
-		"version":    GetVersionInfo(),
-		"config_ok":  s.configManager != nil,
-		"wallet_ok":  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
-		"uptime":     time.Since(s.startTime).String(),
+		"status":    "ok",
+		"version":   GetVersionInfo(),
+		"config_ok": s.configManager != nil,
+		"wallet_ok": s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
+		"uptime":    time.Since(s.startTime).String(),
 	}
 	return CLIResponse{
 		Success:   true,
