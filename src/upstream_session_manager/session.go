@@ -49,6 +49,9 @@ type UpstreamSession struct {
 	// Dependencies
 	configManager    *config_manager.ConfigManager
 	merchantProvider merchant_types.MerchantProvider
+
+	// NDS portal port (defaults to 80, overridable for testing)
+	NdsPortalPort int
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -408,7 +411,11 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 }
 
 func (s *UpstreamSession) triggerNdsSession() {
-	url := fmt.Sprintf("http://%s:80/", s.GatewayIP)
+	port := s.NdsPortalPort
+	if port == 0 {
+		port = 80
+	}
+	url := fmt.Sprintf("http://%s:%d/", s.GatewayIP, port)
 	client := &http.Client{
 		Timeout:       10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return nil },
