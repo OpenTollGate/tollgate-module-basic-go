@@ -42,7 +42,13 @@ func getIPLimiter(ip string) *rate.Limiter {
 	defer ipLimitersMu.Unlock()
 	limiter, exists := ipLimiters[ip]
 	if !exists {
-		limiter = rate.NewLimiter(rate.Every(time.Minute/10), 10)
+		rpm := 10
+		if v := os.Getenv("TOLLGATE_RATE_LIMIT_RPM"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+				rpm = parsed
+			}
+		}
+		limiter = rate.NewLimiter(rate.Every(time.Minute/time.Duration(rpm)), rpm)
 		ipLimiters[ip] = limiter
 	}
 	return limiter
