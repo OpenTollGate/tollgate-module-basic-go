@@ -193,7 +193,6 @@ func TestProcessPayout_UnderflowGuard(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func TestCalculateAllotment_TrailingSlashMintURL(t *testing.T) {
 	m := &Merchant{
 		config: &config_manager.Config{
@@ -201,7 +200,7 @@ func TestCalculateAllotment_TrailingSlashMintURL(t *testing.T) {
 			StepSize: 1000,
 			AcceptedMints: []config_manager.MintConfig{
 				{URL: "https://mint.example.com/Bitcoin", PricePerStep: 1, MinPurchaseSteps: 1},
-=======
+
 func TestCalculateAllotment_CreditsPostSwapFeeAmount_Issue63(t *testing.T) {
 	m := &Merchant{
 		config: &config_manager.Config{
@@ -209,12 +208,10 @@ func TestCalculateAllotment_CreditsPostSwapFeeAmount_Issue63(t *testing.T) {
 			StepSize: 10485760,
 			AcceptedMints: []config_manager.MintConfig{
 				{URL: "https://mint.example.com", PricePerStep: 1},
->>>>>>> e03936d (test: characterize post-swap-fee crediting for #63)
 			},
 		},
 	}
 
-<<<<<<< HEAD
 	allotment, err := m.calculateAllotment(10, "https://mint.example.com/Bitcoin/")
 	if err != nil {
 		t.Fatalf("trailing slash should match, got error: %v", err)
@@ -234,7 +231,6 @@ func TestCalculateAllotment_CaseInsensitiveMintURL(t *testing.T) {
 			},
 		},
 	}
-
 	allotment, err := m.calculateAllotment(10, "https://MINT.EXAMPLE.COM/Bitcoin")
 	if err != nil {
 		t.Fatalf("uppercase host should match, got error: %v", err)
@@ -254,22 +250,31 @@ func TestCalculateAllotment_NoPathMintURL(t *testing.T) {
 			},
 		},
 	}
-
 	allotment, err := m.calculateAllotment(10, "https://mint.example.com/")
 	if err != nil {
 		t.Fatalf("root path should match no-path config, got error: %v", err)
 	}
 	if allotment != 10000 {
 		t.Errorf("expected allotment 10000, got %d", allotment)
-=======
+	}
+}
+
+func TestCalculateAllotment_CreditsPostSwapFeeAmount_Issue63(t *testing.T) {
+	m := &Merchant{
+		config: &config_manager.Config{
+			Metric:   "bytes",
+			StepSize: 10485760,
+			AcceptedMints: []config_manager.MintConfig{
+				{URL: "https://mint.example.com", PricePerStep: 1},
+			},
+		},
+	}
 	allotment, err := m.calculateAllotment(4, "https://mint.example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	expected := uint64(4 * 10485760)
 	if allotment != expected {
 		t.Errorf("Issue #63: post-swap amount of 4 sats should credit 4 steps (%d bytes), got %d", expected, allotment)
->>>>>>> e03936d (test: characterize post-swap-fee crediting for #63)
 	}
 }
