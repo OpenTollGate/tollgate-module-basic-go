@@ -3,8 +3,8 @@ package tollgate_protocol
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"github.com/nbd-wtf/go-nostr"
+	"strconv"
 )
 
 // TollGateAdvertisementKind is the Nostr event kind for TollGate advertisements

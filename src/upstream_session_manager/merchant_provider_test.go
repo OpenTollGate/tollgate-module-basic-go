@@ -17,7 +17,7 @@ func (m *namedMerchant) CreatePaymentTokenWithOverpayment(mintURL string, amount
 	return "", fmt.Errorf("mock: %s", m.name)
 }
 func (m *namedMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
-func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64         { return 0 }
+func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64        { return 0 }
 func (m *namedMerchant) Fund(cashuToken string) (uint64, error) {
 	return 0, fmt.Errorf("mock: %s", m.name)
 }
