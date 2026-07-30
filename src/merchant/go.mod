@@ -8,7 +8,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
-	github.com/nbd-wtf/go-nostr v0.51.11
+	github.com/nbd-wtf/go-nostr v0.51.12
 )
 
 require (
@@ -93,7 +93,6 @@ require (
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
