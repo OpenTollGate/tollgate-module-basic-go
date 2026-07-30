@@ -1,0 +1,23 @@
+#!/usr/sbin/nft -f
+
+# Restrict backend API (port 2121) to LAN interfaces only.
+#
+# The TollGate backend listens on :2121 for payment processing. WiFi
+# clients on br-lan need access (NDS users_to_router allows tcp 2121).
+# This rule blocks port 2121 from all non-br-lan interfaces, preventing
+# WAN-side / upstream clients from directly probing the API.
+#
+# CLI access is unaffected (uses Unix domain socket, not TCP).
+# Outbound probing of upstream TollGates is unaffected (output, not input).
+#
+# See: https://github.com/OpenTollGate/tollgate-module-basic-go/issues/226
+
+# Note: assumes br-lan interface name. Operators who rename their
+# bridge will lose API access (same as all other TollGate firewall rules).
+
+chain backend_input_firewall {
+	type filter hook input priority -1; policy accept
+
+	meta nfproto ipv4 iifname != { "br-lan", "lo" } tcp dport 2121 counter drop
+	meta nfproto ipv6 iifname != { "br-lan", "lo" } tcp dport 2121 counter drop
+}
