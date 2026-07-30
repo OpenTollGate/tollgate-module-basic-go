@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -402,7 +403,61 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 		"allotment": allotment,
 	}).Info("✅ Payment accepted by upstream")
 
+	go s.triggerNdsSession()
+
 	return allotment, nil
+}
+
+func (s *UpstreamSession) triggerNdsSession() {
+	// SSRF guard: reject loopback, link-local, and unspecified addresses so a
+	// malicious or corrupt GatewayIP cannot coax us into hitting the local box
+	// (matches the TriggerCaptivePortalSession pattern in tollgate_prober.go).
+	if isNonRoutableIP(s.GatewayIP) {
+		logger.WithField("gateway", s.GatewayIP).
+			Debug("NDS session trigger skipped: non-routable gateway IP")
+		return
+	}
+
+	url := fmt.Sprintf("http://%s:80/", s.GatewayIP)
+	client := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { return nil },
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		logger.WithField("gateway", s.GatewayIP).Debug("NDS session trigger failed (non-critical)")
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
+	logger.WithFields(logrus.Fields{
+		"gateway": s.GatewayIP,
+		"status":  resp.StatusCode,
+	}).Debug("NDS session triggered post-payment")
+}
+
+// isNonRoutableIP reports whether ipStr refers to a loopback, link-local, or
+// unspecified address. Hostnames are resolved and every returned address is
+// checked; a failure to resolve is treated as non-routable to fail closed.
+func isNonRoutableIP(ipStr string) bool {
+	host := ipStr
+	if h, _, err := net.SplitHostPort(ipStr); err == nil {
+		host = h
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+	}
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return true
+	}
+	for _, a := range addrs {
+		ip := net.ParseIP(a)
+		if ip != nil && (ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+			return true
+		}
+	}
+	return false
 }
 
 // recoverToken attempts to recover a failed payment token

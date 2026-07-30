@@ -39,6 +39,16 @@ and [Semantic Versioning](https://semver.org/).
   `payment-processing-failed`. Gonuts v0.10.0 handles retry internally
   ([#260](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/260)).
 
+- **SSRF guard on post-payment NDS session trigger.** The new
+  `triggerNdsSession()` (added for router-to-router usage tracking) now
+  validates the upstream `GatewayIP` before issuing the port-80 HTTP GET,
+  rejecting loopback, link-local, and unspecified addresses. Without this,
+  a malicious or corrupt advertisement could coax the downstream into
+  probing the local box. Also demotes the per-payment success log from
+  `Info` to `Debug` (it fires on every renewal and was noisy)
+  ([#88](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/88),
+  [#315](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/315)).
+
 - **Lightning quote persistence: data race + crash-safety fix.**
   `persistLightningQuotes` now deep-copies `lightningQuoteRecord`
   values under the `RLock` instead of sharing pointers — eliminates a
