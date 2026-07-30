@@ -8,3 +8,15 @@ if git diff --cached --name-only | grep -q '\.mod$\|go\.sum$'; then
     echo "🔍 Checking dependency sync across go.mod files..."
     python3 tests/contract/check-deps-sync.py
 fi
+
+# Check gofmt on staged Go files
+if git diff --cached --name-only | grep -q '\.go$'; then
+    unformatted=$(gofmt -l $(git diff --cached --name-only -- '*.go' | sed 's|^|src/|'))
+    if [ -n "$unformatted" ]; then
+        echo "❌ gofmt found unformatted files:"
+        echo "$unformatted"
+        echo ""
+        echo "Run: gofmt -w <files>"
+        exit 1
+    fi
+fi
