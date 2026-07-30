@@ -12,8 +12,12 @@
 #
 # See: https://github.com/OpenTollGate/tollgate-module-basic-go/issues/226
 
+# Note: assumes br-lan interface name. Operators who rename their
+# bridge will lose API access (same as all other TollGate firewall rules).
+
 chain backend_input_firewall {
 	type filter hook input priority -1; policy accept
 
 	meta nfproto ipv4 iifname != { "br-lan", "lo" } tcp dport 2121 counter drop
+	meta nfproto ipv6 iifname != { "br-lan", "lo" } tcp dport 2121 counter drop
 }
