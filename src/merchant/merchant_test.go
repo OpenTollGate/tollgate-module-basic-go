@@ -252,3 +252,23 @@ func TestCalculateAllotment_NoPathMintURL(t *testing.T) {
 		t.Errorf("expected allotment 10000, got %d", allotment)
 	}
 }
+
+func TestCalculateAllotment_CreditsPostSwapFeeAmount_Issue63(t *testing.T) {
+	m := &Merchant{
+		config: &config_manager.Config{
+			Metric:   "bytes",
+			StepSize: 10485760,
+			AcceptedMints: []config_manager.MintConfig{
+				{URL: "https://mint.example.com", PricePerStep: 1},
+			},
+		},
+	}
+	allotment, err := m.calculateAllotment(4, "https://mint.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := uint64(4 * 10485760)
+	if allotment != expected {
+		t.Errorf("Issue #63: post-swap amount of 4 sats should credit 4 steps (%d bytes), got %d", expected, allotment)
+	}
+}
