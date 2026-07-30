@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
 )
 
 func TestProbeWireFormatBytes(t *testing.T) {
