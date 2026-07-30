@@ -116,11 +116,11 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 	var networks []NetworkInfo
 
 	var current *struct {
-		bssid    string
-		ssid     string
-		signal   int
-		encrypt  string
-		channel  string
+		bssid     string
+		ssid      string
+		signal    int
+		encrypt   string
+		channel   string
 		hasSignal bool
 	}
 
@@ -139,11 +139,11 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 			}
 			fields := strings.Fields(line)
 			current = &struct {
-				bssid    string
-				ssid     string
-				signal   int
-				encrypt  string
-				channel  string
+				bssid     string
+				ssid      string
+				signal    int
+				encrypt   string
+				channel   string
 				hasSignal bool
 			}{}
 			if len(fields) > 0 {
@@ -293,4 +293,3 @@ func FormatScanResults(networks []NetworkInfo) string {
 func init() {
 	logger.WithField("module", "wireless_gateway_manager").Info("Wireless gateway manager module loaded")
 }
-

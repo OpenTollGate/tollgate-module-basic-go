@@ -1,17 +1,17 @@
 package config_manager
 
 type FieldSchema struct {
-	Name        string            `json:"name"`
-	Type        string            `json:"type"`
-	Description string            `json:"description,omitempty"`
-	Default     interface{}       `json:"default,omitempty"`
-	Required    bool              `json:"required"`
-	Enum        []string          `json:"enum,omitempty"`
-	Min         interface{}       `json:"min,omitempty"`
-	Max         interface{}       `json:"max,omitempty"`
-	Children    []FieldSchema     `json:"children,omitempty"`
-	JSONKey     string            `json:"json_key"`
-	Editable    bool              `json:"editable"`
+	Name        string        `json:"name"`
+	Type        string        `json:"type"`
+	Description string        `json:"description,omitempty"`
+	Default     interface{}   `json:"default,omitempty"`
+	Required    bool          `json:"required"`
+	Enum        []string      `json:"enum,omitempty"`
+	Min         interface{}   `json:"min,omitempty"`
+	Max         interface{}   `json:"max,omitempty"`
+	Children    []FieldSchema `json:"children,omitempty"`
+	JSONKey     string        `json:"json_key"`
+	Editable    bool          `json:"editable"`
 }
 
 func GetConfigSchema() []FieldSchema {
@@ -73,7 +73,7 @@ func GetConfigSchema() []FieldSchema {
 			Name: "ProfitShare", JSONKey: "profit_share", Type: "array",
 			Description: "Profit sharing configuration", Required: true, Editable: true,
 			Children: []FieldSchema{
-			{Name: "Factor", JSONKey: "factor", Type: "float64", Description: "Share ratio (0.0\u20131.0). All factors MUST sum to 1.0. Use 0.79 not 79\u2014this is a ratio, not a percentage.", Required: true, Editable: true, Min: 0.0, Max: 1.0},
+				{Name: "Factor", JSONKey: "factor", Type: "float64", Description: "Share ratio (0.0\u20131.0). All factors MUST sum to 1.0. Use 0.79 not 79\u2014this is a ratio, not a percentage.", Required: true, Editable: true, Min: 0.0, Max: 1.0},
 				{Name: "Identity", JSONKey: "identity", Type: "string", Description: "Identity name from identities.json", Required: true, Editable: true},
 			},
 		},
