@@ -152,7 +152,7 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	return amountAfterSwap, nil
 }
 
-// NUT #03: Alice requests swapping proofs she holds for new proofs, signing over her inputs and requesting signatures on her outputs.
+// NUT #03: The swap operation is the most important component of the Cashu system. A swap operation consists of multiple inputs (`Proofs`) and outputs (`BlindedMessages`). Mints verify and invalidate the inputs and issue new promises (`BlindSignatures`).
 func (w *TollWallet) Send(amount uint64, mintUrl string, includeFees bool) (cashu.Token, error) {
 	log.Printf("TollWallet.Send: attempting to send %d sats from mint %s (includeFees=%t)", amount, mintUrl, includeFees)
 
@@ -271,11 +271,13 @@ func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverp
 	return tokenString, nil
 }
 
+// NUT #04: To request a mint quote, the wallet of `Alice` makes a `POST /v1/mint/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.
 func (w *TollWallet) RequestMintQuote(amount uint64, mintURL string) (*nut04.PostMintQuoteBolt11Response, error) {
 	w.ensureMintRegistered(mintURL)
 	return w.wallet.RequestMint(amount, mintURL)
 }
 
+// NUT #04: To check the current accounting data of a mint quote, the wallet makes a `GET /v1/mint/quote/{method}/{quote_id}`.
 func (w *TollWallet) GetMintQuoteState(quoteID string) (*nut04.PostMintQuoteBolt11Response, error) {
 	if w.wallet == nil {
 		return nil, ErrWalletNotInitialized
@@ -283,6 +285,7 @@ func (w *TollWallet) GetMintQuoteState(quoteID string) (*nut04.PostMintQuoteBolt
 	return w.wallet.MintQuoteState(quoteID)
 }
 
+// NUT #04: After requesting a mint quote and paying the request, the wallet proceeds with minting new tokens by calling the `POST /v1/mint/{method}` endpoint.
 func (w *TollWallet) MintQuoteTokens(quoteID string) (uint64, error) {
 	return w.wallet.MintTokens(quoteID)
 }
@@ -369,7 +372,8 @@ func (w *TollWallet) GetAllMintBalances() map[string]uint64 {
 	return w.wallet.GetBalanceByMints()
 }
 
-// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.).
+// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.
+
 // MeltToLightning melts a token to a lightning invoice using LNURL
 // It attempts to melt for the target amount, reducing by 5% each time if fees are too high
 func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {

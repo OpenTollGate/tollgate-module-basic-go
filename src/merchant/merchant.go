@@ -442,6 +442,7 @@ type PurchaseSessionResult struct {
 }
 
 // PurchaseSession processes a payment with cashu token and MAC address, returns either a session event or a notice event
+// NUT #00: `Carol` can send `(x, C)` to `Bob` who then checks that `k*hash_to_curve(x) == C` (**verification**), and if so treats it as a valid spend of a token, adding `x` to the list of spent secrets.
 func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
 	// Validate MAC address
 	if !utils.ValidateMACAddress(macAddress) {
