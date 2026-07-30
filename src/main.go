@@ -202,8 +202,8 @@ func init() {
 		}
 		valve.AuthDelay = time.Duration(delaySeconds) * time.Second
 		mainLogger.WithFields(logrus.Fields{
-			"redirect_url":      mainConfig.RedirectURL,
-			"auth_delay":        valve.AuthDelay,
+			"redirect_url": mainConfig.RedirectURL,
+			"auth_delay":   valve.AuthDelay,
 			"auth_delay_source": func() string {
 				if mainConfig.AuthDelaySeconds > 0 {
 					return "config"

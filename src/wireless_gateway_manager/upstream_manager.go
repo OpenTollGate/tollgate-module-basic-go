@@ -25,19 +25,19 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector  ConnectorInterface
-	scanner    ScannerInterface
-	reseller   ResellerModeChecker
-	config     UpstreamManagerConfig
-	stopChan   chan struct{}
-	pauseMu    sync.Mutex
-	pauseUntil time.Time
-	blacklist   map[string]time.Time
-	blacklistMu sync.Mutex
-	failMu           sync.Mutex
-	consecutiveFails int
-	cooldownUntil    time.Time
-	connectivityCheckFn func() bool
+	connector            ConnectorInterface
+	scanner              ScannerInterface
+	reseller             ResellerModeChecker
+	config               UpstreamManagerConfig
+	stopChan             chan struct{}
+	pauseMu              sync.Mutex
+	pauseUntil           time.Time
+	blacklist            map[string]time.Time
+	blacklistMu          sync.Mutex
+	failMu               sync.Mutex
+	consecutiveFails     int
+	cooldownUntil        time.Time
+	connectivityCheckFn  func() bool
 	isTollGateConnection bool
 }
 
@@ -58,9 +58,9 @@ func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 		SwitchCooldown:         10 * time.Minute,
 		StartupGracePeriod:     90 * time.Second,
 		PostSwitchWait:         5 * time.Second,
-		StartupSettle:         15 * time.Second,
-		StartupRetryInterval:  10 * time.Second,
-		StartupScanInterval:   10 * time.Second,
+		StartupSettle:          15 * time.Second,
+		StartupRetryInterval:   10 * time.Second,
+		StartupScanInterval:    10 * time.Second,
 	}
 }
 
@@ -303,7 +303,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 				reason = "not-associated"
 			} else {
 				currentSignal, _ = um.getCurrentSignal(staNetdev)
-	connected := um.checkConnectivityForStartup(staNetdev)
+				connected := um.checkConnectivityForStartup(staNetdev)
 				if connected {
 					if lostCount > 0 {
 						logger.WithField("lost_count", lostCount).Info("Connectivity restored")
@@ -314,16 +314,16 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 						shouldScan = true
 						reason = "scheduled"
 					}
-			} else {
-				if um.isPaused() {
-					continue
-				}
-				lostCount++
-				lostThreshold := um.config.LostThreshold
-				if um.isTollGateConnection {
-					lostThreshold = um.config.TollGateLostThreshold
-				}
-				logger.WithField("lost_count", lostCount).Info("Connectivity lost")
+				} else {
+					if um.isPaused() {
+						continue
+					}
+					lostCount++
+					lostThreshold := um.config.LostThreshold
+					if um.isTollGateConnection {
+						lostThreshold = um.config.TollGateLostThreshold
+					}
+					logger.WithField("lost_count", lostCount).Info("Connectivity lost")
 					if lostCount >= lostThreshold {
 						if err := um.connector.CleanupStaleSTAs(); err != nil {
 							logger.WithError(err).Warn("Failed to cleanup stale STAs during emergency")
@@ -391,7 +391,7 @@ func (um *UpstreamManager) recordSwitchFailure() {
 	if um.consecutiveFails >= um.config.MaxConsecutiveFailures {
 		um.cooldownUntil = time.Now().Add(um.config.SwitchCooldown)
 		logger.WithFields(logrus.Fields{
-			"failures":        um.consecutiveFails,
+			"failures":         um.consecutiveFails,
 			"cooldown_minutes": um.config.SwitchCooldown.Minutes(),
 		}).Warn("Circuit breaker triggered: entering cooldown")
 	}
