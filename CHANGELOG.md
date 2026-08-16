@@ -10,7 +10,44 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Backend API firewall: port 2121 restricted to LAN interfaces.**
+  New nftables include (`30-backend-firewall.nft`) blocks the backend
+  API from non-br-lan interfaces. WiFi clients still reach the payment
+  endpoint via NDS users_to_router rules. WAN-side and upstream clients
+  can no longer directly probe the backend API. Defense-in-depth for
+  #226 — does not change the listen address or payment flow.
+
 ### Fixed
+
+- **Spending condition validation: reject P2PK/HTLC-locked tokens.**
+  `tollwallet.Receive()` now checks each proof's secret for spending
+  conditions before crediting the user. Tokens with P2PK or HTLC locks
+  are rejected with `ErrLockedToken`, preventing an attacker from
+  getting free internet access with tokens the gateway can never spend.
+  Found during cashu-audit Layer 3 audit. Fixes #324.
+
+- **Fund() token decode: use generic DecodeToken instead of V4-only.**
+  `merchant.Fund()` called `cashu.DecodeTokenV4()` (V4-only, no V3
+  fallback). Changed to `cashu.DecodeToken()` which tries V4 then V3.
+  Fixes #325.
+
+- **Mint HTTP 429 error mapping.** When a Cashu mint returns 429
+  (rate limit), the error code is now `mint-rate-limited` with a
+  user-friendly message instead of generic
+  `payment-processing-failed`. Gonuts v0.10.0 handles retry internally
+  ([#260](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/260)).
+
+- **SSRF guard on post-payment NDS session trigger.** The new
+  `triggerNdsSession()` (added for router-to-router usage tracking) now
+  validates the upstream `GatewayIP` before issuing the port-80 HTTP GET,
+  rejecting loopback, link-local, and unspecified addresses. Without this,
+  a malicious or corrupt advertisement could coax the downstream into
+  probing the local box. Also demotes the per-payment success log from
+  `Info` to `Debug` (it fires on every renewal and was noisy)
+  ([#88](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/88),
+  [#315](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/315)).
 
 - **Lightning quote persistence: data race + crash-safety fix.**
   `persistLightningQuotes` now deep-copies `lightningQuoteRecord`
@@ -93,6 +130,12 @@ and [Semantic Versioning](https://semver.org/).
   ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196)).
 
 ### Changed / Internal
+
+- **Safe exec wrapper package.** New `src/sysexec/` package providing a
+  testable `Runner` interface with context, timeout, structured logging,
+  and retry support for `exec.Command` calls. Foundation for refactoring
+  the 37 existing exec.Command call sites (#263). 13 tests, stdlib only
+  ([#265](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/265)).
 
 - **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
   CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
