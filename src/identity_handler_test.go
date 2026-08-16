@@ -47,6 +47,7 @@ func TestHandleIdentityDerive_BadKey_500(t *testing.T) {
 func TestHandleIdentityRevealSeed_RejectsGET(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 		req := httptest.NewRequest(method, "/identity/reveal-seed", nil)
+		req.RemoteAddr = "127.0.0.1:1234"
 		rec := httptest.NewRecorder()
 		handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, "method %s", method)
@@ -59,6 +60,7 @@ func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader(mnemonic))
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 
 	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
@@ -82,6 +84,7 @@ func TestHandleIdentityRevealSeed_POST_ReturnsMnemonic(t *testing.T) {
 
 func TestHandleIdentityRevealSeed_BadMnemonic_400(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/identity/reveal-seed", strings.NewReader("not a valid mnemonic"))
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleIdentityRevealSeed(testPrivKey).ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
