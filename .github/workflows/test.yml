@@ -66,3 +66,15 @@ jobs:
           go-version-file: src/go.mod
       - name: Build purity check
         run: bash tests/contract/build-purity.sh
+
+  deps-and-imports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Dependency sync check
+        run: python3 tests/contract/check-deps-sync.py
+      - name: Stale import path check
+        run: python3 tests/contract/check-import-paths.py
