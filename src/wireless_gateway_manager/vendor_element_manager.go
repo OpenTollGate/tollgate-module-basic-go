@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	tollgateOUI          = "212121"
-	tollgateElemType     = "01"
+	tollgateOUI               = "212121"
+	tollgateElemType          = "01"
 	tollgateElemTypeByte byte = 0x01
 
 	flagIsReseller  = 0x01

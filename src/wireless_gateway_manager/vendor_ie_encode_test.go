@@ -26,16 +26,16 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		{
 			name: "with mint URL",
 			adv: TollGateAdvertisement{
-				Version:  1,
-				MintURL:  "https://testnut.cashu.exchange",
+				Version:     1,
+				MintURL:     "https://testnut.cashu.exchange",
 				HasInternet: true,
 			},
 		},
 		{
 			name: "with pubkey",
 			adv: TollGateAdvertisement{
-				Version:  1,
-				Pubkey:   []byte{0x02, 0xab, 0xcd, 0xef},
+				Version:     1,
+				Pubkey:      []byte{0x02, 0xab, 0xcd, 0xef},
 				HasInternet: true,
 			},
 		},
