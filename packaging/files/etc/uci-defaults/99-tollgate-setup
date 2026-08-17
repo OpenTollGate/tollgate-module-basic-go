@@ -56,6 +56,9 @@ setup_uhttpd_portal() {
     uci add_list uhttpd.portal.listen_http='[::]:2051'
     uci set uhttpd.portal.home='/etc/tollgate/tollgate-captive-portal-site'
     uci set uhttpd.portal.rfc1918_filter='0'
+    # The SPA ships no index.html — without this, / would serve a file
+    # inventory to pre-auth clients.
+    uci set uhttpd.portal.no_dirlists='1'
 }
 
 setup_dns_dnsmasq() {
@@ -146,7 +149,7 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -q "port 2050"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
     fi
-    if ! echo "$nds_users" | grep -q "port 2051"; then
+    if ! echo "$nds_users" | grep -q "port 2051$"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'

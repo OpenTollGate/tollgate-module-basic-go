@@ -52,6 +52,14 @@ and [Semantic Versioning](https://semver.org/).
   error page on every request, and internal NDS errors render as
   HTTP 500 — the SPA itself now loads from uhttpd regardless.
 
+- **Portal install hardening: directory listings off, htdocs guard,
+  anchored grep.** The portal uhttpd instance now sets `no_dirlists='1'`
+  (the SPA ships no `index.html`, so `/` must not expose a file inventory
+  to pre-auth clients); the stub installer removes an `htdocs` found as a
+  regular file instead of failing silently; and the new port-2051
+  idempotency guard greps for `port 2051$` so a hypothetical
+  `port 20512` cannot false-positive.
+
 - **Upgrade no longer rotates management-WiFi credentials.**
   `setup_private_network()` now reuses an existing private SSID/PSK
   from `wireless.private_radio0` and only generates fresh values when
