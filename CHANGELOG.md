@@ -38,8 +38,10 @@ and [Semantic Versioning](https://semver.org/).
 
 - **Captive portal no longer served through nodogsplash.**
   `/etc/nodogsplash/htdocs` is no longer a symlink to the SPA. A tiny
-  stub page with a JS `location.replace` to port 2051 (plus a
-  `<noscript>` fallback link) is installed instead, keeping NDS
+  stub page — installed as `splash.html`, the page NDS actually serves
+  pre-auth — with a JS `location.replace` to port 2051 `/splash.html`
+  (plus a `<noscript>` fallback link built from the LAN IP, since NDS
+  redirects clients by gateway IP) is installed instead, keeping NDS
   pre-auth responses well under 1 KB. Verified on stock NDS 5.0.2:
   clients NDS cannot map to a MAC (`ip neigh` miss) receive an NDS
   error page on every request, and internal NDS errors render as

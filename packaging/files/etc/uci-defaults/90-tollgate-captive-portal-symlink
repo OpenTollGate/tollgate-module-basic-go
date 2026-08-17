@@ -5,17 +5,20 @@
 # nodogsplash's pre-auth path (libmicrohttpd) is fragile when serving a
 # full SPA: if NDS cannot resolve the client MAC (`ip neigh` miss) or
 # hits an internal error, every request — including / — is answered
-# with an NDS error page rendered as HTTP 500. So htdocs must NOT be a
-# symlink to the SPA at /etc/tollgate/tollgate-captive-portal-site. It
-# now holds a tiny stub page that bounces the client to the SPA served
-# by the dedicated uhttpd "portal" instance on port 2051 (created in
-# 99-tollgate-setup, pre-auth allowed via nodogsplash users_to_router).
+# with an NDS error page rendered as HTTP 500. NDS also hardcodes
+# splash.html as its DEFAULT_SPLASHPAGE — every pre-auth client is
+# redirected to /splash.html — so the stub is installed under exactly
+# that name. htdocs must NOT be a symlink to the SPA at
+# /etc/tollgate/tollgate-captive-portal-site; it now holds a tiny stub
+# page that bounces the client to the SPA served by the dedicated
+# uhttpd "portal" instance on port 2051 (created in 99-tollgate-setup,
+# pre-auth allowed via nodogsplash users_to_router).
 #
 # Routers upgraded from the old symlink scheme have htdocs as a symlink;
 # it is removed and replaced by a real directory containing the stub.
 
 HTDOCS_DIR="/etc/nodogsplash/htdocs"
-STUB_FILE="$HTDOCS_DIR/index.html"
+STUB_FILE="$HTDOCS_DIR/splash.html"
 STUB_TMP="/tmp/tollgate-portal-stub.html"
 
 echo "Setting up TollGate NoDogSplash portal stub..."
@@ -28,9 +31,12 @@ if [ -L "$HTDOCS_DIR" ]; then
     rm -f "$HTDOCS_DIR"
 fi
 
-# Fresh install: nodogsplash's stock htdocs (splash.html etc.) is still
-# present and no stub yet — set it aside, mirroring the old migration, so
-# the pre-auth portal serves exactly one page: our redirect stub.
+# Fresh install: nodogsplash's stock htdocs (splash.html etc.) may still
+# be present with no stub yet — set it aside, mirroring the old
+# migration, so the pre-auth portal serves exactly one page: our
+# redirect stub. If the stock dir already contains a splash.html it is
+# simply overwritten with the stub below; either way the end state is
+# always htdocs/splash.html = our redirect stub.
 if [ -d "$HTDOCS_DIR" ] && [ ! -f "$STUB_FILE" ] && [ -n "$(ls -A "$HTDOCS_DIR" 2>/dev/null)" ]; then
     echo "Backing up stock $HTDOCS_DIR to ${HTDOCS_DIR}.backup"
     rm -rf "${HTDOCS_DIR}.backup"
@@ -39,7 +45,13 @@ fi
 
 mkdir -p "$HTDOCS_DIR"
 
-cat > "$STUB_TMP" << 'EOF'
+# The <noscript> fallback cannot use JS's location.hostname, and NDS
+# redirects pre-auth clients by gateway IP (the OpenWrt NDS init script
+# never forwards gatewaydomainname), so embed the actual LAN IP at
+# install time.
+LAN_IP=$(uci -q get network.lan.ipaddr || echo 192.168.1.1)
+
+cat > "$STUB_TMP" << EOF
 <!DOCTYPE html>
 <html>
 <head>
@@ -49,10 +61,10 @@ cat > "$STUB_TMP" << 'EOF'
 <body>
 <p>Redirecting to the TollGate portal...</p>
 <script>
-location.replace('http://' + location.hostname + ':2051/');
+location.replace('http://' + location.hostname + ':2051/splash.html');
 </script>
 <noscript>
-<p><a href="http://TollGate.lan:2051/">Continue to the TollGate portal</a></p>
+<p><a href="http://${LAN_IP}:2051/splash.html">Continue to the TollGate portal</a></p>
 </noscript>
 </body>
 </html>
