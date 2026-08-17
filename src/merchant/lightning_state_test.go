@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
-	"github.com/Origami74/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
 )
 
 // TestLightningStateMachine pins the observable behavior of the Lightning quote

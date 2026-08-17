@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Origami74/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 )
 
 // TestTokenFlowCharacterization pins the observable behavior of the token-receive
