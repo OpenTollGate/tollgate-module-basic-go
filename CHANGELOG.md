@@ -27,7 +27,12 @@ and [Semantic Versioning](https://semver.org/).
 
 - **Setup version bumped to v0.6.2.** Reinstall/upgrade now triggers a
   full setup rerun on already-deployed routers, installing the stub
-  and portal instance alongside all prior configuration.
+  and portal instance alongside prior configuration. Existing
+  management-WiFi credentials are preserved (see Fixed below).
+
+- **Setup log restricted to root.** `/tmp/tollgate-setup.log`, which
+  records the management-WiFi password, is now created with mode 600
+  instead of the default 0644.
 
 - **CI: `trigger-build-os` gated to the upstream repo.** The TollGate
   OS repository-dispatch requires `REPO_ACCESS_TOKEN` (upstream-only)
@@ -46,6 +51,12 @@ and [Semantic Versioning](https://semver.org/).
   clients NDS cannot map to a MAC (`ip neigh` miss) receive an NDS
   error page on every request, and internal NDS errors render as
   HTTP 500 — the SPA itself now loads from uhttpd regardless.
+
+- **Upgrade no longer rotates management-WiFi credentials.**
+  `setup_private_network()` now reuses an existing private SSID/PSK
+  from `wireless.private_radio0` and only generates fresh values when
+  none is configured, so a version-bump-triggered setup rerun no longer
+  drops every paired admin device from the management network.
 
 - **Backend API firewall: port 2121 restricted to LAN interfaces.**
   New nftables include (`30-backend-firewall.nft`) blocks the backend

@@ -233,16 +233,31 @@ setup_private_network() {
         private_octet3=$((octet3 + 1))
     fi
     private_ip="${octet1}.${octet2}.${private_octet3}.1"
-    private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
 
-    # Memorable password: 3 words + 2-digit number. Single /dev/urandom read,
-    # awk picks words — avoids forking per word.
-    private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
+    # Preserve credentials across reruns: a SETUP_VERSION bump triggers a
+    # full setup on upgraded routers, and regenerating the SSID/PSK there
+    # would silently drop every paired admin device from the management
+    # network. Reuse existing values from wireless.private_radio0 and
+    # generate only when unset.
+    private_ssid=$(uci -q get wireless.private_radio0.ssid)
+    if [ -z "$private_ssid" ]; then
+        private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
+    fi
+
+    private_key=$(uci -q get wireless.private_radio0.key)
+    if [ -z "$private_key" ]; then
+        # Memorable password: 3 words + 2-digit number. Single
+        # /dev/urandom read, awk picks words — avoids forking per word.
+        private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
         BEGIN {
             srand(seed);
             n = split("Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu", w, " ");
             printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
         }')
+        log "Generated new private WiFi key (none was configured)"
+    else
+        log "Preserving existing private WiFi key"
+    fi
     log "Private SSID ${private_ssid}, IP ${private_ip}"
     log "Private key: $private_key"
 
@@ -314,6 +329,7 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     # Same version — verify wireless APs only (fixes #103/#173: APs missing
     # after reinstall when setup-done flag persisted from a prior install).
     : > "$LOGFILE"
+    chmod 600 "$LOGFILE"
     log "Flag matches $SETUP_VERSION — verifying wireless APs only"
 
     # Recover gateway name from existing config for AP SSID consistency
@@ -333,6 +349,7 @@ fi
 
 # Full setup (first boot or version change)
 : > "$LOGFILE"
+chmod 600 "$LOGFILE"  # contains the WiFi password — keep it root-only
 log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
 
 setup_uhttpd
