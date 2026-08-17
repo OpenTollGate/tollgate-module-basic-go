@@ -21,6 +21,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **CORS: local/same-host origin echo only — wildcard removed.**
+  `CorsMiddleware` no longer falls back to `Access-Control-Allow-Origin: *`;
+  the origin is echoed only for local/private origins and for pages served
+  by the router itself on another port (e.g. the portal on uhttpd :2051
+  calling the API on :2121), with `Vary: Origin` added on echo. The backend
+  API is LAN-firewall-protected rather than credential-protected, so a
+  wildcard would let any website read API responses from a browser on the
+  TollGate network (OWASP). POSTs with content types other than
+  text/plain or application/json now return 415 instead of 400.
+  ([#349](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/349))
+
 - **Spending condition validation: reject P2PK/HTLC-locked tokens.**
   `tollwallet.Receive()` now checks each proof's secret for spending
   conditions before crediting the user. Tokens with P2PK or HTLC locks
