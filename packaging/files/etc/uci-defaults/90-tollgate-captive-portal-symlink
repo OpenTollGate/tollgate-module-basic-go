@@ -1,28 +1,76 @@
 #!/bin/sh
 
-# TollGate Captive Portal Symlink Migration
-echo "Setting up TollGate NoDogSplash symlink..."
+# TollGate Captive Portal Stub
+#
+# nodogsplash's pre-auth path (libmicrohttpd) is fragile when serving a
+# full SPA: if NDS cannot resolve the client MAC (`ip neigh` miss) or
+# hits an internal error, every request — including / — is answered
+# with an NDS error page rendered as HTTP 500. So htdocs must NOT be a
+# symlink to the SPA at /etc/tollgate/tollgate-captive-portal-site. It
+# now holds a tiny stub page that bounces the client to the SPA served
+# by the dedicated uhttpd "portal" instance on port 2051 (created in
+# 99-tollgate-setup, pre-auth allowed via nodogsplash users_to_router).
+#
+# Routers upgraded from the old symlink scheme have htdocs as a symlink;
+# it is removed and replaced by a real directory containing the stub.
 
-# Check if /etc/nodogsplash/htdocs is already a symlink
-if [ -L "/etc/nodogsplash/htdocs" ]; then
-    echo "Symlink already exists at /etc/nodogsplash/htdocs"
-else
-    # If it's a directory, back it up and remove it
-    if [ -d "/etc/nodogsplash/htdocs" ]; then
-        echo "Backing up existing /etc/nodogsplash/htdocs to /etc/nodogsplash/htdocs.backup"
-        mv /etc/nodogsplash/htdocs /etc/nodogsplash/htdocs.backup
-    fi
-    
-    # Remove any existing file/directory at the target location
-    rm -rf /etc/nodogsplash/htdocs
-    
-    # Create the symlink
-    echo "Creating symlink from /etc/nodogsplash/htdocs to /etc/tollgate/tollgate-captive-portal-site"
-    ln -sf /etc/tollgate/tollgate-captive-portal-site /etc/nodogsplash/htdocs
+HTDOCS_DIR="/etc/nodogsplash/htdocs"
+STUB_FILE="$HTDOCS_DIR/index.html"
+STUB_TMP="/tmp/tollgate-portal-stub.html"
+
+echo "Setting up TollGate NoDogSplash portal stub..."
+
+# Legacy migration: htdocs is a symlink to the SPA (old scheme, which
+# coupled portal availability to NDS's SPA serving). Remove it so the
+# stub lands in a real directory instead of through the link into the SPA.
+if [ -L "$HTDOCS_DIR" ]; then
+    echo "Removing legacy symlink at $HTDOCS_DIR"
+    rm -f "$HTDOCS_DIR"
 fi
 
+# Fresh install: nodogsplash's stock htdocs (splash.html etc.) is still
+# present and no stub yet — set it aside, mirroring the old migration, so
+# the pre-auth portal serves exactly one page: our redirect stub.
+if [ -d "$HTDOCS_DIR" ] && [ ! -f "$STUB_FILE" ] && [ -n "$(ls -A "$HTDOCS_DIR" 2>/dev/null)" ]; then
+    echo "Backing up stock $HTDOCS_DIR to ${HTDOCS_DIR}.backup"
+    rm -rf "${HTDOCS_DIR}.backup"
+    mv "$HTDOCS_DIR" "${HTDOCS_DIR}.backup"
+fi
+
+mkdir -p "$HTDOCS_DIR"
+
+cat > "$STUB_TMP" << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TollGate Portal</title>
+</head>
+<body>
+<p>Redirecting to the TollGate portal...</p>
+<script>
+location.replace('http://' + location.hostname + ':2051/');
+</script>
+<noscript>
+<p><a href="http://TollGate.lan:2051/">Continue to the TollGate portal</a></p>
+</noscript>
+</body>
+</html>
+EOF
+
+# Idempotent: only (re)write the stub when it is missing or its content
+# differs, so repeated runs (postinst + uci-defaults at boot) never
+# clobber an already-identical stub.
+if [ ! -f "$STUB_FILE" ] || ! cmp -s "$STUB_TMP" "$STUB_FILE"; then
+    echo "Installing portal redirect stub at $STUB_FILE"
+    cat "$STUB_TMP" > "$STUB_FILE"
+else
+    echo "Portal redirect stub already present at $STUB_FILE"
+fi
+rm -f "$STUB_TMP"
+
 # No service restart here: uci-defaults runs before procd starts services,
-# so nodogsplash will pick up the symlink on its first start.
-echo "TollGate NoDogSplash symlink setup completed"
+# so nodogsplash will pick up the stub on its first start.
+echo "TollGate NoDogSplash portal stub setup completed"
 
 exit 0

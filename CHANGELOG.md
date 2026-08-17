@@ -12,6 +12,30 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Captive-portal uhttpd instance on port 2051.** A second uhttpd
+  section (`config uhttpd portal`) now serves the SPA directly on
+  `0.0.0.0:2051` / `[::]:2051`, decoupling portal serving from the
+  nodogsplash pre-auth path. The NDS `users_to_router` allow list
+  includes port 2051 (idempotent, mirrors the existing
+  2121/8080/2050 pattern).
+
+### Changed
+
+- **Setup version bumped to v0.6.2.** Reinstall/upgrade now triggers a
+  full setup rerun on already-deployed routers, installing the stub
+  and portal instance alongside all prior configuration.
+
+### Fixed
+
+- **Captive portal no longer served through nodogsplash.**
+  `/etc/nodogsplash/htdocs` is no longer a symlink to the SPA. A tiny
+  stub page with a JS `location.replace` to port 2051 (plus a
+  `<noscript>` fallback link) is installed instead, keeping NDS
+  pre-auth responses well under 1 KB. Verified on stock NDS 5.0.2:
+  clients NDS cannot map to a MAC (`ip neigh` miss) receive an NDS
+  error page on every request, and internal NDS errors render as
+  HTTP 500 — the SPA itself now loads from uhttpd regardless.
+
 - **Backend API firewall: port 2121 restricted to LAN interfaces.**
   New nftables include (`30-backend-firewall.nft`) blocks the backend
   API from non-br-lan interfaces. WiFi clients still reach the payment

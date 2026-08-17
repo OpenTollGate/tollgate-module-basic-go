@@ -8,7 +8,7 @@
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
-SETUP_VERSION="v0.5.1"
+SETUP_VERSION="v0.6.2"
 
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
@@ -40,6 +40,22 @@ setup_uhttpd() {
     uci set uhttpd.main.network_timeout='30'
     uci set uhttpd.main.http_keepalive='20'
     uci set uhttpd.main.tcp_keepalive='1'
+}
+
+# Second uhttpd instance serving the captive-portal SPA on port 2051.
+# nodogsplash's pre-auth serving is fragile (client-MAC resolution via
+# ip neigh and internal errors both surface as HTTP 500), so pre-auth
+# clients get the tiny stub installed by
+# 90-tollgate-captive-portal-symlink which redirects them here.
+# rfc1918_filter stays off: portal guests connect from RFC1918 addresses
+# by definition — the main admin instance keeps its own stricter settings.
+setup_uhttpd_portal() {
+    uci -q get uhttpd.portal >/dev/null 2>&1 || uci set uhttpd.portal=uhttpd
+    uci -q delete uhttpd.portal.listen_http
+    uci add_list uhttpd.portal.listen_http='0.0.0.0:2051'
+    uci add_list uhttpd.portal.listen_http='[::]:2051'
+    uci set uhttpd.portal.home='/etc/tollgate/tollgate-captive-portal-site'
+    uci set uhttpd.portal.rfc1918_filter='0'
 }
 
 setup_dns_dnsmasq() {
@@ -129,6 +145,9 @@ setup_nodogsplash() {
     fi
     if ! echo "$nds_users" | grep -q "port 2050"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
+    fi
+    if ! echo "$nds_users" | grep -q "port 2051"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
@@ -316,6 +335,7 @@ fi
 log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
 
 setup_uhttpd
+setup_uhttpd_portal
 setup_dns_dnsmasq
 setup_hostname
 setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
