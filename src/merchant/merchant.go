@@ -14,7 +14,6 @@ import (
 
 	"sync"
 
-	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
