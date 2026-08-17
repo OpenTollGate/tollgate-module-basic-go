@@ -244,6 +244,7 @@ setup_private_network() {
             printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
         }')
     log "Private SSID ${private_ssid}, IP ${private_ip}"
+    log "Private key: $private_key"
 
     uci set network.private='interface'
     uci set network.private.proto='static'

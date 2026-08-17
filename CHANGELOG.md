@@ -19,6 +19,10 @@ and [Semantic Versioning](https://semver.org/).
   includes port 2051 (idempotent, mirrors the existing
   2121/8080/2050 pattern).
 
+- **Management WiFi password in setup log.** `setup_private_network()`
+  now writes the generated `private_key` to `/tmp/tollgate-setup.log`
+  alongside the existing SSID and IP entries.
+
 ### Changed
 
 - **Setup version bumped to v0.6.2.** Reinstall/upgrade now triggers a
