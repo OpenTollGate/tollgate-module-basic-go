@@ -29,6 +29,11 @@ and [Semantic Versioning](https://semver.org/).
   full setup rerun on already-deployed routers, installing the stub
   and portal instance alongside all prior configuration.
 
+- **CI: `trigger-build-os` gated to the upstream repo.** The TollGate
+  OS repository-dispatch requires `REPO_ACCESS_TOKEN` (upstream-only)
+  and should never fire from fork branches; fork builds now skip the
+  job instead of failing on the missing token.
+
 ### Fixed
 
 - **Captive portal no longer served through nodogsplash.**
