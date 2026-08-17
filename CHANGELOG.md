@@ -52,6 +52,15 @@ and [Semantic Versioning](https://semver.org/).
   error page on every request, and internal NDS errors render as
   HTTP 500 — the SPA itself now loads from uhttpd regardless.
 
+- **No-CIDR LAN IP in the stub fallback link.** On routers where
+  `network.lan.ipaddr` holds CIDR notation (`192.168.1.1/24`, legal
+  UCI since OpenWrt 21.02), the stub's `<noscript>` fallback link
+  embedded the raw value, producing a malformed URL
+  (`http://192.168.1.1/24:2051/…`). The JS redirect path was
+  unaffected (it uses `location.hostname`); the suffix is now
+  stripped before the link is generated. Found during on-hardware
+  validation (GL.iNet MT3000).
+
 - **Portal install hardening: directory listings off, htdocs guard,
   anchored grep.** The portal uhttpd instance now sets `no_dirlists='1'`
   (the SPA ships no `index.html`, so `/` must not expose a file inventory

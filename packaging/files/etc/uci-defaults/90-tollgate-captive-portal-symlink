@@ -59,6 +59,12 @@ mkdir -p "$HTDOCS_DIR"
 # install time.
 LAN_IP=$(uci -q get network.lan.ipaddr || echo 192.168.1.1)
 
+# UCI accepts CIDR notation ('192.168.1.1/24') since OpenWrt 21.02; the
+# raw value would leak the suffix into the <noscript> fallback URL
+# (http://192.168.1.1/24:2051/...). The JS redirect is unaffected — it
+# uses location.hostname.
+LAN_IP="${LAN_IP%%/*}"
+
 cat > "$STUB_TMP" << EOF
 <!DOCTYPE html>
 <html>
