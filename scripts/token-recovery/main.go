@@ -104,9 +104,27 @@ func processLine(line string, lineNum int, w **wallet.Wallet, walletPath string,
 		ys = append(ys, fmt.Sprintf("%x", y.SerializeCompressed()))
 	}
 
-	stateResp, err := client.PostCheckProofState(mintURL, nut07.PostCheckStateRequest{Ys: ys})
-	if err != nil {
-		fmt.Printf("[%3d] ❌ checkstate: %v\n", lineNum, err)
+	var stateResp *nut07.PostCheckStateResponse
+	// The client lib takes no context; bound each checkstate call so one
+	// hung mint cannot stall the whole recovery run.
+	type stateResult struct {
+		resp *nut07.PostCheckStateResponse
+		err  error
+	}
+	ch := make(chan stateResult, 1)
+	go func() {
+		resp, err := client.PostCheckProofState(mintURL, nut07.PostCheckStateRequest{Ys: ys})
+		ch <- stateResult{resp, err}
+	}()
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			fmt.Printf("[%3d] ❌ checkstate: %v\n", lineNum, res.err)
+			return "failed", true
+		}
+		stateResp = res.resp
+	case <-time.After(30 * time.Second):
+		fmt.Printf("[%3d] ❌ checkstate timeout after 30s\n", lineNum)
 		return "failed", true
 	}
 
