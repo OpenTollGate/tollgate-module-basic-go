@@ -184,3 +184,35 @@ func TestTokenFlowCharacterization(t *testing.T) {
 		}
 	})
 }
+
+// TestFund_CreditsPostSwapFeeAmount_Fork63 pins the fee-crediting contract
+// at the Fund seam (fork issue #63: "5-sat token receives as 4 sats"):
+// Fund returns exactly what wallet.Receive reports — the post-swap-fee
+// amount, with no face-value re-crediting. The allotment arithmetic over
+// these post-fee amounts is table-tested on #342.
+func TestFund_CreditsPostSwapFeeAmount_Fork63(t *testing.T) {
+	proofs := cashu.Proofs{
+		{Amount: 5, Id: "00ad", C: "ab", Secret: "fork63-five-sat"},
+	}
+	tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+	if err != nil {
+		t.Fatalf("NewTokenV4: %v", err)
+	}
+	tokenStr, err := tok.Serialize()
+	if err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+
+	m := &Merchant{tollwallet: &stubReceiveWallet{
+		receive: func(tollwallet.Token) (uint64, error) {
+			return 4, nil // wallet reports 1-sat swap fee deducted
+		},
+	}}
+	amount, err := m.Fund(tokenStr)
+	if err != nil {
+		t.Fatalf("Fund(fork63 token) error = %v, want nil", err)
+	}
+	if amount != 4 {
+		t.Fatalf("Fund(fork63 token) credited %d, want 4 (post-fee; face value is 5)", amount)
+	}
+}
