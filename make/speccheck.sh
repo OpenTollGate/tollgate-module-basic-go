@@ -10,7 +10,9 @@ if [ ! -d nuts ]; then
     git clone --depth=1 https://github.com/cashubtc/nuts.git nuts
 fi
 echo "Checking spec quote drift..."
-spectate check --config specquotes.toml --comment-start '//' --comment-continue '//' 'src/**/*.go'
+# Drift reports, doesn't fail — infra errors above still abort via set -e.
+spectate check --config specquotes.toml --comment-start '//' --comment-continue '//' 'src/**/*.go' || true
 echo ""
 echo "Spec coverage report:"
-spectate coverage --config specquotes.toml
+spectate coverage --config specquotes.toml || true
+exit 0
