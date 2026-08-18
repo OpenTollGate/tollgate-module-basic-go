@@ -3,10 +3,12 @@
 package merchant
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 // TestTokenFlowCharacterization pins the observable behavior of the token-receive
@@ -18,6 +20,17 @@ import (
 // happy-path and already-spent tests cannot be written pre-refactor — the wallet
 // cannot be stubbed. Those cases are SKIP'd with documentation. They become
 // writable after Wave 4 introduces the WalletPort interface.
+// stubReceiveWallet injects only Receive; the embedded interface panics
+// on any other call, so untested wallet interaction cannot pass silently.
+type stubReceiveWallet struct {
+	tollwallet.WalletPort
+	receive func(tollwallet.Token) (uint64, error)
+}
+
+func (s *stubReceiveWallet) Receive(t tollwallet.Token) (uint64, error) {
+	return s.receive(t)
+}
+
 func TestTokenFlowCharacterization(t *testing.T) {
 	t.Run("empty_token_string", func(t *testing.T) {
 		// Fund("") hits the length guard at merchant.go:1073.
@@ -90,14 +103,84 @@ func TestTokenFlowCharacterization(t *testing.T) {
 	})
 
 	t.Run("happy_path_v3_token", func(t *testing.T) {
-		t.Skip("not currently testable without refactor: Merchant.tollwallet is a concrete struct value (not an interface), so a real wallet connection is required for Receive to succeed. This test becomes writable after Wave 4 introduces the WalletPort interface allowing wallet injection.")
+		proofs := cashu.Proofs{
+			{Amount: 2, Id: "00ad", C: "ab", Secret: "stub-secret-v3"},
+		}
+		tok, err := cashu.NewTokenV3(proofs, "https://testmint.example.com", cashu.Sat, false)
+		if err != nil {
+			t.Fatalf("NewTokenV3: %v", err)
+		}
+		tokenStr, err := tok.Serialize()
+		if err != nil {
+			t.Fatalf("Serialize: %v", err)
+		}
+
+		m := &Merchant{tollwallet: &stubReceiveWallet{
+			receive: func(tollwallet.Token) (uint64, error) { return 2, nil },
+		}}
+		amount, err := m.Fund(tokenStr)
+		if err != nil {
+			t.Fatalf("Fund(v3 token) error = %v, want nil", err)
+		}
+		if amount != 2 {
+			t.Fatalf("Fund(v3 token) amount = %d, want 2", amount)
+		}
 	})
 
 	t.Run("happy_path_v4_token", func(t *testing.T) {
-		t.Skip("not currently testable without refactor: Merchant.tollwallet is a concrete struct value (not an interface). Happy-path Fund requires wallet.Receive to succeed, which needs a real mint connection. This test becomes writable after Wave 4 introduces WalletPort.")
+		proofs := cashu.Proofs{
+			{Amount: 4, Id: "00ad", C: "ab", Secret: "stub-secret-v4"},
+		}
+		tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+		if err != nil {
+			t.Fatalf("NewTokenV4: %v", err)
+		}
+		tokenStr, err := tok.Serialize()
+		if err != nil {
+			t.Fatalf("Serialize: %v", err)
+		}
+
+		m := &Merchant{tollwallet: &stubReceiveWallet{
+			receive: func(tollwallet.Token) (uint64, error) { return 4, nil },
+		}}
+		amount, err := m.Fund(tokenStr)
+		if err != nil {
+			t.Fatalf("Fund(v4 token) error = %v, want nil", err)
+		}
+		if amount != 4 {
+			t.Fatalf("Fund(v4 token) amount = %d, want 4", amount)
+		}
 	})
 
 	t.Run("already_spent_token", func(t *testing.T) {
-		t.Skip("not currently testable without refactor: Merchant.tollwallet is a concrete struct value. Testing already-spent behavior requires injecting a wallet stub that returns cashu.ProofAlreadyUsedErr. This test becomes writable after Wave 4 introduces WalletPort.")
+		proofs := cashu.Proofs{
+			{Amount: 1, Id: "00ad", C: "ab", Secret: "stub-secret-spent"},
+		}
+		tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+		if err != nil {
+			t.Fatalf("NewTokenV4: %v", err)
+		}
+		tokenStr, err := tok.Serialize()
+		if err != nil {
+			t.Fatalf("Serialize: %v", err)
+		}
+
+		spentErr := fmt.Errorf("token already spent: proofs are used")
+		m := &Merchant{tollwallet: &stubReceiveWallet{
+			receive: func(tollwallet.Token) (uint64, error) { return 0, spentErr },
+		}}
+		amount, err := m.Fund(tokenStr)
+		if err == nil {
+			t.Fatal("Fund(spent token) should return error")
+		}
+		if amount != 0 {
+			t.Fatalf("Fund(spent token) amount = %d, want 0", amount)
+		}
+		if !strings.Contains(err.Error(), "failed to receive token") {
+			t.Fatalf("Fund(spent token) error = %q, want 'failed to receive token' wrapper", err.Error())
+		}
+		if !strings.Contains(err.Error(), "already spent") {
+			t.Fatalf("Fund(spent token) error = %q, want underlying 'already spent' preserved", err.Error())
+		}
 	})
 }

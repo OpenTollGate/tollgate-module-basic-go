@@ -290,12 +290,21 @@ func (w *CdkWallet) Melt(quoteID string) (*MeltResult, error) {
 		return nil, mapCdkError(err)
 	}
 	defer prepared.Destroy()
-	amt := prepared.Amount()
-	_ = amt
-	return &MeltResult{
+	// PrepareMelt only stages; Confirm executes. Paid-without-Confirm is a
+	// funds-loss bug (proofs reported spent while merely staged).
+	finalized, err := prepared.Confirm()
+	if err != nil {
+		return nil, mapCdkError(err)
+	}
+	defer finalized.Destroy()
+	result := &MeltResult{
 		QuoteID: quoteID,
-		Paid:    true,
-	}, nil
+		Paid:    finalized.State == cdk_ffi.QuoteStatePaid,
+	}
+	if finalized.Preimage != nil {
+		result.Preimage = *finalized.Preimage
+	}
+	return result, nil
 }
 
 func (w *CdkWallet) Shutdown() error {
