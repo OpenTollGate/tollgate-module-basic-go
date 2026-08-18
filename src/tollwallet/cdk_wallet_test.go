@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -142,6 +144,38 @@ func TestCdkWalletConstruction(t *testing.T) {
 	allBalances := wallet.GetAllMintBalances()
 	if len(allBalances) != 0 {
 		t.Fatalf("fresh wallet has %d mint balances, want 0", len(allBalances))
+	}
+}
+
+// TestCdkMnemonicPersistedAcrossRestart pins the funds-safety invariant:
+// reconstructing on the same directory must reload the same mnemonic —
+// regeneration would silently forfeit all funds.
+func TestCdkMnemonicPersistedAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+
+	w1, err := NewWalletPort(dir, nil, false)
+	if err != nil {
+		t.Fatalf("first NewWalletPort: %v", err)
+	}
+	w1.Shutdown()
+
+	info, err := os.Stat(filepath.Join(dir, mnemonicFile))
+	if err != nil {
+		t.Fatalf("mnemonic file not persisted: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("mnemonic file mode = %o, want 600", perm)
+	}
+
+	w2, err := NewWalletPort(dir, nil, false)
+	if err != nil {
+		t.Fatalf("second NewWalletPort: %v", err)
+	}
+	defer w2.Shutdown()
+
+	c1, c2 := w1.(*CdkWallet), w2.(*CdkWallet)
+	if c1.mnemonic == "" || c1.mnemonic != c2.mnemonic {
+		t.Fatal("mnemonic not stable across restart — funds would be lost")
 	}
 }
 

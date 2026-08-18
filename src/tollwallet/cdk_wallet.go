@@ -7,12 +7,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	cdk_ffi "github.com/cashubtc/cdk-go/bindings/cdkffi"
 )
+
+// mnemonicFile persists the wallet seed — losing it forfeits every derived balance.
+const mnemonicFile = "cdk-wallet-mnemonic.txt"
 
 type CdkWallet struct {
 	mu             sync.Mutex
@@ -25,13 +29,41 @@ type CdkWallet struct {
 }
 
 func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (WalletPort, error) {
+	mnemonic, err := loadOrCreateMnemonic(walletPath)
+	if err != nil {
+		return nil, fmt.Errorf("load or create cdk wallet mnemonic: %w", err)
+	}
 	return &CdkWallet{
 		walletPath:     walletPath,
+		mnemonic:       mnemonic,
 		wallets:        make(map[string]*cdk_ffi.Wallet),
 		quoteToMint:    make(map[string]string),
 		acceptedMints:  acceptedMints,
 		allowUntrusted: allowAndSwapUntrustedMints,
 	}, nil
+}
+
+func loadOrCreateMnemonic(walletPath string) (string, error) {
+	path := filepath.Join(walletPath, mnemonicFile)
+	if data, err := os.ReadFile(path); err == nil {
+		if m := strings.TrimSpace(string(data)); m != "" {
+			return m, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	mnemonic, err := cdk_ffi.GenerateMnemonic()
+	if err != nil {
+		return "", fmt.Errorf("generate mnemonic: %w", err)
+	}
+	if err := os.MkdirAll(walletPath, 0o700); err != nil {
+		return "", err
+	}
+	// 0600: the mnemonic is the wallet's entire key material.
+	if err := os.WriteFile(path, []byte(mnemonic), 0o600); err != nil {
+		return "", err
+	}
+	return mnemonic, nil
 }
 
 func DecodeToken(tokenStr string) (Token, error) {
@@ -90,6 +122,9 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 	if mintUrl == "" {
 		return 0, fmt.Errorf("token has no mint URL")
 	}
+	if !w.mintAccepted(mintUrl) {
+		return 0, fmt.Errorf("token mint %s is not in the accepted mints list", mintUrl)
+	}
 	wallet, err := w.getOrCreateWallet(mintUrl)
 	if err != nil {
 		return 0, err
@@ -99,6 +134,18 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 		return 0, mapCdkError(err)
 	}
 	return amount.Value, nil
+}
+
+// mintAccepted mirrors the gonuts trust model: listed mints pass;
+// otherwise the allowUntrusted flag decides. Swap-to-trusted is not
+// implemented in this adapter — untrusted tokens are accepted as-is.
+func (w *CdkWallet) mintAccepted(mintUrl string) bool {
+	for _, m := range w.acceptedMints {
+		if m == mintUrl {
+			return true
+		}
+	}
+	return w.allowUntrusted
 }
 
 func (w *CdkWallet) GetBalance() uint64 {
@@ -120,9 +167,11 @@ func (w *CdkWallet) GetBalance() uint64 {
 }
 
 func (w *CdkWallet) GetBalanceByMint(mintUrl string) uint64 {
+	// Hold mu through the CGO call so a concurrent Shutdown cannot
+	// destroy the wallet mid-read (use-after-free).
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	wlt, ok := w.wallets[mintUrl]
-	w.mu.Unlock()
 	if !ok {
 		return 0
 	}
@@ -147,6 +196,11 @@ func (w *CdkWallet) GetAllMintBalances() map[string]uint64 {
 }
 
 func (w *CdkWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
+	// cdk-go's SendOptions exposes no overpayment caps; honoring the
+	// request would mean an unrestricted send. Fail loudly instead.
+	if maxOverpaymentPercent > 0 || maxOverpaymentAbsolute > 0 {
+		return "", fmt.Errorf("CdkWallet: overpayment limits not supported by the cdk-go adapter (percent=%d, absolute=%d); refusing unrestricted send", maxOverpaymentPercent, maxOverpaymentAbsolute)
+	}
 	token, err := w.Send(amount, mintUrl, true)
 	if err != nil {
 		return "", err
@@ -326,11 +380,7 @@ func (w *CdkWallet) getOrCreateWallet(mintUrl string) (*cdk_ffi.Wallet, error) {
 	}
 
 	if w.mnemonic == "" {
-		mnemonic, err := cdk_ffi.GenerateMnemonic()
-		if err != nil {
-			return nil, fmt.Errorf("generate mnemonic: %w", err)
-		}
-		w.mnemonic = mnemonic
+		return nil, errors.New("cdk wallet has no mnemonic — NewWalletPort must initialize it")
 	}
 
 	h := sha256.Sum256([]byte(mintUrl))
