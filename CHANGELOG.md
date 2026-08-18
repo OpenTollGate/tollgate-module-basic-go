@@ -131,6 +131,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Cross-implementation hash_to_curve vectors.** `src/tollwallet` now pins
+  NUT-00 `HashToCurve` output byte-for-byte against the canonical
+  cross-implementation vector set (gonuts/btcec ↔ cashu-core-lite/k256 ↔
+  coincurve/Python), including the hex-looking-secret trap. Y is what
+  NUT-07 checkstate keys on — divergence silently reports spent proofs as
+  unspent (the bug class found twice in prta #86 review).
+  ([#351](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/351))
+
 - **Safe exec wrapper package.** New `src/sysexec/` package providing a
   testable `Runner` interface with context, timeout, structured logging,
   and retry support for `exec.Command` calls. Foundation for refactoring
