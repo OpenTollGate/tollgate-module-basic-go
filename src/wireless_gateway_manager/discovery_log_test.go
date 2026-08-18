@@ -72,6 +72,30 @@ func TestDiscoveryLogger_RegistryAccumulation(t *testing.T) {
 	assert.True(t, yFound, "TollGate-Y should be in registry")
 }
 
+func TestDiscoveryLogger_LoadExistingLog_CountsScanBatchesNotLines(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "batches.jsonl")
+
+	dl1 := NewDiscoveryLogger(logPath)
+	dl1.LogScan([]NetworkInfo{
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-A", Signal: -55, IsTollGate: true, PricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:02", SSID: "HomeWiFi", Signal: -70},
+		{BSSID: "aa:bb:cc:dd:ee:03", SSID: "TollGate-B", Signal: -62, IsTollGate: true, PricePerStep: 2},
+	})
+	dl1.LogScan([]NetworkInfo{
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-A", Signal: -50, IsTollGate: true, PricePerStep: 1},
+	})
+
+	dl2 := NewDiscoveryLogger(logPath)
+	err := dl2.LoadExistingLog()
+	assert.NoError(t, err)
+
+	summary := dl2.Summary()
+	assert.Equal(t, 2, summary.TotalScans, "4 JSONL lines from 2 scan batches must count as 2 scans after reload")
+	assert.Equal(t, 2, summary.TollGateCount)
+	assert.Equal(t, 3, len(summary.KnownTollGates))
+}
+
 func TestDiscoveryLogger_LoadExistingLog(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "existing.jsonl")

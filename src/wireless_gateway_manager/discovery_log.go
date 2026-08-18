@@ -9,7 +9,7 @@ import (
 	logrus "github.com/sirupsen/logrus"
 )
 
-const DefaultDiscoveryLogPath = "/tmp/tollgate-discovery.jsonl"
+const DefaultDiscoveryLogPath = "/etc/tollgate/discovery_log.jsonl"
 const DiscoveryLogMaxBytes = 1 << 20
 
 type DiscoveryEntry struct {
@@ -249,6 +249,8 @@ func (dl *DiscoveryLogger) LoadExistingLog() error {
 	}
 
 	lines := splitLines(data)
+	// One LogScan batch = one shared timestamp; count batches, not lines.
+	var lastTs time.Time
 	for _, line := range lines {
 		if len(line) == 0 {
 			continue
@@ -257,7 +259,10 @@ func (dl *DiscoveryLogger) LoadExistingLog() error {
 		if err := json.Unmarshal(line, &entry); err != nil {
 			continue
 		}
-		dl.scans++
+		if !entry.Timestamp.Equal(lastTs) {
+			dl.scans++
+			lastTs = entry.Timestamp
+		}
 		dl.updateRegistry(NetworkInfo{
 			BSSID:        entry.BSSID,
 			SSID:         entry.SSID,
