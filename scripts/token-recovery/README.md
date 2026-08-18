@@ -9,7 +9,7 @@ open gate: exit status 1" from NDS #88 bug).
 2. For each token, checks proof state at the mint via POST /v1/checkstate (NUT-07)
 3. If proofs are UNSPENT: calls Wallet.Receive() to recover value
 4. If proofs are SPENT: skips (value already consumed)
-5. Reports: X recovered, Y spent, Z failed
+5. Reports: X recovered, Y recoverable (dry-run), Z spent, P pending, F failed
 
 ## Usage
 
