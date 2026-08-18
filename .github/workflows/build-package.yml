@@ -285,6 +285,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y upx-ucl
 
+      - name: Setup Node.js for portal build
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build captive portal assets
+        run: |
+          set -euo pipefail
+          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          echo "Portal assets built:"
+          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
+
       - name: Build .ipk
         run: |
           set -euo pipefail
@@ -456,6 +468,19 @@ jobs:
         if: contains(matrix.compression, 'upx')
         run: |
           apt-get install -y upx-ucl
+
+      - name: Install Node.js for portal build
+        run: |
+          apt-get install -y nodejs npm
+
+      - name: Build captive portal assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-checkout
+          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          echo "Portal assets built:"
+          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 
       - name: Stage SDK package tree
         run: |
