@@ -34,7 +34,10 @@ func main() {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
-	recovered, spent, failed := 0, 0, 0
+	// One wallet handle for the whole run: LoadWallet locks the bolt
+	// store — per-token loads contend. Receive() uses each token's mint.
+	var w *wallet.Wallet
+	recovered, spent, recoverable, pending, failed := 0, 0, 0, 0, 0
 	var totalSats uint64
 	lineNum := 0
 
@@ -45,28 +48,37 @@ func main() {
 			continue
 		}
 
-		status := processLine(line, lineNum, *walletPath, *dryRun, &totalSats)
+		status, walletReady := processLine(line, lineNum, &w, *walletPath, *dryRun, &totalSats)
+		if !walletReady {
+			break
+		}
 		switch status {
 		case "recovered":
 			recovered++
+		case "recoverable":
+			recoverable++
 		case "spent":
 			spent++
+		case "pending":
+			pending++
 		default:
 			failed++
 		}
 	}
 
 	fmt.Printf("\n%s\n", strings.Repeat("=", 50))
-	fmt.Printf("TOTAL: %d tokens | ✅ %d recovered (%d sats) | ⏭️ %d spent | ❌ %d failed\n",
-		lineNum, recovered, totalSats, spent, failed)
+	fmt.Printf("TOTAL: %d lines | ✅ %d recovered (%d sats) | 💰 %d recoverable | ⏭️ %d spent | ⏳ %d pending | ❌ %d failed\n",
+		lineNum, recovered, totalSats, recoverable, spent, pending, failed)
 	fmt.Println(strings.Repeat("=", 50))
 }
 
-func processLine(line string, lineNum int, walletPath string, dryRun bool, totalSats *uint64) string {
+// processLine returns (status, walletReady). walletReady=false means the
+// wallet could not be initialized — no point scanning further lines.
+func processLine(line string, lineNum int, w **wallet.Wallet, walletPath string, dryRun bool, totalSats *uint64) (string, bool) {
 	parts := strings.SplitN(line, " | ", 4)
 	if len(parts) < 3 {
 		fmt.Printf("[%3d] ❌ malformed line\n", lineNum)
-		return "failed"
+		return "failed", true
 	}
 
 	mintURL := strings.TrimSpace(parts[1])
@@ -75,7 +87,7 @@ func processLine(line string, lineNum int, walletPath string, dryRun bool, total
 	token, err := cashu.DecodeToken(tokenStr)
 	if err != nil {
 		fmt.Printf("[%3d] ❌ decode failed: %v\n", lineNum, err)
-		return "failed"
+		return "failed", true
 	}
 
 	proofs := token.Proofs()
@@ -85,50 +97,62 @@ func processLine(line string, lineNum int, walletPath string, dryRun bool, total
 	for _, p := range proofs {
 		y, err := crypto.HashToCurve([]byte(p.Secret))
 		if err != nil {
-			fmt.Printf("[%3d] ❌ hash_to_curve(%s): %v\n", lineNum, p.Secret[:16], err)
-			return "failed"
+			// No secret material in output — proofs' secrets spend tokens.
+			fmt.Printf("[%3d] ❌ hash_to_curve: %v\n", lineNum, err)
+			return "failed", true
 		}
 		ys = append(ys, fmt.Sprintf("%x", y.SerializeCompressed()))
 	}
 
-	stateReq := nut07.PostCheckStateRequest{Ys: ys}
-	stateResp, err := client.PostCheckProofState(mintURL, stateReq)
+	stateResp, err := client.PostCheckProofState(mintURL, nut07.PostCheckStateRequest{Ys: ys})
 	if err != nil {
 		fmt.Printf("[%3d] ❌ checkstate: %v\n", lineNum, err)
-		return "failed"
+		return "failed", true
 	}
 
-	allSpent := true
+	// Recoverable requires proof-of-unspent: PENDING is in-flight at the
+	// mint — receiving now double-spends. Retry later instead.
+	allUnspent := true
+	anyPending := false
 	for _, s := range stateResp.States {
-		if s.State != nut07.Spent {
-			allSpent = false
+		if s.State == nut07.Pending {
+			anyPending = true
+		}
+		if s.State != nut07.Unspent {
+			allUnspent = false
 		}
 	}
 
-	if allSpent {
-		fmt.Printf("[%3d] ⏭️ already spent (%d sats)\n", lineNum, amount)
-		return "spent"
-	}
-
-	if dryRun {
+	if allUnspent && dryRun {
 		fmt.Printf("[%3d] 💰 recoverable (%d sats) — dry-run\n", lineNum, amount)
-		return "failed"
+		return "recoverable", true
+	}
+	if anyPending {
+		fmt.Printf("[%3d] ⏳ pending at mint (%d sats) — retry later\n", lineNum, amount)
+		return "pending", true
+	}
+	if !allUnspent {
+		fmt.Printf("[%3d] ⏭️ already spent (%d sats)\n", lineNum, amount)
+		return "spent", true
 	}
 
-	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: mintURL}
-	w, err := wallet.LoadWallet(config)
-	if err != nil {
-		fmt.Printf("[%3d] ❌ wallet init: %v\n", lineNum, err)
-		return "failed"
+	if *w == nil {
+		config := wallet.Config{WalletPath: walletPath, CurrentMintURL: mintURL}
+		loaded, err := wallet.LoadWallet(config)
+		if err != nil {
+			fmt.Printf("[%3d] ❌ wallet init: %v\n", lineNum, err)
+			return "failed", false
+		}
+		*w = loaded
 	}
 
-	received, err := w.Receive(token, true)
+	received, err := (*w).Receive(token, true)
 	if err != nil {
 		fmt.Printf("[%3d] ❌ receive: %v\n", lineNum, err)
-		return "failed"
+		return "failed", true
 	}
 
 	*totalSats += received
 	fmt.Printf("[%3d] ✅ recovered %d sats\n", lineNum, received)
-	return "recovered"
+	return "recovered", true
 }
