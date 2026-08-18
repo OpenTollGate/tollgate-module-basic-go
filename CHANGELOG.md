@@ -23,6 +23,19 @@ and [Semantic Versioning](https://semver.org/).
   now writes the generated `private_key` to `/tmp/tollgate-setup.log`
   alongside the existing SSID and IP entries.
 
+- **LUD-25 / LNURL-cash mint service (`lud25d`).** New standalone Go
+  module under `src/cmd/lud25d/` implementing a Cashu-backed mint
+  SERVICE for LUD-25 withdraw flows. The `CashuBackend` wraps a Cashu
+  mint's NUT-04 quote endpoints: `CreateMintingInvoice` generates a
+  32-byte CSPRNG k1 (bearer secret, NOT the Lightning preimage),
+  requests a mint quote to obtain a BOLT11 invoice, decodes the payment
+  hash, and stores the k1→(payment_hash, quote_id) mapping in SQLite.
+  `CheckPayment` polls the mint's quote state and marks the note paid
+  when the mint confirms. Includes 5 tests (CreateMintingInvoice,
+  CheckPayment, CheckPayment-unknown-k1, k1-independence/entropy,
+  expiry) all passing with `-race`. Stub HTTP endpoints (`/mint`,
+  `/check`) for integration in a later task.
+
 ### Changed
 
 - **Setup version bumped to v0.6.2.** Reinstall/upgrade now triggers a
