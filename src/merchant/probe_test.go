@@ -5,20 +5,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 func TestProbeWireFormatBytes(t *testing.T) {
 	// Probe 1: lightningQuoteRecord with each CachedState value
 	for _, c := range []struct {
 		name  string
-		state nut04.State
+		state tollwallet.MintQuoteState
 	}{
-		{"Unpaid", nut04.Unpaid},
-		{"Paid", nut04.Paid},
-		{"Issued", nut04.Issued},
-		{"Pending", nut04.Pending},
-		{"Unknown", nut04.Unknown},
+		{"Unpaid", tollwallet.StateUnpaid},
+		{"Paid", tollwallet.StatePaid},
+		{"Issued", tollwallet.StateIssued},
+		{"Pending", tollwallet.StatePending},
+		{"Unknown", tollwallet.StateUnknown},
 	} {
 		rec := &lightningQuoteRecord{
 			Bolt11:      "lnbc1",
