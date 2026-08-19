@@ -412,6 +412,8 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, merchantProvider.inner.GetMerchant().GetAdvertisement())
 }
 
+// NUT #00: `cashu` is the Cashu token prefix. `[version]` is a single `base64_urlsafe` character to denote the token format version.
+
 // handleRootPost handles POST requests to the root endpoint
 func extractCashuToken(body []byte) (token string, event *nostr.Event) {
 	var ev nostr.Event
@@ -427,6 +429,7 @@ func extractCashuToken(body []byte) (token string, event *nostr.Event) {
 	return strings.TrimSpace(string(body)), nil
 }
 
+// NUT #00: Serialized tokens have a Cashu token prefix, a versioning flag, and the token.
 func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Log the request details
 	mainLogger.WithFields(logrus.Fields{
