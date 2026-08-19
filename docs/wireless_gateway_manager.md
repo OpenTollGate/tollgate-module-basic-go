@@ -20,7 +20,7 @@ All components share a single `Connector` and `Scanner` instance created at star
 - **Connector** (`connector.go`) — Manages OpenWrt UCI configuration for STA interfaces, DHCP, radio setup, upstream switching, and stale STA cleanup.
 - **Scanner** (`scanner.go`) — Scans Wi-Fi radios via `iw`, parses results, detects encryption, finds best radio for a given SSID.
 - **UpstreamManager** (`upstream_manager.go`) — Background daemon that monitors connectivity, scans for better upstreams, switches automatically on signal degradation or connectivity loss.
-- **VendorElementProcessor** (`vendor_element_manager.go`) — Extracts and scores vendor-specific IEs (Bitcoin/Lightning info) from scan results.
+- **VendorElementProcessor** (`vendor_element_manager.go`) — Encodes/decodes TollGate vendor-specific IEs (802.11 IE type 221, OUI `21:21:21`). Carries gateway metadata: version, flags (reseller, internet, open), mint URL, pubkey. Gated behind `vendor_ie_discovery` config flag.
 - **CLIServer** (`cli/server.go`) — Unix domain socket server exposing `tollgate upstream *` CLI commands.
 
 ## Configuration
