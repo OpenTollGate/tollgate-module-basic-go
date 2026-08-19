@@ -451,11 +451,11 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testi
 }
 
 type mockWallet struct {
-	balance         uint64
-	balanceByMint   map[string]uint64
-	overpaymentErr  error
+	balance           uint64
+	balanceByMint     map[string]uint64
+	overpaymentErr    error
 	overpaymentResult string
-	shutdownCalled  bool
+	shutdownCalled    bool
 }
 
 func (w *mockWallet) GetBalance() uint64 {
