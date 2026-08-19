@@ -203,8 +203,8 @@ func init() {
 		}
 		valve.AuthDelay = time.Duration(delaySeconds) * time.Second
 		mainLogger.WithFields(logrus.Fields{
-			"redirect_url":      mainConfig.RedirectURL,
-			"auth_delay":        valve.AuthDelay,
+			"redirect_url": mainConfig.RedirectURL,
+			"auth_delay":   valve.AuthDelay,
 			"auth_delay_source": func() string {
 				if mainConfig.AuthDelaySeconds > 0 {
 					return "config"
@@ -368,14 +368,19 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			"remote_addr": r.RemoteAddr,
 		}).Debug("CORS middleware processing request")
 
-		// Set CORS headers
+		// CORS policy (security): mirrors the Rust module's cors_response —
+		// echo the Origin only for local/private or same-host origins (the
+		// router's own portal is cross-origin once served from uhttpd :2051).
+		// Never a wildcard: this API is LAN-firewall-protected, not
+		// credential-protected, so "*" would let any website read responses
+		// from a browser on the TollGate network (OWASP).
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		origin := r.Header.Get("Origin")
-		if origin == "" || isLocalOrigin(origin) {
-			if origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-			}
+		if origin != "" && origin != "null" && (isLocalOrigin(origin) || isSameHost(origin, r.Host)) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			// Cache-safe: the echo decision varies per Origin (MDN).
+			w.Header().Add("Vary", "Origin")
 		}
 
 		// Handle preflight OPTIONS requests
@@ -434,6 +439,14 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Only process POST requests
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	if contentType != "text/plain" && contentType != "application/json" && contentType != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Unsupported Media Type"})
 		return
 	}
 
@@ -913,6 +926,26 @@ func init() {
 		}
 		privateCIDRs = append(privateCIDRs, *n)
 	}
+}
+
+// isSameHost reports whether the Origin's host matches the host the client
+// addressed this API by, ignoring port: origins are scheme+host+port, so the
+// router's own portal served from another port (uhttpd :2051 calling the API
+// on :2121) is cross-origin yet must stay allowed.
+func isSameHost(origin, requestHost string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := strings.ToLower(u.Hostname())
+	if originHost == "" {
+		return false
+	}
+	reqHost := strings.ToLower(requestHost)
+	if h, _, err := net.SplitHostPort(reqHost); err == nil {
+		reqHost = h
+	}
+	return originHost == reqHost
 }
 
 func isLocalOrigin(origin string) bool {
