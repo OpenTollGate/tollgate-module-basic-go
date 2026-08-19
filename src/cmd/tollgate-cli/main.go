@@ -307,6 +307,15 @@ var upstreamRemoveCmd = &cobra.Command{
 	},
 }
 
+var upstreamKnownCmd = &cobra.Command{
+	Use:   "known",
+	Short: "Show discovered TollGate APs from scan history",
+	Long:  "Display a summary of all TollGate access points discovered during scans, including signal range, pricing, and first/last seen timestamps.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"known"}, nil)
+	},
+}
+
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Show TollGate logs",
@@ -449,7 +458,7 @@ func init() {
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
 	networkCmd.AddCommand(privateCmd)
-	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd)
+	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)
 	configCmd.AddCommand(configGetCmd, configSetCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)
 	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd, configCmd, healthCmd)
 	rootCmd.AddCommand(genManCmd)

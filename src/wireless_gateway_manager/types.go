@@ -28,6 +28,7 @@ type UpstreamManagerConfig struct {
 	StartupSettle         time.Duration
 	StartupRetryInterval  time.Duration
 	StartupScanInterval   time.Duration
+	VendorIEDiscovery     bool
 }
 
 type Connector struct {
@@ -47,6 +48,16 @@ type NetworkInfo struct {
 	StepSize     int
 	RawIEs       []byte
 	Radio        string
+	IsTollGate   bool
+}
+
+type TollGateAdvertisement struct {
+	Version     uint8
+	IsReseller  bool
+	HasInternet bool
+	OpenNetwork bool
+	MintURL     string
+	Pubkey      []byte
 }
 
 type VendorElementProcessor struct {
