@@ -1,0 +1,21 @@
+# greatspectations spec-quote drift config for tollgate-module-basic-go
+#
+# Tool: https://github.com/rustyrussell/greatspectations
+# Spec: https://github.com/cashubtc/nuts (Cashu NUT specifications)
+#
+# Comment marker syntax in Go source:
+#   // NUT #00: <verbatim spec quote>
+#   // NUT #05: <verbatim spec quote>
+#
+# Setup (one-time, local):
+#   git clone --depth=1 https://github.com/cashubtc/nuts.git nuts
+#   pip install git+https://github.com/rustyrussell/greatspectations.git
+#
+# Run:
+#   spectate check --config specquotes.toml --comment-start '//' --comment-continue '//' 'src/**/*.go'
+#   spectate coverage --config specquotes.toml
+
+[sources.NUT]
+format = "markdown"
+dir = "nuts"
+pattern = "{id:02d}.md"
