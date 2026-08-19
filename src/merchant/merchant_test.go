@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -250,5 +251,56 @@ func TestCalculateAllotment_NoPathMintURL(t *testing.T) {
 	}
 	if allotment != 10000 {
 		t.Errorf("expected allotment 10000, got %d", allotment)
+	}
+}
+
+// TestCalculateAllotment_PostSwapFeeCrediting pins the crediting arithmetic
+// for the exact post-fee amounts from Amperstrand fork issue #63 ("5-sat
+// token receives as 4 sats"): the amount the wallet reports after the
+// swap-to-trusted fee is what gets credited — 4 sats, not face value 5.
+// The Fund→Receive passthrough (no fee re-credited) is characterized in
+// merchant_token_flow_test.go once WalletPort injection lands (#299).
+func TestCalculateAllotment_PostSwapFeeCrediting(t *testing.T) {
+	cases := []struct {
+		name         string
+		amount       uint64 // post-swap amount Receive() returned
+		pricePerStep uint64
+		stepSize     uint64
+		wantSteps    uint64
+		wantErr      string // "" = expect success
+	}{
+		{"fork63_five_sats_minus_one_sat_fee", 4, 1, 10485760, 4, ""},
+		{"zero_fee_face_value", 5, 1, 10485760, 5, ""},
+		{"price_two_truncates_remainder", 5, 2, 10485760, 2, ""},
+		{"price_two_post_fee_truncates", 3, 2, 10485760, 1, ""},
+		{"amount_below_price_rejected_by_minimum", 1, 2, 10485760, 0, "minimum purchase"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Merchant{
+				config: &config_manager.Config{
+					Metric:   "bytes",
+					StepSize: tc.stepSize,
+					AcceptedMints: []config_manager.MintConfig{
+						{URL: "https://mint.example.com", PricePerStep: tc.pricePerStep, MinPurchaseSteps: 1},
+					},
+				},
+			}
+			allotment, err := m.calculateAllotment(tc.amount, "https://mint.example.com")
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got %v (allotment %d)", tc.wantErr, err, allotment)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			expected := tc.wantSteps * tc.stepSize
+			if allotment != expected {
+				t.Errorf("post-swap %d sats @ %d/step: expected %d bytes (%d steps), got %d",
+					tc.amount, tc.pricePerStep, expected, tc.wantSteps, allotment)
+			}
+		})
 	}
 }
