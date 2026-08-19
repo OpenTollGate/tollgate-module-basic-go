@@ -285,6 +285,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y upx-ucl
 
+      - name: Setup Node.js for portal build
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build captive portal assets
+        run: |
+          set -euo pipefail
+          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          echo "Portal assets built:"
+          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
+
       - name: Build .ipk
         run: |
           set -euo pipefail
@@ -456,6 +468,19 @@ jobs:
         if: contains(matrix.compression, 'upx')
         run: |
           apt-get install -y upx-ucl
+
+      - name: Install Node.js for portal build
+        run: |
+          apt-get install -y nodejs npm
+
+      - name: Build captive portal assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-checkout
+          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          echo "Portal assets built:"
+          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 
       - name: Stage SDK package tree
         run: |
@@ -684,6 +709,11 @@ jobs:
     name: Trigger TollGate OS build
     runs-on: ubuntu-latest
     needs: [determine-versioning, publish-metadata]
+    # The repository-dispatch needs REPO_ACCESS_TOKEN, which only exists on
+    # the upstream repo. Fork builds (no token, no write access to
+    # OpenTollGate/tollgate-os) must skip this instead of going red — and
+    # must never dispatch upstream OS builds from a fork branch anyway.
+    if: github.repository == 'OpenTollGate/tollgate-module-basic-go'
     steps:
       - uses: peter-evans/repository-dispatch@v4
         with:
