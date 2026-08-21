@@ -12,6 +12,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Token recovery tool + AI audit prompts + speccheck.** Standalone
+  `scripts/token-recovery` tool for tokens written to
+  `tokens-to-recover.txt` when autopay rejects a payment: parse entries,
+  decode V3/V4, NUT-07 checkstate (unspent-only — PENDING gets its own
+  retry-later status; 30s timeout per mint so a hung mint cannot stall
+  recovery), receive-if-unspent with a single lazily-loaded wallet for
+  the whole run. No proof secrets in output. Plus
+  `docs/ai-audit/` prompt templates and `make/speccheck.sh`
+  (greatspectations spec-quote drift check; drift reports, never fails).
+  ([#340](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/340))
+
 - **Captive-portal uhttpd instance on port 2051.** A second uhttpd
   section (`config uhttpd portal`) now serves the SPA directly on
   `0.0.0.0:2051` / `[::]:2051`, decoupling portal serving from the
