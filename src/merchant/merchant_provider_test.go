@@ -42,8 +42,8 @@ func (m *mockMerchantForProvider) PurchaseSession(cashuToken string, macAddress 
 	return nil, fmt.Errorf("mock: %s", m.name)
 }
 
-func (m *mockMerchantForProvider) GetAdvertisement() string { return "" }
-func (m *mockMerchantForProvider) StartPayoutRoutine()     {}
+func (m *mockMerchantForProvider) GetAdvertisement() string  { return "" }
+func (m *mockMerchantForProvider) StartPayoutRoutine()       {}
 func (m *mockMerchantForProvider) StartDataUsageMonitoring() {}
 
 func (m *mockMerchantForProvider) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
