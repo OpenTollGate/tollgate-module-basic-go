@@ -11,16 +11,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cmd/lud25d/internal/mint"
 )
 
 func main() {
 	var (
-		addr     = flag.String("addr", ":8080", "listen address")
-		dbPath   = flag.String("db", "lud25d.db", "SQLite database path")
-		mintURL  = flag.String("mint-url", "", "Cashu mint URL (required)")
-		expiryD  = flag.Duration("expiry", mint.DefaultExpiry, "note expiry duration")
+		addr    = flag.String("addr", ":8080", "listen address")
+		dbPath  = flag.String("db", "lud25d.db", "SQLite database path")
+		mintURL = flag.String("mint-url", "", "Cashu mint URL (required)")
+		expiryD = flag.Duration("expiry", mint.DefaultExpiry, "note expiry duration")
 	)
 	flag.Parse()
 
@@ -43,13 +44,12 @@ func main() {
 		fmt.Fprint(w, `{"tag":"withdrawRequest","status":"ok"}`)
 	})
 
-	// /mint — create a new minting invoice (stub for C1)
+	// /mint — create a new minting invoice (stub for C1).
+	// amount is in WHOLE SATOSHIS (the NUT-04 quote unit).
 	http.HandleFunc("/mint", func(w http.ResponseWriter, r *http.Request) {
-		amountStr := r.URL.Query().Get("amount")
-		var amount int64
-		fmt.Sscanf(amountStr, "%d", &amount)
-		if amount <= 0 {
-			http.Error(w, "invalid amount", http.StatusBadRequest)
+		amount, err := strconv.ParseInt(r.URL.Query().Get("amount"), 10, 64)
+		if err != nil || amount < 1 {
+			http.Error(w, "invalid amount (whole sats, >= 1)", http.StatusBadRequest)
 			return
 		}
 

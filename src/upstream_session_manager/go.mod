@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0

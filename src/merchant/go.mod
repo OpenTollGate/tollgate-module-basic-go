@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/merchant
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/OpenTollGate/gonuts-tollgate v0.11.1
@@ -83,7 +83,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
 	github.com/lightningnetwork/lnd v0.19.1-beta.rc1 // indirect

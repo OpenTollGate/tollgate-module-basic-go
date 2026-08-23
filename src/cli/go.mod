@@ -1,6 +1,6 @@
 module github.com/OpenTollGate/tollgate-module-basic-go/src/cli
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
@@ -53,7 +53,7 @@ require (
 	github.com/jrick/logrotate v1.1.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1 // indirect

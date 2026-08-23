@@ -25,7 +25,7 @@ type Note struct {
 	K1          string // CSPRNG bearer secret (hex-encoded 32 bytes), NOT Lightning preimage
 	PaymentHash string // Lightning invoice payment hash (proof of payment)
 	QuoteID     string // Cashu mint NUT-04 quote ID
-	AmountMsat  int64  // amount in millisatoshis
+	AmountSat   int64  // amount in whole satoshis (mirrors the NUT-04 quote)
 	Status      string // pending|paid|spent|expired
 	CreatedAt   int64  // unix timestamp
 	PaidAt      *int64 // unix timestamp, nil if unpaid
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS notes (
   k1 TEXT PRIMARY KEY,
   payment_hash TEXT NOT NULL,
   quote_id TEXT NOT NULL,
-  amount_msat INTEGER NOT NULL,
+  amount_sat INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   created_at INTEGER NOT NULL,
   paid_at INTEGER,
@@ -86,9 +86,9 @@ func (d *DB) Close() error {
 // same k1 already exists.
 func (d *DB) InsertNote(n Note) error {
 	_, err := d.db.Exec(
-		`INSERT INTO notes (k1, payment_hash, quote_id, amount_msat, status, created_at, paid_at, spent_at, expires_at)
+		`INSERT INTO notes (k1, payment_hash, quote_id, amount_sat, status, created_at, paid_at, spent_at, expires_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.K1, n.PaymentHash, n.QuoteID, n.AmountMsat, n.Status,
+		n.K1, n.PaymentHash, n.QuoteID, n.AmountSat, n.Status,
 		n.CreatedAt, nilInt64(n.PaidAt), nilInt64(n.SpentAt), n.ExpiresAt,
 	)
 	if err != nil {
@@ -101,14 +101,14 @@ func (d *DB) InsertNote(n Note) error {
 // row matches.
 func (d *DB) GetNote(k1 string) (*Note, error) {
 	row := d.db.QueryRow(
-		`SELECT k1, payment_hash, quote_id, amount_msat, status, created_at, paid_at, spent_at, expires_at
+		`SELECT k1, payment_hash, quote_id, amount_sat, status, created_at, paid_at, spent_at, expires_at
 		 FROM notes WHERE k1 = ?`, k1,
 	)
 
 	var n Note
 	var paidAt, spentAt sql.NullInt64
 	err := row.Scan(
-		&n.K1, &n.PaymentHash, &n.QuoteID, &n.AmountMsat, &n.Status,
+		&n.K1, &n.PaymentHash, &n.QuoteID, &n.AmountSat, &n.Status,
 		&n.CreatedAt, &paidAt, &spentAt, &n.ExpiresAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

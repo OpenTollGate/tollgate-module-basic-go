@@ -153,7 +153,7 @@ func TestCashuBackend_CreateMintingInvoice(t *testing.T) {
 	require.NoError(t, err, "note should be retrievable from DB")
 	assert.Equal(t, k1, note.K1, "stored k1 should match returned k1")
 	assert.Equal(t, paymentHash, note.PaymentHash, "stored payment_hash should match")
-	assert.Equal(t, int64(1000), note.AmountMsat, "stored amount should match")
+	assert.Equal(t, int64(1000), note.AmountSat, "stored amount should match")
 	assert.Equal(t, NotePending, note.Status, "new note should be pending")
 }
 
@@ -271,4 +271,41 @@ func TestCashuBackend_ExpirySet(t *testing.T) {
 	now := time.Now().Unix()
 	expectedExpiry := now + int64(expiry.Seconds())
 	assert.InDelta(t, expectedExpiry, note.ExpiresAt, 5, "expiry should be ~90 days from creation")
+}
+
+// TestCashuBackend_AmountUnitConsistency pins the sat/msat boundary: the
+// NUT-04 quote must be requested in the same whole-sat value that is
+// stored on the note. The original code conflated the two (an msat-named
+// field fed directly to a sat-denominated quote) — a latent 1000x funds
+// error caught in review.
+func TestCashuBackend_AmountUnitConsistency(t *testing.T) {
+	fakeMint := newFakeCashuMint(t)
+	db := newTestDB(t)
+	backend := NewCashuBackend(db, fakeMint.URL(), 90*24*time.Hour)
+
+	k1, _, _, err := backend.CreateMintingInvoice(7)
+	require.NoError(t, err)
+
+	note, err := db.GetNote(k1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), note.AmountSat, "note stores whole sats")
+
+	q := fakeMint.quotes[note.QuoteID]
+	require.NotNil(t, q, "quote exists at the fake mint")
+	assert.Equal(t, uint64(7), q.Amount, "quote requested in the same whole-sat value")
+	assert.Equal(t, "sat", q.Unit, "quote unit is sat")
+}
+
+// TestCashuBackend_RejectsNonPositiveAmount guards the CreateMintingInvoice
+// boundary added with the unit fix.
+func TestCashuBackend_RejectsNonPositiveAmount(t *testing.T) {
+	fakeMint := newFakeCashuMint(t)
+	db := newTestDB(t)
+	backend := NewCashuBackend(db, fakeMint.URL(), 90*24*time.Hour)
+
+	_, _, _, err := backend.CreateMintingInvoice(0)
+	assert.Error(t, err, "zero amount must be rejected")
+
+	_, _, _, err = backend.CreateMintingInvoice(-5)
+	assert.Error(t, err, "negative amount must be rejected")
 }

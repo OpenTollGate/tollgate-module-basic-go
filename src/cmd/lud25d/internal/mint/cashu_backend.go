@@ -96,11 +96,11 @@ func (c *HTTPMintClient) MintQuoteState(quoteID string) (*nut04.PostMintQuoteBol
 // preimage — the Lightning payment hash only proves the invoice was
 // paid.
 type CashuBackend struct {
-	db            *DB
-	mintURL       string
-	mintClient    MintQuoteClient
-	httpClient    *http.Client
-	expiry        time.Duration
+	db         *DB
+	mintURL    string
+	mintClient MintQuoteClient
+	httpClient *http.Client
+	expiry     time.Duration
 }
 
 // NewCashuBackend creates a CashuBackend that talks to the given Cashu
@@ -132,9 +132,18 @@ func NewCashuBackendWithClient(db *DB, mintURL string, expiry time.Duration, cli
 // invoice, decodes the payment hash from the invoice, and stores the
 // k1 → (payment_hash, quote_id) mapping in the database.
 //
+// amountSat is in WHOLE SATOSHIS: NUT-04 quotes are integer sats (the
+// quote unit below is "sat"), and the note mirrors the quote. Callers
+// holding millisatoshi amounts (LUD-25/LNURL callbacks) must convert
+// msat→sat at their layer — passing msat here would mint a note for
+// 1000x the intended value.
+//
 // k1 is NOT the Lightning preimage — it is an independent bearer
 // secret. The Lightning payment hash only proves the invoice was paid.
-func (b *CashuBackend) CreateMintingInvoice(amountMsat int64) (k1 string, bolt11 string, paymentHash string, err error) {
+func (b *CashuBackend) CreateMintingInvoice(amountSat int64) (k1 string, bolt11 string, paymentHash string, err error) {
+	if amountSat < 1 {
+		return "", "", "", fmt.Errorf("amount must be at least 1 sat, got %d", amountSat)
+	}
 	// Generate k1: 32 bytes from crypto/rand (CSPRNG, NOT math/rand)
 	k1Bytes := make([]byte, 32)
 	if _, err := rand.Read(k1Bytes); err != nil {
@@ -142,9 +151,8 @@ func (b *CashuBackend) CreateMintingInvoice(amountMsat int64) (k1 string, bolt11
 	}
 	k1 = hex.EncodeToString(k1Bytes)
 
-	// Create NUT-04 mint quote at the Cashu mint
-	amount := uint64(amountMsat)
-	quoteResp, err := b.mintClient.RequestMint(amount, b.mintURL)
+	// Create NUT-04 mint quote at the Cashu mint (integer sats)
+	quoteResp, err := b.mintClient.RequestMint(uint64(amountSat), b.mintURL)
 	if err != nil {
 		return "", "", "", fmt.Errorf("request mint quote: %w", err)
 	}
@@ -163,7 +171,7 @@ func (b *CashuBackend) CreateMintingInvoice(amountMsat int64) (k1 string, bolt11
 		K1:          k1,
 		PaymentHash: paymentHash,
 		QuoteID:     quoteResp.Quote,
-		AmountMsat:  amountMsat,
+		AmountSat:   amountSat,
 		Status:      NotePending,
 		CreatedAt:   now,
 		ExpiresAt:   expiryDurationToUnix(b.expiry),
