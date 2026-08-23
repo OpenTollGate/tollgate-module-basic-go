@@ -441,7 +441,7 @@ type PurchaseSessionResult struct {
 }
 
 // PurchaseSession processes a payment with cashu token and MAC address, returns either a session event or a notice event
-// NUT-00 verification quote lives above TollWallet.Receive (single source; duplicate quotes flag in speccheck).
+// Spec (NUT 00) verification quote lives above TollWallet.Receive — single source; duplicate quotes flag in speccheck.
 func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
 	// Validate MAC address
 	if !utils.ValidateMACAddress(macAddress) {

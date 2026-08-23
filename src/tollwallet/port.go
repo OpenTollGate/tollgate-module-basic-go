@@ -59,7 +59,7 @@ const (
 )
 
 // String returns the canonical uppercase string representation per Cashu
-// NUT-04 spec. Note: gonuts returned lowercase "unknown" for Unknown(4);
+// spec (NUT 04). Note: gonuts returned lowercase "unknown" for Unknown(4);
 // this implementation returns uppercase "UNKNOWN" as a spec-compliance
 // cleanup. Task 1.2 characterization test pins gonuts's behavior separately.
 func (s MintQuoteState) String() string {
