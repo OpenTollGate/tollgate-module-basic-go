@@ -1,0 +1,550 @@
+========================================
+BACKUP: net4sats-4N5F (GL-MT3000 Beryl AX)
+Date: 2026-07-30 11:32:51 UTC
+========================================
+
+=== opkg list-installed | grep toll ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+tollgate-wrt - v0.5.0
+
+=== /etc/tollgate/install.json ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+{
+  "config_version": "v0.0.2",
+  "package_path": "false",
+  "ip_address_randomized": false,
+  "install_time": 1784799110,
+  "download_time": 0,
+  "release_channel": "stable",
+  "ensure_default_timestamp": 1781541962,
+  "installed_version": "0.0.0"
+}
+
+=== /etc/tollgate/config.json ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+{
+  "config_version": "v0.0.8",
+  "log_level": "info",
+  "accepted_mints": [
+    {
+      "url": "https://testnut.cashu.exchange",
+      "min_balance": 0,
+      "balance_tolerance_percent": 0,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 0,
+      "price_per_step": 1,
+      "price_unit": "sats",
+      "purchase_min_steps": 0
+    }
+  ],
+  "profit_share": [
+    {
+      "factor": 0.79,
+      "identity": "owner"
+    },
+    {
+      "factor": 0.21,
+      "identity": "developer"
+    }
+  ],
+  "step_size": 22020096,
+  "margin": 0.1,
+  "metric": "bytes",
+  "show_setup": true,
+  "reseller_mode": false,
+  "upstream_detector": {
+    "probe_timeout": 10000000000,
+    "probe_retry_count": 3,
+    "probe_retry_delay": 2000000000,
+    "require_valid_signature": true,
+    "ignore_interfaces": [
+      "lo",
+      "docker0",
+      "br-lan",
+      "hostap0"
+    ],
+    "only_interfaces": [],
+    "discovery_timeout": 300000000000
+  },
+  "upstream_session_manager": {
+    "max_price_per_millisecond": 0.002777777778,
+    "max_price_per_byte": 3.725782414e-05,
+    "trust": {
+      "default_policy": "trust_all",
+      "allowlist": [],
+      "blocklist": []
+    },
+    "sessions": {
+      "preferred_session_increments_milliseconds": 60000,
+      "preferred_session_increments_bytes": 131100000,
+      "millisecond_renewal_offset": 10000,
+      "bytes_renewal_offset": 131100000
+    },
+    "usage_tracking": {
+      "data_monitoring_interval": 500000000
+    }
+  },
+  "upstream_wifi": {
+    "scan_interval_seconds": 300,
+    "fast_check_seconds": 30,
+    "lost_threshold": 2,
+    "hysteresis_db": 12,
+    "signal_floor": -85,
+    "blacklist_ttl_minutes": 60,
+    "emergency_penalty": 20,
+    "max_consecutive_failures": 3,
+    "switch_cooldown_minutes": 10,
+    "startup_grace_seconds": 90,
+    "post_switch_wait_seconds": 5,
+    "dhcp_timeout_seconds": 180,
+    "manual_pause_seconds": 120
+  }
+}
+=== /etc/tollgate/identities.json ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+{
+  "config_version": "v0.0.1",
+  "owned_identities": [
+    {
+      "name": "merchant",
+      "privatekey": "eca1212d1bbeb8b6d18e531a6d6dcfe15545b498f4e6a7f2b23ef9d22a5dbf46"
+    }
+  ],
+  "public_identities": [
+    {
+      "name": "developer",
+      "lightning_address": "tollgate@minibits.cash"
+    },
+    {
+      "name": "trusted_maintainer_1",
+      "pubkey": "5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a"
+    },
+    {
+      "name": "owner",
+      "pubkey": "[on_setup]",
+      "lightning_address": "TollGate@coinos.io"
+    }
+  ]
+}
+
+=== uci show tollgate ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+no tollgate uci section
+
+=== uci show nodogsplash ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+nodogsplash.@nodogsplash[0]=nodogsplash
+nodogsplash.@nodogsplash[0].enabled='1'
+nodogsplash.@nodogsplash[0].fwhook_enabled='1'
+nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
+nodogsplash.@nodogsplash[0].gatewayname='net4sats-4N5F'
+nodogsplash.@nodogsplash[0].maxclients='250'
+nodogsplash.@nodogsplash[0].preauthidletimeout='30'
+nodogsplash.@nodogsplash[0].authidletimeout='120'
+nodogsplash.@nodogsplash[0].sessiontimeout='1200'
+nodogsplash.@nodogsplash[0].checkinterval='600'
+nodogsplash.@nodogsplash[0].authenticated_users='allow all'
+nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 22' 'allow tcp port 23' 'allow tcp port 53' 'allow udp port 53' 'allow udp port 67' 'allow tcp port 2121' 'allow tcp port 2050' 'allow tcp port 80' 'allow tcp port 8080' 'allow tcp port 8090' 'allow tcp port 2051'
+nodogsplash.@nodogsplash[0].gatewaydomainname='net4sats.lan'
+nodogsplash.@nodogsplash[0].clientid='mac'
+nodogsplash.@nodogsplash[0].preauth='/etc/nodogsplash/preauth.sh'
+
+=== uci show wireless ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+wireless.mt798111=wifi-device
+wireless.mt798111.type='mtk'
+wireless.mt798111.band='2g'
+wireless.mt798111.htmode='HE40'
+wireless.mt798111.channel='auto'
+wireless.mt798111.txpower='100'
+wireless.mt798111.country='DE'
+wireless.mt798111.random_bssid='1'
+wireless.mt798111.disabled='0'
+wireless.mt798111.legacy_rates='0'
+wireless.wifi2g=wifi-iface
+wireless.wifi2g.device='mt798111'
+wireless.wifi2g.mode='ap'
+wireless.wifi2g.network='lan'
+wireless.wifi2g.ifname='ra0'
+wireless.wifi2g.ssid='GL-MT3000-9c2'
+wireless.wifi2g.encryption='psk2'
+wireless.wifi2g.wds='1'
+wireless.wifi2g.isolate='0'
+wireless.wifi2g.hidden='0'
+wireless.wifi2g.ieee80211k='1'
+wireless.wifi2g.bss_transition='1'
+wireless.wifi2g.key='c03rad0r123'
+wireless.wifi2g.macaddr='6E:DB:61:A1:01:D9'
+wireless.mt798112=wifi-device
+wireless.mt798112.type='mtk'
+wireless.mt798112.band='5g'
+wireless.mt798112.channel='auto'
+wireless.mt798112.htmode='HE80'
+wireless.mt798112.txpower='100'
+wireless.mt798112.country='DE'
+wireless.mt798112.random_bssid='1'
+wireless.mt798112.disabled='0'
+wireless.wifi5g=wifi-iface
+wireless.wifi5g.device='mt798112'
+wireless.wifi5g.mode='ap'
+wireless.wifi5g.network='lan'
+wireless.wifi5g.ifname='rax0'
+wireless.wifi5g.ssid='GL-MT3000-9c2-5G'
+wireless.wifi5g.encryption='psk2'
+wireless.wifi5g.wds='1'
+wireless.wifi5g.isolate='0'
+wireless.wifi5g.hidden='0'
+wireless.wifi5g.ieee80211k='1'
+wireless.wifi5g.bss_transition='1'
+wireless.wifi5g.key='c03rad0r123'
+wireless.wifi5g.macaddr='DE:0F:A9:1C:44:88'
+wireless.guest2g=wifi-iface
+wireless.guest2g.device='mt798111'
+wireless.guest2g.network='guest'
+wireless.guest2g.mode='ap'
+wireless.guest2g.ifname='ra1'
+wireless.guest2g.encryption='psk2'
+wireless.guest2g.key='goodlife'
+wireless.guest2g.ssid='GL-MT3000-9c2-Guest'
+wireless.guest2g.guest='1'
+wireless.guest2g.disabled='1'
+wireless.guest2g.wds='1'
+wireless.guest2g.isolate='1'
+wireless.guest2g.hidden='0'
+wireless.guest2g.macaddr='2A:A1:7B:69:33:65'
+wireless.guest5g=wifi-iface
+wireless.guest5g.device='mt798112'
+wireless.guest5g.network='guest'
+wireless.guest5g.mode='ap'
+wireless.guest5g.ifname='rax1'
+wireless.guest5g.encryption='psk2'
+wireless.guest5g.key='goodlife'
+wireless.guest5g.ssid='GL-MT3000-9c2-5G-Guest'
+wireless.guest5g.guest='1'
+wireless.guest5g.disabled='1'
+wireless.guest5g.wds='1'
+wireless.guest5g.isolate='1'
+wireless.guest5g.hidden='0'
+wireless.guest5g.macaddr='82:4E:56:E4:9D:65'
+wireless.radio0=wifi-device
+wireless.radio0.type='mac80211'
+wireless.radio0.path='platform/soc/18000000.wifi'
+wireless.radio0.band='2g'
+wireless.radio0.channel='1'
+wireless.radio0.htmode='HE20'
+wireless.radio0.disabled='0'
+wireless.default_radio0=wifi-iface
+wireless.default_radio0.device='radio0'
+wireless.default_radio0.network='lan'
+wireless.default_radio0.mode='ap'
+wireless.default_radio0.ssid='net4sats-4N5F'
+wireless.default_radio0.encryption='psk2+ccmp'
+wireless.default_radio0.name='tollgate_2g_open'
+wireless.default_radio0.disabled='0'
+wireless.default_radio0.key='c03rad0r123'
+wireless.radio1=wifi-device
+wireless.radio1.type='mac80211'
+wireless.radio1.path='platform/soc/18000000.wifi+1'
+wireless.radio1.band='5g'
+wireless.radio1.channel='36'
+wireless.radio1.htmode='HE80'
+wireless.radio1.disabled='0'
+wireless.default_radio1=wifi-iface
+wireless.default_radio1.device='radio1'
+wireless.default_radio1.network='lan'
+wireless.default_radio1.mode='ap'
+wireless.default_radio1.ssid='net4sats-4N5F'
+wireless.default_radio1.encryption='psk2+ccmp'
+wireless.default_radio1.name='tollgate_5g_open'
+wireless.default_radio1.disabled='0'
+wireless.default_radio1.key='c03rad0r123'
+wireless.private_radio0=wifi-iface
+wireless.private_radio0.device='radio0'
+wireless.private_radio0.network='private'
+wireless.private_radio0.mode='ap'
+wireless.private_radio0.ssid='c08r4d0r-9819'
+wireless.private_radio0.encryption='psk2+ccmp'
+wireless.private_radio0.key='Papa-Juliet-Foxtrot-39'
+wireless.private_radio0.disabled='0'
+wireless.private_radio1=wifi-iface
+wireless.private_radio1.device='radio1'
+wireless.private_radio1.network='private'
+wireless.private_radio1.mode='ap'
+wireless.private_radio1.ssid='c08r4d0r-9819'
+wireless.private_radio1.encryption='psk2+ccmp'
+wireless.private_radio1.key='Papa-Juliet-Foxtrot-39'
+wireless.private_radio1.disabled='0'
+wireless.middle_uplink=wifi-iface
+wireless.middle_uplink.device='radio0'
+wireless.middle_uplink.mode='sta'
+wireless.middle_uplink.network='wwan'
+wireless.middle_uplink.ssid='c08r4d0r-D139'
+wireless.middle_uplink.encryption='psk2+ccmp'
+wireless.middle_uplink.key='Papa-Juliet-Foxtrot-39'
+wireless.middle_uplink.disabled='1'
+wireless.upstream_meo_4d3bb0=wifi-iface
+wireless.upstream_meo_4d3bb0.device='radio1'
+wireless.upstream_meo_4d3bb0.mode='sta'
+wireless.upstream_meo_4d3bb0.network='wwan'
+wireless.upstream_meo_4d3bb0.ssid='MEO-4D3BB0'
+wireless.upstream_meo_4d3bb0.encryption='psk2'
+wireless.upstream_meo_4d3bb0.key='5391ec3955'
+wireless.upstream_meo_4d3bb0.disabled='0'
+
+=== uci show uhttpd ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+uhttpd.main=uhttpd
+uhttpd.main.redirect_https='0'
+uhttpd.main.home='/www'
+uhttpd.main.rfc1918_filter='1'
+uhttpd.main.max_requests='3'
+uhttpd.main.max_connections='100'
+uhttpd.main.cert='/etc/uhttpd.crt'
+uhttpd.main.key='/etc/uhttpd.key'
+uhttpd.main.cgi_prefix='/cgi-bin'
+uhttpd.main.lua_prefix='/cgi-bin/luci=/usr/lib/lua/luci/sgi/uhttpd.lua'
+uhttpd.main.script_timeout='60'
+uhttpd.main.network_timeout='30'
+uhttpd.main.http_keepalive='20'
+uhttpd.main.tcp_keepalive='1'
+uhttpd.main.ubus_prefix='/ubus'
+uhttpd.main.listen_https='0.0.0.0:443' '[::]:443'
+uhttpd.defaults=cert
+uhttpd.defaults.days='730'
+uhttpd.defaults.key_type='ec'
+uhttpd.defaults.bits='2048'
+uhttpd.defaults.ec_curve='P-256'
+uhttpd.defaults.country='ZZ'
+uhttpd.defaults.state='Somewhere'
+uhttpd.defaults.location='Unknown'
+uhttpd.defaults.commonname='OpenWrt'
+uhttpd.portal=uhttpd
+uhttpd.portal.listen_http='0.0.0.0:2051' '[::]:2051'
+uhttpd.portal.home='/etc/tollgate/net4sats-captive-portal-site'
+uhttpd.portal.index_page='splash.html'
+uhttpd.portal.max_requests='8'
+uhttpd.net4sats=uhttpd
+uhttpd.net4sats.listen_http='0.0.0.0:8090' '[::]:8090'
+uhttpd.net4sats.home='/www/net4sats'
+uhttpd.net4sats.ubus_prefix='/ubus'
+uhttpd.net4sats.script_timeout='60'
+uhttpd.net4sats.network_timeout='30'
+uhttpd.net4sats.max_requests='3'
+uhttpd.net4sats.tcp_keepalive='1'
+uhttpd.luci=uhttpd
+uhttpd.luci.listen_http='0.0.0.0:8080' '[::]:8080'
+uhttpd.luci.home='/www'
+uhttpd.luci.cgi_prefix='/cgi-bin'
+uhttpd.luci.lua_prefix='/cgi-bin/luci=/usr/lib/lua/luci/sgi/uhttpd.lua'
+uhttpd.luci.ubus_prefix='/ubus'
+uhttpd.luci.script_timeout='60'
+uhttpd.luci.network_timeout='30'
+uhttpd.luci.redirect_https='0'
+
+=== ps (full) ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+  PID USER       VSZ STAT COMMAND
+    1 root      2344 S    /sbin/procd
+    2 root         0 SW   [kthreadd]
+    3 root         0 SW   [pool_workqueue_]
+    4 root         0 IW<  [kworker/R-rcu_g]
+    5 root         0 IW<  [kworker/R-rcu_p]
+    6 root         0 IW<  [kworker/R-slub_]
+    7 root         0 IW<  [kworker/R-netns]
+    8 root         0 IW   [kworker/0:0-eve]
+   12 root         0 IW<  [kworker/R-mm_pe]
+   13 root         0 IW   [rcu_tasks_trace]
+   14 root         0 SW   [ksoftirqd/0]
+   15 root         0 IW   [rcu_sched]
+   16 root         0 SW   [migration/0]
+   17 root         0 SW   [cpuhp/0]
+   18 root         0 SW   [cpuhp/1]
+   19 root         0 SW   [migration/1]
+   20 root         0 SW   [ksoftirqd/1]
+   23 root         0 IW<  [kworker/R-inet_]
+   24 root         0 SW   [oom_reaper]
+   25 root         0 IW<  [kworker/R-write]
+   26 root         0 SW   [kcompactd0]
+   27 root         0 IW<  [kworker/R-pencr]
+   28 root         0 IW<  [kworker/R-pdecr]
+   29 root         0 IW<  [kworker/R-crypt]
+   30 root         0 IW<  [kworker/R-kbloc]
+   31 root         0 IW<  [kworker/R-blkcg]
+   32 root         0 IW<  [kworker/R-ata_s]
+   34 root         0 SW   [watchdogd]
+   37 root         0 IW   [kworker/1:1-pm]
+   38 root         0 IW   [kworker/1:2-eve]
+   46 root         0 SW   [kswapd0]
+   47 root         0 IW<  [kworker/1:1H-kb]
+   49 root         0 IW<  [kworker/R-kthro]
+  197 root         0 IW   [kworker/0:4-eve]
+  229 root         0 SW   [spi0]
+  254 root         0 SW   [ubi_bgt0d]
+  389 root         0 SW   [napi/mtk_eth-5]
+  390 root         0 SW   [napi/mtk_eth-6]
+  424 root         0 IW<  [kworker/R-mld]
+  426 root         0 IW<  [kworker/R-ipv6_]
+  428 root         0 IW<  [kworker/0:1H-kb]
+  429 root         0 IW<  [kworker/R-dsa_o]
+  431 root         0 IW<  [kworker/R-kstrp]
+  635 root         0 SW   [irq/16-gpio-key]
+  636 root         0 SW   [irq/15-gpio-key]
+  675 root         0 IW<  [kworker/0:2H]
+  753 root         0 SW   [ubifs_bgt0_2]
+  829 ubus      1484 S    /sbin/ubusd
+  864 root      1088 S    /sbin/urngd
+  940 root         0 SW   [irq/80-10320000]
+  941 root         0 IW<  [kworker/R-wq_ri]
+  942 root         0 SW   [irq/81-10320000]
+  943 root         0 IW<  [kworker/R-wq_ri]
+  944 root         0 SW   [irq/82-10320000]
+  945 root         0 IW<  [kworker/R-wq_ri]
+  946 root         0 SW   [irq/83-10320000]
+  947 root         0 IW<  [kworker/R-wq_ri]
+  984 root         0 IW<  [kworker/R-cfg80]
+  997 root         0 SW   [napi/phy0-7]
+  998 root         0 SW   [napi/phy0-8]
+  999 root         0 SW   [napi/phy0-9]
+ 1000 root         0 SW   [napi/phy0-10]
+ 1001 root         0 SW   [napi/phy0-11]
+ 1002 root         0 SW   [napi/phy0-12]
+ 1009 root         0 SW   [mt76-tx phy0]
+ 1296 logd      2000 S    /sbin/logd -S 64
+ 1350 root      3704 S    /sbin/rpcd -s /var/run/ubus/ubus.sock -t 30
+ 1408 root         0 IW<  [kworker/1:2H]
+ 1642 root      1132 S    /usr/sbin/dropbear -F -P /var/run/dropbear.1.pid -p
+ 1751 root      2852 S    {hostapd} /sbin/ujail -t 5 -n hostapd -U network -G 
+ 1752 root      2852 S    {wpa_supplicant} /sbin/ujail -t 5 -n wpa_supplicant 
+ 1791 network   5484 S    /usr/sbin/hostapd -s -g /var/run/hostapd/global
+ 1792 network   5220 S    /usr/sbin/wpa_supplicant -n -s -g /var/run/wpa_suppl
+ 1816 root      2828 S    /sbin/netifd
+ 1928 root      1852 S    /usr/sbin/odhcpd
+ 2119 root      3036 S    /usr/sbin/uhttpd -f -h /www -r net4sats-4N5F -x /cgi
+ 2120 root      1592 S    /usr/sbin/uhttpd -f -h /etc/tollgate/net4sats-captiv
+ 2121 root      1924 S    /usr/sbin/uhttpd -f -h /www/net4sats -r net4sats-4N5
+ 2122 root      1924 S    /usr/sbin/uhttpd -f -h /www -r net4sats-4N5F -x /cgi
+ 3156 root      2852 S    {ntpd} /sbin/ujail -t 5 -n ntpd -U ntp -G ntp -C /et
+ 3282 ntp       1336 S    /usr/sbin/ntpd -n -N -S /usr/sbin/ntpd-hotplug -p 0.
+ 3323 root      1000 S    /usr/sbin/ubihealthd -f -d /dev/ubi0
+ 3686 root      2852 S    {dnsmasq} /sbin/ujail -t 5 -n dnsmasq -u -l -r /bin/
+ 3700 root      1336 S    udhcpc -p /var/run/udhcpc-phy1-sta0.pid -s /lib/neti
+ 3712 dnsmasq   1580 S    /usr/sbin/dnsmasq -C /var/etc/dnsmasq.conf.cfg01411c
+ 4272 root     1210m S    /usr/bin/tollgate-wrt
+ 4386 root      1700 S    /usr/bin/nodogsplash -c /tmp/etc/nodogsplash_cfg0158
+ 6998 root         0 IW   [kworker/u4:2-ev]
+ 8866 root      1340 S    ash -c tollgate-wrt --version 2>/dev/null; echo "---
+ 8867 root     1207m S    tollgate-wrt --version
+ 8879 root      1340 S    ash -c tollgate-wrt --version 2>&1; echo "==="; cat 
+ 8880 root     1207m S    tollgate-wrt --version
+ 8911 root      1340 S    ash -c tollgate-wrt --version 2>&1; echo "==="; cat 
+ 8912 root     1207m S    tollgate-wrt --version
+11874 root         0 IW   [kworker/u4:0-ip]
+15724 root         0 IW   [kworker/u4:1-ev]
+15757 root         0 IW   [kworker/u4:3-ph]
+16848 root      1336 S    /bin/login
+16884 dnsmasq   1580 S    /usr/sbin/dnsmasq -C /var/etc/dnsmasq.conf.cfg01411c
+16918 root      1156 S    /usr/sbin/dropbear -F -P /var/run/dropbear.1.pid -p
+16919 root      1344 R    ps
+
+=== netstat -tlnp ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 0.0.0.0:8080            0.0.0.0:*               LISTEN      2122/uhttpd
+tcp        0      0 0.0.0.0:8090            0.0.0.0:*               LISTEN      2121/uhttpd
+tcp        0      0 0.0.0.0:443             0.0.0.0:*               LISTEN      2119/uhttpd
+tcp        0      0 192.168.9.1:53          0.0.0.0:*               LISTEN      3712/dnsmasq
+tcp        0      0 192.168.1.240:53        0.0.0.0:*               LISTEN      3712/dnsmasq
+tcp        0      0 127.0.0.1:53            0.0.0.0:*               LISTEN      3712/dnsmasq
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1642/dropbear
+tcp        0      0 192.168.8.1:53          0.0.0.0:*               LISTEN      3712/dnsmasq
+tcp        0      0 0.0.0.0:2051            0.0.0.0:*               LISTEN      2120/uhttpd
+tcp        0      0 0.0.0.0:2050            0.0.0.0:*               LISTEN      4386/nodogsplash
+tcp        0      0 :::8080                 :::*                    LISTEN      2122/uhttpd
+tcp        0      0 :::8090                 :::*                    LISTEN      2121/uhttpd
+tcp        0      0 :::443                  :::*                    LISTEN      2119/uhttpd
+tcp        0      0 fe80::9083:c4ff:fe8c:59c2:53 :::*                    LISTEN      3712/dnsmasq
+tcp        0      0 fd27:9249:4b82::1:53    :::*                    LISTEN      3712/dnsmasq
+tcp        0      0 :::2121                 :::*                    LISTEN      4272/tollgate-wrt
+tcp        0      0 ::1:53                  :::*                    LISTEN      3712/dnsmasq
+tcp        0      0 :::22                   :::*                    LISTEN      1642/dropbear
+tcp        0      0 fe80::9683:c4ff:fe8c:59c3:53 :::*                    LISTEN      3712/dnsmasq
+tcp        0      0 fe80::9483:c4ff:fe8c:59c4:53 :::*                    LISTEN      3712/dnsmasq
+tcp        0      0 :::2051                 :::*                    LISTEN      2120/uhttpd
+
+=== logread | tail -50 ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+Thu Jul 30 17:02:31 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:31Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.1.1:2121/\": dial tcp 192.168.1.1:2121: connect: no route to host" [36mgateway[0m=192.168.1.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Thu Jul 30 17:02:31 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:31Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.1.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Thu Jul 30 17:02:34 2026 authpriv.info dropbear[16879]: Child connection from 192.168.8.203:46590
+Thu Jul 30 17:02:34 2026 authpriv.notice dropbear[16879]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:46590
+Thu Jul 30 17:02:34 2026 authpriv.info dropbear[16879]: Exit (root) from <192.168.8.203:46590>: Disconnect received
+Thu Jul 30 17:02:35 2026 daemon.err hostapd: Failed to set beacon parameters
+Thu Jul 30 17:02:35 2026 daemon.err hostapd: Failed to set beacon parameters
+Thu Jul 30 17:02:37 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:37Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.1.1 [36mmodule[0m=upstream_session_manager
+Thu Jul 30 17:02:40 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:40Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.9.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:8c:59:c2" [36mmodule[0m=upstream_detector
+Thu Jul 30 17:02:40 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:40Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.9.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Thu Jul 30 17:02:41 2026 daemon.err hostapd: Failed to set beacon parameters
+Thu Jul 30 17:02:41 2026 daemon.err hostapd: Failed to set beacon parameters
+Thu Jul 30 17:02:43 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.9.254:2121/\": dial tcp 192.168.9.254:2121: connect: no route to host" [36mgateway[0m=192.168.9.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Thu Jul 30 17:02:43 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.9.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Thu Jul 30 17:02:47 2026 daemon.err hostapd: Failed to set beacon parameters
+Thu Jul 30 17:02:47 2026 daemon.err hostapd: Failed to set beacon parameters
+Thu Jul 30 17:02:48 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:48Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.9.254:2121/\": dial tcp 192.168.9.254:2121: connect: no route to host" [36mgateway[0m=192.168.9.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Thu Jul 30 17:02:48 2026 daemon.err tollgate-wrt[4272]: [36mINFO[0m[2026-07-30T11:32:48Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.9.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16893]: Child connection from 192.168.8.203:37354
+Thu Jul 30 17:02:51 2026 authpriv.notice dropbear[16893]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37354
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16893]: Exit (root) from <192.168.8.203:37354>: Disconnect received
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16897]: Child connection from 192.168.8.203:37356
+Thu Jul 30 17:02:51 2026 authpriv.notice dropbear[16897]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37356
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16897]: Exit (root) from <192.168.8.203:37356>: Disconnect received
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16900]: Child connection from 192.168.8.203:37368
+Thu Jul 30 17:02:51 2026 authpriv.notice dropbear[16900]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37368
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16900]: Exit (root) from <192.168.8.203:37368>: Disconnect received
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16903]: Child connection from 192.168.8.203:37372
+Thu Jul 30 17:02:51 2026 authpriv.notice dropbear[16903]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37372
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16903]: Exit (root) from <192.168.8.203:37372>: Disconnect received
+Thu Jul 30 17:02:51 2026 authpriv.info dropbear[16906]: Child connection from 192.168.8.203:37384
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16906]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37384
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16906]: Exit (root) from <192.168.8.203:37384>: Disconnect received
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16909]: Child connection from 192.168.8.203:37386
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16909]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37386
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16909]: Exit (root) from <192.168.8.203:37386>: Disconnect received
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16912]: Child connection from 192.168.8.203:37392
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16912]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37392
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16912]: Exit (root) from <192.168.8.203:37392>: Disconnect received
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16915]: Child connection from 192.168.8.203:37400
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16915]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37400
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16915]: Exit (root) from <192.168.8.203:37400>: Disconnect received
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16918]: Child connection from 192.168.8.203:37402
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16918]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37402
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16918]: Exit (root) from <192.168.8.203:37402>: Disconnect received
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16920]: Child connection from 192.168.8.203:37416
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16920]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37416
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16920]: Exit (root) from <192.168.8.203:37416>: Disconnect received
+Thu Jul 30 17:02:52 2026 authpriv.info dropbear[16922]: Child connection from 192.168.8.203:37422
+Thu Jul 30 17:02:52 2026 authpriv.notice dropbear[16922]: Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:zoE2ySPNAy/F7Aey5JLpbJR6qqIX4pbzoOSwS+qdIUo from 192.168.8.203:37422
+
+=== END OF BACKUP ===
