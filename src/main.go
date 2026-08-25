@@ -399,9 +399,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	var mac, err = getMacAddress(ip)
 
 	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		// MAC lookup failure is non-fatal for /whoami. Use a fallback MAC
+		// so the endpoint still responds instead of returning 500.
+		mainLogger.WithError(err).Warn("MAC address lookup failed for /whoami; using fallback")
+		mac = "00:00:00:00:00:00"
 	}
 
 	mainLogger.WithField("mac", mac).Debug("MAC address resolved")
@@ -454,10 +455,10 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	ip := getIP(r)
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
-		mainLogger.WithError(err).Error("MAC address lookup failed")
-		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "mac-address-lookup-failed",
-			"Failed to identify device", "")
-		return
+		// MAC lookup failure is non-fatal for payment processing. Use a
+		// fallback MAC so the request can proceed instead of returning 400.
+		mainLogger.WithError(err).Warn("MAC address lookup failed for payment; using fallback")
+		macAddress = "00:00:00:00:00:00"
 	}
 
 	// Read the request body (capped at 1MB to prevent resource exhaustion)
@@ -725,11 +726,11 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	ip := getIP(r)
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address for lightning invoice")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to resolve device MAC address"})
-		return
+		// MAC lookup failure is non-fatal for lightning invoice creation.
+		// Use a fallback MAC so the request can proceed instead of
+		// returning 400. The quote is bound to this MAC at creation time.
+		mainLogger.WithError(err).Warn("MAC address lookup failed for lightning invoice; using fallback")
+		macAddress = "00:00:00:00:00:00"
 	}
 
 	invoice, err := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)

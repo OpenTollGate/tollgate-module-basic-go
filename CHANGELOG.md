@@ -41,13 +41,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **GET /ln-invoice no longer returns 500 when MAC lookup fails.**
-  `handleLightningInvoiceGet` now treats `getMacAddress` failure as
-  non-fatal — when the client IP is not in DHCP leases or the ARP table
-  (e.g. localhost, upstream relayed requests), a fallback MAC is used
-  and status polling continues. The quote was already bound to the
-  client's MAC at POST creation time, so re-verifying the MAC on GET
-  is unnecessary.
+- **All HTTP handlers now handle MAC lookup failure gracefully.**
+  Previously, `handleLightningInvoicePost` (POST /ln-invoice),
+  `HandleRootPost` (POST /), and `handler` (/whoami) returned 400 or
+  500 when `getMacAddress` failed. They now log a warning and use a
+  fallback MAC (`00:00:00:00:00:00`) instead, matching the fix already
+  applied to `handleLightningInvoiceGet` (GET /ln-invoice) in the
+  previous commit. `HandleUsage` and `HandleBalance` were already
+  non-fatal.
 
 - **Captive portal no longer served through nodogsplash.**
   `/etc/nodogsplash/htdocs` is no longer a symlink to the SPA. A tiny
