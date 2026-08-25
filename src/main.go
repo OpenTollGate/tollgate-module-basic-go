@@ -767,11 +767,13 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	ip := getIP(r)
 	macAddress, err := getMacAddress(ip)
 	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address for lightning status")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to resolve device MAC address"})
-		return
+		// MAC lookup failure is non-fatal for status polling. The quote was
+		// already bound to the client's MAC at POST creation time, and
+		// GetLightningInvoiceStatus uses the quoteID as the primary key.
+		// A fallback MAC lets localhost and IPs missing from DHCP/ARP still
+		// poll their invoice status instead of receiving a 500.
+		mainLogger.WithError(err).Warn("MAC address lookup failed for lightning status; using fallback")
+		macAddress = "00:00:00:00:00:00"
 	}
 
 	// Quotes are bound to the device MAC at invoice creation time. Polling only
