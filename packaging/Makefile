@@ -33,7 +33,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+luci +jq
+	DEPENDS:=+libc
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=nodogsplash base-files
