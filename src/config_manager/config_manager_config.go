@@ -189,6 +189,56 @@ func defaultProductionMints() []MintConfig {
 			PriceUnit:               "sat",
 			MinPurchaseSteps:        0,
 		},
+		{
+			URL:                     "https://mint.lnserver.com",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://mint.macadamia.cash",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://mint.westernbtc.com",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://kashu.me",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        0,
+		},
+		{
+			URL:                     "https://mint.cubabitcoin.org",
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        0,
+		},
 	}
 }
 
@@ -207,7 +257,10 @@ func defaultTestMint() MintConfig {
 
 // IsDevBuild returns true when the binary was built from a non-main branch.
 func IsDevBuild() bool {
-	return GitBranch != "main"
+	if GitBranch == "main" || GitBranch == "unknown" || GitBranch == "" {
+		return false
+	}
+	return true
 }
 
 // NewDefaultConfig creates a Config with default values.
