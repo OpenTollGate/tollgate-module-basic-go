@@ -54,3 +54,4 @@ ulw-*.md
 # Captive portal build output (built from source via packaging/portal-build.sh)
 packaging/files/tollgate-captive-portal-site/assets/
 nuts/
+packaging/*.ipk

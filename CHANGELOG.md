@@ -41,6 +41,25 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Accept client MAC from request body/query.** The backend now
+  accepts a `mac` field in Lightning invoice requests and Cashu payment
+  requests (as a query param), and a `mac` query param for invoice
+  polling and `/whoami`. This allows the splash page to pass the real
+  client MAC (from nodogsplash preauth redirect) instead of relying on
+  IP-based ARP/DHCP lookup that fails behind the router's reverse proxy.
+  The PR #6 fallback MAC (`00:00:00:00:00:00`) is kept as a safety net
+  for backward compatibility.
+  ([#358](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/358))
+
+- **All HTTP handlers now handle MAC lookup failure gracefully.**
+  Previously, `handleLightningInvoicePost` (POST /ln-invoice),
+  `HandleRootPost` (POST /), and `handler` (/whoami) returned 400 or
+  500 when `getMacAddress` failed. They now log a warning and use a
+  fallback MAC (`00:00:00:00:00:00`) instead, matching the fix already
+  applied to `handleLightningInvoiceGet` (GET /ln-invoice) in the
+  previous commit. `HandleUsage` and `HandleBalance` were already
+  non-fatal.
+
 - **Captive portal no longer served through nodogsplash.**
   `/etc/nodogsplash/htdocs` is no longer a symlink to the SPA. A tiny
   stub page — installed as `splash.html`, the page NDS actually serves

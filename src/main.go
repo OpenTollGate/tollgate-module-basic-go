@@ -395,13 +395,20 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	var ip = getIP(r)
-	var mac, err = getMacAddress(ip)
-
-	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	mac := strings.TrimSpace(r.URL.Query().Get("mac"))
+	if mac != "" {
+		// Client MAC provided by splash page (from nodogsplash preauth)
+		mainLogger.WithField("mac", mac).Debug("Using client-provided MAC for /whoami")
+	} else {
+		ip := getIP(r)
+		var err error
+		mac, err = getMacAddress(ip)
+		if err != nil {
+			// MAC lookup failure is non-fatal for /whoami. Use a fallback MAC
+			// so the endpoint still responds instead of returning 500.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for /whoami; using fallback")
+			mac = "00:00:00:00:00:00"
+		}
 	}
 
 	mainLogger.WithField("mac", mac).Debug("MAC address resolved")
@@ -450,14 +457,22 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get MAC address from request
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
-	if err != nil {
-		mainLogger.WithError(err).Error("MAC address lookup failed")
-		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "mac-address-lookup-failed",
-			"Failed to identify device", "")
-		return
+	// Get MAC address from request — accept client-provided MAC from query
+	// param (splash page passes it from nodogsplash preauth), fall back to
+	// IP-based lookup.
+	macAddress := strings.TrimSpace(r.URL.Query().Get("mac"))
+	if macAddress != "" {
+		mainLogger.WithField("mac", macAddress).Debug("Using client-provided MAC for payment")
+	} else {
+		ip := getIP(r)
+		var err error
+		macAddress, err = getMacAddress(ip)
+		if err != nil {
+			// MAC lookup failure is non-fatal for payment processing. Use a
+			// fallback MAC so the request can proceed instead of returning 400.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for payment; using fallback")
+			macAddress = "00:00:00:00:00:00"
+		}
 	}
 
 	// Read the request body (capped at 1MB to prevent resource exhaustion)
@@ -575,6 +590,7 @@ type lightningInvoiceRequest struct {
 	Amount  uint64 `json:"amount"`
 	MintURL string `json:"mint_url"`
 	Mint    string `json:"mint"`
+	Mac     string `json:"mac"`
 }
 
 type lightningInvoiceResponse struct {
@@ -722,14 +738,23 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
-	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address for lightning invoice")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to resolve device MAC address"})
-		return
+	macAddress := ""
+	if req.Mac != "" {
+		// Client MAC provided by splash page (from nodogsplash preauth)
+		macAddress = strings.TrimSpace(req.Mac)
+		mainLogger.WithField("mac", macAddress).Debug("Using client-provided MAC for lightning invoice")
+	} else {
+		// Fallback to IP-based lookup
+		ip := getIP(r)
+		var err error
+		macAddress, err = getMacAddress(ip)
+		if err != nil {
+			// MAC lookup failure is non-fatal for lightning invoice creation.
+			// Use a fallback MAC so the request can proceed instead of
+			// returning 400. The quote is bound to this MAC at creation time.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning invoice; using fallback")
+			macAddress = "00:00:00:00:00:00"
+		}
 	}
 
 	invoice, err := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)
@@ -764,14 +789,20 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
-	if err != nil {
-		mainLogger.WithError(err).Error("Error getting MAC address for lightning status")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to resolve device MAC address"})
-		return
+	macAddress := strings.TrimSpace(r.URL.Query().Get("mac"))
+	if macAddress == "" {
+		ip := getIP(r)
+		var err error
+		macAddress, err = getMacAddress(ip)
+		if err != nil {
+			// MAC lookup failure is non-fatal for status polling. The quote was
+			// already bound to the client's MAC at POST creation time, and
+			// GetLightningInvoiceStatus uses the quoteID as the primary key.
+			// A fallback MAC lets localhost and IPs missing from DHCP/ARP still
+			// poll their invoice status instead of receiving a 500.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning status; using fallback")
+			macAddress = "00:00:00:00:00:00"
+		}
 	}
 
 	// Quotes are bound to the device MAC at invoice creation time. Polling only
