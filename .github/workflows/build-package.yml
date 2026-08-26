@@ -340,7 +340,7 @@ jobs:
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
             LICENSE="CC0-1.0" \
-            DEPENDS="nodogsplash, luci, jq" \
+            DEPENDS="libc" \
             PROVIDES="nodogsplash-files" \
             REPLACES="nodogsplash, base-files" \
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
