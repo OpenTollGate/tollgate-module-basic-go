@@ -49,7 +49,7 @@ and [Semantic Versioning](https://semver.org/).
   IP-based ARP/DHCP lookup that fails behind the router's reverse proxy.
   The PR #6 fallback MAC (`00:00:00:00:00:00`) is kept as a safety net
   for backward compatibility.
-  ([#7](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/7))
+  ([#358](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/358))
 
 - **All HTTP handlers now handle MAC lookup failure gracefully.**
   Previously, `handleLightningInvoicePost` (POST /ln-invoice),
