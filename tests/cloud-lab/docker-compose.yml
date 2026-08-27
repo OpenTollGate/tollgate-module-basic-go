@@ -1,0 +1,125 @@
+# docker-compose.yml — TollGate cloud testing lab
+#
+# Brings up a complete payment environment:
+#   - Self-hosted Cashu mint (cdk-mintd with FakeWallet)
+#   - Upstream TollGate (sells internet access)
+#   - Reseller TollGate (buys from upstream, resells) — started on demand
+#   - Client container (cdk-cli + nak + pytest for test execution)
+#
+# All containers are on a single Docker bridge network with static IPs so
+# the TollGate's /tmp/dhcp.leases mapping stays valid.
+#
+# Usage:
+#   docker compose up -d mint upstream          # Start infra
+#   docker compose run --rm client pytest -sv   # Run tests
+#   docker compose down                         # Teardown
+
+services:
+
+  mint:
+    build:
+      context: .
+      dockerfile: Dockerfile.mint
+    container_name: tg-mint
+    environment:
+      - CDK_MINTD_URL=http://mint:8085
+      - CDK_MINTD_LN_BACKEND=fakewallet
+      - CDK_MINTD_LISTEN_HOST=0.0.0.0
+      - CDK_MINTD_LISTEN_PORT=8085
+      - CDK_MINTD_MNEMONIC=abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+      - CDK_MINTD_DATABASE=sqlite
+      - CDK_MINTD_DATABASE_PATH=data/mint
+      - CDK_MINTD_CACHE_BACKEND=memory
+    ports:
+      - "8085:8085"
+    volumes:
+      - mint-data:/data
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.2
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/v1/keys"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  upstream:
+    build:
+      context: ../..
+      dockerfile: tests/cloud-lab/Dockerfile.tollgate
+    container_name: tg-upstream
+    depends_on:
+      mint:
+        condition: service_healthy
+    environment:
+      - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+    volumes:
+      - ./configs/upstream-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+    ports:
+      - "2121:2121"
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.10
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:2121/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  reseller:
+    build:
+      context: ../..
+      dockerfile: tests/cloud-lab/Dockerfile.tollgate
+    container_name: tg-reseller
+    profiles: ["two-router"]
+    depends_on:
+      mint:
+        condition: service_healthy
+      upstream:
+        condition: service_healthy
+    environment:
+      - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+    volumes:
+      - ./configs/reseller-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+    ports:
+      - "2122:2121"
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.11
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: tg-client
+    profiles: ["test"]
+    depends_on:
+      mint:
+        condition: service_healthy
+      upstream:
+        condition: service_healthy
+    volumes:
+      - .:/tests
+    working_dir: /tests
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.20
+    entrypoint: ["pytest"]
+    command: ["-sv", "--tb=short"]
+
+volumes:
+  mint-data:
+
+networks:
+  tollgate-lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1

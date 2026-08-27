@@ -12,6 +12,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Docker-based integration test environment.** `tests/cloud-lab/`
+  brings up a self-contained payment lab via docker-compose: a
+  cdk-mintd FakeWallet mint, upstream and reseller TollGate containers
+  (run against a fake-ndsctl shim so all payment/session logic runs
+  unmodified), and a client container (cdk-cli + nak + pytest) with
+  smoke-payment, mint-failure, and two-router autopay suites.
+  ([#362](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/362))
+
 - **Captive-portal uhttpd instance on port 2051.** A second uhttpd
   section (`config uhttpd portal`) now serves the SPA directly on
   `0.0.0.0:2051` / `[::]:2051`, decoupling portal serving from the

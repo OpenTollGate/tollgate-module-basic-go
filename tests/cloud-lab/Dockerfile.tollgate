@@ -1,0 +1,41 @@
+# Dockerfile.tollgate — Builds the TollGate service binary for cloud-lab testing.
+#
+# The binary runs on x86_64 Linux with a fake ndsctl in PATH instead of
+# NoDogSplash. All payment, session, merchant, and mint-health logic runs
+# unmodified — only the gate (valve) calls are intercepted.
+
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /build
+
+# Copy the entire src/ tree (multi-module project with replace directives)
+COPY src/ .
+
+# Build the TollGate service binary (package main in src/)
+RUN CGO_ENABLED=0 go build -o /tollgate .
+
+# --- Runtime stage ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl iproute2 && \
+    rm -rf /var/lib/apt/lists/*
+
+# TollGate service binary
+COPY --from=builder /tollgate /usr/local/bin/tollgate
+
+# Fake ndsctl that replaces NoDogSplash
+COPY tests/cloud-lab/fake-ndsctl.sh /usr/local/bin/ndsctl
+RUN chmod +x /usr/local/bin/ndsctl
+
+# Config files are mounted via docker-compose volumes
+# /etc/tollgate/config.json
+# /etc/tollgate/identities.json
+# /etc/tollgate/install.json
+
+# Create the config directory
+RUN mkdir -p /etc/tollgate
+
+EXPOSE 2121
+
+CMD ["tollgate"]
