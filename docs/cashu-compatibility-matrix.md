@@ -61,7 +61,8 @@ keys, making them self-verifying (NUT-02).
   `NewTokenV3()` creates these. `DecodeTokenV3()` parses them.
   `BigEndian.Uint64(8_bytes)` derives correct NUT-13 path.
 - **Status**: ✅ Production-proven. Every currently known production mint
-  (coinos.io, minibits.cash, testnut.cashu.exchange) uses V1 keysets.
+  (coinos.io, minibits.cash, lnserver.com, macadamia.cash, westernbtc.com,
+  kashu.me, cubabitcoin.org) uses V1 keysets.
   Every wallet that sends cashuA tokens uses V3 format with V1 keysets.
 
 #### Cell 4: V3 token + V2 keyset ← GROWING
