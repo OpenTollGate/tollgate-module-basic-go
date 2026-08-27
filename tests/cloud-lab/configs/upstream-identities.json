@@ -1,0 +1,16 @@
+{
+  "config_version": "v0.0.1",
+  "owned_identities": [
+    {
+      "name": "merchant",
+      "privatekey": "nsec1fgaau8m9xd7w3a9q7zwu9q3qj6q3qj6q3qj6q3qj6q3qj6q3qj6q"
+    }
+  ],
+  "public_identities": [
+    {
+      "name": "owner",
+      "pubkey": "",
+      "lightning_address": "owner@example.com"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "config_version": "v0.0.2",
+  "package_path": "false",
+  "ip_address_randomized": false,
+  "install_time": 0,
+  "download_time": 0,
+  "release_channel": "stable",
+  "ensure_default_timestamp": 1719000000,
+  "installed_version": "0.0.0"
+}
