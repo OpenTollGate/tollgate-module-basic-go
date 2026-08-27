@@ -39,6 +39,16 @@ and [Semantic Versioning](https://semver.org/).
   and should never fire from fork branches; fork builds now skip the
   job instead of failing on the missing token.
 
+- **CI: captive portal built once per run, not per matrix leg.** A new
+  `build-portal` job compiles the portal SPA a single time and shares
+  the assets to both package jobs via a `portal-assets` artifact,
+  replacing the per-leg `setup-node` + `portal-build.sh` steps in
+  `package-ipk` and `package-apk`. This removes ~15 redundant portal
+  builds per run and fixes per-leg commit drift (each leg previously
+  resolved `main` independently, so legs could package different portal
+  revisions). The resolved portal commit SHA is reported in the job
+  summary.
+
 ### Fixed
 
 - **Payment-goroutine panics no longer kill the process.** A panic
