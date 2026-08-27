@@ -267,6 +267,19 @@ and [Semantic Versioning](https://semver.org/).
   surface
   ([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
 
+- **config_manager buildinfo tests synced to 7 production mints.** The
+  `buildinfo_test.go` expectations were stale after #359 added five more
+  production mints (lnserver.com, macadamia.cash, westernbtc.com, kashu.me,
+  cubabitcoin.org) and made `IsDevBuild()` treat `unknown`/empty branches as
+  non-dev. Tests now assert 7 production mints on `main`/`unknown`/empty and
+  8 (7 + testnut) on feature branches, matching the merged behavior.
+
+- **CI: `src/merchant` added to the go-test matrix.** The merchant module
+  now builds and tests standalone (its go.mod gained the ltcsuite/ltcd
+  `exclude` directive and a full re-tidy in #361), so it is no longer
+  omitted from the matrix. `src/cli`, `src/upstream_detector` and
+  `src/upstream_session_manager` remain omitted pending the same rewrite.
+
 ### Security
 
 - **Exposed deployment backup purged from history.** A router
