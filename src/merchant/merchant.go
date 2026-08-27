@@ -472,6 +472,13 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 	ch := make(chan receiveResult, 1)
 	go func() {
+		// A panic can only fire before the normal send, so this never
+		// double-sends; the channel buffer guarantees it never blocks.
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- receiveResult{0, fmt.Errorf("payment processing panicked: %v", r)}
+			}
+		}()
 		amount, err := m.tollwallet.Receive(paymentCashuToken)
 		ch <- receiveResult{amount, err}
 	}()

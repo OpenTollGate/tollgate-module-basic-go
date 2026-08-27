@@ -41,6 +41,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Payment-goroutine panics no longer kill the process.** A panic
+  inside the wallet layer during `PurchaseSession`'s `Receive` call
+  (e.g. a mint returning malformed keysets) crashed the whole
+  `tollgate-wrt` daemon, taking down every concurrently active session.
+  The goroutine now recovers and sends an explicit
+  `payment processing panicked: ...` error into the existing result
+  channel, so the caller immediately gets a signed
+  `payment-processing-failed` notice instead of process death or a
+  misleading 30-second timeout.
+  ([#360](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/360))
+
 - **Accept client MAC from request body/query.** The backend now
   accepts a `mac` field in Lightning invoice requests and Cashu payment
   requests (as a query param), and a `mac` query param for invoice
