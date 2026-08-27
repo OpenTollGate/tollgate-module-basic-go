@@ -256,6 +256,17 @@ and [Semantic Versioning](https://semver.org/).
   surface
   ([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
 
+### Security
+
+- **Exposed deployment backup purged from history.** A router
+  deployment backup directory (`deploy-backup-20260730/`) containing
+  the merchant private identity key, an ecash `wallet.db`, and
+  spendable recovery tokens was accidentally committed in #358.
+  `main` was rewritten on 2026-08-27 to remove the path from all
+  commits and force-pushed; incident details and residual-exposure
+  notes in `SECURITY.md`, key rotation tracked in
+  [#364](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/364).
+
 ## [v0.5.0] - 2026-07-03
 
 Everything merged into `main` since `v0.4.0` (tagged 2026-04-06),
