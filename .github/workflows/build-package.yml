@@ -242,8 +242,50 @@ jobs:
           echo "hashes=$HASH_JSON" >> $GITHUB_OUTPUT
           echo "All uploads complete: $HASH_JSON"
 
+  build-portal:
+    # The publish pipeline (Blossom upload + Nostr publish) needs the NSEC_HEX
+    # secret, which GitHub withholds from fork PRs. Skip the whole pipeline for
+    # fork PRs so they don't go red on an empty NSEC_HEX; same-repo PRs and
+    # pushes run as normal. Downstream jobs (package-ipk/apk, publish-metadata,
+    # trigger-build-os) inherit this via `needs:`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      portal_sha: ${{ steps.portal-sha.outputs.portal_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js for portal build
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build captive portal assets
+        run: |
+          set -euo pipefail
+          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          echo "Portal assets built:"
+          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
+
+      - name: Resolve portal commit SHA
+        id: portal-sha
+        run: |
+          set -euo pipefail
+          PORTAL_SHA=$(git -C /tmp/tollgate-captive-portal-site rev-parse HEAD)
+          echo "portal_sha=$PORTAL_SHA" >> "$GITHUB_OUTPUT"
+          echo "Captive portal built from commit \`$PORTAL_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload portal assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-assets
+          path: packaging/files/tollgate-captive-portal-site/
+          retention-days: 7
+
   package-ipk:
-    needs: [define-package-matrix, determine-versioning, compile-binaries]
+    needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -285,17 +327,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y upx-ucl
 
-      - name: Setup Node.js for portal build
-        uses: actions/setup-node@v4
+      - name: Download portal assets
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20'
-
-      - name: Build captive portal assets
-        run: |
-          set -euo pipefail
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
-          echo "Portal assets built:"
-          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
+          name: portal-assets
+          path: packaging/files/tollgate-captive-portal-site/
 
       - name: Build .ipk
         run: |
@@ -412,7 +448,7 @@ jobs:
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
   package-apk:
-    needs: [define-package-matrix, determine-versioning, compile-binaries]
+    needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:${{ matrix.sdk }}-25.12.0
@@ -469,18 +505,11 @@ jobs:
         run: |
           apt-get install -y upx-ucl
 
-      - name: Install Node.js for portal build
-        run: |
-          apt-get install -y nodejs npm
-
-      - name: Build captive portal assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd src-checkout
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
-          echo "Portal assets built:"
-          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
+      - name: Download portal assets
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-assets
+          path: src-checkout/packaging/files/tollgate-captive-portal-site/
 
       - name: Stage SDK package tree
         run: |

@@ -47,7 +47,28 @@ and [Semantic Versioning](https://semver.org/).
   and should never fire from fork branches; fork builds now skip the
   job instead of failing on the missing token.
 
+- **CI: captive portal built once per run, not per matrix leg.** A new
+  `build-portal` job compiles the portal SPA a single time and shares
+  the assets to both package jobs via a `portal-assets` artifact,
+  replacing the per-leg `setup-node` + `portal-build.sh` steps in
+  `package-ipk` and `package-apk`. This removes ~15 redundant portal
+  builds per run and fixes per-leg commit drift (each leg previously
+  resolved `main` independently, so legs could package different portal
+  revisions). The resolved portal commit SHA is reported in the job
+  summary.
+
 ### Fixed
+
+- **Payment-goroutine panics no longer kill the process.** A panic
+  inside the wallet layer during `PurchaseSession`'s `Receive` call
+  (e.g. a mint returning malformed keysets) crashed the whole
+  `tollgate-wrt` daemon, taking down every concurrently active session.
+  The goroutine now recovers and sends an explicit
+  `payment processing panicked: ...` error into the existing result
+  channel, so the caller immediately gets a signed
+  `payment-processing-failed` notice instead of process death or a
+  misleading 30-second timeout.
+  ([#360](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/360))
 
 - **Accept client MAC from request body/query.** The backend now
   accepts a `mac` field in Lightning invoice requests and Cashu payment
@@ -263,6 +284,19 @@ and [Semantic Versioning](https://semver.org/).
   modules table and documentation list updated to reflect the full CLI
   surface
   ([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
+
+- **config_manager buildinfo tests synced to 7 production mints.** The
+  `buildinfo_test.go` expectations were stale after #359 added five more
+  production mints (lnserver.com, macadamia.cash, westernbtc.com, kashu.me,
+  cubabitcoin.org) and made `IsDevBuild()` treat `unknown`/empty branches as
+  non-dev. Tests now assert 7 production mints on `main`/`unknown`/empty and
+  8 (7 + testnut) on feature branches, matching the merged behavior.
+
+- **CI: `src/merchant` added to the go-test matrix.** The merchant module
+  now builds and tests standalone (its go.mod gained the ltcsuite/ltcd
+  `exclude` directive and a full re-tidy in #361), so it is no longer
+  omitted from the matrix. `src/cli`, `src/upstream_detector` and
+  `src/upstream_session_manager` remain omitted pending the same rewrite.
 
 ### Security
 

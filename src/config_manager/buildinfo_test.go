@@ -8,10 +8,10 @@ func TestIsDevBuild_DefaultBranch(t *testing.T) {
 	original := GitBranch
 	defer func() { GitBranch = original }()
 
-	t.Run("unknown branch is dev build", func(t *testing.T) {
+	t.Run("unknown branch is not dev build", func(t *testing.T) {
 		GitBranch = "unknown"
-		if !IsDevBuild() {
-			t.Error("expected IsDevBuild()=true for unknown branch")
+		if IsDevBuild() {
+			t.Error("expected IsDevBuild()=false for unknown branch")
 		}
 	})
 
@@ -29,10 +29,10 @@ func TestIsDevBuild_DefaultBranch(t *testing.T) {
 		}
 	})
 
-	t.Run("empty string is dev build", func(t *testing.T) {
+	t.Run("empty string is not dev build", func(t *testing.T) {
 		GitBranch = ""
-		if !IsDevBuild() {
-			t.Error("expected IsDevBuild()=true for empty string")
+		if IsDevBuild() {
+			t.Error("expected IsDevBuild()=false for empty string")
 		}
 	})
 }
@@ -45,8 +45,8 @@ func TestNewDefaultConfig_MintsForBranch(t *testing.T) {
 		GitBranch = "main"
 		cfg := NewDefaultConfig()
 
-		if len(cfg.AcceptedMints) != 2 {
-			t.Fatalf("expected 2 accepted mints on main, got %d", len(cfg.AcceptedMints))
+		if len(cfg.AcceptedMints) != 7 {
+			t.Fatalf("expected 7 accepted mints on main, got %d", len(cfg.AcceptedMints))
 		}
 		for _, m := range cfg.AcceptedMints {
 			if m.URL == "https://testnut.cashu.exchange" {
@@ -59,8 +59,8 @@ func TestNewDefaultConfig_MintsForBranch(t *testing.T) {
 		GitBranch = "feature/test-branch"
 		cfg := NewDefaultConfig()
 
-		if len(cfg.AcceptedMints) != 3 {
-			t.Fatalf("expected 3 accepted mints on feature branch, got %d", len(cfg.AcceptedMints))
+		if len(cfg.AcceptedMints) != 8 {
+			t.Fatalf("expected 8 accepted mints on feature branch, got %d", len(cfg.AcceptedMints))
 		}
 
 		found := false
@@ -81,12 +81,17 @@ func TestNewDefaultConfig_MintsForBranch(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown branch (tests) includes test mint", func(t *testing.T) {
+	t.Run("unknown branch (tests) has only production mints", func(t *testing.T) {
 		GitBranch = "unknown"
 		cfg := NewDefaultConfig()
 
-		if len(cfg.AcceptedMints) != 3 {
-			t.Fatalf("expected 3 accepted mints for unknown branch, got %d", len(cfg.AcceptedMints))
+		if len(cfg.AcceptedMints) != 7 {
+			t.Fatalf("expected 7 accepted mints for unknown branch, got %d", len(cfg.AcceptedMints))
+		}
+		for _, m := range cfg.AcceptedMints {
+			if m.URL == "https://testnut.cashu.exchange" {
+				t.Error("test mint should not be present for unknown branch")
+			}
 		}
 	})
 
@@ -127,8 +132,8 @@ func TestDefaultTestMint(t *testing.T) {
 
 func TestDefaultProductionMints(t *testing.T) {
 	mints := defaultProductionMints()
-	if len(mints) != 2 {
-		t.Fatalf("expected 2 production mints, got %d", len(mints))
+	if len(mints) != 7 {
+		t.Fatalf("expected 7 production mints, got %d", len(mints))
 	}
 	if mints[0].URL != "https://mint.coinos.io" {
 		t.Errorf("expected first mint coinos.io, got %s", mints[0].URL)
