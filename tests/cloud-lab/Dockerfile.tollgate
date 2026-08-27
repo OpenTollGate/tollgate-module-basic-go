@@ -4,7 +4,7 @@
 # NoDogSplash. All payment, session, merchant, and mint-health logic runs
 # unmodified — only the gate (valve) calls are intercepted.
 
-FROM golang:1.24-bookworm AS builder
+FROM golang:1.25-bookworm AS builder
 
 WORKDIR /build
 
