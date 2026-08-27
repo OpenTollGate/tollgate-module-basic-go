@@ -1,0 +1,66 @@
+{
+  "config_version": "v0.0.8",
+  "log_level": "debug",
+  "metric": "milliseconds",
+  "step_size": 60000,
+  "margin": 0.15,
+  "show_setup": false,
+  "reseller_mode": true,
+  "accepted_mints": [
+    {
+      "url": "http://mint:8085",
+      "min_balance": 0,
+      "balance_tolerance_percent": 0,
+      "payout_interval_seconds": 999999,
+      "min_payout_amount": 999999,
+      "price_per_step": 2,
+      "price_unit": "sats",
+      "purchase_min_steps": 0
+    }
+  ],
+  "profit_share": [
+    { "factor": 1.0, "identity": "owner" }
+  ],
+  "upstream_detector": {
+    "probe_timeout": 5000000000,
+    "probe_retry_count": 1,
+    "probe_retry_delay": 1000000000,
+    "require_valid_signature": false,
+    "ignore_interfaces": ["lo"],
+    "only_interfaces": [],
+    "discovery_timeout": 10000000000
+  },
+  "upstream_session_manager": {
+    "max_price_per_millisecond": 0.01,
+    "max_price_per_byte": 0.001,
+    "trust": {
+      "default_policy": "trust_all",
+      "allowlist": [],
+      "blocklist": []
+    },
+    "sessions": {
+      "preferred_session_increments_milliseconds": 60000,
+      "preferred_session_increments_bytes": 131100000,
+      "millisecond_renewal_offset": 10000,
+      "bytes_renewal_offset": 131100000
+    },
+    "usage_tracking": {
+      "data_monitoring_interval": 500000000
+    }
+  },
+  "upstream_wifi": {
+    "scan_interval_seconds": 300,
+    "fast_check_seconds": 30,
+    "lost_threshold": 2,
+    "hysteresis_db": 12,
+    "signal_floor": -85,
+    "blacklist_ttl_minutes": 60,
+    "emergency_penalty": 20,
+    "max_consecutive_failures": 3,
+    "switch_cooldown_minutes": 10,
+    "startup_grace_seconds": 30,
+    "post_switch_wait_seconds": 5,
+    "dhcp_timeout_seconds": 180,
+    "manual_pause_seconds": 120
+  }
+}
