@@ -469,9 +469,10 @@ jobs:
         run: |
           apt-get install -y upx-ucl
 
-      - name: Install Node.js for portal build
-        run: |
-          apt-get install -y nodejs npm
+      - name: Setup Node.js for portal build
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Build captive portal assets
         shell: bash
