@@ -19,7 +19,6 @@ require (
 )
 
 replace (
-	github.com/OpenTollGate/gonuts-tollgate => github.com/felixfelix-bot/gonuts-tollgate v0.11.1
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/identity => ./identity

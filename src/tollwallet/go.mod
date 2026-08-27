@@ -12,8 +12,6 @@ require github.com/kr/text v0.2.0 // indirect
 
 replace github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
 
-replace github.com/OpenTollGate/gonuts-tollgate => github.com/felixfelix-bot/gonuts-tollgate v0.11.1
-
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
