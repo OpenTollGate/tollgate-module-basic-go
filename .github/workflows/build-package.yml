@@ -137,6 +137,7 @@ jobs:
           fi
 
   compile-binaries:
+    timeout-minutes: 30
     needs: [determine-versioning]
     # The publish pipeline (Blossom upload + Nostr publish) needs the NSEC_HEX
     # secret, which GitHub withholds from fork PRs. Skip the whole pipeline for
@@ -255,6 +256,7 @@ jobs:
           echo "All uploads complete: $HASH_JSON"
 
   build-portal:
+    timeout-minutes: 15
     # The publish pipeline (Blossom upload + Nostr publish) needs the NSEC_HEX
     # secret, which GitHub withholds from fork PRs. Skip the whole pipeline for
     # fork PRs so they don't go red on an empty NSEC_HEX; same-repo PRs and
@@ -297,6 +299,7 @@ jobs:
           retention-days: 7
 
   package-ipk:
+    timeout-minutes: 30
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     strategy:
@@ -460,6 +463,7 @@ jobs:
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
   package-apk:
+    timeout-minutes: 90
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     container:
@@ -522,6 +526,17 @@ jobs:
         with:
           name: portal-assets
           path: src-checkout/packaging/files/tollgate-captive-portal-site/
+
+      - name: Restore SDK build cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            /builder/dl
+            /builder/staging_dir
+            /builder/build_dir
+          key: apk-sdk-${{ matrix.sdk }}-25.12.0-${{ hashFiles('packaging/**') }}
+          restore-keys: |
+            apk-sdk-${{ matrix.sdk }}-25.12.0-
 
       - name: Stage SDK package tree
         run: |
@@ -639,6 +654,7 @@ jobs:
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
   publish-metadata:
+    timeout-minutes: 15
     needs: [determine-versioning, package-ipk, package-apk]
     runs-on: ubuntu-latest
     timeout-minutes: 15
