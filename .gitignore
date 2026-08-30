@@ -55,3 +55,4 @@ ulw-*.md
 packaging/files/tollgate-captive-portal-site/assets/
 nuts/
 packaging/*.ipk
+scripts/token-recovery/token-recovery

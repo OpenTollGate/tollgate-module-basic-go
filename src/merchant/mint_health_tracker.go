@@ -12,8 +12,8 @@ import (
 
 const (
 	defaultRecoveryThreshold uint8 = 3
-	probeTimeout            = 30 * time.Second
-	probeInterval           = 5 * time.Minute
+	probeTimeout                   = 30 * time.Second
+	probeInterval                  = 5 * time.Minute
 
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
 	// not yet connected), probe every 15s with immediate recovery (threshold=1)
@@ -29,17 +29,17 @@ type mintConfigProvider interface {
 }
 
 type MintHealthTracker struct {
-	mu                   sync.RWMutex
-	reachableMints       map[string]bool
-	consecutiveSuccesses map[string]uint8
-	httpClient           *http.Client
-	configProvider       mintConfigProvider
-	recoveryThreshold    uint8
-	onFirstReachable     func()
-	hadReachableMint     bool
+	mu                    sync.RWMutex
+	reachableMints        map[string]bool
+	consecutiveSuccesses  map[string]uint8
+	httpClient            *http.Client
+	configProvider        mintConfigProvider
+	recoveryThreshold     uint8
+	onFirstReachable      func()
+	hadReachableMint      bool
 	onReachableSetChanged func()
-	reachableCount       int
-	stopCh               chan struct{}
+	reachableCount        int
+	stopCh                chan struct{}
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
