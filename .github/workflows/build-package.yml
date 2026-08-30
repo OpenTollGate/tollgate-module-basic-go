@@ -8,7 +8,19 @@ on:
         type: boolean
         default: false
   push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+concurrency:
+  group: build-package-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
