@@ -154,6 +154,12 @@ setup_nodogsplash() {
     fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
+    # Let the Go backend control session duration: NDS defaults to
+    # 1200 s (20 min), which would deauth users mid-session regardless
+    # of purchased time. Set a large ceiling so the Go backend is the
+    # sole authority on when a session ends.
+    uci set nodogsplash.@nodogsplash[0].sessiontimeout='86400'
+    uci set nodogsplash.@nodogsplash[0].authidletimeout='3600'
 
     # Defense-in-depth: block authenticated WiFi clients from reaching
     # RFC1918 addresses (complements the fw4 DROP rules in firewall-tollgate).
