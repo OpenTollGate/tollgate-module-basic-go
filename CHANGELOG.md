@@ -20,6 +20,16 @@ and [Semantic Versioning](https://semver.org/).
   smoke-payment, mint-failure, and two-router autopay suites.
   ([#362](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/362))
 
+- **Token recovery tool.** New offline operator tool
+  (`scripts/token-recovery/`) that parses
+  `/etc/tollgate/tokens-to-recover.txt`, checks each token's proof
+  state at the mint via NUT-07 `/v1/checkstate`, and recovers value
+  from UNSPENT proofs through the wallet. `-dry-run` reports
+  recoverable/spent/pending counts without touching the wallet. Useful
+  for salvaging tokens rejected by gate-side failures (e.g. the NDS
+  exit-status-1 class of bugs).
+  ([#354](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/354))
+
 - **Captive-portal uhttpd instance on port 2051.** A second uhttpd
   section (`config uhttpd portal`) now serves the SPA directly on
   `0.0.0.0:2051` / `[::]:2051`, decoupling portal serving from the
@@ -69,6 +79,22 @@ and [Semantic Versioning](https://semver.org/).
   `payment-processing-failed` notice instead of process death or a
   misleading 30-second timeout.
   ([#360](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/360))
+
+- **Splash stub preserves query parameters on redirect.** The
+  captive-portal redirect stub now appends `location.search` to the
+  `splash.html` URL so NDS-provided query params (notably
+  `?clientmac=XX:XX:…`) survive the redirect to the SPA on port 2051.
+  Without this, the backend's MAC-based session logic lost the real
+  client MAC whenever the stub stripped the query string.
+  ([#363](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/363))
+
+- **NDS session timeout no longer overrides purchased sessions.**
+  `setup_nodogsplash()` now sets `sessiontimeout='86400'` (24 h) and
+  `authidletimeout='3600'` (1 h). NDS defaults to 1200 s (20 min),
+  which deauthed users mid-session regardless of the Go backend's
+  purchased duration. The large ceilings let the Go backend remain the
+  sole authority on session lifetime.
+  ([#363](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/363))
 
 - **Accept client MAC from request body/query.** The backend now
   accepts a `mac` field in Lightning invoice requests and Cashu payment

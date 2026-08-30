@@ -75,7 +75,7 @@ cat > "$STUB_TMP" << EOF
 <body>
 <p>Redirecting to the TollGate portal...</p>
 <script>
-location.replace('http://' + location.hostname + ':2051/splash.html');
+location.replace('http://' + location.hostname + ':2051/splash.html' + location.search);
 </script>
 <noscript>
 <p><a href="http://${LAN_IP}:2051/splash.html">Continue to the TollGate portal</a></p>
