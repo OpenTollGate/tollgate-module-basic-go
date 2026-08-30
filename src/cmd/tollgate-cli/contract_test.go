@@ -272,9 +272,9 @@ func TestConfigSetResponseShape(t *testing.T) {
 
 func TestWalletDrainDataShape(t *testing.T) {
 	data := map[string]interface{}{
-		"success":     true,
-		"tokens":      []interface{}{},
-		"total_sats":  uint64(1000),
+		"success":      true,
+		"tokens":       []interface{}{},
+		"total_sats":   uint64(1000),
 		"save_to_file": "drain.txt",
 	}
 

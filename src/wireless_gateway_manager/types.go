@@ -25,10 +25,10 @@ type UpstreamManagerConfig struct {
 	SwitchCooldown         time.Duration
 	StartupGracePeriod     time.Duration
 	PostSwitchWait         time.Duration
-	StartupSettle         time.Duration
-	StartupRetryInterval  time.Duration
-	StartupScanInterval   time.Duration
-	VendorIEDiscovery     bool
+	StartupSettle          time.Duration
+	StartupRetryInterval   time.Duration
+	StartupScanInterval    time.Duration
+	VendorIEDiscovery      bool
 }
 
 type Connector struct {

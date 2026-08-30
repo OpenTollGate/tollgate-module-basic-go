@@ -177,14 +177,14 @@ func (m *namedMerchant) DrainMint(mintURL string) (string, uint64, error) {
 	return "", 0, nil
 }
 func (m *namedMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
-func (m *namedMerchant) GetBalance() uint64                             { return 0 }
-func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64         { return 0 }
-func (m *namedMerchant) GetAllMintBalances() map[string]uint64          { return nil }
+func (m *namedMerchant) GetBalance() uint64                            { return 0 }
+func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64        { return 0 }
+func (m *namedMerchant) GetAllMintBalances() map[string]uint64         { return nil }
 func (m *namedMerchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
 	return nil, nil
 }
-func (m *namedMerchant) GetAdvertisement() string { return "" }
-func (m *namedMerchant) StartPayoutRoutine()     {}
+func (m *namedMerchant) GetAdvertisement() string  { return "" }
+func (m *namedMerchant) StartPayoutRoutine()       {}
 func (m *namedMerchant) StartDataUsageMonitoring() {}
 func (m *namedMerchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
 	return nil, nil
@@ -204,4 +204,4 @@ func (m *namedMerchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*
 	return nil, nil
 }
 func (m *namedMerchant) SetOnReachableSetChanged(func()) {}
-func (m *namedMerchant) Shutdown() error                  { return nil }
+func (m *namedMerchant) Shutdown() error                 { return nil }
