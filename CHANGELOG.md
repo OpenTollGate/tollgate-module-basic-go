@@ -41,6 +41,13 @@ and [Semantic Versioning](https://semver.org/).
   now writes the generated `private_key` to `/tmp/tollgate-setup.log`
   alongside the existing SSID and IP entries.
 
+- **Unified identity module (NIP-06 + HKDF + RevealSeed).** New
+  `src/identity` module with NIP-06 12-word BIP39 mnemonic derivation,
+  HKDF (RFC 5869) attribute derivation for IPv4/MAC/password (replacing
+  raw SHA-256), and a loopback-only `/identity/reveal-seed` endpoint
+  (1 KB body limit). 14 passing tests.
+  ([#331](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/331))
+
 ### Changed
 
 - **Setup version bumped to v0.6.2.** Reinstall/upgrade now triggers a
@@ -66,6 +73,7 @@ and [Semantic Versioning](https://semver.org/).
   resolved `main` independently, so legs could package different portal
   revisions). The resolved portal commit SHA is reported in the job
   summary.
+  ([#368](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/368))
 
 ### Fixed
 
@@ -166,6 +174,7 @@ and [Semantic Versioning](https://semver.org/).
   (#332)**: nothing populates them yet, so `is_tollgate` logs as `false`
   and pricing as zero values. Foundation for Phase 2 speed probing and
   Phase 3 advertised pricing in #311.
+  ([#312](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/312))
 
 ### Fixed
 
@@ -206,7 +215,8 @@ and [Semantic Versioning](https://semver.org/).
   probing the local box. Also demotes the per-payment success log from
   `Info` to `Debug` (it fires on every renewal and was noisy)
   ([#88](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/88),
-  [#315](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/315)).
+  [#315](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/315),
+  [#347](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/347)).
 
 - **Lightning quote persistence: data race + crash-safety fix.**
   `persistLightningQuotes` now deep-copies `lightningQuoteRecord`
@@ -304,6 +314,24 @@ and [Semantic Versioning](https://semver.org/).
   the 37 existing exec.Command call sites (#263). 13 tests, stdlib only
   ([#265](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/265)).
 
+- **WalletPort interface + GonutsWallet adapter.** New `src/tollwallet`
+  `port.go` defines the `WalletPort` interface and primitive types
+  (`StatePaid`, `StateIssued`, …) abstracting away gonuts-specific types,
+  with a `GonutsWallet` adapter implementing it via the existing
+  gonuts-tollgate library and a build-time `cdk_wallet_stub.go` for the
+  future cdk-go adapter. Foundation for decoupling the merchant from
+  gonuts-tollgate; adds token-flow characterization tests.
+  ([#299](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/299))
+
+- **Supply chain: personal-fork `replace` directive dropped.** The
+  `replace github.com/OpenTollGate/gonuts-tollgate => github.com/felixfelix-bot/gonuts-tollgate v0.11.1`
+  directives in `src/go.mod` and `src/tollwallet/go.mod` are removed now
+  that the official OpenTollGate gonuts-tollgate v0.11.1 tag is published
+  (same codebase state as the fork). Both modules re-tidied against the
+  official release, removing the personal-fork dependency from the
+  upstream supply chain. No functional changes.
+  ([#361](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/361))
+
 - **Operator guide.** New `docs/operator-guide.md` covering every `tollgate`
   CLI subcommand (service, wallet, private network, upstream Wi-Fi, config,
   health) with example output, flags, and a troubleshooting section; README
@@ -311,18 +339,43 @@ and [Semantic Versioning](https://semver.org/).
   surface
   ([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
 
-- **config_manager buildinfo tests synced to 7 production mints.** The
-  `buildinfo_test.go` expectations were stale after #359 added five more
-  production mints (lnserver.com, macadamia.cash, westernbtc.com, kashu.me,
-  cubabitcoin.org) and made `IsDevBuild()` treat `unknown`/empty branches as
-  non-dev. Tests now assert 7 production mints on `main`/`unknown`/empty and
-  8 (7 + testnut) on feature branches, matching the merged behavior.
-
-- **CI: `src/merchant` added to the go-test matrix.** The merchant module
-  now builds and tests standalone (its go.mod gained the ltcsuite/ltcd
-  `exclude` directive and a full re-tidy in #361), so it is no longer
-  omitted from the matrix. `src/cli`, `src/upstream_detector` and
+- **CI debt resolved: config_manager buildinfo tests + merchant in the
+  go-test matrix.** The `buildinfo_test.go` expectations were stale after
+  #359 added five more production mints (lnserver.com, macadamia.cash,
+  westernbtc.com, kashu.me, cubabitcoin.org) and made `IsDevBuild()` treat
+  `unknown`/empty branches as non-dev; tests now assert 7 production mints
+  on `main`/`unknown`/empty and 8 (7 + testnut) on feature branches,
+  matching the merged behavior. Separately, `src/merchant` now builds and
+  tests standalone (its go.mod gained the ltcsuite/ltcd `exclude`
+  directive and a full re-tidy in #361), so it is added to the go-test
+  matrix. `src/cli`, `src/upstream_detector` and
   `src/upstream_session_manager` remain omitted pending the same rewrite.
+  ([#365](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/365))
+
+- **CI: `package-apk` portal build uses Node 20, not Debian Node 12.**
+  The apk job installed Node via `apt-get` inside the `openwrt/sdk`
+  container (Debian bullseye → Node 12.22.12), which crashed the
+  captive-portal build (`vite build`) with a `module.enableCompileCache?.()`
+  SyntaxError on every main push since Aug 26. Replaced with the same
+  `actions/setup-node@v4` (node 20) pattern `package-ipk` already uses.
+  ([#366](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/366))
+
+- **CI: build-matrix trigger hygiene.** `push` builds are restricted to
+  `main` + `v*` tags (PRs already build every branch — eliminating
+  same-commit double-builds and fan-out bursts), markdown/docs-only
+  changes are ignored via `paths-ignore`, and a `concurrency` group with
+  `cancel-in-progress` supersedes redundant runs on the same ref. Cuts
+  the workflow's 43k runner-minutes YTD waste.
+  ([#369](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/369))
+
+- **CI: apk SDK build-tree caching + job timeouts.** `package-apk` gains
+  an `actions/cache` step (SHA-pinned `@v5`) caching `/builder/dl`,
+  `staging_dir`, and `build_dir` keyed per SDK target with
+  `restore-keys` fallback, so subsequent runs skip feed downloads and
+  dependency compiles. `timeout-minutes` added to all heavy jobs
+  (compile 30, portal 15, ipk 30, apk 90, publish 15) replacing the
+  6-hour default.
+  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370))
 
 ### Security
 
