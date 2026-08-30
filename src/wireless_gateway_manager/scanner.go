@@ -116,11 +116,11 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 	var networks []NetworkInfo
 
 	var current *struct {
-		bssid    string
-		ssid     string
-		signal   int
-		encrypt  string
-		channel  string
+		bssid     string
+		ssid      string
+		signal    int
+		encrypt   string
+		channel   string
 		hasSignal bool
 	}
 
@@ -129,6 +129,9 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 
 		if strings.Contains(line, "Address:") {
 			if current != nil && current.ssid != "" && current.hasSignal {
+				// STAGED (this PR): IsTollGate/RawIEs/PricePerStep/StepSize
+				// stay zero here — the vendor-IE parse that fills them is
+				// wired in the follow-up that gates on VendorIEDiscovery.
 				networks = append(networks, NetworkInfo{
 					BSSID:      current.bssid,
 					SSID:       current.ssid,
@@ -139,11 +142,11 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 			}
 			fields := strings.Fields(line)
 			current = &struct {
-				bssid    string
-				ssid     string
-				signal   int
-				encrypt  string
-				channel  string
+				bssid     string
+				ssid      string
+				signal    int
+				encrypt   string
+				channel   string
 				hasSignal bool
 			}{}
 			if len(fields) > 0 {
@@ -293,4 +296,3 @@ func FormatScanResults(networks []NetworkInfo) string {
 func init() {
 	logger.WithField("module", "wireless_gateway_manager").Info("Wireless gateway manager module loaded")
 }
-
