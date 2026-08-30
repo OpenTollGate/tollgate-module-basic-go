@@ -60,6 +60,15 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      - name: Spec-quote drift check
+        run: |
+          pip install --user --break-system-packages git+https://github.com/rustyrussell/greatspectations.git >/dev/null 2>&1 || pip install git+https://github.com/rustyrussell/greatspectations.git >/dev/null 2>&1
+          export PATH="$PATH:$HOME/.local/bin"
+          git clone --depth=1 https://github.com/cashubtc/nuts.git nuts
+          FILES=$(find src -name "*.go" -not -name "*_test.go")
+          # Spec drift FAILS the build: quotes verified against spec HEAD.
+          greatspectate check --config specquotes.toml --comment-start "// " --comment-continue "//" $FILES
+
   build-purity:
     runs-on: ubuntu-latest
     steps:
