@@ -20,6 +20,16 @@ and [Semantic Versioning](https://semver.org/).
   smoke-payment, mint-failure, and two-router autopay suites.
   ([#362](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/362))
 
+- **Token recovery tool.** New offline operator tool
+  (`scripts/token-recovery/`) that parses
+  `/etc/tollgate/tokens-to-recover.txt`, checks each token's proof
+  state at the mint via NUT-07 `/v1/checkstate`, and recovers value
+  from UNSPENT proofs through the wallet. `-dry-run` reports
+  recoverable/spent/pending counts without touching the wallet. Useful
+  for salvaging tokens rejected by gate-side failures (e.g. the NDS
+  exit-status-1 class of bugs).
+  ([#354](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/354))
+
 - **Captive-portal uhttpd instance on port 2051.** A second uhttpd
   section (`config uhttpd portal`) now serves the SPA directly on
   `0.0.0.0:2051` / `[::]:2051`, decoupling portal serving from the
