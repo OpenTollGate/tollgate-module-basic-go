@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 const testMintTarget = "https://nofee.testnut.cashu.space"
