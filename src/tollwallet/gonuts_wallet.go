@@ -153,6 +153,7 @@ func (w *GonutsWallet) MintTokens(quoteID string) (uint64, error) {
 // them by either adding passthrough methods to TollWallet or refactoring
 // MeltToLightning to use the port pattern.
 
+// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.
 func (w *GonutsWallet) RequestMeltQuote(invoice string, mintUrl string) (*MeltQuote, error) {
 	return nil, fmt.Errorf("GonutsWallet.RequestMeltQuote: not yet wired; TollWallet uses MeltToLightning at a higher level")
 }

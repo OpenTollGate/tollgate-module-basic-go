@@ -290,6 +290,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Spec-quote drift checking in CI.** greatspectations quotes are now
+  verified against current cashubtc/nuts HEAD on every push (new step
+  in the contract-lint job; drift fails the build). Fixed one drifted
+  NUT-03 quote (spec added backticks), added a NUT-05 quote at the
+  RequestMeltQuote site, and repaired two comment lines that
+  accidentally parsed as malformed quote markers. Clean copy of
+  Amperstrand's #357 with reviewer fixes: vacuous-pass fix in
+  make/speccheck.sh (tool/config errors propagate; drift-only exits 0
+  with a loud banner), NUT-05 comment moved to RequestMeltQuote,
+  greatspectations invocation pinned, pip output unfiltered.
+  ([#357](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/357))
+
 - **Cross-implementation hash_to_curve vectors.** `src/tollwallet` now pins
   NUT-00 `HashToCurve` output byte-for-byte against the canonical
   cross-implementation vector set (gonuts/btcec ↔ cashu-core-lite/k256 ↔
