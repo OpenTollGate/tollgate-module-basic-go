@@ -109,9 +109,7 @@ func TestSetOnFirstReachableForDegraded_FiresOnRecovery(t *testing.T) {
 		tracker.RunProactiveCheck()
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	if atomic.LoadInt32(&called) != 1 {
+	if !waitFor(t, 2*time.Second, func() bool { return atomic.LoadInt32(&called) == 1 }) {
 		t.Errorf("expected callback to fire once on recovery, got %d", atomic.LoadInt32(&called))
 	}
 }
@@ -146,9 +144,7 @@ func TestSetOnFirstReachableForDegraded_NotFiredOnSecondRecovery(t *testing.T) {
 		tracker.RunProactiveCheck()
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	if atomic.LoadInt32(&called) != 1 {
+	if !waitFor(t, 2*time.Second, func() bool { return atomic.LoadInt32(&called) == 1 }) {
 		t.Fatalf("expected first callback to fire, got %d", atomic.LoadInt32(&called))
 	}
 

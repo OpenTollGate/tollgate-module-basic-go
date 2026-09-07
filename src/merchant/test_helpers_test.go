@@ -6,9 +6,27 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
+
+// waitFor polls cond until it returns true or the timeout elapses. It is the
+// test-only replacement for fixed time.Sleep calls that wait on async
+// callbacks (which fire via `go cb()` in the production code). A fixed sleep
+// is a flake source under -race / CI load: the goroutine may not be scheduled
+// within the sleep window. Polling removes that nondeterminism.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return cond()
+}
 
 func setupTestConfigManager(t *testing.T) (*config_manager.ConfigManager, string) {
 	t.Helper()
