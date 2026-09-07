@@ -1,0 +1,12 @@
+name: gitleaks
+
+on:
+  push:
+    branches: [ai-experimental-slop]
+  pull_request:
+  schedule:
+    - cron: "13 6 * * *"
+
+jobs:
+  gitleaks:
+    uses: Amperstrand/.github/.github/workflows/gitleaks.yml@main
