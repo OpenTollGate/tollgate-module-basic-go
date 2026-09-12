@@ -10,6 +10,19 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed / Internal
+
+- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
+  documents the supported-matrix placeholder (honest about what is untested),
+  the feed signing key and the repository line for OpenWrt 25.12, install,
+  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
+  rollback leaves behind, and the fact that `--force-downgrade` is not an
+  apk-tools 3.x option — the failure modes reproduced in practice, how to
+  report a result, and what to expect from an alpha. Every command was
+  executed against a real OpenWrt 25.12.5 userland; router-only steps are
+  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
+  `apk add --allow-untrusted`.
+
 ## [v0.6.0-alpha2] - 2026-09-13
 
 ### Added
