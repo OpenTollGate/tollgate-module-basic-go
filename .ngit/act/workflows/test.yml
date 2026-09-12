@@ -60,11 +60,6 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
-      # Restored 2026-09-12: this step existed in `.github/workflows/test.yml`
-      # but was dropped from the first port while `.ngit/README.md` claimed a
-      # faithful copy.  Toolchain-light: it installs greatspectations from a
-      # pinned commit, then checks every `//` quote in src/**/*.go against a
-      # pinned cashubtc/nuts snapshot.
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).

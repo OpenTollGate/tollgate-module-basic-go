@@ -12,7 +12,6 @@ untouched; the two systems run side by side.
 | `act/workflows/go-test.yml` | The pre-PR sequence documented in [AGENTS.md](../AGENTS.md), run from `src/`: `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`. |
 | `act/workflows/build-package-binaries.yml` | Stage 1 of the release pipeline: cross-compile the five GOARCH/GOARM/GOMIPS targets, build the captive-portal assets, mirror both to Blossom, and publish the build-id records stage 2 consumes. |
 | `act/workflows/build-package.yml` | Stage 2 of the release pipeline: the full `.ipk` (14) and `.apk` (3) matrix, Blossom mirroring, kind-1063 NIP-94 announcements, and the tollgate-os handoff. |
-| `act/workflows/ci-probe.yml` | Temporary diagnostic. Reports the runner ceiling, daemon-socket access and secret release from inside a real job. Deleted once `build-package.yml` is verified. |
 
 Two Go files because they cover different things: `test.yml` tests the nested
 modules (which `./...` from `src/` does not reach — they are separate modules)
@@ -47,6 +46,23 @@ greatspectate check --config specquotes.toml \
 `test.yml` and `go-test.yml` run on **push to `main`** and on **pull requests**.
 `build-package.yml` runs on **push to `main`** and on **`v*` tag** pushes, with
 the GitHub twin's `paths-ignore` (`**.md`, `docs/**`), plus pull requests.
+
+Branch filters *are* honoured — pushing `.ngit/act/workflows/` to
+`ci/ngit-build-package` started only the file whose `on: push: branches:`
+matched that ref, not the two release files. That has a consequence worth
+stating plainly: a push to `main` (or a `v*` tag) enqueues **both** release
+files at the same moment, and `resolve-inputs` polls for only 10 minutes while
+stage 1 takes 11.8 min warm / 20.8 min cold. On a cold push, stage 2 can
+therefore give up before stage 1 has published its records. The sequencing that
+is actually verified is:
+
+1. push to `main` (or the tag) — stage 1 runs, 11.8–20.8 min;
+2. wait for its workflow result (kind 9842) to read `success`;
+3. start stage 2 by hand:
+   `scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml "$(git rev-parse main)" refs/heads/main`.
+
+Raising the poll window only helps once the coordinator's job timeout makes
+room for both stages in one budget, which is the split discussed below.
 
 What ngit-ci does **not** honour, and what the port does about it:
 
@@ -197,6 +213,117 @@ measured, the same file is copied once per architecture
 (`build-package-apk-mediatek-filogic.yml`, `build-package-apk-x86-64.yml`) —
 they are independent runs that share the build id.
 
+### What the first full stage-2 run actually measured
+
+Measured on 2026-09-12, commit `b25d8a28`, manual trigger `342cb7de…`, workflow
+result `b555a2057913fdb934af2b1facb3fc0000c2b58ac4248273d83ca596cfb6772c`,
+`conclusion="timed_out"` at exactly the 1800 s ceiling:
+
+* `resolve-inputs` resolved both stage-1 records in seconds, so the two-file
+  hand-over works and the run got all the way to publishing artifacts.
+* 4 of the 5 `compression: none` `.ipk` legs announced within 7 minutes
+  (19:43:19, 19:43:59, 19:45:17, 19:47:04).
+* One UPX leg announced at 20:10:14 — about 29 minutes into its own job.
+  `upx --ultra-brute` on the 11.5 MB `tollgate-wrt` binary, applied to **both**
+  binaries, is minutes of pure CPU, and `NGIT_CI_ACT_CONTAINER_OPTIONS` caps a
+  job at 2 CPUs.
+* The other 8 UPX legs did not finish, and the 3 `.apk` legs never executed a
+  single step: their containers were created, but a 4-vCPU host saturating at
+  ~2–4 concurrent jobs never freed a slot from the 14 `.ipk` legs. **The
+  `.apk`/SDK path is still unproven on ngit** — say so plainly rather than
+  implying it works.
+
+So the full 14 + 3 matrix does **not** fit one 30-minute `act` invocation as
+written. The ceiling is the coordinator operator's (`--job-timeout-secs`), so no
+change inside the workflow can raise it. Options, in order of preference:
+
+1. **Raise the coordinator's `--job-timeout-secs`** (one operator-side setting).
+   Cheapest and needs no workflow change, but the measured stage-1 wall time is
+   11.8 min warm / 20.8 min cold, so the compile stage is already close to the
+   ceiling and a package stage wants 45–60 min for the whole matrix.
+2. **Split by compression family**, one budget per known cost:
+   `build-package.yml` keeps `resolve-inputs` + the 5 `compression: none` legs +
+   `publish-metadata` + `os-handoff` (measured: 4 announced inside ~7 min), and
+   a new file carries the 9 UPX legs, at most one arch family per file.
+3. **Give the SDK legs their own files**
+   (`build-package-apk-mediatek-filogic.yml`, `build-package-apk-x86-64.yml`)
+   with the SDK image from a cache rather than cold: pulling
+   `openwrt/sdk:<target>-25.12.0` and compiling `nodogsplash` + `luci` + `jq`
+   will not fit 30 minutes even with the whole box.
+
+Coverage is not reduced by any of these: the 14 + 3 matrix stays exactly as it
+is. The follow-up is *coordination* — more, smaller files — not fewer
+architectures.
+
+## Verified end to end on ngit (2026-09-12)
+
+Everything below is a real run against the ngit mirror at commit
+`b25d8a28f179d470ae7443bcd113c8471d5685dc` (build id `b25d8a28`). Nothing was
+simulated, and none of it came from a GitHub run — GitHub Actions is disabled
+for this repository.
+
+| stage | workflow | how it started | workflow result (kind 9842) | conclusion | wall |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `build-package-binaries.yml` | push to this ref | `460e9dc6d4ea12759e96889e776dfda6cf5e397560468f973351ba7f910b3a7c` | `success` | 706.7 s |
+| 2 | `build-package.yml` | manual `9840 342cb7de9d0969d70480b3846f95c42d9aff9ebd353d09f1ef72598572017e8e` | `b555a2057913fdb934af2b1facb3fc0000c2b58ac4248273d83ca596cfb6772c` | `timed_out` (ceiling) | 1800 s |
+
+Stage 1's hand-over records (kind 30078, signed by the CI release key):
+
+```
+d=tollgate-build/b25d8a28/binaries 65f30f854e8a416a29618cb976550420b67ecd44d74e8ee6bb655971a2519f33
+d=tollgate-build/b25d8a28/portal   0be343e8fd78f03f60dc1a8e4f28230f47ea837a5cf81527b21198a255fcd8fa
+```
+
+Stage 2 resolved both, built `.ipk` packages, uploaded each to two Blossom
+mirrors and published its own kind-1063 announcement **from inside the package
+job** — five of them before the ceiling cut the matrix short:
+
+| arch | format / compression | `x`/`ox` sha256 | kind 1063 |
+| --- | --- | --- | --- |
+| aarch64_cortex-a53 | ipk / none | `fe20ef119f279de5ff59458a218eff03e209c194e8d2510e303b3bfd396c8721` | `506a5917618e13114242e70da1105bbd6e3167ba0a0673590197e1e1322fadc8` |
+| aarch64_cortex-a72 | ipk / none | `3ad98814ba47b0b1ac08d6d8cadc6a7eacc8e7d3809ad3727cc3635ff76f9645` | `dfd48d4bff04329f48a74c536b01b7470e02dd43383919eecf02facc9d738e7f` |
+| arm_cortex-a7 | ipk / none | `4847c1a80e6b8f57caa3baf398a0f6810af566758587a911098fb9134244aa58` | `5bcf123e26d9d6eafadf19a8d63acdf026c7a356091cccc62b6a7ac03a7335c1` |
+| mipsel_24kc | ipk / none | `b49da5dcdc6a33942778e7d8c4ad77e1d20c45a705bf98aea12f25f88f367b08` | `b8af30dae902e3a5a9550d4880f17f70ec8dfc039b9fc31904f3edd7efe2c1a4` |
+| mipsel_24kc | ipk / upx-ultra-brute | `98ac69e145832b82046474a6d9f67a0ffcfcbc7d0bd6b974dae59133c4f52e55` | `0cc64d152f47bf740972217e1cb4e8e9ca8bffac94c5790ccf27a2e02cc70d16` |
+
+Checked from the consumer side — against the *published events*, not the run
+log:
+
+```bash
+$ curl -sSLo /tmp/dl.ipk \
+    https://blossom.primal.net/fe20ef119f279de5ff59458a218eff03e209c194e8d2510e303b3bfd396c8721.ipk
+$ sha256sum /tmp/dl.ipk
+fe20ef119f279de5ff59458a218eff03e209c194e8d2510e303b3bfd396c8721   # == the x/ox tag
+# the same blob answers 200 on blossom2.orangesync.tech, so both url tags are live
+# .ipk shape: ./debian-binary, ./data.tar.gz, ./control.tar.gz
+# control:  Package: tollgate-wrt / Version: ci-ngit-build-package.0.b25d8a28
+#           Architecture: aarch64_cortex-a53 / Depends: libc
+# payload:  39 entries incl. etc/init.d/tollgate-wrt and the captive portal;
+#           usr/bin/tollgate-wrt = 11,534,520 bytes
+```
+
+The UPX variant of the same arch fetches as 5,405,700 bytes against 7,373,435
+for `compression: none`, with a 3,453,288-byte `tollgate-wrt` payload carrying
+the `UPX!` marker — the compression legs really do compress.
+
+Honest limits of this evidence:
+
+* the stage-2 conclusion is `timed_out`, not `success` (see the split above):
+  5 of the 14 `.ipk` legs announced, and the 3 `.apk`/SDK legs never started;
+* the ref is a branch, so the announcements are `c=dev` with version
+  `ci-ngit-build-package.0.b25d8a28` — that is what a non-tag ref produces by
+  design; a `main` or `v*` run takes the tag/`main` version path;
+* nothing was installed on a router from these packages, and the
+  `tollgate-os` hand-off is a record plus a manual step, not a dispatch;
+* the only change to the release workflow since `b25d8a28` is a comment block
+  recording the two-stage sequencing above (the `TRIGGERS`/`SEQUENCING` note at
+  the top of the file); the steps that were exercised are unchanged. The
+  temporary `ci-probe.yml` diagnostic used to measure this deployment (runner
+  ceiling, daemon socket, Blossom reachability) has been deleted now that the
+  release path is verified — it also published a trial kind-30078 record under
+  the release `d=tollgate-build/<build>/<arch>/ipk/<compression>` namespace,
+  which is exactly why it should not be a standing workflow.
+
 ## Release signing: the historical key is unrecoverable
 
 `build-package.yml` signs the Blossom uploads and the kind-1063 announcements
@@ -224,9 +351,23 @@ separable; a consumer filtering releases by the historical publisher pubkey will
 not see them, which is why publishing a real alpha/beta/stable release is
 blocked on the operator either importing the old key or blessing the new one.
 
+**Status 2026-09-12: provisioned and verified.** The secret is in
+`~/ngit-ci-deploy/.env` as `NGIT_CI_SECRET_TMBG__NSEC_HEX`, referenced from the
+coordinator service's `environment:` block, and the coordinator logs
+`Loaded per-repo secrets count=1`. It is not stored anywhere in this repository.
+Verified without ever printing the value: the stored 64-character secret
+resolves to exactly the pubkey above (`nak key public`, run on DQ05), and it is
+the key that signed the two kind-30078 hand-over records and all five kind-1063
+announcements in the verification section above. The historical publisher key
+`5075e61f…` is still unrecoverable — a consumer that filters releases by
+*that* pubkey sees none of these, which is why publishing a real
+alpha/beta/stable release is still blocked on the operator either importing the
+old key or blessing the new one as the release publisher.
+
 ### Provisioning it (operator, on DQ05)
 
-Three things are needed, and the first one is easy to miss:
+Already done on this deployment; kept here because it is what a rebuilt
+coordinator needs. Three things are needed, and the first one is easy to miss:
 
 ```bash
 # 1. give the watched entry an alias, so per-repo secrets can be addressed.
@@ -314,13 +455,42 @@ Manual triggers (kind 9840) are one-shot and bypass the gate; a 9840 that pins
 `w` = `.ngit/act/workflows/<file>` and its content SHA-256 replays any file
 regardless of its `on:` clause.
 
+## Starting a run by hand
+
+`scripts/ngit-ci-trigger.sh` publishes the kind-9840 Manual Trigger for this
+repository, signed by the maintainer key. It is the replacement for the GitHub
+twin's `peter-evans/repository-dispatch@v4` step (which dispatched into
+`tollgate-os` with a cross-repo token that does not exist here), and it is how
+stage 2 is started on a ref its own `on:` clause does not cover:
+
+```bash
+scripts/ngit-ci-trigger.sh \
+  .ngit/act/workflows/build-package.yml \
+  "$(git rev-parse HEAD)" refs/heads/ci/ngit-build-package
+```
+
+It computes the `w` tag's SHA-256 from the file's content at the declared
+commit (the coordinator rejects a mismatch), refuses to sign with anything that
+is not the maintainer key, and never prints the key. The signing key file
+defaults to `~/.hermes/.ngit-new-key` and is overridable with `KEYFILE=`.
+`tests/ngit-ci-trigger_test.sh` exercises every refusal plus the hash
+computation on a throwaway repo and an unreachable relay — no real event is
+published:
+
+```bash
+bash tests/ngit-ci-trigger_test.sh     # 9 passed, 0 failed
+```
+
 ## State of the checks right now
 
-`gofmt -l .` reports three files on `main`
-(`config_manager/config_schema.go`, `merchant/lightning_state_test.go`,
-`merchant/quotes_wireformat_test.go`), so the `gofmt` step in `go-test.yml`
-fails until they are formatted — `cd src && gofmt -w .`. The other three
-commands pass (verified locally, `go1.25`/`go1.26`).
+`cd src && gofmt -l .` prints nothing on the ngit mirror's `main` (commit
+`cd67f81` formatted the three files — `config_manager/config_schema.go`,
+`merchant/lightning_state_test.go`, `merchant/quotes_wireformat_test.go` —
+that were failing it on GitHub `main`), so the first step of `go-test.yml` is
+green here. `go vet ./...`, `go build ./...` and
+`go test -race -count=1 -tags testenv ./...` pass locally with the pinned
+`go1.25`. On GitHub `main` before `cd67f81` the `gofmt` step is red; the fix
+is that same `gofmt -w .`.
 
 ## Not run here (deliberately)
 

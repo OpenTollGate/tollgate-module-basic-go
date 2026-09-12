@@ -32,6 +32,13 @@ name: Build and Publish
 # delivered; `concurrency:` has no equivalent; `container:`/`services:` are
 # refused when the operator sets container options (hence `docker run` below).
 # There is no GITHUB_TOKEN. See .ngit/README.md.
+#
+# SEQUENCING (measured): a push to main or a v* tag enqueues BOTH release files
+# at once, and resolve-inputs polls for at most 10 minutes while stage 1 takes
+# 11.8 min warm / 20.8 min cold -- so on a cold push stage 2 can give up before
+# stage 1 has published its records. Run stage 2 after stage 1 reports success
+# (scripts/ngit-ci-trigger.sh), or raise the poll window once the coordinator's
+# job timeout makes room for it.
 
 on:
   push:

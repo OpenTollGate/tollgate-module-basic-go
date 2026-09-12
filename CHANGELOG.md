@@ -411,6 +411,28 @@ and [Semantic Versioning](https://semver.org/).
   6-hour default.
   ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370))
 
+### Changed / Internal
+
+- **Release pipeline runs on Nostr CI (no GitHub dependency).** The
+  `.ipk`/`.apk` → Blossom → kind-1063 release path is now executed by
+  `ngit-ci` from `.ngit/act/workflows/`, as two workflows because one
+  `act` invocation is bounded by the coordinator's 30-minute job
+  ceiling: `build-package-binaries.yml` (versioning, the five
+  cross-compile targets, the captive portal, and the Blossom mirroring
+  plus the build-id records stage 2 resolves) and `build-package.yml`
+  (the 14 `.ipk` and 3 `.apk` matrix, per-artifact Blossom upload and
+  kind-1063 announcement, the tollgate-os handoff record). The GitHub
+  twin is untouched and still runs where Actions is available.
+  `container:` blocks — refused with `startup_failure` on this
+  deployment — become `docker run` against the same SDK image;
+  `secrets.NSEC_HEX` is provisioned operator-side as
+  `NGIT_CI_SECRET_TMBG__NSEC_HEX`; the GitHub-only cross-repo dispatch
+  becomes a kind-30078 handoff record plus a documented manual step. See
+  [`.ngit/README.md`](.ngit/README.md) for the measurements, the
+  trigger differences and the end-to-end verification evidence.
+  (no GitHub PR — GitHub Actions is disabled org-wide, so this ships on
+  the ngit mirror)
+
 ### Security
 
 - **Exposed deployment backup purged from history.** A router
