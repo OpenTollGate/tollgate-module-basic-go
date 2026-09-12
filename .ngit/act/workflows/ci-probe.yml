@@ -1,23 +1,22 @@
 name: ngit-ci environment probe
 
-# Temporary diagnostic workflow. Answers, from inside a real ngit-ci job
-# container on this deployment, every question the release-pipeline port
-# depends on:
+# Temporary diagnostic workflow for the release-pipeline port. Everything it
+# learns is printed by the LAST step of each job, because only the tail of a
+# job log is retained in the kind-9841 content.
 #
-#   * how much CPU/RAM a job actually gets (the container spec is
-#     NGIT_CI_ACT_CONTAINER_OPTIONS=--memory=4g --memory-splice=4g --cpus=2)
-#   * whether the coordinator's opt-in container daemon socket is usable, so a
-#     job can `docker run` the OpenWrt SDK instead of declaring a
-#     (refused) `container:` block
-#   * whether the release-signing secret NSEC_HEX is actually released to a
-#     maintainer-triggered run (length only - the value is never printed)
-#   * which tools the act image already has
-#   * whether the checkout is shallow (the release version string uses
-#     `git rev-list --count HEAD`)
-#   * outbound network reachability to GitHub and the Blossom mirrors
+# Questions it answers:
+#   * cpu/memory ceiling of a real ngit-ci job container, and the checkout depth
+#     (the release version string uses `git rev-list --count HEAD`)
+#   * whether the coordinator's opt-in container daemon socket is usable, so the
+#     ported SDK jobs can `docker run` instead of declaring a (refused)
+#     `container:` block
+#   * whether `actions/upload-artifact` + `download-artifact` work in this
+#     deployment (the port needs them for the captive-portal assets)
+#   * whether the release-signing secret NSEC_HEX reaches a maintainer-authored
+#     push run (length only - the value is never printed)
+#   * outbound reachability to the Blossom mirrors
 #
-# Delete this file once build-package.yml and build-package-apk.yml are
-# verified; it is not a check on the repository.
+# Deleted once build-package.yml and build-package-apk.yml are verified.
 
 on:
   push:
@@ -31,93 +30,97 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Runner and container facts
-        run: |
-          echo "== identity =="
-          id
-          echo "== cpu/mem =="
-          nproc
-          free -m || true
-          echo "== disk =="
-          df -h / /tmp 2>/dev/null || true
-          echo "== cgroup memory limit =="
-          cat /sys/fs/cgroup/memory.max 2>/dev/null \
-            || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
-            || echo "no cgroup memory file"
-          echo "== cgroup cpu quota =="
-          cat /sys/fs/cgroup/cpu.max 2>/dev/null \
-            || cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null \
-            || echo "no cgroup cpu file"
-
-      - name: Runtime environment variables
-        run: |
-          for v in GITHUB_REF GITHUB_REF_NAME GITHUB_SHA GITHUB_EVENT_NAME \
-                   GITHUB_WORKSPACE GITHUB_REPOSITORY RUNNER_OS RUNNER_ARCH \
-                   NGIT_CI_REPOSITORY NGIT_CI_TRIGGER_EVENT DOCKER_HOST HOME; do
-            printf '%s=%s\n' "$v" "$(eval "printf '%s' \"\${$v:-<unset>}\"")"
-          done
-
-      - name: Checkout shape
-        run: |
-          echo "shallow: $(git rev-parse --is-shallow-repository 2>/dev/null || echo unknown)"
-          echo "HEAD: $(git rev-parse HEAD)"
-          echo "commits reachable from HEAD: $(git rev-list --count HEAD 2>/dev/null || echo FAILED)"
-          echo "== git version =="
-          git --version
-
-      - name: Tool availability
-        run: |
-          for t in go node npm python3 pip3 jq curl ar tar upx upx-ucl nak \
-                   docker apt-get sudo make git; do
-            printf '%-10s ' "$t"
-            command -v "$t" || echo "MISSING"
-          done
-
-      - name: Container daemon socket (operator opt-in)
-        run: |
-          if [ -S /var/run/docker.sock ]; then
-            ls -l /var/run/docker.sock
-            if command -v docker >/dev/null 2>&1; then
-              docker version 2>&1 | head -20 || echo "docker CLI present but daemon unreachable"
-            else
-              echo "socket mounted, docker CLI MISSING"
-            fi
-          else
-            echo "/var/run/docker.sock NOT mounted"
-          fi
-
-      - name: Can we install the docker CLI and reach the daemon
-        continue-on-error: true
-        run: |
-          set -ux
-          if command -v docker >/dev/null 2>&1; then
-            echo "docker already present"
-          else
-            curl -fsSL \
-              https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz \
-              -o /tmp/docker.tgz
-            tar xzf /tmp/docker.tgz -C /tmp
-            install -m 0755 /tmp/docker/docker /usr/local/bin/docker
-          fi
-          docker version
-          docker info | head -20
-          docker pull hello-world && docker run --rm hello-world
-
-      - name: Release signing secret presence (length only)
+      - name: Collect facts
         env:
-          NSEC_HEX_LEN: ${{ secrets.NSEC_HEX }}
+          NSEC_HEX_PROBE: ${{ secrets.NSEC_HEX }}
         run: |
-          # Never print the value. 64 hex chars = the release key is released
-          # to this run; 0 = the operator provisioned no alias for this repo,
-          # or the trigger was not authored by a confirmed maintainer.
-          echo "NSEC_HEX length: ${#NSEC_HEX_LEN}"
+          {
+            echo "== identity =="; id
+            echo "== cpu =="; nproc
+            echo "== memory (MB) =="; free -m | head -2
+            echo "== cgroup memory.max =="; cat /sys/fs/cgroup/memory.max 2>/dev/null || echo none
+            echo "== cgroup cpu.max =="; cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo none
+            echo "== disk =="; df -h / /tmp 2>/dev/null | tail -2
+            echo "== checkout =="
+            echo "  shallow=$(git rev-parse --is-shallow-repository 2>/dev/null)"
+            echo "  head=$(git rev-parse HEAD)"
+            echo "  rev-list-count=$(git rev-list --count HEAD 2>/dev/null || echo FAILED)"
+            echo "== runtime env =="
+            for v in GITHUB_REF GITHUB_REF_NAME GITHUB_SHA GITHUB_EVENT_NAME \
+                     GITHUB_WORKSPACE RUNNER_OS RUNNER_ARCH NGIT_CI_REPOSITORY \
+                     NGIT_CI_TRIGGER_EVENT DOCKER_HOST HOME; do
+              printf '  %s=%s\n' "$v" "$(eval "printf '%s' \"\${$v:-<unset>}\"")"
+            done
+            echo "== tools =="
+            for t in go node npm python3 pip3 jq curl ar tar upx upx-ucl nak docker apt-get sudo make; do
+              printf '  %-9s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
+            done
+            echo "== daemon socket =="
+            if [ -S /var/run/docker.sock ]; then
+              echo "  /var/run/docker.sock present: $(ls -l /var/run/docker.sock)"
+              docker version 2>&1 | grep -E 'Server|Client|Version' | head -6 || true
+            else
+              echo "  /var/run/docker.sock NOT mounted"
+            fi
+            echo "== docker run smoke test =="
+            docker run --rm --user root alpine:3.20 sh -c 'echo docker-run-ok; id -u' 2>&1 | tail -3
+            echo "== release signing secret =="
+            echo "  NSEC_HEX length=${#NSEC_HEX_PROBE} (64 = released, 0 = withheld)"
+          } > /tmp/facts.txt 2>&1
+          true
 
-      - name: Outbound network
+      - name: Report facts (tail-retained)
+        run: cat /tmp/facts.txt
+
+  artifact-producer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Make a file
         run: |
-          for u in https://github.com https://relay.ngit.dev \
-                   https://blossom.primal.net https://blossom.psbt.me \
-                   https://blossom1.orangesync.tech https://blossom2.orangesync.tech \
-                   https://drive.cashu.email; do
-            printf '%-38s ' "$u"
-            curl -sS -o /dev/null -m 20 -w '%{http_code}\n' "$u" 2>&1 || true
-          done
+          mkdir -p out
+          printf 'portal-assets-probe-%s\n' "$GITHUB_SHA" > out/marker.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-assets
+          path: out/
+          retention-days: 1
+
+  artifact-consumer:
+    needs: [artifact-producer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: portal-assets
+          path: downloaded/
+      - name: Report artifact handoff (tail-retained)
+        run: |
+          {
+            echo "== upload/download-artifact handoff =="
+            if [ -f downloaded/marker.txt ]; then
+              echo "  WORKING: $(cat downloaded/marker.txt)"
+            else
+              echo "  BROKEN: downloaded/marker.txt missing"
+              find . -maxdepth 3 | head -20
+            fi
+          } 2>&1 | tee -a /dev/stderr
+
+  network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Blossom mirrors and GitHub
+        run: |
+          {
+            echo "== outbound =="
+            for u in https://github.com https://relay.ngit.dev \
+                     https://blossom.primal.net https://blossom.psbt.me \
+                     https://blossom1.orangesync.tech https://blossom2.orangesync.tech \
+                     https://drive.cashu.email \
+                     https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64; do
+              printf '  %-52s ' "$u"
+              curl -sS -o /dev/null -m 25 -w '%{http_code}\n' "$u" 2>&1 || true
+            done
+          } 2>&1
