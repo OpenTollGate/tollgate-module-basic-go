@@ -3,6 +3,11 @@ PKG_MAKEFILE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-wrt
+# PACKAGE_VERSION is the release version, which CI takes from the git tag; the
+# tag must equal VERSION at the repository root (the single source of truth —
+# see CONTRIBUTING.md, "Version single source of truth"). It becomes the package version and is substituted into the
+# __TOLLGATE_VERSION__ placeholder shipped by files/etc/uci-defaults/99-tollgate-setup,
+# exactly as the .ipk payload staging does.
 TOLLGATE_DISPLAY_VERSION:=$(if $(strip $(PACKAGE_VERSION)),$(PACKAGE_VERSION),0.0.0)
 
 ifeq ($(CONFIG_USE_APK),y)
@@ -159,6 +164,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
+	$(SED) 's|__TOLLGATE_VERSION__|$(TOLLGATE_DISPLAY_VERSION)|g' $(1)/etc/uci-defaults/99-tollgate-setup
 
 
 	$(INSTALL_DIR) $(1)/usr/local/bin

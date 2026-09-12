@@ -8,7 +8,20 @@
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
-SETUP_VERSION="v0.6.2"
+# Version marker for this setup script. It is the release version, taken from
+# the repository-root VERSION file (the single source of truth — see CONTRIBUTING.md,
+# "Version single source of truth") and substituted into the placeholder by
+# every packaging path: the CI .ipk staging, the OpenWrt SDK Makefile for .apk,
+# and packaging/local-build-ipk.sh. Running the script straight from a checkout
+# leaves the placeholder in place, so fall back to the version the package
+# manager recorded for this package rather than writing a bogus marker.
+SETUP_VERSION="__TOLLGATE_VERSION__"
+case "$SETUP_VERSION" in
+    *__TOLLGATE_VERSION__*)
+        SETUP_VERSION=$(sed -n '/^Package: tollgate-wrt$/,/^$/s/^Version: //p' /usr/lib/opkg/status 2>/dev/null | head -n1)
+        [ -n "$SETUP_VERSION" ] || SETUP_VERSION="unsubstituted"
+        ;;
+esac
 
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }

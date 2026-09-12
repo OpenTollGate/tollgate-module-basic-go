@@ -10,6 +10,8 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0-alpha2] - 2026-09-13
+
 ### Added
 
 - **Docker-based integration test environment.** `tests/cloud-lab/`
@@ -59,10 +61,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Setup version bumped to v0.6.2.** Reinstall/upgrade now triggers a
-  full setup rerun on already-deployed routers, installing the stub
-  and portal instance alongside prior configuration. Existing
-  management-WiFi credentials are preserved (see Fixed below).
+- **Setup reruns on every install and upgrade.** The setup script's version
+  marker now tracks the release version — it used to be a hand-written
+  literal (`v0.6.2`) that never matched a release tag — so reinstall and
+  upgrade trigger a full setup rerun on already-deployed routers,
+  installing the stub and portal instance alongside prior configuration.
+  Existing management-WiFi credentials are preserved (see Fixed below).
 
 - **Setup log restricted to root.** `/tmp/tollgate-setup.log`, which
   records the management-WiFi password, is now created with mode 600
@@ -409,6 +413,33 @@ and [Semantic Versioning](https://semver.org/).
   6-hour default.
   ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370))
 
+- **Release version has a single source of truth: `VERSION` at the
+  repository root.** Three version literals used to disagree —
+  `src/cli/version.go`'s ldflags placeholder (`v0.0.0`),
+  `packaging/local-build-ipk.sh`'s `v0.7.0-alpha10`, and
+  `SETUP_VERSION="v0.6.2"` in
+  `packaging/files/etc/uci-defaults/99-tollgate-setup`. `VERSION` is now
+  the only place the release version is written down: CI refuses a tag
+  that is not byte-identical to it, the setup script ships a
+  `__TOLLGATE_VERSION__` placeholder that the `.ipk` staging, the SDK
+  Makefile and `local-build-ipk.sh` substitute (a copy run straight from
+  a checkout falls back to the installed package version),
+  `scripts/build-sdk-package.sh` derives its version from `VERSION`, and
+  `src/cli/version.go` carries the non-release `dev` sentinel so a plain
+  `go build` cannot pass itself off as a release.
+  `scripts/check-version-sync.sh`, wired into `hooks/pre-commit`, fails
+  the tree if a version literal — or a CHANGELOG section / release-notes
+  title that disagrees with `VERSION` — creeps back in.
+
+- **Release runbook and version rules documented.** New
+  [docs/release-process.md](docs/release-process.md) is the maintainer
+  runbook: the pre-flight gates, the exact annotated-tag commands on
+  **upstream** `main` (never the fork — the trap that produced the
+  orphaned `v0.7.0-alpha*` tags), the publish and verify sequence, and
+  the allowed version-string shapes.
+  [CONTRIBUTING.md](CONTRIBUTING.md) states the same version rules for
+  contributors.
+
 ### Security
 
 - **Exposed deployment backup purged from history.** A router
@@ -580,6 +611,7 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha2...main
+[v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
