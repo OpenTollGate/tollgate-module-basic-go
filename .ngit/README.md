@@ -10,7 +10,8 @@ untouched; the two systems run side by side.
 | --- | --- |
 | `act/workflows/test.yml` | The port of `.github/workflows/test.yml`: per-module Go tests over the module matrix, the main-package `testenv` test, `js-schema-lint`, the `Spec-quote drift check`, `build-purity`, and the dependency/import-path checks. |
 | `act/workflows/go-test.yml` | The pre-PR sequence documented in [AGENTS.md](../AGENTS.md), run from `src/`: `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`. |
-| `act/workflows/build-package.yml` | The release pipeline: cross-compile, `.ipk`/`.apk` packaging for the full architecture matrix, Blossom mirroring, kind-1063 NIP-94 announcements, and the tollgate-os handoff. |
+| `act/workflows/build-package-binaries.yml` | Stage 1 of the release pipeline: cross-compile the five GOARCH/GOARM/GOMIPS targets, build the captive-portal assets, mirror both to Blossom, and publish the build-id records stage 2 consumes. |
+| `act/workflows/build-package.yml` | Stage 2 of the release pipeline: the full `.ipk` (14) and `.apk` (3) matrix, Blossom mirroring, kind-1063 NIP-94 announcements, and the tollgate-os handoff. |
 | `act/workflows/ci-probe.yml` | Temporary diagnostic. Reports the runner ceiling, daemon-socket access and secret release from inside a real job. Deleted once `build-package.yml` is verified. |
 
 Two Go files because they cover different things: `test.yml` tests the nested
@@ -155,21 +156,46 @@ dependencies. That is very unlikely to finish inside 30 minutes from a cold SDK
 image, and there is no way to raise the ceiling from inside the workflow — the
 timeout belongs to the coordinator operator.
 
-**The split, if the SDK jobs time out** (this is the proposal, not yet
-implemented, because it needs a measurement of the SDK job's wall time first):
+**The split is implemented — two files, two budgets.** The first manual
+replay of the single-file pipeline (commit `1312f03`) was rejected by act's
+schema validator in 675 ms; after that was fixed, the replay at `63eb38f` was
+still inside `compile-binaries` eleven minutes in, with the Go module cache at
+243 MB and the five Blossom uploads still retrying. A 17-job package stage
+behind a 10–20 minute compile stage cannot fit one 30-minute budget, so the
+pipeline is split by stage:
 
-1. `build-package.yml` keeps `determine-versioning`, `compile-binaries`,
-   `build-portal`, `package-ipk`, `publish-metadata` and `os-handoff` — the
-   `.ipk` path, which needs no SDK and no container daemon at all.
-2. A new `build-package-apk.yml` holds only `package-apk` (3 jobs) plus its own
-   `publish-metadata`, giving the SDK work its own 30-minute budget. It resolves
-   the compiled binaries through the kind-30078 `d=tollgate-build/<build_id>/binaries`
-   record that `compile-binaries` publishes, which is exactly why that record is
-   published instead of being passed as a job output.
-3. If even three SDK arches do not fit, the same file is copied once per
-   architecture (`build-package-apk-mediatek-filogic.yml`,
-   `build-package-apk-x86-64.yml`). ngit-ci has no cross-file `needs`, so each
-   file is an independent run; the shared build id keeps their records coherent.
+1. `build-package-binaries.yml` — `determine-versioning`, `compile-binaries`,
+   `build-portal`. Its own 30 minutes.
+2. `build-package.yml` — `resolve-inputs`, `package-ipk` (14), `package-apk`
+   (3), `publish-metadata`, `os-handoff`. Its own 30 minutes.
+
+They are tied together by the build id (the commit's short SHA) and by two
+addressable kind-30078 records that stage 1 publishes:
+
+```
+d=tollgate-build/<build_id>/binaries   {"arm64":"<sha256>", "armv7":"…", …}
+d=tollgate-build/<build_id>/portal     {"sha256":"…","filename":"portal-assets.tar.gz","urls":[…]}
+```
+
+`resolve-inputs` polls the coordination relays for those records for up to 10
+minutes, so the two stages can be started back to back at the **same commit**
+— and on a push to `main` both files are triggered by the same push anyway.
+This is the ngit-native replacement for the twin's `needs.<job>.outputs`
+(ngit-ci has no cross-file `needs`) and for `actions/upload-artifact` (broken
+here). A stage 2 run against a commit whose stage 1 never ran fails loudly in
+`resolve-inputs` with that explanation.
+
+Each package job also publishes its **own** kind-1063 announcement, immediately
+after its Blossom upload, instead of one `publish-metadata` job announcing
+everything at the end. `publish-metadata` now verifies the announcements
+against the build records, republishes any that are missing, and prints the
+summary. The reason is the 30-minute ceiling: a run that is cut off mid-matrix
+must still have announced everything it did build.
+
+If three SDK architectures still do not fit one budget once their wall time is
+measured, the same file is copied once per architecture
+(`build-package-apk-mediatek-filogic.yml`, `build-package-apk-x86-64.yml`) —
+they are independent runs that share the build id.
 
 ## Release signing: the historical key is unrecoverable
 

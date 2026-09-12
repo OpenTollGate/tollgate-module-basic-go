@@ -1,0 +1,334 @@
+name: Build binaries and portal
+
+# ============================================================================
+# Stage 1 of the ngit release pipeline. Stage 2 is build-package.yml.
+#
+# WHY THIS IS A SEPARATE FILE
+#   ngit-ci bounds one `act` invocation (one workflow file) with
+#   --job-timeout-secs, 1800 s by default. Measured on this deployment
+#   (2026-09-12, commit 63eb38f): the Go cross-compile of the five targets plus
+#   the Blossom mirroring of the resulting tarballs is already ~10-20 minutes on
+#   its own -- a cold module cache downloads the whole lnd dependency tree
+#   (243 MB of /root/go/pkg/mod) and each of the five tarballs pays a retry
+#   against the unreachable mirror. Putting the 14 .ipk and 3 .apk jobs in the
+#   same file as that work cannot fit, so the two stages are two files with two
+#   budgets. That is the per-stage split, not a reduction in coverage: the same
+#   14 + 3 matrix entries still build, in build-package.yml.
+#
+#   The handover between the two files is a Nostr record rather than a job
+#   output, because ngit-ci has no cross-file `needs` and no working
+#   actions/upload-artifact ("Unable to get the ACTIONS_RUNTIME_TOKEN env
+#   variable"). Each stage is triggered at the SAME COMMIT -- the build id is
+#   the commit's short SHA, which is what ties them together.
+#
+# RUN IT, THEN RUN build-package.yml:
+#   nak event --sec <maintainer-nsec> -k 9840 -c "" \
+#     -t "p=<coordinator-hex>" \
+#     -t "a=30617:<maintainer-hex>:tollgate-module-basic-go" \
+#     -t "c=<commit>" \
+#     -t "w=.ngit/act/workflows/build-package-binaries.yml;<sha256>" \
+#     wss://relay.ngit.dev wss://gitnostr.com
+#   (a push to main triggers it too, because of the `on:` block below)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+env:
+  PACKAGE_NAME: "tollgate-wrt"
+  GO_VERSION: "1.25.0"
+  # blossom1.orangesync.tech is dropped from the GitHub twin's list: it did not
+  # answer from a job container on 2026-09-12 (25 s connect timeout) while
+  # primal.net, psbt.me, blossom2 and drive.cashu.email did, and with
+  # BLOSSOM_MIN_SUCCESS=1 the dead mirror only added ~60 s of retries per
+  # uploaded file. See .ngit/README.md.
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech https://drive.cashu.email"
+  BLOSSOM_MIN_SUCCESS: "1"
+  COORDINATION_RELAYS: >-
+    wss://relay.damus.io
+    wss://nos.lol
+    wss://nostr.mom
+    wss://relay1.orangesync.tech
+    wss://relay2.orangesync.tech
+
+jobs:
+  determine-versioning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      package_version: ${{ steps.determine-package-version.outputs.package_version }}
+      release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
+      build_id: ${{ steps.build-id.outputs.build_id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: build-id
+        shell: bash
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # Deterministic per commit, not per run, so stage 2 resolves the same
+          # build: the tag is the address the two files meet on.
+          echo "build_id=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: Set package_version variable
+        id: determine-package-version
+        shell: bash
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          REF_NAME="${GITHUB_REF_NAME:-unknown}"
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            echo "package_version=${REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            SANITIZED_BRANCH_NAME=$(printf '%s' "$REF_NAME" | sed 's/\//-/g')
+            # ngit-ci checkouts do not reliably expose git history; 0 is the
+            # documented fallback rather than a failure.
+            COMMIT_HEIGHT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+            echo "package_version=${SANITIZED_BRANCH_NAME}.${COMMIT_HEIGHT}.${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set release channel
+        id: determine-release-channel
+        shell: bash
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            if   [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then echo "release_channel=alpha"  >> "$GITHUB_OUTPUT"
+            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta  ]]; then echo "release_channel=beta"   >> "$GITHUB_OUTPUT"
+            elif [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+$      ]]; then echo "release_channel=stable" >> "$GITHUB_OUTPUT"
+            else                                                          echo "release_channel=dev"    >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "release_channel=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report
+        run: |
+          echo "build_id=${{ steps.build-id.outputs.build_id }}"
+          echo "package_version=${{ steps.determine-package-version.outputs.package_version }}"
+          echo "release_channel=${{ steps.determine-release-channel.outputs.release_channel }}"
+
+  compile-binaries:
+    needs: [determine-versioning]
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    outputs:
+      hashes: ${{ steps.blossom-upload.outputs.hashes }}
+      binaries_record: ${{ steps.publish-record.outputs.event_id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          # Literal version, not go-version-file: resolving the file is what
+          # failed first in this act image (see .ngit/README.md).
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Report the Go toolchain
+        run: go version
+
+      - name: Restore Go module and build cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('src/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Cross-compile all binaries
+        env:
+          CGO_ENABLED: "0"
+          GOFLAGS: -buildvcs=false
+          PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          GIT_COMMIT="${GITHUB_SHA:0:8}"
+          LDFLAGS="-s -w \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
+            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+
+          TARGETS='[
+            {"key":"arm64","goarch":"arm64"},
+            {"key":"armv7","goarch":"arm","goarm":"7"},
+            {"key":"mipsle-softfloat","goarch":"mipsle","gomips":"softfloat"},
+            {"key":"mips-softfloat","goarch":"mips","gomips":"softfloat"},
+            {"key":"amd64","goarch":"amd64"}
+          ]'
+
+          while IFS= read -r t; do
+            key=$(printf '%s' "$t" | jq -r '.key')
+            goarch=$(printf '%s' "$t" | jq -r '.goarch')
+            goarm=$(printf '%s' "$t" | jq -r '.goarm // empty')
+            gomips=$(printf '%s' "$t" | jq -r '.gomips // empty')
+
+            echo "=== Building key=$key GOARCH=$goarch GOARM=$goarm GOMIPS=$gomips ==="
+            mkdir -p "bin/$key"
+
+            GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
+              go build -C src -o "$PWD/bin/$key/tollgate-wrt" \
+              -trimpath -ldflags="$LDFLAGS" main.go
+
+            GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
+              go build -C src/cmd/tollgate-cli -o "$PWD/bin/$key/tollgate" \
+              -trimpath -ldflags="$LDFLAGS"
+
+            ls -lh "bin/$key/"
+          done < <(printf '%s' "$TARGETS" | jq -c '.[]')
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Upload binaries to Blossom (per-arch, mirrored)
+        id: blossom-upload
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+
+          blossom_upload() {
+            local file="$1"
+            local hash="" ok=0
+            for server in $BLOSSOM_SERVERS; do
+              local attempt=1 delay=2
+              while [ $attempt -le 3 ]; do
+                resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1) || true
+                srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+                if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                  ok=$((ok + 1))
+                  [ -z "$hash" ] && hash="$srv_hash"
+                  echo "  ok: ${server} -> ${srv_hash}" >&2
+                  break
+                fi
+                echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
+                sleep $delay
+                delay=$((delay * 2))
+                attempt=$((attempt + 1))
+              done
+            done
+            if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+              echo "ERROR: only ${ok} mirrors succeeded for $(basename "$file")" >&2
+              return 1
+            fi
+            printf '%s' "$hash"
+          }
+
+          HASH_JSON="{}"
+          for key_dir in bin/*/; do
+            key=$(basename "$key_dir")
+            tar czf "binaries-${key}.tar.gz" -C "bin/$key" .
+            echo "Uploading binaries-${key}.tar.gz ($(stat -c%s "binaries-${key}.tar.gz") bytes)..."
+            hash=$(blossom_upload "binaries-${key}.tar.gz")
+            echo "  -> $hash"
+            HASH_JSON=$(printf '%s' "$HASH_JSON" | jq -c --arg k "$key" --arg h "$hash" '. + {($k): $h}')
+          done
+
+          echo "hashes=$HASH_JSON" >> "$GITHUB_OUTPUT"
+          echo "All uploads complete: $HASH_JSON"
+
+      - name: Publish the stage-2 rendezvous record
+        id: publish-record
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
+          HASHES_JSON: ${{ steps.blossom-upload.outputs.hashes }}
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          out=$(nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build/${BUILD_ID}/binaries" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build" \
+            -c "$HASHES_JSON" $COORDINATION_RELAYS < /dev/null 2>&1) || true
+          ev=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
+          echo "binaries record: ${ev:-<none>}"
+          echo "event_id=${ev:-}" >> "$GITHUB_OUTPUT"
+
+  build-portal:
+    needs: [determine-versioning]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      portal_hash: ${{ steps.portal-upload.outputs.portal_hash }}
+      portal_sha: ${{ steps.portal-sha.outputs.portal_sha }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js for portal build
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Build captive portal assets
+        run: |
+          set -euo pipefail
+          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          echo "Portal assets built:"
+          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
+
+      - name: Resolve portal commit SHA
+        id: portal-sha
+        run: |
+          set -euo pipefail
+          PORTAL_SHA=$(git -C /tmp/tollgate-captive-portal-site rev-parse HEAD 2>/dev/null || echo unknown)
+          echo "portal_sha=$PORTAL_SHA" >> "${GITHUB_OUTPUT:-/tmp/github_output}"
+          echo "Captive portal built from commit $PORTAL_SHA"
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+
+      - name: Publish portal assets to Blossom and record the hash
+        id: portal-upload
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # The GitHub twin moved these with upload-artifact/download-artifact.
+          # That fails in this deployment, so stage 2 fetches them from Blossom
+          # through the record published below.
+          tar czf portal-assets.tar.gz -C packaging/files/tollgate-captive-portal-site .
+          echo "portal-assets.tar.gz: $(stat -c%s portal-assets.tar.gz) bytes"
+          hash=""; ok=0; URLS_JSON="[]"
+          for server in $BLOSSOM_SERVERS; do
+            resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" portal-assets.tar.gz < /dev/null 2>&1) || true
+            h=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+            if [ -n "$h" ] && [ "$h" != "null" ]; then
+              ok=$((ok + 1)); [ -z "$hash" ] && hash="$h"
+              URLS_JSON=$(printf '%s' "$URLS_JSON" | jq -c --arg u "${server}/${h}" '. + [$u]')
+              echo "  ok: ${server} -> ${h}"
+            else
+              echo "  failed: ${server}"
+            fi
+          done
+          [ "$ok" -ge "$BLOSSOM_MIN_SUCCESS" ] || { echo "ERROR: portal upload failed on every mirror" >&2; exit 1; }
+          echo "portal_hash=$hash" >> "$GITHUB_OUTPUT"
+
+          CONTENT=$(jq -cn --arg sha256 "$hash" --arg filename "portal-assets.tar.gz" \
+            --argjson urls "$URLS_JSON" '{sha256:$sha256, filename:$filename, urls:$urls}')
+          nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build/${BUILD_ID}/portal" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build" \
+            -c "$CONTENT" $COORDINATION_RELAYS < /dev/null || true
+          echo "portal assets hash: $hash"

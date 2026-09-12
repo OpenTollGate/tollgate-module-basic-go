@@ -1,68 +1,37 @@
 name: Build and Publish
 
 # ============================================================================
-# Port of .github/workflows/build-package.yml to ngit-ci.
+# Stage 2 of the ngit release pipeline: package the artifacts and announce
+# them. Stage 1 (compile the binaries, build the captive portal) is
+# .ngit/act/workflows/build-package-binaries.yml.
 #
-# This is a release pipeline, not a test suite: it cross-compiles the OpenWrt
-# binaries, builds .ipk (ar+tar, no SDK) and .apk (OpenWrt SDK) packages for the
-# full architecture matrix, mirrors every artifact to Blossom, and announces it
-# with kind-1063 NIP-94 events.
+# WHY TWO FILES
+#   ngit-ci bounds ONE `act` invocation -- one workflow file -- with
+#   --job-timeout-secs, 1800 s by default. Measured on this deployment on
+#   2026-09-12 (commit 63eb38f): populating the Go module cache and
+#   cross-compiling the five targets takes ~10 minutes on its own, and mirroring
+#   the five tarballs to Blossom adds several more. The 14 .ipk and 3 .apk jobs
+#   cannot share that budget, so each stage gets its own file, its own run and
+#   its own 30 minutes. Coverage is unchanged: the full 14 + 3 static matrix is
+#   right here, and the GitHub twin's UPX variant rule is gone only because a
+#   job-level `if:` reading `matrix.*` makes act reject the whole file (see
+#   .ngit/README.md) -- so every variant of every architecture builds.
 #
-# It is NOT a verbatim copy. Every difference below is a measured property of
-# this deployment; see .ngit/README.md for the evidence and for what remains
-# unverified.
+# STAGE HANDOVER
+#   Both files are triggered at the SAME COMMIT. The build id is that commit's
+#   short SHA, and stage 1 publishes the Blossom hashes it produced as
+#   addressable kind-30078 records:
+#     d=tollgate-build/<build_id>/binaries   -> {"arm64": "<sha256>", ...}
+#     d=tollgate-build/<build_id>/portal     -> {sha256, filename, urls}
+#   resolve-inputs fetches them from the relays, which is the ngit-native
+#   replacement for the twin's job outputs (ngit-ci has no cross-file `needs`)
+#   and for actions/upload-artifact (broken in this deployment).
 #
-# TRIGGERS (the only ones ngit-ci honours)
-#   * push to main, and push of a v* tag            -- both supported
-#   * pull_request                                  -- supported
-#   * paths-ignore                                  -- supported
-#   * workflow_dispatch                             -- REPLAY ONLY. It is not a
-#     trigger, and its `inputs` are never delivered, so the GitHub twin's
-#     `full_compression` input DOES NOT EXIST here. That input only decided
-#     whether the UPX variants were dropped on a non-release ref; the same
-#     decision is now made from the ref (see `defer-variants` below), so the
-#     capability is preserved, not lost.
-#   * `concurrency:`                                -- NOT honoured (no
-#     equivalent). Two pushes in quick succession can run concurrently. The
-#     build id is derived from the commit, so the kind-30078 coordination
-#     records are addressable (`d` tag) and a re-run replaces the previous one
-#     instead of duplicating it.
-#   * `schedule:` -- not used here and not supported by ngit-ci.
-#
-# RUNNER
-#   Jobs run in the act image ghcr.io/catthehacker/ubuntu:act-latest, not on a
-#   GitHub runner VM. Measured on this deployment: 4 vCPU, 4 GiB cgroup memory
-#   limit, 5 GiB free on the host. `go` is NOT preinstalled; nak and upx are
-#   not preinstalled. `docker` IS present and /var/run/docker.sock is mounted,
-#   which is what makes the SDK jobs possible at all.
-#
-# CONTAINERS
-#   `container:` blocks are refused with a startup_failure when the operator
-#   sets NGIT_CI_ACT_CONTAINER_OPTIONS (this deployment does). The two SDK jobs
-#   therefore run the OpenWrt SDK with `docker run` from inside a plain
-#   ubuntu-latest job. The SDK's filesystem is not visible to the sibling dind
-#   daemon, so the package tree is streamed in with `docker exec -i ... tar xzf`
-#   and the built .apk is streamed back out with `docker cp`.
-#
-# SECRETS
-#   There is no GITHUB_TOKEN. The release signing key is `secrets.NSEC_HEX`,
-#   provisioned by the operator as NGIT_CI_SECRET_<ALIAS>__NSEC_HEX, and it is
-#   released ONLY to runs whose trigger was authored by a confirmed maintainer.
-#   Everything else the job needs must be fetchable anonymously.
-#
-# CROSS-JOB DATA
-#   `actions/upload-artifact` fails in this deployment ("Unable to get the
-#   ACTIONS_RUNTIME_TOKEN env variable"), so nothing is passed between jobs
-#   with artifacts. Job outputs carry the small hash map, and the bytes travel
-#   over Blossom -- which is how the GitHub twin already moved the compiled
-#   binaries.
-#
-# VERSION STRINGS
-#   ngit-ci checkouts do not reliably expose git metadata, so the GitHub twin's
-#   `git rev-parse --short HEAD` and `git rev-list --count HEAD` are replaced by
-#   GITHUB_SHA; a branch build is `<branch>.<height>.<sha>` where height falls
-#   back to 0 when history is unavailable (tagged releases are unaffected).
-# ============================================================================
+# TRIGGERS ngit-ci honours: push to main, push of a v* tag, pull_request, and
+# paths-ignore. `workflow_dispatch` is replay-only and its inputs are never
+# delivered; `concurrency:` has no equivalent; `container:`/`services:` are
+# refused when the operator sets container options (hence `docker run` below).
+# There is no GITHUB_TOKEN. See .ngit/README.md.
 
 on:
   push:
@@ -78,9 +47,11 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.25.0"
-  DEBUG: "true"
-  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
+  # blossom1.orangesync.tech is dropped from the GitHub twin's list: measured
+  # unreachable from a job container on 2026-09-12 (25 s connect timeout) while
+  # the other four answer, and BLOSSOM_MIN_SUCCESS=1 means the dead mirror only
+  # bought ~60 s of retries per uploaded file.
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech https://drive.cashu.email"
   BLOSSOM_MIN_SUCCESS: "1"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
@@ -91,21 +62,15 @@ env:
   RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
 
 jobs:
-  # --------------------------------------------------------------------------
-  # The GitHub twin built this matrix with jq and published it as a job output.
-  # ngit-ci does not support a strategy.matrix built from an expression, so the
-  # matrix is static YAML here -- the same 14 .ipk entries and 3 .apk entries,
-  # with `compression: none` made explicit instead of an absent key so that
-  # `contains(matrix.compression, 'upx')` never sees a null.
-  # --------------------------------------------------------------------------
-
-  determine-versioning:
+  resolve-inputs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      build_id: ${{ steps.build-id.outputs.build_id }}
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
-      build_id: ${{ steps.build-id.outputs.build_id }}
+      hashes: ${{ steps.fetch.outputs.hashes }}
+      portal_hash: ${{ steps.fetch.outputs.portal_hash }}
     steps:
       - uses: actions/checkout@v5
 
@@ -113,9 +78,6 @@ jobs:
         shell: bash
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          # Deterministic per commit, not per run: the 30078 coordination
-          # records are addressable by this id, so a re-run replaces them and a
-          # second workflow file can rendezvous on the same build.
           echo "build_id=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
 
       - name: Set package_version variable
@@ -123,13 +85,11 @@ jobs:
         shell: bash
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          REF_NAME="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}"
+          REF_NAME="${GITHUB_REF_NAME:-unknown}"
           if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             echo "package_version=${REF_NAME}" >> "$GITHUB_OUTPUT"
           else
             SANITIZED_BRANCH_NAME=$(printf '%s' "$REF_NAME" | sed 's/\//-/g')
-            # Shallow/incomplete checkouts are normal here; 0 is the documented
-            # fallback rather than a failure.
             COMMIT_HEIGHT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
             echo "package_version=${SANITIZED_BRANCH_NAME}.${COMMIT_HEIGHT}.${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
           fi
@@ -150,230 +110,129 @@ jobs:
             echo "release_channel=dev" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Report
+      - name: Install nak
         run: |
-          echo "build_id=${{ steps.build-id.outputs.build_id }}"
-          echo "package_version=${{ steps.determine-package-version.outputs.package_version }}"
-          echo "release_channel=${{ steps.determine-release-channel.outputs.release_channel }}"
-          echo "GITHUB_REF=${GITHUB_REF:-<unset>} GITHUB_REF_NAME=${GITHUB_REF_NAME:-<unset>}"
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
 
-  compile-binaries:
-    needs: [determine-versioning]
-    runs-on: ubuntu-latest
-    timeout-minutes: 28
-    outputs:
-      hashes: ${{ steps.blossom-upload.outputs.hashes }}
-      binaries_record: ${{ steps.publish-record.outputs.event_id }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-go@v6
-        with:
-          # Literal version, not go-version-file: resolving the file is what
-          # failed first in this act image (see .ngit/README.md).
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Report the Go toolchain
-        run: go version
-
-      - name: Restore Go module and build cache
-        continue-on-error: true
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('src/go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
-
-      - name: Cross-compile all binaries
+      - name: Fetch the stage-1 records
+        id: fetch
         env:
-          CGO_ENABLED: "0"
-          # git metadata is unreliable inside a job container, and VCS stamping
-          # turns that into a build error.
-          GOFLAGS: -buildvcs=false
-          PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+          BUILD_ID: ${{ steps.build-id.outputs.build_id }}
         run: |
           set -euo pipefail
-          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          GIT_COMMIT="${GITHUB_SHA:0:8}"
-          LDFLAGS="-s -w \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
 
-          TARGETS='[
-            {"key":"arm64","goarch":"arm64"},
-            {"key":"armv7","goarch":"arm","goarm":"7"},
-            {"key":"mipsle-softfloat","goarch":"mipsle","gomips":"softfloat"},
-            {"key":"mips-softfloat","goarch":"mips","gomips":"softfloat"},
-            {"key":"amd64","goarch":"amd64"}
-          ]'
+          fetch_record() {
+            local d="$1" out
+            for attempt in $(seq 1 20); do
+              out=$(timeout 45 nak req -k 30078 --tag "d=tollgate-build/${BUILD_ID}/${d}" \
+                --limit 1 $COORDINATION_RELAYS < /dev/null 2>/dev/null \
+                | grep -m1 '^{' || true)
+              if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
+              echo "  $d record not published yet (attempt $attempt/20); waiting 30s" >&2
+              sleep 30
+            done
+            return 1
+          }
 
-          while IFS= read -r t; do
-            key=$(printf '%s' "$t" | jq -r '.key')
-            goarch=$(printf '%s' "$t" | jq -r '.goarch')
-            goarm=$(printf '%s' "$t" | jq -r '.goarm // empty')
-            gomips=$(printf '%s' "$t" | jq -r '.gomips // empty')
+          BIN_JSON=$(fetch_record binaries) || {
+            echo "ERROR: no binaries record for build id $BUILD_ID." >&2
+            echo "Run .ngit/act/workflows/build-package-binaries.yml at this same commit first." >&2
+            exit 1
+          }
+          HASHES=$(printf '%s' "$BIN_JSON" | jq -r '.content')
+          echo "binaries: $HASHES"
+          echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
 
-            echo "=== Building key=$key GOARCH=$goarch GOARM=$goarm GOMIPS=$gomips ==="
-            mkdir -p "bin/$key"
+          PORTAL_JSON=$(fetch_record portal) || {
+            echo "ERROR: no portal record for build id $BUILD_ID." >&2
+            exit 1
+          }
+          PORTAL_HASH=$(printf '%s' "$PORTAL_JSON" | jq -r '.content.sha256')
+          echo "portal: $PORTAL_HASH"
+          echo "portal_hash=$PORTAL_HASH" >> "$GITHUB_OUTPUT"
 
-            GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
-              go build -C src -o "$PWD/bin/$key/tollgate-wrt" \
-              -trimpath -ldflags="$LDFLAGS" main.go
-
-            GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
-              go build -C src/cmd/tollgate-cli -o "$PWD/bin/$key/tollgate" \
-              -trimpath -ldflags="$LDFLAGS"
-
-            ls -lh "bin/$key/"
-          done < <(printf '%s' "$TARGETS" | jq -c '.[]')
-
+  publish-metadata:
+    needs: [resolve-inputs, package-ipk, package-apk]
+    # A failed .apk job must not hide the .ipk announcements that did publish.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILD_ID: ${{ needs.resolve-inputs.outputs.build_id }}
+      PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
+      RELEASE_CHANNEL: ${{ needs.resolve-inputs.outputs.release_channel }}
+    steps:
       - name: Install nak
         run: |
           curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
           chmod +x /usr/local/bin/nak
           nak --version
 
-      - name: Upload binaries to Blossom (per-arch, mirrored)
-        id: blossom-upload
+      - name: Verify the announcements against the build records
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
           set -euo pipefail
-          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # The kind-1063 events are published by the package jobs themselves;
+          # this step proves they exist, republishes any that are missing (a job
+          # that hit the file's time limit may have uploaded without announcing),
+          # and prints the summary the human reads.
+          timeout 60 nak req -k 30078 --tag "r=$BUILD_ID" --limit 50 $COORDINATION_RELAYS > build-results.jsonl || true
+          result_count=$(wc -l < build-results.jsonl)
+          echo "build records for BUILD_ID=$BUILD_ID: $result_count"
+          [ "$result_count" -gt 0 ] || { echo "ERROR: no build records found" >&2; exit 1; }
 
-          blossom_upload() {
-            local file="$1"
-            local hash="" ok=0
-            for server in $BLOSSOM_SERVERS; do
-              local attempt=1 delay=2
-              while [ $attempt -le 3 ]; do
-                resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$file" < /dev/null 2>&1) || true
-                srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-                if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
-                  ok=$((ok + 1))
-                  [ -z "$hash" ] && hash="$srv_hash"
-                  echo "  ok: ${server} -> ${srv_hash}" >&2
-                  break
-                fi
-                echo "  attempt $attempt to ${server} failed; retrying in ${delay}s..." >&2
-                echo "  nak output: $(printf '%s' "$resp" | tail -1)" >&2
-                sleep $delay
-                delay=$((delay * 2))
-                attempt=$((attempt + 1))
-              done
-            done
-            if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
-              echo "ERROR: only ${ok} mirrors succeeded for $(basename "$file") (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
-              return 1
+          timeout 60 nak req -k 1063 --tag "n=$PACKAGE_NAME" -a "$(nak key public "$NSEC_HEX")" --limit 100 $RELAYS > announced.jsonl || true
+          have=$(grep -c "$BUILD_ID" announced.jsonl 2>/dev/null || true)
+          echo "announcements carrying this build id in v= : $have"
+
+          published=0
+          while IFS= read -r evt; do
+            content=$(printf '%s' "$evt" | jq -r '.content')
+            arch=$(printf '%s' "$content" | jq -r '.architecture // empty')
+            [ -n "$arch" ] || continue
+            filename=$(printf '%s' "$content" | jq -r '.filename')
+            hash=$(printf '%s' "$content" | jq -r '.sha256')
+            fmt=$(printf '%s' "$content" | jq -r '.format')
+            compression=$(printf '%s' "$content" | jq -r '.compression')
+
+            if grep -q "$hash" announced.jsonl 2>/dev/null; then
+              echo "  already announced: $filename"
+              continue
             fi
-            echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
-            printf '%s' "$hash"
-          }
+            url_tags=()
+            while IFS= read -r u; do url_tags+=(--tag "url=$u"); done < <(printf '%s' "$content" | jq -r '.urls[]')
+            out=$(nak event --sec "$NSEC_HEX" -k 1063               -c "TollGate Package: ${PACKAGE_NAME} for ${arch}"               "${url_tags[@]}"               --tag m="application/octet-stream"               --tag x="$hash" --tag ox="$hash"               --tag filename="$filename" --tag A="$arch"               --tag v="$PACKAGE_VERSION" --tag c="$RELEASE_CHANNEL"               --tag n="$PACKAGE_NAME" --tag compression="$compression" \
+              --tag format="$fmt" $RELAYS < /dev/null 2>&1) || true
+            ev=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
+            echo "  published missing announcement $filename -> ${ev:-<none>}"
+            published=$((published + 1))
+          done < build-results.jsonl
 
-          HASH_JSON="{}"
-          for key_dir in bin/*/; do
-            key=$(basename "$key_dir")
-            tar czf "binaries-${key}.tar.gz" -C "bin/$key" .
-            echo "Uploading binaries-${key}.tar.gz ($(stat -c%s "binaries-${key}.tar.gz") bytes)..."
-            hash=$(blossom_upload "binaries-${key}.tar.gz")
-            echo "  -> $hash"
-            HASH_JSON=$(printf '%s' "$HASH_JSON" | jq -c --arg k "$key" --arg h "$hash" '. + {($k): $h}')
-          done
+          echo "republished $published missing announcement(s)"
 
-          echo "hashes=$HASH_JSON" >> "$GITHUB_OUTPUT"
-          echo "All uploads complete: $HASH_JSON"
-
-      - name: Publish the build-id rendezvous record
-        id: publish-record
-        env:
-          NSEC_HEX: ${{ secrets.NSEC_HEX }}
-          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
-          HASHES_JSON: ${{ steps.blossom-upload.outputs.hashes }}
+      - name: Summary
         run: |
           set -euo pipefail
-          : ${GITHUB_OUTPUT:=/tmp/github_output}
-          # GitHub's twin passed this hash map between jobs as a job output.
-          # A second ngit workflow file cannot consume another file's outputs,
-          # so it is also published here, keyed by the build id -- the ngit-native
-          # equivalent of a cross-job output.
-          out=$(nak event --sec "$NSEC_HEX" -k 30078 \
-            --tag "d=tollgate-build/${BUILD_ID}/binaries" \
-            --tag "r=${BUILD_ID}" \
-            --tag "t=tollgate-build" \
-            -c "$HASHES_JSON" $COORDINATION_RELAYS < /dev/null 2>&1) || true
-          ev=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
-          echo "binaries record event id: ${ev:-<none>}"
-          echo "event_id=${ev:-}" >> "$GITHUB_OUTPUT"
-
-  build-portal:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    outputs:
-      portal_hash: ${{ steps.portal-upload.outputs.portal_hash }}
-      portal_sha: ${{ steps.portal-sha.outputs.portal_sha }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Node.js for portal build
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-
-      - name: Build captive portal assets
-        run: |
-          set -euo pipefail
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
-          echo "Portal assets built:"
-          ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
-
-      - name: Resolve portal commit SHA
-        id: portal-sha
-        run: |
-          set -euo pipefail
-          PORTAL_SHA=$(git -C /tmp/tollgate-captive-portal-site rev-parse HEAD 2>/dev/null || echo unknown)
-          echo "portal_sha=$PORTAL_SHA" >> "${GITHUB_OUTPUT:-/tmp/github_output}"
-          echo "Captive portal built from commit $PORTAL_SHA"
-
-      - name: Install nak
-        run: |
-          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
-          chmod +x /usr/local/bin/nak
-
-      - name: Publish portal assets to Blossom
-        id: portal-upload
-        env:
-          NSEC_HEX: ${{ secrets.NSEC_HEX }}
-        run: |
-          set -euo pipefail
-          : ${GITHUB_OUTPUT:=/tmp/github_output}
-          # The GitHub twin moved these with actions/upload-artifact +
-          # download-artifact in package-ipk. That fails in this deployment, so
-          # the assets travel over Blossom like everything else.
-          tar czf portal-assets.tar.gz -C packaging/files/tollgate-captive-portal-site .
-          echo "portal-assets.tar.gz: $(stat -c%s portal-assets.tar.gz) bytes"
-          hash=""
-          ok=0
-          for server in $BLOSSOM_SERVERS; do
-            resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" portal-assets.tar.gz < /dev/null 2>&1) || true
-            h=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
-            if [ -n "$h" ] && [ "$h" != "null" ]; then
-              ok=$((ok + 1)); [ -z "$hash" ] && hash="$h"
-              echo "  ok: ${server} -> ${h}"
-            else
-              echo "  failed: ${server}"
-            fi
-          done
-          [ "$ok" -ge "$BLOSSOM_MIN_SUCCESS" ] || { echo "ERROR: portal upload failed on every mirror" >&2; exit 1; }
-          echo "portal_hash=$hash" >> "$GITHUB_OUTPUT"
-          echo "portal assets hash: $hash"
+          echo "build id   : $BUILD_ID"
+          echo "version    : $PACKAGE_VERSION"
+          echo "channel    : $RELEASE_CHANNEL"
+          echo "records    : $(wc -l < build-results.jsonl)"
+          echo "announced  : $(grep -c "$BUILD_ID" announced.jsonl 2>/dev/null || echo 0)"
+          while IFS= read -r evt; do
+            content=$(printf '%s' "$evt" | jq -r '.content')
+            arch=$(printf '%s' "$content" | jq -r '.architecture // empty')
+            [ -n "$arch" ] || continue
+            printf '%s' "$content" | jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.urls[0]) (+\(.urls | length - 1) mirrors)"'
+          done < build-results.jsonl
 
   package-ipk:
-    needs: [determine-versioning, compile-binaries, build-portal]
+    needs: [resolve-inputs]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -399,7 +258,7 @@ jobs:
 
       - name: Download prebuilt binaries from Blossom
         env:
-          HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
+          HASHES_JSON: ${{ needs.resolve-inputs.outputs.hashes }}
         run: |
           set -euo pipefail
           BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
@@ -425,7 +284,7 @@ jobs:
 
       - name: Download portal assets from Blossom
         env:
-          PORTAL_HASH: ${{ needs.build-portal.outputs.portal_hash }}
+          PORTAL_HASH: ${{ needs.resolve-inputs.outputs.portal_hash }}
         run: |
           set -euo pipefail
           DOWNLOADED=false
@@ -460,7 +319,7 @@ jobs:
           : ${GITHUB_OUTPUT:=/tmp/github_output}
           COMPRESSION_SUFFIX=""
           [ "${{ matrix.compression }}" != "none" ] && COMPRESSION_SUFFIX="-${{ matrix.compression }}"
-          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
+          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.resolve-inputs.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
           echo "package_filename=$PACKAGE_FILENAME" >> "$GITHUB_OUTPUT"
 
           PAYLOAD=$(mktemp -d)
@@ -494,7 +353,7 @@ jobs:
           mkdir -p artifacts
           env \
             PKG_NAME="$PACKAGE_NAME" \
-            PKG_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
+            PKG_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
             LICENSE="CC0-1.0" \
@@ -508,7 +367,9 @@ jobs:
       - name: Upload to Blossom and announce
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
-          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
+          BUILD_ID: ${{ needs.resolve-inputs.outputs.build_id }}
+          PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.resolve-inputs.outputs.release_channel }}
           PACKAGE_FILENAME: ${{ steps.build-ipk.outputs.package_filename }}
         run: |
           set -euo pipefail
@@ -569,10 +430,35 @@ jobs:
             $COORDINATION_RELAYS < /dev/null 2>&1) || true
           echo "  30078: $(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1)"
 
+          # Announce it here, in the job that owns the artifact, instead of in a
+          # single publish-metadata job after every package has built. ngit-ci
+          # bounds the whole workflow file with one 30-minute budget, so a run
+          # that does not finish must still announce what it did produce.
+          url_tags=()
+          while IFS= read -r u; do
+            url_tags+=(--tag "url=$u")
+          done < <(printf '%s' "$PKG_URLS_JSON" | jq -r '.[]')
+
+          ann=$(nak event --sec "$NSEC_HEX" -k 1063 \
+            -c "TollGate Package: ${PACKAGE_NAME} for ${{ matrix.architecture }}" \
+            "${url_tags[@]}" \
+            --tag m="application/octet-stream" \
+            --tag x="$PKG_HASH" \
+            --tag ox="$PKG_HASH" \
+            --tag filename="$PACKAGE_FILENAME" \
+            --tag A="${{ matrix.architecture }}" \
+            --tag v="$PACKAGE_VERSION" \
+            --tag c="$RELEASE_CHANNEL" \
+            --tag n="$PACKAGE_NAME" \
+            --tag compression="$compression_tag" \
+            --tag format="ipk" \
+            $RELAYS < /dev/null 2>&1) || true
+          echo "  1063:ipk: $(printf '%s' "$ann" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1)"
+
           echo "Uploaded $PACKAGE_FILENAME -> $PKG_HASH"
 
   package-apk:
-    needs: [determine-versioning, compile-binaries, build-portal]
+    needs: [resolve-inputs]
     runs-on: ubuntu-latest
     timeout-minutes: 28
     strategy:
@@ -600,7 +486,7 @@ jobs:
 
       - name: Download prebuilt binaries from Blossom
         env:
-          HASHES_JSON: ${{ needs.compile-binaries.outputs.hashes }}
+          HASHES_JSON: ${{ needs.resolve-inputs.outputs.hashes }}
         run: |
           set -euo pipefail
           BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
@@ -623,7 +509,7 @@ jobs:
 
       - name: Download portal assets from Blossom
         env:
-          PORTAL_HASH: ${{ needs.build-portal.outputs.portal_hash }}
+          PORTAL_HASH: ${{ needs.resolve-inputs.outputs.portal_hash }}
         run: |
           set -euo pipefail
           DOWNLOADED=false
@@ -644,7 +530,7 @@ jobs:
           set -eu
           COMPRESSION_SUFFIX=""
           [ "${{ matrix.compression }}" != "none" ] && COMPRESSION_SUFFIX="-${{ matrix.compression }}"
-          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.determine-versioning.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.apk
+          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.resolve-inputs.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.apk
           echo "PACKAGE_FILENAME=$PACKAGE_FILENAME" >> "${GITHUB_ENV:-/dev/null}"
 
           STAGE=stage/${PACKAGE_NAME}
@@ -683,7 +569,7 @@ jobs:
             UPX_FLAGS="--${UPX_FLAGS#--upx-}"
           fi
 
-          docker exec -e PACKAGE_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
+          docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \
             -e USE_UPX="$USE_UPX" -e UPX_FLAGS="$UPX_FLAGS" \
             -e PKG_NAME="$PACKAGE_NAME" -e DEBUG="$DEBUG" \
             "$SVC" bash -euo pipefail -c '
@@ -715,7 +601,9 @@ jobs:
       - name: Upload to Blossom and announce
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
-          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
+          BUILD_ID: ${{ needs.resolve-inputs.outputs.build_id }}
+          PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.resolve-inputs.outputs.release_channel }}
         run: |
           set -euo pipefail
           PKG_FILE=$(ls artifacts/*.apk | head -1)
@@ -758,6 +646,31 @@ jobs:
             --tag "r=${BUILD_ID}" --tag "t=tollgate-build" \
             -c "$COORD_CONTENT" $COORDINATION_RELAYS < /dev/null || true
 
+          # Announce it here, in the job that owns the artifact, instead of in a
+          # single publish-metadata job after every package has built. ngit-ci
+          # bounds the whole workflow file with one 30-minute budget, so a run
+          # that does not finish must still announce what it did produce.
+          url_tags=()
+          while IFS= read -r u; do
+            url_tags+=(--tag "url=$u")
+          done < <(printf '%s' "$PKG_URLS_JSON" | jq -r '.[]')
+
+          ann=$(nak event --sec "$NSEC_HEX" -k 1063 \
+            -c "TollGate Package: ${PACKAGE_NAME} for ${{ matrix.architecture }}" \
+            "${url_tags[@]}" \
+            --tag m="application/octet-stream" \
+            --tag x="$PKG_HASH" \
+            --tag ox="$PKG_HASH" \
+            --tag filename="$PACKAGE_FILENAME" \
+            --tag A="${{ matrix.architecture }}" \
+            --tag v="$PACKAGE_VERSION" \
+            --tag c="$RELEASE_CHANNEL" \
+            --tag n="$PACKAGE_NAME" \
+            --tag compression="$compression_tag" \
+            --tag format="apk" \
+            $RELAYS < /dev/null 2>&1) || true
+          echo "  1063:apk: $(printf '%s' "$ann" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1)"
+
           echo "Uploaded $PACKAGE_FILENAME -> $PKG_HASH"
 
   # --------------------------------------------------------------------------
@@ -766,108 +679,8 @@ jobs:
   # artifacts that DID build from being announced. Whatever coordination
   # records exist for this build id are published; zero records is an error.
   # --------------------------------------------------------------------------
-  publish-metadata:
-    needs: [determine-versioning, compile-binaries, build-portal, package-ipk, package-apk]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash
-    env:
-      BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
-      PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
-      RELEASE_CHANNEL: ${{ needs.determine-versioning.outputs.release_channel }}
-    steps:
-      - name: Install required tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl jq
-          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
-          chmod +x /usr/local/bin/nak
-          nak --version
-
-      - name: Fetch build results from relays
-        run: |
-          set -euo pipefail
-          timeout 60 nak req -k 30078 --tag "r=$BUILD_ID" --limit 50 $COORDINATION_RELAYS > build-results.jsonl || true
-          result_count=$(wc -l < build-results.jsonl)
-          echo "Fetched $result_count build result(s) from relays for BUILD_ID=$BUILD_ID."
-          if [ "$result_count" -eq 0 ]; then
-            echo "ERROR: no build results found for BUILD_ID=$BUILD_ID" >&2
-            exit 1
-          fi
-
-      - name: Build and publish NIP-94 events
-        env:
-          NSEC_HEX: ${{ secrets.NSEC_HEX }}
-        run: |
-          set -euo pipefail
-          : > events.jsonl
-          while IFS= read -r evt; do
-            content=$(printf '%s' "$evt" | jq -r '.content')
-            # The `binaries` rendezvous record has no architecture and is not an
-            # artifact: skip anything that does not describe a package.
-            arch=$(printf '%s' "$content" | jq -r '.architecture // empty')
-            [ -n "$arch" ] || continue
-            fmt=$(printf '%s' "$content" | jq -r '.format')
-            filename=$(printf '%s' "$content" | jq -r '.filename')
-            hash=$(printf '%s' "$content" | jq -r '.sha256')
-            compression=$(printf '%s' "$content" | jq -r '.compression')
-
-            url_tags=()
-            while IFS= read -r u; do
-              url_tags+=(--tag "url=$u")
-            done < <(printf '%s' "$content" | jq -r '.urls[]')
-
-            out=$(nak event --sec "$NSEC_HEX" -k 1063 \
-              -c "TollGate Package: ${PACKAGE_NAME} for ${arch}" \
-              "${url_tags[@]}" \
-              --tag m="application/octet-stream" \
-              --tag x="$hash" \
-              --tag ox="$hash" \
-              --tag filename="$filename" \
-              --tag A="$arch" \
-              --tag v="$PACKAGE_VERSION" \
-              --tag c="$RELEASE_CHANNEL" \
-              --tag n="$PACKAGE_NAME" \
-              --tag compression="$compression" \
-              --tag format="$fmt" \
-              $RELAYS \
-              < /dev/null 2>&1) || true
-            ev_id=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
-            echo "  1063 ${arch} ${fmt} ${compression}: ${ev_id:-<none>}"
-            printf '%s' "$out" | jq -c . >> events.jsonl 2>/dev/null || true
-          done < build-results.jsonl
-
-          event_count=$(wc -l < events.jsonl)
-          echo "Built $event_count NIP-94 event(s)."
-          if [ "$event_count" -eq 0 ]; then
-            echo "ERROR: no events built" >&2
-            exit 1
-          fi
-
-      - name: Build summary
-        run: |
-          set -euo pipefail
-          echo "Published $(wc -l < events.jsonl) NIP-94 event(s) across $(echo $RELAYS | wc -w) relays."
-          while IFS= read -r evt; do
-            content=$(printf '%s' "$evt" | jq -r '.content')
-            printf '%s' "$content" | jq -r '"  \(.architecture) \(.format)\(if .compression != "none" then "-\(.compression)" else "" end): \(.urls[0]) (+\(.urls | length - 1) mirrors)"'
-          done < build-results.jsonl
-
-  # --------------------------------------------------------------------------
-  # Replaces the GitHub twin's `trigger-build-os` job.
-  #
-  # That job used peter-evans/repository-dispatch@v4 with a
-  # secrets.REPO_ACCESS_TOKEN to dispatch `build-os` into
-  # OpenTollGate/tollgate-os. There is no GitHub token on ngit-ci and no GitHub
-  # Action to dispatch into, so the handoff is published as a Nostr record
-  # instead, and the operator instructions are printed. This is a documented
-  # manual step plus a machine-readable trigger, not a silent drop.
-  # --------------------------------------------------------------------------
   os-handoff:
-    needs: [determine-versioning, publish-metadata]
+    needs: [resolve-inputs, publish-metadata]
     # Job-level `if` may not use the matrix context in this act build (a
     # `matrix.*` expression there makes the schema validator reject the whole
     # file), so only `always()` is used here and the ref check lives in the step.
@@ -884,8 +697,8 @@ jobs:
       - name: Publish the tollgate-os handoff record
         env:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
-          BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
-          PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+          BUILD_ID: ${{ needs.resolve-inputs.outputs.build_id }}
+          PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
