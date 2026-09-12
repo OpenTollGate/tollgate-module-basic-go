@@ -214,11 +214,15 @@ the event's `x` tag before announcing anything.
 
 - Close the release-request issue (currently #339) with a link to the
   tag and the release page.
-- Watch the intake channel. Every qualified report becomes one tracked work
-  item tagged with its severity and architecture
+- Watch the intake channel. Every qualified report becomes exactly one
+  kanban card on the release board, titled with its severity label and the
+  reporter's architecture — `S1`/`S2`/`S3` plus the arch, e.g.
+  `S2 aarch64_cortex-a53` — and worked in severity order, S1 first
   ([`docs/tester-intake.md`](../docs/tester-intake.md) §4.3). An S1
   wallet/funds report is a stop-ship: pull the feed index *before*
-  investigating (§4.2).
+  investigating (§4.2). Do not open a second tracker for the same reports;
+  the card is the tracker, the intake thread is where the tester sees the
+  tag echoed back.
 - Leave a fresh empty `## [Unreleased]` heading in `CHANGELOG.md` for
   the next cycle (step 2.2 assumes it exists).
 - Record anything that could not be verified on hardware, in the

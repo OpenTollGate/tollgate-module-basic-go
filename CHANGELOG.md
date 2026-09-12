@@ -42,7 +42,10 @@ and [Semantic Versioning](https://semver.org/).
   means, and that a rollback exists). Every command in its template was
   executed in a real OpenWrt 25.12.5 userland; the two router-only behaviours
   are marked as untested. `docs/rc-tester-guide.md` §9 now names that channel
-  instead of a placeholder, and `RELEASE-NOTES.md` links the document.
+  instead of a placeholder, `RELEASE-NOTES.md` links the document, and the
+  post-release step in `docs/release-process.md` names the kanban card label
+  (`S1`/`S2`/`S3` + architecture) so the intake thread and the board cannot
+  drift apart.
   ([#382](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/382))
 
 ## [v0.6.0-alpha2] - 2026-09-13
