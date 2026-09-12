@@ -1,0 +1,75 @@
+name: Go test
+
+# Nostr CI (ngit-ci) workflow. See .ngit/README.md for the authorization
+# policy, how to read results, and the checks deliberately not run here.
+#
+# This runs the pre-PR check sequence documented in AGENTS.md, from src/,
+# where every Go tool in this repository runs. `test.yml` next to this file
+# is the port of .github/workflows/test.yml (module matrix + contract
+# checks); it does not run gofmt, go vet, go build, or the root module's own
+# race test, which is what this file adds.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Git metadata is not always readable from inside a CI job container
+    # (worktrees and differently-owned checkouts both make `git status` fail),
+    # which turns `go build` into a hard error while stamping VCS info. The
+    # gate is about compiling the tree, not about version metadata, so VCS
+    # stamping is disabled for every step here.
+    env:
+      GOFLAGS: -buildvcs=false
+    steps:
+      - uses: actions/checkout@v5
+      # The version is pinned explicitly to the one src/go.mod declares.
+      # `go-version-file` resolution is what failed in this deployment's act
+      # image on the first run (see .ngit/README.md); a literal version takes
+      # a shorter, better-tested path through the action.
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.0"
+          cache: false
+      - name: Report the Go toolchain in use
+        run: |
+          go version
+          go env GOROOT GOCACHE GOVERSION
+      - name: Restore Go module and build cache
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('src/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+      - name: gofmt -l . (must print nothing)
+        working-directory: src
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$unformatted"
+            echo "fix with: cd src && gofmt -w ."
+            exit 1
+          fi
+          echo "gofmt: clean"
+      - name: go vet ./...
+        working-directory: src
+        run: go vet ./...
+      - name: go build ./...
+        working-directory: src
+        run: go build ./...
+      - name: go test -race -count=1 -tags testenv ./...
+        working-directory: src
+        # `-v` is what the repository's own ngit workflow passes to the same
+        # summariser — its pass/fail table is parsed from verbose output.
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" \
+            "main module (race, testenv)" -v -race -count=1 -tags testenv ./...
