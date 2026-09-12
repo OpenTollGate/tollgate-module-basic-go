@@ -55,6 +55,7 @@ What ngit-ci does **not** honour, and what the port does about it:
 | `workflow_dispatch` | replay only; `inputs` are never delivered | the twin's `full_compression` boolean is replaced by a ref test (see below) |
 | `concurrency:` | not honoured | documented; the build id is the commit, so coordination records are addressable and a re-run replaces rather than duplicates |
 | dynamic `strategy.matrix` from `needs.<job>.outputs` | **not supported** ("matrix values built from expressions do not [work]") | the matrices are written out as static YAML — the same 14 `.ipk` and 3 `.apk` entries |
+| `matrix.*` in a **job-level** `if:` | rejected: `Failed to match job-factory: Unknown Variable Access matrix`, which invalidates the whole file | the variant rule is dropped (all variants always build) and `if:` at job level is used only as `always()` |
 | `container:` / `services:` | **refused** with `startup_failure` when the operator sets container options (this deployment does) | the SDK jobs run `docker run openwrt/sdk:<sdk>-25.12.0` from a plain job (see below) |
 | `actions/upload-artifact` / `download-artifact` | **fails**: `Unable to get the ACTIONS_RUNTIME_TOKEN env variable` | nothing crosses a job boundary in an artifact; the portal assets travel over Blossom, like the compiled binaries already did |
 | `github.token` / `GITHUB_TOKEN` | empty | nothing depends on it |
@@ -63,16 +64,23 @@ What ngit-ci does **not** honour, and what the port does about it:
 | 30-minute budget | the whole `act` invocation is bounded by `--job-timeout-secs` (1800 s) | see "Does the matrix fit?" |
 
 The GitHub twin dropped the UPX compression variants on a non-release ref by
-filtering the matrix it generated with `jq`. A dynamic matrix is impossible
-here, so the same decision is made per job:
+filtering the matrix it generated with `jq`. Neither half of that is available
+here: a dynamic matrix is unsupported, and a job-level `if:` that reads
+`matrix.*` makes act's schema validator reject the *entire file* —
 
-```yaml
-if: matrix.compression == 'none' || github.event_name == 'pull_request'
-    || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+```
+Failed to match job-factory: Unknown Variable Access matrix
+Actions YAML Schema Validation Error detected
 ```
 
-Coverage is therefore identical to the twin: everything on `main`, tags and
-PRs, `.ipk` base variants elsewhere.
+— so the ngit port builds **every** variant on **every** run: 14 `.ipk` entries
+and 3 `.apk` entries. That is *more* coverage than the twin, not less, which is
+the shape the operator asked for ("build the matrix so we can publish as many
+architectures as we like"). The cost is eight extra jobs on a side-branch or PR
+run where the twin built only the base variants; on `main` and on `v*` tags the
+two are identical. A job-level `if:` is therefore only used with `always()`, and
+the one bit of ref-dependent logic (the tollgate-os handoff) is a `bash` check
+inside the step.
 
 ## What the port changes, and why — measured, not assumed
 
