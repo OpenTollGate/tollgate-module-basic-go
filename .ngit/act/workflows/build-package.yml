@@ -123,6 +123,7 @@ jobs:
           set -euo pipefail
           : ${GITHUB_OUTPUT:=/tmp/github_output}
 
+          # Returns the newest event line for the addressable record <d>.
           fetch_record() {
             local d="$1" out
             for attempt in $(seq 1 20); do
@@ -130,26 +131,46 @@ jobs:
                 --limit 1 $COORDINATION_RELAYS < /dev/null 2>/dev/null \
                 | grep -m1 '^{' || true)
               if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
-              echo "  $d record not published yet (attempt $attempt/20); waiting 30s" >&2
+              echo "  ${d} record not published yet (attempt $attempt/20); waiting 30s" >&2
               sleep 30
             done
             return 1
           }
 
-          BIN_JSON=$(fetch_record binaries) || {
+          # An event's `content` is itself a JSON document encoded as a string,
+          # so it has to be parsed twice. (Getting this wrong is what made the
+          # first stage-2 run fail in resolve-inputs.)
+          record_content() {
+            printf '%s' "$1" | jq -r '.content' | jq -c .
+          }
+
+          BIN_EVENT=$(fetch_record binaries) || {
             echo "ERROR: no binaries record for build id $BUILD_ID." >&2
             echo "Run .ngit/act/workflows/build-package-binaries.yml at this same commit first." >&2
             exit 1
           }
-          HASHES=$(printf '%s' "$BIN_JSON" | jq -r '.content')
+          HASHES=$(record_content "$BIN_EVENT")
+          printf '%s' "$HASHES" | jq -e 'type == "object"' > /dev/null || {
+            echo "ERROR: binaries record is not a JSON object: $HASHES" >&2; exit 1; }
+          missing=""
+          for k in arm64 armv7 mipsle-softfloat mips-softfloat amd64; do
+            printf '%s' "$HASHES" | jq -e --arg k "$k" 'has($k)' > /dev/null || missing="$missing $k"
+          done
+          if [ -n "$missing" ]; then
+            echo "ERROR: binaries record is missing compile keys:$missing" >&2
+            echo "refusing to build a partial architecture set from $HASHES" >&2
+            exit 1
+          fi
           echo "binaries: $HASHES"
           echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
 
-          PORTAL_JSON=$(fetch_record portal) || {
+          PORTAL_EVENT=$(fetch_record portal) || {
             echo "ERROR: no portal record for build id $BUILD_ID." >&2
             exit 1
           }
-          PORTAL_HASH=$(printf '%s' "$PORTAL_JSON" | jq -r '.content.sha256')
+          PORTAL_HASH=$(record_content "$PORTAL_EVENT" | jq -r '.sha256')
+          [ -n "$PORTAL_HASH" ] && [ "$PORTAL_HASH" != "null" ] || {
+            echo "ERROR: portal record has no sha256" >&2; exit 1; }
           echo "portal: $PORTAL_HASH"
           echo "portal_hash=$PORTAL_HASH" >> "$GITHUB_OUTPUT"
 
