@@ -22,6 +22,7 @@ and [Semantic Versioning](https://semver.org/).
   executed against a real OpenWrt 25.12.5 userland; router-only steps are
   marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
   `apk add --allow-untrusted`.
+  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
 
 ## [v0.6.0-alpha2] - 2026-09-13
 
