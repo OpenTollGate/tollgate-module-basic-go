@@ -434,10 +434,16 @@ removal, or a rollback.
 say so and send the `apk list --installed` line instead — a report without a
 version and an architecture is untriaged and we will ask once, then close it.
 
-**Where to send it:** the single intake channel named in the release
-announcement (`TESTER-INTAKE`). **Provisional:** the intake channel is being
-finalised alongside this guide; the announcement will name exactly one place
-to report. Do not send reports to several places at once.
+**Where to send it:** this release defines exactly one intake channel, and
+[tester-intake.md](tester-intake.md) is its authoritative description —
+the pinned issue *“Tester reports — TollGate v0.6.0-alpha2 (alpha channel)”* in
+the project's public issue tracker
+(<https://github.com/OpenTollGate/tollgate-module-basic-go/issues>), where your
+report is a **comment**. Do not open a new issue for a report, and do not send
+the same report anywhere else as well. The intake document also states the
+triage rule (a report without a package version and an architecture is
+untriaged, is asked once, then closed), what each severity means, the
+funds-related stop-ship rule, and the honest support matrix.
 
 **Severity, so you can see how it will be handled:**
 

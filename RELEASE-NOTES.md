@@ -380,11 +380,20 @@ changes in this release only exist on a real device.
   `v0.6.0-alpha2` section of [CHANGELOG.md](CHANGELOG.md) are the
   authoritative description of the release; the per-PR detail lives in the
   changelog.
-- **Reporting problems**: the tester guide's *How to report a result* section
-  lists the exact commands and the single intake channel for this release.
-  Send the output it asks for (router release, architecture, package version,
-  `tollgate version`, log lines), never a key, seed, wallet file or token.
-  Read the known-issues section above first.
+- **Reporting problems**: [docs/tester-intake.md](docs/tester-intake.md) is the
+  intake document for this release — it names the **single** channel
+  (a comment on the pinned *Tester reports — TollGate v0.6.0-alpha2 (alpha
+  channel)* issue in the
+  [project tracker](https://github.com/OpenTollGate/tollgate-module-basic-go/issues)),
+  carries the report template, and states the triage and severity rules. Send
+  the facts it asks for (router model, `cat /etc/openwrt_release`,
+  `apk --print-arch`, the feed line, `apk list --installed tollgate-wrt`,
+  `tollgate version`, `sha256sum` of the installed binaries,
+  `logread -e tollgate | tail -50`, expected vs actual) and never a key, seed,
+  wallet file or token. A report without a package version and an architecture
+  is untriaged: we ask once, then close it. Any wallet/funds symptom is
+  **S1 = stop-ship** — the feed index is pulled before we investigate. Read the
+  known-issues section above first.
 
 ## Contributors
 
