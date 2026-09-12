@@ -1,126 +1,126 @@
 name: ngit-ci environment probe
 
-# Temporary diagnostic workflow for the release-pipeline port. Everything it
-# learns is printed by the LAST step of each job, because only the tail of a
-# job log is retained in the kind-9841 content.
+# Temporary diagnostic workflow for the release-pipeline port. Only the TAIL of
+# a job log survives in the kind-9841 content, so each job prints its findings
+# last.
 #
-# Questions it answers:
-#   * cpu/memory ceiling of a real ngit-ci job container, and the checkout depth
-#     (the release version string uses `git rev-list --count HEAD`)
-#   * whether the coordinator's opt-in container daemon socket is usable, so the
-#     ported SDK jobs can `docker run` instead of declaring a (refused)
+# Verified so far (2026-09-12, this deployment, coordinator 765cd47b on DQ05):
+#   * `docker` CLI present at /usr/bin/docker, /var/run/docker.sock mounted
+#     (root:2375) and `docker run --rm --user root alpine:3.20` works inside a
+#     job -> the SDK jobs can use `docker run` instead of a refused
 #     `container:` block
-#   * whether `actions/upload-artifact` + `download-artifact` work in this
-#     deployment (the port needs them for the captive-portal assets)
-#   * whether the release-signing secret NSEC_HEX reaches a maintainer-authored
-#     push run (length only - the value is never printed)
-#   * outbound reachability to the Blossom mirrors
+#   * `actions/upload-artifact@v4` FAILS with "Unable to get the
+#     ACTIONS_RUNTIME_TOKEN env variable" -> the port must not pass bytes
+#     between jobs with artifacts; it uses Blossom, like build-package.yml
+#     already does for the compiled binaries
+#   * NSEC_HEX is released to a maintainer-authored push run once the operator
+#     passes NGIT_CI_SECRET_<ALIAS>__NSEC_HEX through the compose
+#     `environment:` block (length=64 here)
+#   * https://blossom1.orangesync.tech is unreachable from the runner;
+#     primal.net, psbt.me, drive.cashu.email and blossom2 answer
+#   * tools preinstalled: node/npm, python3/pip3, jq, curl, ar, tar, docker,
+#     make, apt-get, sudo. NOT preinstalled: nak, upx/upx-ucl.
 #
-# Deleted once build-package.yml and build-package-apk.yml are verified.
+# This revision validates the exact primitives the ported release jobs need:
+# install nak, upload to Blossom with the release key, fetch the blob back, and
+# publish + read back a kind-30078 coordination event.
 
 on:
   push:
     branches: [main, "ci/**"]
   pull_request:
 
+env:
+  BLOSSOM_SERVERS: >-
+    https://blossom.primal.net
+    https://blossom.psbt.me
+    https://drive.cashu.email
+  COORDINATION_RELAYS: "wss://relay.damus.io wss://nos.lol"
+
 jobs:
-  probe:
+  blossom-and-nostr:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
-      - name: Collect facts
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Blossom upload/download and kind-30078 round trip
         env:
-          NSEC_HEX_PROBE: ${{ secrets.NSEC_HEX }}
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
         run: |
+          set -uo pipefail
           {
-            echo "== identity =="; id
-            echo "== cpu =="; nproc
-            echo "== memory (MB) =="; free -m | head -2
-            echo "== cgroup memory.max =="; cat /sys/fs/cgroup/memory.max 2>/dev/null || echo none
-            echo "== cgroup cpu.max =="; cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo none
-            echo "== disk =="; df -h / /tmp 2>/dev/null | tail -2
-            echo "== checkout =="
-            echo "  shallow=$(git rev-parse --is-shallow-repository 2>/dev/null)"
-            echo "  head=$(git rev-parse HEAD)"
+            echo "== release key =="
+            echo "  NSEC_HEX length=${#NSEC_HEX}"
+
+            if [ "${#NSEC_HEX}" -ne 64 ]; then
+              echo "  ABORT: release signing secret not released to this run"
+              exit 0
+            fi
+
+            echo "== upload test file to Blossom =="
+            printf 'tollgate ngit-ci probe %s\n' "$GITHUB_SHA" > /tmp/probe.txt
+            OK=0
+            HASH=""
+            for server in $BLOSSOM_SERVERS; do
+              resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" /tmp/probe.txt < /dev/null 2>&1) || true
+              h=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$h" ] && [ "$h" != "null" ]; then
+                OK=$((OK + 1)); [ -z "$HASH" ] && HASH="$h"
+                echo "  ok: $server -> $h"
+              else
+                echo "  FAIL: $server -> $(printf '%s' "$resp" | tail -1)"
+              fi
+            done
+            echo "  mirrors ok: $OK"
+            echo "  sha256: ${HASH:-<none>}"
+            echo "  (the file's own sha256: $(sha256sum /tmp/probe.txt | cut -d' ' -f1))"
+
+            echo "== fetch the blob back from the first working mirror =="
+            if [ -n "$HASH" ]; then
+              for server in $BLOSSOM_SERVERS; do
+                code=$(curl -sS -o /tmp/back.txt -w '%{http_code}' -m 30 "$server/$HASH" 2>/dev/null || echo 000)
+                if [ "$code" = "200" ]; then
+                  echo "  GET $server/$HASH -> 200 ($(wc -c < /tmp/back.txt) bytes)"
+                  head -1 /tmp/back.txt | sed 's/^/    /'
+                  break
+                fi
+                echo "  GET $server/$HASH -> $code"
+              done
+            fi
+
+            echo "== publish kind 30078 with the release key =="
+            BUILD_ID="${GITHUB_SHA:0:8}"
+            COORD=$(jq -cn --arg sha256 "$HASH" --arg filename "probe.txt" \
+              --argjson urls "[]" --arg arch "x86_64" --arg fmt "ipk" --arg compression "none" \
+              '{sha256:$sha256, filename:$filename, urls:$urls, architecture:$arch, format:$fmt, compression:$compression}')
+            out=$(nak event --sec "$NSEC_HEX" -k 30078 \
+              --tag "d=tollgate-build/${BUILD_ID}/x86_64/ipk/none" \
+              --tag "r=${BUILD_ID}" --tag "t=tollgate-build" \
+              -c "$COORD" $COORDINATION_RELAYS < /dev/null 2>&1) || true
+            EV_ID=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
+            echo "  published event id: ${EV_ID:-<none>}"
+            echo "  relay output: $(printf '%s' "$out" | tr '\n' ' ' | tail -c 400)"
+
+            echo "== read it back =="
+            if [ -n "$EV_ID" ]; then
+              got=$(timeout 40 nak req -k 30078 --tag "r=$BUILD_ID" $COORDINATION_RELAYS < /dev/null 2>/dev/null | grep -c "$EV_ID" || true)
+              echo "  found $got matching event(s) on the coordination relays"
+            fi
+
+            echo "== runner facts (printed last so the tail keeps them) =="
+            echo "  nproc=$(nproc)"
+            echo "  mem=$(free -m | awk '/^Mem:/{print $2" MB total, "$7" MB available"}')"
+            echo "  cgroup-mem-max=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo none)"
+            echo "  cgroup-cpu-max=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo none)"
+            echo "  shallow=$(git rev-parse --is-shallow-repository)"
             echo "  rev-list-count=$(git rev-list --count HEAD 2>/dev/null || echo FAILED)"
-            echo "== runtime env =="
-            for v in GITHUB_REF GITHUB_REF_NAME GITHUB_SHA GITHUB_EVENT_NAME \
-                     GITHUB_WORKSPACE RUNNER_OS RUNNER_ARCH NGIT_CI_REPOSITORY \
-                     NGIT_CI_TRIGGER_EVENT DOCKER_HOST HOME; do
-              printf '  %s=%s\n' "$v" "$(eval "printf '%s' \"\${$v:-<unset>}\"")"
-            done
-            echo "== tools =="
-            for t in go node npm python3 pip3 jq curl ar tar upx upx-ucl nak docker apt-get sudo make; do
-              printf '  %-9s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
-            done
-            echo "== daemon socket =="
-            if [ -S /var/run/docker.sock ]; then
-              echo "  /var/run/docker.sock present: $(ls -l /var/run/docker.sock)"
-              docker version 2>&1 | grep -E 'Server|Client|Version' | head -6 || true
-            else
-              echo "  /var/run/docker.sock NOT mounted"
-            fi
-            echo "== docker run smoke test =="
-            docker run --rm --user root alpine:3.20 sh -c 'echo docker-run-ok; id -u' 2>&1 | tail -3
-            echo "== release signing secret =="
-            echo "  NSEC_HEX length=${#NSEC_HEX_PROBE} (64 = released, 0 = withheld)"
-          } > /tmp/facts.txt 2>&1
-          true
-
-      - name: Report facts (tail-retained)
-        run: cat /tmp/facts.txt
-
-  artifact-producer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Make a file
-        run: |
-          mkdir -p out
-          printf 'portal-assets-probe-%s\n' "$GITHUB_SHA" > out/marker.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: portal-assets
-          path: out/
-          retention-days: 1
-
-  artifact-consumer:
-    needs: [artifact-producer]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: portal-assets
-          path: downloaded/
-      - name: Report artifact handoff (tail-retained)
-        run: |
-          {
-            echo "== upload/download-artifact handoff =="
-            if [ -f downloaded/marker.txt ]; then
-              echo "  WORKING: $(cat downloaded/marker.txt)"
-            else
-              echo "  BROKEN: downloaded/marker.txt missing"
-              find . -maxdepth 3 | head -20
-            fi
-          } 2>&1 | tee -a /dev/stderr
-
-  network:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Probe Blossom mirrors and GitHub
-        run: |
-          {
-            echo "== outbound =="
-            for u in https://github.com https://relay.ngit.dev \
-                     https://blossom.primal.net https://blossom.psbt.me \
-                     https://blossom1.orangesync.tech https://blossom2.orangesync.tech \
-                     https://drive.cashu.email \
-                     https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64; do
-              printf '  %-52s ' "$u"
-              curl -sS -o /dev/null -m 25 -w '%{http_code}\n' "$u" 2>&1 || true
-            done
-          } 2>&1
+            echo "  go=$(go version 2>/dev/null || echo MISSING)"
+            echo "  GITHUB_REF=$GITHUB_REF GITHUB_REF_NAME=$GITHUB_REF_NAME"
+          } 2>&1 | tail -80
