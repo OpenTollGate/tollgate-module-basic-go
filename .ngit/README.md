@@ -322,7 +322,11 @@ Honest limits of this evidence:
   ceiling, daemon socket, Blossom reachability) has been deleted now that the
   release path is verified — it also published a trial kind-30078 record under
   the release `d=tollgate-build/<build>/<arch>/ipk/<compression>` namespace,
-  which is exactly why it should not be a standing workflow.
+  which is exactly why it should not be a standing workflow. The three events
+  it had published (one kind 1063 and two kind-30078 records for the
+  `x86_64 .../ipk/none` slot) are retracted with the kind-5 event
+  `3384cfd4533c0e4aad105237f546a448b9957df81e77223402ef6b0a46929192`, signed by
+  the CI release key.
 
 ## Release signing: the historical key is unrecoverable
 
