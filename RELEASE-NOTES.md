@@ -275,8 +275,11 @@ maintainer runbook — pre-flight gates, the annotated-tag commands on upstream
   build triggers are restricted to `main` + `v*` tags with docs-only paths
   ignored and redundant runs cancelled
   ([#369](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/369));
-  the SDK build tree is cached and every heavy job has a timeout
-  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370));
+  the SDK build tree is cached and every heavy job has a timeout,
+  carried onto `main` by the #370 follow-up after #370's merge landed
+  on the squash-merged `ci/trigger-hygiene` branch
+  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370),
+  [#385](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/385));
   the portal is built once per run instead of per matrix leg, which also
   removed per-leg commit drift
   ([#368](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/368)).

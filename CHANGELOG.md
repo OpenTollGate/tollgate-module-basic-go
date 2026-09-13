@@ -10,6 +10,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **nftables ruleset is packaged in full.** The OpenWrt recipe installed
+  `/etc/nftables.d/` one file at a time and named only
+  `20-nds-enforce.nft`, so `packaging/files/etc/nftables.d/30-backend-firewall.nft`
+  never reached a built package; the inlined `.ipk` staging also copied
+  `packaging/files/` by explicit path and dropped the ruleset directory, so
+  the `.ipk` shipped neither ruleset file. The consequence was that the
+  backend API on `:2121` (bound on all interfaces) stayed reachable from
+  every non-`br-lan` interface instead of being LAN-firewall-protected. The
+  recipe now glob-installs the whole ruleset directory and the `.ipk`
+  staging copies its `*.nft` files, so a new `*.nft` ships without a second
+  edit.
+  ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
+
 ### Changed / Internal
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
@@ -23,6 +38,18 @@ and [Semantic Versioning](https://semver.org/).
   marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
   `apk add --allow-untrusted`.
   ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+
+- **Packaging artifact-contents test.** New
+  `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
+  ships the runtime files under `packaging/files/`, and is wired into both
+  packaging jobs in `.github/workflows/build-package.yml`. The packaged
+  `etc/nftables.d/` set must equal the source set: a missing, empty, or
+  truncated `*.nft` fails the build, and so does a stray extra file under
+  `etc/nftables.d/` that has no source counterpart. Other pre-existing
+  divergences are reported as a non-fatal warning. The `.apk` job selects the
+  package artifact by name and fails loudly if it is not found, instead of
+  testing whichever `.apk` happens to come first.
+  ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
 
 ## [v0.6.0-alpha2] - 2026-09-13
 
@@ -422,14 +449,20 @@ and [Semantic Versioning](https://semver.org/).
   the workflow's 43k runner-minutes YTD waste.
   ([#369](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/369))
 
-- **CI: apk SDK build-tree caching + job timeouts.** `package-apk` gains
-  an `actions/cache` step (SHA-pinned `@v5`) caching `/builder/dl`,
-  `staging_dir`, and `build_dir` keyed per SDK target with
-  `restore-keys` fallback, so subsequent runs skip feed downloads and
-  dependency compiles. `timeout-minutes` added to all heavy jobs
-  (compile 30, portal 15, ipk 30, apk 90, publish 15) replacing the
-  6-hour default.
-  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370))
+- **CI: apk SDK build-tree caching + job timeouts, carried onto `main`
+  by the #370 follow-up.** #370 is marked merged, but its content
+  never reached `main`: its base was the stacked `ci/trigger-hygiene`
+  branch (#369), which landed on `main` as the squash `db8af35` 54
+  seconds before #370 merged into that already-merged branch.
+  `package-apk` gains an `actions/cache` step (SHA-pinned `@v5`)
+  caching `/builder/dl`, `staging_dir`, and `build_dir` keyed per SDK
+  target with `restore-keys` fallback, so subsequent runs skip feed
+  downloads and dependency compiles. `timeout-minutes` is added to
+  the four heavy jobs that ran against the 360-minute default
+  (compile 30, portal 15, ipk 30, apk 90); `publish-metadata` already
+  carried its 15.
+  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370),
+  [#385](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/385))
 
 - **Release version has a single source of truth: `VERSION` at the
   repository root.** Three version literals used to disagree —
