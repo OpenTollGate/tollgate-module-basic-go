@@ -1,0 +1,90 @@
+name: Reproducibility check
+
+# Nostr CI (ngit-ci) workflow. See .ngit/README.md for the authorization
+# policy, how to read results, and the checks deliberately not run here.
+#
+# Fast lane of .github/workflows/repro-check.yml, which until now existed only
+# under .github/workflows/ and therefore never ran here: ngit-ci reads
+# .ngit/act/workflows/ only. It rebuilds both Go binaries in two independent
+# clean roots (fresh tree copies, separate HOME, separate Go module and build
+# caches) and requires byte-identical SHA-256s. This is the cheap half of the
+# reproducibility gate — pinned Go, jq, and nothing else.
+#
+# The package targets (portal, ipk, ipk-upx, apk) are deliberately NOT ported.
+# portal needs the pinned Node/npm toolchain, and ipk/apk run the OpenWrt SDK
+# image through docker; `act` does not give jobs a nested docker daemon, so a
+# lane that asked for them would fail for environment reasons rather than for
+# the commit under test. They stay on the GitHub workflow's workflow_dispatch
+# slow lane and on a build host, where `scripts/repro-test.sh <target> <arch>`
+# runs them. Everything below runs the *same* harness, so the target that runs
+# here is the target that is verified here.
+#
+# The Go toolchain is pinned to packaging/build-inputs.json `.go.version` — the
+# exact patch every reproducible build must use — not the language version in
+# src/go.mod that go-test.yml pins for the test gate. Byte-identical output
+# depends on the exact toolchain, and the step below fails if the two disagree
+# instead of quietly comparing two builds of a toolchain nobody pinned.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    # Two cold builds, each downloading the module graph into its own cache —
+    # that isolation is the point of the check, so no shared cache shortens it.
+    timeout-minutes: 45
+    # Git metadata is not always readable from inside a CI job container
+    # (worktrees and differently-owned checkouts both make `git status` fail),
+    # which turns `go build` into a hard error while stamping VCS info. The
+    # gate is about byte-identical output, not version metadata, and
+    # scripts/repro-test.sh already builds with -buildvcs=false.
+    env:
+      GOFLAGS: -buildvcs=false
+    steps:
+      - uses: actions/checkout@v5
+      # The version is pinned explicitly to the one packaging/build-inputs.json
+      # declares. `go-version-file` resolution is what failed in this
+      # deployment's act image on the first run (see .ngit/README.md); a
+      # literal version takes a shorter, better-tested path through the action.
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.8"
+          cache: false
+      - name: Report the Go toolchain in use
+        run: |
+          go version
+          go env GOROOT GOCACHE GOVERSION
+      - name: Ensure jq is present
+        # packaging/build-env.sh reads the pinned inputs with jq and refuses to
+        # run without it. GitHub runners ship jq; the act images are leaner.
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq missing; installing it"
+            SUDO=""
+            command -v sudo >/dev/null 2>&1 && SUDO=sudo
+            $SUDO apt-get update -qq
+            $SUDO apt-get install -y -qq jq
+          fi
+          jq --version
+      - name: Check the toolchain matches the pinned manifest
+        run: |
+          set -euo pipefail
+          want="$(jq -r '.go.version' packaging/build-inputs.json)"
+          have="$(go version | awk '{print $3}' | sed 's/^go//')"
+          if [ "$have" != "$want" ]; then
+            echo "ERROR: go $have does not match the pinned .go.version $want" >&2
+            echo "Reproducibility is only meaningful with the pinned patch release;" >&2
+            echo "bump .go.version in packaging/build-inputs.json (and this pin) together." >&2
+            exit 1
+          fi
+          echo "go $have matches packaging/build-inputs.json"
+      - name: Deterministic binary rebuild check (both binaries)
+        # Prints BUILD 1 / BUILD 2 SHA-256s per binary and REPRODUCIBLE: YES|NO.
+        # A target that produces no artifact is a failure, not a pass: the
+        # harness fails closed, so a green run here means artifacts really were
+        # compared.
+        run: bash scripts/repro-test.sh binaries x86_64
