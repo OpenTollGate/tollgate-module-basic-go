@@ -463,3 +463,28 @@ Treat A/B/C as a gate before comparing benchmarks.
 6 months; count upstream releases we have not adopted; check whether our platform
 (musl/OpenWrt, 64-128 MB RAM) is in upstream CI. A dependency with no upstream CI
 for our platform is grade B at best.
+
+## Added 2026-09-13 — interchangeability / plug-in conformance (operator made it a goal)
+
+**Question:** if we adopt this, how hard is it to *swap it back out* — and can both
+candidates coexist behind one contract?
+
+Measure:
+- **Contract coverage:** which `WalletPort` methods the adapter implements, which
+  are partial, which are missing (the port is the acceptance contract).
+- **Shared conformance suite:** do the existing vectors (`compatibility_matrix_test.go`,
+  `cross_vectors_test.go`, `sentinel_test.go`, `spending_conditions_test.go`) pass
+  against the candidate? A candidate that passes one suite as easily as the other is
+  what makes interchangeability real rather than aspirational.
+- **Coexistence:** can two adapters sit in one module tree today? (Precedent exists:
+  `gonuts_wallet.go` and `cdk_wallet.go` behind a build tag.) What does a third
+  (nucula) require — C++ library + cgo, or a sidecar?
+- **Selection mechanism:** build tag vs config vs process boundary. Build tag is
+  simplest but fixes the choice at compile time; a sidecar lets it be a runtime
+  choice at the cost of a process boundary; config-driven in-process needs both
+  linked, which the cgo question decides.
+- **Blast radius of a swap:** files touched, whether the router's persisted data
+  (proofs, seed) migrates, whether rollback is possible.
+
+**Bad value:** an adapter that passes no shared suite, or a selection mechanism that
+requires recompiling the router to change wallets with no migration path.

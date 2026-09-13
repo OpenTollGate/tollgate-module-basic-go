@@ -50,3 +50,15 @@ recorded revision themselves.
 | T9 | Fork-ownership grading (A/B/C) for every option, with the measurement (our commits to the dependency, unadopted upstream releases, upstream CI coverage of musl/our arches) | worker | TODO | `03-baseline/fork-ownership.md` |
 | T10 | "Un-fork gonuts" option study: could we contribute the fork's content upstream, or vendor a pinned upstream release? What does the fork add, commit by commit? | worker | TODO | `03-baseline/unfork-gonuts.md` |
 | T11 | Upstream-acceptance enquiry for a nucula Linux port: is the author willing to host/maintain a Linux target and grant a licence? Blocks C1 entirely. | operator | TODO | `01-candidates/nucula.md` |
+
+## Added 2026-09-13 (operator: flexibility > diversification)
+
+| # | Task | Owner | Status | Artifact |
+|---|---|---|---|---|
+| T12 | **Interchangeability design:** define the single conformance suite both candidates must pass, the selection mechanism (build tag vs config vs sidecar), and whether gonuts/CDK/nucula can coexist in one module tree. Reuse the existing vectors rather than writing new ones. | worker (code) | TODO | `03-baseline/interchangeability.md` |
+| T13 | **Objective scorecard:** fill the axis table in `04-reports/RECOMMENDATION.md` with measured values only, weights stated explicitly, and trade-offs written where each candidate wins and loses. Includes the un-forked gonuts comparator. | manager + workers | TODO | `04-reports/RECOMMENDATION.md` |
+| T14 | Adapter effort estimate per candidate: how many lines/hours to implement the full `WalletPort` (gonuts exists; CDK exists but is unverified for musl; nucula needs a port). | worker (code) | TODO | `03-baseline/adapter-effort.md` |
+
+**Note:** diversification is no longer a scoring axis (operator demoted it to an
+observation). The fork-ownership grade (T9) survives because it measures *cost*,
+not preference.

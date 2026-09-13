@@ -82,3 +82,43 @@ downstream copy?** Scoring: (a) upstream maintains it and we consume releases;
 (b) upstream maintains it but not our platform, so we carry a platform patch set;
 (c) we own a fork outright. `gonuts-tollgate` is (c) and is the thing we are
 trying to leave. Any nucula port that does not land upstream is also (c).
+
+## OPERATOR POLICY 2026-09-13 — supersedes the diversification framing
+
+> "it would be nice if we have the ability to use nucula wallet and CDK
+> interchangeably. Lets not make it entirely about diversification. Flexibility is
+> even better than diversification. Lets just try to figure out which is
+> objectively the better wallet for tollgate on openwrt and lets try to figure out
+> what the tradeoffs are."
+
+Consequences for this report:
+
+1. **The primary deliverable is an objective comparison**, not an advocacy piece:
+   which wallet is better *for TollGate on OpenWrt*, on measured evidence, with the
+   trade-offs stated where each one wins and loses. No axis may be weighted by
+   preference without saying so.
+2. **Interchangeability is a first-class criterion, and a build goal.** The
+   programme should aim for both backends selectable behind one interface — the
+   module already has the seam (`WalletPort` + build tags + the wire-format
+   compatibility vectors). "Better" therefore includes "better *to plug in*".
+3. **Diversification is demoted to an observation.** It may be mentioned as a
+   side-effect of an architecture, but it must not drive the score. (It was
+   previously listed as the C2 constraint; retained here only as an observation.)
+4. **Coexistence matters.** If both backends can live in one module (two adapters,
+   one contract), the choice becomes reversible — which is worth real engineering
+   effort, because it converts a one-way decision into a config/build choice.
+
+### The comparison must therefore answer, with measurements:
+
+| Axis | Question |
+|---|---|
+| **Fit for OpenWrt** | Does it build for musl/aarch64/mipsel? Binary size stripped/unstripped? RSS idle/peak? Threads? Startup? Storage format and **flash bytes written per payment**? |
+| **Coverage / correctness** | Does it implement everything `WalletPort` requires — the *contract*, not a wish list? Do the existing compatibility/cross vectors pass against it? |
+| **Interchangeability** | How large is the adapter? Does it pass one shared conformance suite? Can both backends coexist? What is the selection mechanism (build tag / config / sidecar)? What is the blast radius of swapping? |
+| **Reliability** | Failure modes: mint unreachable / 5xx / malformed, clock skew, kill mid-swap, disk full, corrupt store. Does its view of a spent proof ever disagree with the mint, and can it recover alone? |
+| **Ownership cost** | Upstream activity, releases we would not adopt, whether our platform is in upstream CI, and fork-ownership grade (A/B/C). Objective, not stylistic. |
+| **Licence** | Gating: nucula has none (asks sent); CDK terms to confirm against GPL-3. |
+
+The third option — **stay on gonuts, un-forked** — is a comparator in this table,
+not a separate programme: it is the cheapest on interchangeability (zero work) and
+the cheapest on ownership only if the fork can be resolved upstream.
