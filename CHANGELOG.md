@@ -10,6 +10,30 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **nftables ruleset is packaged in full.** The OpenWrt recipe installed
+  `/etc/nftables.d/` one file at a time and named only
+  `20-nds-enforce.nft`, so `packaging/files/etc/nftables.d/30-backend-firewall.nft`
+  never reached a built package; the inlined `.ipk` staging also copied
+  `packaging/files/` by explicit path and dropped the ruleset directory, so
+  the `.ipk` shipped neither ruleset file. The consequence was that the
+  backend API on `:2121` (bound on all interfaces) stayed reachable from
+  every non-`br-lan` interface instead of being LAN-firewall-protected. The
+  recipe now glob-installs the whole ruleset directory and the `.ipk`
+  staging copies it, so a new `*.nft` ships without a second edit.
+  ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
+
+### Changed / Internal
+
+- **Packaging artifact-contents test.** New
+  `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
+  ships the runtime files under `packaging/files/`, and is wired into both
+  packaging jobs in `.github/workflows/build-package.yml`. A missing
+  `etc/nftables.d/*.nft` fails the build; other pre-existing divergences are
+  reported as a non-fatal warning.
+  ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
+
 ## [v0.6.0-alpha2] - 2026-09-13
 
 ### Added
