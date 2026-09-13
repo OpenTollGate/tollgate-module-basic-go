@@ -35,7 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     # Two cold builds, each downloading the module graph into its own cache —
     # that isolation is the point of the check, so no shared cache shortens it.
-    timeout-minutes: 45
+    # 30 matches the coordinator's default job cap; a larger value buys nothing.
+    timeout-minutes: 30
     # Git metadata is not always readable from inside a CI job container
     # (worktrees and differently-owned checkouts both make `git status` fail),
     # which turns `go build` into a hard error while stamping VCS info. The
@@ -87,4 +88,25 @@ jobs:
         # A target that produces no artifact is a failure, not a pass: the
         # harness fails closed, so a green run here means artifacts really were
         # compared.
-        run: bash scripts/repro-test.sh binaries x86_64
+        #
+        # The act job workspace has no usable .git, so the harness's env-first
+        # inputs (SOURCE_DATE_EPOCH, TG_GIT_COMMIT) are supplied here — from
+        # the triggering commit where possible, with the job-start clock as the
+        # last resort. The last resort keeps the run's comparison meaningful
+        # (both roots get the identical epoch by construction); cross-run
+        # reproducibility stays anchored to the commit by the build-host lane.
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$GITHUB_WORKSPACE" log -1 --format=%ct HEAD 2>/dev/null || true)}"
+          if [ -z "$SOURCE_DATE_EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
+            SOURCE_DATE_EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
+          fi
+          if [ -z "$SOURCE_DATE_EPOCH" ]; then
+            echo "NOTE: no commit timestamp available in this environment; pinning the epoch to job start (within-run determinism only)." >&2
+            SOURCE_DATE_EPOCH="$(date +%s)"
+          fi
+          export SOURCE_DATE_EPOCH
+          TG_GIT_COMMIT="${TG_GIT_COMMIT:-$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD 2>/dev/null || echo "${GITHUB_SHA:0:7}")}"
+          export TG_GIT_COMMIT
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH TG_GIT_COMMIT=$TG_GIT_COMMIT"
+          bash scripts/repro-test.sh binaries x86_64

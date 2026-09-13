@@ -35,10 +35,21 @@ TG_TOOLS="${TG_TOOLS:-$HOME/.cache/tollgate-tools}"
 export TG_TOOLS
 
 # SOURCE_DATE_EPOCH is exported BEFORE sourcing build-env so both roots get
-# the identical epoch even though neither copy carries git history.
+# the identical epoch even though neither copy carries git history. An
+# environment value always wins; the git derivation is best-effort so a
+# checkout without usable git metadata (act job containers, clean-root
+# copies) fails with a message naming what to export, instead of dying
+# mid-pipeline with git's own fatal error before anything is compared.
 if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
-    SOURCE_DATE_EPOCH="$(git -C "$REPO_ROOT" log -1 --format=%ct HEAD)"
-    export SOURCE_DATE_EPOCH
+    SOURCE_DATE_EPOCH="$(git -C "$REPO_ROOT" log -1 --format=%ct HEAD 2>/dev/null || true)"
+    if [ -n "$SOURCE_DATE_EPOCH" ]; then
+        export SOURCE_DATE_EPOCH
+    else
+        echo "ERROR: SOURCE_DATE_EPOCH is not set and $REPO_ROOT has no usable git history." >&2
+        echo "       Export SOURCE_DATE_EPOCH (and TG_GIT_COMMIT), e.g. from the triggering" >&2
+        echo "       commit in CI — see .ngit/act/workflows/repro-check.yml for the cascade." >&2
+        exit 1
+    fi
 fi
 TG_ROOT="$REPO_ROOT"
 export TG_ROOT
@@ -65,7 +76,17 @@ case "$ARCH" in
 esac
 
 BASE="$(mktemp -d -t tg-repro.XXXXXX)"
-cleanup() { [ "${KEEP:-0}" = "1" ] && echo "KEEP=1 - roots kept under $BASE" || rm -rf "$BASE"; }
+cleanup() {
+    if [ "${KEEP:-0}" = "1" ]; then
+        echo "KEEP=1 - roots kept under $BASE"
+        return 0
+    fi
+    # Go marks extracted module files read-only; without this a non-root
+    # user cannot delete them, the EXIT trap's rm fails, and its failure
+    # masks the harness verdict (exit 1 despite REPRODUCIBLE: YES).
+    chmod -R u+w "$BASE" 2>/dev/null || true
+    rm -rf "$BASE"
+}
 trap cleanup EXIT
 
 TREE_TAR="$BASE/tree.tgz"
