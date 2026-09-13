@@ -1,41 +1,82 @@
 #!/usr/bin/env bash
-# Local .ipk builder — replicates CI pipeline for aarch64_cortex-a53.
-# Usage: bash packaging/local-build-ipk.sh
+# Local .ipk builder — replicates CI pipeline for one architecture.
+# Usage: [ARCH=… PKG_VERSION=…] bash packaging/local-build-ipk.sh
+# Deterministic given the inputs pinned in packaging/build-inputs.json.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# Reproducible-build environment: pinned tool versions, SOURCE_DATE_EPOCH,
+# BUILD_TIME_UTC, ldflags helpers (packaging/build-env.sh).
+# shellcheck source=build-env.sh
+. "$REPO_ROOT/packaging/build-env.sh"
 
 PKG_NAME="tollgate-wrt"
 # The release version comes from the repository-root VERSION file, the single
 # source of truth (see CONTRIBUTING.md). CI ignores this script and derives the same
 # string from the git tag; set PKG_VERSION to override for a one-off build.
 PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
-ARCH="aarch64_cortex-a53"
-COMPILE_KEY="arm64"
-GOARCH="arm64"
+ARCH="${ARCH:-aarch64_cortex-a53}"
 
-echo "=== Building Go binaries (GOOS=linux GOARCH=$GOARCH) ==="
+case "$ARCH" in
+  aarch64_cortex-a53|aarch64_cortex-a72) COMPILE_KEY="arm64";      GOARCH="arm64" ;;
+  arm_cortex-a7)                         COMPILE_KEY="armv7";      GOARCH="arm"; GOARM="7" ;;
+  mipsel_24kc)                           COMPILE_KEY="mipsle-sf";  GOARCH="mipsle"; GOMIPS="softfloat" ;;
+  mips_24kc)                             COMPILE_KEY="mips-sf";    GOARCH="mips"; GOMIPS="softfloat" ;;
+  x86_64)                                COMPILE_KEY="amd64";      GOARCH="amd64" ;;
+  *) echo "ERROR: unsupported ARCH=$ARCH" >&2; exit 1 ;;
+esac
+GOARM="${GOARM:-}"; GOMIPS="${GOMIPS:-}"
 
-BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-GIT_COMMIT=$(git rev-parse --short HEAD)
-LDFLAGS="-s -w \
-  -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PKG_VERSION' \
-  -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
-  -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME' \
-  -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager.GitBranch=main'"
+GO_BIN="${GO_BIN:-go}"
+ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
+if [ "$ACTIVE_GO" != "go$GO_VERSION" ]; then
+  if [ "${TG_ALLOW_GO_MISMATCH:-0}" = "1" ]; then
+    echo "WARNING: go $ACTIVE_GO != pinned $GO_VERSION (TG_ALLOW_GO_MISMATCH=1); output NOT reproducible" >&2
+  else
+    echo "ERROR: go $ACTIVE_GO does not match pinned GO_VERSION=$GO_VERSION." >&2
+    echo "Install the pinned toolchain (see packaging/build-inputs.json) or set GO_BIN." >&2
+    echo "Set TG_ALLOW_GO_MISMATCH=1 to proceed anyway (non-reproducible)." >&2
+    exit 1
+  fi
+fi
+
+TG_GIT_COMMIT="${TG_GIT_COMMIT:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown\n')}"
+export TG_GIT_COMMIT
+
+echo "=== Building Go binaries (GOOS=linux GOARCH=$GOARCH, SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH) ==="
+
+LDFLAGS="$(go_ldflags "$PKG_VERSION")"
+# The tollgate CLI is a separate Go module (module tollgate-cli) that does
+# not link the src/cli package, so its version must be injected via main.version.
+CLI_LDFLAGS="$(cli_ldflags "$PKG_VERSION")"
 
 mkdir -p "bin/$COMPILE_KEY"
 
-CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH \
-  go build -C src -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" \
-  -trimpath -ldflags="$LDFLAGS" main.go
+CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
+  "$GO_BIN" build -C src -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" \
+  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
 
-CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH \
-  go build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
-  -trimpath -ldflags="$LDFLAGS"
+CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
+  "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
+  -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
 ls -lh "bin/$COMPILE_KEY/"
+
+if [ "${USE_UPX:-0}" = "1" ]; then
+  UPX_BIN="${UPX_BIN:-upx}"
+  UPX_FLAGS="${UPX_FLAGS:---ultra-brute}"
+  command -v "$UPX_BIN" >/dev/null 2>&1 || { echo "ERROR: USE_UPX=1 but $UPX_BIN not found" >&2; exit 1; }
+  ACTIVE_UPX="$("$UPX_BIN" --version 2>/dev/null | head -1 | awk '{print $2}')"
+  if [ "$ACTIVE_UPX" != "$UPX_VERSION" ] && [ "${TG_ALLOW_UPX_MISMATCH:-0}" != "1" ]; then
+    echo "ERROR: upx $ACTIVE_UPX != pinned $UPX_VERSION (packaging/build-inputs.json). Use scripts/fetch-upx.sh." >&2
+    exit 1
+  fi
+  echo "=== Compressing with UPX $ACTIVE_UPX $UPX_FLAGS ==="
+  "$UPX_BIN" --force $UPX_FLAGS "bin/$COMPILE_KEY/tollgate-wrt" "bin/$COMPILE_KEY/tollgate" >/dev/null
+  ls -lh "bin/$COMPILE_KEY/"
+fi
 
 echo "=== Assembling payload ==="
 
@@ -89,12 +130,17 @@ echo "..."
 PACKAGE_FILENAME="${PKG_NAME}_${PKG_VERSION}_${ARCH}.ipk"
 echo "=== Building .ipk: $PACKAGE_FILENAME ==="
 
+# Normalize payload mtimes to SOURCE_DATE_EPOCH: the packer pins archive
+# mtimes itself, but normalized source files keep any future packaging
+# path (e.g. the OpenWrt SDK) byte-stable too.
+normalize_mtime "$PAYLOAD"
+
 env \
   PKG_NAME="$PKG_NAME" \
   PKG_VERSION="$PKG_VERSION" \
   ARCH="$ARCH" \
   MAINTAINER="TollGate <tollgate@tollgate.me>" \
-  LICENSE="CC0-1.0" \
+  LICENSE="GPL-3.0-only" \
   DEPENDS="libc" \
   PROVIDES="nodogsplash-files" \
   REPLACES="nodogsplash, base-files" \

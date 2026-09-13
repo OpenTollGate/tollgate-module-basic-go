@@ -213,17 +213,33 @@ wallet_ok: true
 network_ok: true
 ```
 
+**Note — the version string the published build prints.** The repository-root
+`VERSION` file (`v0.6.0-alpha2`) is injected into both binaries verbatim: CI
+passes the tag down as `PACKAGE_VERSION` and every packaging path in this tree
+(`scripts/build-sdk-package.sh`, `packaging/local-build-ipk.sh`) forwards it to
+`-X .../src/cli.Version` unchanged. A build from the current tree therefore
+prints `version: v0.6.0-alpha2` (hyphen) and `version: TollGate v0.6.0-alpha2`.
+The rehearsal block above was produced by an earlier packaging path and shows
+the underscore form; the number is the same either way, and a difference of only
+`-` versus `_`, or a trailing `-r<N>`, is not a finding (see
+[tester-intake.md](tester-intake.md)). The same block records
+`go_version: go1.26.0`; builds from the current tree are pinned to the toolchain
+in [packaging/build-inputs.json](packaging/build-inputs.json) (`go1.25.8`), so
+expect that value on a published artifact.
+
 **Version strings, so you know what you are looking at:**
 
 | where | value |
 |---|---|
 | release tag / announcement | `v0.6.0-alpha2` |
 | package version (`apk list --installed`) | `0.6.0_alpha2-r0` |
-| runtime version (`tollgate version`) | `v0.6.0_alpha2` |
+| runtime version (`tollgate version`) | `v0.6.0-alpha2` |
 
-apk normalises the hyphen into an underscore for its own version ordering; the
-`-r0` release revision is set when the package is built. The runtime string is
-the apk-safe form as well. The exact `-r` number and commit for the published
+apk carries no hyphen in a version, so its control value spells the tag as
+`0.6.0_alpha2`; the `-r0` release revision is what
+[packaging/normalize-apk-version.sh](packaging/normalize-apk-version.sh)
+appends (the recipe sets no `PKG_RELEASE` of its own). The runtime string is
+the tag **verbatim** — hyphen kept, no `-r0`. The exact `-r` number and commit for the published
 build are printed in the announcement — compare rather than assume.
 
 **The CLI talks to the running service over `/var/run/tollgate.sock`.** If the
@@ -441,10 +457,16 @@ removal, or a rollback.
 say so and send the `apk list --installed` line instead — a report without a
 version and an architecture is untriaged and we will ask once, then close it.
 
-**Where to send it:** the single intake channel named in the release
-announcement (`TESTER-INTAKE`). **Provisional:** the intake channel is being
-finalised alongside this guide; the announcement will name exactly one place
-to report. Do not send reports to several places at once.
+**Where to send it:** this release defines exactly one intake channel, and
+[tester-intake.md](tester-intake.md) is its authoritative description —
+the pinned issue *“Tester reports — TollGate v0.6.0-alpha2 (alpha channel)”* in
+the project's public issue tracker
+(<https://github.com/OpenTollGate/tollgate-module-basic-go/issues>), where your
+report is a **comment**. Do not open a new issue for a report, and do not send
+the same report anywhere else as well. The intake document also states the
+triage rule (a report without a package version and an architecture is
+untriaged, is asked once, then closed), what each severity means, the
+funds-related stop-ship rule, and the honest support matrix.
 
 **Severity, so you can see how it will be handled:**
 

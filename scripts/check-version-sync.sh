@@ -4,9 +4,12 @@
 # VERSION, at the repository root, is the one place the release version is
 # written down. Everything else derives from it:
 #
-#   * CI (.github/workflows/build-package.yml) takes the version from the pushed
-#     tag, passes it to -ldflags, to the .ipk control file and to the OpenWrt
-#     SDK Makefile, and refuses to build a tag that disagrees with VERSION;
+#   * CI (.github/workflows/build-package.yml) refuses to build a tag that
+#     disagrees with VERSION, passes VERSION's value to -ldflags through the
+#     go_ldflags helper in packaging/build-env.sh (the same helper
+#     scripts/repro-test.sh calls), and version-stamps the .ipk control file
+#     and the OpenWrt SDK Makefile with the tag / branch-derived
+#     package_version;
 #   * scripts/build-sdk-package.sh takes PACKAGE_VERSION from its caller (CI
 #     passes the tag) and otherwise derives it from VERSION;
 #   * the .ipk payload staging and the SDK Makefile substitute the
@@ -86,6 +89,20 @@ if grep -q '__TOLLGATE_VERSION__' packaging/local-build-ipk.sh; then
     pass "packaging/local-build-ipk.sh substitutes the setup-script placeholder"
 else
     fail "packaging/local-build-ipk.sh does not substitute __TOLLGATE_VERSION__ into 99-tollgate-setup"
+fi
+
+# --- 4b. no PKG_VERSION literal default in ANY build script ------------------
+# ${PKG_VERSION:-vX.Y.Z} (env-override with a literal fallback) hides a stale
+# version from the plain `PKG_VERSION="vX.Y.Z"` greps above while still
+# shipping it in every build that does not export PKG_VERSION. Every build
+# script must fall back to the VERSION file instead.
+BAD_PKG_DEFAULTS="$(grep -rnE 'PKG_VERSION[:-][^ ]*=?-?\"?v[0-9]+\.[0-9]+\.[0-9]+' \
+    packaging/*.sh scripts/*.sh 2>/dev/null | grep -v 'check-version-sync.sh' || true)"
+if [ -n "$BAD_PKG_DEFAULTS" ]; then
+    printf '%s\n' "$BAD_PKG_DEFAULTS" >&2
+    fail "a build script defaults PKG_VERSION to a version literal; default to \$(cat VERSION) instead"
+else
+    pass "no build script defaults PKG_VERSION to a version literal"
 fi
 
 # --- 5. the shipped setup script carries the placeholder, not a literal -----

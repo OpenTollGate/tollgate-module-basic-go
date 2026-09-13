@@ -10,6 +10,47 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Reproducible builds.** Every byte-affecting build input is now pinned
+  in `packaging/build-inputs.json` and loaded through the canonical
+  `packaging/build-env.sh`: exact Go (1.25.8), Node (22.17.0), npm
+  (10.9.2), and UPX (5.2.1) toolchains with verified tarball hashes; the
+  captive-portal source pinned to an immutable commit SHA; OpenWrt SDK
+  images pinned by registry digest. `SOURCE_DATE_EPOCH` (default: the
+  TollGate HEAD commit timestamp) now drives every embedded timestamp —
+  `BuildTime` in the binaries, ipk archive mtimes (via `gzip -n` and
+  `--mtime`), portal output files, and files staged into the apk SDK
+  container. `make reproducibility-test` (and `scripts/repro-test.sh`)
+  rebuilds any artifact in two independent clean roots with isolated
+  caches and requires identical SHA-256s, with diffoscope diagnostics on
+  mismatch. Verified byte-identical on the build host: both Go binaries,
+  the portal tree, x86_64 and aarch64 ipk, a UPX-compressed ipk, and the
+  x86_64 apk. CI gains a fast binary reproducibility check on every
+  push plus a package check via workflow dispatch
+  (`.github/workflows/repro-check.yml`); the build workflow now pins the
+  Go patch release, derives `BuildTime` from the source epoch, adds
+  `-buildvcs=false`, uses the portal's declared Node/npm, fetches UPX
+  from the pinned manifest, and runs the apk SDK containers
+  digest-pinned. See [docs/reproducible-builds.md](docs/reproducible-builds.md). ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **Hosted-runner-independent build script.**
+  `scripts/shc-build-package.sh` orders a short-lived Sovereign Hybrid
+  Compute VM (via the `shc` CLI), syncs the working tree, builds the
+  aarch64 `.ipk` through `packaging/local-build-ipk.sh`, verifies the
+  package control metadata and `--version` output of the built
+  binaries, copies the artifact to `artifacts/shc/`, and always
+  cancels the VM (exit trap plus reaper deadline backstop). Keeps
+  package builds possible while GitHub Actions is unavailable. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **`--version` flag on both shipped binaries.** `tollgate --version`
+  (via cobra's built-in version support) and `tollgate-wrt --version`
+  now print the embedded version and exit, as expected by OpenWrt
+  package CI. The build now injects the CLI binary's version via
+  `-X main.version` — previously the CLI build reused the service's
+  `src/cli.*` ldflags, which its separate Go module never links, so
+  the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
 ### Fixed
 
 - **nftables ruleset is packaged in full.** The OpenWrt recipe installed
@@ -25,6 +66,10 @@ and [Semantic Versioning](https://semver.org/).
   edit.
   ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
 
+- **Package license metadata corrected from `CC0-1.0` to
+  `GPL-3.0-only`** in `packaging/Makefile`, `packaging/local-build-ipk.sh`,
+  and the CI ipk control template, matching the repository's actual
+  GPL-3.0 `LICENSE`. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 ### Changed / Internal
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
@@ -50,6 +95,59 @@ and [Semantic Versioning](https://semver.org/).
   package artifact by name and fails loudly if it is not found, instead of
   testing whichever `.apk` happens to come first.
   ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
+- **Environment-variance check via `reprotest`.**
+  `make reproducibility-variance` (`scripts/repro-variance.sh`) rebuilds
+  the `.ipk` under hostile environment variations — umask, timezone,
+  locales, file ordering — using the reproducible-builds.org `reprotest`
+  engine, complementing the two-clean-roots harness: the harness proves
+  independent roots agree; the variance run proves the build survives
+  environments that differ from ours (the umask leak fixed in this
+  release shipped precisely because nothing varied it). Test dependency
+  only — installed via pip, not pinned in `build-inputs.json`. See
+  [docs/reproducible-builds.md](docs/reproducible-builds.md),
+  "Variance testing". ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **`.gitignore` binary patterns anchored.** The bare `tollgate-cli`
+  pattern also matched the source directory `src/cmd/tollgate-cli/`,
+  silently ignoring any new (untracked) files added there; patterns
+  are now anchored to the repo and `src/` roots where the binaries
+  actually land. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
+  documents the supported-matrix placeholder (honest about what is untested),
+  the feed signing key and the repository line for OpenWrt 25.12, install,
+  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
+  rollback leaves behind, and the fact that `--force-downgrade` is not an
+  apk-tools 3.x option — the failure modes reproduced in practice, how to
+  report a result, and what to expect from an alpha. Every command was
+  executed against a real OpenWrt 25.12.5 userland; router-only steps are
+  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
+  `apk add --allow-untrusted`.
+  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+
+- **Tester intake: one channel, a report template, and the stop-ship rule.**
+  New [docs/tester-intake.md](docs/tester-intake.md) names the **single** intake
+  channel for alpha reports — comments on one pinned issue, with no second
+  place to send anything — and demands the facts that make a report
+  triageable: router model, `cat /etc/openwrt_release`, `apk --print-arch`,
+  the feed line used, `apk list --installed tollgate-wrt`,
+  `tollgate version`, `sha256sum` of the installed binaries,
+  `logread -e tollgate | tail -50`, and expected vs actual. It states the
+  triage rule (a report without a package version and an architecture is
+  untriaged: asked once, then closed), the severity definitions (S1 = any
+  wallet/funds symptom = **stop-ship**, the index is pulled before anyone
+  investigates; S2 = service broken or crash; S3 = cosmetic/docs), that every
+  qualified report becomes one tracked work item tagged with severity +
+  architecture, the secret-handling rules, and the honest support matrix
+  (release line, which architecture was actually tested, what "best effort"
+  means, and that a rollback exists). Every command in its template was
+  executed in a real OpenWrt 25.12.5 userland; the two router-only behaviours
+  are marked as untested. `docs/rc-tester-guide.md` §9 now names that channel
+  instead of a placeholder, `RELEASE-NOTES.md` links the document, and the
+  post-release step in `docs/release-process.md` names the kanban card label
+  (`S1`/`S2`/`S3` + architecture) so the intake thread and the board cannot
+  drift apart.
+  ([#382](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/382))
 
 ## [v0.6.0-alpha2] - 2026-09-13
 

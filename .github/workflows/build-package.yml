@@ -24,7 +24,9 @@ concurrency:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.25"
+  # Pinned patch release for reproducible binaries. Keep in sync with
+  # packaging/build-inputs.json (.go.version).
+  GO_VERSION: "1.25.8"
   DEBUG: "true"
   BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
   BLOSSOM_MIN_SUCCESS: "1"
@@ -43,13 +45,16 @@ jobs:
       ipk_matrix: ${{ steps.set-matrix.outputs.ipk_matrix }}
       apk_matrix: ${{ steps.set-matrix.outputs.apk_matrix }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
       - id: set-matrix
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
           cat > matrix.json << 'EOF'
           {
             "include": [
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true  },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true },
               { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "compression": "upx-ultra-brute" },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
@@ -66,6 +71,20 @@ jobs:
             ]
           }
           EOF
+
+          # SDK digests come from packaging/build-inputs.json — the single
+          # source of truth — so this matrix cannot drift from the manifest:
+          # every row's digest is injected here, never hand-copied.
+          jq --slurpfile inputs packaging/build-inputs.json -c '
+            .include |= map(
+              .sdk as $sdk
+              | ($inputs[0].openwrt_sdk.targets[$sdk].digest //
+                 (error("no SDK digest pinned for target \($sdk) in packaging/build-inputs.json")))
+              as $digest
+              | . + {digest: $digest}
+            )
+          ' matrix.json > matrix.digests.json
+          mv matrix.digests.json matrix.json
 
           if [[ "${{ github.event.inputs.full_compression }}" == "true" ]]; then
             echo "full_compression=true — keeping all variants."
@@ -166,6 +185,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       hashes: ${{ steps.blossom-upload.outputs.hashes }}
+      epoch: ${{ steps.epoch.outputs.epoch }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -177,18 +197,58 @@ jobs:
           cache: true
           cache-dependency-path: src/go.sum
 
+      - name: Derive SOURCE_DATE_EPOCH from source commit
+        id: epoch
+        run: |
+          set -euo pipefail
+          # One canonical epoch for this job; exported as an output so
+          # downstream package jobs use the identical value.
+          EPOCH=$(git log -1 --format=%ct HEAD)
+          echo "SOURCE_DATE_EPOCH=$EPOCH" >> "$GITHUB_ENV"
+          echo "epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+
       - name: Cross-compile all binaries
         env:
           CGO_ENABLED: "0"
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
         run: |
           set -euo pipefail
-          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          GIT_COMMIT=$(git rev-parse --short HEAD)
-          LDFLAGS="-s -w \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+          # ONE flag recipe for every lane. packaging/build-env.sh owns the
+          # ldflags (Version, GitCommit, BuildTime, GitBranch), the epoch and
+          # the locale, and it is the same helper scripts/repro-test.sh calls —
+          # so the release binaries and the ones the reproducibility harness
+          # compares are built from identical flags. Hand-rolling them here is
+          # what let the two drift: this step injected no GitBranch at all
+          # (repro-test built with main) and stamped the branch-derived
+          # package_version where the harness stamps VERSION.
+          #
+          # The binaries embed the version in VERSION at the repository root,
+          # the single source of truth (scripts/check-version-sync.sh enforces
+          # it, and the tag check above pins refs/tags/* to it), so a release
+          # build and a harness build of one commit embed the same string.
+          # PACKAGE_VERSION — the tag, or <branch>.<height>.<sha> for branch
+          # builds — still versions the packages, their control metadata and
+          # the Nostr announcement; only the ldflags take VERSION.
+          BUILD_VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$BUILD_VERSION" ]; then
+            echo "ERROR: VERSION at the repository root is empty." >&2
+            exit 1
+          fi
+          # TG_ROOT matters: build-env.sh cannot infer the repository from $0
+          # when it is sourced from a workflow step script.
+          TG_ROOT="$GITHUB_WORKSPACE"
+          export TG_ROOT BUILD_VERSION
+          # shellcheck source=packaging/build-env.sh
+          . "$GITHUB_WORKSPACE/packaging/build-env.sh"
+
+          LDFLAGS="$(go_ldflags "$BUILD_VERSION")"
+
+          # The tollgate CLI is a separate Go module that does not link the
+          # src/cli package, so its version must be injected via main.version.
+          CLI_LDFLAGS="$(cli_ldflags "$BUILD_VERSION")"
+          echo "BUILD_VERSION=$BUILD_VERSION"
+          echo "LDFLAGS: $LDFLAGS"
+          echo "CLI_LDFLAGS: $CLI_LDFLAGS"
 
           TARGETS='[
             {"key":"arm64","goarch":"arm64"},
@@ -209,11 +269,11 @@ jobs:
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src -o "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" \
-              -trimpath -ldflags="$LDFLAGS" main.go
+              -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/$key/tollgate" \
-              -trimpath -ldflags="$LDFLAGS"
+              -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
             ls -lh "bin/$key/"
           done < <(printf '%s' "$TARGETS" | jq -c '.[]')
@@ -292,12 +352,27 @@ jobs:
       - name: Setup Node.js for portal build
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Pinned to the portal's declared toolchain (see its package.json
+          # engines and packaging/build-inputs.json). node 22.17.0 bundles
+          # npm 10.9.2 — verified in the next step.
+          node-version: '22.17.0'
+
+      - name: Verify pinned npm version
+        run: |
+          set -euo pipefail
+          EXPECTED_NPM=$(jq -r '.npm.version' packaging/build-inputs.json)
+          ACTUAL_NPM=$(npm --version)
+          if [ "$ACTUAL_NPM" != "$EXPECTED_NPM" ]; then
+            echo "ERROR: npm $ACTUAL_NPM != pinned $EXPECTED_NPM (packaging/build-inputs.json)" >&2
+            exit 1
+          fi
 
       - name: Build captive portal assets
         run: |
           set -euo pipefail
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          # Portal revision is pinned by SHA in packaging/build-inputs.json;
+          # portal-build.sh rejects anything else in reproducible mode.
+          bash packaging/portal-build.sh
           echo "Portal assets built:"
           ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 
@@ -357,8 +432,11 @@ jobs:
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
         run: |
-          sudo apt-get update
-          sudo apt-get install -y upx-ucl
+          set -euo pipefail
+          # Pinned UPX (version + sha256 in packaging/build-inputs.json);
+          # apt's upx-ucl floats and its output IS part of the artifact.
+          bash scripts/fetch-upx.sh
+          echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
       - name: Download portal assets
         uses: actions/download-artifact@v4
@@ -424,7 +502,7 @@ jobs:
             PKG_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
-            LICENSE="CC0-1.0" \
+            LICENSE="GPL-3.0-only" \
             DEPENDS="libc" \
             PROVIDES="nodogsplash-files" \
             REPLACES="nodogsplash, base-files" \
@@ -504,7 +582,7 @@ jobs:
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0
+      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0@${{ matrix.digest }}
       options: --user root
     strategy:
       fail-fast: false
@@ -556,7 +634,11 @@ jobs:
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
         run: |
-          apt-get install -y upx-ucl
+          set -euo pipefail
+          # Pinned UPX (version + sha256 in packaging/build-inputs.json);
+          # apt's upx-ucl floats and its output IS part of the artifact.
+          bash src-checkout/scripts/fetch-upx.sh
+          echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' src-checkout/packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
       - name: Download portal assets
         uses: actions/download-artifact@v4
@@ -589,6 +671,15 @@ jobs:
           cp src-checkout/LICENSE "$STAGE/LICENSE"
           install -m 0755 bin/tollgate-wrt "$STAGE/tollgate-wrt"
           install -m 0755 bin/tollgate     "$STAGE/tollgate"
+
+      - name: Normalize staged mtimes to SOURCE_DATE_EPOCH
+        # apk package metadata is sensitive to staged file mtimes; pin them
+        # to the source commit epoch so rebuilds are byte-identical.
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.compile-binaries.outputs.epoch }}
+        run: |
+          set -eu
+          find /builder/package -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
 
       - name: Configure SDK
         run: |
