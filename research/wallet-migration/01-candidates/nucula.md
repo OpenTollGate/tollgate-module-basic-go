@@ -149,3 +149,74 @@ ported code is not, until the licence question is settled. Task T2c covers askin
 with its proposed Linux replacement, and a count of how much of the core is
 genuinely portable vs entangled. That inventory — not an opinion — is what tells
 us whether this is a fortnight or a rewrite.
+
+
+## Port spike verdict (measured, 2026-09-13)
+
+Evidence: native x86_64 build with the shim layer, `raw/inventory.txt`, and the
+numbers below. Cross-build for aarch64 was **not** run (SDK downloaded and
+extracted); mipsel not attempted.
+
+### What was proven by building
+
+- **Native Linux build: YES**, no ESP-IDF, source never patched. Harness binary
+  **274 432 B** unstripped (`-Os`, `-ffunction-sections`, gc-sections).
+- **All four of nucula's own on-device test suites pass natively**:
+  `SELFTEST_RESULT suites=4 failures=0` — crypto NUT-00/11/12/13 vectors
+  (hash_to_curve, blind/unblind, DLEQ, NUT-13 V2), pure codecs (hex, base64url,
+  split, NUT-10, CBOR V4 round-trip), wallet math, JSON parse contract.
+- **Portable-vs-entangled**: ~5 470 lines compiled verbatim; ~1 280 lines of our
+  shims replaced the platform; ~3 290 lines excluded as device-entangled.
+  See `nucula-port-map.md`.
+
+### Measured footprint (x86_64, 200 proofs — real, not estimates)
+
+```
+rss_baseline_kb        = 4616   (after secp256k1_context_create)
+rss_after_load_kb      = 5168
+rss_now_kb             = 5316
+vm_hwm_kb              = 5316
+vm_size_kb             = 9616
+threads                = 1
+nvs_bytes_seed         = 47224  (200 proofs -> a 47201-byte JSON blob)
+nvs_bytes_one_rewrite  = 47202  (cost of ONE payment)
+wallet_ready_us        = 3001
+```
+
+**`threads = 1`** confirms the core is single-threaded and blocking — the only
+lock is `wallet_store`'s recursive mutex.
+
+### The finding that matters most for OpenWrt
+
+**The entire proof set is rewritten on every mutation** — 47 202 bytes written per
+payment at 200 proofs, and it grows with the proof set. On a router's flash
+(JFFS2/UBIFS erase budget over years of small payments) that is a wear problem,
+not a performance preference. This is an argument against nucula's persistence
+model *as it stands*, independent of language or licence.
+
+### Verdict
+
+**Weeks-to-a-quarter, not a fortnight and not a rewrite.** The core logic genuinely
+ports — zero source edits, all self-tests green, one thread, ~5 kLOC. The cost sits
+entirely in the substitutions and the gaps:
+
+1. `nvs_file` semantics must be made honest (NVS is wear-levelled and atomic per
+   key; a single JSON blob is neither).
+2. A daemon needs non-blocking I/O; the core is blocking by construction.
+3. Storage must move from whole-blob rewrite to per-proof updates (flash wear).
+4. The `int64_t` format audit (17 sites) before any cross-build is trustworthy.
+5. TinyCBOR/libsecp256k1 packaging. **`libsecp256k1` is not in the feeds.**
+6. **NUT-07 and NUT-09 appear absent** — the router's `WalletPort` contract needs
+   them (state check / restore). *Flagged for confirmation against the contract
+   once T1b enumerates it.*
+
+**Licence remains the hard gate**: no licence file has ever existed upstream, and
+the request is now filed as zeugmaster/nucula#7.
+
+### Not done (remaining work, in priority order)
+
+1. aarch64 musl cross-build + mipsel (the actual OpenWrt feasibility answer).
+2. Raw measurement/selftest output captured into `raw/` with an `env.txt` per the
+   protocol (the numbers above are from live runs; a `measure.sh` must reproduce them).
+3. PSS sampling and a libcurl-backend harness.
+4. NUT-07/09 confirmation against the `WalletPort` contract.

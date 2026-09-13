@@ -1,0 +1,154 @@
+nucula source: /home/c03rad0r/repos/nucula-consult/src/main
+generated-by : experiments/nucula-port/inventory.sh
+
+## 1. ESP-IDF headers included, per file
+
+FILE                        LINES  ESP-IDF HEADERS
+bip39.c                       129  esp_random.h
+crypto.c                      477
+crypto_bls.c                   95
+crypto_test.c                 404  esp_log.h esp_timer.h freertos/FreeRTOS.h freertos/task.h
+hex.c                          39
+http.c                        296  esp_crt_bundle.h esp_heap_caps.h esp_http_client.h esp_log.h esp_timer.h freertos/FreeRTOS.h freertos/semphr.h freertos/task.h
+i2c_bus.c                      33  esp_log.h
+keypad.c                      168  esp_log.h freertos/FreeRTOS.h freertos/queue.h freertos/task.h
+wifi.c                        186  esp_event.h esp_log.h esp_netif.h esp_wifi.h freertos/FreeRTOS.h freertos/task.h
+base64url.cpp                  50
+cashu_cbor.cpp                677  esp_log.h
+cashu_json.cpp                550  esp_log.h
+commands_common.cpp           149
+commands_seed.cpp             107
+commands_system.cpp           193  esp_heap_caps.h esp_log.h esp_system.h esp_timer.h freertos/FreeRTOS.h freertos/task.h
+commands_wallet.cpp           608  esp_heap_caps.h esp_log.h esp_timer.h freertos/FreeRTOS.h freertos/task.h
+console.cpp                   204  driver/usb_serial_jtag.h driver/usb_serial_jtag_vfs.h freertos/FreeRTOS.h freertos/task.h
+display.cpp                   329  driver/gpio.h esp_log.h freertos/FreeRTOS.h freertos/task.h
+keyset.cpp                    254  esp_log.h
+ndef.cpp                      475  esp_log.h esp_timer.h
+nfc.cpp                       414  esp_log.h esp_timer.h freertos/FreeRTOS.h freertos/semphr.h freertos/task.h
+nucula.cpp                    196  esp_log.h esp_random.h freertos/FreeRTOS.h freertos/task.h nvs_flash.h
+nut10.cpp                      46
+selftest.cpp                  115  esp_log.h
+ui.cpp                        333  esp_system.h freertos/FreeRTOS.h freertos/semphr.h freertos/task.h
+unit.cpp                      132  esp_log.h
+wallet.cpp                    223  esp_log.h
+wallet_blind.cpp              221  esp_log.h esp_random.h
+wallet_flows.cpp              850  esp_log.h
+wallet_identity.cpp           257  esp_log.h esp_random.h nvs.h
+wallet_keysets.cpp            206  esp_log.h
+wallet_nvs.cpp                485  esp_log.h nvs.h
+wallet_selftest.cpp           111  esp_log.h
+wallet_store.cpp              151  esp_log.h freertos/FreeRTOS.h freertos/semphr.h
+bip39.h                        40
+bip39_english.h              2051
+board.h                        23  driver/gpio.h
+cashu_suite.h                  98
+commands.h                     35
+console.h                      39
+crypto.h                      193
+crypto_test.h                  15
+display.h                      36
+hex.h                          29
+http.h                         66  esp_err.h
+i2c_bus.h                      18  esp_err.h
+keypad.h                       32  esp_err.h
+task_config.h                  27
+ui.h                           14
+wifi.h                         51  esp_err.h freertos/FreeRTOS.h
+wifi_config.example.h           4
+wifi_config.h                   4
+base64url.hpp                  11
+cashu.hpp                     223
+cashu_cbor.hpp                 15
+cashu_json.hpp                106
+keyset.hpp                     66
+ndef.hpp                       47
+nfc.hpp                        25
+nut10.hpp                      15
+selftest.hpp                    7
+unit.hpp                       39
+wallet.hpp                    214
+wallet_internal.hpp            82  nvs.h
+wallet_store.hpp               52
+
+## 2. ESP-IDF / platform symbol references, per file
+
+FILE                       SYMBOLS (count)
+bip39.c                    mbedtls_sha256(2) mbedtls_pkcs5_pbkdf2_hmac_ext(1) esp_random(1) esp_fill_random(1)
+crypto.c                   mbedtls_sha256_update(5) mbedtls_sha256_free(4) mbedtls_sha256_starts(3) mbedtls_sha256_init(3) mbedtls_sha256_finish(3) mbedtls_sha256_context(3) mbedtls_sha256(2) mbedtls_md_info_t(1) mbedtls_md_info_from_type(1) mbedtls_md_hmac(1)
+crypto_bls.c
+crypto_test.c              ESP_LOGE(23) ESP_LOGI(13) esp_timer_get_time(6) vTaskDelay(3) esp_timer(1) esp_log(1)
+hex.c
+http.c                     esp_err_t(6) ESP_OK(6) esp_http_client_handle_t(5) esp_timer_get_time(4) ESP_LOGE(3) esp_http_client_set_user_data(2) esp_http_client_set_post_field(2) esp_http_client_delete_header(2) esp_http_client_cleanup(2) esp_err_to_name(2) ESP_LOGW(2) ESP_LOGI(2) ESP_FAIL(2) xTaskCreate(1) xSemaphoreTake(1) xSemaphoreGive(1) xSemaphoreCreateMutex(1) vTaskDelete(1) portMAX_DELAY(1) heap_caps_get_largest_free_block(1) esp_timer(1) esp_log(1) esp_http_client_set_url(1) esp_http_client_set_timeout_ms(1) esp_http_client_set_method(1) esp_http_client_set_header(1) esp_http_client_perform(1) esp_http_client_method_t(1) esp_http_client_init(1) esp_http_client_get_status_code(1) esp_http_client_event_t(1) esp_http_client_config_t(1) esp_http_client_close(1) esp_http_client(1) esp_heap_caps(1) esp_get_free_heap_size(1) esp_crt_bundle_attach(1) esp_crt_bundle(1) ESP_ERR_NO_MEM(1)
+i2c_bus.c                  i2c_master_bus_handle_t(2) i2c_bus(2) esp_err_t(2) ESP_OK(2) i2c_port(1) i2c_new_master_bus(1) i2c_master_bus_config_t(1) i2c_bus_init(1) i2c_bus_get(1) esp_log(1) esp_err_to_name(1) ESP_LOGE(1)
+keypad.c                   ESP_OK(8) i2c_master_transmit(4) ESP_LOGE(4) pdMS_TO_TICKS(3) esp_err_t(3) vTaskDelay(2) esp_err_to_name(2) ESP_LOGI(2) ESP_ERR_NO_MEM(2) xTaskCreate(1) xQueueSend(1) xQueueReceive(1) xQueueCreate(1) portMAX_DELAY(1) i2c_master_receive(1) i2c_master_probe(1) i2c_master_dev_handle_t(1) i2c_master_bus_rm_device(1) i2c_master_bus_handle_t(1) i2c_master_bus_add_device(1) i2c_device_config_t(1) esp_log(1) ESP_LOGW(1) ESP_ERR_NOT_FOUND(1) ESP_ERR_INVALID_ARG(1)
+wifi.c                     ESP_LOGI(5) esp_wifi_connect(4) esp_netif(4) ESP_LOGW(4) esp_netif_dns_info_t(3) esp_err_t(3) ESP_OK(3) pdMS_TO_TICKS(2) esp_wifi_set_ps(2) esp_netif_set_dns_info(2) esp_ip4addr_aton(2) esp_event_handler_instance_register(2) ESP_NETIF_DNS_MAIN(2) ESP_LOGE(2) ESP_IPADDR_TYPE_V4(2) ESP_FAIL(2) xTaskCreate(1) vTaskDelay(1) esp_wifi_start(1) esp_wifi_set_mode(1) esp_wifi_set_config(1) esp_wifi_init(1) esp_wifi(1) esp_netif_init(1) esp_netif_get_dns_info(1) esp_netif_create_default_wifi_sta(1) esp_log(1) esp_event_loop_create_default(1) esp_event_base_t(1) esp_event(1) esp_err_to_name(1) ESP_NETIF_DNS_BACKUP(1) ESP_EVENT_ANY_ID(1) ESP_ERR_WIFI_CONN(1) ESP_ERR_NO_MEM(1) ESP_ERROR_CHECK(1)
+base64url.cpp              mbedtls_base64_encode(2) mbedtls_base64_decode(2)
+cashu_cbor.cpp             ESP_LOGE(9) ESP_LOGI(2) esp_log(1)
+cashu_json.cpp             esp_log(1) ESP_LOGI(1) ESP_LOGE(1)
+commands_common.cpp
+commands_seed.cpp
+commands_system.cpp        esp_timer_get_time(2) vTaskDelay(1) pdMS_TO_TICKS(1) heap_caps_get_largest_free_block(1) esp_timer(1) esp_system(1) esp_restart(1) esp_log_level_t(1) esp_log_level_set(1) esp_log(1) esp_heap_caps(1) esp_get_minimum_free_heap_size(1) esp_get_free_heap_size(1) ESP_LOG_WARN(1) ESP_LOG_INFO(1) ESP_LOG_ERROR(1) ESP_LOG_DEBUG(1)
+commands_wallet.cpp        nvs_slot(2) esp_timer_get_time(2) esp_timer(1) esp_log(1) esp_heap_caps(1) esp_get_free_heap_size(1)
+console.cpp                usb_serial_jtag_write_bytes(2) portMAX_DELAY(2) xTaskCreate(1) vTaskDelay(1) usb_serial_jtag_vfs_use_driver(1) usb_serial_jtag_vfs(1) usb_serial_jtag_read_bytes(1) usb_serial_jtag_driver_install(1) usb_serial_jtag_driver_config_t(1) pdMS_TO_TICKS(1) ESP_OK(1)
+display.cpp                vTaskDelay(2) pdMS_TO_TICKS(2) i2c_master_transmit(2) gpio_set_level(2) ESP_OK(2) ESP_LOGW(2) i2c_master_probe(1) i2c_master_dev_handle_t(1) i2c_master_bus_handle_t(1) i2c_master_bus_add_device(1) i2c_device_config_t(1) gpio_set_direction(1) gpio_reset_pin(1) esp_log(1) esp_err_to_name(1) esp_err_t(1) ESP_LOGI(1) ESP_LOGE(1)
+keyset.cpp                 esp_log(1) ESP_LOGI(1) ESP_LOGE(1)
+ndef.cpp                   ESP_LOGW(9) ESP_LOGI(6) ESP_LOGD(3) esp_timer(1) esp_log(1) ESP_LOGE(1)
+nfc.cpp                    ESP_LOGW(10) ESP_LOGI(10) ESP_LOGE(6) ESP_OK(3) xSemaphoreTake(2) xSemaphoreGive(2) vTaskDelete(2) pdMS_TO_TICKS(2) esp_timer_get_time(2) xTaskCreate(1) xSemaphoreCreateBinary(1) vTaskDelay(1) i2c_master_bus_handle_t(1) esp_timer(1) esp_log(1) esp_err_t(1) ESP_LOGD(1) ESP_ERR_NOT_FOUND(1) ESP_ERR_INVALID_ARG(1)
+nucula.cpp                 ESP_LOGE(9) nvs_err(7) pdMS_TO_TICKS(5) ESP_OK(5) ESP_LOGW(5) vTaskDelay(4) i2c_bus_get(3) xTaskCreate(2) nvs_flash_init(2) esp_err_to_name(2) ESP_LOGI(2) portMAX_DELAY(1) nvs_flash_erase(1) nvs_flash(1) i2c_bus_init(1) i2c_bus(1) esp_random(1) esp_log(1) esp_fill_random(1) esp_err_t(1) ESP_ERR_NVS_NO_FREE_PAGES(1) ESP_ERR_NVS_NEW_VERSION_FOUND(1)
+nut10.cpp
+selftest.cpp               esp_log(1) ESP_LOGI(1) ESP_LOGE(1)
+ui.cpp                     esp_get_free_heap_size(2) xSemaphoreTakeRecursive(1) xSemaphoreGiveRecursive(1) xSemaphoreCreateRecursiveMutex(1) vTaskDelay(1) portMAX_DELAY(1) pdMS_TO_TICKS(1) esp_system(1)
+unit.cpp                   ESP_LOGI(2) ESP_LOGE(2) esp_log(1)
+wallet.cpp                 nvs_slot_(1) nvs_slot(1) nvs_slot(1) esp_log(1) ESP_LOGE(1)
+wallet_blind.cpp           ESP_LOGE(16) esp_fill_random(2) esp_random(1) esp_log(1) ESP_LOGW(1) ESP_LOGI(1)
+wallet_flows.cpp           ESP_LOGE(37) ESP_LOGI(10) ESP_LOGW(9) esp_err_to_name(4) esp_err_t(3) ESP_OK(3) ESP_LOGD(3) nvs_slot_(1) esp_log(1)
+wallet_identity.cpp        ESP_OK(13) esp_err_t(6) ESP_LOGE(6) ESP_LOGI(5) nvs_get_blob(3) nvs_commit(3) nvs_set_str(2) nvs_set_blob(2) nvs_erase_key(2) esp_fill_random(2) ESP_ERR_NVS_NOT_FOUND(2) nvs_set_u32(1) nvs_get_u32(1) esp_random(1) esp_log(1) esp_err_to_name(1)
+wallet_keysets.cpp         ESP_LOGE(8) ESP_LOGW(4) ESP_LOGI(3) esp_err_to_name(2) esp_err_t(2) ESP_OK(2) esp_log(1)
+wallet_nvs.cpp             nvs_slot_(33) ESP_OK(17) ESP_LOGE(15) esp_err_to_name(10) esp_err_t(10) nvs_erase_key(9) ESP_LOGI(9) nvs_commit(5) nvs_set_str(4) nvs_get_u8(4) ESP_LOGW(4) nvs_set_u8(3) nvs_open(3) nvs_set_blob(2) esp_log(1) ESP_ERR_NVS_NOT_FOUND(1)
+wallet_selftest.cpp        esp_log(1) ESP_LOGI(1) ESP_LOGE(1)
+wallet_store.cpp           xSemaphoreTakeRecursive(2) ESP_LOGI(2) ESP_LOGE(2) xSemaphoreGiveRecursive(1) xSemaphoreCreateRecursiveMutex(1) portMAX_DELAY(1) pdMS_TO_TICKS(1) esp_log(1)
+
+## 3. Third-party (non-IDF) library headers, per file
+
+FILE                       HEADERS
+bip39.c                    mbedtls/pkcs5.h mbedtls/sha256.h
+crypto.c                   mbedtls/md.h mbedtls/sha256.h secp256k1_extrakeys.h secp256k1_schnorrsig.h
+crypto_bls.c
+crypto_test.c
+hex.c
+http.c
+i2c_bus.c
+keypad.c
+wifi.c
+base64url.cpp              mbedtls/base64.h
+cashu_cbor.cpp             cbor.h
+cashu_json.cpp
+commands_common.cpp
+commands_seed.cpp
+commands_system.cpp
+commands_wallet.cpp
+console.cpp
+display.cpp
+keyset.cpp
+ndef.cpp
+nfc.cpp
+nucula.cpp                 secp256k1.h
+nut10.cpp                  cJSON.h
+selftest.cpp
+ui.cpp
+unit.cpp
+wallet.cpp
+wallet_blind.cpp
+wallet_flows.cpp           cJSON.h
+wallet_identity.cpp
+wallet_keysets.cpp         cJSON.h
+wallet_nvs.cpp
+wallet_selftest.cpp
+wallet_store.cpp
+
+## 4. Totals
+
+main/ .c/.cpp total lines: 9163
+ESP-IDF symbol references in main/*.c/*.cpp: 735
+files that include an ESP-IDF header: 35
+files that include NO ESP-IDF header: 30
