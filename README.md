@@ -190,6 +190,8 @@ See [tests/README.md](tests/README.md) for how to wire up the test fleet.
 Design and protocol docs live under [docs/](docs/):
 
 - [docs/operator-guide.md](docs/operator-guide.md) — practical CLI reference for router operators
+- [docs/rc-tester-guide.md](docs/rc-tester-guide.md) — install/upgrade/rollback/report guide for the alpha release candidate
+- [docs/tester-intake.md](docs/tester-intake.md) — the single intake channel, the report template, and the triage/severity rules for alpha testers
 - [docs/merchant.md](docs/merchant.md)
 - [docs/upstream_session_manager.md](docs/upstream_session_manager.md) — module internals + end-to-end cross-component flow
 - [docs/data-session-management.md](docs/data-session-management.md)
