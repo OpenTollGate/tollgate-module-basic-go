@@ -45,14 +45,17 @@ jobs:
       ipk_matrix: ${{ steps.set-matrix.outputs.ipk_matrix }}
       apk_matrix: ${{ steps.set-matrix.outputs.apk_matrix }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
       - id: set-matrix
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
           cat > matrix.json << 'EOF'
           {
             "include": [
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331" },
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331", "compression": "upx-ultra-brute" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "compression": "upx-ultra-brute" },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
               { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "ipk": true, "apk": false },
@@ -64,10 +67,24 @@ jobs:
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-brute" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
-              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": true, "digest": "sha256:0061d8c6bb7559a79931074ffb50fb0d71add1d26840d314397b50ebbc3bf7be" }
+              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": true }
             ]
           }
           EOF
+
+          # SDK digests come from packaging/build-inputs.json — the single
+          # source of truth — so this matrix cannot drift from the manifest:
+          # every row's digest is injected here, never hand-copied.
+          jq --slurpfile inputs packaging/build-inputs.json -c '
+            .include |= map(
+              .sdk as $sdk
+              | ($inputs[0].openwrt_sdk.targets[$sdk].digest //
+                 (error("no SDK digest pinned for target \($sdk) in packaging/build-inputs.json")))
+              as $digest
+              | . + {digest: $digest}
+            )
+          ' matrix.json > matrix.digests.json
+          mv matrix.digests.json matrix.json
 
           if [[ "${{ github.event.inputs.full_compression }}" == "true" ]]; then
             echo "full_compression=true — keeping all variants."
