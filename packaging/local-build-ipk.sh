@@ -7,7 +7,10 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 PKG_NAME="tollgate-wrt"
-PKG_VERSION="v0.7.0-alpha10"
+# The release version comes from the repository-root VERSION file, the single
+# source of truth (see CONTRIBUTING.md). CI ignores this script and derives the same
+# string from the git tag; set PKG_VERSION to override for a one-off build.
+PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
 ARCH="aarch64_cortex-a53"
 COMPILE_KEY="arm64"
 GOARCH="arm64"
@@ -44,7 +47,12 @@ install -D -m 0755 "bin/$COMPILE_KEY/tollgate"     "$PAYLOAD/usr/bin/tollgate"
 
 install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                           "$PAYLOAD/etc/init.d/tollgate-wrt"
 install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
-install -D -m 0755 packaging/files/etc/uci-defaults/99-tollgate-setup                 "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+# The setup script's version marker is the release version; substitute the
+# placeholder exactly as the CI .ipk staging and the SDK Makefile do.
+mkdir -p "$PAYLOAD/etc/uci-defaults"
+sed "s|__TOLLGATE_VERSION__|$PKG_VERSION|g" \
+  packaging/files/etc/uci-defaults/99-tollgate-setup > "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+chmod 0755 "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
 install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                   "$PAYLOAD/usr/local/bin/first-login-setup"
 install -D -m 0755 packaging/files/usr/bin/check_package_path                        "$PAYLOAD/usr/bin/check_package_path"
 install -D -m 0755 packaging/files/usr/bin/tollgate-apply-ssl                        "$PAYLOAD/usr/bin/tollgate-apply-ssl"

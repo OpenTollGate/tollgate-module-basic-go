@@ -26,7 +26,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
-
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"

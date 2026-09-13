@@ -95,6 +95,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify the tag matches VERSION
+        # VERSION at the repository root is the single source of truth for the
+        # release version (see docs/release-process.md). Refusing a tag that disagrees with it
+        # is what stops a release from being published under a version nobody
+        # wrote down — and stops the fork-only tag traps that produced the
+        # orphaned v0.7.0-alpha* tags.
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          file_version=$(tr -d '[:space:]' < VERSION)
+          if [ "$file_version" != "$GITHUB_REF_NAME" ]; then
+            echo "ERROR: tag ${GITHUB_REF_NAME} does not match VERSION (${file_version})." >&2
+            echo "Bump VERSION in the release commit and tag that commit." >&2
+            exit 1
+          fi
+          echo "Tag ${GITHUB_REF_NAME} matches VERSION."
+
       - id: commit-hash
         shell: bash
         run: |
@@ -359,7 +377,14 @@ jobs:
 
           install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                         "$PAYLOAD/etc/init.d/tollgate-wrt"
           install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
-          install -D -m 0755 packaging/files/etc/uci-defaults/99-tollgate-setup              "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+          # 99-tollgate-setup ships the release version as the
+          # __TOLLGATE_VERSION__ placeholder; substitute the same version that
+          # the binaries and the control file use (VERSION at the repository
+          # root is the single source of truth — see CONTRIBUTING.md,
+          # "Version single source of truth").
+          sed "s|__TOLLGATE_VERSION__|${{ needs.determine-versioning.outputs.package_version }}|g" \
+            packaging/files/etc/uci-defaults/99-tollgate-setup > "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+          chmod 0755 "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
           install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                 "$PAYLOAD/usr/local/bin/first-login-setup"
           install -D -m 0755 packaging/files/usr/bin/check_package_path                      "$PAYLOAD/usr/bin/check_package_path"
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"

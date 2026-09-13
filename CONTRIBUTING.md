@@ -136,6 +136,41 @@ go test -race -count=1 -tags testenv ./...
 CI runs the test suite per-module with `-race`, so a data race in any
 touched package will fail the build.
 
+### Version single source of truth
+
+The release version is written down in exactly one place: the
+[VERSION](VERSION) file at the repository root. Everything else derives
+from it:
+
+- **CI** ([.github/workflows/build-package.yml](.github/workflows/build-package.yml))
+  takes the version from the pushed tag and passes it to the Go binaries
+  (`-ldflags -X .../src/cli.Version=…`), to the `.ipk` control file and
+  to the OpenWrt SDK Makefile — and refuses a tag that is not
+  byte-identical to `VERSION`.
+- **`packaging/files/etc/uci-defaults/99-tollgate-setup`** ships the
+  `__TOLLGATE_VERSION__` placeholder; the CI `.ipk` staging, the SDK
+  `packaging/Makefile` and `packaging/local-build-ipk.sh` substitute the
+  real version, so a copy run from a checkout never writes a bogus
+  version marker.
+- **`src/cli/version.go`** must keep the non-release `dev` sentinel: a
+  plain `go build` then cannot pass itself off as a release.
+
+Changes that touch the release version also run, from the repo root:
+
+```bash
+sh scripts/check-version-sync.sh              # internal consistency
+sh scripts/check-version-sync.sh v0.6.0-alpha2  # ... and tag == VERSION
+```
+
+`hooks/pre-commit` runs the first form when a version-carrying file is
+staged. The suffix must be a single `-alphaN`, `-betaN`, `-rcN` or
+`-preN`: CI's channel selection and
+`packaging/normalize-apk-version.sh` accept exactly that shape, so a
+two-part suffix such as `v0.6.0-rc-alpha1` publishes into the wrong
+channel and breaks the apk version. The maintainer runbook for cutting
+and publishing a release lives in
+[docs/release-process.md](docs/release-process.md).
+
 If your change touches the config schema or the captive-portal
 contract, also run the contract checks from the repo root (these are
 CI gates):

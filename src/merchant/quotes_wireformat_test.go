@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 // TestQuotesWireFormat locks the wire format of quotes.json and characterizes
