@@ -1,0 +1,392 @@
+#!/bin/sh
+# TollGate first-boot configuration. Runs once from /etc/init.d/boot before
+# services start. All UCI changes are committed in a single pass at the end;
+# no service restarts here (uci-defaults runs before procd brings services up).
+#
+# The flag file stores the setup version. On reinstall/upgrade:
+# - Same version → verify wireless APs only (belt-and-suspenders)
+# - New version or first boot → full setup
+
+SETUP_FLAG="/etc/tollgate-setup-done"
+# Version marker for this setup script. It is the release version, taken from
+# the repository-root VERSION file (the single source of truth — see CONTRIBUTING.md,
+# "Version single source of truth") and substituted into the placeholder by
+# every packaging path: the CI .ipk staging, the OpenWrt SDK Makefile for .apk,
+# and packaging/local-build-ipk.sh. Running the script straight from a checkout
+# leaves the placeholder in place, so fall back to the version the package
+# manager recorded for this package rather than writing a bogus marker.
+SETUP_VERSION="__TOLLGATE_VERSION__"
+case "$SETUP_VERSION" in
+    *__TOLLGATE_VERSION__*)
+        SETUP_VERSION=$(sed -n '/^Package: tollgate-wrt$/,/^$/s/^Version: //p' /usr/lib/opkg/status 2>/dev/null | head -n1)
+        [ -n "$SETUP_VERSION" ] || SETUP_VERSION="unsubstituted"
+        ;;
+esac
+
+LOGFILE=/tmp/tollgate-setup.log
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
+
+# -- setup steps ------------------------------------------------------------
+
+setup_uhttpd() {
+    uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
+    uci -q delete uhttpd.main.listen_http
+    uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
+    uci add_list uhttpd.main.listen_http='[::]:8080'
+    uci -q delete uhttpd.main.listen_https
+    uci -q delete uhttpd.main.cert
+    uci -q delete uhttpd.main.key
+    # Only enable HTTPS if cert and key files exist; otherwise uhttpd
+    # crash-loops because it sees listen_https but has no TLS config.
+    if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then
+        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
+        uci add_list uhttpd.main.listen_https='[::]:443'
+        uci set uhttpd.main.cert='/etc/uhttpd.crt'
+        uci set uhttpd.main.key='/etc/uhttpd.key'
+    fi
+    uci set uhttpd.main.redirect_https='0'
+    uci set uhttpd.main.home='/www'
+    uci set uhttpd.main.rfc1918_filter='1'
+    uci set uhttpd.main.max_requests='3'
+    uci set uhttpd.main.max_connections='100'
+    uci set uhttpd.main.script_timeout='60'
+    uci set uhttpd.main.network_timeout='30'
+    uci set uhttpd.main.http_keepalive='20'
+    uci set uhttpd.main.tcp_keepalive='1'
+}
+
+# Second uhttpd instance serving the captive-portal SPA on port 2051.
+# nodogsplash's pre-auth serving is fragile (client-MAC resolution via
+# ip neigh and internal errors both surface as HTTP 500), so pre-auth
+# clients get the tiny stub installed by
+# 90-tollgate-captive-portal-symlink which redirects them here.
+# rfc1918_filter stays off: portal guests connect from RFC1918 addresses
+# by definition — the main admin instance keeps its own stricter settings.
+setup_uhttpd_portal() {
+    uci -q get uhttpd.portal >/dev/null 2>&1 || uci set uhttpd.portal=uhttpd
+    uci -q delete uhttpd.portal.listen_http
+    uci add_list uhttpd.portal.listen_http='0.0.0.0:2051'
+    uci add_list uhttpd.portal.listen_http='[::]:2051'
+    uci set uhttpd.portal.home='/etc/tollgate/tollgate-captive-portal-site'
+    uci set uhttpd.portal.rfc1918_filter='0'
+    # The SPA ships no index.html — without this, / would serve a file
+    # inventory to pre-auth clients.
+    uci set uhttpd.portal.no_dirlists='1'
+}
+
+setup_dns_dnsmasq() {
+    # Only override DNS if it's unset or pointing at localhost.
+    local current_dns
+    current_dns=$(uci -q get network.lan.dns)
+    if [ -z "$current_dns" ] || [ "$current_dns" = "127.0.0.1" ] || [ "$current_dns" = "::1" ]; then
+        uci -q delete network.lan.dns
+        uci add_list network.lan.dns='1.1.1.1'
+        uci add_list network.lan.dns='1.0.0.1'
+    fi
+    uci set network.lan.domain='lan'
+    uci set dhcp.@dnsmasq[0].domainneeded='1'
+    uci set dhcp.@dnsmasq[0].localise_queries='1'
+    uci set dhcp.@dnsmasq[0].rebind_protection='1'
+    uci set dhcp.@dnsmasq[0].local='/lan/'
+    uci set dhcp.@dnsmasq[0].domain='lan'
+    uci set dhcp.@dnsmasq[0].expandhosts='1'
+}
+
+configure_radio_ap() {
+    local iface="$1" label="$2"
+    if ! uci -q get "wireless.$iface" >/dev/null; then
+        return
+    fi
+    local current_mode
+    current_mode=$(uci -q get "wireless.$iface".mode)
+    if [ "$current_mode" = "sta" ]; then
+        log "$iface is STA, preserving upstream connection"
+        return
+    fi
+    uci set "wireless.$iface".name="$label"
+    uci set "wireless.$iface".mode='ap'
+    uci set "wireless.$iface".network='lan'
+    uci set "wireless.$iface".ssid="$GATEWAY_NAME"
+    uci set "wireless.$iface".encryption='none'
+    uci set "wireless.$iface".disabled='0'
+}
+
+# Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
+setup_public_wifi() {
+    RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
+    GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
+    log "Gateway name: ${GATEWAY_NAME}"
+
+    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
+    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
+    uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
+    uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+}
+
+setup_hostname() {
+    local current_hostname
+    current_hostname=$(uci -q get system.@system[0].hostname)
+    if [ "$current_hostname" = "OpenWrt" ]; then
+        uci set system.@system[0].hostname='TollGate'
+        log "Hostname changed to TollGate (was OpenWrt default)"
+    else
+        log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
+    fi
+    # TLS cert CN should match whatever hostname is active after the check above.
+    local final_hostname
+    final_hostname=$(uci -q get system.@system[0].hostname)
+    uci set uhttpd.main.commonname="$final_hostname"
+    # Apply to running kernel immediately so /proc/sys/kernel/hostname
+    # reflects the new value without requiring a reboot.
+    echo "$final_hostname" > /proc/sys/kernel/hostname
+    log "Hostname applied to running kernel: ${final_hostname}"
+}
+
+setup_nodogsplash() {
+    [ -f /etc/config/nodogsplash ] || touch /etc/config/nodogsplash
+    if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
+        uci add nodogsplash nodogsplash >/dev/null
+    fi
+    uci set nodogsplash.@nodogsplash[0].enabled='1'
+    uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
+    # Add firewall allow rules only if not already present (idempotent).
+    local nds_users
+    nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+    if ! echo "$nds_users" | grep -q "port 2121"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
+    fi
+    if ! echo "$nds_users" | grep -q "port 8080"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
+    fi
+    if ! echo "$nds_users" | grep -q "port 2050"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
+    fi
+    if ! echo "$nds_users" | grep -q "port 2051$"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
+    uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
+    # Let the Go backend control session duration: NDS defaults to
+    # 1200 s (20 min), which would deauth users mid-session regardless
+    # of purchased time. Set a large ceiling so the Go backend is the
+    # sole authority on when a session ends.
+    uci set nodogsplash.@nodogsplash[0].sessiontimeout='86400'
+    uci set nodogsplash.@nodogsplash[0].authidletimeout='3600'
+
+    # Defense-in-depth: block authenticated WiFi clients from reaching
+    # RFC1918 addresses (complements the fw4 DROP rules in firewall-tollgate).
+    local nds_auth
+    nds_auth=$(uci -q get nodogsplash.@nodogsplash[0].authenticated_users 2>/dev/null || echo "")
+    if ! echo "$nds_auth" | grep -q "10.0.0.0/8"; then
+        uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 10.0.0.0/8'
+    fi
+    if ! echo "$nds_auth" | grep -q "172.16.0.0/12"; then
+        uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 172.16.0.0/12'
+    fi
+    if ! echo "$nds_auth" | grep -q "192.168.0.0/16"; then
+        uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 192.168.0.0/16'
+    fi
+}
+
+setup_tollgate_firewall_rules() {
+    uci -q get firewall.tollgate_protocol >/dev/null 2>&1 || {
+        uci set firewall.tollgate_protocol='rule'
+        uci set firewall.tollgate_protocol.name='Allow-TollGate-Protocol'
+        uci set firewall.tollgate_protocol.src='wan'
+        uci set firewall.tollgate_protocol.proto='tcp'
+        uci set firewall.tollgate_protocol.dest_port='2121'
+        uci set firewall.tollgate_protocol.target='ACCEPT'
+    }
+    uci -q get firewall.tollgate_in >/dev/null 2>&1 || {
+        uci set firewall.tollgate_in='rule'
+        uci set firewall.tollgate_in.name='Allow-TollGate-In'
+        uci set firewall.tollgate_in.src='lan'
+        uci set firewall.tollgate_in.proto='tcp'
+        uci set firewall.tollgate_in.dest_port='2121'
+        uci set firewall.tollgate_in.target='ACCEPT'
+    }
+}
+
+setup_profile_hook() {
+    grep -q "first-login-setup" /etc/profile && return
+    cat >> /etc/profile << 'EOF'
+
+# TollGate first login setup
+if [ ! -f /etc/first_login_done ] && [ -t 0 ] && [ -t 1 ]; then
+    /usr/local/bin/first-login-setup
+fi
+EOF
+}
+
+# Nodogsplash only manages IPv4 iptables. If IPv6 Router Advertisements are
+# active on LAN, WiFi clients get global IPv6 addresses and Android validates
+# connectivity over IPv6 — completely bypassing the captive portal.
+# https://github.com/OpenTollGate/tollgate-module-basic-go/issues/148
+setup_disable_ipv6_lan() {
+    uci set dhcp.lan.ra='disabled'
+    uci set dhcp.lan.dhcpv6='disabled'
+    uci set network.lan.ip6assign='0'
+    log "IPv6 disabled on LAN (captive portal bypass prevention)"
+}
+
+enable_modems() {
+    local section
+    for section in $(uci show network 2>/dev/null | awk -F'[.=]' '/^network\.modem_/ {print $2}' | sort -u); do
+        uci set "network.$section.disabled=0"
+    done
+}
+
+# Consumes RANDOM_SUFFIX; derives a private /24 adjacent to the LAN subnet.
+setup_private_network() {
+    local lan_ip octet1 octet2 octet3 private_octet3 private_ip private_ssid private_key
+
+    lan_ip=$(uci -q get network.lan.ipaddr)
+    if [ -z "$lan_ip" ]; then
+        log "ERROR: no network.lan.ipaddr; skipping private network"
+        return
+    fi
+    octet1=$(echo "$lan_ip" | cut -d. -f1)
+    octet2=$(echo "$lan_ip" | cut -d. -f2)
+    octet3=$(echo "$lan_ip" | cut -d. -f3)
+    if [ "$octet3" -eq 255 ]; then
+        private_octet3=$((octet3 - 1))
+    else
+        private_octet3=$((octet3 + 1))
+    fi
+    private_ip="${octet1}.${octet2}.${private_octet3}.1"
+
+    # Preserve credentials across reruns: a SETUP_VERSION bump triggers a
+    # full setup on upgraded routers, and regenerating the SSID/PSK there
+    # would silently drop every paired admin device from the management
+    # network. Reuse existing values from wireless.private_radio0 and
+    # generate only when unset.
+    private_ssid=$(uci -q get wireless.private_radio0.ssid)
+    if [ -z "$private_ssid" ]; then
+        private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
+    fi
+
+    private_key=$(uci -q get wireless.private_radio0.key)
+    if [ -z "$private_key" ]; then
+        # Memorable password: 3 words + 2-digit number. Single
+        # /dev/urandom read, awk picks words — avoids forking per word.
+        private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
+        BEGIN {
+            srand(seed);
+            n = split("Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu", w, " ");
+            printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
+        }')
+        log "Generated new private WiFi key (none was configured)"
+    else
+        log "Preserving existing private WiFi key"
+    fi
+    log "Private SSID ${private_ssid}, IP ${private_ip}"
+    log "Private key: $private_key"
+
+    uci set network.private='interface'
+    uci set network.private.proto='static'
+    uci set network.private.device='br-private'
+    uci set network.private.ipaddr="$private_ip"
+    uci set network.private.netmask='255.255.255.0'
+
+    uci set network.private_bridge='device'
+    uci set network.private_bridge.type='bridge'
+    uci set network.private_bridge.name='br-private'
+
+    uci set dhcp.private='dhcp'
+    uci set dhcp.private.interface='private'
+    uci set dhcp.private.start='100'
+    uci set dhcp.private.limit='150'
+    uci set dhcp.private.leasetime='12h'
+
+    uci set wireless.private_radio0='wifi-iface'
+    uci set wireless.private_radio0.device='radio0'
+    uci set wireless.private_radio0.network='private'
+    uci set wireless.private_radio0.mode='ap'
+    uci set wireless.private_radio0.ssid="$private_ssid"
+    uci set wireless.private_radio0.encryption='psk2+ccmp'
+    uci set wireless.private_radio0.key="$private_key"
+    uci set wireless.private_radio0.disabled='0'
+
+    uci set wireless.private_radio1='wifi-iface'
+    uci set wireless.private_radio1.device='radio1'
+    uci set wireless.private_radio1.network='private'
+    uci set wireless.private_radio1.mode='ap'
+    uci set wireless.private_radio1.ssid="$private_ssid"
+    uci set wireless.private_radio1.encryption='psk2+ccmp'
+    uci set wireless.private_radio1.key="$private_key"
+    uci set wireless.private_radio1.disabled='0'
+
+    uci set firewall.private_zone='zone'
+    uci set firewall.private_zone.name='private'
+    uci set firewall.private_zone.network='private'
+    uci set firewall.private_zone.input='ACCEPT'
+    uci set firewall.private_zone.output='ACCEPT'
+    uci set firewall.private_zone.forward='ACCEPT'
+
+    uci set firewall.private_forwarding='forwarding'
+    uci set firewall.private_forwarding.src='private'
+    uci set firewall.private_forwarding.dest='wan'
+}
+
+commit_all() {
+    uci commit system
+    uci commit network
+    uci commit wireless
+    uci commit dhcp
+    uci commit firewall
+    uci commit uhttpd
+    uci commit nodogsplash
+}
+
+# -- driver -----------------------------------------------------------------
+
+# Check if full setup is needed (version mismatch or first boot)
+EXISTING_VERSION=""
+if [ -f "$SETUP_FLAG" ]; then
+    EXISTING_VERSION=$(cat "$SETUP_FLAG" 2>/dev/null)
+fi
+
+if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
+    # Same version — verify wireless APs only (fixes #103/#173: APs missing
+    # after reinstall when setup-done flag persisted from a prior install).
+    : > "$LOGFILE"
+    chmod 600 "$LOGFILE"
+    log "Flag matches $SETUP_VERSION — verifying wireless APs only"
+
+    # Recover gateway name from existing config for AP SSID consistency
+    GATEWAY_NAME=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null) || \
+    GATEWAY_NAME=$(uci -q get wireless.default_radio0.ssid 2>/dev/null) || \
+    GATEWAY_NAME="TollGate-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
+    RANDOM_SUFFIX="${GATEWAY_NAME#TollGate-}"
+
+    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
+    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
+    uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
+    uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+    uci commit wireless
+    log "Wireless AP verification completed"
+    exit 0
+fi
+
+# Full setup (first boot or version change)
+: > "$LOGFILE"
+chmod 600 "$LOGFILE"  # contains the WiFi password — keep it root-only
+log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
+
+setup_uhttpd
+setup_uhttpd_portal
+setup_dns_dnsmasq
+setup_hostname
+setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
+setup_nodogsplash
+setup_tollgate_firewall_rules
+setup_profile_hook
+setup_disable_ipv6_lan
+enable_modems
+setup_private_network        # consumes RANDOM_SUFFIX
+commit_all
+
+log "TollGate setup completed (version $SETUP_VERSION)"
+echo "$SETUP_VERSION" > "$SETUP_FLAG"
+exit 0
