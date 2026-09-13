@@ -155,6 +155,9 @@ if ! docker run --rm -i -u root \
     -v "$ARTIFACT_DIR":/artifacts \
     -e SDK_TAG="$SDK_TAG" \
     -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+    -e LC_ALL=C \
+    -e LANG=C \
+    -e TZ=UTC \
     -e PACKAGE_FORMAT="$PACKAGE_FORMAT" \
     -e PACKAGE_EXTENSION="$PACKAGE_EXTENSION" \
     -e PACKAGE_VERSION="$PACKAGE_VERSION" \
