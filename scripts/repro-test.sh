@@ -10,7 +10,7 @@
 #
 # Env:
 #   SOURCE_DATE_EPOCH  optional override; default = HEAD commit timestamp
-#   PKG_VERSION        default v0.7.0-alpha10
+#   PKG_VERSION        default = VERSION at the repository root
 #   TG_TOOLS           dir with pinned go/node (subdirs go/ node/);
 #                      default ~/.cache/tollgate-tools
 #   KEEP=1             keep the two build roots for inspection
@@ -24,7 +24,10 @@ cd "$REPO_ROOT"
 
 TARGET="${1:?usage: scripts/repro-test.sh <binaries|portal|ipk|ipk-upx|apk> [arch]}"
 ARCH="${2:-x86_64}"
-PKG_VERSION="${PKG_VERSION:-v0.7.0-alpha10}"
+# The release version comes from the repository-root VERSION file, the single
+# source of truth (see CONTRIBUTING.md). The clean-root copies below include
+# the file, so the default resolves identically in both roots.
+PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
 TG_TOOLS="${TG_TOOLS:-$HOME/.cache/tollgate-tools}"
 export TG_TOOLS
 

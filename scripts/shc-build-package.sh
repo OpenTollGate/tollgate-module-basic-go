@@ -12,7 +12,7 @@
 #
 # Usage:
 #   bash scripts/shc-build-package.sh                 # defaults below
-#   PKG_VERSION=v0.7.0-alpha11 SHC_SIZE=nvme-4c-16gb bash scripts/shc-build-package.sh
+#   PKG_VERSION=v0.6.0-alpha2 SHC_SIZE=nvme-4c-16gb bash scripts/shc-build-package.sh
 #
 # Environment:
 #   SHC_SIZE      VM size           (default: nvme-2c-8gb — Katy, tx; avoid ssd-*/dev-*)
@@ -22,24 +22,27 @@
 # cheaper) — both validated end-to-end by this script. Cherryvale, Kansas
 # hosts ssd-*/dev-* (g7), flagged unreachable from EU routes (shc-toolkit
 # issue #39); the shc CLI refuses those orders before submitting — do not
-# use until SHC resolves the zone.#   SHC_TEMPLATE  OS template       (default: debian13)
+# use until SHC resolves the zone.
+#   SHC_TEMPLATE  OS template       (default: debian13)
 #   SHC_REAP      reaper deadline   (default: 2h — backstop if this script dies)
 #   SSH_PUB       public key path   (default: ~/.ssh/id_ed25519.pub)
 #   GO_VERSION    Go toolchain      (default: 1.25.8 — must satisfy src/go.mod)
-#   PKG_VERSION   embedded version  (default: v0.7.0-alpha10, as in local-build-ipk.sh)
+#   PKG_VERSION   embedded version  (default: VERSION at the repository root)
 #   OUT_DIR       artifact dir      (default: artifacts/shc)
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
 SHC_SIZE="${SHC_SIZE:-nvme-2c-8gb}"
 SHC_TEMPLATE="${SHC_TEMPLATE:-debian13}"
 SHC_REAP="${SHC_REAP:-2h}"
 SSH_PUB="${SSH_PUB:-$HOME/.ssh/id_ed25519.pub}"
 GO_VERSION="${GO_VERSION:-1.25.8}"
-PKG_VERSION="${PKG_VERSION:-v0.7.0-alpha10}"
+# The release version comes from the repository-root VERSION file, the single
+# source of truth (see CONTRIBUTING.md); set PKG_VERSION to override.
+PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
 OUT_DIR="${OUT_DIR:-artifacts/shc}"
-
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT"
 
 die() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
 command -v shc >/dev/null 2>&1 || die "shc CLI not on PATH (pip install shc-toolkit)"
@@ -74,6 +77,11 @@ SSH_CMD=(ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$VM_USER@
 
 echo "=== [2/5] syncing working tree ==="
 git rev-parse --short HEAD > /tmp/.tollgate-head-sha.$$
+# The remote tree has no .git, so SOURCE_DATE_EPOCH (normally derived from
+# git log in packaging/build-env.sh) is computed here and exported through
+# the remote shell; jq is a build-env.sh requirement the VM does not ship.
+SOURCE_DATE_EPOCH="$(git -C "$REPO_ROOT" log -1 --format=%ct HEAD)"
+export SOURCE_DATE_EPOCH
 tar czf - --exclude=./.git --exclude=./bin --exclude=./artifacts \
   --exclude='./packaging/*.ipk' . | "${SSH_CMD[@]}" 'rm -rf /tmp/tree && mkdir -p /tmp/tree && tar xzf - -C /tmp/tree'
 scp -q /tmp/.tollgate-head-sha.$$ "$VM_USER@$VM_IP:/tmp/tree/.head-sha"
@@ -85,9 +93,12 @@ echo "=== [3/5] remote build (local-build-ipk.sh, verbatim) ==="
   mkdir -p /tmp/shim
   printf '%s\n' '#!/bin/sh' 'for a in \"\$@\"; do case \"\$a\" in rev-parse) cat /tmp/tree/.head-sha; exit 0;; esac; done' 'exit 1' > /tmp/shim/git
   chmod +x /tmp/shim/git
+  sudo apt-get update -qq >/dev/null 2>&1 || true
+  sudo apt-get install -y -qq jq >/dev/null 2>&1
   curl -sSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tgz
   sudo tar -C /usr/local -xzf /tmp/go.tgz
   export PATH=/usr/local/go/bin:/tmp/shim:\$PATH
+  export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
   go version
   cd /tmp/tree
   bash packaging/local-build-ipk.sh"

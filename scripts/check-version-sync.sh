@@ -88,6 +88,20 @@ else
     fail "packaging/local-build-ipk.sh does not substitute __TOLLGATE_VERSION__ into 99-tollgate-setup"
 fi
 
+# --- 4b. no PKG_VERSION literal default in ANY build script ------------------
+# ${PKG_VERSION:-vX.Y.Z} (env-override with a literal fallback) hides a stale
+# version from the plain `PKG_VERSION="vX.Y.Z"` greps above while still
+# shipping it in every build that does not export PKG_VERSION. Every build
+# script must fall back to the VERSION file instead.
+BAD_PKG_DEFAULTS="$(grep -rnE 'PKG_VERSION[:-][^ ]*=?-?\"?v[0-9]+\.[0-9]+\.[0-9]+' \
+    packaging/*.sh scripts/*.sh 2>/dev/null | grep -v 'check-version-sync.sh' || true)"
+if [ -n "$BAD_PKG_DEFAULTS" ]; then
+    printf '%s\n' "$BAD_PKG_DEFAULTS" >&2
+    fail "a build script defaults PKG_VERSION to a version literal; default to \$(cat VERSION) instead"
+else
+    pass "no build script defaults PKG_VERSION to a version literal"
+fi
+
 # --- 5. the shipped setup script carries the placeholder, not a literal -----
 SETUP_SCRIPT=packaging/files/etc/uci-defaults/99-tollgate-setup
 if grep -qE '^SETUP_VERSION="v[0-9]' "$SETUP_SCRIPT"; then
