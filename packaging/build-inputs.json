@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "comment": "Immutable build inputs for reproducible tollgate-wrt artifacts. Every byte-affecting external input is pinned here. Update intentionally (see docs/reproducible-builds.md); never point portal.commit at a floating ref.",
+  "go": {
+    "version": "1.25.8",
+    "tarball_linux_amd64": {
+      "url": "https://go.dev/dl/go1.25.8.linux-amd64.tar.gz",
+      "sha256": "ceb5e041bbc3893846bd1614d76cb4681c91dadee579426cf21a63f2d7e03be6"
+    }
+  },
+  "node": {
+    "version": "22.17.0",
+    "tarball_linux_x64": {
+      "url": "https://nodejs.org/download/release/v22.17.0/node-v22.17.0-linux-x64.tar.gz",
+      "sha256": "0fa01328a0f3d10800623f7107fbcd654a60ec178fab1ef5b9779e94e0419e1a"
+    }
+  },
+  "npm": {
+    "version": "10.9.2",
+    "comment": "Bundled with node 22.17.0; verified at install time."
+  },
+  "upx": {
+    "version": "5.2.1",
+    "tarball_linux_amd64": {
+      "url": "https://github.com/upx/upx/releases/download/v5.2.1/upx-5.2.1-amd64_linux.tar.xz",
+      "sha256": "402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657"
+    }
+  },
+  "portal": {
+    "repo": "https://github.com/OpenTollGate/tollgate-captive-portal-site.git",
+    "commit": "86ac5fc708a082b63fdc578ef9caf5f4ea2ec4df"
+  },
+  "openwrt_sdk": {
+    "image": "openwrt/sdk",
+    "release": "25.12.0",
+    "targets": {
+      "mediatek-filogic": {
+        "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331"
+      },
+      "bcm27xx-bcm2711": {
+        "digest": "sha256:ba3b812f2f1fa5110219825599fd0f745f51b2da557f8f7eea41b1d78f9d7810"
+      },
+      "bcm27xx-bcm2709": {
+        "digest": "sha256:ec78c8925588d84ac046eea1045cd50b4665652d493334bc9b457b30059d992f"
+      },
+      "ramips-mt7621": {
+        "digest": "sha256:000f3add430c8d285e4ae7e7569f06d9143c48df8a0a03bf15891ece8d3dae0f"
+      },
+      "ath79-generic": {
+        "digest": "sha256:c927abbe74c5e036eb0283cfb3a63886caec7a3d735c6cc53a170e0fc0ea04ac"
+      },
+      "x86-64": {
+        "digest": "sha256:0061d8c6bb7559a79931074ffb50fb0d71add1d26840d314397b50ebbc3bf7be"
+      }
+    }
+  }
+}
