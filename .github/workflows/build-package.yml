@@ -52,7 +52,7 @@ jobs:
           {
             "include": [
               { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331" },
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "compression": "upx-ultra-brute" },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331", "compression": "upx-ultra-brute" },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
               { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "sdk": "bcm27xx-bcm2709",  "ipk": true, "apk": false },
@@ -580,8 +580,8 @@ jobs:
           set -euo pipefail
           # Pinned UPX (version + sha256 in packaging/build-inputs.json);
           # apt's upx-ucl floats and its output IS part of the artifact.
-          bash scripts/fetch-upx.sh
-          echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' packaging/build-inputs.json)" >> "$GITHUB_PATH"
+          bash src-checkout/scripts/fetch-upx.sh
+          echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' src-checkout/packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
       - name: Download portal assets
         uses: actions/download-artifact@v4
