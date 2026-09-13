@@ -28,6 +28,9 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 PKG_MAINTAINER:=TollGate <tollgate@tollgate.me>
 PKG_LICENSE:=GPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
+# Emitted as the control file's Source: field (parity with the .ipk path's
+# build-ipk.sh default and with what a feed-built package carries).
+PKG_SOURCE_URL:=https://github.com/OpenTollGate/tollgate-module-basic-go
 
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
