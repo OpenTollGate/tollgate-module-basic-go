@@ -3,7 +3,7 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/merchant
 go 1.25.0
 
 require (
-	github.com/OpenTollGate/gonuts-tollgate v0.11.1
+	github.com/OpenTollGate/gonuts-tollgate v0.11.2-0.20260913230723-717c8863c8e5
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0

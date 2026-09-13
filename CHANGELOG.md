@@ -53,6 +53,20 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Cashu wallet hardening from the gonuts bump** (pinned to the
+  integration ref of gonuts #23/#24/#25, re-pinned to the tagged release
+  once it exists): an empty-proofs token now fails the payment with a
+  normal error instead of a contained panic (gonuts #23); mint swap
+  rejections surface verbatim instead of empty `could not swap proofs:`
+  errors (gonuts #25), which also makes the `ErrTokenAlreadySpent`
+  sentinel actually reachable — this change broadens its match to the
+  phrasings mints really use ("Token already spent" / "inputs have
+  already been spent") and pins the whole chain with a two-layer test;
+  a token worth less than its keyset's input fee fails fast instead of
+  posting an absurd swap; and a second in-process wallet load returns a
+  clear "wallet database is locked" error instead of deadlocking
+  (gonuts #24).
+
 - **nftables ruleset is packaged in full.** The OpenWrt recipe installed
   `/etc/nftables.d/` one file at a time and named only
   `20-nds-enforce.nft`, so `packaging/files/etc/nftables.d/30-backend-firewall.nft`
