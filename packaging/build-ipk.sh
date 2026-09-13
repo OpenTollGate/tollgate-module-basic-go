@@ -89,12 +89,12 @@ done
 
 # 3. control.tar.gz
 ( cd "$WORK/CONTROL" && \
-  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
     -cf - . | "$GZIP_BIN" -n > "$WORK/control.tar.gz" )
 
 # 4. data.tar.gz
 ( cd "$PAYLOAD_DIR" && \
-  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
     -cf - . | "$GZIP_BIN" -n > "$WORK/data.tar.gz" )
 
 # 5. debian-binary
@@ -105,10 +105,12 @@ printf '2.0\n' > "$WORK/debian-binary"
 # OpenWrt-side tooling in the wild assumes tar.gz wrapping
 # (e.g. `tar -xzOf foo.ipk ./control.tar.gz`), so we have to match.
 # Deterministic: fixed member order, mtimes pinned to SOURCE_DATE_EPOCH,
-# owner/group normalized, gzip header stripped of timestamp.
+# owner/group normalized, group/other write bits stripped (--mode=go-w) so
+# the packer's umask cannot reach the archive, gzip header stripped of
+# timestamp.
 rm -f "$OUTPUT"
 ( cd "$WORK" && \
-  "$TAR" --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  "$TAR" --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
     -cf - ./debian-binary ./data.tar.gz ./control.tar.gz \
     | "$GZIP_BIN" -n > "$OUTPUT" )
 
