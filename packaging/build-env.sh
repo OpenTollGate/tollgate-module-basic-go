@@ -51,6 +51,15 @@ fi
 command -v jq >/dev/null 2>&1 || tg_die "jq is required to read $TG_BUILD_INPUTS"
 [ -f "$TG_BUILD_INPUTS" ] || tg_die "missing $TG_BUILD_INPUTS"
 
+# Locale and timezone affect tool output (collation order behind sort,
+# tar member ordering, date rendering) and therefore artifact bytes.
+# OpenWrt's own scripts/get_source_date_epoch.sh pins the same variables;
+# same-host two-root repro tests cannot catch a locale difference.
+LANG=C
+LC_ALL=C
+TZ=UTC
+export LANG LC_ALL TZ
+
 # ---- pinned tool versions --------------------------------------------------
 
 GO_VERSION="$(jq -r '.go.version' "$TG_BUILD_INPUTS")"
