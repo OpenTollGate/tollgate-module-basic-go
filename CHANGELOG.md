@@ -51,6 +51,18 @@ and [Semantic Versioning](https://semver.org/).
   `src/cli.*` ldflags, which its separate Go module never links, so
   the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
+- **Environment-variance check via `reprotest`.**
+  `make reproducibility-variance` (`scripts/repro-variance.sh`) rebuilds
+  the `.ipk` under hostile environment variations — umask, timezone,
+  locales, file ordering — using the reproducible-builds.org `reprotest`
+  engine, complementing the two-clean-roots harness: the harness proves
+  independent roots agree; the variance run proves the build survives
+  environments that differ from ours (the umask leak fixed in this
+  release shipped precisely because nothing varied it). Test dependency
+  only — installed via pip, not pinned in `build-inputs.json`. See
+  [docs/reproducible-builds.md](docs/reproducible-builds.md),
+  "Variance testing". ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
 ### Changed
 
 - **`.gitignore` binary patterns anchored.** The bare `tollgate-cli`
