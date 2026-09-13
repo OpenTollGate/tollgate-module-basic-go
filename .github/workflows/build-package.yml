@@ -196,18 +196,42 @@ jobs:
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
         run: |
           set -euo pipefail
-          # BuildTime is derived from SOURCE_DATE_EPOCH (HEAD commit time),
-          # never the wall clock — rebuilding later must produce identical bytes.
-          BUILD_TIME=$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%d %H:%M:%S UTC')
-          GIT_COMMIT=$(git rev-parse --short HEAD)
-          LDFLAGS="-s -w \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
-            -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+          # ONE flag recipe for every lane. packaging/build-env.sh owns the
+          # ldflags (Version, GitCommit, BuildTime, GitBranch), the epoch and
+          # the locale, and it is the same helper scripts/repro-test.sh calls —
+          # so the release binaries and the ones the reproducibility harness
+          # compares are built from identical flags. Hand-rolling them here is
+          # what let the two drift: this step injected no GitBranch at all
+          # (repro-test built with main) and stamped the branch-derived
+          # package_version where the harness stamps VERSION.
+          #
+          # The binaries embed the version in VERSION at the repository root,
+          # the single source of truth (scripts/check-version-sync.sh enforces
+          # it, and the tag check above pins refs/tags/* to it), so a release
+          # build and a harness build of one commit embed the same string.
+          # PACKAGE_VERSION — the tag, or <branch>.<height>.<sha> for branch
+          # builds — still versions the packages, their control metadata and
+          # the Nostr announcement; only the ldflags take VERSION.
+          BUILD_VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$BUILD_VERSION" ]; then
+            echo "ERROR: VERSION at the repository root is empty." >&2
+            exit 1
+          fi
+          # TG_ROOT matters: build-env.sh cannot infer the repository from $0
+          # when it is sourced from a workflow step script.
+          TG_ROOT="$GITHUB_WORKSPACE"
+          export TG_ROOT BUILD_VERSION
+          # shellcheck source=packaging/build-env.sh
+          . "$GITHUB_WORKSPACE/packaging/build-env.sh"
+
+          LDFLAGS="$(go_ldflags "$BUILD_VERSION")"
 
           # The tollgate CLI is a separate Go module that does not link the
           # src/cli package, so its version must be injected via main.version.
-          CLI_LDFLAGS="$LDFLAGS -X 'main.version=$PACKAGE_VERSION'"
+          CLI_LDFLAGS="$(cli_ldflags "$BUILD_VERSION")"
+          echo "BUILD_VERSION=$BUILD_VERSION"
+          echo "LDFLAGS: $LDFLAGS"
+          echo "CLI_LDFLAGS: $CLI_LDFLAGS"
 
           TARGETS='[
             {"key":"arm64","goarch":"arm64"},
