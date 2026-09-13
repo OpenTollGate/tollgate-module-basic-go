@@ -103,6 +103,32 @@ before it is hashed, and at least one real comparison must have happened
 before the all-clear is printed (the run reports how many artifact pairs it
 compared).
 
+## Variance testing (reprotest)
+
+The clean-roots harness builds twice in environments that are, by
+construction, identical in everything the copies share — same host, same
+user, same umask, same locale. That is its strength (it isolates the build
+from the cache) and its blind spot: nothing *varies*. The umask leak fixed
+in `0acd0bf` shipped precisely because of that blind spot — two roots on
+one machine could not see it; a second host could.
+
+`make reproducibility-variance` (or `scripts/repro-variance.sh`) runs
+[reprotest](https://reprotest.readthedocs.io/) — the reproducible-builds.org
+variance engine — over the same ipk build. It rebuilds under hostile
+environment variations (default `+umask,+timezone`, which need no extra
+setup; `VARIATIONS=+locales,+fileordering` or `+all` add more but need
+Debian-class tooling — `locales-all` and `disorderfs` with FUSE — or the
+varied build dies with exit 127) and diffs the artifacts with diffoscope.
+Install it once, outside the tree:
+
+```sh
+python3 -m venv .reprotest-venv && .reprotest-venv/bin/pip install reprotest
+REPROTEST=.reprotest-venv/bin/reprotest make reproducibility-variance
+```
+
+reprotest is a test dependency only — it never touches artifact bytes, so
+it is not pinned in `build-inputs.json`.
+
 ## Updating pinned versions intentionally
 
 Edit `packaging/build-inputs.json` — one value, one PR:

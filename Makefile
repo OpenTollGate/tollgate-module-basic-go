@@ -1,4 +1,4 @@
-.PHONY: portal-build reproducibility-test
+.PHONY: portal-build reproducibility-test reproducibility-variance
 
 portal-build:
 	@bash packaging/portal-build.sh
@@ -12,3 +12,9 @@ reproducibility-test:
 
 reproducibility-test-default:
 	@bash scripts/repro-test.sh binaries x86_64
+
+# Variance check (reprotest): rebuild under hostile environment variations
+# (umask, timezone, locales, file ordering) and require identical output —
+# the complement to the clean-roots check above. Requires reprotest (pip).
+reproducibility-variance:
+	@bash scripts/repro-variance.sh "$(T)" "$(ARCH)"

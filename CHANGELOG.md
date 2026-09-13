@@ -70,7 +70,6 @@ and [Semantic Versioning](https://semver.org/).
   `GPL-3.0-only`** in `packaging/Makefile`, `packaging/local-build-ipk.sh`,
   and the CI ipk control template, matching the repository's actual
   GPL-3.0 `LICENSE`. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
->>>>>>> 5f87893 (docs(changelog): unreleased entries for version, license and reproducibility work)
 ### Changed / Internal
 
 - **Packaging artifact-contents test.** New
@@ -84,6 +83,19 @@ and [Semantic Versioning](https://semver.org/).
   package artifact by name and fails loudly if it is not found, instead of
   testing whichever `.apk` happens to come first.
   ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
+- **Environment-variance check via `reprotest`.**
+  `make reproducibility-variance` (`scripts/repro-variance.sh`) rebuilds
+  the `.ipk` under hostile environment variations — umask, timezone,
+  locales, file ordering — using the reproducible-builds.org `reprotest`
+  engine, complementing the two-clean-roots harness: the harness proves
+  independent roots agree; the variance run proves the build survives
+  environments that differ from ours (the umask leak fixed in this
+  release shipped precisely because nothing varied it). Test dependency
+  only — installed via pip, not pinned in `build-inputs.json`. See
+  [docs/reproducible-builds.md](docs/reproducible-builds.md),
+  "Variance testing". ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+### Changed
 
 - **`.gitignore` binary patterns anchored.** The bare `tollgate-cli`
   pattern also matched the source directory `src/cmd/tollgate-cli/`,
