@@ -26,7 +26,6 @@
 #   SHC_TEMPLATE  OS template       (default: debian13)
 #   SHC_REAP      reaper deadline   (default: 2h — backstop if this script dies)
 #   SSH_PUB       public key path   (default: ~/.ssh/id_ed25519.pub)
-#   GO_VERSION    Go toolchain      (default: 1.25.8 — must satisfy src/go.mod)
 #   PKG_VERSION   embedded version  (default: VERSION at the repository root)
 #   OUT_DIR       artifact dir      (default: artifacts/shc)
 set -euo pipefail
@@ -38,7 +37,6 @@ SHC_SIZE="${SHC_SIZE:-nvme-2c-8gb}"
 SHC_TEMPLATE="${SHC_TEMPLATE:-debian13}"
 SHC_REAP="${SHC_REAP:-2h}"
 SSH_PUB="${SSH_PUB:-$HOME/.ssh/id_ed25519.pub}"
-GO_VERSION="${GO_VERSION:-1.25.8}"
 # The release version comes from the repository-root VERSION file, the single
 # source of truth (see CONTRIBUTING.md); set PKG_VERSION to override.
 PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
@@ -95,7 +93,10 @@ echo "=== [3/5] remote build (local-build-ipk.sh, verbatim) ==="
   chmod +x /tmp/shim/git
   sudo apt-get update -qq >/dev/null 2>&1 || true
   sudo apt-get install -y -qq jq >/dev/null 2>&1
-  curl -sSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tgz
+  GO_VER=\$(jq -r '.go.version' /tmp/tree/packaging/build-inputs.json)
+  GO_SHA=\$(jq -r '.go.tarball_linux_amd64.sha256' /tmp/tree/packaging/build-inputs.json)
+  curl -sSL https://go.dev/dl/go\${GO_VER}.linux-amd64.tar.gz -o /tmp/go.tgz
+  printf '%s  %s\n' \"\$GO_SHA\" /tmp/go.tgz | sha256sum -c -
   sudo tar -C /usr/local -xzf /tmp/go.tgz
   export PATH=/usr/local/go/bin:/tmp/shim:\$PATH
   export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
@@ -108,17 +109,15 @@ echo "=== [4/5] proving --version on built binaries ==="
   IPK=/tmp/tree/packaging/tollgate-wrt_${PKG_VERSION}_aarch64_cortex-a53.ipk
   [ -f \"\$IPK\" ] || { echo 'ipk missing' >&2; exit 1; }
   sudo apt-get update -qq >/dev/null 2>&1 || true
-  sudo apt-get install -y -qq qemu-user-static binutils >/dev/null 2>&1 || true
+  sudo apt-get install -y -qq qemu-user-static binutils >/dev/null 2>&1
   rm -rf /tmp/ipkx && mkdir -p /tmp/ipkx && cd /tmp/ipkx
   tar xzf \"\$IPK\"
   tar xzf ./control.tar.gz; tar xzf ./data.tar.gz
   echo '--- control:'; grep -E '^(Package|Version|Architecture|License):' ./control
-  if command -v qemu-aarch64-static >/dev/null 2>&1; then
-    qemu-aarch64-static usr/bin/tollgate --version
-    qemu-aarch64-static usr/bin/tollgate-wrt --version
-  else
-    echo 'NOTE: qemu-user-static unavailable; skipping arm64 execution proof'
-  fi
+  # The --version proof is the point of this step: fail rather than skip it.
+  command -v qemu-aarch64-static >/dev/null 2>&1 || { echo 'ERROR: qemu-aarch64-static unavailable — cannot prove --version on the arm64 binaries' >&2; exit 1; }
+  qemu-aarch64-static usr/bin/tollgate --version
+  qemu-aarch64-static usr/bin/tollgate-wrt --version
   sha256sum \"\$IPK\" /tmp/tree/bin/arm64/tollgate-wrt /tmp/tree/bin/arm64/tollgate"
 
 echo "=== [5/5] fetching artifact ==="
