@@ -6,14 +6,20 @@
 # Merge / patch artifacts
 *.orig
 
-# Go build outputs (binaries that land at repo or src/ root)
+# Go build outputs (binaries that land at repo or src/ root).
+# Anchored so the bare names cannot shadow source directories such as
+# src/cmd/tollgate-cli/ — unanchored, they silently ignore new files there.
 bin/
 artifacts/
 vendor/
-tollgate
-tollgate-wrt
-tollgate-module-basic-go
-tollgate-cli
+/tollgate
+/tollgate-wrt
+/tollgate-module-basic-go
+/tollgate-cli
+src/tollgate
+src/tollgate-wrt
+src/tollgate-module-basic-go
+src/tollgate-cli
 *.exe
 
 # Test artifacts
