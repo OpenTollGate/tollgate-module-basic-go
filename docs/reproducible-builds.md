@@ -169,3 +169,13 @@ once, then be stable again.
   follow-up.
 - `npm ci` depends on the portal's `package-lock.json` at the pinned commit;
   the lockfile, not the registry, fixes dependency bytes.
+- **Upstream epoch policy**: OpenWrt is moving its own package builds
+  toward a fixed `SOURCE_DATE_EPOCH` (see openwrt/openwrt#21579 and the
+  "set SOURCE_DATE_EPOCH to 0" direction) because per-package git
+  derivation breaks in shallow feed clones and the SDK. When tollgate is
+  built inside openwrt/packages, their epoch policy will govern buildbot
+  artifacts, so a feed artifact (epoch = our commit timestamp) and an
+  upstream buildbot artifact (epoch = their fixed value) will differ by
+  design even for identical sources. That is per-channel identity, not
+  nondeterminism — but do not expect the hashes to cross-check between
+  the two channels.

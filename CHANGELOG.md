@@ -95,8 +95,6 @@ and [Semantic Versioning](https://semver.org/).
   [docs/reproducible-builds.md](docs/reproducible-builds.md),
   "Variance testing". ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
-### Changed
-
 - **`.gitignore` binary patterns anchored.** The bare `tollgate-cli`
   pattern also matched the source directory `src/cmd/tollgate-cli/`,
   silently ignoring any new (untracked) files added there; patterns
