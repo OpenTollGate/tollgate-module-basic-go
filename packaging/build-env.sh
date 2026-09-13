@@ -21,6 +21,10 @@
 #   sdk_image_ref <target>     openwrt/sdk image pinned by digest
 #   go_ldflags  <pkg-version>  service binary ldflags (no wall clock)
 #   cli_ldflags <pkg-version>  go_ldflags + main.version for the CLI module
+#   tg_git_branch              branch of the enclosing repo; "main" when the
+#                              checkout cannot name one (detached HEAD)
+#   tg_git_commit              short HEAD of the enclosing repo; "unknown"
+#                              when there is no readable git history
 #   normalize_mtime <path>...  recursive touch to SOURCE_DATE_EPOCH
 #   tg_die <msg>               stderr + exit 1
 
@@ -118,18 +122,56 @@ sdk_image_ref() {
     printf '%s:%s@%s' "$(jq -r '.openwrt_sdk.image' "$TG_BUILD_INPUTS")" "$_tgt-$SDK_RELEASE" "$_digest"
 }
 
+# Branch of the enclosing repository, recorded in
+# config_manager.GitBranch. That value drives IsDevBuild(), so "main"
+# (and "unknown"/empty) means a release-line build while a real branch
+# name means a dev build — see the test-mint injection in
+# src/config_manager/config_manager_config.go and CHANGELOG #359.
+#
+# It is DERIVED here, once, rather than hardcoded by each caller: the
+# release workflow, the local ipk/apk scripts and the reproducibility
+# harness must all embed the same value for the same checkout, otherwise
+# two builds of one commit disagree for no reason. A checkout that
+# cannot name a branch — a detached HEAD (tag builds, CI merge refs) or
+# a clean-root copy without git metadata — falls back to "main":
+# releases are built from tags of main, so that is the release-line
+# value, and it is what the old hardcoded pin meant.
+tg_git_branch() {
+    _branch=""
+    if command -v git >/dev/null 2>&1; then
+        _branch="$(git -C "$TG_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    fi
+    case "$_branch" in
+        ''|HEAD) _branch=main ;;
+    esac
+    printf '%s' "$_branch"
+}
+
+# Short commit of the enclosing repository, recorded in
+# cli.GitCommit. "unknown" only when git cannot name one (a clean-root
+# copy). Stamping the real commit instead of a per-caller placeholder is
+# what lets the harness and the release lane build the same bytes for the
+# same checkout.
+tg_git_commit() {
+    _commit=""
+    if command -v git >/dev/null 2>&1; then
+        _commit="$(git -C "$TG_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+    fi
+    [ -n "$_commit" ] || _commit=unknown
+    printf '%s' "$_commit"
+}
+
 # Deterministic ldflags for the service binaries (module
 # github.com/OpenTollGate/tollgate-module-basic-go). BuildTime comes from
 # SOURCE_DATE_EPOCH via $BUILD_TIME_UTC — never from the wall clock.
-# GitBranch is pinned to "main": release builds are main-line; a branch
-# build that embedded its real name would vary per checkout.
 go_ldflags() {
     _ver="$1"
+    _commit="${TG_GIT_COMMIT:-$(tg_git_commit)}"
     printf "%s" "-s -w \
 -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$_ver' \
--X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=${TG_GIT_COMMIT:-unknown}' \
+-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$_commit' \
 -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME_UTC' \
--X 'github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager.GitBranch=main'"
+-X 'github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager.GitBranch=$(tg_git_branch)'"
 }
 
 # The tollgate CLI is a separate Go module that does not link the src/cli

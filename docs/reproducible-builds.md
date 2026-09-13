@@ -94,6 +94,15 @@ installed) on the pair, and keeps both roots (`KEEP=1` also keeps them) so
 the difference can be inspected. Heavy targets (apk especially) belong on a
 beefy build host.
 
+The check fails closed. A target that produces no artifact is a **failed**
+build, not a pass: an artifact glob with no matches (or an empty portal
+output directory) would otherwise reach `REPRODUCIBLE: YES` without a single
+comparison. Each build root must yield at least one artifact, both roots must
+yield the *same number* of artifacts, the portal tree must be non-empty
+before it is hashed, and at least one real comparison must have happened
+before the all-clear is printed (the run reports how many artifact pairs it
+compared).
+
 ## Updating pinned versions intentionally
 
 Edit `packaging/build-inputs.json` — one value, one PR:
