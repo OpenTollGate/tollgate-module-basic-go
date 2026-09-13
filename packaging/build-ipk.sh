@@ -34,6 +34,14 @@ OUTPUT="$(cd "$(dirname "$OUTPUT")" && pwd)/$(basename "$OUTPUT")"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Canonical reproducible-build environment: SOURCE_DATE_EPOCH (and strictness
+# flags) come from packaging/build-env.sh + build-inputs.json. TG_ROOT is
+# pre-set because $0 inside a sourced POSIX-sh context is the caller's path.
+# shellcheck source=build-env.sh
+TG_ROOT="$SCRIPT_DIR/.."
+export TG_ROOT
+. "$SCRIPT_DIR/build-env.sh"
+
 # Prefer GNU tar (gtar on macOS) — BSD tar lacks --sort / --owner flags
 # needed for deterministic output.
 if command -v gtar >/dev/null 2>&1; then
@@ -41,6 +49,12 @@ if command -v gtar >/dev/null 2>&1; then
 else
     TAR=tar
 fi
+
+# gzip -n: no filename, no timestamp in the gzip header. tar's internal -z
+# does not expose this, so every archive is written through an explicit
+# `tar -cf - | gzip -n` pipe. Member mtimes are pinned by --mtime below, so
+# normalizing the intermediate files is unnecessary.
+GZIP_BIN=gzip
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -70,13 +84,13 @@ done
 
 # 3. control.tar.gz
 ( cd "$WORK/CONTROL" && \
-  "$TAR" --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-    -czf "$WORK/control.tar.gz" . )
+  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+    -cf - . | "$GZIP_BIN" -n > "$WORK/control.tar.gz" )
 
 # 4. data.tar.gz
 ( cd "$PAYLOAD_DIR" && \
-  "$TAR" --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-    -czf "$WORK/data.tar.gz" . )
+  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+    -cf - . | "$GZIP_BIN" -n > "$WORK/data.tar.gz" )
 
 # 5. debian-binary
 printf '2.0\n' > "$WORK/debian-binary"
@@ -85,10 +99,13 @@ printf '2.0\n' > "$WORK/debian-binary"
 # (NOT the Debian ar format). opkg itself reads either, but the
 # OpenWrt-side tooling in the wild assumes tar.gz wrapping
 # (e.g. `tar -xzOf foo.ipk ./control.tar.gz`), so we have to match.
+# Deterministic: fixed member order, mtimes pinned to SOURCE_DATE_EPOCH,
+# owner/group normalized, gzip header stripped of timestamp.
 rm -f "$OUTPUT"
 ( cd "$WORK" && \
-  "$TAR" --owner=0 --group=0 --numeric-owner \
-    -czf "$OUTPUT" ./debian-binary ./data.tar.gz ./control.tar.gz )
+  "$TAR" --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+    -cf - ./debian-binary ./data.tar.gz ./control.tar.gz \
+    | "$GZIP_BIN" -n > "$OUTPUT" )
 
 size=$(wc -c < "$OUTPUT" | tr -d ' ')
 printf 'Built %s (%s bytes)\n' "$OUTPUT" "$size"
