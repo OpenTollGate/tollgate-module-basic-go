@@ -79,7 +79,7 @@ everything in `<…>`. Paste **raw terminal output** — never a screenshot, nev
 a paraphrase, never a retyped summary.
 
 ````text
-### Report — <one line: what happened>
+### Report — <S1|S2|S3> <one line: what happened>
 
 - 1. Router model: <make and model, e.g. GL.iNet MT3000 / Xiaomi AX3000T / custom build>
 - What I was doing: <clean install | upgrade from <version> | removal | rollback | normal use>
@@ -132,6 +132,15 @@ they disagree, that disagreement is itself a finding — include both.
 `apk list tollgate-wrt` (without `--installed`) shows the same line and is
 equally acceptable; `--installed` is simply the precise question.
 
+**One disagreement is expected and is not a finding.** The same release carries
+two spellings on purpose: item 4 prints the apk control spelling
+(`0.6.0_alpha2-r0` — no leading `v`, `_` instead of `-`, plus apk's own `-r<N>`
+release revision) and item 5 prints the release tag (`v0.6.0-alpha2`), because
+`apk` cannot carry a hyphen in a version. A mismatch **of that shape** — the
+same version number, differing only in a leading `v`, in `_` versus `-`, or in
+a trailing `-r<N>` — is expected and is not a finding. Only a genuinely
+different version number is.
+
 **Item 5 — there is no `--version` flag.** `tollgate --version` is not a valid
 option in this CLI: it exits non-zero with `unknown flag: --version`. The
 command is `tollgate version`.
@@ -147,6 +156,26 @@ build_time: 2026-09-13T00:00:00Z
 go_version: go1.26.0
 openwrt_version: OpenWrt 25.12.5 r33051-f5dae5ece4
 ```
+
+**What produced that block — and why three of its values are not the
+release's.** The output is real, but it is the **rehearsal build**: a build made
+by hand in the rehearsal container (OpenWrt 25.12.5 userland, `x86_64`) at
+commit `dcf8c5d`, compiled with the build host's own Go toolchain rather than
+CI's, and with a version string injected for the rehearsal. It is **not** output
+from the package in the feed, and the three values below are artifacts of how
+it was built:
+
+| field | this rehearsal build | the published `v0.6.0-alpha2` package |
+|---|---|---|
+| `version` | `v0.6.0_alpha2` — the apk-safe spelling, injected by hand | `v0.6.0-alpha2` — the release-tag string in the `VERSION` file, which CI injects into the binary |
+| `build_time` | `2026-09-13T00:00:00Z` — a fixed placeholder; no build path emits RFC 3339 | `%Y-%m-%d %H:%M:%S UTC`, e.g. `2026-09-13 00:00:00 UTC`, from `date -u` |
+| `go_version` | `go1.26.0` — the rehearsal host's toolchain | `go1.25.x` — every published package is compiled by CI, which pins Go 1.25 |
+
+The field names, their order, the `commit` line and `openwrt_version` are what
+you will see; only those three values differ, and they are the reason a real
+install is not expected to reproduce this block byte for byte. Compare item 5
+against item 4 and against the version in the announcement, not against this
+block.
 
 `tollgate version` asks the **running service**. If the service is down it
 fails with `failed to communicate with TollGate service` — say so instead of
@@ -203,8 +232,10 @@ other items, as long as you say which ones you could not produce and why.
   disappeared; anything at all that could mean money moved the wrong way.
   **What stop-ship means, literally:** before anyone investigates, we **pull
   the release** — the feed index for the affected architecture is withdrawn so
-  that nobody else installs those bytes — and then we fix it. Write `S1` in the
-  first line of your report so that nobody skims past it.
+  that nobody else installs those bytes — and then we fix it. Put the label
+  first on the first line of your report — `### Report — <S1|S2|S3> <what
+  happened>`, exactly as the §3 template's first line shows it — so that nobody
+  skims past it.
   If you are **not sure** whether your symptom is S1, report it as S1 and say
   why you are unsure. Over-reporting S1 costs us an hour; under-reporting one
   costs somebody their money.
@@ -247,7 +278,14 @@ Reports are public. Nothing here is needed to diagnose a problem:
 - a Cashu token, or the output of `tollgate wallet drain cashu`;
 - router credentials, WireGuard keys, private network passwords, WiFi PSKs;
 - anything from `/tmp/tollgate-setup.log` (it contains the generated
-  management-WiFi password).
+  management-WiFi password);
+- **the log block you paste for item 7.** Normal operation writes token material
+  into the daemon's log: lines containing `token_preview=` (the first 50
+  characters of a Cashu token, `src/merchant/merchant.go`) and `preview:` (the
+  same, on the wallet-funding path) are ordinary log lines. Read the log block
+  **before** you paste it, delete everything after `token_preview=` and after
+  `preview:`, and say in the report that you redacted it — a redacted log is
+  still a usable log, and the surrounding lines are what we need.
 
 If we need a specific value we will ask for that value and tell you where it is
 safe to read it.
@@ -356,8 +394,9 @@ testers. Post your report as a comment on this issue.**
   ask once for the missing pieces and then close it.
 - **Severity.** `S1` = any wallet or funds symptom, and it is **stop-ship**:
   the feed index is pulled before anyone investigates. `S2` = the service is
-  broken. `S3` = cosmetic or documentation. Put the label in the first line of
-  your report.
+  broken. `S3` = cosmetic or documentation. Put the label first on the first
+  line of your report — `### Report — <S1|S2|S3> <what happened>`, exactly as
+  the §3 template's first line shows it — so that nobody skims past it.
 - **Every qualified report becomes one tracked work item** tagged with its
   severity and your architecture, and you will see that tag echoed back in this
   thread.

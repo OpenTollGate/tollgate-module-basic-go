@@ -220,7 +220,9 @@ the event's `x` tag before announcing anything.
   `S2 aarch64_cortex-a53` — and worked in severity order, S1 first
   ([`docs/tester-intake.md`](../docs/tester-intake.md) §4.3). An S1
   wallet/funds report is a stop-ship: pull the feed index *before*
-  investigating (§4.2). Do not open a second tracker for the same reports;
+  investigating (§4.2) — a step for the **feed operator** named in the feed
+  runbook (§5), executed through that runbook, not for whoever is triaging the
+  report. Do not open a second tracker for the same reports;
   the card is the tracker, the intake thread is where the tester sees the
   tag echoed back.
 - Leave a fresh empty `## [Unreleased]` heading in `CHANGELOG.md` for
