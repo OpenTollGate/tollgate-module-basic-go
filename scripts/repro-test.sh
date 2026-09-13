@@ -132,6 +132,17 @@ artifact_for() {
     esac
 }
 
+# The path a target searches under one root, for the "matched nothing" report.
+artifact_desc() {
+    ROOT="$BASE/$1"
+    case "$TARGET" in
+        binaries) printf '%s' "$ROOT/out/tollgate-wrt and $ROOT/out/tollgate" ;;
+        portal)   printf '%s' "$ROOT/out-portal" ;;
+        apk)      printf '%s' "$ROOT/out/tollgate-wrt*.apk" ;;
+        *)        printf '%s' "$ROOT/out/tollgate-wrt_${PKG_VERSION}_${ARCH}.ipk" ;;
+    esac
+}
+
 echo "=== reproducibility test: target=$TARGET arch=$ARCH epoch=$SOURCE_DATE_EPOCH"
 echo "=== build 1/2"
 run_in_root "$BASE/a"
@@ -139,35 +150,91 @@ echo "=== build 2/2"
 run_in_root "$BASE/b"
 
 fail=0
+# Artifact pairs actually compared. REPRODUCIBLE: YES is gated on this counter
+# so that a target whose artifact glob matched nothing can never pass
+# vacuously: "we compared nothing and found no differences" is not evidence.
+comparisons=0
+
+# A root that yields no artifact is a failed check, not a pass. An artifact
+# glob with no matches (the apk target) or an empty portal output directory
+# leaves the two builds uncompared, which is exactly the state this script
+# exists to rule out.
+no_artifacts() {
+    echo "no artifacts found for target=$TARGET: $1" >&2
+    fail=1
+}
+
 if [ "$TARGET" = portal ]; then
-    h1="$(cd "$BASE/a/out-portal" && find . -type f | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
-    h2="$(cd "$BASE/b/out-portal" && find . -type f | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
-    echo "BUILD 1 (tree hash): $h1"
-    echo "BUILD 2 (tree hash): $h2"
-    if [ "$h1" != "$h2" ]; then
-        echo "MISMATCH in portal tree - diffing:"
-        diff -r "$BASE/a/out-portal" "$BASE/b/out-portal" | head -40 || true
-        fail=1
+    for x in a b; do
+        PORTAL_OUT="$BASE/$x/out-portal"
+        files=0
+        if [ -d "$PORTAL_OUT" ]; then
+            files="$(find "$PORTAL_OUT" -type f | wc -l)"
+        fi
+        # Hash a non-empty tree or nothing at all: an empty tree hashes to the
+        # same constant in both roots and would report REPRODUCIBLE: YES.
+        if [ "$files" -eq 0 ]; then
+            no_artifacts "build $x produced no files under $PORTAL_OUT (nothing to hash)"
+        fi
+    done
+    if [ "$fail" = 0 ]; then
+        h1="$(cd "$BASE/a/out-portal" && find . -type f | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
+        h2="$(cd "$BASE/b/out-portal" && find . -type f | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
+        comparisons=$((comparisons + 1))
+        echo "BUILD 1 (tree hash): $h1"
+        echo "BUILD 2 (tree hash): $h2"
+        if [ "$h1" != "$h2" ]; then
+            echo "MISMATCH in portal tree - diffing:"
+            diff -r "$BASE/a/out-portal" "$BASE/b/out-portal" | head -40 || true
+            fail=1
+        fi
     fi
 else
     mapfile -t arts_a < <(artifact_for a)
     mapfile -t arts_b < <(artifact_for b)
-    for i in "${!arts_a[@]}"; do
-        s1="$(sha256sum "${arts_a[$i]}" | awk '{print $1}')"
-        s2="$(sha256sum "${arts_b[$i]}" | awk '{print $1}')"
-        echo "BUILD 1: ${arts_a[$i]##*/}  $s1"
-        echo "BUILD 2: ${arts_b[$i]##*/}  $s2"
-        if [ "$s1" != "$s2" ]; then
-            echo "MISMATCH on ${arts_a[$i]##*/} - diagnosing:"
-            cmp "${arts_a[$i]}" "${arts_b[$i]}" || true
-            command -v diffoscope >/dev/null 2>&1 && diffoscope "${arts_a[$i]}" "${arts_b[$i]}" | head -60
-            fail=1
-        fi
-    done
+    if [ "${#arts_a[@]}" -eq 0 ]; then
+        no_artifacts "build a matched nothing under $(artifact_desc a)"
+    fi
+    if [ "${#arts_b[@]}" -eq 0 ]; then
+        no_artifacts "build b matched nothing under $(artifact_desc b)"
+    fi
+    # Equal counts, checked in both directions: a pair that does not line up
+    # file for file has not been compared, and the loop below would silently
+    # compare a subset of one root against a subset of the other.
+    if [ "${#arts_a[@]}" -gt "${#arts_b[@]}" ]; then
+        echo "artifact count mismatch for target=$TARGET: build a produced ${#arts_a[@]}, build b only ${#arts_b[@]}" >&2
+        fail=1
+    fi
+    if [ "${#arts_b[@]}" -gt "${#arts_a[@]}" ]; then
+        echo "artifact count mismatch for target=$TARGET: build b produced ${#arts_b[@]}, build a only ${#arts_a[@]}" >&2
+        fail=1
+    fi
+    if [ "$fail" = 0 ]; then
+        for i in "${!arts_a[@]}"; do
+            s1="$(sha256sum "${arts_a[$i]}" | awk '{print $1}')"
+            s2="$(sha256sum "${arts_b[$i]}" | awk '{print $1}')"
+            comparisons=$((comparisons + 1))
+            echo "BUILD 1: ${arts_a[$i]##*/}  $s1"
+            echo "BUILD 2: ${arts_b[$i]##*/}  $s2"
+            if [ "$s1" != "$s2" ]; then
+                echo "MISMATCH on ${arts_a[$i]##*/} - diagnosing:"
+                cmp "${arts_a[$i]}" "${arts_b[$i]}" || true
+                command -v diffoscope >/dev/null 2>&1 && diffoscope "${arts_a[$i]}" "${arts_b[$i]}" | head -60
+                fail=1
+            fi
+        done
+    fi
+fi
+
+# Last line of defence: the all-clear requires at least one real comparison.
+if [ "$fail" = 0 ] && [ "$comparisons" -eq 0 ]; then
+    echo "no comparisons were made for target=$TARGET - refusing to report REPRODUCIBLE" >&2
+    fail=1
 fi
 
 echo
 if [ "$fail" = 0 ]; then
+    echo "compared $comparisons artifact pair(s)"
     echo "REPRODUCIBLE: YES"
 else
     echo "REPRODUCIBLE: NO"
