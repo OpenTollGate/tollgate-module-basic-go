@@ -30,12 +30,12 @@ PKG_VERSION:=0.6.0_alpha2
 PKG_RELEASE:=1
 
 PKG_SOURCE:=tollgate-wrt-$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://codeload.github.com/OpenTollGate/tollgate-module-basic-go/tar.gz/dc6e7d48bf1ee8b96e8dae80f83d3dadd19b3bd6?
-PKG_HASH:=d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed
+PKG_SOURCE_URL:=https://codeload.github.com/OpenTollGate/tollgate-module-basic-go/tar.gz/1de228f572751aa14fd793e354d8dd66dce1490f?
+PKG_HASH:=41d7ac40b79978e72aa231d9c83021981a3bf353fa6dabf6ac7fb84f098563cd
 # PKG_SOURCE_VERSION is not consumed by the tarball download machinery;
 # it stays as the pinned source commit for the cli.GitCommit ldflag stamp
 # (qbee-agent's PKG_SOURCE_VERSION stamping pattern).
-PKG_SOURCE_VERSION:=dc6e7d48bf1ee8b96e8dae80f83d3dadd19b3bd6
+PKG_SOURCE_VERSION:=1de228f572751aa14fd793e354d8dd66dce1490f
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/src
 
