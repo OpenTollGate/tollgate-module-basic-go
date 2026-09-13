@@ -39,6 +39,42 @@ and [Semantic Versioning](https://semver.org/).
   testing whichever `.apk` happens to come first.
   ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
 
+- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
+  documents the supported-matrix placeholder (honest about what is untested),
+  the feed signing key and the repository line for OpenWrt 25.12, install,
+  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
+  rollback leaves behind, and the fact that `--force-downgrade` is not an
+  apk-tools 3.x option — the failure modes reproduced in practice, how to
+  report a result, and what to expect from an alpha. Every command was
+  executed against a real OpenWrt 25.12.5 userland; router-only steps are
+  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
+  `apk add --allow-untrusted`.
+  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+
+- **Tester intake: one channel, a report template, and the stop-ship rule.**
+  New [docs/tester-intake.md](docs/tester-intake.md) names the **single** intake
+  channel for alpha reports — comments on one pinned issue, with no second
+  place to send anything — and demands the facts that make a report
+  triageable: router model, `cat /etc/openwrt_release`, `apk --print-arch`,
+  the feed line used, `apk list --installed tollgate-wrt`,
+  `tollgate version`, `sha256sum` of the installed binaries,
+  `logread -e tollgate | tail -50`, and expected vs actual. It states the
+  triage rule (a report without a package version and an architecture is
+  untriaged: asked once, then closed), the severity definitions (S1 = any
+  wallet/funds symptom = **stop-ship**, the index is pulled before anyone
+  investigates; S2 = service broken or crash; S3 = cosmetic/docs), that every
+  qualified report becomes one tracked work item tagged with severity +
+  architecture, the secret-handling rules, and the honest support matrix
+  (release line, which architecture was actually tested, what "best effort"
+  means, and that a rollback exists). Every command in its template was
+  executed in a real OpenWrt 25.12.5 userland; the two router-only behaviours
+  are marked as untested. `docs/rc-tester-guide.md` §9 now names that channel
+  instead of a placeholder, `RELEASE-NOTES.md` links the document, and the
+  post-release step in `docs/release-process.md` names the kanban card label
+  (`S1`/`S2`/`S3` + architecture) so the intake thread and the board cannot
+  drift apart.
+  ([#382](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/382))
+
 ## [v0.6.0-alpha2] - 2026-09-13
 
 ### Added

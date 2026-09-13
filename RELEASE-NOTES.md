@@ -334,9 +334,13 @@ changes in this release only exist on a real device.
 - **Package filenames are `tollgate-wrt_v0.6.0-alpha2_<arch>.ipk` and
   `…_<arch>.apk`** (the tag name verbatim; UPX variants add a `-upx-…`
   suffix before the extension).
-- **`.apk` (OpenWrt 25.x)**: `apk add --allow-untrusted
-  tollgate-wrt_v0.6.0-alpha2_<arch>.apk`. Inside the package apk-tools sees
-  the normalised version `0.6.0_alpha2-r0`.
+- **`.apk` (OpenWrt 25.x)**: install it from the testing feed — see
+  [docs/rc-tester-guide.md](docs/rc-tester-guide.md) for the key, the
+  repository line and the verified install/upgrade/rollback commands. To
+  install the downloaded file directly instead, `apk add
+  ./tollgate-wrt_v0.6.0-alpha2_<arch>.apk`; inside the package apk-tools sees
+  the normalised version `0.6.0_alpha2-r1`. Never pass `--allow-untrusted`:
+  the feed index and key exist so that verification stays on.
 - **`.ipk` (OpenWrt 24.10 and earlier)**: `opkg install
   tollgate-wrt_v0.6.0-alpha2_<arch>.ipk`; the control-file version is the
   tag name, `v0.6.0-alpha2`.
@@ -370,14 +374,29 @@ changes in this release only exist on a real device.
   [packaging/](packaging/) recipe into the OpenWrt SDK, producing either
   format. It takes `PACKAGE_VERSION` from the environment and otherwise reads
   `VERSION`, so a checkout at this tag builds `v0.6.0-alpha2` by default.
+- **OpenWrt 25.12 testers: install from the feed, not from a file.**
+  [docs/rc-tester-guide.md](docs/rc-tester-guide.md) has the feed key, the
+  repository line, the install/upgrade/remove/rollback commands and what a
+  successful install looks like. It also states the supported matrix and
+  marks every step that has not yet been exercised on router hardware.
 - **Announcements**: `RELEASE-NOTES.md` (this document) and the
   `v0.6.0-alpha2` section of [CHANGELOG.md](CHANGELOG.md) are the
   authoritative description of the release; the per-PR detail lives in the
   changelog.
-- **Reporting problems**: open an issue at
-  [github.com/OpenTollGate/tollgate-module-basic-go](https://github.com/OpenTollGate/tollgate-module-basic-go)
-  with the router model, the package version, and `/tmp/tollgate-setup.log`
-  if setup is involved. Read the known-issues section above first.
+- **Reporting problems**: [docs/tester-intake.md](docs/tester-intake.md) is the
+  intake document for this release — it names the **single** channel
+  (a comment on the pinned *Tester reports — TollGate v0.6.0-alpha2 (alpha
+  channel)* issue in the
+  [project tracker](https://github.com/OpenTollGate/tollgate-module-basic-go/issues)),
+  carries the report template, and states the triage and severity rules. Send
+  the facts it asks for (router model, `cat /etc/openwrt_release`,
+  `apk --print-arch`, the feed line, `apk list --installed tollgate-wrt`,
+  `tollgate version`, `sha256sum` of the installed binaries,
+  `logread -e tollgate | tail -50`, expected vs actual) and never a key, seed,
+  wallet file or token. A report without a package version and an architecture
+  is untriaged: we ask once, then close it. Any wallet/funds symptom is
+  **S1 = stop-ship** — the feed index is pulled before we investigate. Read the
+  known-issues section above first.
 
 ## Contributors
 
