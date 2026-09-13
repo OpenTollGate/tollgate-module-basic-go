@@ -503,14 +503,20 @@ and [Semantic Versioning](https://semver.org/).
   the workflow's 43k runner-minutes YTD waste.
   ([#369](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/369))
 
-- **CI: apk SDK build-tree caching + job timeouts.** `package-apk` gains
-  an `actions/cache` step (SHA-pinned `@v5`) caching `/builder/dl`,
-  `staging_dir`, and `build_dir` keyed per SDK target with
-  `restore-keys` fallback, so subsequent runs skip feed downloads and
-  dependency compiles. `timeout-minutes` added to all heavy jobs
-  (compile 30, portal 15, ipk 30, apk 90, publish 15) replacing the
-  6-hour default.
-  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370))
+- **CI: apk SDK build-tree caching + job timeouts, carried onto `main`
+  by the #370 follow-up.** #370 is marked merged, but its content
+  never reached `main`: its base was the stacked `ci/trigger-hygiene`
+  branch (#369), which landed on `main` as the squash `db8af35` 54
+  seconds before #370 merged into that already-merged branch.
+  `package-apk` gains an `actions/cache` step (SHA-pinned `@v5`)
+  caching `/builder/dl`, `staging_dir`, and `build_dir` keyed per SDK
+  target with `restore-keys` fallback, so subsequent runs skip feed
+  downloads and dependency compiles. `timeout-minutes` is added to
+  the four heavy jobs that ran against the 360-minute default
+  (compile 30, portal 15, ipk 30, apk 90); `publish-metadata` already
+  carried its 15.
+  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370),
+  [#385](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/385))
 
 - **Release version has a single source of truth: `VERSION` at the
   repository root.** Three version literals used to disagree —
