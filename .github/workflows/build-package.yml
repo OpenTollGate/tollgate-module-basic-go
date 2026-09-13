@@ -390,6 +390,15 @@ jobs:
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"
           install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart         "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
 
+          # Install the ruleset directory's *.nft files: a new ruleset file
+          # under packaging/files/etc/nftables.d/ must ship without a second
+          # edit here (missing 30-backend-firewall.nft left the backend API on
+          # :2121 reachable from non-br-lan interfaces). Only *.nft is copied —
+          # the same set the OpenWrt recipe installs — so a stray non-ruleset
+          # file (README, *.nft.bak, editor backup) cannot slip into the .ipk.
+          mkdir -p "$PAYLOAD/etc/nftables.d"
+          cp packaging/files/etc/nftables.d/*.nft "$PAYLOAD/etc/nftables.d/"
+
           mkdir -p \
             "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site" \
             "$PAYLOAD/etc/tollgate/ecash" \
@@ -418,6 +427,9 @@ jobs:
             REPLACES="nodogsplash, base-files" \
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
+
+      - name: Verify packaged runtime files
+        run: bash tests/packaging/assert-artifact-contents.sh "artifacts/$PACKAGE_FILENAME"
 
       - name: Install nak
         run: |
@@ -592,6 +604,29 @@ jobs:
             USE_UPX=$USE_UPX \
             UPX_FLAGS="$UPX_FLAGS" \
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
+
+      - name: Verify packaged runtime files
+        run: |
+          set -euo pipefail
+          # Select THIS package's artifact, not the first *.apk anywhere under
+          # bin/packages: the build tree also holds other packages' .apk files,
+          # and testing one of those would validate nothing (or pass spuriously).
+          PKG_DIR="/builder/bin/packages/${{ matrix.architecture }}"
+          PKG=$(find "$PKG_DIR" -maxdepth 2 -type f -name "${PACKAGE_NAME}-*.apk" 2>/dev/null | sort || true)
+          PKG_N=$(printf '%s\n' "$PKG" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "$PKG_N" -ne 1 ]; then
+            echo "FAIL: expected exactly one ${PACKAGE_NAME}-*.apk under $PKG_DIR," >&2
+            echo "      found $PKG_N candidate(s):" >&2
+            printf '%s\n' "${PKG:-<none>}" >&2
+            find "$PKG_DIR" -maxdepth 3 -type f -name '*.apk' >&2 || true
+            exit 1
+          fi
+          echo "APK artifact: $PKG"
+          ls -l "$PKG"
+          APK_BIN=$(command -v apk || echo /builder/staging_dir/host/bin/apk)
+          export APK_BIN
+          echo "APK_BIN=$APK_BIN"
+          bash src-checkout/tests/packaging/assert-artifact-contents.sh "$PKG"
 
       - name: Collect, upload to Blossom, and announce
         shell: bash
