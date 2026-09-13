@@ -66,6 +66,11 @@ mkdir "$WORK/CONTROL"
     printf 'Package: %s\n' "$PKG_NAME"
     printf 'Version: %s\n' "$PKG_VERSION"
     printf 'Architecture: %s\n' "$ARCH"
+    # Section and Source are always present: OpenWrt's buildroot emits them
+    # for every package and feed tooling reads them. Defaults match what a
+    # feed-built tollgate-wrt would carry; override via env for forks.
+    printf 'Source: %s\n' "${SOURCE:-https://github.com/OpenTollGate/tollgate-module-basic-go}"
+    printf 'Section: %s\n' "${SECTION:-net}"
     [ -n "${MAINTAINER:-}" ]  && printf 'Maintainer: %s\n'  "$MAINTAINER"
     [ -n "${LICENSE:-}" ]     && printf 'License: %s\n'     "$LICENSE"
     [ -n "${DEPENDS:-}" ]     && printf 'Depends: %s\n'     "$DEPENDS"
