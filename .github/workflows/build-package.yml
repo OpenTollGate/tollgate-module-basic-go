@@ -24,7 +24,9 @@ concurrency:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.25"
+  # Pinned patch release for reproducible binaries. Keep in sync with
+  # packaging/build-inputs.json (.go.version).
+  GO_VERSION: "1.25.8"
   DEBUG: "true"
   BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
   BLOSSOM_MIN_SUCCESS: "1"
@@ -49,7 +51,7 @@ jobs:
           cat > matrix.json << 'EOF'
           {
             "include": [
-              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true  },
+              { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331" },
               { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "sdk": "mediatek-filogic", "ipk": true, "apk": true,  "compression": "upx-ultra-brute" },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false },
               { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "sdk": "bcm27xx-bcm2711",  "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
@@ -62,7 +64,7 @@ jobs:
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-best" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-brute" },
               { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "sdk": "ath79-generic",    "ipk": true, "apk": false, "compression": "upx-ultra-brute" },
-              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": true }
+              { "architecture": "x86_64",             "compile_key": "amd64",            "sdk": "x86-64",           "ipk": true, "apk": true, "digest": "sha256:0061d8c6bb7559a79931074ffb50fb0d71add1d26840d314397b50ebbc3bf7be" }
             ]
           }
           EOF
@@ -166,6 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       hashes: ${{ steps.blossom-upload.outputs.hashes }}
+      epoch: ${{ steps.epoch.outputs.epoch }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -177,18 +180,34 @@ jobs:
           cache: true
           cache-dependency-path: src/go.sum
 
+      - name: Derive SOURCE_DATE_EPOCH from source commit
+        id: epoch
+        run: |
+          set -euo pipefail
+          # One canonical epoch for this job; exported as an output so
+          # downstream package jobs use the identical value.
+          EPOCH=$(git log -1 --format=%ct HEAD)
+          echo "SOURCE_DATE_EPOCH=$EPOCH" >> "$GITHUB_ENV"
+          echo "epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+
       - name: Cross-compile all binaries
         env:
           CGO_ENABLED: "0"
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
         run: |
           set -euo pipefail
-          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          # BuildTime is derived from SOURCE_DATE_EPOCH (HEAD commit time),
+          # never the wall clock — rebuilding later must produce identical bytes.
+          BUILD_TIME=$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%d %H:%M:%S UTC')
           GIT_COMMIT=$(git rev-parse --short HEAD)
           LDFLAGS="-s -w \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+
+          # The tollgate CLI is a separate Go module that does not link the
+          # src/cli package, so its version must be injected via main.version.
+          CLI_LDFLAGS="$LDFLAGS -X 'main.version=$PACKAGE_VERSION'"
 
           TARGETS='[
             {"key":"arm64","goarch":"arm64"},
@@ -209,11 +228,11 @@ jobs:
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src -o "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" \
-              -trimpath -ldflags="$LDFLAGS" main.go
+              -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/$key/tollgate" \
-              -trimpath -ldflags="$LDFLAGS"
+              -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
             ls -lh "bin/$key/"
           done < <(printf '%s' "$TARGETS" | jq -c '.[]')
@@ -292,12 +311,27 @@ jobs:
       - name: Setup Node.js for portal build
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Pinned to the portal's declared toolchain (see its package.json
+          # engines and packaging/build-inputs.json). node 22.17.0 bundles
+          # npm 10.9.2 — verified in the next step.
+          node-version: '22.17.0'
+
+      - name: Verify pinned npm version
+        run: |
+          set -euo pipefail
+          EXPECTED_NPM=$(jq -r '.npm.version' packaging/build-inputs.json)
+          ACTUAL_NPM=$(npm --version)
+          if [ "$ACTUAL_NPM" != "$EXPECTED_NPM" ]; then
+            echo "ERROR: npm $ACTUAL_NPM != pinned $EXPECTED_NPM (packaging/build-inputs.json)" >&2
+            exit 1
+          fi
 
       - name: Build captive portal assets
         run: |
           set -euo pipefail
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          # Portal revision is pinned by SHA in packaging/build-inputs.json;
+          # portal-build.sh rejects anything else in reproducible mode.
+          bash packaging/portal-build.sh
           echo "Portal assets built:"
           ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 
@@ -357,8 +391,11 @@ jobs:
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
         run: |
-          sudo apt-get update
-          sudo apt-get install -y upx-ucl
+          set -euo pipefail
+          # Pinned UPX (version + sha256 in packaging/build-inputs.json);
+          # apt's upx-ucl floats and its output IS part of the artifact.
+          bash scripts/fetch-upx.sh
+          echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
       - name: Download portal assets
         uses: actions/download-artifact@v4
@@ -424,7 +461,7 @@ jobs:
             PKG_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
-            LICENSE="CC0-1.0" \
+            LICENSE="GPL-3.0-only" \
             DEPENDS="libc" \
             PROVIDES="nodogsplash-files" \
             REPLACES="nodogsplash, base-files" \
@@ -504,7 +541,7 @@ jobs:
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0
+      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0@${{ matrix.digest }}
       options: --user root
     strategy:
       fail-fast: false
@@ -556,7 +593,11 @@ jobs:
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
         run: |
-          apt-get install -y upx-ucl
+          set -euo pipefail
+          # Pinned UPX (version + sha256 in packaging/build-inputs.json);
+          # apt's upx-ucl floats and its output IS part of the artifact.
+          bash scripts/fetch-upx.sh
+          echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
       - name: Download portal assets
         uses: actions/download-artifact@v4
@@ -589,6 +630,15 @@ jobs:
           cp src-checkout/LICENSE "$STAGE/LICENSE"
           install -m 0755 bin/tollgate-wrt "$STAGE/tollgate-wrt"
           install -m 0755 bin/tollgate     "$STAGE/tollgate"
+
+      - name: Normalize staged mtimes to SOURCE_DATE_EPOCH
+        # apk package metadata is sensitive to staged file mtimes; pin them
+        # to the source commit epoch so rebuilds are byte-identical.
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.compile-binaries.outputs.epoch }}
+        run: |
+          set -eu
+          find /builder/package -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
 
       - name: Configure SDK
         run: |
