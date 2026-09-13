@@ -11,6 +11,9 @@
 # Env:
 #   SOURCE_DATE_EPOCH  optional override; default = HEAD commit timestamp
 #   PKG_VERSION        default = VERSION at the repository root
+#   TG_GIT_COMMIT      optional override; default = `git rev-parse --short
+#                      HEAD` of this repository (never a placeholder, so the
+#                      stamped GitCommit matches the release lane's)
 #   TG_TOOLS           dir with pinned go/node (subdirs go/ node/);
 #                      default ~/.cache/tollgate-tools
 #   KEEP=1             keep the two build roots for inspection
@@ -41,6 +44,15 @@ TG_ROOT="$REPO_ROOT"
 export TG_ROOT
 # shellcheck source=../packaging/build-env.sh
 . "$REPO_ROOT/packaging/build-env.sh"
+
+# GitCommit is stamped from the enclosing repository, not a placeholder: the
+# release lane stamps the same `git rev-parse --short HEAD` through the same
+# helper, so a harness build and a release build of one commit embed the same
+# commit and can produce identical bytes. TG_GIT_COMMIT still wins if set.
+# Resolved here, once, before either clean root is built, so both roots get
+# the identical value even though neither copy carries git metadata.
+TG_GIT_COMMIT="${TG_GIT_COMMIT:-$(tg_git_commit)}"
+export TG_GIT_COMMIT
 
 case "$ARCH" in
     x86_64)                GOARCH=amd64;      SDK_TARGET=x86-64 ;;
@@ -78,7 +90,6 @@ run_in_root() {
         export GOCACHE="$ROOT/home/.cache/go-build"
         export GOMODCACHE="$ROOT/home/go/pkg/mod"
         export npm_config_cache="$ROOT/home/.npm"
-        export TG_GIT_COMMIT="${TG_GIT_COMMIT:-repro}"
         export TG_STRICT_INPUTS=1
         case "$TARGET" in
             binaries)

@@ -4,9 +4,12 @@
 # VERSION, at the repository root, is the one place the release version is
 # written down. Everything else derives from it:
 #
-#   * CI (.github/workflows/build-package.yml) takes the version from the pushed
-#     tag, passes it to -ldflags, to the .ipk control file and to the OpenWrt
-#     SDK Makefile, and refuses to build a tag that disagrees with VERSION;
+#   * CI (.github/workflows/build-package.yml) refuses to build a tag that
+#     disagrees with VERSION, passes VERSION's value to -ldflags through the
+#     go_ldflags helper in packaging/build-env.sh (the same helper
+#     scripts/repro-test.sh calls), and version-stamps the .ipk control file
+#     and the OpenWrt SDK Makefile with the tag / branch-derived
+#     package_version;
 #   * scripts/build-sdk-package.sh takes PACKAGE_VERSION from its caller (CI
 #     passes the tag) and otherwise derives it from VERSION;
 #   * the .ipk payload staging and the SDK Makefile substitute the
