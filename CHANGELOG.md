@@ -10,6 +10,62 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Reproducible builds.** Every byte-affecting build input is now pinned
+  in `packaging/build-inputs.json` and loaded through the canonical
+  `packaging/build-env.sh`: exact Go (1.25.8), Node (22.17.0), npm
+  (10.9.2), and UPX (5.2.1) toolchains with verified tarball hashes; the
+  captive-portal source pinned to an immutable commit SHA; OpenWrt SDK
+  images pinned by registry digest. `SOURCE_DATE_EPOCH` (default: the
+  TollGate HEAD commit timestamp) now drives every embedded timestamp —
+  `BuildTime` in the binaries, ipk archive mtimes (via `gzip -n` and
+  `--mtime`), portal output files, and files staged into the apk SDK
+  container. `make reproducibility-test` (and `scripts/repro-test.sh`)
+  rebuilds any artifact in two independent clean roots with isolated
+  caches and requires identical SHA-256s, with diffoscope diagnostics on
+  mismatch. Verified byte-identical on the build host: both Go binaries,
+  the portal tree, x86_64 and aarch64 ipk, a UPX-compressed ipk, and the
+  x86_64 apk. CI gains a fast binary reproducibility check on every
+  push plus a package check via workflow dispatch
+  (`.github/workflows/repro-check.yml`); the build workflow now pins the
+  Go patch release, derives `BuildTime` from the source epoch, adds
+  `-buildvcs=false`, uses the portal's declared Node/npm, fetches UPX
+  from the pinned manifest, and runs the apk SDK containers
+  digest-pinned. See [docs/reproducible-builds.md](docs/reproducible-builds.md). ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **Hosted-runner-independent build script.**
+  `scripts/shc-build-package.sh` orders a short-lived Sovereign Hybrid
+  Compute VM (via the `shc` CLI), syncs the working tree, builds the
+  aarch64 `.ipk` through `packaging/local-build-ipk.sh`, verifies the
+  package control metadata and `--version` output of the built
+  binaries, copies the artifact to `artifacts/shc/`, and always
+  cancels the VM (exit trap plus reaper deadline backstop). Keeps
+  package builds possible while GitHub Actions is unavailable. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **`--version` flag on both shipped binaries.** `tollgate --version`
+  (via cobra's built-in version support) and `tollgate-wrt --version`
+  now print the embedded version and exit, as expected by OpenWrt
+  package CI. The build now injects the CLI binary's version via
+  `-X main.version` — previously the CLI build reused the service's
+  `src/cli.*` ldflags, which its separate Go module never links, so
+  the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+### Changed
+
+- **`.gitignore` binary patterns anchored.** The bare `tollgate-cli`
+  pattern also matched the source directory `src/cmd/tollgate-cli/`,
+  silently ignoring any new (untracked) files added there; patterns
+  are now anchored to the repo and `src/` roots where the binaries
+  actually land. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+### Fixed
+
+- **Package license metadata corrected from `CC0-1.0` to
+  `GPL-3.0-only`** in `packaging/Makefile`, `packaging/local-build-ipk.sh`,
+  and the CI ipk control template, matching the repository's actual
+  GPL-3.0 `LICENSE`. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
 ## [v0.6.0-alpha2] - 2026-09-13
 
 ### Added
