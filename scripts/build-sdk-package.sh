@@ -4,7 +4,7 @@ set -eu
 
 SDK_TAG="${SDK_TAG:-}"
 PACKAGE_FORMAT="${PACKAGE_FORMAT:-apk}"
-PACKAGE_VERSION="${PACKAGE_VERSION:-0.0.0-r0}"
+PACKAGE_VERSION="${PACKAGE_VERSION:-}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/tmp/tollgate-build-artifacts}"
 EXPECTED_ARCH="${EXPECTED_ARCH:-}"
 GOARCH="${GOARCH:-}"
@@ -75,6 +75,18 @@ HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
 HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# VERSION at the repository root is the single source of truth for the release
+# version (see AGENTS.md, "Version single source of truth"). CI passes the tag
+# down as PACKAGE_VERSION; a local run with no override gets exactly the string
+# the release tag must equal. The 0.0.0-r0 stub is only for a tree with no
+# VERSION file (this script copied out of the repository).
+if [ -z "$PACKAGE_VERSION" ]; then
+    if [ -f "$REPO_ROOT/VERSION" ]; then
+        PACKAGE_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
+    else
+        PACKAGE_VERSION="0.0.0-r0"
+    fi
+fi
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
