@@ -28,3 +28,17 @@ dissent — and can check all of it out from this branch alone.
 | T5a | Audit the existing `cdk_wallet.go` adapter: completeness, tests that actually run, build-tag wiring, mnemonic handling | worker (code) | TODO | `01-candidates/cdk.md`, `experiments/cdk-adapter/` |
 | T5b | Verify `github.com/cashubtc/cdk-go`: published? maintained? pinned how? what does `go.mod` say — real version or `replace` to a local path? | consultant B | TODO | `01-candidates/cdk.md` |
 | T5c | Cross-compile test: cgo + cdk-go static lib for `aarch64`/`mipsel` musl on OpenWrt — patch count and resulting size | worker (firmware) | TODO | `experiments/cdk-cross/` |
+
+## Added after the scope change: nucula → OpenWrt port (2026-09-13)
+
+| # | Task | Owner | Status | Artifact |
+|---|---|---|---|---|
+| T2b | **Port spike:** compile nucula's wallet core on native Linux (x86_64), then cross-compile for a router arch (aarch64 musl) with the OpenWrt SDK. Measure size/RSS/threads. Exclude peripherals. | worker (firmware) | TODO | `experiments/nucula-port/` |
+| T2c | **Licence ask:** approach the author for an explicit licence (MIT/Apache-2.0/GPL-3.0 choice). Nothing ships before this. | operator/manager | TODO | `01-candidates/nucula.md` |
+| T2d | ESP-IDF API-boundary inventory: every header/API the core files use, with the Linux replacement, and the portable-vs-entangled ratio | worker | TODO | `01-candidates/nucula-port-map.md` |
+| T2e | Behavioural parity: run the same mint-quote/mint/swap/melt flows against a local mint on Linux and compare results with gonuts for the same inputs | worker | TODO | `experiments/nucula-parity/` |
+
+**Legal hygiene for this branch:** nucula's source is *not* committed here. The
+branch carries our own port shims, diffs, measurement logs, inventory and plans
+— never their unlicensed code. Anyone reproducing the spike fetches nucula at the
+recorded revision themselves.

@@ -52,3 +52,18 @@ wallet at all?*
 Every measurement records: hardware/arch, OS image + version, build commands,
 exact revision of each candidate (commit SHA), and the raw output. A number
 without those five things is treated as an anecdote, not a finding.
+
+## Scope change, 2026-09-13
+
+The operator's goal for nucula is **not** "run the ESP32 firmware"; it is
+**build the nucula wallet for OpenWrt targets**. The comparison therefore becomes:
+
+- **CDK** — adopted as the target upstream (Rust), with the integration
+  architecture still open (in-process cgo adapter vs process-isolated sidecar).
+- **nucula** — a **port** project: extract the wallet core from ESP-IDF, build it
+  for musl/OpenWrt, measure it, and prove behavioural parity with gonuts. Gated
+  behind the licence question, which is unresolved (no licence file exists).
+- **stay on gonuts, un-forked** — still must be weighed explicitly (T8).
+
+The ESP32 assessment is retained because its NUT-coverage and portability
+findings are the raw material for the port, not because ESP32 is a target.

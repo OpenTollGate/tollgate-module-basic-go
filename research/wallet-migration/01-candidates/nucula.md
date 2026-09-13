@@ -123,3 +123,29 @@ _Recovered from the consultant's report: it reached its tool budget during the b
 **What nucula *is* good for:** (a) a reference implementation to read for a Go wallet's protocol edge cases (blank-output change sizing, keyset v1/v2 id derivation, per-unit proofs, offline P2PK stashing, forwarded-DLEQ Carol mode, method-generic NUT‑04/05); (b) a genuine end‑user tap‑to‑pay *device* product if TollGate ever wants one — but only after the licence question is settled in writing; (c) the BLS12‑381/v3‑keyset scaffold signals future NUT coverage that a Go wallet will eventually need. Recommended handling for this branch: cap nucula research here per the README's own guidance, and record the licence ask as the single blocking prerequisite.
 
 **Bottom line for the manager:** nucula is out as a router substitution candidate; the reusable part is ideas, not code, until a licence exists. CDK stays the only serious router candidate, and the router‑wallet gaps nucula exposes (NUT‑07/09/restore + crash‑consistent storage + encrypted seed at rest) should be added to T1b's acceptance contract.
+
+## Reframed scope (operator, 2026-09-13): port the wallet core to OpenWrt
+
+The ESP32 assessment above answers a question we are no longer asking. The
+operator's goal is explicit: **build the nucula wallet for OpenWrt targets, not
+for ESP32.** So the deliverable is a *port*, and the research question becomes
+"what does it cost to run nucula's wallet core as a Linux/musl program on the
+router, and does it behave?"
+
+That splits the codebase into three bands, which the work below must quantify:
+
+| Band | What it is | Port treatment |
+|---|---|---|
+| **Protocol / wallet core** | `main/crypto.c`, `cashu_json.cpp`, `cashu_cbor.cpp`, `keyset.cpp`, `wallet_flows.cpp`, `unit.cpp` — NUT-00/01/02/03/04 and friends | the thing we actually want; must compile as a plain Linux library |
+| **Platform services** | WiFi, HTTP client, NVS/flash storage, RNG, task/timer | must be replaced: sockets/curl, files, `getrandom`, pthreads |
+| **Device peripherals** | PN7160 NFC, SSD1309 OLED, PCF8574 keypad menus | irrelevant on a router — excluded from the port, but their presence must not block the core build |
+
+**Licence gate stays first.** No licence file has ever existed in that repo, so
+nothing is shippable until the author grants rights. A port *spike* answers the
+engineering question (cost, size, behaviour) and is worth doing; shipping any
+ported code is not, until the licence question is settled. Task T2c covers asking.
+
+**Port band map to produce:** every ESP-IDF header/API the core files touch,
+with its proposed Linux replacement, and a count of how much of the core is
+genuinely portable vs entangled. That inventory — not an opinion — is what tells
+us whether this is a fortnight or a rewrite.
