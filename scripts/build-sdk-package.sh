@@ -135,7 +135,7 @@ printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.
 (
     cd "$REPO_ROOT/src"
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
-        "$GO_BIN" build -o "$STAGE_DIR/tollgate-wrt" -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate-wrt" -trimpath -buildvcs=false -ldflags="$LDFLAGS" ./cmd/tollgate-wrt
 )
 (
     cd "$REPO_ROOT/src/cmd/tollgate-cli"

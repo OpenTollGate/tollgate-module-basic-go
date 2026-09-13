@@ -56,7 +56,7 @@ mkdir -p "bin/$COMPILE_KEY"
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" \
-  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+  -trimpath -buildvcs=false -ldflags="$LDFLAGS" ./cmd/tollgate-wrt
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \

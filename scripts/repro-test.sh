@@ -119,7 +119,7 @@ run_in_root() {
                 CLI_LDFLAGS="$(cli_ldflags "$PKG_VERSION")"
                 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
                   go build -C src -o "$ROOT/out/tollgate-wrt" \
-                  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+                  -trimpath -buildvcs=false -ldflags="$LDFLAGS" ./cmd/tollgate-wrt
                 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
                   go build -C src/cmd/tollgate-cli -o "$ROOT/out/tollgate" \
                   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"

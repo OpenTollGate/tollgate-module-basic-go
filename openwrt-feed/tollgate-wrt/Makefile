@@ -9,24 +9,16 @@
 # Modeled after:
 #   - net/v2raya: Go module living in a repository SUBDIRECTORY
 #     (their "service/", our "src/"), handled by PKG_BUILD_DIR pointing
-#     into the extracted tree — no file moves needed upstream either.
-#     Their codeload-tarball + TAR strip pattern is adopted here too:
-#     the git-source unpack (qbee-agent's route) nests the checkout one
-#     level too deep for a subdir PKG_BUILD_DIR to line up, while the
-#     tarball + --strip-components=1 lands the repo contents exactly
-#     where PKG_BUILD_DIR expects them.
+#     into the extracted tree. Their codeload-tarball + TAR strip
+#     pattern is adopted here too: the git-source unpack (qbee-agent's
+#     route) nests the checkout one level too deep for a subdir
+#     PKG_BUILD_DIR, while the tarball + --strip-components=1 lands
+#     the repo contents exactly where PKG_BUILD_DIR expects them.
 #   - net/croc: version stamped via GO_PKG_LDFLAGS_X at
 #     $(GO_PKG)/src/cli.Version — the same var/package shape we have.
-#   - admin/qbee-agent: git source pinned by full commit SHA
-#     (PKG_SOURCE_VERSION) with $(GO_PKG)/app.Commit=$(PKG_SOURCE_VERSION)
-#     stamping — the pattern for our cli.GitCommit.
-#
-# Known deferred polish for the real upstream PR (documented, not hidden):
-#   - the service main package sits at the MODULE ROOT (src/main.go), so
-#     `go install` names that binary "src"; upstream convention is
-#     cmd/<name>/ main dirs. Renaming src/main.go into src/cmd/tollgate-wrt/
-#     is a one-file move we defer to keep this experiment file-move-free;
-#     the install step renames the binary meanwhile.
+#   - admin/qbee-agent: source pinned by full commit SHA
+#     (PKG_SOURCE_VERSION) with $(GO_PKG)/app.Commit stamping —
+#     the pattern for our cli.GitCommit.
 
 include $(TOPDIR)/rules.mk
 
@@ -38,12 +30,12 @@ PKG_VERSION:=0.6.0_alpha2
 PKG_RELEASE:=1
 
 PKG_SOURCE:=tollgate-wrt-$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://codeload.github.com/OpenTollGate/tollgate-module-basic-go/tar.gz/97fe25e655a920f9dd53f5dae94fdd44f0752655?
-PKG_HASH:=6158e97e178e364836561a56d46c375469e7f84708b33d60f160660237185aba
+PKG_SOURCE_URL:=https://codeload.github.com/OpenTollGate/tollgate-module-basic-go/tar.gz/dc6e7d48bf1ee8b96e8dae80f83d3dadd19b3bd6?
+PKG_HASH:=d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed
 # PKG_SOURCE_VERSION is not consumed by the tarball download machinery;
 # it stays as the pinned source commit for the cli.GitCommit ldflag stamp
 # (qbee-agent's PKG_SOURCE_VERSION stamping pattern).
-PKG_SOURCE_VERSION:=97fe25e655a920f9dd53f5dae94fdd44f0752655
+PKG_SOURCE_VERSION:=dc6e7d48bf1ee8b96e8dae80f83d3dadd19b3bd6
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/src
 
@@ -57,7 +49,7 @@ PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=github.com/OpenTollGate/tollgate-module-basic-go/src
 GO_PKG_BUILD_PKG:= \
-	$(GO_PKG) \
+	$(GO_PKG)/cmd/tollgate-wrt \
 	$(GO_PKG)/cmd/tollgate-cli
 GO_PKG_LDFLAGS_X:= \
 	$(GO_PKG)/cli.Version=v$(PKG_VERSION) \
@@ -97,10 +89,36 @@ endef
 
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/src $(1)/usr/bin/tollgate-wrt
+	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/tollgate-wrt $(1)/usr/bin/
 	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/tollgate-cli $(1)/usr/bin/tollgate
 
-	$(CP) $(CURDIR)/files/. $(1)/
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) $(CURDIR)/files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
+
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(CURDIR)/files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) $(CURDIR)/files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
+
+	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
+	$(INSTALL_DIR) $(1)/etc/tollgate/tollgate-captive-portal-site
+	$(CP) $(CURDIR)/files/tollgate-captive-portal-site/* $(1)/etc/tollgate/tollgate-captive-portal-site/
+
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(CURDIR)/files/usr/bin/check_package_path $(1)/usr/bin/
+	$(INSTALL_BIN) $(CURDIR)/files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
+	$(INSTALL_BIN) $(CURDIR)/files/usr/bin/tollgate-remove-ssl $(1)/usr/bin/
+
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	$(INSTALL_DATA) $(CURDIR)/files/lib/upgrade/keep.d/tollgate $(1)/lib/upgrade/keep.d/
+
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) $(CURDIR)/files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
+
+	$(INSTALL_DIR) $(1)/etc/nftables.d
+	$(INSTALL_DATA) $(sort $(wildcard $(CURDIR)/files/etc/nftables.d/*.nft)) $(1)/etc/nftables.d/
+
+	$(INSTALL_DIR) $(1)/usr/share/man/man8
+	$(INSTALL_DATA) $(CURDIR)/files/man/man8/*.8 $(1)/usr/share/man/man8/
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
