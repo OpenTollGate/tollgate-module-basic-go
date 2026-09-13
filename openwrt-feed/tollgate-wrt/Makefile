@@ -31,7 +31,10 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-wrt
-PKG_VERSION:=0.6.0-alpha2
+# APK grammar allows '-' only as -r<digits>; pre-release tags use '_'
+# (the version normalization from the distribution notes). A real
+# upstream PR ships only stable versions, where this never arises.
+PKG_VERSION:=0.6.0_alpha2
 PKG_RELEASE:=1
 
 PKG_SOURCE:=tollgate-wrt-$(PKG_VERSION).tar.gz
@@ -58,7 +61,8 @@ GO_PKG_BUILD_PKG:= \
 	$(GO_PKG)/cmd/tollgate-cli
 GO_PKG_LDFLAGS_X:= \
 	$(GO_PKG)/cli.Version=v$(PKG_VERSION) \
-	$(GO_PKG)/cli.GitCommit=$(PKG_SOURCE_VERSION)
+	$(GO_PKG)/cli.GitCommit=$(PKG_SOURCE_VERSION) \
+	$(GO_PKG)/cmd/tollgate-cli.version=v$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
 include ../../lang/golang/golang-package.mk
