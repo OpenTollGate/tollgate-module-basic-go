@@ -67,8 +67,8 @@ it was built for 25.12.
 - A supported router (§1) with working SSH and root access.
 - About **30 MB free** in `/overlay` (the two installed binaries are ~28 MB in
   total in the rehearsal build).
-- **Back up first** — copy `/etc/tollgate/` (wallet and identities) and
-  `/etc/config/tollgate` somewhere off the router. Removing or rolling back the
+- **Back up first** — copy `/etc/tollgate/` (the wallet, `identities.json`,
+  `config.json`) somewhere off the router. Removing or rolling back the
   package does not delete those paths (verified — see §5), but an alpha is an
   alpha; keep a copy.
 - Do not install this on a router you or anyone else depends on.
@@ -156,9 +156,16 @@ apk add tollgate-wrt
 ```
 (1/2) Installing jq (1.8.1-r2)
   Executing jq-1.8.1-r2.post-install
-(2/2) Installing tollgate-wrt (0.6.0_alpha2-r1)
+(2/2) Installing tollgate-wrt (0.6.0_alpha2-r0)
 OK: 39.1 MiB in 138 packages
 ```
+
+**If you are SSH'd in over the LAN this package configures, the install will
+drop your session.** The package's post-install script runs the `uci-defaults`
+scripts and then restarts `/etc/init.d/network`, reloads
+wifi/firewall/dnsmasq/uhttpd and starts the service. Reconnect once the router
+is back and continue at the next step — a lost session here is expected, not a
+failure.
 
 `tollgate-wrt` is the package name. It installs two binaries —
 `/usr/bin/tollgate-wrt` (the service) and `/usr/bin/tollgate` (the CLI) — plus
@@ -180,7 +187,7 @@ tollgate version
 **VERIFIED (rehearsal)** for the package listing and the files:
 
 ```
-tollgate-wrt-0.6.0_alpha2-r1 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
+tollgate-wrt-0.6.0_alpha2-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
 -rwxr-xr-x    1 nobody   nogroup       1380 /etc/init.d/tollgate-wrt
 -rwxr-xr-x    1 nobody   nogroup   10253038 /usr/bin/tollgate
 -rwxr-xr-x    1 nobody   nogroup   17732119 /usr/bin/tollgate-wrt
@@ -211,11 +218,11 @@ network_ok: true
 | where | value |
 |---|---|
 | release tag / announcement | `v0.6.0-alpha2` |
-| package version (`apk list --installed`) | `0.6.0_alpha2-r1` |
+| package version (`apk list --installed`) | `0.6.0_alpha2-r0` |
 | runtime version (`tollgate version`) | `v0.6.0_alpha2` |
 
 apk normalises the hyphen into an underscore for its own version ordering; the
-`-r1` release revision is set when the package is built. The runtime string is
+`-r0` release revision is set when the package is built. The runtime string is
 the apk-safe form as well. The exact `-r` number and commit for the published
 build are printed in the announcement — compare rather than assume.
 
@@ -264,10 +271,10 @@ and several post-upgrade scripts failed, purely because the container has no
 `procd`. `apk upgrade tollgate-wrt` keeps the blast radius at one package.
 
 **UNTESTED ON A ROUTER:** that the package's post-install logic restarts the
-service on the router, that `/etc/config/tollgate` survives an upgrade
+service on the router, that `/etc/tollgate/config.json` survives an upgrade
 byte-for-byte, and that the wallet keeps working afterwards. The config file
-is not written by the package (it is created on first run by the
-`99-tollgate-setup` script), which is normally how OpenWrt keeps it across
+is not written by the package (it is created on first run by the service, not
+by `99-tollgate-setup`), which is normally how OpenWrt keeps it across
 upgrades, but that has not been confirmed on a device.
 
 ---
@@ -281,7 +288,7 @@ apk del tollgate-wrt
 **VERIFIED (rehearsal)**
 
 ```
-(1/2) Purging tollgate-wrt (0.6.0_alpha2-r1)
+(1/2) Purging tollgate-wrt (0.6.0_alpha2-r0)
 (2/2) Purging jq (1.8.1-r2)
   Executing jq-1.8.1-r2.pre-deinstall
 OK: 11.4 MiB in 136 packages
@@ -319,12 +326,12 @@ apk add 'tollgate-wrt=<known-good-version>'
 **VERIFIED (rehearsal)**
 
 ```
-(1/1) Downgrading tollgate-wrt (0.6.0_alpha3-r1 -> 0.6.0_alpha2-r1)
+(1/1) Downgrading tollgate-wrt (0.6.0_alpha3-r0 -> 0.6.0_alpha2-r0)
 ```
 
 Exit status 0, and `apk list --installed tollgate-wrt` shows the older
-version. Ordering matters and is real: apk knows `0.6.0_alpha3-r1` is newer
-than `0.6.0_alpha2-r1`, which is why the same command upgrades, downgrades, or
+version. Ordering matters and is real: apk knows `0.6.0_alpha3-r0` is newer
+than `0.6.0_alpha2-r0`, which is why the same command upgrades, downgrades, or
 does nothing, depending on which version you name.
 
 **`--force-downgrade` does not exist on 25.12.** Older material (and some
@@ -341,7 +348,7 @@ have that flag, but there is no feed for 24.10 — §1).
 # grep tollgate /etc/apk/world     (before the pin)
 tollgate-wrt
 # ... after the rollback ...
-tollgate-wrt=0.6.0_alpha2-r1
+tollgate-wrt=0.6.0_alpha2-r0
 ```
 
 ). While that pin is there, `apk upgrade tollgate-wrt` will **not** move you
@@ -350,7 +357,7 @@ ready to follow the channel again:
 
 ```sh
 apk add tollgate-wrt            # drops the pin; /etc/apk/world goes back to "tollgate-wrt"
-apk upgrade tollgate-wrt        # VERIFIED: Upgrading tollgate-wrt (0.6.0_alpha2-r1 -> 0.6.0_alpha3-r1)
+apk upgrade tollgate-wrt        # VERIFIED: Upgrading tollgate-wrt (0.6.0_alpha2-r0 -> 0.6.0_alpha3-r0)
 ```
 
 **Do not use `apk upgrade --available` as a rollback.** VERIFIED: it is a
@@ -454,6 +461,12 @@ screenshot:**
   (identities, wallet database) — it contains your keys;
 - a wallet file, a seed phrase, a mnemonic, or an `nsec`;
 - a Cashu token, or the output of `tollgate wallet drain cashu`;
+- the `logread -e tollgate | tail -50` block before you have read it: the
+  daemon logs `token_preview=` (the first 50 characters of a Cashu token), so
+  read the block first, redact everything after `token_preview=` (and after
+  `preview:`), and say in the report that you redacted it;
+- `/tmp/tollgate-setup.log` — it records the generated private-WiFi PSK in
+  cleartext;
 - router credentials, WireGuard keys, or private network passwords.
 
 If you think you sent a secret by accident, say so immediately without pasting
@@ -471,14 +484,14 @@ this guide does not present it as verified:
    cache headers) — the serving side was still being built when this was
    written.
 2. The real, signed index and its key, downloaded over HTTPS from that host.
-3. The real `0.6.0_alpha2-r1` package bytes: filename, `sha256`, and that the
+3. The real `0.6.0_alpha2-r0` package bytes: filename, `sha256`, and that the
    provided `sha256` matches the artifact published in the announcement.
 4. `/etc/init.d/tollgate-wrt` `enable`/`status`/`start` under `procd`, the
    service starting on boot, and the daemon staying up ≥ 5 minutes.
 5. `logread` output, and `tollgate logs` (which wraps it).
 6. First-run behaviour: `99-tollgate-setup` running from `uci-defaults`,
-   `/etc/config/tollgate` being created, and WiFi/portal configuration being
-   preserved across an upgrade.
+   `/etc/tollgate/config.json` being created on first run, and WiFi/portal
+   configuration being preserved across an upgrade.
 7. The captive portal and the payment flow end to end — nothing in this guide
    exercises them, and no package install can.
 8. Rollback executed on a router with a real user configuration in place.
