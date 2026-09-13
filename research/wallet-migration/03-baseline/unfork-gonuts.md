@@ -603,3 +603,21 @@ sed -n '240,272p' tollwallet/tollwallet.go        # SendWithOverpayment
 git -C /home/c03rad0r/worktrees/wallet-research log --since=2026-03-13 \
   --format='%h|%ad|%an|%s' --date=short -- src/tollwallet/ src/go.mod src/go.sum
 ```
+
+## Consequences for the replacement decision (manager note, 2026-09-13)
+
+1. **"Un-fork by upstreaming" is not available.** Upstream is dead, not slow: zero
+   commits since 2025-09-13, PR #149 open 12 months in `blocked` state with no
+   comments, and two issues filed 2026-07-24 by the fork's own steward unanswered.
+   There is no counterparty to accept patches, and no bug tracker on any of the four
+   repos in the chain.
+2. **The fork is load-bearing.** It carries a HTLC signature-enforcement bypass fix
+   and a swap proof-loss fix that the root will never take. Any replacement must
+   reproduce that behaviour, or the migration becomes a security regression.
+3. **`SendOffline` — the fork's stated raison d'être — is called nowhere** in the
+   router. The only fork-only API actually used is `SendOptions`/`SendWithOptions`
+   (reseller overpayment). Worth knowing when arguing about what the fork is *for*.
+4. **The honest comparator** is therefore not "upstreaming is cheap" but
+   "keep the fork (~1–2 eng-days/month, 22 commits/6 months) versus replace it".
+5. **Optionality is cheap.** Coupling is 2 non-test files; ~1–2 days of de-coupling
+   the 9 test files makes the choice reversible — which is the operator's stated goal.

@@ -62,3 +62,33 @@ recorded revision themselves.
 **Note:** diversification is no longer a scoring axis (operator demoted it to an
 observation). The fork-ownership grade (T9) survives because it measures *cost*,
 not preference.
+
+## Added 2026-09-13 (T10 findings — these are now ACCEPTANCE CRITERIA, not notes)
+
+The fork carries **load-bearing fixes that upstream can never absorb** (it is dead:
+zero commits since 2025-09-13, PR #149 blocked 12 months, its own steward's issues
+unanswered). Two of them are security/funds-safety:
+
+- `296c7bf` — **HTLC signature-enforcement bypass**
+- `7dc430b` — **proof loss in swap**
+
+Therefore: **any replacement adapter must demonstrate equivalent behaviour for both
+cases before the old wallet is removed.** A wallet swap that silently reverts a
+signature-enforcement fix is a security regression, not a migration. Add to the
+parity work (T2e) and to the interchangeability suite (T12):
+
+| # | Task | Owner | Status | Artifact |
+|---|---|---|---|---|
+| T15 | Parity cases for the fork's security/funds-safety fixes (HTLC signature enforcement; swap proof-loss) — a failing test per case, run against the candidate wallet | worker | TODO | `experiments/parity/` |
+| T16 | **Optionality work (1–2 days, recommended regardless of the final choice):** de-couple the 9 test files from the concrete wallet library so the three un-fork paths become a *choice* rather than a fate. Only 2 non-test files import the library (`tollwallet/gonuts_wallet.go`, `tollwallet/tollwallet.go`). | worker (code) | TODO | `03-baseline/interchangeability.md` |
+
+**Measured blast radius for any module-path change:** 327 branches carry a `replace`
+from earlier module renames, and **50 branches already point at our own fork of the
+fork** — so renaming or re-pointing the dependency is not a small edit across the
+estate.
+
+**Also corrected by T10:** the un-fork comparator is *not* "cheap upstreaming".
+Path (i) has no counterparty, and path (ii) — dropping the patches for root v0.4.2 —
+costs 4–8 weeks and reverts the signature fix, the proof-loss fix, **all** V2 /
+short-keyset-ID support and reseller overpayment. The honest comparator is therefore
+"keep the fork at ~1–2 eng-days/month" versus "replace it".
