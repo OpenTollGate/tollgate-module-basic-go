@@ -46,6 +46,10 @@ infer_target_settings() {
             : "${GOARCH:=arm}"
             : "${GOARM:=7}"
             ;;
+        x86-64-*)
+            : "${EXPECTED_ARCH:=x86_64}"
+            : "${GOARCH:=amd64}"
+            ;;
         *)
             if [ -z "$EXPECTED_ARCH" ]; then
                 printf 'ERROR: Could not infer EXPECTED_ARCH from SDK_TAG=%s\n' "$SDK_TAG" >&2
@@ -90,48 +94,76 @@ fi
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
+# Reproducible-build environment: pinned SDK digest, SOURCE_DATE_EPOCH,
+# deterministic BUILD_TIME_UTC and ldflags helpers.
+# shellcheck source=../packaging/build-env.sh
+TG_ROOT="$REPO_ROOT"
+export TG_ROOT
+. "$REPO_ROOT/packaging/build-env.sh"
+
+GO_BIN="${GO_BIN:-go}"
+ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
+if [ "$ACTIVE_GO" != "go$GO_VERSION" ] && [ "${TG_ALLOW_GO_MISMATCH:-0}" != "1" ]; then
+    printf 'ERROR: go %s does not match pinned GO_VERSION=%s (packaging/build-inputs.json).\n' "$ACTIVE_GO" "$GO_VERSION" >&2
+    printf 'Set TG_ALLOW_GO_MISMATCH=1 to proceed anyway (non-reproducible).\n' >&2
+    exit 1
+fi
+
+SDK_IMAGE="$(sdk_image_ref "$SDK_TAG")"
+
 mkdir -p "$ARTIFACT_DIR"
 rm -rf "$HOST_ARTIFACT_PATH"
 mkdir -p "$HOST_ARTIFACT_PATH"
 
 printf 'Using SDK_TAG=%s\n' "$SDK_TAG"
+printf 'Using SDK image=%s\n' "$SDK_IMAGE"
 printf 'Using PACKAGE_FORMAT=%s\n' "$PACKAGE_FORMAT"
 printf 'Expected package arch=%s\n' "$EXPECTED_ARCH"
 printf 'Using PACKAGE_VERSION=%s\n' "$PACKAGE_VERSION"
 printf 'Using GOARCH=%s GOMIPS=%s GOARM=%s\n' "$GOARCH" "$GOMIPS" "$GOARM"
+printf 'Using SOURCE_DATE_EPOCH=%s (BuildTime %s)\n' "$SOURCE_DATE_EPOCH" "$BUILD_TIME_UTC"
 printf 'Using ARTIFACT_DIR=%s\n' "$ARTIFACT_DIR"
 printf 'Artifact subdirectory=%s\n' "$ARTIFACT_SUBDIR"
 printf 'Build log path=%s\n' "$HOST_LOG_PATH"
 
-BUILD_TIME="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown\n')"
-LDFLAGS="-s -w -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+TG_GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown\n')"
+export TG_GIT_COMMIT
+LDFLAGS="$(go_ldflags "$PACKAGE_VERSION")"
+CLI_LDFLAGS="$(cli_ldflags "$PACKAGE_VERSION")"
 
 printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.'
 (
     cd "$REPO_ROOT/src"
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
-        go build -o "$STAGE_DIR/tollgate-wrt" -trimpath -ldflags="$LDFLAGS" main.go
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate-wrt" -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
 )
 (
     cd "$REPO_ROOT/src/cmd/tollgate-cli"
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
-        go build -o "$STAGE_DIR/tollgate" -trimpath -ldflags="$LDFLAGS"
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate" -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 )
 
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
 
+# Staged source and payload mtimes feed SDK apk packaging: pin them to
+# SOURCE_DATE_EPOCH before the container reads them.
+normalize_mtime "$STAGE_DIR"
+
 if ! docker run --rm -i -u root \
     -v "$STAGE_DIR":/builder/package/tollgate-wrt \
     -v "$ARTIFACT_DIR":/artifacts \
     -e SDK_TAG="$SDK_TAG" \
+    -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+    -e LC_ALL=C \
+    -e LANG=C \
+    -e TZ=UTC \
     -e PACKAGE_FORMAT="$PACKAGE_FORMAT" \
     -e PACKAGE_EXTENSION="$PACKAGE_EXTENSION" \
     -e PACKAGE_VERSION="$PACKAGE_VERSION" \
     -e EXPECTED_ARCH="$EXPECTED_ARCH" \
     -e ARTIFACT_SUBDIR="$ARTIFACT_SUBDIR" \
-    "openwrt/sdk:${SDK_TAG}" \
+    "$SDK_IMAGE" \
     /bin/bash -se <<'EOF'
 set -euo pipefail
 
