@@ -442,3 +442,24 @@ proof ever disagree with the mint's, and can it recover by itself"** — because
 is invisible until it costs a customer money, it is invisible to any benchmark,
 and it is the only axis on which every option (CDK-cgo, CDK-sidecar, un-forked
 gonuts, nucula) fails in a different way.
+
+## Added 2026-09-13 — fork-ownership risk (decision-driving)
+
+**Question:** does adopting this option make us the de-facto maintainer of a
+downstream copy of someone else's code?
+
+| Score | Meaning | Example |
+|---|---|---|
+| A | upstream maintains it and we consume releases | a healthy CDK sidecar |
+| B | upstream maintains it, but not our platform — we carry a platform patch set | CDK on musl if upstream does not test it |
+| C | we own a fork outright | `gonuts-tollgate` today |
+
+**Why it outranks raw footprint:** the programme exists because a C-grade
+dependency is a standing tax — every upstream NUT change becomes our re-base.
+An option that is 2 MB smaller but grade C is worse than a larger grade A one.
+Treat A/B/C as a gate before comparing benchmarks.
+
+**How to measure:** count our own commits touching the dependency over the last
+6 months; count upstream releases we have not adopted; check whether our platform
+(musl/OpenWrt, 64-128 MB RAM) is in upstream CI. A dependency with no upstream CI
+for our platform is grade B at best.

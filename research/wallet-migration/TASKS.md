@@ -42,3 +42,11 @@ dissent — and can check all of it out from this branch alone.
 branch carries our own port shims, diffs, measurement logs, inventory and plans
 — never their unlicensed code. Anyone reproducing the spike fetches nucula at the
 recorded revision themselves.
+
+## Added 2026-09-13 (operator constraints)
+
+| # | Task | Owner | Status | Artifact |
+|---|---|---|---|---|
+| T9 | Fork-ownership grading (A/B/C) for every option, with the measurement (our commits to the dependency, unadopted upstream releases, upstream CI coverage of musl/our arches) | worker | TODO | `03-baseline/fork-ownership.md` |
+| T10 | "Un-fork gonuts" option study: could we contribute the fork's content upstream, or vendor a pinned upstream release? What does the fork add, commit by commit? | worker | TODO | `03-baseline/unfork-gonuts.md` |
+| T11 | Upstream-acceptance enquiry for a nucula Linux port: is the author willing to host/maintain a Linux target and grant a licence? Blocks C1 entirely. | operator | TODO | `01-candidates/nucula.md` |
