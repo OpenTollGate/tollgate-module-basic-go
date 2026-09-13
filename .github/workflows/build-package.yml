@@ -390,6 +390,13 @@ jobs:
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"
           install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart         "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
 
+          # Install the whole ruleset directory: a file added under
+          # packaging/files/etc/nftables.d/ must ship without a second edit
+          # here (missing 30-backend-firewall.nft left the backend API on
+          # :2121 reachable from non-br-lan interfaces).
+          mkdir -p "$PAYLOAD/etc/nftables.d"
+          cp -r packaging/files/etc/nftables.d/. "$PAYLOAD/etc/nftables.d/"
+
           mkdir -p \
             "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site" \
             "$PAYLOAD/etc/tollgate/ecash" \
@@ -418,6 +425,9 @@ jobs:
             REPLACES="nodogsplash, base-files" \
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
+
+      - name: Verify packaged runtime files
+        run: bash tests/packaging/assert-artifact-contents.sh "artifacts/$PACKAGE_FILENAME"
 
       - name: Install nak
         run: |
@@ -592,6 +602,16 @@ jobs:
             USE_UPX=$USE_UPX \
             UPX_FLAGS="$UPX_FLAGS" \
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
+
+      - name: Verify packaged runtime files
+        run: |
+          set -euo pipefail
+          PKG=$(find /builder/bin/packages -name '*.apk' -type f | head -n1)
+          [ -n "$PKG" ] || { echo "no .apk produced" >&2; exit 1; }
+          APK_BIN=$(command -v apk || echo /builder/staging_dir/host/bin/apk)
+          export APK_BIN
+          echo "APK_BIN=$APK_BIN"
+          bash src-checkout/tests/packaging/assert-artifact-contents.sh "$PKG"
 
       - name: Collect, upload to Blossom, and announce
         shell: bash
