@@ -143,8 +143,9 @@ Edit `packaging/build-inputs.json` — one value, one PR:
   Never a branch name.
 - **UPX**: version + release-tarball sha256.
 - **OpenWrt SDK digests**: `docker manifest inspect openwrt/sdk:<tag>` —
-  paste the digest for each target. Keep the `digest` fields of the
-  workflow matrix in sync (they mirror the manifest).
+  paste the digest for each target into `packaging/build-inputs.json`.
+  The CI package matrix injects every row's digest from the manifest at
+  generation time, so the two lists cannot drift.
 
 Bumping a pin is a reproducibility event: expect artifact hashes to change
 once, then be stable again.
