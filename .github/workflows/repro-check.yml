@@ -1,0 +1,78 @@
+name: Reproducibility check
+
+# Fast lane: every push/PR rebuilds both Go binaries in independent clean
+# roots and requires identical SHA-256s (cheap: pinned Go + jq only).
+# Slow lane: workflow_dispatch builds packages (portal/ipk, optionally
+# ipk-upx/apk) the same way. Tool versions are read from
+# packaging/build-inputs.json at runtime so the manifest stays the single
+# source of truth.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Package target to verify (binaries always run)'
+        type: choice
+        default: ipk
+        options: [ipk, portal, ipk-upx, apk]
+      arch:
+        description: 'Architecture'
+        default: x86_64
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Install pinned Go from manifest
+        run: |
+          set -euo pipefail
+          GO_VER=$(jq -r '.go.version' packaging/build-inputs.json)
+          GO_SHA=$(jq -r '.go.tarball_linux_amd64.sha256' packaging/build-inputs.json)
+          curl -sSL "https://go.dev/dl/go${GO_VER}.linux-amd64.tar.gz" -o /tmp/go.tgz
+          echo "$GO_SHA  /tmp/go.tgz" | sha256sum -c -
+          sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go.tgz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          go version
+      - name: Deterministic binary rebuild check
+        run: bash scripts/repro-test.sh binaries x86_64
+
+  packages:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Install pinned Go + Node + npm from manifest
+        run: |
+          set -euo pipefail
+          GO_VER=$(jq -r '.go.version' packaging/build-inputs.json)
+          GO_SHA=$(jq -r '.go.tarball_linux_amd64.sha256' packaging/build-inputs.json)
+          curl -sSL "https://go.dev/dl/go${GO_VER}.linux-amd64.tar.gz" -o /tmp/go.tgz
+          echo "$GO_SHA  /tmp/go.tgz" | sha256sum -c -
+          sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go.tgz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          if [ "${{ github.event.inputs.target }}" = portal ]; then
+            NODE_VER=$(jq -r '.node.version' packaging/build-inputs.json)
+            NODE_SHA=$(jq -r '.node.tarball_linux_x64.sha256' packaging/build-inputs.json)
+            curl -sSL "https://nodejs.org/download/release/v${NODE_VER}/node-v${NODE_VER}-linux-x64.tar.gz" -o /tmp/node.tgz
+            echo "$NODE_SHA  /tmp/node.tgz" | sha256sum -c -
+            sudo mkdir -p /opt/node && sudo tar xzf /tmp/node.tgz -C /opt/node --strip-components=1
+            echo "/opt/node/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Package reproducibility (${{ github.event.inputs.target }} / ${{ github.event.inputs.arch }})
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.target }}" = apk ]; then
+            # The apk target runs the OpenWrt SDK container via docker.
+            TG_TOOLS=/tmp/tg-tools bash scripts/repro-test.sh apk "${{ github.event.inputs.arch }}"
+          else
+            bash scripts/repro-test.sh "${{ github.event.inputs.target }}" "${{ github.event.inputs.arch }}"
+          fi
