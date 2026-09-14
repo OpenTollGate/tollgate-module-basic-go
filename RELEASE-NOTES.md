@@ -328,7 +328,7 @@ changes in this release only exist on a real device.
 
 ## Upgrade notes
 
-- **Back up the wallet directory and `/etc/config/tollgate` before
+- **Back up the wallet directory and `/etc/tollgate/config.json` before
   upgrading.** The deployment backup that leaked in August is a reminder of
   what that data is worth.
 - **Package filenames are `tollgate-wrt_v0.6.0-alpha2_<arch>.ipk` and
@@ -336,11 +336,24 @@ changes in this release only exist on a real device.
   suffix before the extension).
 - **`.apk` (OpenWrt 25.x)**: install it from the testing feed — see
   [docs/rc-tester-guide.md](docs/rc-tester-guide.md) for the key, the
-  repository line and the verified install/upgrade/rollback commands. To
-  install the downloaded file directly instead, `apk add
-  ./tollgate-wrt_v0.6.0-alpha2_<arch>.apk`; inside the package apk-tools sees
-  the normalised version `0.6.0_alpha2-r1`. Never pass `--allow-untrusted`:
-  the feed index and key exist so that verification stays on.
+  repository line and the verified install/upgrade/rollback commands. Inside
+  the package apk-tools sees the normalised version `0.6.0_alpha2-r0`.
+
+  **An unsigned downloaded file is not a substitute for the feed.** `apk`
+  will refuse `apk add ./tollgate-wrt_v0.6.0-alpha2_<arch>.apk` on its own
+  (`UNTRUSTED signature`), because the file is not signed with a key the
+  router trusts. It only installs with `--allow-untrusted`, and only after
+  you have verified the file against the `sha256` published in the
+  announcement:
+
+  ```bash
+  sha256sum tollgate-wrt_v0.6.0-alpha2_<arch>.apk   # must equal the announced sha256
+  apk add --allow-untrusted ./tollgate-wrt_v0.6.0-alpha2_<arch>.apk
+  ```
+
+  Never `--allow-untrusted` a file whose `sha256` you have not checked — and
+  never use that flag on the feed path: the index and key exist so that
+  verification stays on.
 - **`.ipk` (OpenWrt 24.10 and earlier)**: `opkg install
   tollgate-wrt_v0.6.0-alpha2_<arch>.ipk`; the control-file version is the
   tag name, `v0.6.0-alpha2`.
@@ -388,8 +401,9 @@ changes in this release only exist on a real device.
   (a comment on the pinned *Tester reports — TollGate v0.6.0-alpha2 (alpha
   channel)* issue in the
   [project tracker](https://github.com/OpenTollGate/tollgate-module-basic-go/issues)),
-  carries the report template, and states the triage and severity rules. Send
-  the facts it asks for (router model, `cat /etc/openwrt_release`,
+  carries the report template, and states the triage and severity rules; the
+  tester guide's *How to report a result* section lists the exact commands to
+  run. Send the facts they ask for (router model, `cat /etc/openwrt_release`,
   `apk --print-arch`, the feed line, `apk list --installed tollgate-wrt`,
   `tollgate version`, `sha256sum` of the installed binaries,
   `logread -e tollgate | tail -50`, expected vs actual) and never a key, seed,
