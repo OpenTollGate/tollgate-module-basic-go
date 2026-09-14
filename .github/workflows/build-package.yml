@@ -269,7 +269,7 @@ jobs:
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src -o "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" \
-              -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+              -trimpath -buildvcs=false -ldflags="$LDFLAGS" ./cmd/tollgate-wrt
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$GITHUB_WORKSPACE/bin/$key/tollgate" \

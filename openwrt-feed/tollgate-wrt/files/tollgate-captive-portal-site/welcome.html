@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>TollGate — Welcome</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+        h1 { font-size: 1.5rem; margin-bottom: 0.5rem; text-align: center; }
+        .subtitle { color: #999; margin-bottom: 2rem; text-align: center; }
+        .countdown {
+            font-size: 4rem;
+            font-weight: 200;
+            color: #4CAF50;
+            margin-bottom: 1rem;
+        }
+        .status { font-size: 0.85rem; color: #666; }
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: #4CAF50;
+            color: #fff;
+            margin-top: 1rem;
+        }
+        #log {
+            display: none;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: #111;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: #666;
+            max-height: 120px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        #log.visible { display: block; }
+    </style>
+</head>
+<body>
+    <h1>You're connected!</h1>
+    <p class="subtitle">Redirecting you shortly...</p>
+    <div class="countdown" id="countdown">5</div>
+    <button class="btn" id="btn-now">Go Now</button>
+    <div class="status" id="status">Counting down...</div>
+    <div id="log"></div>
+
+    <script>
+        (function() {
+            var DEFAULT_TARGET = 'https://wallet.cashu.me/welcome';
+            var params = new URLSearchParams(window.location.search);
+            var TARGET = params.get('redirect') || DEFAULT_TARGET;
+            var DEBUG = params.has('debug');
+
+            var log = document.getElementById('log');
+            var countdownEl = document.getElementById('countdown');
+            var statusEl = document.getElementById('status');
+            var btnNow = document.getElementById('btn-now');
+
+            if (DEBUG) log.classList.add('visible');
+
+            function addLog(msg) {
+                log.textContent += new Date().toISOString().substr(11, 8) + ' ' + msg + '\n';
+                log.scrollTop = log.scrollHeight;
+            }
+
+            function toIntentUrl(url) {
+                var u = new URL(url);
+                var host = u.host;
+                var path = u.pathname + u.search + u.hash;
+                return 'intent://' + path + '#Intent;scheme=' + u.protocol.replace(':', '') + ';package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+            }
+
+            function redirect() {
+                countdownEl.textContent = '0';
+                statusEl.textContent = 'Redirecting...';
+                addLog('Redirecting to ' + TARGET);
+
+                try {
+                    window.location.href = toIntentUrl(TARGET);
+                    addLog('Intent URL dispatched (Android Chrome)');
+                } catch(e) {
+                    addLog('Intent failed: ' + e.message);
+                }
+
+                setTimeout(function() {
+                    window.location.href = TARGET;
+                }, 1000);
+            }
+
+            btnNow.addEventListener('click', redirect);
+
+            var seconds = 5;
+            var timer = setInterval(function() {
+                seconds--;
+                countdownEl.textContent = seconds;
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    redirect();
+                }
+            }, 1000);
+
+            addLog('Welcome page loaded');
+            addLog('Target: ' + TARGET);
+            addLog('Debug: ' + DEBUG);
+        })();
+    </script>
+</body>
+</html>
