@@ -17,7 +17,7 @@ RUN apt-get update && \
 
 # Build cdk-mintd with only the features we need
 # --locked ensures reproducible builds from the published Cargo.lock
-RUN cargo install cdk-mintd --no-default-features --features fakewallet,sqlite --locked
+RUN cargo install cdk-mintd --version 0.17.6 --no-default-features --features fakewallet,sqlite --locked
 
 # --- Runtime stage ---
 FROM debian:bookworm-slim

@@ -38,7 +38,7 @@ require (
 	github.com/FactomProject/basen v0.0.0-20150613233007-fe3947df716e // indirect
 	github.com/FactomProject/btcutilecc v0.0.0-20130527213604-d3a63a5752ec // indirect
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
-	github.com/OpenTollGate/gonuts-tollgate v0.11.1 // indirect
+	github.com/OpenTollGate/gonuts-tollgate v0.11.2-0.20260913230723-717c8863c8e5 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0 // indirect
