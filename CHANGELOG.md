@@ -72,6 +72,18 @@ and [Semantic Versioning](https://semver.org/).
   GPL-3.0 `LICENSE`. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 ### Changed / Internal
 
+- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
+  documents the supported-matrix placeholder (honest about what is untested),
+  the feed signing key and the repository line for OpenWrt 25.12, install,
+  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
+  rollback leaves behind, and the fact that `--force-downgrade` is not an
+  apk-tools 3.x option — the failure modes reproduced in practice, how to
+  report a result, and what to expect from an alpha. Every command was
+  executed against a real OpenWrt 25.12.5 userland; router-only steps are
+  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
+  `apk add --allow-untrusted`.
+  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
   ships the runtime files under `packaging/files/`, and is wired into both
