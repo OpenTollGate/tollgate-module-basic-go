@@ -97,6 +97,11 @@ and [Semantic Versioning](https://semver.org/).
   marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
   `apk add --allow-untrusted`.
   ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+- **ngit mirror linked from the README.** A new "Mirror, CI and releases on
+  Nostr (ngit)" section documents the mirror's `nostr://` and HTTPS clone
+  URLs, the gitworkshop browser URL, the ngit-CI dashboard, and how to fetch
+  build artifacts from Nostr (`kind 1063`) with sha256 verification instead
+  of GitHub releases. ([#390](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/390))
 
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
