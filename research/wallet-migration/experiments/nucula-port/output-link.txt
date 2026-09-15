@@ -1,0 +1,61 @@
+# Spike N — nucula core linked and RUNNING on the router (aarch64)
+
+**Status:** proven 2026-09-15. Extends the cross-compile spike (20/20 objects) to a
+**linked static-ish executable that runs on the physical MT6000** (OpenWrt 25.12.5,
+aarch64). This closes the "does it run" half of Spike N for aarch64.
+
+## Build (cross, OpenWrt SDK, aarch64-musl)
+
+Dependencies built for the target (no cmake in the SDK image — used Makefiles /
+direct compiles):
+
+| Dependency | How |
+|---|---|
+| mbedTLS 3.6.7 | `make -C library libmbedcrypto.a libmbedx509.a` with the target gcc (only **libmbedcrypto** is needed: sha256/md/pkcs5/base64) |
+| TinyCBOR 0.6.0 | direct compile of the `src/*.c` into `libtinycbor.a` |
+| cJSON 1.7.18 | single `cJSON.c` |
+| secp256k1 (bitcoin-core) | `secp256k1.c` + `precomputed_ecmult*.c` with `ENABLE_MODULE_{SCHNORRSIG,EXTRAKEYS}` |
+
+Then compiled the nucula core (20 files) + our platform shims
+(`esp_shims.c`, `freertos_shim.c`, `nvs_file.cpp`, `http_linux.c`) + the harness,
+and linked.
+
+**Fix required:** `freertos_shim.c` uses `PTHREAD_STACK_MIN`, which musl does not
+expose → compile with `-DPTHREAD_STACK_MIN=16384`.
+
+**Linking:** the router has **no `libstdc++.so.6`** but does have
+`libgcc_s.so.1`. A fully static link fails (OpenWrt's toolchain static unwinder
+`libgcc_eh.a` isn't pulled by `-static`), so the working recipe is
+**`-static-libstdc++`** (C++ runtime static) with **dynamic libgcc_s + musl**
+(both present on the router). Result: `h.stripped` = **1,772,736 B (1.7 MiB)**.
+
+## Result — running on the MT6000
+
+```
+=== RUN ===
+== crypto (NUT-00/11/12/13 vectors) ==
+I (crypto_test) sha256: ok
+I (crypto_test) hash_to_curve 1..3: OK
+I (crypto_test) blind_message 1/2: OK
+I (crypto_test) unblind: OK
+I (crypto_test) DLEQ BlindSignature: OK
+I (crypto_test) DLEQ Proof: OK
+I (crypto_test) NUT-13 V2 counter=0..4: OK
+I (crypto_test) all crypto tests passed
+I (selftest) hex/base64url/split_amount/nut10 parse: ok
+I (cashu_cbor) decoded V4 token: 2 proofs from https://mint.example
+I (selftest) cbor v4 round-trip ok
+EXIT=0
+```
+
+So **nucula's protocol/crypto core runs on the router** with real target libraries
+— it is genuinely cross-buildable and runnable; the remaining nucula work is the
+*port* (persistence/keystore/HTTP wiring, NUT-07/09) and the **storage redesign**,
+plus a mipsel run (needs a mipsel router; the same recipe + `-Z`-style musl build
+applies).
+
+## Reproduce
+
+See `run-cross-link.sh` (documents the dep builds, the `PTHREAD_STACK_MIN` fix,
+and the `-static-libstdc++` link). The harness binary is pushed to the router and
+run directly.
