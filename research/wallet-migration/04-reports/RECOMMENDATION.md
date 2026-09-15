@@ -14,7 +14,7 @@ objective comparison, and the trade-offs are written where each option wins.
 
 | Axis | gonuts (current, forked) | CDK — sidecar (`cdk-cli`) | nucula |
 |---|---|---|---|
-| **Fit for OpenWrt** | ✅ aarch64 + mipsel, static, in-process | ✅ aarch64 static musl (T5c); **✗ mipsel blocked** (no `AtomicU64`) | ✗ not a router component (ESP32 firmware) |
+| **Fit for OpenWrt** | ✅ aarch64 + mipsel, static, in-process | ✅ aarch64 + **mipsel\*** static musl (Spike C: 2-line upstreamable `portable-atomic` fix); wallet-only ≈4.1 MiB aarch64 size-optimized | ✗ not a router component (ESP32 firmware) |
 | **Footprint** | service: 11.5 MiB bin, ~26 MiB RSS, 8 thr | sidecar: 19.7 MiB bin, **~5.6 MiB RSS, 5 thr** (unconfigured) | n/a |
 | **Coverage / contract** | complete (the reference) | adapter exists but **unverified** (T5a); sidecar client not written | **missing NUT-07/09** + persistence rewrite |
 | **Interchangeability** | n/a (incumbent) | good — RPC client behind unchanged `WalletPort`; grade-A ownership | poor — needs C++→Go re-implementation |
@@ -95,3 +95,23 @@ support and reseller overpayment (`03-baseline/unfork-gonuts.md`).
 - nucula#8 answered with a licence **and** upstream acceptance of a Linux target
   → re-open nucula as a grade-A/B option.
 - Upstream `elnosh/gonuts` reviving (a counterparty appearing) → re-open un-fork.
+
+---
+
+## Update 2026-09-14 — Phase 1 feasibility spikes (see `PHASE1-feasibility.md`)
+
+Two measurements change the buildability picture above:
+
+- **CDK is no longer mipsel-blocked.** A *wallet-only* build (no nostr) compiles
+  for `mipsel` with a **2-line upstreamable `portable-atomic` fix** in
+  `cdk-common`'s test helpers; `lightning`/`tokio` were never the problem. Sizes:
+  aarch64 **4.1 MiB** (size-optimized), mipsel 9.4 MiB. CDK's small-tier verdict
+  becomes a **flash-budget** question, not a wall.
+- **nucula's core cross-compiles 20/20 for both arches**; the `int64_t` hazard is
+  **aarch64-only** (0 warnings on mipsel). The remaining nucula proof is
+  **link + run**, plus the port work and the storage redesign.
+
+Net: both candidates now **build** for both router arches; the decision rests on
+**flash budget, security/behavioural parity (T15), and ownership (T9)** — which is
+exactly what the standardised `WalletPort` + sidecar client (Phase 2) exists to
+let us choose per target.

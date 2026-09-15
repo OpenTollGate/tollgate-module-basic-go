@@ -1,0 +1,63 @@
+# Spike N — nucula core cross-compile for OpenWrt (mipsel + aarch64)
+
+**Status:** measured 2026-09-14. Purpose: prove the nucula wallet/protocol core
+cross-compiles for the router arches, and resolve the recorded `int64_t` hazard.
+This extends the earlier port spike (which only compiled natively on x86_64).
+
+## Method
+
+- Fetch nucula at the pinned rev `8ad081219c74f3e8372551738da37a08834835a9`
+  (`fetch-nucula.sh`); archive sha256 `53e6d509…` matches the earlier consultant.
+- Compile the **port's core file list** (20 files; the same set as
+  `experiments/nucula-port/CMakeLists.txt`) to objects with the OpenWrt SDK
+  cross-compilers:
+  - `mipsel-openwrt-linux-musl-{gcc,g++}` (ramips-mt7621 SDK)
+  - `aarch64-openwrt-linux-musl-{gcc,g++}` (mediatek-filogic SDK)
+- Include path: nucula `main/`, our shim headers, and *staged* dependency headers
+  (`mbedtls/`, `psa/`, `cJSON.h`, `tinycbor/cbor.h`, secp256k1 `include/`).
+  Deps are fetched separately: TinyCBOR v0.6.0 and bitcoin-core/secp256k1
+  (nucula's tarball does **not** vendor the secp256k1 submodule).
+- Flags mirror the port CMakeLists: `-Os -Wall -DENABLE_MODULE_SCHNORRSIG=1
+  -DENABLE_MODULE_EXTRAKEYS=1`.
+
+## Result
+
+| Target | Objects | Compile | `int64_t` format diagnostics |
+|---|---|---|---|
+| `mipsel_24kc` musl | 20/20 | **clean** | **0** |
+| `aarch64_cortex-a53` musl | 20/20 | **clean** | **3** `%lld`/`int64_t` warnings |
+
+**The core compiles for both router arches.** The portability work the port-map
+flagged as the main hazard — persistence/keystore/HTTP rewrites — is a *port*
+concern, but the *compilation* portability is settled: 20/20 on both arches.
+
+### The `int64_t` hazard is aarch64-only (new finding)
+
+The port-map recorded 17 `%lld`/`%llu` sites as a hazard. Cross-compiling shows
+*which arch it actually bites*:
+
+- **mipsel (ILP32):** `int64_t` is `long long`, so `%lld` is **correct** → **0 warnings**.
+- **aarch64 (LP64):** `int64_t` is `long`, so `%lld` is a **mismatch** →
+  **3 warnings** in the compiled set (`-Wformat`), i.e. varargs UB.
+
+So the fix belongs on the aarch64 path (use `PRId64`/`%" PRId64`), not mipsel.
+This inverts the port-map's framing: the hazard is *not* a mipsel blocker.
+
+## What is NOT yet done (the remaining Spike N work)
+
+1. **Full static link** — build mbedtls, TinyCBOR, cJSON, secp256k1 for the
+   target and link the harness + `nucula_platform` shims. (Deps are fetched;
+   their target builds are the remaining plumbing.)
+2. **Run** — under `qemu-mipsel` (not installed on the build host) and then a
+   physical mipsel router. **This is the "does it run" proof and is still open.**
+3. **Footprint** of the linked binary (the ESP32 image is 1.11 MiB; a Linux core
+   is expected to be small, but it is unmeasured).
+4. The storage model (whole-blob NVS rewrite) still needs a per-proof redesign
+   before any router use — independent of arch.
+
+## Verdict
+
+**nucula's core is cross-compilable for both router arches; mipsel is not the
+blocker.** The remaining proof (link + run) is plumbing + hardware, not a
+portability wall. The real nucula work remains the **port** (persistence,
+keystore, HTTP, NUT-07/09) and the **storage redesign**.

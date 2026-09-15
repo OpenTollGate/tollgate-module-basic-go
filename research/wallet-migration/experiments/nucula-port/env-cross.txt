@@ -1,0 +1,19 @@
+# Environment facts for experiments/nucula-port cross-compile (Spike N)
+# Recorded 2026-09-14.
+
+date           : 2026-09-14
+host           : c03rad0r-DQ05proplus (x86_64, Linux)
+nucula_rev     : 8ad081219c74f3e8372551738da37a08834835a9
+nucula_sha256  : 53e6d5096a13b091f4755d3d6d588aca845c208da3bf72e503256aa43357c274
+deps           : TinyCBOR v0.6.0 (intel/tinycbor), bitcoin-core/secp256k1 (git)
+                 mbedtls + cJSON headers from the host (staged under deps/include)
+sdk_mipsel     : openwrt/sdk:ramips-mt7621-v25.12.5
+sdk_aarch64    : openwrt/sdk:mediatek-filogic-v25.12.5
+tc_mipsel      : mipsel-openwrt-linux-musl-gcc/g++ (OpenWrt GCC 14.3.0 musl)
+tc_aarch64     : aarch64-openwrt-linux-musl-gcc/g++ (OpenWrt GCC 14.3.0 musl)
+flags          : -Os -Wall -DENABLE_MODULE_SCHNORRSIG=1 -DENABLE_MODULE_EXTRAKEYS=1
+scope          : core file list compiled to OBJECTS (no link); 20 files
+
+mipsel_result  : 20/20 objects; 0 int64 format warnings
+aarch64_result : 20/20 objects; 3 %lld/int64_t warnings (LP64: int64_t == long)
+not_done       : target dep lib builds + link + run (qemu-mipsel / physical router)
