@@ -342,14 +342,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Generate a fresh random seed: a valid signing key (for NUT-20) and,
         // crucially, fresh deterministic outputs (NUT-13) so re-runs against the
         // same mint do not collide on "outputs have already been signed".
+        // Print the generated mnemonic so a caller can reuse it across restarts
+        // (e.g. crash-recovery tests that must continue the same wallet).
         let m = bip39::Mnemonic::generate(12)?;
-        eprintln!("cdk-walletd: generated a random seed (no --mnemonic given)");
+        eprintln!("cdk-walletd: generated mnemonic: {m}");
         m.to_seed("")
     } else {
         seed_from_mnemonic(&mnemonic)?
     };
 
     let wallet = Arc::new(open_wallet(&work_dir, &mint, seed).await?);
+
+    // Crash recovery: reconcile any sagas / pending proofs left by a previous
+    // crash before serving, so interrupted swaps do not strand funds.
+    match wallet.recover_incomplete_sagas().await {
+        Ok(_) => eprintln!("cdk-walletd: recovered incomplete sagas"),
+        Err(e) => eprintln!("cdk-walletd: saga recovery failed: {e}"),
+    }
+    match wallet.check_all_pending_proofs().await {
+        Ok(a) => eprintln!("cdk-walletd: reconciled pending proofs ({})", u64::from(a)),
+        Err(e) => eprintln!("cdk-walletd: pending-proof reconciliation failed: {e}"),
+    }
     let _ = std::fs::remove_file(&socket);
     let listener = UnixListener::bind(&socket)?;
     eprintln!("cdk-walletd: listening on {socket} (mint={mint})");
