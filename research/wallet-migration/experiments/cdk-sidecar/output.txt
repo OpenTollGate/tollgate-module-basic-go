@@ -1,0 +1,72 @@
+# T5c — sidecar viability: cdk-cli as a static musl binary
+
+**Result: SUCCESS on aarch64 · BLOCKED on mipsel.**
+
+The process-isolated sidecar path (build CDK's CLI as a static musl binary and
+talk to it over a process boundary) **builds and links** for the router's
+primary arch (aarch64/musl), and avoids the cgo/glibc problem entirely
+(`../cdk-cross/`).
+
+## aarch64 — SUCCESS
+
+```
+target : aarch64-unknown-linux-musl
+linker : aarch64-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0)
+cmd    : cargo build -p cdk-cli --release --target aarch64-unknown-linux-musl --no-default-features
+```
+
+All C-bearing crates cross-compiled cleanly for musl: `ring`, `secp256k1-sys`,
+`libsqlite3-sys` (bundled sqlite), `zstd-sys`. The only link fix needed was
+`panic=abort` + Rust's **self-contained** musl libs (`libunwind.a`/`libc.a` from
+the rustup musl sysroot); using `link-self-contained=no` fails with
+`cannot find -lunwind` on the OpenWrt toolchain.
+
+```
+$ file cdk-cli
+ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, ...
+
+$ readelf -d cdk-cli | grep NEEDED
+(none — fully static)
+
+unstripped : 26,442,888 bytes  (25.2 MiB)
+stripped   : 20,617,744 bytes  (19.7 MiB)   [aarch64-openwrt-linux-musl-strip --strip-all]
+```
+
+`--no-default-features` drops `npubcash`; note `cdk-cli` still pulls Nostr
+(`cdk` features `wallet,nostr,bip353` + `nostr-sdk`), which is a large part of
+the footprint. A purpose-built wallet-only sidecar would be smaller; this is the
+off-the-shelf upper bound.
+
+Runtime RSS/threads/storage were **not measured here** (no arm64 user-space
+emulation on the build host — no `qemu-user-static`/binfmt). Deferred to the
+physical aarch64 router (GL-MT6000) — see the open measure in `TASKS.md`.
+
+## mipsel — BLOCKED (hard)
+
+```
+target : mipsel-unknown-linux-musl   (tier-3; no rustup std)
+cmd    : cargo +nightly build -p cdk-cli --release --target mipsel-unknown-linux-musl \
+             --no-default-features -Z build-std=std,panic_abort
+linker : mipsel-openwrt-linux-musl-gcc (OpenWrt SDK ramips-mt7621-v25.12.5)
+```
+
+`-Z build-std` compiles std for the target, then fails in a dependency:
+
+```
+error[E0432]: unresolved import `std::sync::atomic::AtomicU64`
+  --> nostr-relay-pool-0.44.1/src/relay/ping.rs:6:37
+  note: no `AtomicU64` in `sync::atomic`
+```
+
+`mipsel_24kc` has **no 64-bit atomics**, and `std`'s `sync::atomic` therefore
+omits `AtomicU64`. `nostr-relay-pool` (pulled by `cdk-cli` via `nostr-sdk`)
+requires it, so the full `cdk-cli` cannot build for mipsel. Making mipsel work
+would require a wallet-only sidecar that avoids the Nostr stack (or shimming
+every `AtomicU64` via `portable-atomic`) — real, but non-trivial, work.
+
+## Consequence for the decision
+
+- The **sidecar is the shippable integration mechanism** for the primary
+  (aarch64) router arch — measured, not asserted.
+- **mipsel routers are a live risk for CDK** and must be an explicit axis in the
+  scorecard (T13): the current full `cdk-cli` is aarch64-only.

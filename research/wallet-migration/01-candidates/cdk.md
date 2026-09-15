@@ -725,3 +725,58 @@ not possible yet, because the gonuts side of that matrix is still TODO
 (T1b, `00-context/walletport-contract.md` does not exist on this branch).
 Everything in B6 about musl and mipsel is **UNVERIFIED** — see the test recipe
 there; T5c owns producing it.
+
+---
+
+# T5c — measured cross-compile results (2026-09-14)
+
+B6 is now **VERIFIED** on real toolchains. Full raw output and reproducible
+scripts: `experiments/cdk-cross/` and `experiments/cdk-sidecar/`.
+
+**Environment:** OpenWrt SDK images `openwrt/sdk:{mediatek-filogic,ramips-mt7621}-v25.12.5`
+(OpenWrt GCC 14.3.0, musl); host rustc 1.94.0 (aarch64-musl std) + 1.99.0-nightly
+(`-Z build-std`); cdk `v0.17.3` (`482e4df8`); `cdk-go v0.17.3`.
+
+### 1. cgo + prebuilt `cdk-go` on aarch64 musl → FAIL (hard)
+
+`cdk-go@v0.17.3` ships **glibc-only** `.so` files (`native/linux_arm64/libcdk_ffi.so`
+has `NEEDED: libc.so.6, ld-linux-aarch64.so.1`; there is **no musl `.a`** and **no
+mipsel dir**). The final link of the service (`-tags cdk_wallet`) against the
+OpenWrt aarch64-musl toolchain fails with a cascade of
+`undefined reference to '<sym>@GLIBC_2.x'` (access, pow, fstat64, dlerror,
+epoll_ctl, …). **The in-process adapter is not buildable on OpenWrt musl as
+published.** Caveat: building the *library* package looks green (Go does no final
+link for a lib); only the main build exposes it.
+
+### 2. cgo with `cdk-ffi` built from source → still not shippable
+
+`cargo build -p cdk-ffi --target aarch64-unknown-linux-musl` **succeeds** but
+`cdylib` is **dropped for musl** (`warning: dropping unsupported crate type
+'cdylib'`), i.e. no `.so` is produced, which is what the Go binding expects. It
+yields only `libcdk_ffi.a` = **133 MiB** unstripped (plus a 31 MiB rlib). Linking
+that into the Go binary is the antithesis of the footprint goal.
+
+### 3. Sidecar `cdk-cli` → SUCCESS on aarch64
+
+`cargo build -p cdk-cli --target aarch64-unknown-linux-musl --no-default-features`
+with the OpenWrt gcc as CC/linker links cleanly (fix: `RUSTFLAGS=-C panic=abort`
++ Rust **self-contained** musl libs; `link-self-contained=no` dies on `-lunwind`).
+Result: **statically linked**, **19.7 MiB stripped** (25.2 MiB unstripped),
+`readelf -d` NEEDED = none. All C deps cross-compiled: ring, secp256k1, bundled
+sqlite, zstd. This is the off-the-shelf upper bound (a wallet-only sidecar would
+be smaller). **Runtime RSS/threads NOT measured yet** — no arm64 user-space
+emulation on the build host; deferred to the physical aarch64 router.
+
+### 4. Sidecar `cdk-cli` on mipsel → FAIL (hard)
+
+`mipsel-unknown-linux-musl` is tier-3; with nightly `-Z build-std=std,panic_abort`
+compilation dies in `nostr-relay-pool`: `no AtomicU64 in sync::atomic` —
+`mipsel_24kc` has **no 64-bit atomics**, and `std` omits `AtomicU64`. The full
+`cdk-cli` (which pulls `nostr-sdk`) is therefore **aarch64-only** today. mipsel
+would need a Nostr-free wallet-only sidecar, or `portable-atomic` shimming
+throughout — real work, not a flag.
+
+**Net effect on the recommendation:** unchanged and now evidence-backed — reject
+cgo/`cdk-go`; ship CDK as a **process-isolated sidecar**. New hard fact for the
+scorecard (T13): **the current `cdk-cli` sidecar covers aarch64 but not mipsel**
+(the aarch64 sidecar is measured and clean).

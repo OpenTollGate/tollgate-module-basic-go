@@ -1,0 +1,73 @@
+# T5c — cgo + cdk-go cross-compile for OpenWrt musl
+
+**Result: FAIL (hard blocker).** The in-process cgo path cannot be built for
+OpenWrt because `cdk-go@v0.17.3` ships **glibc-only** shared libraries.
+
+## What cdk-go ships (the root cause)
+
+`github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/` contains only:
+
+```
+linux_amd64/libcdk_ffi.so
+linux_arm64/libcdk_ffi.so
+darwin_amd64/libcdk_ffi.so
+darwin_arm64/libcdk_ffi.so
+windows_amd64/...
+```
+
+There is **no musl static library** (`libcdk_ffi.a`) and **no mipsel directory**.
+The arm64 `.so` is glibc-linked:
+
+```
+$ readelf -d libcdk_ffi.so | grep NEEDED
+  NEEDED  Shared library: [libgcc_s.so.1]
+  NEEDED  Shared library: [libm.so.6]
+  NEEDED  Shared library: [libc.so.6]
+  NEEDED  Shared library: [ld-linux-aarch64.so.1]
+```
+
+## The failing link
+
+Building the service with `-tags cdk_wallet` using the OpenWrt aarch64-musl
+toolchain fails at final link — the musl linker cannot resolve the `.so`'s glibc
+symbol versions:
+
+```
+ld: libcdk_ffi.so: undefined reference to `access@GLIBC_2.17'
+ld: libcdk_ffi.so: undefined reference to `pow@GLIBC_2.29'
+ld: libcdk_ffi.so: undefined reference to `fstat64@GLIBC_2.33'
+ld: libcdk_ffi.so: undefined reference to `dlerror@GLIBC_2.34'
+... (~hundreds of @GLIBC_2.x references)
+collect2: error: ld returned 1 exit status
+```
+
+Note: building the **library** package (`go build -tags cdk_wallet .` from
+`src/tollwallet`) *appears* to succeed (exit 0) because Go does not perform a
+final link for a library. Only the **main** build from `src/` performs the real
+link and exposes the failure. Do not be fooled by the library-level "green".
+
+## Building cdk-ffi from source does not rescue cgo either
+
+`cargo build -p cdk-ffi --release --target aarch64-unknown-linux-musl` (same
+toolchain) **succeeds**, but:
+
+- `warning: dropping unsupported crate type 'cdylib' for target aarch64-unknown-linux-musl`
+  — so a musl `.so` is **not produced**; cdk-go expects a `.so`, so the binding's
+  layout assumption is not satisfiable on musl.
+- It produces only `libcdk_ffi.a` = **139,601,724 bytes (133 MiB) unstripped**
+  and `libcdk_ffi.rlib` = 31 MiB. Linking a 133 MiB Rust static archive into the
+  Go binary (plus the Rust runtime) is the opposite of the "small, static, no
+  surprises" goal, and would need a bespoke `CGO_LDFLAGS` path cdk-go does not
+  support.
+
+## Conclusion
+
+The cgo/`cdk-go` adapter is **not shippable on OpenWrt musl** as published:
+
+1. prebuilt bindings are glibc-only (link failure), and
+2. musl has no `cdylib`, so the binding's `.so` contract cannot be met from source
+   without forking/maintaining cdk-go's native layout.
+
+This is measured evidence for the recommendation recorded in
+`01-candidates/cdk.md` (Consultant B): **prefer the process-isolated sidecar**
+(see `../cdk-sidecar/`) over the in-process cgo adapter.

@@ -27,7 +27,13 @@ dissent — and can check all of it out from this branch alone.
 |---|---|---|---|---|
 | T5a | Audit the existing `cdk_wallet.go` adapter: completeness, tests that actually run, build-tag wiring, mnemonic handling | worker (code) | TODO | `01-candidates/cdk.md`, `experiments/cdk-adapter/` |
 | T5b | Verify `github.com/cashubtc/cdk-go`: published? maintained? pinned how? what does `go.mod` say — real version or `replace` to a local path? | consultant B | TODO | `01-candidates/cdk.md` |
-| T5c | Cross-compile test: cgo + cdk-go static lib for `aarch64`/`mipsel` musl on OpenWrt — patch count and resulting size | worker (firmware) | TODO | `experiments/cdk-cross/` |
+| T5c | Cross-compile test: cgo + cdk-go static lib for `aarch64`/`mipsel` musl on OpenWrt — patch count and resulting size | worker (firmware) | **DONE** | `experiments/cdk-cross/`, `experiments/cdk-sidecar/`, `01-candidates/cdk.md` §T5c |
+
+> **T5c result (2026-09-14):** cgo/`cdk-go` is **not buildable on OpenWrt musl**
+> (glibc-only `.so`; source `cdk-ffi` drops `cdylib`, yields a 133 MiB `.a`).
+> The **sidecar `cdk-cli` builds clean on aarch64** (19.7 MiB stripped, static)
+> but **fails on mipsel** (`std::sync::atomic::AtomicU64` absent; `nostr-relay-pool`).
+> Runtime RSS deferred to the physical aarch64 router.
 
 ## Added after the scope change: nucula → OpenWrt port (2026-09-13)
 
