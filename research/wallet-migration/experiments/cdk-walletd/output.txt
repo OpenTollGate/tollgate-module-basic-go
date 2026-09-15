@@ -35,8 +35,8 @@ PR #395.
 | Method | Status |
 |---|---|
 | `info`, `decode_token`, `get_balance`, `get_all_mint_balances`, `shutdown` | implemented |
-| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `send`, `drain` | **implemented** (call real CDK wallet APIs) |
-| `melt_to_lightning`, `request_melt_quote`, `melt`, `send_with_overpayment` | **not implemented** — saga-based; need a real mint to test |
+| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `send`, `drain`, `request_melt_quote`, `melt` | **implemented** (call real CDK wallet APIs) |
+| `melt_to_lightning`, `send_with_overpayment` | **not implemented** (need LNURL→invoice resolution / overpayment options) |
 
 ## Second smoke (2026-09-14) — value-moving methods wired
 
@@ -84,6 +84,23 @@ sidecar client speaks. This is the end-to-end value-flow proof for the mint side
 
 (`send`/`drain`/`melt*` are still stubs, so the full send→receive round-trip is
 not yet exercised.)
+
+## Lightning melt path (2026-09-14)
+
+`request_melt_quote` + `melt` wired (`melt_quote` → `prepare_melt` → `confirm`).
+Against the live mint, using a fresh bolt11 from the mint itself:
+
+```
+invoice                 = lnbc100n1p42n9fkd…  (from request_mint_quote(10))
+request_melt_quote(inv) -> {"amount":10,"fee_reserve":1,"quote_id":"01a0a66e-…","state":0}
+melt(quote_id)          -> {"ok":false,"error":"melt(confirm): Payment failed"}
+```
+
+The quote call is a real CDK NUT-05 melt quote (amount + fee reserve). `melt`
+prepared proofs and called the mint; the payment failed because the test mint
+cannot route a real Lightning payment — expected, and it proves the wiring (a
+structured error from the mint, not a stub). With a routable invoice / funded
+mint this is the full melt path.
 
 ## Real-mint send → receive round-trip (2026-09-14)
 

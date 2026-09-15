@@ -11,12 +11,13 @@
 // implemented. send/drain/melt*/send_with_overpayment return "not implemented"
 // for now (they are saga-based). See the wallet-migration research branch.
 
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use cdk::amount::SplitTarget;
 use cdk::cdk_database::{Error as DbError, WalletDatabase};
-use cdk::nuts::{CurrencyUnit, MintQuoteState, PaymentMethod, Token};
+use cdk::nuts::{CurrencyUnit, MeltQuoteState, MintQuoteState, PaymentMethod, Token};
 use cdk::wallet::{ReceiveOptions, SendOptions, Wallet};
 use cdk::Amount;
 use cdk_sqlite::WalletSqliteDatabase;
@@ -76,6 +77,15 @@ fn state_code(s: MintQuoteState) -> i32 {
         MintQuoteState::Unpaid => 0,
         MintQuoteState::Paid => 1,
         MintQuoteState::Issued => 2,
+        _ => 4,
+    }
+}
+
+fn melt_state_code(s: MeltQuoteState) -> i32 {
+    match s {
+        MeltQuoteState::Unpaid => 0,
+        MeltQuoteState::Paid => 1,
+        MeltQuoteState::Pending => 3,
         _ => 4,
     }
 }
@@ -186,6 +196,33 @@ async fn dispatch(wallet: &Wallet, mint: &str, req: &Request) -> (Response, bool
             }
             Err(e) => (Response::err(req.id, format!("drain(balance): {e}")), false),
         },
+
+        "request_melt_quote" => {
+            let invoice = p_str(p, "invoice").to_string();
+            match wallet.melt_quote(PaymentMethod::BOLT11, invoice, None, None).await {
+                Ok(q) => (Response::ok(req.id, serde_json::json!({
+                    "quote_id": q.id, "amount": q.amount.to_u64(),
+                    "fee_reserve": q.fee_reserve.to_u64(),
+                    "state": melt_state_code(q.state), "expiry": q.expiry,
+                })), false),
+                Err(e) => (Response::err(req.id, format!("request_melt_quote: {e}")), false),
+            }
+        }
+
+        "melt" => {
+            let qid = p_str(p, "quote_id").to_string();
+            match wallet.prepare_melt(&qid, HashMap::new()).await {
+                Ok(prepared) => match prepared.confirm().await {
+                    Ok(m) => (Response::ok(req.id, serde_json::json!({
+                        "quote_id": m.quote_id(),
+                        "paid": m.state() == MeltQuoteState::Paid,
+                        "preimage": m.payment_proof().unwrap_or(""),
+                    })), false),
+                    Err(e) => (Response::err(req.id, format!("melt(confirm): {e}")), false),
+                },
+                Err(e) => (Response::err(req.id, format!("melt(prepare): {e}")), false),
+            }
+        }
 
         "shutdown" => (Response::ok(req.id, serde_json::json!({})), true),
 
