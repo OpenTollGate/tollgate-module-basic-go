@@ -265,11 +265,22 @@ func (s *SidecarWallet) MeltToLightning(mintUrl string, targetAmount uint64, max
 
 // RequestMintQuote asks the mint for a bolt11 mint quote.
 func (s *SidecarWallet) RequestMintQuote(amount uint64, mintUrl string) (*MintQuote, error) {
-	var q MintQuote
-	if err := s.call("request_mint_quote", map[string]any{"amount": amount, "mint_url": mintUrl}, &q); err != nil {
+	// Explicit wire type: the port's MintQuote has no JSON tags, so we must map
+	// the daemon's snake_case keys ourselves rather than rely on reflection.
+	var wire struct {
+		QuoteID string         `json:"quote_id"`
+		Request string         `json:"request"`
+		State   MintQuoteState `json:"state"`
+		Amount  uint64         `json:"amount"`
+		Expiry  uint64         `json:"expiry"`
+	}
+	if err := s.call("request_mint_quote", map[string]any{"amount": amount, "mint_url": mintUrl}, &wire); err != nil {
 		return nil, err
 	}
-	return &q, nil
+	return &MintQuote{
+		QuoteID: wire.QuoteID, Request: wire.Request, State: wire.State,
+		Amount: wire.Amount, Expiry: wire.Expiry,
+	}, nil
 }
 
 // GetMintQuoteState returns the state of a mint quote.
@@ -292,20 +303,33 @@ func (s *SidecarWallet) MintTokens(quoteID string) (uint64, error) {
 
 // RequestMeltQuote asks for a melt quote for a bolt11 invoice.
 func (s *SidecarWallet) RequestMeltQuote(invoice string, mintUrl string) (*MeltQuote, error) {
-	var q MeltQuote
-	if err := s.call("request_melt_quote", map[string]string{"invoice": invoice, "mint_url": mintUrl}, &q); err != nil {
+	var wire struct {
+		QuoteID    string         `json:"quote_id"`
+		Amount     uint64         `json:"amount"`
+		FeeReserve uint64         `json:"fee_reserve"`
+		State      MintQuoteState `json:"state"`
+		Expiry     uint64         `json:"expiry"`
+	}
+	if err := s.call("request_melt_quote", map[string]string{"invoice": invoice, "mint_url": mintUrl}, &wire); err != nil {
 		return nil, err
 	}
-	return &q, nil
+	return &MeltQuote{
+		QuoteID: wire.QuoteID, Amount: wire.Amount, FeeReserve: wire.FeeReserve,
+		State: wire.State, Expiry: wire.Expiry,
+	}, nil
 }
 
 // Melt executes a melt quote.
 func (s *SidecarWallet) Melt(quoteID string) (*MeltResult, error) {
-	var r MeltResult
-	if err := s.call("melt", map[string]string{"quote_id": quoteID}, &r); err != nil {
+	var wire struct {
+		QuoteID  string `json:"quote_id"`
+		Paid     bool   `json:"paid"`
+		Preimage string `json:"preimage"`
+	}
+	if err := s.call("melt", map[string]string{"quote_id": quoteID}, &wire); err != nil {
 		return nil, err
 	}
-	return &r, nil
+	return &MeltResult{QuoteID: wire.QuoteID, Paid: wire.Paid, Preimage: wire.Preimage}, nil
 }
 
 // Shutdown closes the sidecar connection. It is idempotent.
