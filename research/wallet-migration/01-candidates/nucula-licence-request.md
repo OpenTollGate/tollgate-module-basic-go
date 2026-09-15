@@ -1,6 +1,8 @@
 # Draft: licence + upstream Linux target request to nucula's author
 
-**Status:** drafted by the research programme, awaiting the maintainer to send.
+**Status:** **SENT 2026-09-14** — filed publicly as
+`zeugmaster/nucula#8` (https://github.com/zeugmaster/nucula/issues/8);
+awaiting the author's response. T2c/T11 are open until answered.
 **Why it is the gating question:** nucula's repo has never contained a licence
 file (every licence path checked across the full commit history; the GitHub
 licence API returns 404). Without a grant of rights we may reuse *ideas* but not

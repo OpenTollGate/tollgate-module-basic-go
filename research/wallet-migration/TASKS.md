@@ -40,7 +40,7 @@ dissent — and can check all of it out from this branch alone.
 | # | Task | Owner | Status | Artifact |
 |---|---|---|---|---|
 | T2b | **Port spike:** compile nucula's wallet core on native Linux (x86_64), then cross-compile for a router arch (aarch64 musl) with the OpenWrt SDK. Measure size/RSS/threads. Exclude peripherals. | worker (firmware) | TODO | `experiments/nucula-port/` |
-| T2c | **Licence ask:** approach the author for an explicit licence (MIT/Apache-2.0/GPL-3.0 choice). Nothing ships before this. | operator/manager | TODO | `01-candidates/nucula.md` |
+| T2c | **Licence ask:** approach the author for an explicit licence (MIT/Apache-2.0/GPL-3.0 choice). Nothing ships before this. | operator/manager | **SENT 2026-09-14** (nucula#8) | `01-candidates/nucula-licence-request.md` |
 | T2d | ESP-IDF API-boundary inventory: every header/API the core files use, with the Linux replacement, and the portable-vs-entangled ratio | worker | TODO | `01-candidates/nucula-port-map.md` |
 | T2e | Behavioural parity: run the same mint-quote/mint/swap/melt flows against a local mint on Linux and compare results with gonuts for the same inputs | worker | TODO | `experiments/nucula-parity/` |
 
@@ -55,7 +55,7 @@ recorded revision themselves.
 |---|---|---|---|---|
 | T9 | Fork-ownership grading (A/B/C) for every option, with the measurement (our commits to the dependency, unadopted upstream releases, upstream CI coverage of musl/our arches) | worker | TODO | `03-baseline/fork-ownership.md` |
 | T10 | "Un-fork gonuts" option study: could we contribute the fork's content upstream, or vendor a pinned upstream release? What does the fork add, commit by commit? | worker | TODO | `03-baseline/unfork-gonuts.md` |
-| T11 | Upstream-acceptance enquiry for a nucula Linux port: is the author willing to host/maintain a Linux target and grant a licence? Blocks C1 entirely. | operator | TODO | `01-candidates/nucula.md` |
+| T11 | Upstream-acceptance enquiry for a nucula Linux port: is the author willing to host/maintain a Linux target and grant a licence? Blocks C1 entirely. | operator | **SENT 2026-09-14** (nucula#8) | `01-candidates/nucula-licence-request.md` |
 
 ## Added 2026-09-13 (operator: flexibility > diversification)
 
