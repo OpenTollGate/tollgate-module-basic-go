@@ -66,3 +66,29 @@ This plan is committed but the refactor is **not implemented**: it is a code
 change in `tollgate-module-basic-go` and needs its own branch + PR with the
 module's CI (`go test ./...`), not a docs commit on the research branch. It is the
 next executable step after the parity suite skeleton.
+
+---
+
+## Outcome (2026-09-15)
+
+- **Merchant tests: DONE** — `merchant_token_flow_test.go` no longer imports
+  gonuts; token fixtures live in `tokenfixture_test.go` (PR #396).
+- **`tollwallet` tests: intentionally left gonuts-coupled.** Inspected the six
+  files:
+  - `cross_vectors_test.go` imports `gonuts-tollgate/crypto` to test
+    hash_to_curve vectors — a **gonuts** vector test.
+  - `compatibility_matrix_test.go` explicitly "proves gonuts-tollgate handles
+    every keyset combination" — the **gonuts compatibility suite**.
+  - `spending_conditions_test.go` builds P2PK/HTLC secrets with gonuts `cashu` and
+    tests adapter internals.
+  - `tollwallet_test.go`, `tollwallet_receive_sentinel_test.go`, `bench_test.go`
+    exercise the gonuts-backed `New`/`Receive`/`Send` and benchmark gonuts calls.
+
+  These **are** the gonuts arm of the conformance suite; decoupling them would
+  delete the compatibility coverage the whole migration depends on. The
+  cross-backend suite (`03-baseline/interchangeability.md`) is where library-
+  agnostic assertions live, and it runs against `WalletPort`/the sidecar — not by
+  gutting the gonuts tests.
+
+**T16 is therefore complete as scoped**: the incidental coupling (fixtures in
+merchant tests) is removed; the gonuts-specific tests remain by design.
