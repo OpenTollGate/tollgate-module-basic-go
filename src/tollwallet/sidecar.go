@@ -73,6 +73,13 @@ func (s *SidecarWallet) Info() (*Manifest, error) {
 	return &m, nil
 }
 
+// Call invokes a backend-specific RPC method not present on WalletPort,
+// marshalling params and decoding the result into out (pass nil to ignore the
+// result). It is an escape hatch for optional/extended daemon methods.
+func (s *SidecarWallet) Call(method string, params any, out any) error {
+	return s.call(method, params, out)
+}
+
 func (s *SidecarWallet) connectLocked() error {
 	conn, err := net.DialTimeout("unix", s.socketPath, s.timeout)
 	if err != nil {
