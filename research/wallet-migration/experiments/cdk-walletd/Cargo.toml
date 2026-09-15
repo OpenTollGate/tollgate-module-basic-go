@@ -1,0 +1,17 @@
+[package]
+name = "cdk-walletd"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Experimental wallet sidecar daemon: speaks the TollGate wallet RPC (newline-JSON over AF_UNIX) backed by the CDK wallet"
+
+[[bin]]
+name = "cdk-walletd"
+path = "src/main.rs"
+
+[dependencies]
+cdk = { workspace = true, default-features = false, features = ["wallet"] }
+cdk-sqlite = { workspace = true, features = ["wallet"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"

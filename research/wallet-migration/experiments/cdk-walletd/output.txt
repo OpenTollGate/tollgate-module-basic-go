@@ -1,0 +1,56 @@
+# Spike — CDK wallet sidecar daemon (`cdk-walletd`)
+
+**Status:** working prototype 2026-09-14. A real daemon that speaks the TollGate
+wallet RPC (newline-JSON over AF_UNIX) backed by the CDK wallet, so the Go service
+can use CDK **process-isolated** — no Cashu library linked in, CGO stays off.
+
+Source: `Cargo.toml` + `src/main.rs` (add as `crates/cdk-walletd` in a CDK
+checkout; it is *our* crate and is not part of upstream).
+
+## Result — end-to-end over the protocol
+
+Built natively (x86_64), bound the socket, and exercised the exact wire format
+the Go sidecar client (`src/tollwallet/sidecar.go`, PR #395) speaks:
+
+```
+cdk-walletd: listening on /tmp/wd3.sock (mint=http://127.0.0.1:1)
+
+info                 -> {"ok":true,"result":{"backend":"cdk","kind":"sidecar",
+                        "arches":["aarch64_cortex-a53","mipsel_24kc"],
+                        "contract":{"cgo":false,"nut_07":true,"nut_09":true,"restore":true},
+                        "licence":"MIT OR Apache-2.0", ...}}
+get_balance          -> {"ok":true,"result":0}
+get_all_mint_balances-> {"ok":true,"result":{"http://127.0.0.1:1":0}}
+decode_token(bad)    -> {"ok":false,"error":"decode_token: Unsupported token"}
+melt                 -> {"ok":false,"error":"not implemented: melt"}
+```
+
+So the **client↔daemon protocol works with a real CDK-backed process** — the
+architecture in `05-architecture/wallet-selection.md` §3 is validated for the
+read/handshake side. The Go client's protocol is independently unit-tested in
+PR #395.
+
+## Implemented vs not
+
+| Method | Status |
+|---|---|
+| `info`, `decode_token`, `get_balance`, `get_all_mint_balances`, `shutdown` | implemented |
+| `receive`, `send`, `drain`, `melt_to_lightning`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `request_melt_quote`, `melt`, `send_with_overpayment` | **not implemented** (return `ok:false`) — the value-moving methods need the CDK saga/melt API wired, plus a real mint to test |
+
+## Environment / caveats
+
+- CDK `main` = `0.18.0`; built with host rustc 1.94 (`RUSTC` pinned to avoid a
+  rustup-shim mismatch), `CARGO_TARGET_DIR` on the root fs (not `/tmp`, which is a
+  busy tmpfs and was concurrently reclaimed by other fleet workers).
+- The daemon is **experimental**: single wallet instance, seed is all-zero, no
+  auth on the socket, and value-moving methods are stubbed.
+- Cross-compiling this daemon for `aarch64`/`mipsel` musl is the same recipe as
+  `experiments/cdk-footprint` (OpenWrt SDK toolchain + `-Z build-std` for mipsel).
+
+## Next
+
+1. Wire the value-moving methods to the CDK wallet API (`receive`/`send`/`mint`/
+   `melt`) — mirror `crates/cdk-cli/src/sub_commands/*`.
+2. Cross-build for `aarch64`/`mipsel` musl; measure footprint.
+3. Add socket auth/perms and a real seed source before any non-experimental use.
+4. Run the shared conformance + parity suite against it (T15) — the adoption gate.
