@@ -10,6 +10,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed / Internal
+
+- **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
+  from the `tmp/release-integration` pseudo-version to the tagged release
+  `v0.11.2` (empty-proofs guard, LoadWallet deadlock fix, hostile-token corpus).
+
 ### Added
 
 - **Reproducible builds.** Every byte-affecting build input is now pinned
