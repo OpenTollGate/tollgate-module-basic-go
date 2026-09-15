@@ -6,16 +6,19 @@
 // WalletPort sidecar client, so no Cashu library is linked into the service and
 // CGO stays off.
 //
-// Scope (experiment): `info`, `decode_token`, `get_balance`,
-// `get_all_mint_balances`, `shutdown` are implemented; the value-moving methods
-// return "not implemented" for now. See the wallet-migration research branch.
+// Scope (experiment): info / decode_token / get_balance / get_all_mint_balances
+// / request_mint_quote / mint_quote_state / mint_tokens / receive / shutdown are
+// implemented. send/drain/melt*/send_with_overpayment return "not implemented"
+// for now (they are saga-based). See the wallet-migration research branch.
 
 use std::str::FromStr;
 use std::sync::Arc;
 
+use cdk::amount::SplitTarget;
 use cdk::cdk_database::{Error as DbError, WalletDatabase};
-use cdk::nuts::{CurrencyUnit, Token};
-use cdk::wallet::Wallet;
+use cdk::nuts::{CurrencyUnit, MintQuoteState, PaymentMethod, Token};
+use cdk::wallet::{ReceiveOptions, Wallet};
+use cdk::Amount;
 use cdk_sqlite::WalletSqliteDatabase;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -63,42 +66,104 @@ fn manifest() -> serde_json::Value {
     })
 }
 
+fn amount_to_u64(a: &Amount) -> u64 {
+    u64::from(*a)
+}
+
+// Map CDK's quote state to the WalletPort integer (Unpaid=0..Unknown=4).
+fn state_code(s: MintQuoteState) -> i32 {
+    match s {
+        MintQuoteState::Unpaid => 0,
+        MintQuoteState::Paid => 1,
+        MintQuoteState::Issued => 2,
+        _ => 4,
+    }
+}
+
+fn p_str<'a>(params: &'a serde_json::Value, key: &str) -> &'a str {
+    params.get(key).and_then(|v| v.as_str()).unwrap_or("")
+}
+
 async fn dispatch(wallet: &Wallet, mint: &str, req: &Request) -> (Response, bool) {
+    let p = &req.params;
     match req.method.as_str() {
         "info" => (Response::ok(req.id, manifest()), false),
+
         "decode_token" => {
-            let s = req.params.get("token").and_then(|v| v.as_str()).unwrap_or("");
+            let s = p_str(p, "token");
             match Token::from_str(s) {
                 Ok(tok) => {
                     let amount = tok.value().map(|a| amount_to_u64(&a)).unwrap_or(0);
                     let m = tok.mint_url().map(|u| u.to_string()).unwrap_or_default();
-                    (Response::ok(req.id, serde_json::json!({
-                        "token": s, "mint": m, "amount": amount,
-                    })), false)
+                    (Response::ok(req.id, serde_json::json!({"token": s, "mint": m, "amount": amount})), false)
                 }
                 Err(e) => (Response::err(req.id, format!("decode_token: {e}")), false),
             }
         }
+
         "get_balance" => match wallet.total_balance().await {
             Ok(a) => (Response::ok(req.id, serde_json::json!(amount_to_u64(&a))), false),
             Err(e) => (Response::err(req.id, format!("get_balance: {e}")), false),
         },
+
         "get_all_mint_balances" => match wallet.total_balance().await {
             Ok(a) => (Response::ok(req.id, serde_json::json!({ mint: amount_to_u64(&a) })), false),
             Err(e) => (Response::err(req.id, format!("get_all_mint_balances: {e}")), false),
         },
+
+        "receive" => {
+            let s = p_str(p, "token");
+            match wallet.receive(s, ReceiveOptions::default()).await {
+                Ok(a) => (Response::ok(req.id, serde_json::json!(amount_to_u64(&a))), false),
+                Err(e) => (Response::err(req.id, format!("receive: {e}")), false),
+            }
+        }
+
+        "request_mint_quote" => {
+            let amount = p.get("amount").and_then(|v| v.as_u64()).unwrap_or(0);
+            match wallet
+                .mint_quote(PaymentMethod::BOLT11, Some(Amount::from(amount)), None, None)
+                .await
+            {
+                Ok(q) => {
+                    let amt = q.amount.map(|a| a.to_u64()).unwrap_or(0);
+                    (Response::ok(req.id, serde_json::json!({
+                        "quote_id": q.id, "request": q.request,
+                        "state": state_code(q.state), "amount": amt, "expiry": q.expiry,
+                    })), false)
+                }
+                Err(e) => (Response::err(req.id, format!("request_mint_quote: {e}")), false),
+            }
+        }
+
+        "mint_quote_state" => {
+            let qid = p_str(p, "quote_id").to_string();
+            match wallet.check_mint_quote_status(&qid).await {
+                Ok(q) => (Response::ok(req.id, serde_json::json!(state_code(q.state))), false),
+                Err(e) => (Response::err(req.id, format!("mint_quote_state: {e}")), false),
+            }
+        }
+
+        "mint_tokens" => {
+            let qid = p_str(p, "quote_id").to_string();
+            match wallet.mint(&qid, SplitTarget::None, None).await {
+                Ok(proofs) => {
+                    let sum: u64 = proofs.iter().map(|pr| pr.amount.to_u64()).sum();
+                    (Response::ok(req.id, serde_json::json!(sum)), false)
+                }
+                Err(e) => (Response::err(req.id, format!("mint_tokens: {e}")), false),
+            }
+        }
+
         "shutdown" => (Response::ok(req.id, serde_json::json!({})), true),
+
         other => (Response::err(req.id, format!("not implemented: {other}")), false),
     }
 }
 
-fn amount_to_u64(a: &cdk::Amount) -> u64 {
-    u64::from(*a)
-}
-
-async fn handle_conn(mut stream: UnixStream, wallet: Arc<Wallet>, mint: String) {
-    let (r, mut w) = stream.split();
-    let mut lines = BufReader::new(r).lines();
+async fn handle_conn(r: UnixStream, wallet: Arc<Wallet>, mint: String) {
+    let (rd, mut w) = r.into_split();
+    let mut lines = BufReader::new(rd).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if line.trim().is_empty() {
             continue;
@@ -106,8 +171,7 @@ async fn handle_conn(mut stream: UnixStream, wallet: Arc<Wallet>, mint: String) 
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                let resp = Response::err(0, format!("bad request: {e}"));
-                let _ = write_line(&mut w, &resp).await;
+                let _ = write_line(&mut w, &Response::err(0, format!("bad request: {e}"))).await;
                 continue;
             }
         };

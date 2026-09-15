@@ -35,7 +35,26 @@ PR #395.
 | Method | Status |
 |---|---|
 | `info`, `decode_token`, `get_balance`, `get_all_mint_balances`, `shutdown` | implemented |
-| `receive`, `send`, `drain`, `melt_to_lightning`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `request_melt_quote`, `melt`, `send_with_overpayment` | **not implemented** (return `ok:false`) — the value-moving methods need the CDK saga/melt API wired, plus a real mint to test |
+| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens` | **implemented** (call real CDK wallet APIs) |
+| `send`, `drain`, `send_with_overpayment`, `melt_to_lightning`, `request_melt_quote`, `melt` | **not implemented** — saga-based; need a real mint to test |
+
+## Second smoke (2026-09-14) — value-moving methods wired
+
+```
+info                 -> {"ok":true,"result":{"backend":"cdk","kind":"sidecar",
+                        "contract":{"cgo":false,"nut_07":true,"nut_09":true,"restore":true}, ...}}
+get_balance          -> {"ok":true,"result":0}
+receive(cashuBbad)   -> {"ok":false,"error":"receive: Invalid last symbol 100, offset 2."}
+request_mint_quote(21)-> {"ok":false,"error":"request_mint_quote: Http transport error ... Connection refused (os error 111)"}
+mint_quote_state(q)  -> {"ok":false,"error":"mint_quote_state: Unknown quote"}
+melt                 -> {"ok":false,"error":"not implemented: melt"}
+shutdown             -> {"ok":true,"result":{}}
+```
+
+These are **real CDK code paths**: `receive` runs CDK's token decoder, and
+`request_mint_quote` constructs a NUT-04 quote and attempts the HTTP transport to
+the (deliberately unreachable) mint. With a live mint these would succeed — the
+wiring is what was proven here, not a live payment.
 
 ## Environment / caveats
 
@@ -49,8 +68,10 @@ PR #395.
 
 ## Next
 
-1. Wire the value-moving methods to the CDK wallet API (`receive`/`send`/`mint`/
-   `melt`) — mirror `crates/cdk-cli/src/sub_commands/*`.
-2. Cross-build for `aarch64`/`mipsel` musl; measure footprint.
-3. Add socket auth/perms and a real seed source before any non-experimental use.
-4. Run the shared conformance + parity suite against it (T15) — the adoption gate.
+1. Wire the remaining value-moving methods (`send`/`drain`/`melt*`); they are
+   saga-based in CDK (`prepare_send` → execute, `melt_quote` → `prepare_melt`),
+   mirroring `crates/cdk-cli/src/sub_commands/{send,melt}.rs`.
+2. Test `receive`/`mint*` against a **real mint** to confirm end-to-end value flow.
+3. Cross-build for `aarch64`/`mipsel` musl; measure footprint.
+4. Add socket auth/perms and a real seed source before any non-experimental use.
+5. Run the shared conformance + parity suite against it (T15) — the adoption gate.
