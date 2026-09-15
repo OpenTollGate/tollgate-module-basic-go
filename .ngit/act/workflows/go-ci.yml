@@ -1,0 +1,53 @@
+# ngit CI (ngit-ci) for tollgate-module-basic-go.
+# Mirrors the GitHub `Test` workflow so checks also run on ngit/Nostr pushes.
+name: Go CI (ngit)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - src/config_manager
+          - src/utils
+          - src/cmd/tollgate-cli
+          - src/lightning
+          - src/tollgate_protocol
+          - src/tollwallet
+          - src/valve
+          - src/wireless_gateway_manager
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Run tests
+        working-directory: ${{ matrix.module }}
+        run: go test ./... -count=1
+
+  main-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Run main package tests
+        working-directory: src
+        run: go test -count=1 -tags testenv .
+
+  build-purity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Build purity check
+        run: bash tests/contract/build-purity.sh
