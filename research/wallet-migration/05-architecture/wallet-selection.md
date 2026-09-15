@@ -92,11 +92,17 @@ eligible for selection once it passes.
 
 ## 8. Where the code lands
 
+**Status 2026-09-14:** the sidecar client (§3), capability manifest (§4) and the
+selection policy (§5) are implemented in **`OpenTollGate/tollgate-module-basic-go`
+PR #395** (`src/tollwallet/sidecar.go`, `manifest.go`, `policy.go`,
+`manifests/*`; tests green, `gofmt`/`go vet` clean). Still open there: **T16**
+(test de-coupling) and the sidecar **daemons + parity suite** (Phase 3).
+
 - **This branch:** the design + capability manifests + the sidecar protocol spec
   + `experiments/` evidence (no shipped code).
-- **`tollgate-module-basic-go` (new PR):** the sidecar `WalletPort` client, the
-  capability manifest reader, the runtime `wallet.backend` config, and **T16**
-  (de-couple the 9 test files). This is a normal feature PR with the module's CI.
+- **`tollgate-module-basic-go` (PR #395):** the sidecar `WalletPort` client, the
+  capability manifest reader, the runtime `wallet.backend` config, and the
+  per-target `wallet-policy.json`. **T16** (de-couple the 9 test files) remains.
 
 ## 9. Dependencies / order
 
