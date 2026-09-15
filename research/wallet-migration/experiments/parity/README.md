@@ -55,6 +55,25 @@ Still **specified, not implemented** (need fault-injection / adversarial mint):
 - **`swap_proof_loss`** (fork `7dc430b`) — needs kill-mid-swap fault injection
   and a reconcile-on-restart assertion.
 
+### Fault-injection scaffold (`fault_injection.py`)
+
+A host-side `swap_proof_loss` scaffold exists: it mints, then repeatedly launches
+a `send` and SIGKILLs the daemon mid-flight, restarting it with the **same seed**
+(the daemon prints its generated mnemonic on first start, so the restart continues
+the same wallet) and checks conservation (`balance + 10*tokens == minted`).
+
+- Observed: **value was conserved** in the runs performed, and the daemon restarts
+  cleanly on the same wallet.
+- Blocker to a *conclusive* mid-swap result: the local mint is too fast to reliably
+  land the kill inside the swap window. A controllable mint with injectable
+  latency (or a hook between proof-reservation and re-issue) is required — the
+  same "controllable mint" the T15 spec calls for.
+- Two daemon-side robustness items this surfaced: (1) a fixed mnemonic collides
+  against the mint on a fresh DB (`10002 outputs already signed`) — solved by the
+  per-run random seed; (2) crash recovery relies on the wallet's saga/pending-proof
+  reconciliation, which the daemon does **not** explicitly invoke on startup — a
+  candidate follow-up.
+
 ## Reproducibility
 
 Per the branch rule, every run records: arch, OS image+version, build commands,
