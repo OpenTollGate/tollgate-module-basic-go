@@ -303,13 +303,21 @@ async fn write_line<W: AsyncWriteExt + Unpin>(w: &mut W, resp: &Response) -> std
     w.flush().await
 }
 
-async fn open_wallet(work_dir: &str, mint: &str) -> Result<Wallet, Box<dyn std::error::Error>> {
+async fn open_wallet(work_dir: &str, mint: &str, seed: [u8; 64]) -> Result<Wallet, Box<dyn std::error::Error>> {
     std::fs::create_dir_all(work_dir)?;
     let db_path = std::path::Path::new(work_dir).join("cdk-walletd.sqlite");
     let db: Arc<dyn WalletDatabase<DbError> + Send + Sync> =
         Arc::new(WalletSqliteDatabase::new(&db_path).await?);
-    let wallet = Wallet::new(mint, CurrencyUnit::Sat, db, [0u8; 64], Some(3))?;
+    let wallet = Wallet::new(mint, CurrencyUnit::Sat, db, seed, Some(3))?;
     Ok(wallet)
+}
+
+// seed_from_mnemonic derives the 64-byte wallet seed from a BIP-39 mnemonic.
+// A real mnemonic produces a valid signing key (needed for NUT-20 in-flight
+// quotes); an all-zero seed does not.
+fn seed_from_mnemonic(phrase: &str) -> Result<[u8; 64], Box<dyn std::error::Error>> {
+    let m = bip39::Mnemonic::parse(phrase.trim())?;
+    Ok(m.to_seed(""))
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -317,6 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut socket = String::from("/tmp/cdk-walletd.sock");
     let mut work_dir = String::from("/tmp/cdk-walletd");
     let mut mint = String::from("https://mint.example.com");
+    let mut mnemonic = String::new();
 
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -324,11 +333,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--socket" => socket = args.next().unwrap_or(socket),
             "--work-dir" => work_dir = args.next().unwrap_or(work_dir),
             "--mint" => mint = args.next().unwrap_or(mint),
+            "--mnemonic" => mnemonic = args.next().unwrap_or(mnemonic),
             _ => {}
         }
     }
 
-    let wallet = Arc::new(open_wallet(&work_dir, &mint).await?);
+    let seed: [u8; 64] = if mnemonic.is_empty() {
+        // Generate a fresh random seed: a valid signing key (for NUT-20) and,
+        // crucially, fresh deterministic outputs (NUT-13) so re-runs against the
+        // same mint do not collide on "outputs have already been signed".
+        let m = bip39::Mnemonic::generate(12)?;
+        eprintln!("cdk-walletd: generated a random seed (no --mnemonic given)");
+        m.to_seed("")
+    } else {
+        seed_from_mnemonic(&mnemonic)?
+    };
+
+    let wallet = Arc::new(open_wallet(&work_dir, &mint, seed).await?);
     let _ = std::fs::remove_file(&socket);
     let listener = UnixListener::bind(&socket)?;
     eprintln!("cdk-walletd: listening on {socket} (mint={mint})");

@@ -135,6 +135,36 @@ and returned a real token. `melt_to_lightning` resolves the Lightning address to
 an invoice (`melt_lightning_address_quote`) and enforces `max_cost` against the
 quote's fee reserve; the resolve failed only on DNS from the (flaky) build host.
 
+## On-router value flow PASSES — MT6000 (2026-09-14)
+
+After two fixes, the **full value flow runs on the physical router** and the
+harness suite (`physical-router-test-automation` PR #117) is **8 passed, 3
+skipped** (the 3 are the documented T15 security-parity cases):
+
+```
+balance 0 -> mintquote ok -> state PAID -> mint 10 -> balance 10
+          -> send (token 2142 chars) -> receive 10 -> balance 10
+```
+
+### Two fixes this required
+
+1. **Router DNS.** The lab MT6000's `/etc/resolv.conf` pointed at `127.0.0.1` but
+   **dnsmasq was not running**, so no name resolution (WAN itself was fine:
+   `eth1` 192.168.2.8, ICMP to 1.1.1.1 worked). Set a working nameserver;
+   `testnut`/`nofee.testnut` then resolved.
+2. **Random seed per run.** The daemon used an all-zero seed and, once a valid
+   mnemonic was used, re-runs hit `10002 outputs have already been signed before`
+   (deterministic NUT-13 outputs collide against the mint across fresh DBs). The
+   daemon now derives the seed from `--mnemonic` if given, else **generates a
+   fresh random seed** (`bip39::Mnemonic::generate`) — a valid signing key for
+   NUT-20 and fresh outputs per run. Verified: two consecutive host mints succeed.
+
+### Mint compatibility note
+
+`testnut.cashu.space` now rejects CDK's mint with `Signature missing or invalid`
+(NUT-20) — **host and router alike**, so it is a mint/CDK-side change, not the
+daemon. `nofee.testnut.cashu.space` works; the harness value-flow tests use it.
+
 ## On-router integration — GL-MT6000, OpenWrt 25.12.5 (2026-09-14)
 
 Deployed the aarch64 daemon (5.5 MiB static) and the Go sidecar client (aarch64
