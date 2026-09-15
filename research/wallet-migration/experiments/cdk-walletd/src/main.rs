@@ -17,7 +17,7 @@ use std::sync::Arc;
 use cdk::amount::SplitTarget;
 use cdk::cdk_database::{Error as DbError, WalletDatabase};
 use cdk::nuts::{CurrencyUnit, MintQuoteState, PaymentMethod, Token};
-use cdk::wallet::{ReceiveOptions, Wallet};
+use cdk::wallet::{ReceiveOptions, SendOptions, Wallet};
 use cdk::Amount;
 use cdk_sqlite::WalletSqliteDatabase;
 use serde::{Deserialize, Serialize};
@@ -154,6 +154,38 @@ async fn dispatch(wallet: &Wallet, mint: &str, req: &Request) -> (Response, bool
                 Err(e) => (Response::err(req.id, format!("mint_tokens: {e}")), false),
             }
         }
+
+        "send" => {
+            let amount = p.get("amount").and_then(|v| v.as_u64()).unwrap_or(0);
+            let include_fee = p.get("include_fees").and_then(|v| v.as_bool()).unwrap_or(false);
+            let opts = SendOptions { include_fee, ..Default::default() };
+            match wallet.prepare_send(Amount::from(amount), opts).await {
+                Ok(prepared) => match prepared.confirm(None).await {
+                    Ok(tok) => (Response::ok(req.id, serde_json::json!({
+                        "token": tok.to_string(), "mint": mint, "amount": amount,
+                    })), false),
+                    Err(e) => (Response::err(req.id, format!("send(confirm): {e}")), false),
+                },
+                Err(e) => (Response::err(req.id, format!("send(prepare): {e}")), false),
+            }
+        }
+
+        "drain" => match wallet.total_balance().await {
+            Ok(bal) => {
+                let amount = amount_to_u64(&bal);
+                let opts = SendOptions::default();
+                match wallet.prepare_send(Amount::from(amount), opts).await {
+                    Ok(prepared) => match prepared.confirm(None).await {
+                        Ok(tok) => (Response::ok(req.id, serde_json::json!({
+                            "token": tok.to_string(), "mint": mint, "amount": amount,
+                        })), false),
+                        Err(e) => (Response::err(req.id, format!("drain(confirm): {e}")), false),
+                    },
+                    Err(e) => (Response::err(req.id, format!("drain(prepare): {e}")), false),
+                }
+            }
+            Err(e) => (Response::err(req.id, format!("drain(balance): {e}")), false),
+        },
 
         "shutdown" => (Response::ok(req.id, serde_json::json!({})), true),
 

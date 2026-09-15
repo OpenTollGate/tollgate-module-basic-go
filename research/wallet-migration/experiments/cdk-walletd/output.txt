@@ -35,8 +35,8 @@ PR #395.
 | Method | Status |
 |---|---|
 | `info`, `decode_token`, `get_balance`, `get_all_mint_balances`, `shutdown` | implemented |
-| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens` | **implemented** (call real CDK wallet APIs) |
-| `send`, `drain`, `send_with_overpayment`, `melt_to_lightning`, `request_melt_quote`, `melt` | **not implemented** — saga-based; need a real mint to test |
+| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `send`, `drain` | **implemented** (call real CDK wallet APIs) |
+| `melt_to_lightning`, `request_melt_quote`, `melt`, `send_with_overpayment` | **not implemented** — saga-based; need a real mint to test |
 
 ## Second smoke (2026-09-14) — value-moving methods wired
 
@@ -84,6 +84,22 @@ sidecar client speaks. This is the end-to-end value-flow proof for the mint side
 
 (`send`/`drain`/`melt*` are still stubs, so the full send→receive round-trip is
 not yet exercised.)
+
+## Real-mint send → receive round-trip (2026-09-14)
+
+`send` + `drain` wired (`prepare_send` → `PreparedSend::confirm`). Against the
+same live mint, with the persisted 100-sat wallet:
+
+```
+get_balance           -> 100
+send(amount=50)       -> {"ok":true,"result":{"token":"cashuB…"(1254 chars),"mint":…,"amount":50}}
+receive(that token)   -> {"ok":true,"result":49}     # 1 sat swap fee
+get_balance           -> 99                          # 100 - 50 sent + 49 received
+```
+
+This is the **full payment round-trip** (mint → send → receive) performed by the
+process-isolated CDK wallet over the sidecar RPC against a real mint. Only the
+Lightning melt path (`melt*`) remains unimplemented.
 
 ## Router footprint (cross-build)
 
