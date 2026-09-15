@@ -83,15 +83,16 @@ func testHandler(method string, _ json.RawMessage) (any, error) {
 	case "melt_to_lightning":
 		return nil, nil
 	case "request_mint_quote":
-		return MintQuote{QuoteID: "q1", Request: "lnbc1", State: StateUnpaid, Amount: 21, Expiry: 123}, nil
+		// Canonical wire format (snake_case), matching the real daemon.
+		return map[string]any{"quote_id": "q1", "request": "lnbc1", "state": 0, "amount": 21, "expiry": 123}, nil
 	case "mint_quote_state":
 		return StatePaid, nil
 	case "mint_tokens":
 		return uint64(21), nil
 	case "request_melt_quote":
-		return MeltQuote{QuoteID: "m1", Amount: 10, FeeReserve: 1, State: StateUnpaid, Expiry: 99}, nil
+		return map[string]any{"quote_id": "m1", "amount": 10, "fee_reserve": 1, "state": 0, "expiry": 99}, nil
 	case "melt":
-		return MeltResult{QuoteID: "m1", Paid: true, Preimage: "ff"}, nil
+		return map[string]any{"quote_id": "m1", "paid": true, "preimage": "ff"}, nil
 	case "shutdown":
 		return nil, nil
 	default:
