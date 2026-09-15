@@ -86,7 +86,7 @@ parity work (T2e) and to the interchangeability suite (T12):
 | # | Task | Owner | Status | Artifact |
 |---|---|---|---|---|
 | T15 | Parity cases for the fork's security/funds-safety fixes (HTLC signature enforcement; swap proof-loss) — a failing test per case, run against the candidate wallet | worker | **SPEC** | `experiments/parity/` |
-| T16 | **Optionality work (1–2 days, recommended regardless of the final choice):** de-couple the 9 test files from the concrete wallet library so the three un-fork paths become a *choice* rather than a fate. Only 2 non-test files import the library (`tollwallet/gonuts_wallet.go`, `tollwallet/tollwallet.go`). | worker (code) | TODO | `03-baseline/interchangeability.md` |
+| T16 | **Optionality work (1–2 days, recommended regardless of the final choice):** de-couple the 9 test files from the concrete wallet library so the three un-fork paths become a *choice* rather than a fate. Only 2 non-test files import the library (`tollwallet/gonuts_wallet.go`, `tollwallet/tollwallet.go`). | worker (code) | **SPEC** | `03-baseline/t16-decoupling.md` |
 
 **Measured blast radius for any module-path change:** 327 branches carry a `replace`
 from earlier module renames, and **50 branches already point at our own fork of the
