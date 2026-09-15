@@ -18,6 +18,7 @@ use std::sync::Arc;
 use cdk::amount::SplitTarget;
 use cdk::cdk_database::{Error as DbError, WalletDatabase};
 use cdk::nuts::{CurrencyUnit, MeltQuoteState, MintQuoteState, PaymentMethod, Token};
+use cdk::wallet::types::SendKind;
 use cdk::wallet::{ReceiveOptions, SendOptions, Wallet};
 use cdk::Amount;
 use cdk_sqlite::WalletSqliteDatabase;
@@ -221,6 +222,50 @@ async fn dispatch(wallet: &Wallet, mint: &str, req: &Request) -> (Response, bool
                     Err(e) => (Response::err(req.id, format!("melt(confirm): {e}")), false),
                 },
                 Err(e) => (Response::err(req.id, format!("melt(prepare): {e}")), false),
+            }
+        }
+
+        "send_with_overpayment" => {
+            let amount = p.get("amount").and_then(|v| v.as_u64()).unwrap_or(0);
+            let abs = p.get("max_overpayment_absolute").and_then(|v| v.as_u64()).unwrap_or(0);
+            // Map overpayment tolerance to CDK's online-tolerance send kind.
+            let opts = SendOptions {
+                send_kind: SendKind::OnlineTolerance(Amount::from(abs)),
+                ..Default::default()
+            };
+            match wallet.prepare_send(Amount::from(amount), opts).await {
+                Ok(prepared) => match prepared.confirm(None).await {
+                    Ok(tok) => (Response::ok(req.id, serde_json::json!(tok.to_string())), false),
+                    Err(e) => (Response::err(req.id, format!("send_with_overpayment(confirm): {e}")), false),
+                },
+                Err(e) => (Response::err(req.id, format!("send_with_overpayment(prepare): {e}")), false),
+            }
+        }
+
+        "melt_to_lightning" => {
+            let lnurl = p_str(p, "lnurl").to_string();
+            let target = p.get("target_amount").and_then(|v| v.as_u64()).unwrap_or(0);
+            let max_cost = p.get("max_cost").and_then(|v| v.as_u64()).unwrap_or(0);
+            let amount_msat = target.saturating_mul(1000);
+            match wallet.melt_lightning_address_quote(&lnurl, Amount::from(amount_msat)).await {
+                Ok(q) => {
+                    if max_cost > 0 && q.fee_reserve.to_u64() > max_cost {
+                        return (Response::err(req.id, format!(
+                            "melt_to_lightning: fee reserve {} exceeds max_cost {}",
+                            q.fee_reserve.to_u64(), max_cost)), false);
+                    }
+                    match wallet.prepare_melt(&q.id, HashMap::new()).await {
+                        Ok(prepared) => match prepared.confirm().await {
+                            Ok(m) if melt_state_code(m.state()) == 1 => (Response::ok(req.id, serde_json::json!({
+                                "paid": true, "preimage": m.payment_proof().unwrap_or(""),
+                            })), false),
+                            Ok(m) => (Response::err(req.id, format!("melt_to_lightning: state {}", melt_state_code(m.state()))), false),
+                            Err(e) => (Response::err(req.id, format!("melt_to_lightning(confirm): {e}")), false),
+                        },
+                        Err(e) => (Response::err(req.id, format!("melt_to_lightning(prepare): {e}")), false),
+                    }
+                }
+                Err(e) => (Response::err(req.id, format!("melt_to_lightning(resolve): {e}")), false),
             }
         }
 

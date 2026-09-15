@@ -35,8 +35,7 @@ PR #395.
 | Method | Status |
 |---|---|
 | `info`, `decode_token`, `get_balance`, `get_all_mint_balances`, `shutdown` | implemented |
-| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `send`, `drain`, `request_melt_quote`, `melt` | **implemented** (call real CDK wallet APIs) |
-| `melt_to_lightning`, `send_with_overpayment` | **not implemented** (need LNURL→invoice resolution / overpayment options) |
+| `receive`, `request_mint_quote`, `mint_quote_state`, `mint_tokens`, `send`, `drain`, `request_melt_quote`, `melt`, `send_with_overpayment`, `melt_to_lightning` | **implemented** — the daemon now covers **every `WalletPort` method** |
 
 ## Second smoke (2026-09-14) — value-moving methods wired
 
@@ -117,6 +116,24 @@ get_balance           -> 99                          # 100 - 50 sent + 49 receiv
 This is the **full payment round-trip** (mint → send → receive) performed by the
 process-isolated CDK wallet over the sidecar RPC against a real mint. Only the
 Lightning melt path (`melt*`) remains unimplemented.
+
+## Complete — `send_with_overpayment` + `melt_to_lightning` (2026-09-14)
+
+The last two WalletPort methods are wired, so the daemon now implements the
+**entire** port:
+
+```
+send_with_overpayment(10, max_abs=1)
+  -> {"ok":true,"result":"cashu[REDACTED-BEARER-TOKEN]…"}   # real token
+melt_to_lightning(10, max_cost=2, lnurl="net4sats@blik.sv")
+  -> {"ok":false,"error":"melt_to_lightning(resolve): Failed to request invoice from
+      Lightning address service: … failed to lookup address …"}                  # LNURL-pay resolution reached
+```
+
+`send_with_overpayment` maps the tolerance to CDK's `SendKind::OnlineTolerance`
+and returned a real token. `melt_to_lightning` resolves the Lightning address to
+an invoice (`melt_lightning_address_quote`) and enforces `max_cost` against the
+quote's fee reserve; the resolve failed only on DNS from the (flaky) build host.
 
 ## On-router integration — GL-MT6000, OpenWrt 25.12.5 (2026-09-14)
 
