@@ -78,3 +78,27 @@ were taken with the SDK's `*-openwrt-linux-musl-strip --strip-all`.
 - **Runtime** (RSS/threads/startup) of the probe on a router — it is a
   constructor-only probe, not a payment path.
 - Flash bytes written per payment for the sqlite wallet.
+
+## Follow-up (2026-09-14): the fix is already upstream — bump the pin, no patch
+
+Re-ran the **same wallet-only probe against `cashubtc/cdk` `main` (version bumped
+to `0.18.0`)**:
+
+```
+mipsel-unknown-linux-musl  cdk-probe  ->  BUILDS, 9,739,104 B (9.3 MiB), stripped
+```
+
+- **No `portable-atomic` patch, no fork needed.** Upstream removed the
+  `std::sync::atomic::AtomicU64` usage from `cdk-common`'s test helpers between
+  `v0.17.3` (our pin) and `main`/`0.18.0`; `cdk-common` no longer contains
+  `AtomicU64` at all.
+- `Wallet::new` is unchanged across the two versions, so the probe is identical.
+
+**Conclusion:** the `AtomicU64` blocker is a **v0.17.3-only** artefact. The correct
+action is to **move the CDK pin to `>=0.18.0`** for mipsel support — *not* to send
+the attached patch upstream (it is moot). `cdk-common-portable-atomic.patch` is
+retained only as a record of the v0.17.3 root-cause analysis.
+
+Backward-compat caveat: `0.18.0` is a self-declared ALPHA minor and may carry API
+changes; adopting it is part of the normal pin-tracking cost (T9), not a fork.
+
