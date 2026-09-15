@@ -127,12 +127,17 @@ Cross-built with the OpenWrt aarch64-musl toolchain using the same recipe as
 target : aarch64-unknown-linux-musl
 result : 5,723,480 B (5.5 MiB) — statically linked, stripped
 verify : file -> ELF 64-bit LSB executable, ARM aarch64, statically linked
+
+target : mipsel-unknown-linux-musl  (-Z build-std)
+result : 7,879,796 B (7.5 MiB) — stripped (musl, dynamic; /lib/ld-musl-mipsel-sf.so.1)
+verify : file -> ELF 32-bit LSB pie executable, MIPS, MIPS32 rel2, stripped
 ```
 
-So a **CDK sidecar daemon is ~5.5 MiB on aarch64** — versus 19.7 MiB for the full
-`cdk-cli`, and ~4.1 MiB for the constructor-only probe. That is within the budget
-of the small/cheap tier (the full `cdk-cli` was not). mipsel is not yet
-cross-built (recipe exists; `-Z build-std` required).
+So a **CDK sidecar daemon is ~5.5 MiB (aarch64)** and **~7.5 MiB (mipsel)** —
+versus 19.7 MiB for the full `cdk-cli` and ~4.1/9.3 MiB for the constructor-only
+probe. Both are within the small/cheap router tier budget, which the full CLI was
+not. (aarch64 static; mipsel dynamic — a static mipsel build is a `crt-static`
+flag away.)
 
 ## Next
 
