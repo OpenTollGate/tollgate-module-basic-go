@@ -118,6 +118,35 @@ This is the **full payment round-trip** (mint → send → receive) performed by
 process-isolated CDK wallet over the sidecar RPC against a real mint. Only the
 Lightning melt path (`melt*`) remains unimplemented.
 
+## On-router integration — GL-MT6000, OpenWrt 25.12.5 (2026-09-14)
+
+Deployed the aarch64 daemon (5.5 MiB static) and the Go sidecar client (aarch64
+static, `cdkinterop`) to the physical MT6000 and ran them on-device over `/tmp`:
+
+```
+info    -> {"ok":true,"backend":"cdk","kind":"sidecar","licence":"MIT OR Apache-2.0",
+            "arches":["aarch64_cortex-a53","mipsel_24kc"]}
+balance -> {"ok":true,"balance":0}
+decode  -> {"ok":false,"error":"... decode_token: Unsupported token"}
+missing -> {"ok":false,"error":"... wallet sidecar not connected: dial unix ..."}
+```
+
+So the **daemon runs on the router and the Go client talks to it locally over the
+RPC**. (The router currently has no upstream internet, so the real-mint tests
+skip; the offline path — handshake, balance, structured errors — passes.)
+
+Packaged as **PR #117** in `OpenTollGate/physical-router-test-automation`:
+`tests/scenarios/test_wallet_sidecar.py`, env-driven by `WALLET_DAEMON_BIN` /
+`WALLET_CLIENT_BIN`. Verified: **5 passed, 2 skipped** (mint-dependent skipped).
+
+### Bug found by the on-router run
+
+The sidecar client unmarshalled daemon results straight into the port's
+`MintQuote`/`MeltQuote`/`MeltResult`, which have **no JSON tags**, so snake_case
+wire keys (`quote_id`, `fee_reserve`, …) were silently dropped (the quote id was
+lost). Fixed in the module PR #395 (`01bbd78`) with explicit wire structs, and the
+test fake updated to emit the canonical wire format.
+
 ## Router footprint (cross-build)
 
 Cross-built with the OpenWrt aarch64-musl toolchain using the same recipe as
