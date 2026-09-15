@@ -36,6 +36,25 @@ Run the same mint-quote → mint → swap → melt sequence with fixed inputs ag
 gonuts and the candidate; **assert identical results** (amounts, states, tokens
 modulo blinding).
 
+## Implementation status (2026-09-14)
+
+Implemented and passing on the physical MT6000
+(`physical-router-test-automation` PR #117, `tests/scenarios/test_wallet_sidecar.py`):
+
+- **Cross-mint (untrusted) token rejection** — `test_reject_token_from_other_mint`:
+  a token minted/sent on the trusted mint is fed to a second daemon configured
+  for a different mint; it must **not** be credited (receive fails, balance 0).
+- **Double-spend rejection** — `test_double_spend_rejected`: receiving the same
+  token twice fails the second time.
+- **Value conservation** — `test_send_receive_roundtrip`.
+
+Still **specified, not implemented** (need fault-injection / adversarial mint):
+
+- **`htlc_signature_enforcement`** (fork `296c7bf`) — needs an HTLC-locked token
+  (NUT-11/14) and an attempt to spend it without the required signature/preimage.
+- **`swap_proof_loss`** (fork `7dc430b`) — needs kill-mid-swap fault injection
+  and a reconcile-on-restart assertion.
+
 ## Reproducibility
 
 Per the branch rule, every run records: arch, OS image+version, build commands,
