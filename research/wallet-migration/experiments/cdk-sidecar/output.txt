@@ -64,6 +64,22 @@ requires it, so the full `cdk-cli` cannot build for mipsel. Making mipsel work
 would require a wallet-only sidecar that avoids the Nostr stack (or shimming
 every `AtomicU64` via `portable-atomic`) — real, but non-trivial, work.
 
+## Runtime on the router (measured, GL-MT6000)
+
+Deferred earlier because the build host has no arm64 user-space emulation. Now
+measured on the physical router (OpenWrt 25.12.5, aarch64_cortex-a53):
+
+- binary pushed as `/tmp/cdk-cli` (20,617,744 B) — runs (statically linked musl).
+- `cdk-cli balance` (initialises the tokio runtime + sqlite wallet):
+  **peak VmHWM = 5,736 kB (~5.6 MB), max Threads = 5**.
+- router headroom: ~1.0 GB RAM (751 MB free), 7.2 GB overlay.
+
+Caveat: this is the **wallet-not-configured baseline** (no mint configured, no
+proofs). A live mint/swap/melt flow adds network buffers and proof tables, so
+this is a floor, not the steady state under payment load. Even so it sits well
+under the in-process cgo estimate in `01-candidates/cdk.md` (~17 MB RSS, ~9-10
+threads per wallet) — and a separate process costs nothing when idle.
+
 ## Consequence for the decision
 
 - The **sidecar is the shippable integration mechanism** for the primary
