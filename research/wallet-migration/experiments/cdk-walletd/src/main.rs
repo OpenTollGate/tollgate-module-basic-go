@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use cdk::amount::SplitTarget;
 use cdk::cdk_database::{Error as DbError, WalletDatabase};
-use cdk::nuts::{CurrencyUnit, MeltQuoteState, MintQuoteState, PaymentMethod, Token};
+use cdk::nuts::{CurrencyUnit, MeltQuoteState, MintQuoteState, PaymentMethod, PublicKey, SpendingConditions, Token};
 use cdk::wallet::types::SendKind;
 use cdk::wallet::{ReceiveOptions, SendOptions, Wallet};
 use cdk::Amount;
@@ -266,6 +266,31 @@ async fn dispatch(wallet: &Wallet, mint: &str, req: &Request) -> (Response, bool
                     }
                 }
                 Err(e) => (Response::err(req.id, format!("melt_to_lightning(resolve): {e}")), false),
+            }
+        }
+
+        "send_p2pk" => {
+            // Send a P2PK-locked token (NUT-11): only the holder of the private
+            // key for `pubkey` can spend it. Used to test signature enforcement.
+            let amount = p.get("amount").and_then(|v| v.as_u64()).unwrap_or(0);
+            let pk_hex = p_str(p, "pubkey").to_string();
+            match PublicKey::from_str(&pk_hex) {
+                Ok(pk) => {
+                    let opts = SendOptions {
+                        conditions: Some(SpendingConditions::P2PKConditions { data: pk, conditions: None }),
+                        ..Default::default()
+                    };
+                    match wallet.prepare_send(Amount::from(amount), opts).await {
+                        Ok(prepared) => match prepared.confirm(None).await {
+                            Ok(tok) => (Response::ok(req.id, serde_json::json!({
+                                "token": tok.to_string(), "mint": mint, "amount": amount,
+                            })), false),
+                            Err(e) => (Response::err(req.id, format!("send_p2pk(confirm): {e}")), false),
+                        },
+                        Err(e) => (Response::err(req.id, format!("send_p2pk(prepare): {e}")), false),
+                    }
+                }
+                Err(e) => (Response::err(req.id, format!("send_p2pk(pubkey): {e}")), false),
             }
         }
 

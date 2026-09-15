@@ -110,6 +110,23 @@ func main() {
 		}
 		s, _ := t.Serialize()
 		emit(map[string]any{"cmd": cmd, "ok": true, "token": s, "token_len": len(s)})
+	case "send_p2pk":
+		amt := uint64(1)
+		if arg != "" {
+			fmt.Sscanf(arg, "%d", &amt)
+		}
+		pk := ""
+		if len(os.Args) > 4 {
+			pk = os.Args[4]
+		}
+		var res struct {
+			Token  string `json:"token"`
+			Amount uint64 `json:"amount"`
+		}
+		if err := w.Call("send_p2pk", map[string]any{"amount": amt, "pubkey": pk}, &res); err != nil {
+			fail(cmd, err)
+		}
+		emit(map[string]any{"cmd": cmd, "ok": true, "token": res.Token, "token_len": len(res.Token)})
 	default:
 		// Unknown method: the sidecar client should surface the daemon error.
 		emit(map[string]any{"cmd": cmd, "ok": false, "error": "unknown subcommand " + cmd})
