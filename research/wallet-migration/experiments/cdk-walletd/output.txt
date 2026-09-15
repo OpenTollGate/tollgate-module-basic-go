@@ -66,6 +66,25 @@ wiring is what was proven here, not a live payment.
 - Cross-compiling this daemon for `aarch64`/`mipsel` musl is the same recipe as
   `experiments/cdk-footprint` (OpenWrt SDK toolchain + `-Z build-std` for mipsel).
 
+## Real-mint end-to-end (2026-09-14) — a live Cashu mint operation over the RPC
+
+Ran the daemon against **`https://testnut.cashu.space`** (a live test mint) and
+drove a full NUT-04 mint flow through the sidecar protocol:
+
+```
+request_mint_quote(100) -> quote_id=01a0a643-… state=0 (Unpaid), bolt11 request returned
+mint_quote_state(quote) -> 0, then 1 (Paid)   [the test mint auto-settles]
+mint_tokens(quote)      -> {"ok":true,"result":100}
+get_balance             -> 100
+```
+
+So the process-isolated CDK wallet performs a **real mint operation** (quote →
+paid → mint → balance) across the same newline-JSON/Unix-socket protocol the Go
+sidecar client speaks. This is the end-to-end value-flow proof for the mint side.
+
+(`send`/`drain`/`melt*` are still stubs, so the full send→receive round-trip is
+not yet exercised.)
+
 ## Router footprint (cross-build)
 
 Cross-built with the OpenWrt aarch64-musl toolchain using the same recipe as
