@@ -1,0 +1,80 @@
+# Spike C — CDK wallet-only footprint + mipsel (T5c follow-up)
+
+**Status:** measured 2026-09-14. Purpose: test the two open questions for the
+"small/cheap router" tier — can CDK build for **mipsel** at all, and how small
+can a **wallet-only** CDK binary be? (T5c measured the full `cdk-cli` = 19.7 MiB
+and blocked on mipsel.)
+
+## What was built
+
+A minimal wallet-only probe (`probe/`) that links `cdk` **with
+`default-features = false, features = ["wallet"]`** + `cdk-sqlite` — i.e. it
+**drops `nostr` / `npubcash`** and therefore `nostr-relay-pool`. It constructs a
+`cdk::wallet::Wallet` over a sqlite `WalletDatabase`, so the wallet + sqlite +
+http stack is linked and LTO drops the rest.
+
+## Results
+
+| Target | Profile | Size (stripped) | Notes |
+|---|---|---|---|
+| `aarch64-unknown-linux-musl` | release | **7,493,496 B (7.1 MiB)** | static |
+| `aarch64-unknown-linux-musl` | `release-smaller` (opt-level=z, LTO, cgu=1) | **4,346,264 B (4.1 MiB)** | static — the footprint floor |
+| `mipsel-unknown-linux-musl` | release | **9,872,912 B (9.4 MiB)** | MIPS32 LE, musl, **built** |
+
+So dropping nostr cut ~12 MiB off the full `cdk-cli` (19.7 → 7.1 MiB), and
+size-optimization takes it to **4.1 MiB** on aarch64.
+
+## The mipsel blocker and the fix (upstreamable, no fork)
+
+On mipsel the wallet-only build **still failed** — but not in `lightning` or
+`tokio` (both compiled). The failure was **`cdk-common` itself**:
+
+```
+error[E0432]: unresolved import `std::sync::atomic::AtomicU64`
+ --> crates/cdk-common/src/database/{wallet,mint}/test/mod.rs
+```
+
+Root cause: `cdk-sql-common` / `cdk-sqlite` (and redb/postgres/supabase) declare
+`cdk-common = { features = ["test"] }` as a **normal** dependency, so
+`cdk-common`'s feature-gated **test helpers** (which use `AtomicU64`) are compiled
+into every build that uses a SQL backend. `mipsel_24kc` has no 64-bit atomics, so
+`std::sync::atomic::AtomicU64` does not exist there.
+
+**Fix (proven):** route those two test-helper counters through `portable-atomic`
+(already in the dependency tree). A **2-line import change + 1 dependency line**:
+
+```
+crates/cdk-common/Cargo.toml:            + portable-atomic = "1"
+.../database/wallet/test/mod.rs:         - use std::sync::atomic::{AtomicU64, Ordering};
+                                         + use portable_atomic::{AtomicU64, Ordering};
+.../database/mint/test/mod.rs:           (same)
+```
+
+With that patch the mipsel build **succeeds** (9.4 MiB above). The patch is
+attached as `cdk-common-portable-atomic.patch`; the honest recommendation is to
+**send it upstream** (a test-helper portability fix benefits CDK, and
+`portable-atomic` is the standard crate for it). No source fork is needed if
+upstream merges; otherwise a tiny `[patch]` is the only local cost.
+
+## What this means for the "best wallet per router" question
+
+- **CDK is no longer mipsel-blocked.** With a one-line upstreamable change it
+  builds for both router arches.
+- **Footprint is now plausible for the small tier:** a wallet-only CDK sidecar is
+  ~4 MiB size-optimized (aarch64) — a different proposition from the full
+  `cdk-cli` at 19.7 MiB. (mipsel size-optimized not yet measured; expect ~5-6 MiB.)
+- **Decision impact:** the earlier "CDK is out for 16 MB flash" verdict is now
+  **conditional** — it depends on whether ~4–6 MiB fits the flash budget alongside
+  the rest of the image. That is a **budget measurement**, not a blocker.
+
+## Reproduce
+
+`./run.sh` (needs the OpenWrt SDK images + host rustup; see `env.txt`). Raw sizes
+were taken with the SDK's `*-openwrt-linux-musl-strip --strip-all`.
+
+## Not measured
+
+- mipsel **size-optimized** floor.
+- **Runtime** (RSS/threads/startup) of the probe on a router — it is a
+  constructor-only probe, not a payment path.
+- Flash bytes written per payment for the sqlite wallet.

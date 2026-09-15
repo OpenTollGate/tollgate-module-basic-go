@@ -1,0 +1,38 @@
+diff --git a/crates/cdk-common/Cargo.toml b/crates/cdk-common/Cargo.toml
+index e44ebcf..4c8c712 100644
+--- a/crates/cdk-common/Cargo.toml
++++ b/crates/cdk-common/Cargo.toml
+@@ -25,6 +25,7 @@ bip353 = []
+ [dependencies]
+ cdk-http-client = { workspace = true, optional = true }
+ async-trait.workspace = true
++portable-atomic = "1"
+ bitcoin.workspace = true
+ cashu.workspace = true
+ cbor-diag.workspace = true
+diff --git a/crates/cdk-common/src/database/mint/test/mod.rs b/crates/cdk-common/src/database/mint/test/mod.rs
+index 1e6c8da..c4e3379 100644
+--- a/crates/cdk-common/src/database/mint/test/mod.rs
++++ b/crates/cdk-common/src/database/mint/test/mod.rs
+@@ -4,7 +4,7 @@
+ //! implementation
+ #![allow(clippy::unwrap_used, clippy::missing_panics_doc)]
+ use std::str::FromStr;
+-use std::sync::atomic::{AtomicU64, Ordering};
++use portable_atomic::{AtomicU64, Ordering};
+ 
+ // For derivation path parsing
+ use bitcoin::bip32::DerivationPath;
+diff --git a/crates/cdk-common/src/database/wallet/test/mod.rs b/crates/cdk-common/src/database/wallet/test/mod.rs
+index e03ee84..c85ce07 100644
+--- a/crates/cdk-common/src/database/wallet/test/mod.rs
++++ b/crates/cdk-common/src/database/wallet/test/mod.rs
+@@ -7,7 +7,7 @@
+ 
+ use std::collections::{BTreeMap, HashMap};
+ use std::str::FromStr;
+-use std::sync::atomic::{AtomicU64, Ordering};
++use portable_atomic::{AtomicU64, Ordering};
+ 
+ use bitcoin::bip32::DerivationPath;
+ use cashu::nut00::KnownMethod;

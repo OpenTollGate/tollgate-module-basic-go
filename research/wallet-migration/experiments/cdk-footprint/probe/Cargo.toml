@@ -1,0 +1,13 @@
+[package]
+name = "cdk-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Experiment: minimal wallet-only CDK binary (no nostr/npubcash) for footprint + musl/mipsel build testing"
+
+[dependencies]
+# wallet only — deliberately NOT the default features, to drop nostr-sdk /
+# nostr-relay-pool (which pulls std AtomicU64 and blocks mipsel).
+cdk = { workspace = true, default-features = false, features = ["wallet"] }
+cdk-sqlite = { workspace = true, features = ["wallet"] }
+tokio = { workspace = true, features = ["rt", "macros"] }
