@@ -114,3 +114,22 @@ PR #395** (`src/tollwallet/sidecar.go`, `manifest.go`, `policy.go`,
 Net: the router build picks an **in-process default** by tag, can **switch
 sidecars by config**, and a **policy table** encodes "best wallet for this
 target" — with the conformance suite as the gate.
+
+---
+
+## Status update 2026-09-14 (later)
+
+- **Selection consumer implemented** in PR #395 (`src/tollwallet/select.go`):
+  `OpenWallet(cfg)` routes to the in-process backend (gonuts default, via
+  `NewWalletPort`, build-tag resolved) or a sidecar daemon, and
+  `(*WalletPolicy).OpenFor(arch, flashMB, cfg)` picks the backend from the policy
+  table with an operator override. Tests cover routing + policy.
+- **T16 first increment** in PR #396: `merchant_token_flow_test.go` no longer
+  imports gonuts — token fixtures are centralised in a wallet-agnostic helper
+  (`src/merchant/tokenfixture_test.go`, `testenv && !cdk_wallet`). The
+  `nut04.State` characterization tests stay (they are the compatibility
+  contract). Remaining: the `tollwallet` adapter tests.
+
+**Still open:** the sidecar **daemons** (CDK/nucula) and the **parity suite**
+(T15) — the adoption gate; Spike N link+run; and wiring the policy/manifests into
+the CI build matrix.
