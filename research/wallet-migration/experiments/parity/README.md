@@ -48,31 +48,54 @@ Implemented and passing on the physical MT6000
   token twice fails the second time.
 - **Value conservation** — `test_send_receive_roundtrip`.
 
-Still **specified, not implemented** (need fault-injection / adversarial mint):
+Status of the remaining two cases:
 
-- **`htlc_signature_enforcement`** (fork `296c7bf`) — needs an HTLC-locked token
-  (NUT-11/14) and an attempt to spend it without the required signature/preimage.
-- **`swap_proof_loss`** (fork `7dc430b`) — needs kill-mid-swap fault injection
-  and a reconcile-on-restart assertion.
+- **`htlc_signature_enforcement`** (fork `296c7bf`) — **PARTIAL**. The NUT-11
+  (P2PK) half is implemented and passing: a P2PK-locked token presented without
+  the required witness is rejected (`Witness signatures not provided`,
+  host-verified), and a harness test exists (`physical-router-test-automation`
+  #117, `87a3e92`). The NUT-14 (HTLC, preimage) half is still specified.
+- **`swap_proof_loss`** (fork `7dc430b`) — **DONE, conclusive**. See below.
 
-### Fault-injection scaffold (`fault_injection.py`)
+### `swap_proof_loss` — conclusive (2026-09-16)
 
-A host-side `swap_proof_loss` scaffold exists: it mints, then repeatedly launches
-a `send` and SIGKILLs the daemon mid-flight, restarting it with the **same seed**
-(the daemon prints its generated mnemonic on first start, so the restart continues
-the same wallet) and checks conservation (`balance + 10*tokens == minted`).
+`fault_injection.py` (timer-based) was insufficient: the local fakewallet mint
+settles a swap in single-digit milliseconds, so a timed SIGKILL almost never
+lands inside the one window that matters (mint accepted, wallet not yet told).
 
-- Observed: **value was conserved** in the runs performed, and the daemon restarts
-  cleanly on the same wallet.
-- Blocker to a *conclusive* mid-swap result: the local mint is too fast to reliably
-  land the kill inside the swap window. A controllable mint with injectable
-  latency (or a hook between proof-reservation and re-issue) is required — the
-  same "controllable mint" the T15 spec calls for.
-- Two daemon-side robustness items this surfaced: (1) a fixed mnemonic collides
-  against the mint on a fresh DB (`10002 outputs already signed`) — solved by the
-  per-run random seed; (2) crash recovery relies on the wallet's saga/pending-proof
-  reconciliation, which the daemon does **not** explicitly invoke on startup — a
-  candidate follow-up.
+`swap_proof_loss.py` widens that window **deterministically at the network
+layer** instead of racing it. The local `cdk-mintd` serves plain HTTP, so
+`drop_swap_proxy.py` needs no TLS interception:
+
+1. `cdk-mintd` (fakewallet) behind the proxy. Wallet **A** mints 100 and sends a
+   100-sat token.
+2. Wallet **B** `receive`s it — a receive always performs an online NUT-03
+   `swap`, so it is a deterministic swap trigger.
+3. Arm the proxy; B's `POST /v1/swap` is **delivered to the mint** (inputs really
+   spent, outputs really issued — the proxy logs `DROPPED 200 … (5635B)`) and the
+   **response is discarded**; B is SIGKILLed in that window.
+4. **Negative control:** a *fresh-seed* wallet offered the same token fails with
+   `Token Already Spent`, balance 0 — proving the inputs really were spent and
+   the fault injection is not vacuous.
+5. B restarts on the same wallet DB + seed. `recover_incomplete_sagas` runs and
+   the balance reconciles to **100 — no value lost**.
+
+Result (raw: `raw/swap_proof_loss-cdk.txt`): **CDK reproduces the gonuts fork's
+`7dc430b` no-proof-loss property.**
+
+Run it with the built binaries (see `raw/swap_proof_loss-cdk.txt` for the exact
+environment and SHAs):
+
+```
+python3 experiments/parity/swap_proof_loss.py \
+    --workdir /home/c03rad0r/r2-work/parity-run
+```
+
+Earlier daemon-side robustness items this work surfaced, now fixed: a fixed
+mnemonic collides against the mint on a fresh DB (`10002 outputs already signed`)
+— solved by the per-run random seed; and crash recovery relied on saga /
+pending-proof reconciliation, which the daemon now explicitly invokes on startup
+(`96018f7`).
 
 ## Reproducibility
 
@@ -97,9 +120,14 @@ the candidate's commit SHA, and raw output.
   router wallet, ship CDK as a **shadow sidecar** for measurement, and resolve the
   nucula licence question (nucula#8).
 
-## Not yet done
+## Where this stands now
 
-The cases above are specified but **not implemented** — they need the local mint
-fixture wired to the adapter harness. This is the next executable step for T15;
-T5c already produced the candidate build/measure apparatus
-(`../cdk-cross/`, `../cdk-sidecar/`).
+- `cross-mint` / `double-spend` / value conservation — passing on the physical
+  MT6000 (`physical-router-test-automation` #117).
+- `swap_proof_loss` — **conclusive** host-local (this directory).
+- `htlc_signature_enforcement` — NUT-11 half passing; NUT-14 half still open.
+
+The remaining T15 work is the NUT-14 HTLC-preimage leg, plus the same
+`swap_proof_loss` run repeated **on the router** against the local mint once the
+on-device mint path exists (currently the router has no upstream and cannot reach
+a host mint — see `../local-mint/README.md`).

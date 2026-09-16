@@ -56,7 +56,13 @@ T15 security parity (adoption gate)
 - [x] Double-spend rejection — on-router passing
 - [x] **Signature enforcement (P2PK, NUT-11)** — host-verified (`Witness signatures not provided`); harness test added (`87a3e92`)
 - [x] `swap_proof_loss` fault-injection scaffold + findings (`813e36c`)
-- [ ] **`swap_proof_loss` conclusive** — needs a **controllable mint with injectable latency** (proxy scaffold in `experiments/parity/mint_latency_proxy`-style; the local mint closes the window too fast)
+- [x] **`swap_proof_loss` CONCLUSIVE** — deterministic, host-local: the mint
+      accepted a receive-swap (200, inputs really spent — negative control
+      `Token Already Spent`), the response was dropped, the daemon was SIGKILLed,
+      and the same-seed wallet reconciled to the **full balance on restart**
+      (`experiments/parity/swap_proof_loss.py` + `raw/swap_proof_loss-cdk.txt`).
+      CDK reproduces the fork's `7dc430b` no-proof-loss property.
+- [ ] NUT-14 HTLC-preimage leg (NUT-11 P2PK half done: host-verified + harness)
 - [ ] nucula licence / upstream Linux target — **nucula#8**, waiting on the author
 
 Phase 4 / CI
@@ -65,7 +71,9 @@ Phase 4 / CI
 ---
 
 ## Only these remain (external / infra-gated)
-1. **T15 `swap_proof_loss` conclusive** — needs mint-side fault hooks (injectable latency between proof reservation and re-issue).
+1. **T15 NUT-14 HTLC-preimage leg** — the NUT-11 (P2PK) half is done; the HTLC
+   (preimage) half still needs an HTLC-locked fixture. `swap_proof_loss` is
+   **conclusive** as of 2026-09-16.
 2. **nucula#8** — licence + upstream Linux target (author's call).
 3. **`openwrt/packages` PR** — deferred by operator.
 4. **Spike N mipsel run** — needs a physical mipsel router (compile proven; aarch64 run proven).

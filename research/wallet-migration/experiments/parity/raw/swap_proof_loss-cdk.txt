@@ -1,0 +1,73 @@
+# T15 swap_proof_loss — raw evidence (CDK sidecar, host, local fakewallet mint)
+
+## Environment
+- date: 2026-09-16T00:01:42Z
+- host: Linux 6.17.0-41-generic x86_64
+- cdk checkout: /home/c03rad0r/r2-work/cdk-upstream @ 7e961b8
+- cdk-mintd: cdk-mintd 0.18.0
+- cdk-walletd sha256: 4cdb73aa1ea15e2448de1dfd553f3de197509b5484fa941b1749d6093f19afc9
+- client: 5e607c496c112ea6f02dc20c4e11eee4bd579d35ae2951caf24f02e0b14f405b
+
+## Method
+Mint 100 into wallet A; A sends a 100-sat token. Wallet B receives it
+(NUT-03 online swap). The proxy delivers B's /v1/swap to the mint and
+DISCARDS the 200 response (5635 B of signatures). B is SIGKILLed in that
+window. A fresh-seed wallet is then offered the same token as a negative
+control. B restarts on the same seed/work-dir and reconciles.
+
+## Transcript
+02:01:28 workdir /home/c03rad0r/r2-work/parity-run-t4
+02:01:30 A mnemonic ugly tip page sketch... | B mnemonic tongue badge positio...
+02:01:30 A minted -> balance 100
+02:01:30 A send -> ok=True err=None token_len=5354
+02:01:30 ARMED; B receiving token (swap response will be dropped)
+02:01:31 swap response dropped=True; B SIGKILLed
+02:01:31 B receive client: {"cmd":"receive","error":"tollwallet: sidecar receive: receive: Http transport error None: unexpected end of file","ok":false}
+02:01:31 negative control (fresh seed) receive -> ok=False balance=0 err=tollwallet: sidecar receive: receive: Token Already Spent
+02:01:31 restarting B (same work-dir + seed) ...
+02:01:31 B: cdk-walletd: recovered incomplete sagas
+02:01:31 B: cdk-walletd: reconciled pending proofs (0)
+02:01:31 B: cdk-walletd: recovered incomplete sagas
+02:01:31 B: cdk-walletd: reconciled pending proofs (0)
+02:01:31 B post-restart balance=100 (expected >= 100)
+
+## Proxy log (server-side truth)
+[proxy] listening 127.0.0.1:8086 -> 127.0.0.1:8085 (armed-file=/home/c03rad0r/r2-work/parity-run-t4/ARM)
+[proxy] GET /v1/info -> 200
+[proxy] GET /v1/info -> 200
+[proxy] GET /v1/keysets -> 200
+[proxy] GET /v1/keys/01df97b6fb8a572a718d7df7fcbf4387e2d455134ea8004c9c8c51e1b3391f909e -> 200
+[proxy] POST /v1/mint/quote/bolt11 -> 200
+[proxy] GET /v1/mint/quote/bolt11/01a0a784-c03a-78f2-9766-c3b40f5b646e -> 200
+[proxy] POST /v1/mint/bolt11 -> 200
+[proxy] GET /v1/info -> 200
+[proxy] GET /v1/keysets -> 200
+[proxy] GET /v1/keys/01df97b6fb8a572a718d7df7fcbf4387e2d455134ea8004c9c8c51e1b3391f909e -> 200
+[proxy] DROPPED 200 for POST /v1/swap (5635B) -- mint processed it, client will not see it
+[proxy] GET /v1/info -> 200
+[proxy] GET /v1/keysets -> 200
+[proxy] GET /v1/keys/01df97b6fb8a572a718d7df7fcbf4387e2d455134ea8004c9c8c51e1b3391f909e -> 200
+[proxy] POST /v1/swap -> 400
+[proxy] POST /v1/swap -> 200
+
+## Wallet B daemon log
+cdk-walletd: generated mnemonic: [REDACTED-BIP39-SEED]
+cdk-walletd: recovered incomplete sagas
+cdk-walletd: reconciled pending proofs (0)
+cdk-walletd: listening on /home/c03rad0r/r2-work/parity-run-t4/walletB/w.sock (mint=http://127.0.0.1:8086)
+cdk-walletd: recovered incomplete sagas
+cdk-walletd: reconciled pending proofs (0)
+cdk-walletd: listening on /home/c03rad0r/r2-work/parity-run-t4/walletB/w.sock (mint=http://127.0.0.1:8086)
+
+## Verdict
+```json
+{"case":"swap_proof_loss","ok":true,"amount":100,"A_balance_after_send":0,
+ "B_balance_after_reconcile":100,"response_dropped":true,
+ "negative_control":{"fresh_wallet_receive_ok":false,
+   "fresh_wallet_error":"Token Already Spent","fresh_wallet_balance":0}}
+```
+
+Conclusion: the mint spent the inputs and issued outputs (negative control:
+'Token Already Spent'), the receive response was lost, the daemon crashed,
+and the same-seed wallet recovered ALL 100 sats on restart. CDK reproduces
+the gonuts-fork '7dc430b' no-proof-loss property.
