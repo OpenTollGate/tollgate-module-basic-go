@@ -130,6 +130,37 @@ mnemonic collides against the mint on a fresh DB (`10002 outputs already signed`
 pending-proof reconciliation, which the daemon now explicitly invokes on startup
 (`96018f7`).
 
+### `behavioural_parity` (T2e) — gonuts vs CDK on identical inputs
+
+`behavioural_parity.py` + `gonutsinterop/` run the **same fixed sequence against
+the same local fakewallet mint** for both backends and assert the observables
+match, then have each backend receive the other's token (cross-implementation
+interchange):
+
+```
+mint_quote(100) -> PAID -> mint -> balance(100) -> send(40) -> balance(60) -> decode(40)
+cdk-receiver  <- gonuts token   (received 40)
+gonuts-receiver <- cdk token    (received 40)
+```
+
+Result (raw: `raw/behavioural_parity-t2e.txt`): **PASS** — minted/balances/decode
+identical (100/100/60/40) and tokens interchange in both directions. Both emit V4
+(`cashuB`).
+
+**Finding:** melt-quote parity is **not available through `WalletPort`** —
+gonuts' adapter returns `RequestMeltQuote: not yet wired; TollWallet uses
+MeltToLightning at a higher level`, and `cdkinterop` exposes no melt subcommand
+(the CDK daemon does support it). Recorded as a finding, not asserted; any melt
+comparison must use the higher-level `MeltToLightning` (LNURL, needs real
+Lightning).
+
+Run it with the built binaries:
+
+```
+TOLLWALLET_DIR=/path/to/src/tollwallet experiments/parity/gonutsinterop/run.sh
+python3 experiments/parity/behavioural_parity.py --workdir /home/c03rad0r/r2-work/p-t2e
+```
+
 ## Reproducibility
 
 Per the branch rule, every run records: arch, OS image+version, build commands,
@@ -161,8 +192,8 @@ the candidate's commit SHA, and raw output.
 - `htlc_signature_enforcement` — **both legs done**: NUT-11 (P2PK) host +
   harness; NUT-14 (HTLC `n_sigs`) via `htlc-nsigs-parity/`.
 
-All three T15 cases now have a passing assertion against the candidate. The
-remaining work is re-running `swap_proof_loss` **on the router** against a
-local mint once the on-device mint path exists (currently the router has no
-upstream and cannot reach a host mint — see `../local-mint/README.md`), and the
-`behavioural_parity` (T2e) comparison across gonuts and CDK.
+All three T15 cases now have a passing assertion against the candidate.
+**T2e behavioural parity passes** (this directory). The remaining work is
+re-running `swap_proof_loss` **on the router** against a local mint once the
+on-device mint path exists (currently the router has no upstream and cannot reach
+a host mint — see `../local-mint/README.md`).

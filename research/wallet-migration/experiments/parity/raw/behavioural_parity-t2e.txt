@@ -1,0 +1,95 @@
+# T2e behavioural parity — raw evidence (gonuts vs CDK, host, local fakewallet mint)
+
+## Environment
+- date: 2026-09-16T10:31:53Z
+- host: Linux 6.17.0-41-generic x86_64
+- tollgate module (gonuts driver): /home/c03rad0r/r2-work/tollgate-go @ 827b9ac (branch pr/wallet-sidecar)
+- cdk checkout: /home/c03rad0r/r2-work/cdk-upstream @ 7e961b8
+- mint: local cdk-mintd 0.18.0 + fakewallet (fee 0), http://127.0.0.1:8085
+- drivers: gonutsinterop (WalletPort -> gonuts-tollgate v0.11.2), cdkinterop (WalletPort -> cdk-walletd)
+
+## Method
+Both wallets run the same fixed sequence against the same mint; each then
+receives the other's token (cross-implementation interchange).
+  mint_quote(100) -> PAID -> mint -> send(40) -> decode(token)
+  cdk-receiver <- gonuts token; gonuts-receiver <- cdk token
+
+## Transcript
+12:31:43 mint up at http://127.0.0.1:8085
+12:31:43 gonuts wallet + CDK daemon up
+12:31:44 gonuts: minted=100 bal_mint=100 bal_send=60 prefix=cashuB
+12:31:44 cdk:    minted=100 bal_mint=100 bal_send=60 prefix=cashuB
+12:31:44 cross-receive: cdk token into gonuts -> 40 (bal 40); gonuts token into cdk -> 40 (bal 40)
+12:31:44 meltquote: not comparable through the port (gonuts WalletPort.RequestMeltQuote is not wired (uses MeltToLightning); cdkinterop exposes no melt subcommand)
+
+## Verdict
+```json
+{
+  "task": "T2e behavioural parity",
+  "ok": true,
+  "amount": 100,
+  "send": 40,
+  "gonuts": {
+    "mintquote_ok": true,
+    "quote_state_paid": true,
+    "minted": 100,
+    "balance_after_mint": 100,
+    "send_ok": true,
+    "send_error": null,
+    "balance_after_send": 60,
+    "token_prefix": "cashuB",
+    "decode_amount": 40
+  },
+  "cdk": {
+    "mintquote_ok": true,
+    "quote_state_paid": true,
+    "minted": 100,
+    "balance_after_mint": 100,
+    "send_ok": true,
+    "send_error": null,
+    "balance_after_send": 60,
+    "token_prefix": "cashuB",
+    "decode_amount": 40
+  },
+  "cross_receive": {
+    "cdk_token_into_gonuts": {
+      "received": 40,
+      "balance": 40
+    },
+    "gonuts_token_into_cdk": {
+      "received": 40,
+      "balance": 40
+    }
+  },
+  "meltquote": {
+    "comparable": false,
+    "reason": "gonuts WalletPort.RequestMeltQuote is not wired (uses MeltToLightning); cdkinterop exposes no melt subcommand",
+    "gonuts_response": "GonutsWallet.RequestMeltQuote: not yet wired; TollWallet uses MeltToLightning at a higher level"
+  },
+  "checks": {
+    "gonuts_minted_100": true,
+    "cdk_minted_100": true,
+    "gonuts_balance_after_mint": true,
+    "cdk_balance_after_mint": true,
+    "gonuts_balance_after_send": true,
+    "cdk_balance_after_send": true,
+    "minted_equal": true,
+    "balance_after_send_equal": true,
+    "decode_amount_equal": true,
+    "cross_receive_cdk_into_gonuts": true,
+    "cross_receive_gonuts_into_cdk": true
+  },
+  "workdir": "/home/c03rad0r/r2-work/parity-t2e-final"
+}
+```
+
+## Finding: melt-quote parity is NOT available through WalletPort
+gonuts' adapter returns: "RequestMeltQuote: not yet wired; TollWallet uses
+MeltToLightning at a higher level". cdkinterop exposes no melt subcommand
+(the CDK daemon does). So port-level melt parity is N/A; any melt comparison
+must go through the higher-level MeltToLightning (LNURL), which needs real
+Lightning. This is recorded, not asserted.
+
+## Note
+Both implementations emit V4 (`cashuB`) tokens on send; tokens are
+interchanged successfully in both directions.
