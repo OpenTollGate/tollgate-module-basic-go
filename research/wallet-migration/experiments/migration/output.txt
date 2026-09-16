@@ -1,0 +1,55 @@
+# T6 migration + rollback — raw evidence (gonuts -> CDK -> gonuts, host, local mint)
+
+## Environment
+- date: 2026-09-16T10:52:40Z
+- host: Linux 6.17.0-41-generic x86_64
+- gonuts driver: experiments/parity/gonutsinterop (tollgate-go @ 827b9ac)
+- cdk: cdk-walletd @ cdk-upstream 7e961b8
+- mint: local cdk-mintd 0.18.0 + fakewallet (fee 0)
+
+## Method
+Fund gonuts (100) -> `send` to a token -> CDK `receive` (migration); then
+CDK `send` -> token -> gonuts `receive` (rollback). Assert conservation.
+
+## Transcript
+12:52:39 workdir /home/c03rad0r/r2-work/migrate-final
+12:52:39 mint up
+12:52:40 mint + gonuts + cdk up
+12:52:40 gonuts funded: balance=100
+12:52:40 MIGRATE: gonuts send ok=True -> cdk receive=100 (gonuts=0, cdk=100)
+12:52:40 ROLLBACK: cdk send ok=True -> gonuts receive=100 (cdk=0, gonuts=100)
+
+## Verdict
+```json
+{
+  "task": "T6 migration + rollback",
+  "ok": true,
+  "amount": 100,
+  "migrate": {
+    "gonuts_send_ok": true,
+    "cdk_received": 100,
+    "gonuts_after": 0,
+    "cdk_after": 100
+  },
+  "rollback": {
+    "cdk_send_ok": true,
+    "gonuts_received": 100,
+    "cdk_after": 0,
+    "gonuts_after": 100
+  },
+  "checks": {
+    "funded": true,
+    "migrate_transferred": true,
+    "rollback_transferred": true,
+    "no_value_lost": true
+  },
+  "workdir": "/home/c03rad0r/r2-work/migrate-final"
+}
+```
+
+## Note on the alternative (same-seed NUT-09 restore)
+Not exercised: gonuts stores its BIP-39 mnemonic in its bbolt `wallet.db`
+(`wallet.Mnemonic()`), but a separate export is needed (the store is locked
+while the service runs, and LoadWallet blocks on mint registration), and
+CDK/gonuts NUT-13 derivation-path compatibility is unverified. The token
+transfer above is implementation-agnostic and proven (T2e).

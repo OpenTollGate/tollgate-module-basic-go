@@ -11,7 +11,7 @@ IN PROGRESS / DONE. Every task finishes by committing its artifact to this branc
 | T3 | CDK deep dive: licence terms, wallet API vs CLI, minimal feature set, musl cross-compile for router arches, RSS/threads, storage backends, NUT diff, churn/governance | consultant B | **DONE** | `01-candidates/cdk.md` |
 | T4 | Method + overlooked metrics: finalise the metric set and the measurement protocol; add fault-injection scenarios | consultant C | **DONE** | `02-method/*` |
 | T5 | Integration-architecture study: cgo+`cdk-ffi` static link vs sidecar process vs CLI wrapper — build cost, failure modes, debuggability on router | consultant B + worker | **DONE** (per-target decision: in-process gonuts on small/16 MB mipsel; CDK sidecar on large/aarch64; +6.0/+7.5 MiB measured) | `05-architecture/integration-decision.md`, `experiments/flash-budget/`, `experiments/cdk-sidecar/init/` |
-| T6 | Migration path: existing router proof/key store → new wallet, including rollback | worker | **IN PROGRESS** | `03-baseline/migration-path.md`, `experiments/migration/` |
+| T6 | Migration path: existing router proof/key store → new wallet, including rollback | worker | **DONE** (token-transfer mechanism rehearsed green: migrate gonuts→CDK and rollback, no value lost; same-seed NUT-09 documented as alternative) | `03-baseline/migration-path.md`, `experiments/migration/` |
 | T7 | Synthesis + recommendation, with dissenting opinions preserved | manager + all consultants | **DONE** | `04-reports/RECOMMENDATION.md` |
 | T8 | Explicit consideration and rejection (or adoption) of the stay-on-gonuts option | manager | **DONE** | `04-reports/RECOMMENDATION.md` |
 
