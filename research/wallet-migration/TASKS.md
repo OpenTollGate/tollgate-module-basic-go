@@ -10,8 +10,8 @@ IN PROGRESS / DONE. Every task finishes by committing its artifact to this branc
 | T2 | nucula deep dive: NUT coverage from code, licence intent, flash storage, key handling, real footprint, logic-vs-firmware portability | consultant A | **DONE** | `01-candidates/nucula.md` |
 | T3 | CDK deep dive: licence terms, wallet API vs CLI, minimal feature set, musl cross-compile for router arches, RSS/threads, storage backends, NUT diff, churn/governance | consultant B | **DONE** | `01-candidates/cdk.md` |
 | T4 | Method + overlooked metrics: finalise the metric set and the measurement protocol; add fault-injection scenarios | consultant C | **DONE** | `02-method/*` |
-| T5 | Integration-architecture study: cgo+`cdk-ffi` static link vs sidecar process vs CLI wrapper — build cost, failure modes, debuggability on router | consultant B + worker | **DESIGN** | `experiments/integration/` |
-| T6 | Migration path: existing router proof/key store → new wallet, including rollback | worker | TODO | `03-baseline/migration-path.md` |
+| T5 | Integration-architecture study: cgo+`cdk-ffi` static link vs sidecar process vs CLI wrapper — build cost, failure modes, debuggability on router | consultant B + worker | **IN PROGRESS** | `05-architecture/integration-decision.md`, `experiments/flash-budget/`, `experiments/cdk-sidecar/init/` |
+| T6 | Migration path: existing router proof/key store → new wallet, including rollback | worker | **IN PROGRESS** | `03-baseline/migration-path.md`, `experiments/migration/` |
 | T7 | Synthesis + recommendation, with dissenting opinions preserved | manager + all consultants | **DONE** | `04-reports/RECOMMENDATION.md` |
 | T8 | Explicit consideration and rejection (or adoption) of the stay-on-gonuts option | manager | **DONE** | `04-reports/RECOMMENDATION.md` |
 
@@ -42,7 +42,7 @@ dissent — and can check all of it out from this branch alone.
 | T2b | **Port spike:** compile nucula's wallet core on native Linux (x86_64), then cross-compile for a router arch (aarch64 musl) with the OpenWrt SDK. Measure size/RSS/threads. Exclude peripherals. | worker (firmware) | **DONE** (core 20/20 both arches; linked + **RUN**: aarch64 on the physical MT6000, mipsel under qemu-user with all self-tests passing; 1.77 MiB / 1.87 MiB) | `experiments/nucula-port/` |
 | T2c | **Licence ask:** approach the author for an explicit licence (MIT/Apache-2.0/GPL-3.0 choice). Nothing ships before this. | operator/manager | **SENT 2026-09-14 (nucula#8)** | `01-candidates/nucula-licence-request.md` |
 | T2d | ESP-IDF API-boundary inventory: every header/API the core files use, with the Linux replacement, and the portable-vs-entangled ratio | worker | **DONE** | `01-candidates/nucula-port-map.md` |
-| T2e | Behavioural parity: run the same mint-quote/mint/swap/melt flows against a local mint on Linux and compare results with gonuts for the same inputs | worker | **SPEC** | `experiments/nucula-parity/` |
+| T2e | Behavioural parity: run the same mint-quote/mint/swap/melt flows against a local mint on Linux and compare results with gonuts for the same inputs | worker | **IN PROGRESS** | `experiments/parity/` (`gonutsinterop/`, `behavioural_parity.py`) |
 
 **Legal hygiene for this branch:** nucula's source is *not* committed here. The
 branch carries our own port shims, diffs, measurement logs, inventory and plans
@@ -98,3 +98,21 @@ Path (i) has no counterparty, and path (ii) — dropping the patches for root v0
 costs 4–8 weeks and reverts the signature fix, the proof-loss fix, **all** V2 /
 short-keyset-ID support and reseller overpayment. The honest comparator is therefore
 "keep the fork at ~1–2 eng-days/month" versus "replace it".
+
+## Close-out plan (2026-09-16, approved)
+
+Order: **P1 → T2e → T5 (parallel) → T6 → wrap-up**. Concrete deliverables, so a
+fresh context can pick up mid-flight.
+
+| # | Task | Deliverable | Evidence | Effort |
+|---|---|---|---|---|
+| P1 | Publish a NIP-23 (`kind 30023`) long-form post summarising the findings + tradeoffs (gonuts vs CDK vs nucula) to Nostr, signed via the operator's NIP-46 bunker; commit the source | `04-reports/nostr-post.md` (+ `## Published` event id) | returned event id + per-relay acceptance | 0.5 d |
+| T2e | **Behavioural parity** gonuts vs CDK on identical fixed inputs against the local fakewallet mint | `experiments/parity/gonutsinterop/` (Go driver), `experiments/parity/behavioural_parity.py`, `raw/behavioural_parity-{gonuts,cdk}.txt` | normalized results equal (amounts, states, fee reserves) | 2–4 d |
+| T5 | **Integration decision record**: sidecar-vs-embed per target, flash budget, supervision, socket auth, ALPHA-pin policy | `05-architecture/integration-decision.md`, `experiments/flash-budget/`, `experiments/cdk-sidecar/init/cdk-walletd.init` | measured `df`/sizes/RSS on both tiers; procd sketch | 1–2 d |
+| T6 | **Migration path + rollback**: move a router's gonuts wallet (proofs+seed) to CDK, reversibly | `03-baseline/migration-path.md`, `experiments/migration/` | local dry run: gonuts → migrate → NUT-07 verify → switch → rollback → verify | 2–4 d |
+
+**Open questions resolved:** signing = operator NIP-46 bunker; relays = damus/nos.lol/
+nostr.mom/relay1-2.orangesync.tech; T2e driver = new `gonutsinterop` (mirrors
+`cdkinterop`), not the service socket. If T5's decision changes
+`src/tollwallet/manifests/wallet-policy.json`, that lands as its own commit on the
+module PR branch (`pr/wallet-sidecar`), not here.
