@@ -1,0 +1,266 @@
+From a900a220f47326b344230db5d324680f6dd45e25 Mon Sep 17 00:00:00 2001
+From: c03rad0r <c03rad0r@users.noreply.github.com>
+Date: Tue, 15 Sep 2026 09:28:25 +0200
+Subject: [PATCH] feat(feed): reproducible verify-feed-rc for the
+ FreedomTechFeed release candidate
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds a format-aware physical-router test that installs the feed-built
+tollgate-wrt RC over the router's own package manager and checks version,
+build identity and service health — for BOTH formats:
+  OpenWrt 24.x (opkg -> .ipk) and OpenWrt 25.x (apk -> .apk).
+
+- scripts/download-feed-release.sh <tag> <arch> <ipk|apk>: downloads the asset
+  from FreedomTechFeed/packages, derives the asset name from the tag exactly as
+  the installer does, sha256-verifies against the release digest, prints path.
+- tests/scenarios/test_feed_package.py: asserts the artifact format matches the
+  router's package manager (detect_package_manager), installs via lib.deploy,
+  asserts FEED_EXPECT_VERSION/FEED_EXPECT_COMMIT and :2121 health + services.
+- Makefile: 'make verify-feed-rc FORMAT=ipk|apk' (takes the hardware lock).
+---
+ Makefile                             |  30 ++++++++
+ scripts/download-feed-release.sh     |  75 +++++++++++++++++++
+ tests/scenarios/test_feed_package.py | 106 +++++++++++++++++++++++++++
+ 3 files changed, 211 insertions(+)
+ create mode 100755 scripts/download-feed-release.sh
+ create mode 100644 tests/scenarios/test_feed_package.py
+
+diff --git a/Makefile b/Makefile
+index 330eb4a..8db0d03 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1158,6 +1158,36 @@ deploy-ci:
+ deploy-ci-rust:
+ 	bash scripts/deploy-rust-ci.sh
+ 
++# --- Feed RC verification (FreedomTechFeed/packages) ---
++#
++# Installs the feed-built tollgate-wrt release candidate over the router's own
++# package manager and asserts version + build identity + service health:
++#   * OpenWrt 24.x -> opkg -> .ipk    (FORMAT=ipk, default)
++#   * OpenWrt 25.x -> apk  -> .apk    (FORMAT=apk)
++# The artifact is downloaded from the feed release (sha256-verified) by
++# scripts/download-feed-release.sh. Requires the hardware lock.
++
++FEED_RELEASE_TAG ?= v0.6.0-alpha2-pre
++FEED_EXPECT_VERSION ?= 0.6.0_alpha2_pre-r1
++FEED_EXPECT_COMMIT ?= 089e876cb24fd2fa8bd9d36323edb71e347e825b
++FORMAT ?= ipk
++PYTHON ?= python3
++PYTEST_ARGS ?=
++
++.PHONY: verify-feed-rc
++verify-feed-rc: ## [hardware] Verify the FreedomTechFeed RC installs+works (.ipk on 24.x, .apk on 25.x)
++	$(call require_hardware_lock)
++	@test -n "$${TOLLGATE_SSH_HOST:-}" || { echo "$(RED)Set TOLLGATE_SSH_HOST (e.g. 192.168.1.1)$(RESET)"; exit 1; }
++	@test -n "$${TOLLGATE_SSH_PASSWORD:-}" || { echo "$(RED)Set TOLLGATE_SSH_PASSWORD$(RESET)"; exit 1; }
++	@ARCH="$${TOLLGATE_ROUTER_ARCH:-aarch64_cortex-a53}"; \
++	PKG=$$(bash scripts/download-feed-release.sh "$(FEED_RELEASE_TAG)" "$$ARCH" "$(FORMAT)"); \
++	echo "$(BOLD)=== verify-feed-rc: $$PKG (format=$(FORMAT), arch=$$ARCH) ===$(RESET)"; \
++	TOLLGATE_PACKAGE_PATH="$$PKG" \
++	TOLLGATE_ROUTER_ARCH="$$ARCH" \
++	FEED_EXPECT_VERSION="$(FEED_EXPECT_VERSION)" \
++	FEED_EXPECT_COMMIT="$(FEED_EXPECT_COMMIT)" \
++	$(PYTHON) -m pytest tests/scenarios/test_feed_package.py -v -s $(PYTEST_ARGS)
++
+ # --- Setup (Python venv) ---
+ 
+ setup-python:
+diff --git a/scripts/download-feed-release.sh b/scripts/download-feed-release.sh
+new file mode 100755
+index 0000000..1a19105
+--- /dev/null
++++ b/scripts/download-feed-release.sh
+@@ -0,0 +1,75 @@
++#!/usr/bin/env bash
++# Download a FreedomTechFeed/packages feed release asset (.ipk/.apk) for a given
++# OpenWrt arch, verify it, and print the local absolute path to stdout.
++#
++# All diagnostics go to stderr so the stdout path can be used in $(...).
++#
++# Usage:
++#   scripts/download-feed-release.sh <release-tag> <arch> <ipk|apk> [outdir]
++#
++# Examples:
++#   scripts/download-feed-release.sh v0.6.0-alpha2-pre aarch64_cortex-a53 ipk
++#   scripts/download-feed-release.sh v0.6.0-alpha2-pre aarch64_cortex-a53 apk
++#
++# Env:
++#   FEED_REPO   default FreedomTechFeed/packages
++#
++# The asset name is derived from the tag exactly as the installer does it:
++#   v0.6.0-alpha2-pre -> 0.6.0_alpha2_pre  (drop leading 'v', '-' -> '_')
++#   tollgate-wrt_0.6.0_alpha2_pre_<arch>.<ext>
++set -euo pipefail
++
++TAG="${1:?usage: $0 <release-tag> <arch> <ipk|apk> [outdir]}"
++ARCH="${2:?usage: $0 <release-tag> <arch> <ipk|apk> [outdir]}"
++FMT="${3:?usage: $0 <release-tag> <arch> <ipk|apk> [outdir]}"
++OUTDIR="${4:-${TMPDIR:-/tmp}/feed-rc}"
++REPO="${FEED_REPO:-FreedomTechFeed/packages}"
++
++case "$FMT" in
++  ipk|apk) ;;
++  *) echo "[download-feed-release] ERROR: format must be ipk or apk (got '$FMT')" >&2; exit 2 ;;
++esac
++
++# tag -> PKG_VERSION spelling (apk-legal, underscore)
++VER="${TAG#v}"
++VER="${VER//-/_}"
++ASSET="tollgate-wrt_${VER}_${ARCH}.${FMT}"
++
++log() { echo "[download-feed-release] $*" >&2; }
++
++log "repo=$REPO tag=$TAG arch=$ARCH fmt=$FMT"
++log "asset=$ASSET"
++
++mkdir -p "$OUTDIR"
++
++# Expected digest (sha256:...) published by GitHub for the release asset, if any.
++EXPECT="$(gh api "repos/$REPO/releases/tags/$TAG" \
++  --jq ".assets[] | select(.name==\"$ASSET\") | .digest" 2>/dev/null || true)"
++if [ -z "${EXPECT:-}" ] || [ "$EXPECT" = "null" ]; then
++  log "NOTE: release publishes no digest for $ASSET — verifying transfer integrity only"
++fi
++
++# Refuse to hand back a stale file if the download fails.
++rm -f "$OUTDIR/$ASSET"
++if ! gh release download "$TAG" -R "$REPO" -p "$ASSET" -D "$OUTDIR" --clobber; then
++  log "ERROR: could not download $ASSET from $REPO@$TAG"
++  exit 1
++fi
++
++OUT="$OUTDIR/$ASSET"
++[ -s "$OUT" ] || { log "ERROR: downloaded file is empty: $OUT"; exit 1; }
++
++GOT="sha256:$(sha256sum "$OUT" | awk '{print $1}')"
++log "sha256=$GOT"
++if [ -n "${EXPECT:-}" ] && [ "$EXPECT" != "null" ]; then
++  if [ "$EXPECT" != "$GOT" ]; then
++    log "ERROR: digest mismatch for $ASSET"
++    log "  expected: $EXPECT"
++    log "  got:      $GOT"
++    exit 1
++  fi
++  log "digest verified against release asset"
++fi
++
++log "ok: $OUT ($(du -h "$OUT" | cut -f1))"
++echo "$OUT"
+diff --git a/tests/scenarios/test_feed_package.py b/tests/scenarios/test_feed_package.py
+new file mode 100644
+index 0000000..74d87c0
+--- /dev/null
++++ b/tests/scenarios/test_feed_package.py
+@@ -0,0 +1,106 @@
++"""Verify the FreedomTechFeed feed release candidate installs and runs on the
++attached physical router — for BOTH package formats:
++
++  * OpenWrt 24.x -> opkg -> ``.ipk``
++  * OpenWrt 25.x -> apk  -> ``.apk``
++
++Reproducible: the artifact is supplied via ``TOLLGATE_PACKAGE_PATH`` (see
++``make verify-feed-rc``, which downloads it from the feed release with
++``scripts/download-feed-release.sh`` and sha256-verifies it). This test asserts
++the router's package manager matches the artifact format, installs it via the
++standard harness path (``lib.deploy.deploy``), and checks version + build
++identity + service health.
++
++Usage:
++    TOLLGATE_PACKAGE_PATH=/tmp/feed-rc/tollgate-wrt_0.6.0_alpha2_pre_aarch64_cortex-a53.ipk \\
++    TOLLGATE_SSH_HOST=192.168.1.1 TOLLGATE_SSH_PASSWORD=... \\
++    pytest tests/scenarios/test_feed_package.py -v -s
++"""
++import os
++import time
++
++import pytest
++
++from lib import deploy as deploylib
++
++pytestmark = [pytest.mark.api, pytest.mark.hardware, pytest.mark.timeout(600)]
++
++# Defaults pin the current feed RC; override via env for a new release.
++EXPECT_VERSION = os.environ.get("FEED_EXPECT_VERSION", "0.6.0_alpha2_pre-r1")
++EXPECT_COMMIT = os.environ.get(
++    "FEED_EXPECT_COMMIT", "089e876cb24fd2fa8bd9d36323edb71e347e825b"
++)
++
++
++@pytest.fixture(scope="module")
++def feed_package():
++    path = os.environ.get("TOLLGATE_PACKAGE_PATH", "")
++    if not path or not os.path.isfile(path):
++        pytest.skip(
++            "Set TOLLGATE_PACKAGE_PATH to the feed .ipk/.apk "
++            "(make verify-feed-rc downloads it)"
++        )
++    ext = os.path.splitext(path)[1].lstrip(".")
++    if ext not in ("ipk", "apk"):
++        pytest.fail(f"TOLLGATE_PACKAGE_PATH must be .ipk or .apk, got {path}")
++    return path, ext
++
++
++class TestFeedPackage:
++    """Install the feed RC over the router's own package manager and verify it."""
++
++    def test_format_matches_router_package_manager(self, router, feed_package):
++        _, ext = feed_package
++        pm = deploylib.detect_package_manager(router)
++        expected_ext = "apk" if pm == "apk" else "ipk"
++        assert ext == expected_ext, (
++            f"artifact is .{ext} but the router uses {pm} (expects .{expected_ext}) "
++            "— wrong OpenWrt major for this artifact"
++        )
++
++    def test_install_from_feed(self, router, feed_package):
++        path, _ = feed_package
++        result = deploylib.deploy(router, path)
++        assert result.get("success", True) is not False, f"deploy() failed: {result}"
++
++    def test_installed_version(self, router, feed_package):
++        pm = deploylib.detect_package_manager(router)
++        if pm == "apk":
++            # apk: `apk info -e` prints only the name; `apk list -I` prints
++            # "tollgate-wrt-<version> <arch> ... [installed]".
++            out = router.ssh(
++                "apk list -I tollgate-wrt 2>/dev/null || "
++                "apk list --installed 2>/dev/null | grep tollgate-wrt",
++                timeout=15,
++            )
++        else:
++            out = router.ssh("opkg list-installed tollgate-wrt 2>/dev/null", timeout=15)
++        assert EXPECT_VERSION in out, f"expected {EXPECT_VERSION} in router package list: {out!r}"
++
++    def test_build_identity_commit(self, router, feed_package):
++        out = router.ssh(
++            "/usr/bin/tollgate version --json 2>/dev/null || "
++            "/usr/bin/tollgate version 2>/dev/null",
++            timeout=15,
++        )
++        assert EXPECT_COMMIT in out, (
++            f"installed build commit != feed pin {EXPECT_COMMIT}: {out[:300]!r}"
++        )
++
++    def test_api_healthy(self, router, feed_package):
++        # tollgate-wrt can take ~30-60s on first boot (mint probes + wallet).
++        last = ""
++        for _ in range(30):
++            last = router.ssh(
++                "wget -qO- http://127.0.0.1:2121/ 2>/dev/null | head -c 200", timeout=10
++            )
++            if "kind" in last or "metric" in last or "pubkey" in last:
++                return
++            time.sleep(3)
++        assert False, f"tollgate API on :2121 never responded: {last[:200]!r}"
++
++    def test_services_running(self, router, feed_package):
++        services = {"tollgate-wrt": "pidof tollgate-wrt", "nodogsplash": "pidof nodogsplash"}
++        for name, cmd in services.items():
++            out = router.ssh(f"{cmd} 2>/dev/null || echo DOWN", timeout=10)
++            assert "DOWN" not in out, f"{name} is DOWN after installing the feed package"
+-- 
+2.51.0
+

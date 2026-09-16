@@ -1,0 +1,226 @@
+From e885752dc4f875528c929191e481d908255d585c Mon Sep 17 00:00:00 2001
+From: c03rad0r <c03rad0r@users.noreply.github.com>
+Date: Tue, 15 Sep 2026 15:21:53 +0200
+Subject: [PATCH 1/2] test(merchant): centralize Cashu token fixtures (T16)
+
+De-couples the merchant token-flow tests from the concrete Cashu library. The
+tests already exercise WalletPort; the only gonuts coupling was token *fixture*
+construction (cashu.Proofs / NewTokenV3/V4 / Sat). That now lives in a single
+wallet-agnostic helper (tokenfixture_test.go, build tag testenv && !cdk_wallet);
+a future cdk_wallet sibling can build the same fixtures via CDK, keeping the
+tests identical across wallets.
+
+- merchant_token_flow_test.go no longer imports gonuts-tollgate.
+- No behavior change: the characterization assertions are unchanged; the helper
+  produces the same serialized V3/V4 tokens.
+- Left intentionally: quotes_wireformat_test.go + lightning_state_test.go pin
+  gonuts nut04.State behavior (the compatibility contract the port must keep).
+
+Full merchant suite (-tags testenv) green.
+---
+ src/merchant/merchant_token_flow_test.go | 65 +++---------------------
+ src/merchant/tokenfixture_test.go        | 49 ++++++++++++++++++
+ 2 files changed, 56 insertions(+), 58 deletions(-)
+ create mode 100644 src/merchant/tokenfixture_test.go
+
+diff --git a/src/merchant/merchant_token_flow_test.go b/src/merchant/merchant_token_flow_test.go
+index af4d75f..0cab5f2 100644
+--- a/src/merchant/merchant_token_flow_test.go
++++ b/src/merchant/merchant_token_flow_test.go
+@@ -7,7 +7,6 @@ import (
+ 	"strings"
+ 	"testing"
+ 
+-	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+ 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
+ )
+ 
+@@ -79,20 +78,10 @@ func TestTokenFlowCharacterization(t *testing.T) {
+ 		// "Token rejected" error. Fund wraps this as "failed to receive token".
+ 		m := &Merchant{}
+ 
+-		// Construct a valid V4 token using the cashu library.
+-		proofs := cashu.Proofs{
+-			{Amount: 1, Id: "00ad", C: "ab", Secret: "test-secret"},
+-		}
+-		token, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+-		if err != nil {
+-			t.Fatalf("NewTokenV4: %v", err)
+-		}
+-		tokenStr, err := token.Serialize()
+-		if err != nil {
+-			t.Fatalf("Serialize: %v", err)
+-		}
++		// Construct a valid V4 token via the wallet-agnostic fixture helper.
++		tokenStr := mustV4Token(t, 1, "test-secret")
+ 
+-		_, err = m.Fund(tokenStr)
++		_, err := m.Fund(tokenStr)
+ 		if err == nil {
+ 			t.Fatal("Fund(valid token, zero wallet) should return error")
+ 		}
+@@ -103,17 +92,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
+ 	})
+ 
+ 	t.Run("happy_path_v3_token", func(t *testing.T) {
+-		proofs := cashu.Proofs{
+-			{Amount: 2, Id: "00ad", C: "ab", Secret: "stub-secret-v3"},
+-		}
+-		tok, err := cashu.NewTokenV3(proofs, "https://testmint.example.com", cashu.Sat, false)
+-		if err != nil {
+-			t.Fatalf("NewTokenV3: %v", err)
+-		}
+-		tokenStr, err := tok.Serialize()
+-		if err != nil {
+-			t.Fatalf("Serialize: %v", err)
+-		}
++		tokenStr := mustV3Token(t, 2, "stub-secret-v3")
+ 
+ 		m := &Merchant{tollwallet: &stubReceiveWallet{
+ 			receive: func(tollwallet.Token) (uint64, error) { return 2, nil },
+@@ -128,17 +107,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
+ 	})
+ 
+ 	t.Run("happy_path_v4_token", func(t *testing.T) {
+-		proofs := cashu.Proofs{
+-			{Amount: 4, Id: "00ad", C: "ab", Secret: "stub-secret-v4"},
+-		}
+-		tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+-		if err != nil {
+-			t.Fatalf("NewTokenV4: %v", err)
+-		}
+-		tokenStr, err := tok.Serialize()
+-		if err != nil {
+-			t.Fatalf("Serialize: %v", err)
+-		}
++		tokenStr := mustV4Token(t, 4, "stub-secret-v4")
+ 
+ 		m := &Merchant{tollwallet: &stubReceiveWallet{
+ 			receive: func(tollwallet.Token) (uint64, error) { return 4, nil },
+@@ -153,17 +122,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
+ 	})
+ 
+ 	t.Run("already_spent_token", func(t *testing.T) {
+-		proofs := cashu.Proofs{
+-			{Amount: 1, Id: "00ad", C: "ab", Secret: "stub-secret-spent"},
+-		}
+-		tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+-		if err != nil {
+-			t.Fatalf("NewTokenV4: %v", err)
+-		}
+-		tokenStr, err := tok.Serialize()
+-		if err != nil {
+-			t.Fatalf("Serialize: %v", err)
+-		}
++		tokenStr := mustV4Token(t, 1, "stub-secret-spent")
+ 
+ 		spentErr := fmt.Errorf("token already spent: proofs are used")
+ 		m := &Merchant{tollwallet: &stubReceiveWallet{
+@@ -191,17 +150,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
+ // amount, with no face-value re-crediting. The allotment arithmetic over
+ // these post-fee amounts is table-tested on #342.
+ func TestFund_CreditsPostSwapFeeAmount_Fork63(t *testing.T) {
+-	proofs := cashu.Proofs{
+-		{Amount: 5, Id: "00ad", C: "ab", Secret: "fork63-five-sat"},
+-	}
+-	tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
+-	if err != nil {
+-		t.Fatalf("NewTokenV4: %v", err)
+-	}
+-	tokenStr, err := tok.Serialize()
+-	if err != nil {
+-		t.Fatalf("Serialize: %v", err)
+-	}
++	tokenStr := mustV4Token(t, 5, "fork63-five-sat")
+ 
+ 	m := &Merchant{tollwallet: &stubReceiveWallet{
+ 		receive: func(tollwallet.Token) (uint64, error) {
+diff --git a/src/merchant/tokenfixture_test.go b/src/merchant/tokenfixture_test.go
+new file mode 100644
+index 0000000..bd21b19
+--- /dev/null
++++ b/src/merchant/tokenfixture_test.go
+@@ -0,0 +1,49 @@
++//go:build testenv && !cdk_wallet
++
++package merchant
++
++// Token fixture helpers — the SINGLE place in the merchant tests that touches a
++// concrete Cashu library (gonuts-tollgate). Tests build tokens through these
++// helpers so they stay wallet-agnostic; swapping the wallet is then a change to
++// this file plus a build-tagged sibling, not to every test.
++//
++// A future `testenv && cdk_wallet` sibling can build the same tokens via the
++// CDK bindings, keeping the tests identical across wallets.
++
++import (
++	"testing"
++
++	"github.com/OpenTollGate/gonuts-tollgate/cashu"
++)
++
++const fixtureMintURL = "https://testmint.example.com"
++
++// mustV4Token returns a serialized Cashu V4 token ("cashuB…") for amount.
++func mustV4Token(t *testing.T, amount uint64, secret string) string {
++	t.Helper()
++	proofs := cashu.Proofs{{Amount: amount, Id: "00ad", C: "ab", Secret: secret}}
++	tok, err := cashu.NewTokenV4(proofs, fixtureMintURL, cashu.Sat, false)
++	if err != nil {
++		t.Fatalf("NewTokenV4: %v", err)
++	}
++	s, err := tok.Serialize()
++	if err != nil {
++		t.Fatalf("Serialize: %v", err)
++	}
++	return s
++}
++
++// mustV3Token returns a serialized Cashu V3 token ("cashuA…") for amount.
++func mustV3Token(t *testing.T, amount uint64, secret string) string {
++	t.Helper()
++	proofs := cashu.Proofs{{Amount: amount, Id: "00ad", C: "ab", Secret: secret}}
++	tok, err := cashu.NewTokenV3(proofs, fixtureMintURL, cashu.Sat, false)
++	if err != nil {
++		t.Fatalf("NewTokenV3: %v", err)
++	}
++	s, err := tok.Serialize()
++	if err != nil {
++		t.Fatalf("Serialize: %v", err)
++	}
++	return s
++}
+-- 
+2.51.0
+
+
+From 67adb09078a3ef84e3e23b23c52083c364486c96 Mon Sep 17 00:00:00 2001
+From: c03rad0r <c03rad0r@users.noreply.github.com>
+Date: Wed, 16 Sep 2026 08:53:33 +0200
+Subject: [PATCH 2/2] docs(changelog): note the merchant test fixture
+ de-coupling (#396)
+
+---
+ CHANGELOG.md | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ef5f7ba..77cf0a6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -12,6 +12,12 @@ and [Semantic Versioning](https://semver.org/).
+ 
+ ### Changed / Internal
+ 
++- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
++  merchant token-flow tests no longer import the concrete wallet package; token
++  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
++  library-agnostic so the wallet backend can change without touching them.
++  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
++
+ - **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
+   from the `tmp/release-integration` pseudo-version to the tagged release
+   `v0.11.2` (empty-proofs guard, LoadWallet deadlock fix, hostile-token corpus).
+-- 
+2.51.0
+

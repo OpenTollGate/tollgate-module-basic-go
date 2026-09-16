@@ -1,8 +1,13 @@
 # STATUS — wallet migration program + RC workstreams (resume here)
 
-**Updated:** 2026-09-15 · **Branch:** `felixfelix-bot/tollgate-module-basic-go`
+**Updated:** 2026-09-16 · **Branch:** `felixfelix-bot/tollgate-module-basic-go`
 `research/wallet-migration` · **Purpose:** single checklist so a fresh context can
 resume where this one left off.
+
+**Close-out docs:** [`04-reports/FINDINGS-2026-09-16.md`](04-reports/FINDINGS-2026-09-16.md)
+(Q3/Q4/Q7/Q9 + retrospective) · [`04-reports/PR-STATUS.md`](04-reports/PR-STATUS.md)
+(merge state) · [`patches/`](patches/) (all code-PR diffs archived here) ·
+[`04-reports/HOST-SETUP.md`](04-reports/HOST-SETUP.md) (qemu/mipsel host setup).
 
 ---
 
@@ -25,7 +30,7 @@ resume where this one left off.
 
 ### A. FreedomTechFeed RC
 - [x] A1 health-window fix — **PR #11 merged**
-- [x] A2 force-flash + sysupgrade-misparse fix — **PR #12** (open)
+- [x] A2 force-flash + sysupgrade-misparse fix — **PR #12 MERGED** (by `c03rad0r` 2026-09-14)
 - [x] A3 RC binaries on fork release `v0.6.0-alpha2-pre-rc1`
 - [x] A4–A6 harness `verify-feed-rc` (script+test+Make target) — **PR #116**
 - [x] A7–A11 opkg 24.10 **6/6**, force-flash, apk 25.12 **6/6**, report `~/reports/…`
@@ -82,26 +87,41 @@ Phase 4 / CI
 
 ---
 
-## Only these remain (external / infra-gated)
-1. **nucula#8** — licence + upstream Linux target (author's call).
-2. **`openwrt/packages` PR** — deferred by operator.
-3. **Spike N mipsel physical confirmation** — the mipsel harness **runs under
-   qemu-user** with all self-tests passing; only a real mipsel router would add
-   the final kernel/musl confirmation.
-4. **T16 `tollwallet` tests** — adapter-specific by design.
+## What remains (see `04-reports/FINDINGS-2026-09-16.md` for detail)
+
+**Engineering**
+1. **On-router mint reachability** — the router has no upstream and cannot reach
+   the host (LAN isolation); on-device `cdk-mintd` needs `protoc` in the SDK
+   container (installable → not a hard block). Until then, on-router
+   value-flow / `swap_proof_loss` runs stay host-only.
+2. **Physical mipsel confirmation** — the harness *runs under qemu* with all
+   self-tests passing; a real mipsel router would add kernel/musl confirmation.
+3. **T2e behavioural parity** (gonuts vs CDK identical results) — SPEC.
+4. **T6 migration path + rollback** — TODO.
+5. **T5 integration-architecture decision record** — DESIGN.
+6. **T16 `tollwallet` tests** — adapter-specific by design (done as scoped).
+
+**External / operator**
+7. **nucula#8** — licence + upstream Linux target (author's call).
+8. **Land the open PRs** — needs a maintainer with write access (`felixfelix-bot`
+   is read-only upstream); #12 already merged. See `04-reports/PR-STATUS.md`.
+9. **`openwrt/packages` PR** — deferred by operator (do not open).
 
 ---
 
-## Open PRs (mine)
+## PRs (mine) — full state in `04-reports/PR-STATUS.md`
 
-| Repo | PR | Branch | What |
+| Repo | PR | Branch | State |
 |---|---|---|---|
-| `OpenTollGate/tollgate-module-basic-go` | **#395** | `pr/wallet-sidecar` | sidecar client + manifests + policy + selection + `Call` + CI consistency test |
-| `OpenTollGate/tollgate-module-basic-go` | **#396** | `pr/t16-decouple` | merchant tests de-coupled (T16 increment) |
-| `OpenTollGate/physical-router-test-automation` | **#117** | `pr/wallet-sidecar-tests` | wallet-sidecar tests + security edge cases |
-| `OpenTollGate/physical-router-test-automation` | **#116** | `pr/feed-rc-verify` | feed RC verification |
-| `OpenTollGate/tollgate-installer` | **#12** | `pr/force-flash` | force-flash + sysupgrade fix |
-| `OpenTollGate/tollgate-installer` | **#11** | — | health-window (MERGED) |
+| `OpenTollGate/tollgate-module-basic-go` | **#395** | `pr/wallet-sidecar` | OPEN — `BLOCKED`/review required |
+| `OpenTollGate/tollgate-module-basic-go` | **#396** | `pr/t16-decouple` | OPEN — `BLOCKED`/review required |
+| `OpenTollGate/physical-router-test-automation` | **#117** | `pr/wallet-sidecar-tests` | OPEN — `CLEAN` |
+| `OpenTollGate/physical-router-test-automation` | **#116** | `pr/feed-rc-verify` | OPEN — `CLEAN` |
+| `OpenTollGate/tollgate-installer` | **#12** | `pr/force-flash` | **MERGED** |
+| `OpenTollGate/tollgate-installer` | **#11** | — | **MERGED** |
+
+The agent account has **read-only** upstream access, so none can be self-merged;
+a maintainer with write access is required. All diffs are archived in `patches/`.
 
 ## Key commits (research branch)
 `da1a620` Spike C · `f352ddc` Spike N compile · `f86464c`/`16833b6` footprints ·
@@ -125,5 +145,9 @@ reconciliation · `ab82b1b` send_p2pk · `7409879` CI consistency (module) ·
 ## Where things live
 Research branch: `00-context`…`05-architecture`, `STATUS.md` (this), `experiments/`
 (`cdk-footprint`, `cdk-sidecar`, `cdk-walletd` incl. `client/`, `local-mint`,
-`nucula-port` incl. `output-link.txt`/`run-cross-link.sh`, `parity`).
+`nucula-port` incl. `output-link.txt`/`output-link-mipsel.txt`/`run-cross-link.sh`,
+`parity` incl. `swap_proof_loss.py`, `drop_swap_proxy.py`, `htlc-nsigs-parity/`,
+`raw/`), plus `patches/` (code-PR diffs) and `04-reports/`
+(`RECOMMENDATION.md`, `PHASE1-feasibility.md`, `FINDINGS-2026-09-16.md`,
+`PR-STATUS.md`, `HOST-SETUP.md`).
 Reports: `~/reports/` (DQ05 + CW).
