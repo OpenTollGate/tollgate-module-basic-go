@@ -39,7 +39,7 @@ dissent — and can check all of it out from this branch alone.
 
 | # | Task | Owner | Status | Artifact |
 |---|---|---|---|---|
-| T2b | **Port spike:** compile nucula's wallet core on native Linux (x86_64), then cross-compile for a router arch (aarch64 musl) with the OpenWrt SDK. Measure size/RSS/threads. Exclude peripherals. | worker (firmware) | **PARTIAL** (core cross-compiles 20/20 on aarch64+mipsel; link+run pending) | `experiments/nucula-port/` |
+| T2b | **Port spike:** compile nucula's wallet core on native Linux (x86_64), then cross-compile for a router arch (aarch64 musl) with the OpenWrt SDK. Measure size/RSS/threads. Exclude peripherals. | worker (firmware) | **DONE** (core 20/20 both arches; linked + **RUN**: aarch64 on the physical MT6000, mipsel under qemu-user with all self-tests passing; 1.77 MiB / 1.87 MiB) | `experiments/nucula-port/` |
 | T2c | **Licence ask:** approach the author for an explicit licence (MIT/Apache-2.0/GPL-3.0 choice). Nothing ships before this. | operator/manager | **SENT 2026-09-14 (nucula#8)** | `01-candidates/nucula-licence-request.md` |
 | T2d | ESP-IDF API-boundary inventory: every header/API the core files use, with the Linux replacement, and the portable-vs-entangled ratio | worker | **DONE** | `01-candidates/nucula-port-map.md` |
 | T2e | Behavioural parity: run the same mint-quote/mint/swap/melt flows against a local mint on Linux and compare results with gonuts for the same inputs | worker | **SPEC** | `experiments/nucula-parity/` |

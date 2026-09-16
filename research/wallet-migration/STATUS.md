@@ -36,7 +36,12 @@ resume where this one left off.
 Phase 1 — feasibility spikes
 - [x] Spike C: CDK wallet-only mipsel + footprint (`da1a620`)
 - [x] Spike N compile: nucula core 20/20 both arches (`f352ddc`)
-- [x] **Spike N link + RUN: nucula core runs on the MT6000** (`output-link.txt`, `run-cross-link.sh`) — mipsel *run* needs a mipsel router
+- [x] **Spike N link + RUN: nucula core runs on the MT6000** (`output-link.txt`, `run-cross-link.sh`)
+- [x] **Spike N mipsel RUN (qemu-user)**: the mipsel harness builds (1.87 MiB) and
+      executes with **all self-test suites passing** (`SELFTEST_RESULT suites=4
+      failures=0`) under `qemu-mipsel-static` + a musl sysroot
+      (`output-link-mipsel.txt`, `run-cross-link.sh ARCH=mipsel`) — pending only a
+      physical mipsel router for final confirmation
 - [x] CDK mipsel pin-bump finding (`6cff5e8`)
 
 Phase 2 — standardize the seam (module)
@@ -80,7 +85,9 @@ Phase 4 / CI
 ## Only these remain (external / infra-gated)
 1. **nucula#8** — licence + upstream Linux target (author's call).
 2. **`openwrt/packages` PR** — deferred by operator.
-3. **Spike N mipsel run** — needs a physical mipsel router (compile proven; aarch64 run proven).
+3. **Spike N mipsel physical confirmation** — the mipsel harness **runs under
+   qemu-user** with all self-tests passing; only a real mipsel router would add
+   the final kernel/musl confirmation.
 4. **T16 `tollwallet` tests** — adapter-specific by design.
 
 ---
