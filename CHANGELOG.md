@@ -48,6 +48,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Process-isolated wallet sidecar + capability manifests.** `src/tollwallet`
+  gains a `WalletPort` client that speaks a newline-delimited JSON RPC over an
+  `AF_UNIX` socket to an out-of-process wallet daemon, so a non-Go wallet
+  (e.g. CDK) can back the module without linking CGO. Per-backend capability
+  manifests (`manifests/{gonuts,cdk,nucula}.json`) and a
+  `wallet-policy.json` selection policy make the backend a per-target choice
+  behind the unchanged `WalletPort` contract; `select.go` resolves the policy to
+  a backend and `Call()` provides an explicit escape hatch for backend-specific
+  methods. Adds manifest/policy validation tests and a policy↔manifest
+  consistency check that runs in the test matrix. ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395))
+
 - **Reproducible builds.** Every byte-affecting build input is now pinned
   in `packaging/build-inputs.json` and loaded through the canonical
   `packaging/build-env.sh`: exact Go (1.25.8), Node (22.17.0), npm
