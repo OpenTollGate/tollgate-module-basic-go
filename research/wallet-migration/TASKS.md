@@ -116,3 +116,16 @@ nostr.mom/relay1-2.orangesync.tech; T2e driver = new `gonutsinterop` (mirrors
 `cdkinterop`), not the service socket. If T5's decision changes
 `src/tollwallet/manifests/wallet-policy.json`, that lands as its own commit on the
 module PR branch (`pr/wallet-sidecar`), not here.
+
+### Status (2026-09-16, end of session)
+
+| # | Status | Commit / artifact |
+|---|---|---|
+| P1 | **BLOCKED (signer)** — source + metadata committed; the NIP-46 bunker accepts the connect but returns no signature (3 attempts, ≤150 s each). Publish once the signer app is online | `04-reports/nostr-post.md`, `d3ccf28` |
+| T2e | **DONE** — PASS (identical observable results; cross-receive both ways) | `3708637` |
+| T5 | **DONE** — per-target decision recorded; +6.0/+7.5 MiB sidecar cost | `10396a9` |
+| T6 | **DONE** — migrate + rollback green, no value lost | `e2ae4ff` |
+
+**To finish P1:** bring the signer online, then run the command in
+`04-reports/nostr-post.meta.md` (the `d` tag makes it addressable, so a partial
+attempt is superseded) and record the returned event id there.

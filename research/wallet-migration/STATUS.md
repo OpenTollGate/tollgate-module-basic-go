@@ -22,6 +22,12 @@ resume where this one left off.
   and HTLC `n_sigs` (NUT-14) signature enforcement, and a **conclusive
   swap-proof-loss** result (no value lost across a crashed swap). PRs
   #395/#396/#117. Nucula's core is cross-built **and running on the router**.
+- **C. Close-out (2026-09-16)** — **T2e behavioural parity PASSES** (gonuts vs CDK
+  on identical inputs; tokens interchange both ways), **T5 integration decision**
+  recorded (per-target sidecar-vs-in-process; +6.0/+7.5 MiB measured), and
+  **T6 migration + rollback rehearsed green** (no value lost). The Nostr
+  long-form post is written and committed but **publish is blocked on the
+  operator's signer**.
 - **Only genuinely-external/blocked items remain** (below).
 
 ---
@@ -93,19 +99,24 @@ Phase 4 / CI
 1. **On-router mint reachability** — the router has no upstream and cannot reach
    the host (LAN isolation); on-device `cdk-mintd` needs `protoc` in the SDK
    container (installable → not a hard block). Until then, on-router
-   value-flow / `swap_proof_loss` runs stay host-only.
+   value-flow / `swap_proof_loss` / migration runs stay host-only.
 2. **Physical mipsel confirmation** — the harness *runs under qemu* with all
    self-tests passing; a real mipsel router would add kernel/musl confirmation.
-3. **T2e behavioural parity** (gonuts vs CDK identical results) — SPEC.
-4. **T6 migration path + rollback** — TODO.
-5. **T5 integration-architecture decision record** — DESIGN.
+3. **On-device (router) migration rehearsal** — the local lab rehearsal is green;
+   the on-device dry run needs (1).
+4. **Same-seed NUT-09 restore (optional)** — documented as the preferred migration
+   alternative; needs a gonuts seed-export tool + derivation-compat check.
+5. **On-device `df` for the flash budget** — the one open field measurement for T5.
 6. **T16 `tollwallet` tests** — adapter-specific by design (done as scoped).
 
 **External / operator**
-7. **nucula#8** — licence + upstream Linux target (author's call).
-8. **Land the open PRs** — needs a maintainer with write access (`felixfelix-bot`
+7. **Publish the Nostr post (P1)** — source + metadata committed; the operator's
+   NIP-46 bunker accepts the connect but returns no signature (signer app offline
+   or awaiting approval). One command in `04-reports/nostr-post.meta.md` once up.
+8. **nucula#8** — licence + upstream Linux target (author's call).
+9. **Land the open PRs** — needs a maintainer with write access (`felixfelix-bot`
    is read-only upstream); #12 already merged. See `04-reports/PR-STATUS.md`.
-9. **`openwrt/packages` PR** — deferred by operator (do not open).
+10. **`openwrt/packages` PR** — deferred by operator (do not open).
 
 ---
 
@@ -144,10 +155,12 @@ reconciliation · `ab82b1b` send_p2pk · `7409879` CI consistency (module) ·
 
 ## Where things live
 Research branch: `00-context`…`05-architecture`, `STATUS.md` (this), `experiments/`
-(`cdk-footprint`, `cdk-sidecar`, `cdk-walletd` incl. `client/`, `local-mint`,
+(`cdk-footprint`, `cdk-sidecar` incl. `init/cdk-walletd.init`, `cdk-walletd` incl.
+`client/`, `local-mint`, `flash-budget`, `migration`,
 `nucula-port` incl. `output-link.txt`/`output-link-mipsel.txt`/`run-cross-link.sh`,
 `parity` incl. `swap_proof_loss.py`, `drop_swap_proxy.py`, `htlc-nsigs-parity/`,
-`raw/`), plus `patches/` (code-PR diffs) and `04-reports/`
-(`RECOMMENDATION.md`, `PHASE1-feasibility.md`, `FINDINGS-2026-09-16.md`,
-`PR-STATUS.md`, `HOST-SETUP.md`).
+`gonutsinterop/`, `behavioural_parity.py`, `raw/`), plus `patches/` (code-PR diffs)
+and `04-reports/` (`RECOMMENDATION.md`, `PHASE1-feasibility.md`,
+`FINDINGS-2026-09-16.md`, `PR-STATUS.md`, `HOST-SETUP.md`, `nostr-post.md`,
+`nostr-post.meta.md`).
 Reports: `~/reports/` (DQ05 + CW).
