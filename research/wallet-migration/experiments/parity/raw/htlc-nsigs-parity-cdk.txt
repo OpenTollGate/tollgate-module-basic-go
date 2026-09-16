@@ -1,0 +1,35 @@
+# T15 NUT-14 HTLC n_sigs-omission parity — raw evidence (CDK)
+
+## Environment
+- date: 2026-09-16T00:11:36Z
+- host: Linux 6.17.0-41-generic x86_64
+- cashu crate: /home/c03rad0r/r2-work/cdk-upstream/crates/cashu @ 7e961b8
+- rustc: rustc 1.94.0 (4a4ef493e 2026-03-02)
+
+## The property (gonuts fork 296c7bf)
+gonuts' `VerifyHTLCProof`/AddWitnessHTLC skipped the signature check when
+`n_sigs` was omitted (default 0) even though `pubkeys` were present, so an
+HTLC-locked proof was spendable with the preimage alone. The fix defaults
+required signatures to 1 when pubkeys are present.
+
+## Candidate enforcement (cdk `7e961b8`)
+- crates/cashu/src/nuts/nut10/mod.rs:235-239  (HTLC required_sigs)
+      let required_sigs = if pubkeys.is_empty() { 0 }
+                          else { conditions.num_sigs.unwrap_or(1) };
+  -> pubkeys present + n_sigs omitted => 1 required signature.
+- crates/cashu/src/nuts/nut10/spending_conditions.rs:184-188
+      if let Some(n) = self.num_sigs { if n == 0 { return Err(ZeroSignaturesRequired) } }
+  -> explicit n_sigs=0 is rejected at parse (fail-closed).
+
+## Result (htlc-nsigs-parity/run.sh)
+candidate cdk revision:
+  A pubkeys+n_sigs omitted, no signature (BYPASS)      -> Err(SignaturesNotProvided)         want Err  PASS
+  B pubkeys+n_sigs omitted, valid signature            -> Ok                                 want Ok   PASS
+  C no pubkeys, preimage only                          -> Ok                                 want Ok   PASS
+  D pubkeys+n_sigs=0                                   -> Err(SpendConditionsNotMet)         want Err  PASS
+VERDICT: PASS -- CDK reproduces the 296c7bf enforcement (default 1 sig when pubkeys present; n_sigs=0 rejected)
+
+Conclusion: CDK enforces a signature whenever pubkeys are present but n_sigs
+is omitted (the 296c7bf bypass shape is rejected), accepts a correct
+signature, still allows the legitimate preimage-only path, and rejects
+n_sigs=0 outright. It reproduces -- and exceeds -- the gonuts fix.

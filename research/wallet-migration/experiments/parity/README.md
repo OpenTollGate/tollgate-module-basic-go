@@ -50,12 +50,45 @@ Implemented and passing on the physical MT6000
 
 Status of the remaining two cases:
 
-- **`htlc_signature_enforcement`** (fork `296c7bf`) — **PARTIAL**. The NUT-11
-  (P2PK) half is implemented and passing: a P2PK-locked token presented without
-  the required witness is rejected (`Witness signatures not provided`,
-  host-verified), and a harness test exists (`physical-router-test-automation`
-  #117, `87a3e92`). The NUT-14 (HTLC, preimage) half is still specified.
+- **`htlc_signature_enforcement`** (fork `296c7bf`) — **DONE**. Two legs:
+  - **NUT-11 (P2PK)**: a P2PK-locked token presented without the required
+    witness is rejected (`Witness signatures not provided`, host-verified), with
+    a harness test (`physical-router-test-automation` #117, `87a3e92`).
+  - **NUT-14 (HTLC)**: the exact `296c7bf` bypass shape — `pubkeys` present but
+    `n_sigs` **omitted** — is rejected by the candidate; see below.
 - **`swap_proof_loss`** (fork `7dc430b`) — **DONE, conclusive**. See below.
+
+### `htlc_signature_enforcement` — NUT-14 `n_sigs` leg (2026-09-16)
+
+The gonuts bug: `VerifyHTLCProof`/`AddWitnessHTLC` skipped the signature check
+when `n_sigs` was omitted (`0`) even though `pubkeys` were present, so an
+HTLC-locked proof was spendable with the **preimage alone**. The fix defaults
+the required signatures to 1 when pubkeys are present.
+
+CDK's HTLC verifier encodes exactly that rule
+(`crates/cashu/src/nuts/nut10/mod.rs:235`):
+
+```rust
+let required_sigs = if pubkeys.is_empty() { 0 }
+                    else { conditions.num_sigs.unwrap_or(1) };
+```
+
+and additionally rejects an explicit `n_sigs=0` at parse
+(`spending_conditions.rs` `ZeroSignaturesRequired`, fail-closed).
+
+`htlc-nsigs-parity/` is a standalone crate (path-dependency on the `cashu`
+crate under review) that drives `Proof::verify_htlc` — the direct analogue of
+gonuts' `VerifyHTLCProof` — over four cases. Run: `CDK_DIR=<checkout>
+./htlc-nsigs-parity/run.sh`. Raw output: `raw/htlc-nsigs-parity-cdk.txt`.
+
+| Case | Input | Result |
+|---|---|---|
+| A | `pubkeys` + `n_sigs` omitted, correct preimage, **no signature** | `Err(SignaturesNotProvided)` — bypass **closed** |
+| B | same secret + a valid signature | `Ok` — condition satisfiable |
+| C | no pubkeys, preimage only | `Ok` — legitimate path intact |
+| D | `pubkeys` + explicit `n_sigs=0` | `Err` — fail-closed |
+
+**Verdict: CDK reproduces — and exceeds — the `296c7bf` enforcement.**
 
 ### `swap_proof_loss` — conclusive (2026-09-16)
 
@@ -125,9 +158,11 @@ the candidate's commit SHA, and raw output.
 - `cross-mint` / `double-spend` / value conservation — passing on the physical
   MT6000 (`physical-router-test-automation` #117).
 - `swap_proof_loss` — **conclusive** host-local (this directory).
-- `htlc_signature_enforcement` — NUT-11 half passing; NUT-14 half still open.
+- `htlc_signature_enforcement` — **both legs done**: NUT-11 (P2PK) host +
+  harness; NUT-14 (HTLC `n_sigs`) via `htlc-nsigs-parity/`.
 
-The remaining T15 work is the NUT-14 HTLC-preimage leg, plus the same
-`swap_proof_loss` run repeated **on the router** against the local mint once the
-on-device mint path exists (currently the router has no upstream and cannot reach
-a host mint — see `../local-mint/README.md`).
+All three T15 cases now have a passing assertion against the candidate. The
+remaining work is re-running `swap_proof_loss` **on the router** against a
+local mint once the on-device mint path exists (currently the router has no
+upstream and cannot reach a host mint — see `../local-mint/README.md`), and the
+`behavioural_parity` (T2e) comparison across gonuts and CDK.

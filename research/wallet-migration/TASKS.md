@@ -85,7 +85,7 @@ parity work (T2e) and to the interchangeability suite (T12):
 
 | # | Task | Owner | Status | Artifact |
 |---|---|---|---|---|
-| T15 | Parity cases for the fork's security/funds-safety fixes (HTLC signature enforcement; swap proof-loss) — a failing test per case, run against the candidate wallet | worker | **MOSTLY DONE** (cross-mint + double-spend passing on MT6000 -> PR #117; NUT-11 P2PK signature enforcement host-verified; **swap-proof-loss conclusive** -> `raw/swap_proof_loss-cdk.txt`; NUT-14 HTLC leg open) | `experiments/parity/` |
+| T15 | Parity cases for the fork's security/funds-safety fixes (HTLC signature enforcement; swap proof-loss) — a failing test per case, run against the candidate wallet | worker | **DONE** (cross-mint + double-spend passing on MT6000 -> PR #117; **swap-proof-loss conclusive** -> `raw/swap_proof_loss-cdk.txt`; **HTLC signature enforcement both legs** -> `raw/htlc-nsigs-parity-cdk.txt`) | `experiments/parity/` |
 | T16 | **Optionality work (1–2 days, recommended regardless of the final choice):** de-couple the 9 test files from the concrete wallet library so the three un-fork paths become a *choice* rather than a fate. Only 2 non-test files import the library (`tollwallet/gonuts_wallet.go`, `tollwallet/tollwallet.go`). | worker (code) | **DONE** (merchant tests de-coupled -> PR #396; gonuts-adapter tests intentionally remain)| `03-baseline/t16-decoupling.md` |
 
 **Measured blast radius for any module-path change:** 327 branches carry a `replace`

@@ -12,9 +12,11 @@ resume where this one left off.
   package formats (opkg `.ipk` 24.10, apk `.apk` 25.12). PRs #11/#12/#116. Feed
   recipe now pins an immutable **commit SHA** (A12 done).
 - **B. Wallet migration** — architecture decided; the **CDK process-isolated
-  sidecar is complete and runs on the MT6000** with the full value flow and the
-  security cases (cross-mint, double-spend, P2PK signature enforcement) passing.
-  PRs #395/#396/#117. Nucula's core is cross-built **and running on the router**.
+  sidecar is complete and runs on the MT6000** with the full value flow and ALL
+  T15 security-parity cases passing: cross-mint, double-spend, P2PK (NUT-11)
+  and HTLC `n_sigs` (NUT-14) signature enforcement, and a **conclusive
+  swap-proof-loss** result (no value lost across a crashed swap). PRs
+  #395/#396/#117. Nucula's core is cross-built **and running on the router**.
 - **Only genuinely-external/blocked items remain** (below).
 
 ---
@@ -62,7 +64,12 @@ T15 security parity (adoption gate)
       and the same-seed wallet reconciled to the **full balance on restart**
       (`experiments/parity/swap_proof_loss.py` + `raw/swap_proof_loss-cdk.txt`).
       CDK reproduces the fork's `7dc430b` no-proof-loss property.
-- [ ] NUT-14 HTLC-preimage leg (NUT-11 P2PK half done: host-verified + harness)
+- [x] NUT-11 P2PK signature enforcement (host-verified + harness `87a3e92`)
+- [x] **NUT-14 HTLC `n_sigs`-omission enforcement** — the exact fork `296c7bf`
+      bypass shape (`pubkeys` present, `n_sigs` omitted) is **rejected**
+      (`Err(SignaturesNotProvided)`); a valid signature is accepted; the
+      preimage-only path still works; `n_sigs=0` is rejected outright.
+      `experiments/parity/htlc-nsigs-parity/` + `raw/htlc-nsigs-parity-cdk.txt`.
 - [ ] nucula licence / upstream Linux target — **nucula#8**, waiting on the author
 
 Phase 4 / CI
@@ -71,13 +78,10 @@ Phase 4 / CI
 ---
 
 ## Only these remain (external / infra-gated)
-1. **T15 NUT-14 HTLC-preimage leg** — the NUT-11 (P2PK) half is done; the HTLC
-   (preimage) half still needs an HTLC-locked fixture. `swap_proof_loss` is
-   **conclusive** as of 2026-09-16.
-2. **nucula#8** — licence + upstream Linux target (author's call).
-3. **`openwrt/packages` PR** — deferred by operator.
-4. **Spike N mipsel run** — needs a physical mipsel router (compile proven; aarch64 run proven).
-5. **T16 `tollwallet` tests** — adapter-specific by design.
+1. **nucula#8** — licence + upstream Linux target (author's call).
+2. **`openwrt/packages` PR** — deferred by operator.
+3. **Spike N mipsel run** — needs a physical mipsel router (compile proven; aarch64 run proven).
+4. **T16 `tollwallet` tests** — adapter-specific by design.
 
 ---
 
