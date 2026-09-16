@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 
+	gonwallet "github.com/OpenTollGate/gonuts-tollgate/wallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
@@ -50,6 +51,16 @@ func main() {
 	defer func() { _ = w.Shutdown() }()
 
 	switch cmd {
+	case "seed":
+		// Migration aid: expose gonuts' stored BIP-39 mnemonic (from wallet.db)
+		// so a same-seed NUT-09 restore into CDK can be attempted.
+		gw, err := gonwallet.LoadWallet(gonwallet.Config{WalletPath: dir, CurrentMintURL: mint})
+		if err != nil {
+			emit(map[string]any{"cmd": cmd, "ok": false, "error": err.Error()})
+			return
+		}
+		emit(map[string]any{"cmd": cmd, "ok": true, "mnemonic": gw.Mnemonic()})
+
 	case "balance":
 		emit(map[string]any{"cmd": cmd, "ok": true, "balance": w.GetBalance()})
 

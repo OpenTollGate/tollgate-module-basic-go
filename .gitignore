@@ -57,3 +57,7 @@ nuts/
 packaging/*.ipk
 scripts/token-recovery/token-recovery
 *.cov
+
+# Python bytecode from the experiment runners
+__pycache__/
+*.pyc
