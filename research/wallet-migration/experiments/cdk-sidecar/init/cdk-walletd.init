@@ -1,0 +1,59 @@
+#!/bin/sh /etc/rc.common
+# cdk-walletd — OpenWrt procd init for the process-isolated CDK wallet sidecar.
+#
+# Sketch for T5 (experiments/cdk-sidecar/init/). Not shipped yet: the daemon is a
+# separate package and the router-service integration (fallback, seed wiring) is
+# a follow-up. See 05-architecture/integration-decision.md.
+#
+# Placement: /etc/init.d/cdk-walletd  (installed by the cdk-walletd package)
+# START=95 runs before tollgate-wrt (START=99); STOP=10 stops after it.
+
+USE_PROCD=1
+START=95
+STOP=10
+
+PROG=/usr/bin/cdk-walletd
+CONF=/etc/tollgate/config.json
+RUNDIR=/var/run/tollgate
+SOCKET="$RUNDIR/wallet.sock"
+WORKDIR=/etc/tollgate/cdk-wallet
+SEEDFILE=/etc/tollgate/cdk-seed        # 0600, device-derived mnemonic; not committed
+USER=tollgate
+
+# First accepted mint from the module config, if present.
+mint_url() {
+	[ -f "$CONF" ] || return 1
+	jsonfilter -i "$CONF" -e '@.accepted_mints[0].url' 2>/dev/null
+}
+
+start_service() {
+	mint="$(mint_url)" || {
+		logger -t cdk-walletd "no accepted mints in $CONF; not starting"
+		return 1
+	}
+
+	mkdir -p "$RUNDIR" "$WORKDIR"
+	chmod 0700 "$RUNDIR" "$WORKDIR"
+	# The seed is the one secret; keep it service-owned and unreadable by others.
+	[ -f "$SEEDFILE" ] && chmod 0600 "$SEEDFILE"
+
+	procd_open_instance cdk-walletd
+	procd_set_param command "$PROG" \
+		--socket "$SOCKET" \
+		--work-dir "$WORKDIR" \
+		--mint "$mint" \
+		--mnemonic "$(cat "$SEEDFILE" 2>/dev/null)"
+	procd_set_param user "$USER"
+	procd_set_param respawn 3600 5 5       # respawn; give up after 5 fails in 5s, 1h window
+	procd_set_param stderr 1               # capture to syslog
+	procd_set_param limits nofile=1024
+	procd_close_instance
+}
+
+service_triggers() {
+	procd_add_reload_trigger tollgate
+}
+
+stop_service() {
+	[ -S "$SOCKET" ] && rm -f "$SOCKET"
+}

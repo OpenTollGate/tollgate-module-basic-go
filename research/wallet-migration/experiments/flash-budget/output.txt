@@ -1,0 +1,17 @@
+== local cross-built artifacts ==
+cdk-walletd aarch64 : 6.02 MiB (6314096 B)
+cdk-walletd mipsel  : 7.51 MiB (7879796 B)
+nucula harness aarch64: 1.69 MiB (1772736 B)
+nucula harness mipsel : 1.87 MiB (1962432 B)
+
+== published tollgate-wrt package sizes (v0.6.0-alpha2-pre3) ==
+tollgate-wrt_0.6.0_alpha2_pre3_aarch64_cortex-a53.apk 7905446
+tollgate-wrt_0.6.0_alpha2_pre3_aarch64_cortex-a53.ipk 7943394
+tollgate-wrt_0.6.0_alpha2_pre3_mipsel_24kc.apk 8120511
+tollgate-wrt_0.6.0_alpha2_pre3_mipsel_24kc.ipk 8196917
+
+== in-process service (gonuts, for reference) ==
+tollgate-wrt binary (aarch64, installed): 12081696 B / 11.52 MiB  [03-baseline/gonuts.md]
+tollgate CLI binary (aarch64, installed) :  7146944 B /  6.82 MiB  [03-baseline/gonuts.md]
+
+(set ROUTER=root@<ip> to capture on-device df/installed sizes)
