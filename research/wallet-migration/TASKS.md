@@ -107,6 +107,7 @@ fresh context can pick up mid-flight.
 | # | Task | Deliverable | Evidence | Effort |
 |---|---|---|---|---|
 | P1 | Publish a NIP-23 (`kind 30023`) long-form post summarising the findings + tradeoffs (gonuts vs CDK vs nucula) to Nostr, signed via the operator's NIP-46 bunker; commit the source | `04-reports/nostr-post.md` (+ `## Published` event id) | returned event id + per-relay acceptance | 0.5 d |
+| P2 | Reliable signer fallback: validate the operator's own **nosigner** (NIP-46 daemon + one-shot `sign`) with an ephemeral identity, and document how to run it with the Amber identity on another machine | `04-reports/nosigner-setup.md` | ephemeral test event signed + published + fetched back; daemon-path findings | 0.5–1 d |
 | T2e | **Behavioural parity** gonuts vs CDK on identical fixed inputs against the local fakewallet mint | `experiments/parity/gonutsinterop/` (Go driver), `experiments/parity/behavioural_parity.py`, `raw/behavioural_parity-{gonuts,cdk}.txt` | normalized results equal (amounts, states, fee reserves) | 2–4 d |
 | T5 | **Integration decision record**: sidecar-vs-embed per target, flash budget, supervision, socket auth, ALPHA-pin policy | `05-architecture/integration-decision.md`, `experiments/flash-budget/`, `experiments/cdk-sidecar/init/cdk-walletd.init` | measured `df`/sizes/RSS on both tiers; procd sketch | 1–2 d |
 | T6 | **Migration path + rollback**: move a router's gonuts wallet (proofs+seed) to CDK, reversibly | `03-baseline/migration-path.md`, `experiments/migration/` | local dry run: gonuts → migrate → NUT-07 verify → switch → rollback → verify | 2–4 d |
@@ -122,6 +123,7 @@ module PR branch (`pr/wallet-sidecar`), not here.
 | # | Status | Commit / artifact |
 |---|---|---|
 | P1 | **BLOCKED (signer)** — source + metadata committed; the NIP-46 bunker accepts the connect but returns no signature (3 attempts, ≤150 s each). Publish once the signer app is online | `04-reports/nostr-post.md`, `d3ccf28` |
+| P2 | **DONE (fallback)** — nosigner validated with an ephemeral identity (one-shot `sign` + publish **PASS**); Amber-identity setup documented; daemon path has a known key bug + nak interop gap | `04-reports/nosigner-setup.md` |
 | T2e | **DONE** — PASS (identical observable results; cross-receive both ways) | `3708637` |
 | T5 | **DONE** — per-target decision recorded; +6.0/+7.5 MiB sidecar cost | `10396a9` |
 | T6 | **DONE** — migrate + rollback green, no value lost | `e2ae4ff` |

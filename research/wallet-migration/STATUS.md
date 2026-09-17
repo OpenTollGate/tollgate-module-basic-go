@@ -110,9 +110,11 @@ Phase 4 / CI
 6. **T16 `tollwallet` tests** — adapter-specific by design (done as scoped).
 
 **External / operator**
-7. **Publish the Nostr post (P1)** — source + metadata committed; the operator's
-   NIP-46 bunker accepts the connect but returns no signature (signer app offline
-   or awaiting approval). One command in `04-reports/nostr-post.meta.md` once up.
+7. **Publish the Nostr post (P1)** — source + metadata committed. The remote
+   bunker is unreliable (`already connected` / no signature), so **P2** added a
+   validated fallback: our own **nosigner** (`04-reports/nosigner-setup.md`) —
+   one-shot `sign` + `nak` publish **verified with an ephemeral identity**; run
+   it with the Amber identity on a machine the agent does not control.
 8. **nucula#8** — licence + upstream Linux target (author's call).
 9. **Land the open PRs** — needs a maintainer with write access (`felixfelix-bot`
    is read-only upstream); #12 already merged. See `04-reports/PR-STATUS.md`.
@@ -162,5 +164,5 @@ Research branch: `00-context`…`05-architecture`, `STATUS.md` (this), `experime
 `gonutsinterop/`, `behavioural_parity.py`, `raw/`), plus `patches/` (code-PR diffs)
 and `04-reports/` (`RECOMMENDATION.md`, `PHASE1-feasibility.md`,
 `FINDINGS-2026-09-16.md`, `PR-STATUS.md`, `HOST-SETUP.md`, `nostr-post.md`,
-`nostr-post.meta.md`).
+`nostr-post.meta.md`, `nosigner-setup.md`).
 Reports: `~/reports/` (DQ05 + CW).
