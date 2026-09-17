@@ -75,10 +75,16 @@ cat > "$STUB_TMP" << EOF
 <body>
 <p>Redirecting to the TollGate portal...</p>
 <script>
-location.replace('http://' + location.hostname + ':2051/splash.html' + location.search);
+// Cache-bust the SPA entry: uhttpd serves the portal with Last-Modified:
+// 1970-01-01 (reproducible builds) and no Cache-Control, so browsers cache
+// splash.html heuristically for ~years and would keep the OLD portal after an
+// upgrade (its old /assets refs then 404). The fresh HTML references new
+// content-hashed /assets/*, so busting the HTML is sufficient.
+// location.search (?redir=...) is preserved by turning its leading '?' into '&'.
+location.replace('http://' + location.hostname + ':2051/splash.html?_cb=' + Date.now() + location.search.replace('?', '&'));
 </script>
 <noscript>
-<p><a href="http://${LAN_IP}:2051/splash.html">Continue to the TollGate portal</a></p>
+<p><a href="http://${LAN_IP}:2051/splash.html?_cb=1">Continue to the TollGate portal</a></p>
 </noscript>
 </body>
 </html>
@@ -97,6 +103,13 @@ rm -f "$STUB_TMP"
 
 # No service restart here: uci-defaults runs before procd starts services,
 # so nodogsplash will pick up the stub on its first start.
+# Direct :2051/splash.html loads (bookmarks, bypassing this stub) are not
+# cache-busted by the query above; give the portal files a sane Last-Modified
+# so their heuristic freshness stays small and browsers revalidate.
+if [ -d /etc/tollgate/tollgate-captive-portal-site ]; then
+    find /etc/tollgate/tollgate-captive-portal-site -type f -exec touch {} + 2>/dev/null
+fi
+
 echo "TollGate NoDogSplash portal stub setup completed"
 
 exit 0
