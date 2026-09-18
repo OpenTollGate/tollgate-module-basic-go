@@ -5,7 +5,7 @@
 > **Owner:** worker (kanban `t_29b9f52a`, board `tollgate-module-basic-go`)
 > **Date:** 2026-09-19 · **Research branch:** `research/wallet-migration`
 > **Code branch:** `fork:t16/decouple-wallet-tests` — base `a6e01bd9`
-> (upstream `main` at the time of writing), tip `583047d6`. **Not pushed upstream.**
+> (upstream `main` at the time of writing), tip `8aec5843`. **Not pushed upstream.**
 > **Method:** refactor of in-repo test files only, on a fresh worktree of
 > upstream `main`; every number below comes from a command run in that worktree
 > (commands quoted verbatim). The only non-test edit is the port-package
@@ -191,12 +191,23 @@ ok  …/src/tollwallet             9.693s
 ok  …/src/tollwallet/conformance 1.041s
 ```
 
+Re-run from a **fresh worktree of the pushed ref** (`git worktree add --detach
+<t16-verify> fork/t16/decouple-wallet-tests`), so the evidence is about what was
+actually published and not about a local tree that might differ:
+
+```
+$ (cd src/tollwallet && GOFLAGS=-buildvcs=false go build ./... && go vet ./...)
+$ GOFLAGS=-buildvcs=false go test -count=1 ./...            # 2 packages ok
+$ GOFLAGS=-buildvcs=false go test -count=1 -tags testenv ./...  # 2 packages ok
+$ go list -deps ./conformance/... ./port/... | grep -c gonuts-tollgate   # 0
+```
+
 ### 4.2 Test counts before / after
 
 Counted with `go test -count=1 -v` and `-tags testenv -v`; "top-level" = test
 functions, "all" includes sub-tests.
 
-| Run | Before (`a6e01bd9`) | After (`583047d6`) |
+| Run | Before (`a6e01bd9`) | After (`8aec5843`) |
 |---|---|---|
 | default tags, packages | 1 | **2** (+`port` with no test files) |
 | default tags, top-level | 17 pass / **3 skip** | **29 pass / 0 skip** |
@@ -388,5 +399,7 @@ grep -rn '"github.com/OpenTollGate/gonuts-tollgate' port/port.go conformance/  #
 ```
 
 Code branch (not upstream): `fork:t16/decouple-wallet-tests`, base `a6e01bd9`,
-tip `583047d6` — 4 commits: port extraction → conformance suite → gonuts glue →
-test split.
+tip `8aec5843` — 4 commits: port extraction → conformance suite → gonuts glue →
+test split. The tip was force-pushed once with `--force-with-lease` to correct the
+leaf-case count in the third commit message; `git diff --stat <old-tip> <new-tip>`
+is **empty**, i.e. the code pushed under the corrected message is byte-identical.
