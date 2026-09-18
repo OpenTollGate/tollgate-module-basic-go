@@ -59,6 +59,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Swap fees are explained, and pre-checked.** A token whose value is
+  entirely consumed by the mint's swap fee used to fail with the mint's opaque
+  `no outputs provided`. The wallet now reports the fee
+  (`WalletPort.SwapFeeSats`, resolving V4 short keyset IDs), the payment path
+  pre-checks `amount <= fee`, and failures are coded
+  `payment-error-below-swap-fee` / `payment-error-mint-unreachable` with a
+  human message ([#409](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/409)).
+
 - **Only healthy mints are advertised.** The health probe now fetches
   `/v1/keysets` and requires a non-empty NUT-01 keyset list instead of
   accepting any 2xx `/v1/info`, and `CreateAdvertisement` lists only the
