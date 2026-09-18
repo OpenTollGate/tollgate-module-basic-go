@@ -24,9 +24,9 @@ func newDegradedMerchantWithConfig(t *testing.T) (*MerchantDegraded, *config_man
 
 func TestNewFullMerchant_WalletInitFail_FallsBackToDegraded(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
+		if r.URL.Path == "/v1/keysets" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"pubkey":"00","version":"test","nuts":{}}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`)
 			return
 		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -281,7 +281,7 @@ func TestMerchantDegraded_ImplementsMerchantInterface(t *testing.T) {
 
 func TestOnFirstReachable_FiredOnce(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -330,7 +330,7 @@ func TestOnFirstReachable_FiredOnce(t *testing.T) {
 
 func TestOnFirstReachable_NotFiredIfInitiallyReachable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -392,7 +392,7 @@ func TestNew_ReturnsDegradedWhenNoMintsReachable(t *testing.T) {
 
 func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -420,7 +420,7 @@ func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
 
 func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -719,7 +719,7 @@ func TestKickstart_ImplementsWalletInterface(t *testing.T) {
 
 func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -884,7 +884,7 @@ func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
 
 func TestGetAllConfiguredMintConfigs(t *testing.T) {
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srvA.Close()
 
@@ -1031,7 +1031,7 @@ func TestMockWallet_ImplementsWalletWithShutdown(t *testing.T) {
 
 func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -1090,7 +1090,7 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 
 func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
