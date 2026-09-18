@@ -59,6 +59,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Only healthy mints are advertised.** The health probe now fetches
+  `/v1/keysets` and requires a non-empty NUT-01 keyset list instead of
+  accepting any 2xx `/v1/info`, and `CreateAdvertisement` lists only the
+  tracker's reachable set. A mint front answering `/v1/info` with an HTML
+  page (observed with `mint.coinos.io`) is no longer advertised, so clients
+  no longer select a mint whose swap then fails
+  ([#408](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/408)).
+
 - **Cashu wallet hardening from the gonuts bump** (pinned to the
   integration ref of gonuts #23/#24/#25, re-pinned to the tagged release
   once it exists): an empty-proofs token now fails the payment with a
