@@ -13,9 +13,11 @@ package tollwallet
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 )
 
 // GonutsWallet wraps a *TollWallet and implements WalletPort by delegation
@@ -76,6 +78,65 @@ func (w *GonutsWallet) Receive(t Token) (uint64, error) {
 		return 0, fmt.Errorf("GonutsWallet.Receive: expected *gonutsToken, got %T", t)
 	}
 	return w.inner.Receive(gt.inner)
+}
+
+// mintKeysetFees returns a map of keyset ID -> InputFeePpk covering the mint's
+// active and inactive keysets (the same set gonuts' feesForProofs consults).
+func mintKeysetFees(mintURL string) (map[string]uint, error) {
+	fees := map[string]uint{}
+
+	active, err := wallet.GetMintActiveKeyset(mintURL, cashu.Sat)
+	if err != nil {
+		return nil, fmt.Errorf("get active keyset: %w", err)
+	}
+	fees[strings.ToLower(active.Id)] = active.InputFeePpk
+
+	if inactive, err := wallet.GetMintInactiveKeysets(mintURL, cashu.Sat); err == nil {
+		for id, ks := range inactive {
+			fees[strings.ToLower(id)] = ks.InputFeePpk
+		}
+	}
+	return fees, nil
+}
+
+// resolveKeysetID maps a token proof's (possibly short) keyset ID to a full
+// keyset ID present in fees. V4 tokens store the first 8 bytes (16 hex) of the
+// full ID, so a prefix match resolves both v1 and v2 keyset IDs. Unknown IDs
+// return "" and contribute no fee (matching gonuts).
+func resolveKeysetID(id string, fees map[string]uint) string {
+	lower := strings.ToLower(id)
+	if _, ok := fees[lower]; ok {
+		return lower
+	}
+	for full := range fees {
+		if strings.HasPrefix(full, lower) {
+			return full
+		}
+	}
+	return ""
+}
+
+// SwapFeeSats delegates to gonuts' fee semantics: sum each proof's keyset
+// InputFeePpk, then ceil(sum/1000). The token's proofs may carry short keyset
+// IDs (V4), which are resolved against the mint's keysets first.
+func (w *GonutsWallet) SwapFeeSats(t Token) (uint64, error) {
+	gt, ok := t.(*gonutsToken)
+	if !ok {
+		return 0, fmt.Errorf("GonutsWallet.SwapFeeSats: expected *gonutsToken, got %T", t)
+	}
+
+	fees, err := mintKeysetFees(gt.inner.Mint())
+	if err != nil {
+		return 0, err
+	}
+
+	var ppk uint64
+	for _, proof := range gt.inner.Proofs() {
+		if full := resolveKeysetID(proof.Id, fees); full != "" {
+			ppk += uint64(fees[full])
+		}
+	}
+	return (ppk + 999) / 1000, nil
 }
 
 // --- Balance (direct delegation) ---

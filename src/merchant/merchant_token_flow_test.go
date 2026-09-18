@@ -31,6 +31,10 @@ func (s *stubReceiveWallet) Receive(t tollwallet.Token) (uint64, error) {
 	return s.receive(t)
 }
 
+// SwapFeeSats reports no fee so PurchaseSession skips the pre-check and the
+// stubbed Receive is exercised.
+func (s *stubReceiveWallet) SwapFeeSats(tollwallet.Token) (uint64, error) { return 0, nil }
+
 func TestTokenFlowCharacterization(t *testing.T) {
 	t.Run("empty_token_string", func(t *testing.T) {
 		// Fund("") hits the length guard at merchant.go:1073.
