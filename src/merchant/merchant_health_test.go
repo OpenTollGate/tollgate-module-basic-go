@@ -3,6 +3,7 @@ package merchant
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,7 +14,11 @@ import (
 func reachableServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			_, _ = w.Write([]byte(`{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`))
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -94,7 +99,7 @@ func TestSetOnFirstReachableForDegraded_FiresOnRecovery(t *testing.T) {
 	})
 
 	reachableSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer reachableSrv.Close()
 
@@ -129,7 +134,7 @@ func TestSetOnFirstReachableForDegraded_NotFiredOnSecondRecovery(t *testing.T) {
 	})
 
 	reachableSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer reachableSrv.Close()
 
@@ -202,15 +207,17 @@ func TestProbeMint_TrailingSlashTrimmed(t *testing.T) {
 	var requestedPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPath = r.URL.Path
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		writeKeysetsOK(w)
+		_, _ = w.Write([]byte(`{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`))
 	}))
 	defer srv.Close()
 
 	tracker := newTestTracker(mintConfigWithURLs(srv.URL+"/"), nil)
 	tracker.RunInitialProbe()
 
-	if requestedPath != "/v1/info" {
-		t.Errorf("expected /v1/info, got %s", requestedPath)
+	if requestedPath != "/v1/keysets" {
+		t.Errorf("expected /v1/keysets, got %s", requestedPath)
 	}
 
 	if !tracker.IsReachable(srv.URL + "/") {
@@ -274,5 +281,52 @@ func TestMerchant_GetMintHealthTracker_ReturnsTracker(t *testing.T) {
 	returned := m.GetMintHealthTracker()
 	if returned != tracker {
 		t.Error("GetMintHealthTracker did not return the same tracker instance")
+	}
+}
+
+// A mint front can answer /v1/keysets with a 2xx HTML page (parked/hosted
+// error pages). The probe must treat that as unreachable, otherwise the mint
+// stays in the advertised set and token swaps fail later with the mint's raw
+// error (the coinos.io regression).
+func TestRunInitialProbe_HTML200KeysetsIsUnreachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<!doctype html><html><body>parked</body></html>"))
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.RunInitialProbe()
+
+	if tracker.IsReachable(srv.URL) {
+		t.Error("expected an HTML 200 on /v1/keysets to be treated as unreachable")
+	}
+}
+
+// The advertisement must only list mints that answered the keysets probe.
+func TestCreateAdvertisement_ExcludesUnreachableMints(t *testing.T) {
+	srvOK := reachableServer(t)
+	srvBad := unreachableServer(t)
+
+	cm, _ := setupTestConfigManager(t)
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = []config_manager.MintConfig{
+		{URL: srvOK.URL, PricePerStep: 1, PriceUnit: "sat"},
+		{URL: srvBad.URL, PricePerStep: 1, PriceUnit: "sat"},
+	}
+
+	tracker := newTestTracker(cfg, nil)
+	tracker.RunInitialProbe()
+
+	ad, err := CreateAdvertisement(cm, tracker)
+	if err != nil {
+		t.Fatalf("CreateAdvertisement: %v", err)
+	}
+	if strings.Contains(ad, srvBad.URL) {
+		t.Errorf("advertisement must not include the unreachable mint %s: %s", srvBad.URL, ad)
+	}
+	if !strings.Contains(ad, srvOK.URL) {
+		t.Errorf("advertisement must include the reachable mint %s: %s", srvOK.URL, ad)
 	}
 }
