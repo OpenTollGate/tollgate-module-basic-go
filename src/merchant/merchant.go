@@ -463,6 +463,23 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
+	// Pre-check the mint's swap fee: a token whose value is entirely consumed
+	// by the fee fails the swap with an opaque mint error. Fail fast with a
+	// clear message. If the fee can't be determined (cdk adapter, mint
+	// unreachable), fall through and let Receive classify the error.
+	if fee, feeErr := m.tollwallet.SwapFeeSats(paymentCashuToken); feeErr == nil && fee > 0 {
+		if amount := paymentCashuToken.Amount(); amount <= fee {
+			msg := fmt.Sprintf(
+				"This e-cash note is %d sat but mint %s charges a %d sat swap fee, so there is nothing left to spend. Use a larger token or a mint without fees.",
+				amount, paymentCashuToken.Mint(), fee)
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-below-swap-fee", msg, macAddress)
+			if noticeErr != nil {
+				return nil, fmt.Errorf("token below swap fee and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
+		}
+	}
+
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
 	type receiveResult struct {
@@ -514,6 +531,16 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		} else if isRateLimitError(err) {
 			errorCode = "mint-rate-limited"
 			errorMessage = "Mint is rate-limiting requests. Please try again in a moment."
+		} else if isBelowSwapFeeError(err) {
+			errorCode = "payment-error-below-swap-fee"
+			errorMessage = fmt.Sprintf(
+				"This e-cash note is %d sat but mint %s charges a swap fee that leaves nothing left to spend. Use a larger token or a mint without fees.",
+				paymentCashuToken.Amount(), mintURL)
+		} else if isMintUnreachableError(err) {
+			errorCode = "payment-error-mint-unreachable"
+			errorMessage = fmt.Sprintf(
+				"Mint %s is temporarily unavailable. Please try again, or use a token from another mint.",
+				mintURL)
 		} else {
 			errorCode = "payment-processing-failed"
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
@@ -571,6 +598,39 @@ func isRateLimitError(err error) bool {
 	return strings.Contains(msg, "429") ||
 		strings.Contains(msg, "rate limit") ||
 		strings.Contains(msg, "too many requests")
+}
+
+// isBelowSwapFeeError reports whether err is the "the token cannot cover the
+// mint's swap fee" condition. gonuts returns "nothing to swap" when the total
+// is below the fee, and mints reject a zero-output swap with "no outputs
+// provided".
+func isBelowSwapFeeError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "nothing to swap") ||
+		strings.Contains(msg, "no outputs provided") ||
+		strings.Contains(msg, "swap fees")
+}
+
+// isMintUnreachableError reports whether err indicates the mint's keysets (or
+// the mint itself) could not be reached, as opposed to a token rejection.
+func isMintUnreachableError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "temporarily unavailable") {
+		return true
+	}
+	// Keyset resolution failures: "short keyset ID ... not found in mint
+	// keysets", "could not resolve short keyset IDs", "error getting keyset ...".
+	if strings.Contains(msg, "keyset") &&
+		(strings.Contains(msg, "not found") ||
+			strings.Contains(msg, "could not") ||
+			strings.Contains(msg, "error getting") ||
+			strings.Contains(msg, "resolve")) {
+		return true
+	}
+	return false
 }
 
 func (m *Merchant) GetAdvertisement() string {

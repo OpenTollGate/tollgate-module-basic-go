@@ -136,6 +136,13 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 	return amount.Value, nil
 }
 
+// SwapFeeSats is not implemented by the cdk adapter. The caller (merchant)
+// treats the error as "fee unknown" and falls back to classifying the Receive
+// error instead of pre-checking. The default build (!cdk_wallet) uses gonuts.
+func (w *CdkWallet) SwapFeeSats(t Token) (uint64, error) {
+	return 0, errors.New("SwapFeeSats: not implemented by the cdk wallet adapter")
+}
+
 // mintAccepted mirrors the gonuts trust model: listed mints pass;
 // otherwise the allowUntrusted flag decides. Swap-to-trusted is not
 // implemented in this adapter — untrusted tokens are accepted as-is.

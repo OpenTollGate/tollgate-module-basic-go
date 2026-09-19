@@ -33,6 +33,10 @@ func (w *panicReceiveWallet) Receive(tollwallet.Token) (uint64, error) {
 	panic("wallet exploded: simulated keyset corruption")
 }
 
+// SwapFeeSats reports no fee so PurchaseSession skips the pre-check and reaches
+// the panicking Receive (whose containment is under test).
+func (w *panicReceiveWallet) SwapFeeSats(tollwallet.Token) (uint64, error) { return 0, nil }
+
 // TestPurchaseSessionPanicContainment pins the panic-containment contract of
 // the Receive goroutine in PurchaseSession: a panic inside the wallet layer
 // must surface to the caller as an explicit "panicked" payment-processing
