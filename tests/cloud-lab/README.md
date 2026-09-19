@@ -95,6 +95,7 @@ docker compose down
 | `test_external_mints.py` | Opt-in live lane via `./run-external-mints.sh` (`EXTERNAL_MINTS=1` gates it out of default runs; skips with a reason when the mint is down): real-mint keyset fees verified, a 1-sat token terminated by the #409 below-swap-fee pre-check, and a fee-deducted session credit — all against `testnut.cashu.exchange` (nutshell main, FakeWallet; real-money mints never probed) |
 | `test_mint_failure.py` | Kill mint mid-session → TollGate degrades gracefully (no crash) → restart mint → TollGate recovers and accepts payments again |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
+| `test_clientd_autotopup.py` | `scripts/tollgate-clientd.py` laptop client end-to-end: advertisement parsing, `--status`/`--waybar` output, dry-run never pays, daemon buys a step and auto-renews at the threshold (run standalone or after `docker compose restart upstream` — sessions are in-memory per client MAC) |
 
 ## What This Tests vs What It Doesn't
 
