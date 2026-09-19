@@ -234,17 +234,64 @@ def _extract_token(stdout: str) -> str:
     raise ClientError(f"no token in wallet output: {stdout.strip()[-200:]!r}")
 
 
+def _expand_keyset_ids(token: str, mint_url: str) -> str:
+    """Rewrite short 8-byte keyset IDs in a V3 token to full 33-byte IDs.
+
+    cdk-cli stores proofs with truncated keyset IDs; cdk-mintd's swap
+    endpoint only accepts full IDs. Mirrors the proven workaround in
+    tests/cloud-lab/conftest.py. Best effort: any failure returns the
+    token unchanged."""
+    import base64
+    if not token.startswith("cashuA"):
+        return token
+    try:
+        payload = token[6:]
+        payload += "=" * (4 - len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        keysets = json.loads(http_get(f"{mint_url}/v1/keysets")).get("keysets", [])
+        short_to_full = {ks["id"][:16]: ks["id"] for ks in keysets
+                         if len(ks["id"]) == 66}
+        for entry in data.get("token", []):
+            for proof in entry.get("proofs", []):
+                pid = proof.get("id", "")
+                if len(pid) == 16 and pid in short_to_full:
+                    proof["id"] = short_to_full[pid]
+        return "cashuA" + base64.urlsafe_b64encode(
+            json.dumps(data).encode()).decode()
+    except Exception:  # noqa: BLE001 — workaround is best effort by design
+        return token
+
+
+_CDK_AMOUNT_FLAG: bool | None = None
+
+
+def _cdk_cli_has_amount_flag() -> bool:
+    global _CDK_AMOUNT_FLAG
+    if _CDK_AMOUNT_FLAG is None:
+        proc = subprocess.run(["cdk-cli", "send", "--help"], capture_output=True,
+                              text=True, check=False)
+        _CDK_AMOUNT_FLAG = "--amount" in (proc.stdout + proc.stderr)
+    return _CDK_AMOUNT_FLAG
+
+
 def wallet_send_cdk_cli(mint_url: str, amount_sats: int,
                         wallet_dir: str | None) -> str:
     cmd = ["cdk-cli"]
     if wallet_dir:
         cmd += ["-w", wallet_dir]
     cmd += ["send", "--mint-url", mint_url]
-    proc = subprocess.run(cmd, input=f"{amount_sats}\n", capture_output=True,
+    stdin = None
+    if _cdk_cli_has_amount_flag():
+        # modern cdk-cli: explicit amount, V3 token (cdk-mintd-friendly)
+        cmd += ["--v3", "--amount", str(amount_sats)]
+    else:
+        # legacy cdk-cli (as used by the hardware e2e fleet): amount via stdin
+        stdin = f"{amount_sats}\n"
+    proc = subprocess.run(cmd, input=stdin, capture_output=True,
                           text=True, check=False)
     if proc.returncode != 0:
         raise ClientError(f"cdk-cli send failed: {proc.stderr.strip() or proc.stdout.strip()}")
-    return _extract_token(proc.stdout)
+    return _expand_keyset_ids(_extract_token(proc.stdout), mint_url)
 
 
 def wallet_send_nutshell(mint_url: str, amount_sats: int,
@@ -452,6 +499,30 @@ def print_status(daemon: ClientDaemon, as_json: bool) -> None:
               f"(usage {st['usage']}/{st['allotment']})")
 
 
+def print_waybar(daemon: ClientDaemon) -> None:
+    """One-shot waybar module JSON: re-run this via a custom/tollgate module
+    with "interval": 5 and "return-type": "json"."""
+    st = daemon.status()
+    threshold = daemon.renew_below
+    if threshold is None:
+        threshold = (DEFAULT_RENEW_BELOW_MS if st["metric"] == "milliseconds"
+                     else DEFAULT_RENEW_BELOW_BYTES)
+    if st["remaining"] is None:
+        text, module_class, pct = "no session", "critical", 0
+    else:
+        text = format_remaining(st["metric"], st["remaining"]).replace(" left", "")
+        pct = int(100 * st["remaining"] / st["allotment"]) if st["allotment"] else 0
+        module_class = "warning" if st["remaining"] <= 2 * threshold else "good"
+    print(json.dumps({
+        "text": f"TG {text}",
+        "tooltip": (f"TollGate {st['gateway']} ({st['metric']})\n"
+                    f"usage {st['usage']}/{st['allotment']}\n"
+                    f"mint {st['mint']}\nwallet {st['wallet']}"),
+        "class": module_class,
+        "percentage": pct,
+    }))
+
+
 def print_offers(daemon: ClientDaemon) -> None:
     ad = daemon.ad
     print(f"gateway {daemon.gateway}  metric={ad.metric}  step_size={ad.step_size}")
@@ -608,6 +679,9 @@ def main() -> int:
                     help="print current status once and exit")
     ap.add_argument("--json", action="store_true",
                     help="with --status: emit JSON")
+    ap.add_argument("--waybar", action="store_true",
+                    help="print waybar module JSON once and exit "
+                         "(for a custom/tollgate status-bar module)")
     ap.add_argument("--dry-run", action="store_true",
                     help="show status but never pay")
     ap.add_argument("--list-offers", action="store_true",
@@ -628,6 +702,9 @@ def main() -> int:
 
     if args.list_offers:
         print_offers(d)
+        return 0
+    if args.waybar:
+        print_waybar(d)
         return 0
     if args.status:
         print_status(d, args.json)

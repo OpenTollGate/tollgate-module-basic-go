@@ -850,8 +850,15 @@ same-version short branch.
   shows the remaining bytes/seconds live, and auto-tops-up with ecash
   from a local wallet — cdk-cli or nutshell, auto-detected — before the
   allotment runs out. One-shot `--status`/`--json` output for status
-  bars, `--dry-run`, `--list-offers`, and a `--selftest` that runs the
-  full discovery/payment/renewal loop against a built-in mock TollGate.
+  bars, `--waybar` module JSON (text/tooltip/class/percentage) for
+  waybar-style bars, `--dry-run`, `--list-offers`, and a `--selftest`
+  that runs the full discovery/payment/renewal loop against a built-in
+  mock TollGate. The cdk-cli adapter supports both the modern
+  (`--v3 --amount`) and legacy (stdin) CLIs and expands short keyset IDs
+  for cdk-mintd compatibility. Tested by a new unit suite
+  (`tests/clientd/`, 31 tests over in-process mock TollGates) and a
+  cloud-lab e2e lane (`tests/cloud-lab/test_clientd_autotopup.py`)
+  that pays the real backend and observes threshold renewal.
 
 ### Fixed
 

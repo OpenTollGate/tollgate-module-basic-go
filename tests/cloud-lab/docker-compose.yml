@@ -224,6 +224,7 @@ services:
         condition: service_healthy
     volumes:
       - .:/tests
+      - ../../scripts:/clientd:ro
     working_dir: /tests
     networks:
       tollgate-lab:
