@@ -98,6 +98,7 @@ docker compose down
 | `run-crash-injection.sh` | #497 acceptance at the TollGate layer: a killer proxy swallows every `/v1/swap` response once the mint has signed (the wallet's retry ladder included), the tollgate is SIGKILLed mid-wait, and on restart the boot-time intent resume must recover the value — then a fresh payment must still succeed. Requires a tollgate built with the gonuts swap-intent machinery |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
 | `conformance/` | Fast-subset conformance lane (#503) via `./conformance/run-conformance.sh`: duplicate/timeout/kill-at-boundary/alias scenarios from the co-owned PRTA matrix, driven through the PRTA fault proxy; emits a per-invariant verdict table. Skips cleanly without docker or a PRTA checkout |
+| `test_clientd_autotopup.py` | `scripts/tollgate-clientd.py` laptop client end-to-end: advertisement parsing, `--status`/`--waybar` output, dry-run never pays, daemon buys a step and auto-renews at the threshold (run standalone or after `docker compose restart upstream` — sessions are in-memory per client MAC) |
 
 ## What This Tests vs What It Doesn't
 
