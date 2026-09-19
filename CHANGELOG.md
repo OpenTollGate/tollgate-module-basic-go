@@ -59,6 +59,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A runtime downgrade can recover again.** When all mints went
+  unreachable under a running service, the downgrade path registered the
+  onUpgrade consumer but never the tracker's first-reachable trigger that
+  fires it (only the startup degraded paths did), so the service stayed
+  degraded — payments returning service-unavailable-class notices — until
+  manually restarted (live: 2h+ degraded with the mint probe healthy
+  again). `MerchantDegraded.WireRecoveryTrigger`/`AttemptUpgrade` now wire
+  the recovery cycle, used by the runtime downgrade in main
+  ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400); pair: #401/#420).
 - **Swap fees are explained, and pre-checked.** A token whose value is
   entirely consumed by the mint's swap fee used to fail with the mint's opaque
   `no outputs provided`. The wallet now reports the fee
