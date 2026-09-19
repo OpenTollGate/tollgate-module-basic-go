@@ -125,6 +125,15 @@ and [Semantic Versioning](https://semver.org/).
   build artifacts from Nostr (`kind 1063`) with sha256 verification instead
   of GitHub releases. ([#390](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/390))
 
+- **`tar` format pinned to GNU in the SDK-free ipk lane.** The three
+  `tar` invocations in `packaging/build-ipk.sh` now pass `--format=gnu`
+  explicitly, matching buildroot's `ipkg-build` which pins it: the lane
+  previously relied on the host tar's compile-time default format, so any
+  host defaulting to pax/posix would produce opkg-readable but
+  non-reproducible ipks. This was the last unpinned determinism knob on
+  the ipk path. Byte-neutral on the equivalence build host (identical
+  sha256 with and without the flag, aarch64 @ v0.6.0-alpha2 inputs).
+  ([#405](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/405))
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
   ships the runtime files under `packaging/files/`, and is wired into both
