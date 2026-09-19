@@ -36,11 +36,20 @@ def notice_code(event):
     return None
 
 
-def pay(token, upstream_pubkey, customer_identity, client_mac):
+# Session allotments are cumulative per MAC, so every test pays from a
+# distinct MAC to assert absolute amounts independently of test order.
+# The payment handler accepts client-provided MACs, and the lab's
+# fake-ndsctl answers `json` for any MAC, so these need no lease entries.
+BELOW_FEE_MAC = "02:00:00:00:00:21"
+ABOVE_FEE_MAC = "02:00:00:00:00:22"
+FREE_MINT_MAC = "02:00:00:00:00:23"
+
+
+def pay(token, upstream_pubkey, customer_identity, mac):
     """POST a payment event; returns the Response."""
     customer_sec, customer_pub = customer_identity
     event = build_payment_event(
-        customer_sec, customer_pub, upstream_pubkey, client_mac, token
+        customer_sec, customer_pub, upstream_pubkey, mac, token
     )
     return requests.post(UPSTREAM_URL, json=event, timeout=30)
 
@@ -66,7 +75,7 @@ class TestSwapFees:
 
     def test_below_swap_fee_refused_before_spend(
         self, upstream_health, upstream_pubkey, fees_ecash_wallet,
-        customer_identity, client_mac,
+        customer_identity,
     ):
         """A 1-sat token against a 1-sat swap fee is refused up front, and
         the refusal is not a spend: the same token refuses identically twice.
@@ -74,7 +83,7 @@ class TestSwapFees:
         payment-error-token-spent instead.)"""
         token = create_cashu_token(fees_ecash_wallet, 1, mint_url=MINT_FEES_URL)
 
-        r1 = pay(token, upstream_pubkey, customer_identity, client_mac)
+        r1 = pay(token, upstream_pubkey, customer_identity, BELOW_FEE_MAC)
         assert r1.status_code == 400, (
             f"Expected HTTP 400, got {r1.status_code}: {r1.text}"
         )
@@ -86,7 +95,7 @@ class TestSwapFees:
             f"Expected payment-error-below-swap-fee, got: {notice_code(event)}"
         )
 
-        r2 = pay(token, upstream_pubkey, customer_identity, client_mac)
+        r2 = pay(token, upstream_pubkey, customer_identity, BELOW_FEE_MAC)
         assert r2.status_code == 400
         assert notice_code(r2.json()) == "payment-error-below-swap-fee", (
             "Token was consumed by the first attempt (second refusal should be "
@@ -95,13 +104,13 @@ class TestSwapFees:
 
     def test_above_swap_fee_succeeds_with_fee_deducted(
         self, upstream_health, upstream_pubkey, fees_ecash_wallet,
-        customer_identity, client_mac,
+        customer_identity,
     ):
         """A 100-sat token pays the 1-sat swap fee and succeeds; the session
         event must reflect the post-fee amount, not the token face value."""
         token = create_cashu_token(fees_ecash_wallet, 100, mint_url=MINT_FEES_URL)
 
-        r = pay(token, upstream_pubkey, customer_identity, client_mac)
+        r = pay(token, upstream_pubkey, customer_identity, ABOVE_FEE_MAC)
         assert r.status_code == 200, (
             f"Payment failed: HTTP {r.status_code}\nResponse: {r.text}"
         )
@@ -124,13 +133,13 @@ class TestSwapFees:
 
     def test_fee_mint_payments_do_not_break_the_free_mint_path(
         self, upstream_health, upstream_pubkey, ecash_wallet,
-        customer_identity, client_mac, mint_health,
+        customer_identity, mint_health,
     ):
         """Accepting a fee-charging mint must not change zero-fee payments:
         the free mint still credits the full token face value."""
         token = create_cashu_token(ecash_wallet, 100)
 
-        r = pay(token, upstream_pubkey, customer_identity, client_mac)
+        r = pay(token, upstream_pubkey, customer_identity, FREE_MINT_MAC)
         assert r.status_code == 200, f"Free-mint payment failed: {r.text}"
         event = r.json()
         assert event.get("kind") == 1022
