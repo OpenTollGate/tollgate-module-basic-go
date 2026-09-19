@@ -29,6 +29,11 @@ with FakeWallet backend — no physical routers required.
   with FakeWallet backend. Automatically settles Lightning quotes.
   Killable for failure/degraded-mode tests.
 
+- **tg-mint-fees** — Second cdk-mintd FakeWallet mint with
+  `CDK_MINTD_INPUT_FEE_PPK=100`, mirroring fee-charging real-world mints
+  (e.g. mint.coinos.io): a single-proof swap costs 1 sat, so a 1-sat token
+  is entirely consumed by the fee. Used by `test_swap_fees.py`.
+
 - **tg-upstream** — The TollGate Go binary, built from source. Uses a
   fake `ndsctl` script instead of NoDogSplash, so all payment/session/
   merchant/mint-health logic runs unmodified. Only packet-level gate
@@ -67,6 +72,7 @@ docker compose down
 | File | What it validates |
 |---|---|
 | `test_smoke_payment.py` | Mint reachable, TollGate reachable, wallet funded, payment returns session event (kind 1022), gate opened, balance endpoint works |
+| `test_swap_fees.py` | Fee-charging mint: fee visible in keysets, below-fee token refused before the swap (`payment-error-below-swap-fee`, token stays unspent), above-fee payment credited net of fee, free-mint path unchanged |
 | `test_mint_failure.py` | Kill mint mid-session → TollGate degrades gracefully (no crash) → restart mint → TollGate recovers and accepts payments again |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
 

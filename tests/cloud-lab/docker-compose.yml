@@ -51,6 +51,39 @@ services:
       retries: 10
       start_period: 30s
 
+  mint-fees:
+    build:
+      context: .
+      dockerfile: Dockerfile.mint
+    container_name: tg-mint-fees
+    environment:
+      - CDK_MINTD_URL=http://mint-fees:8085
+      - CDK_MINTD_LN_BACKEND=fakewallet
+      - CDK_MINTD_LISTEN_HOST=0.0.0.0
+      - CDK_MINTD_LISTEN_PORT=8085
+      # Mirrors real-world mints (e.g. mint.coinos.io): every swapped proof
+      # costs input_fee_ppk/1000 sats — ceil(100/1000) = 1 sat per swap of a
+      # single-proof token, so a 1-sat token is entirely consumed by the fee.
+      - CDK_MINTD_INPUT_FEE_PPK=100
+      # Different mnemonic than `mint` so the two mints derive different keysets.
+      - CDK_MINTD_MNEMONIC=legal winner thank year wave sausage worth useful legal winner thank yellow
+      - CDK_MINTD_DATABASE=sqlite
+      - CDK_MINTD_DATABASE_PATH=data/mint
+      - CDK_MINTD_CACHE_BACKEND=memory
+    ports:
+      - "8086:8085"
+    volumes:
+      - mint-fees-data:/data
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/v1/keys"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   upstream:
     build:
       context: ../..
@@ -109,6 +142,8 @@ services:
     depends_on:
       mint:
         condition: service_healthy
+      mint-fees:
+        condition: service_healthy
       upstream:
         condition: service_healthy
     volumes:
@@ -122,6 +157,7 @@ services:
 
 volumes:
   mint-data:
+  mint-fees-data:
 
 networks:
   tollgate-lab:
