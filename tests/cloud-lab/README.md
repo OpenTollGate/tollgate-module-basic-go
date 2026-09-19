@@ -96,6 +96,7 @@ docker compose down
 | `test_mint_failure.py` | Kill mint mid-session → TollGate degrades gracefully (no crash) → restart mint → TollGate recovers and accepts payments again |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
 | `test_clientd_autotopup.py` | `scripts/tollgate-clientd.py` laptop client end-to-end: advertisement parsing, `--status`/`--waybar` output, dry-run never pays, daemon buys a step and auto-renews at the threshold (run standalone or after `docker compose restart upstream` — sessions are in-memory per client MAC) |
+| `run-clientd-scenarios.sh` | Scenario battery for the laptop client (profile `clientd`): S2 bytes-metric lifecycle (renewal before exhaustion, gate close, re-payment), S3 real nutshell wallet paying live, S4 mint outage mid-session with backoff + recovery, S5 keyset rotation + swap fees (auto-skipped unless the rotation mints are defined). Run: `./run-clientd-scenarios.sh` or `SCENARIOS="S2 S3" ./run-clientd-scenarios.sh` — results in `/tmp/tollgate-clientd-scenarios/STATUS` |
 
 ## What This Tests vs What It Doesn't
 

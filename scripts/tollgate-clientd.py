@@ -9,7 +9,8 @@ current allotment runs out.
 
 Wallets supported (auto-detected, or forced with --wallet):
   * cdk-cli   — https://github.com/cashubtc/cdk (crates/cdk-cli)
-  * nutshell  — `pip install cashu` (https://github.com/cashubtc/nutshell)
+  * nutshell  — `pip install cashu "marshmallow<4"` — the pin is required:
+                marshmallow 4.x breaks cashu's environs dependency today
 
 Wire protocol spoken (all against the TollGate gateway, port 2121):
   GET  /            -> kind 10021 advertisement (metric, step_size, price_per_step)
