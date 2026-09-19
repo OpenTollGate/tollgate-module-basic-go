@@ -844,6 +844,15 @@ same-version short branch.
   `src/cli.*` ldflags, which its separate Go module never links, so
   the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
+- **`tollgate-clientd` laptop client.** New
+  `scripts/tollgate-clientd.py`: detects a TollGate on the default
+  gateway, registers with the captive portal (nodogsplash workaround),
+  shows the remaining bytes/seconds live, and auto-tops-up with ecash
+  from a local wallet — cdk-cli or nutshell, auto-detected — before the
+  allotment runs out. One-shot `--status`/`--json` output for status
+  bars, `--dry-run`, `--list-offers`, and a `--selftest` that runs the
+  full discovery/payment/renewal loop against a built-in mock TollGate.
+
 ### Fixed
 
 - **Upgrades no longer abort on devices without `jq`.** The maintainer
