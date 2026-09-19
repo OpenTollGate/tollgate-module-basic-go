@@ -536,8 +536,11 @@ binding crate** to re-add `staticlib`, or writing a bespoke cgo wrapper against
 
 `mipsel-unknown-linux-musl` / `mips-unknown-linux-musl` are **Rust tier-3**
 (no prebuilt `std`; require nightly `-Zbuild-std`). CDK has no target, no
-artifact, no CI for either. But `mips_24kc` + `mipsel_24kc` are **7 of the 17
-rows** in TollGate's arch/compression matrix. A CDK wallet means **either
+artifact, no CI for either. But `mips_24kc` + `mipsel_24kc` are **7 of the 14
+rows** in TollGate's arch/compression matrix (re-counted from the workflow on
+2026-09-19 — `experiments/cdk-cross/count-ci-matrix.py`, log
+`raw-2026-09-19/24-ci-matrix-rows.txt`; this line said "of the 17" until then,
+a recollection no one had checked). A CDK wallet means **either
 dropping those devices or maintaining a bespoke Rust toolchain for them**.
 
 Also note `cdk-sqlite` pulls **bundled C SQLite**:

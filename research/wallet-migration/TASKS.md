@@ -48,6 +48,16 @@ dissent — and can check all of it out from this branch alone.
 > recommendation stands, with an honest price tag on the in-process alternative.
 > Evidence: `experiments/cdk-cross/FINDINGS-2026-09-19.md`, `env-2026-09-19.txt`,
 > `raw-2026-09-19/`; summary in `01-candidates/cdk.md` §T5c re-verification.
+>
+> **Post-commit re-check (same day, second run).** The three build outputs were
+> re-hashed in the measurement dir — all three match `21-produced-binary-hashes.txt`
+> exactly — and `readelf -d` on the patched binary reproduces the musl `NEEDED` set
+> and the build-machine RPATH. The CI matrix was counted from the workflow itself:
+> **14 rows, 9 of them on arches with no `cdk-go` artifact** (mips + mipsel +
+> `arm_cortex-a7`); an earlier draft said "7 of the 17", which was a recollection
+> and is corrected. `verify-findings.sh` now fails closed and re-derives every
+> headline number from the committed logs —
+> `raw-2026-09-19/23-verify-findings.txt` (`VERDICT: PASS`).
 
 ## Added after the scope change: nucula → OpenWrt port (2026-09-13)
 

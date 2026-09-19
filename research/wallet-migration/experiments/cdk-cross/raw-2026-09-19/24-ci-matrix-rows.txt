@@ -1,0 +1,11 @@
+=== CI package matrix, derived from the workflow file ===
+file            : tmbg (research/wallet-migration base 3797ef41)
+sha256          : bfde687081a06289fa7e75a5ebc18c921b53313d6ee52862e21efce4c4ec23a6
+matrix rows     : 14
+  per arch      : aarch64_cortex-a53=2, aarch64_cortex-a72=2, arm_cortex-a7=2, mips_24kc=5, mipsel_24kc=2, x86_64=1
+  per compile_key: amd64=1, arm64=4, armv7=2, mips-softfloat=5, mipsle-softfloat=2
+  ipk:true rows : 14
+  apk:true rows : 3
+mips rows       : 7  (mipsel_24kc=2, mips_24kc=5)
+armv7 rows      : 2
+archs with NO cdk-go artifact (mips/mipsel/armv7): 9 of 14 rows

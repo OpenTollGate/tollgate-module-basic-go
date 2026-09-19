@@ -1,0 +1,79 @@
+=== provenance of this re-derivation ===
+script dir                                       : /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/cdk-cross
+log dir                                          : raw-2026-09-19 (32 files)
+gzip                                             : /usr/bin/gzip
+
+=== log integrity vs the line counts recorded in the summary logs ===
+aarch64 link log lines (summary records 146)     : 145  (= recorded-1: the repo end-of-file-fixer removed the final blank line; last line is 43 bytes, i.e. real content, not blank)
+mipsel link log lines (summary records 2078)     : 2077  (= recorded-1, same cause)
+log not truncated                                : 138 undefined-ref lines present
+
+=== service link (the DEPLOYMENT artefact): src/main.go -> merchant -> tollwallet ===
+aarch64 exit (summary log)                       : exit=1
+aarch64 distinct undefined syms                  : 138
+aarch64 GLIBC versions referenced                : @GLIBC_2.17 @GLIBC_2.28 @GLIBC_2.29 @GLIBC_2.32 @GLIBC_2.33 @GLIBC_2.34
+aarch64 refs to the shipped glibc lib            : 138 symbol lines
+aarch64 ld: glibc libs 'not found'               : 3 warnings
+mipsel exit (summary log)                        : exit=1
+mipsel distinct undefined syms                   : 691
+mipsel GLIBC refs (expect 0)                     : 0
+mipsel: NO -lcdk_ffi in the link line            : 0  (so every FFI symbol is unresolved: 1382 cgo-prolog refs)
+mipsel first unresolved symbol                   : ffi_cdk_ffi_checksum_constructor_npubcashclient_new
+
+=== tag-free baselines (attribution: the failure is the cdk path, not the arch) ===
+aarch64 baseline exit                            : exit=0
+aarch64 baseline size                            : tollgate-wrt-aarch64-musl-baseline: 16770936 bytes
+  ... vs aarch64 cdk+patched                     : tollgate-wrt-aarch64-musl-cdk-patched: 18033248 bytes
+mipsel baseline exit                             : exit=0
+mipsel baseline size                             : tollgate-wrt-mipsel-musl-baseline: 18073276 bytes
+SUPERSEDED 1st aarch64-baseline attempt          : exit=126 lines=1 (its log was 1 line; the authoritative record is 17-service-link-aarch64-musl-baseline.txt exit=0 + the hash file)
+
+=== what cdk-go v0.17.3 ships: no musl, no mips ===
+prebuilt entries (5 libs + checksums)            : 6  native libs: 5
+musl dirs (expect 0)                             : 0
+mips dirs (expect 0)                             : 0
+link_*.go stanzas                                : 5
+shipped glibc arm64 .so size                     : linux_arm64/libcdk_ffi.so  26518672 bytes
+shipped arm64 NEEDED (glibc!)                    : libgcc_s.so.1 libm.so.6 libc.so.6 ld-linux-aarch64.so.1
+
+=== Rust half: the musl cdylib IS obtainable ===
+default: cdylib dropped                          : 1 warning
+aarch64 probe .so (-crt-static off)              : 67320 bytes
+aarch64 probe .so NEEDED                         : libgcc_s.so.1 libc.so
+mipsel probe .so (nightly build-std)             : 66832 bytes
+mipsel probe .so NEEDED                          : libgcc_s.so.1 libc.so
+mipsel probe build time                          : target(s) in 1m 48s
+cdk-ffi aarch64-musl build verdict               : target(s) in 23m 51s
+cdk-ffi musl .so unstripped                      : libcdk_ffi.so 35021264 bytes
+cdk-ffi musl .so stripped                        : stripped: 26452880 bytes
+cdk-ffi musl .so NEEDED                          : libgcc_s.so.1 libc.so
+std markers inside the .so                       : 1 (std cannot be excluded)
+
+=== patched link (P1 -crt-static, P2 musl .so in the binding's path) ===
+patched link exit                                : exit=0
+patched link binary size                         : PRODUCED: 18033248 bytes
+patched NEEDED libcdk_ffi.so                     : 1
+patched RPATH -> build machine (P3)              : 1 hit
+glibc object it replaced                         : 26518672 bytes, glibc
+
+=== mipsel: a dependency wall, not an arch wall ===
+rustup tier-3 refusal                            : no prebuilt artifacts available for target
+rustup low-tier wording                          : low-tier target
+cdk-ffi graph blocker                            : could not compile `nostr-relay-pool` (lib) due to 3 previous errors
+cdk-ffi graph EXIT                               : EXIT=101
+crates in flight before the error                : 254 (Checking 149 + Compiling 105)
+
+=== the two build commands that exist, and which one lies ===
+src-level ./... (false green) exit               : EXIT=0
+proof tollwallet is not in src ./...             : does not contain package
+nested modules under src                         : 16
+per-arch library build (NO link)                 : exit=0  (log: /home/c03rad0r/worktrees/t_7a133499/raw/aarch64-musl-build.txt, 0 lines)
+host library build exit                          : EXIT=0
+
+=== CI: the matrix, and CGO_ENABLED ===
+CI CGO_ENABLED for the package build             : CGO_ENABLED: "0"
+matrix rows                                      : 14  (workflow sha256 bfde687081a06289fa7e75a5ebc18c921b53313d6ee52862e21efce4c4ec23a6)
+rows on arches with NO cdk-go artifact           : 9 of 14 rows
+  mips / armv7 breakdown                         : 7  (mipsel_24kc=2, mips_24kc=5)  armv7 rows: 2
+
+VERDICT: PASS -- every headline number re-derived from the committed logs.
