@@ -37,21 +37,22 @@ def notice_code(event):
 
 
 # Session allotments are cumulative per MAC, so every test pays from a
-# distinct MAC to assert absolute amounts independently of test order.
-# The payment handler accepts client-provided MACs, and the lab's
-# fake-ndsctl answers `json` for any MAC, so these need no lease entries.
+# distinct MAC to assert absolute amounts independently of test order. The
+# handler takes the MAC from the ?mac= query param (the way the splash page
+# passes it from nodogsplash preauth); without it every payment falls back
+# to the client IP's lease entry and lands on one shared MAC.
 BELOW_FEE_MAC = "02:00:00:00:00:21"
 ABOVE_FEE_MAC = "02:00:00:00:00:22"
 FREE_MINT_MAC = "02:00:00:00:00:23"
 
 
 def pay(token, upstream_pubkey, customer_identity, mac):
-    """POST a payment event; returns the Response."""
+    """POST a payment event attributed to `mac`; returns the Response."""
     customer_sec, customer_pub = customer_identity
     event = build_payment_event(
         customer_sec, customer_pub, upstream_pubkey, mac, token
     )
-    return requests.post(UPSTREAM_URL, json=event, timeout=30)
+    return requests.post(f"{UPSTREAM_URL}?mac={mac}", json=event, timeout=30)
 
 
 class TestSwapFees:
