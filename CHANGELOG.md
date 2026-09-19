@@ -16,6 +16,18 @@ and [Semantic Versioning](https://semver.org/).
   from the `tmp/release-integration` pseudo-version to the tagged release
   `v0.11.2` (empty-proofs guard, LoadWallet deadlock fix, hostile-token corpus).
 
+- **`.gitignore` no longer misses the built CLI binary.** The anchoring
+  done in #383 stopped the bare build-output names from shadowing source
+  directories, but turned `tollgate-cli` into `src/tollgate-cli` — a path
+  no build writes. The CLI module lives in `src/cmd/tollgate-cli`, and a
+  binary is named after the last element of the module path, so its
+  `go build .` writes `src/cmd/tollgate-cli/tollgate-cli`. That executable
+  was therefore untracked *and* unignored: it showed up in `git status`
+  after any local build, and `git add -A` would have committed 9.9 MB of
+  binary. The entry now names the path the build actually writes; nothing
+  else in the file changes.
+  ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
+
 ### Added
 
 - **Reproducible builds.** Every byte-affecting build input is now pinned
