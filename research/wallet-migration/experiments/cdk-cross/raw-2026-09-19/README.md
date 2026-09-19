@@ -15,6 +15,14 @@ Two exceptions to "unedited", both disclosed rather than silent:
   reviewed false positives in the repo's `.secrets.baseline` (they are hashes of
   build artefacts, not secrets). The log itself is byte-identical to the run.
 
+One formatting caveat worth stating: this repo's pre-commit hooks
+(`trailing-whitespace`, `end-of-file-fixer`) rewrite *staged* files, so in five
+committed files the bytes differ from the live run output by trailing whitespace
+and, in the two `.gz` logs, a single final blank line. No content, no line of
+error text and no number in `FINDINGS-2026-09-19.md` is affected;
+`../verify-findings.sh` re-derives every headline number from these committed
+files and prints that per-file diff with trailing space stripped.
+
 `21-produced-binary-hashes.txt` records sizes and sha256 of the binaries the runs
 produced; the binaries themselves (16-18 MB each, plus a 35 MB `.so`) are *not*
 committed — they are build outputs, regenerable from the scripts.
