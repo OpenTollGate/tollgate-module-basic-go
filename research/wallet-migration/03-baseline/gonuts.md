@@ -526,6 +526,15 @@ Nothing in this file is hand-computed any more:
   **per outcome**. A rejected receive costs 28,672 B / 10 write ops / ~815 ms;
   a credited one 49,152–57,344 B / 14–19 ops / ~752 ms. Averaging them produces
   a number that describes no customer experience.
+* **Re-verified 2026-09-19T01:06Z with no router in the loop:** a fresh
+  `./run.sh analyze` run against the committed `raw/` at `cdcbb2cb` (clean
+  tree) reproduced `raw/analysis-2026-09-19T00-39-12Z.txt` line-for-line — the
+  only differences are that run's own timestamp and its output filename (the
+  fresh file was not committed; it is a duplicate). The analysis half of this
+  file is therefore reproducible **from the branch alone**; only the on-device
+  phases (`env`, `idle`, `startup`, `payments`, `faults`) need the router.
+  `lib/selftest.sh` also needs the device — it is a router-helper smoke test,
+  not a branch-only check.
 
 ---
 
