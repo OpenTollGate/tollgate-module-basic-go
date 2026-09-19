@@ -601,7 +601,7 @@ and [Semantic Versioning](https://semver.org/).
   `payment-error-below-swap-fee` and stays unspent, an above-fee payment is
   credited net of the fee, and zero-fee payments are unchanged.
   Depends on #409 for the refusal path.
-  ([#414](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/414))
+  ([#413](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/413))
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
   ships the runtime files under `packaging/files/`, and is wired into both
