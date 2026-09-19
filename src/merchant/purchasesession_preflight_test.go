@@ -36,6 +36,12 @@ func (w *preflightWallet) Receive(tollwallet.Token) (uint64, error) {
 	return 1, nil
 }
 
+// SwapFeeSats reports no fee so PurchaseSession skips the fee pre-check #409
+// adds ahead of the NDS pre-flight; without this stub the nil-embedded
+// WalletPort panics once both changes share a tree (verified on a merged
+// test branch).
+func (w *preflightWallet) SwapFeeSats(tollwallet.Token) (uint64, error) { return 0, nil }
+
 func newPreflightMerchant(t *testing.T) (*Merchant, *bool) {
 	t.Helper()
 	receiveCalled := new(bool)
