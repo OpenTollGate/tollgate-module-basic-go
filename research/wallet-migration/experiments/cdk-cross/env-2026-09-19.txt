@@ -1,0 +1,55 @@
+# Environment facts for the T5c re-verification (2026-09-19)
+#
+# Measurement protocol 02-method/measurement-protocol.md §1 requires six facts per
+# measurement: hardware/arch, OS image, build commands, candidate revision, raw
+# output, provenance. This file is fact 1/2/4/6; the raw output is in ./raw/ and
+# the build commands are the four run-*.sh scripts next to this file.
+
+provenance       : worker-tollgate (kanban task t_7a133499), 2026-09-19, build host
+                   CobradorWave (x86_64) — build-only measurements, no on-device claim
+host_uname       : Linux CobradorWave 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC x86_64
+host_cpu         : Intel(R) Core(TM) i7-7600U CPU @ 2.80GHz, 4 cores
+host_loadavg     : 6.0-8.1 during the runs (box shared with other sessions)
+go               : go1.26.0 linux/amd64  (GOROOT=/usr/lib/go-1.26, GOMODCACHE=/home/c03rad0r/go/pkg/mod)
+rustc_stable     : rustc 1.98.1 (48a229cea 2026-09-01)   [aarch64-unknown-linux-musl std added for this run]
+rustc_nightly    : rustc 1.100.0-nightly (330d31712 2026-09-17) [+ rust-src, for -Z build-std]
+rustc_pinned_cdk : 1.96.0  — cdk's rust-toolchain.toml OVERRIDES the default toolchain;
+                   its target list is android/iOS/windows/*-linux-gnu/darwin only:
+                   NO musl entry, NO mips entry (13 targets, read 2026-09-19)
+docker           : present and WORKING on this host (Server Version 29.1.3, overlay2);
+                   the "local docker is stubbed/broken" note in the card body does not
+                   reproduce as of this run — probe output in raw/01-env-recon.txt
+
+# OpenWrt SDK — the TARBALL route (the card's preferred route), NOT the container route
+sdk_release      : 25.12.0 — the release pinned in packaging/build-inputs.json
+sdk_aarch64_tarball : openwrt-sdk-25.12.0-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+                      sha256 7e45a85b4af8af53ff17ca610ad6a7df312568cb52b730f93a21a91899f33139
+                      target aarch64_cortex-a53 (GOARCH=arm64)
+sdk_mipsel_tarball  : openwrt-sdk-25.12.0-ramips-mt7621_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+                      sha256 3549daf11c183241448e965faa2859e26fba1a676a769bfadabba22b65c94696
+                      target mipsel_24kc (GOARCH=mipsle GOMIPS=softfloat)
+toolchain_aarch64: aarch64-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32713-f919e7899d) 14.3.0
+toolchain_mipsel : mipsel-openwrt-linux-musl-gcc  (OpenWrt GCC 14.3.0 r32713-f919e7899d) 14.3.0
+NOTE             : the already-committed T5c artifact (env.txt, 2026-09-14) records SDK
+                   images tagged v25.12.5. packaging/build-inputs.json pins release
+                   25.12.0 for all six targets. The 2026-09-14 measurement therefore used
+                   an SDK one patch release NEWER than the pinned one; this run uses the
+                   pinned tarball release. Same GCC series (14.3.0) either way, but the
+                   discrepancy is recorded rather than papered over.
+
+# Candidates (the exact revisions under test)
+tollgate_branch  : research/wallet-migration @ 3797ef41b87ac03e961c5dfd7d1f3f5e2b0c2e0d
+                   (detached worktree /home/c03rad0r/worktrees/t_7a133499/tmbg)
+adapter_under_test : src/tollwallet/cdk_wallet.go (build tag cdk_wallet)
+cdk_go           : github.com/cashubtc/cdk-go v0.17.3
+                   go.sum h1:ncU2UbKCZ8OalMc9RQA2Fbh5rbuDYz4ULbF+aZSE7nw=
+                   module zip: /home/c03rad0r/go/pkg/mod/cache/download/github.com/cashubtc/cdk-go/@v/v0.17.3.zip
+cdk              : cashubtc/cdk v0.17.3 @ 482e4df87a14f81b5c9ae0269afdf01be237e0e4
+                   (= the commit cdk-go's bindings/cdkffi/CDK_COMMIT records)
+                   clone at /home/c03rad0r/repos/cdk-v0.17.3 (shallow, tag v0.17.3)
+
+# The five router arch families the CI matrix must cover (build-package.yml:52-65)
+matrix           : aarch64_cortex-a53 (arm64), aarch64_cortex-a72 (arm64),
+                   arm_cortex-a7 (armv7), mipsel_24kc (mipsle-softfloat),
+                   mips_24kc (mips-softfloat)  -> 17 rows with compression variants
+ci_cgo           : CGO_ENABLED: "0"  (build-package.yml:181) for every one of them

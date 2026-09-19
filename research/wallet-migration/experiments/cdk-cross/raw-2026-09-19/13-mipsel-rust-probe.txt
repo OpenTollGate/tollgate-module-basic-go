@@ -1,0 +1,60 @@
+### mipsel-unknown-linux-musl Rust probe
+host        : Linux 7.0.0-31-generic x86_64
+rustc stable: rustc 1.98.1 (48a229cea 2026-09-01)
+rustc nightly: rustc 1.100.0-nightly (330d31712 2026-09-17)
+sdk         : openwrt-sdk-25.12.0-ramips-mt7621_gcc-14.3.0_musl.Linux-x86_64
+toolchain   : mipsel-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32713-f919e7899d) 14.3.0
+
+### 1. rustup target add mipsel-unknown-linux-musl
+error: toolchain 'stable-x86_64-unknown-linux-gnu' has no prebuilt artifacts available for target 'mipsel-unknown-linux-musl'
+note: this may happen to a low-tier target as per https://doc.rust-lang.org/nightly/rustc/platform-support.html
+note: you can find instructions on that page to build the target support from source
+exit=1
+
+### 2. minimal cdylib, nightly -Z build-std=std,panic_abort
+RUSTFLAGS   : -C target-feature=-crt-static
+linker      : /home/c03rad0r/worktrees/t_7a133499/sdk/openwrt-sdk-25.12.0-ramips-mt7621_gcc-14.3.0_musl.Linux-x86_64/staging_dir/toolchain-mipsel_24kc_gcc-14.3.0_musl/bin/mipsel-openwrt-linux-musl-gcc
+
+ Downloading crates ...
+  Downloaded adler2 v2.0.1
+  Downloaded foldhash v0.2.0
+  Downloaded addr2line v0.27.1
+  Downloaded getopts v0.2.24
+  Downloaded cfg-if v1.0.4
+  Downloaded rustc-literal-escaper v0.0.8
+  Downloaded rustc-demangle v0.1.28
+  Downloaded miniz_oxide v0.9.1
+  Downloaded memchr v2.8.3
+  Downloaded hashbrown v0.17.1
+  Downloaded gimli v0.34.0
+  Downloaded object v0.39.1
+  Downloaded libc v0.2.189
+   Compiling compiler_builtins v0.1.160 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/compiler-builtins/compiler-builtins)
+   Compiling core v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core)
+   Compiling libc v0.2.189
+   Compiling object v0.39.1
+   Compiling std v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std)
+   Compiling rustc-std-workspace-core v1.99.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/rustc-std-workspace-core)
+   Compiling alloc v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc)
+   Compiling memchr v2.8.3
+   Compiling adler2 v2.0.1
+   Compiling rustc-demangle v0.1.28
+   Compiling cfg-if v1.0.4
+   Compiling rustc-literal-escaper v0.0.8
+   Compiling unwind v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/unwind)
+   Compiling rustc-std-workspace-alloc v1.99.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/rustc-std-workspace-alloc)
+   Compiling panic_unwind v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/panic_unwind)
+   Compiling panic_abort v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/panic_abort)
+   Compiling gimli v0.34.0
+   Compiling std_detect v0.1.5 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std_detect)
+   Compiling miniz_oxide v0.9.1
+   Compiling hashbrown v0.17.1
+   Compiling addr2line v0.27.1
+   Compiling proc_macro v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/proc_macro)
+   Compiling probe_cdylib v0.1.0 (/home/c03rad0r/worktrees/t_7a133499/probe-cdylib)
+    Finished `release` profile [optimized] target(s) in 1m 48s
+exit=0
+
+### artefacts:
+-rw-rw-r-- 2 c03rad0r c03rad0r 4330474 Sep 19 03:32 target/mipsel-unknown-linux-musl/release/libprobe_cdylib.a
+-rwxrwxr-x 2 c03rad0r c03rad0r   66832 Sep 19 03:32 target/mipsel-unknown-linux-musl/release/libprobe_cdylib.so

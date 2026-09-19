@@ -780,3 +780,85 @@ throughout — real work, not a flag.
 cgo/`cdk-go`; ship CDK as a **process-isolated sidecar**. New hard fact for the
 scorecard (T13): **the current `cdk-cli` sidecar covers aarch64 but not mipsel**
 (the aarch64 sidecar is measured and clean).
+
+---
+
+# T5c RE-VERIFICATION (2026-09-19) — the "impossible" verdict was two patches too strong
+
+Re-run of the T5c claims on the **SDK release pinned in
+`packaging/build-inputs.json` (25.12.0 tarballs**, not the `v25.12.5` images the
+2026-09-14 run used), with the deployment link added. Raw output, scripts and env
+facts: `experiments/cdk-cross/` (`FINDINGS-2026-09-19.md`,
+`env-2026-09-19.txt`, `raw/`).
+
+**Two claims in §1/§2 of the T5c block above do not survive re-measurement.**
+
+1. *"musl has no `cdylib`, so the binding's `.so` contract cannot be met from
+   source"* — **wrong**. The `cdylib` drop is musl's `crt-static` **default**, not
+   a target limitation:
+
+   ```
+   $ cargo build --release --target aarch64-unknown-linux-musl          # default
+   warning: dropping unsupported crate type `cdylib` for target `aarch64-unknown-linux-musl`
+   → libcdk_ffi.a only, no .so
+   $ RUSTFLAGS="-C target-feature=-crt-static" cargo build …            # one flag
+   → libcdk_ffi.so, NEEDED libgcc_s.so.1 + libc.so (musl)
+   ```
+
+   Applied to the real crate: `cargo build -p cdk-ffi --release --target
+   aarch64-unknown-linux-musl` **succeeds** (23m51s, no errors, rust 1.96.0 as
+   pinned by cdk's own `rust-toolchain.toml`) and yields `libcdk_ffi.so`
+   35,021,264 B unstripped / **26,452,880 B stripped** — 0.2% off the shipped
+   glibc `linux_arm64` `.so` (26,518,672 B), so it is the same animal.
+2. *"only the main build exposes the failure"* — right in substance, and now
+   measured on the artifact that ships. `src/main.go` → `src/merchant` →
+   `src/tollwallet` (`src/go.mod` has the `replace`), so:
+
+   | build (`-tags cdk_wallet`) | aarch64 musl | mipsle softfloat musl |
+   |---|---|---|
+   | `go build ./...` in `src/tollwallet` | exit 0 (no link — false green) | exit 0 (false green) |
+   | **service link** (`go build .` in `src/`) | **exit 1**, 138 undefined `@GLIBC_2.17…2.34` | **exit 1**, 691 undefined `ffi_cdk_ffi_*` |
+   | service link **without** the tag | exit 0, 16,770,936 B | exit 0, 18,073,276 B |
+
+   The mipsle failure has a different cause worth naming: `cdk-go` has **no
+   `link_linux_mipsle.go` stanza at all**, so no library is ever passed to the
+   linker — every FFI symbol is unresolved (zero `@GLIBC` refs, versus 138 for
+   aarch64).
+
+**And the from-source path now links end to end on aarch64 — with two patches.**
+Replacing the glibc object in a throwaway copy of the module with the musl build
+(P1 `-crt-static`; P2 the musl `.so` at `native/linux_arm64/libcdk_ffi.so`, where
+`link_linux_arm64.go` looks) gives `exit=0` and an 18,033,248 B aarch64-musl
+binary — `NEEDED libcdk_ffi.so`, `interpreter /lib/ld-musl-aarch64.so.1`, and an
+**RPATH pointing into the build machine's module cache** (the §B2 landmine,
+confirmed for musl too → patch P3), plus a **26.5 MB runtime `.so`** on a
+64–128 MB router. Rust `std` cannot be excluded: it is statically inside that
+`.so` and CDK needs it (tokio multi-thread, bundled SQLite, ring, secp256k1).
+
+**mipsel:** `rustup target add mipsel-unknown-linux-musl` → *exit 1, "no prebuilt
+artifacts … low-tier target"* (Rust tier 3 ⇒ nightly `-Z build-std` is
+mandatory), yet a minimal MIPS `.so` **does** build that way (66,832 B) — so the
+arch and the toolchain are not the wall. The wall is a **dependency**, and it is
+now measured on the real graph (254 crates into `cargo +nightly check -Z
+build-std=std,panic_abort --target mipsel-unknown-linux-musl -p cdk-ffi`):
+
+```
+error[E0432]: unresolved import `std::sync::atomic::AtomicU64`
+ --> …/nostr-relay-pool-0.44.1/src/relay/flags.rs:8:25
+error: could not compile `nostr-relay-pool` (lib) due to 3 previous errors   EXIT=101
+```
+
+`nostr-relay-pool` (via `nostr-sdk`) is pulled in by CDK's **default** features
+(`npubcash`, `nwc`), and `mipsel_24kc` has no 64-bit atomics — so this is **not**
+a `cdk-cli`-only problem: the in-process path inherits it. Fixing it is an
+upstream dependency change (Nostr-free feature set or `portable-atomic`), not a
+flag. **arm_cortex-a7 (armv7) was not measured at all** and has no `cdk-go`
+artifact either.
+
+**Revised verdicts.** aarch64: *cross-compiles with 2 patches* (plus P3 packaging
+and P4, the `CGO_ENABLED=0` → per-arch-cgo CI change at
+`build-package.yml:181`). mips/mipsel and armv7: not buildable as published, open
+work. **The sidecar recommendation is unchanged** — but the honest cost of the
+in-process alternative is now stated: two patches, a 162.7 MiB `.a` / 26.5 MB
+`.so` supply chain, an RPATH/packaging workstream, and a CI rewrite — not
+"impossible on musl".

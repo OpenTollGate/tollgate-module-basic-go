@@ -1,0 +1,2 @@
+=== baseline (no cdk_wallet tag), aarch64 musl, the shipped service ===
+exit=0

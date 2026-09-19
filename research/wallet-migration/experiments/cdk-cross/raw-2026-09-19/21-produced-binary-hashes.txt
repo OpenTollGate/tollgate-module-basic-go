@@ -1,0 +1,7 @@
+=== produced binaries (not committed; sizes+sha256 for the record) ===
+tollgate-wrt-aarch64-musl-baseline: 16770936 bytes sha256=27d5e8a0d9074dbee98456798d58ba2ace6df70612a5679e870aa1279afdd183
+tollgate-wrt-aarch64-musl-cdk-patched: 18033248 bytes sha256=8d05435989ac431303353d3e4a00d43178afe1afd85b74d05b0060abd187f2b6
+tollgate-wrt-mipsel-musl-baseline: 18073276 bytes sha256=5534de44fa91e6fac351e7a70167f6e88f87ff20b8d273ae119ec0b333b8d6a0
+
+=== musl .so produced from source (not committed) ===
+libcdk_ffi.so (aarch64 musl, unstripped): 35021264 bytes sha256=6b3eb88f2fcdb96ea8e97363bf7267f988913ad8118f0ca69d6b4bba6676a48c

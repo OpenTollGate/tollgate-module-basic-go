@@ -1,0 +1,20 @@
+### patched-link probe (aarch64 musl)
+musl object : /home/c03rad0r/repos/cdk-v0.17.3/target/aarch64-unknown-linux-musl/release/libcdk_ffi.so  35021264 bytes  sha256=6b3eb88f2fcdb96ea8e97363bf7267f988913ad8118f0ca69d6b4bba6676a48c
+replacing   : /home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so
+               (26518672 bytes, glibc)
+
+appended replace directive to /home/c03rad0r/worktrees/t_7a133499/tmbg/src/go.mod
+)
+
+replace github.com/cashubtc/cdk-go => /home/c03rad0r/worktrees/t_7a133499/cdk-go-musl
+
+### go build -tags cdk_wallet (aarch64 musl, patched)
+exit=0
+PRODUCED: 18033248 bytes
+--- readelf -d (note the RUNPATH into the build machine — the packaging landmine)
+ 0x0000000000000001 (NEEDED)             Shared library: [libcdk_ffi.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so]
+ 0x000000000000000f (RPATH)              Library rpath: [/home/c03rad0r/worktrees/t_7a133499/cdk-go-musl/bindings/cdkffi/native/linux_arm64]
+--- file
+/home/c03rad0r/worktrees/t_7a133499/raw/tollgate-wrt-aarch64-musl-cdk-patched: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-aarch64.so.1, BuildID[sha1]=e4190081ee590aa94422b8a3944de7a78370659a, with debug_info, not stripped

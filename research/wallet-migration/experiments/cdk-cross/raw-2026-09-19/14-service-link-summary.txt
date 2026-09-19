@@ -1,0 +1,17 @@
+################ service link: aarch64-musl  (tags: cdk_wallet) ################
+exit=1  log=/home/c03rad0r/worktrees/t_7a133499/raw/14-service-link-aarch64-musl.txt  lines=146
+distinct undefined symbols: 138
+distinct GLIBC versions:    @GLIBC_2.17 @GLIBC_2.28 @GLIBC_2.29 @GLIBC_2.32 @GLIBC_2.33 @GLIBC_2.34
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `open64@GLIBC_2.17'
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `writev@GLIBC_2.17'
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `epoll_wait@GLIBC_2.17'
+
+################ service link: mipsel-musl  (tags: cdk_wallet) ################
+exit=1  log=/home/c03rad0r/worktrees/t_7a133499/raw/14-service-link-mipsel-musl.txt  lines=2078
+distinct undefined symbols: 691
+distinct GLIBC versions:
+/tmp/go-build/cgo-gcc-prolog:126:(.text+0x47c): undefined reference to `ffi_cdk_ffi_rust_future_complete_i8'
+/tmp/go-build/cgo-gcc-prolog:126:(.text+0x480): undefined reference to `ffi_cdk_ffi_rust_future_complete_i8'
+/tmp/go-build/cgo-gcc-prolog:145:(.text+0x50c): undefined reference to `ffi_cdk_ffi_rust_future_complete_rust_buffer'
+
+run-service-link.sh: line 24: 7: tags

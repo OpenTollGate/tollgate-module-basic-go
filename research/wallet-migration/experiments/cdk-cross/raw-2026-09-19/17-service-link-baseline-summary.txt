@@ -1,0 +1,5 @@
+################ baseline (no cdk_wallet tag): aarch64-musl-baseline ################
+exit=126 lines=1
+################ baseline (no cdk_wallet tag): mipsel-musl-baseline ################
+exit=0 lines=0
+PRODUCED: 18073276 bytes  ELF 32-bit LSB executable, MIPS, MIPS32 rel2 version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-mipsel-sf.so.1, BuildID[sha1]=f743cc443437ebc35b2bfb1610b06173c2955efb, with debug_info, not stripped

@@ -1,0 +1,27 @@
+=== go.mod (cdk-go pin) ===
+1:module github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet
+3:go 1.25.0
+13:replace github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+34:	github.com/cashubtc/cdk-go v0.17.3
+
+=== files ===
+WIREFORMAT.md
+bench_test.go
+cdk_wallet.go
+cdk_wallet_test.go
+compatibility_matrix_test.go
+cross_vectors_test.go
+go.mod
+go.sum
+gonuts_wallet.go
+port.go
+sentinel_test.go
+spending_conditions_test.go
+tollwallet.go
+tollwallet_test.go
+
+=== [E] library-level build, host amd64/glibc, tag cdk_wallet ===
+EXIT=0
+
+=== [F] go vet same tags ===
+EXIT=0

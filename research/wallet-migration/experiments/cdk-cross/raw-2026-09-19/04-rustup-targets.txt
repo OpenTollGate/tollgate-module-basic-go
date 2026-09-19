@@ -1,0 +1,24 @@
+=== rustup target add aarch64-unknown-linux-musl ===
+info: downloading component rust-std
+EXIT=0
+
+=== rustup target add mipsel-unknown-linux-musl ===
+error: toolchain 'stable-x86_64-unknown-linux-gnu' has no prebuilt artifacts available for target 'mipsel-unknown-linux-musl'
+note: this may happen to a low-tier target as per https://doc.rust-lang.org/nightly/rustc/platform-support.html
+note: you can find instructions on that page to build the target support from source
+EXIT=1
+
+=== rustup target list | grep musl ===
+aarch64-unknown-linux-musl (installed)
+arm-unknown-linux-musleabi
+arm-unknown-linux-musleabihf
+armv5te-unknown-linux-musleabi
+armv7-unknown-linux-musleabi
+armv7-unknown-linux-musleabihf
+i586-unknown-linux-musl
+i686-unknown-linux-musl
+loongarch64-unknown-linux-musl
+powerpc64-unknown-linux-musl
+powerpc64le-unknown-linux-musl
+riscv64gc-unknown-linux-musl
+x86_64-unknown-linux-musl

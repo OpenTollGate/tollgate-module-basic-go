@@ -1,0 +1,22 @@
+=== build log: warnings/errors/verdict ===
+    Finished `release` profile [optimized] target(s) in 23m 51s
+
+=== size ===
+/home/c03rad0r/repos/cdk-v0.17.3/target/aarch64-unknown-linux-musl/release/libcdk_ffi.so 35021264 bytes
+/home/c03rad0r/repos/cdk-v0.17.3/target/aarch64-unknown-linux-musl/release/libcdk_ffi.a 170602256 bytes
+/home/c03rad0r/repos/cdk-v0.17.3/target/aarch64-unknown-linux-musl/release/libcdk_ffi.rlib 41251572 bytes
+
+=== stripped size (OpenWrt strip) ===
+stripped: 26452880 bytes
+
+=== readelf -d (musl .so, NEEDED) ===
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so]
+
+=== does it carry std? (rust std marker symbols) ===
+0
+00000000007ca99c t _RNvCsGIExRX8pES_7___rustc12___rust_alloc
+00000000011bcfa0 t _RNvCsGIExRX8pES_7___rustc17rust_begin_unwind
+00000000007ca9a8 t _RNvCsGIExRX8pES_7___rustc19___rust_alloc_zeroed
+
+=== workspace [profile.release] ===

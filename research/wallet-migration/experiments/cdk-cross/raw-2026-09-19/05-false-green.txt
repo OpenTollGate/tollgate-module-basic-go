@@ -1,0 +1,37 @@
+=== [A] src-level: go build -tags cdk_wallet ./... (the documented command) ===
+go: downloading github.com/OpenTollGate/gonuts-tollgate v0.11.1
+EXIT=0
+
+=== [B] proof the nested module is excluded: src does not contain tollwallet ===
+main module (github.com/OpenTollGate/tollgate-module-basic-go) does not contain package github.com/OpenTollGate/tollgate-module-basic-go/tollwallet
+EXIT=1
+
+=== [C] do any src packages import tollwallet? ===
+./merchant/session_test.go:9:	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
+./merchant/session_test.go:85:	err := tollwallet.ErrTokenAlreadySpent
+./merchant/session_test.go:87:	if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+./merchant/session_test.go:88:		t.Fatal("expected errors.Is to match tollwallet.ErrTokenAlreadySpent")
+./merchant/session_test.go:93:	inner := fmt.Errorf("swap failed: %w", tollwallet.ErrTokenAlreadySpent)
+./merchant/session_test.go:95:	if !errors.Is(inner, tollwallet.ErrTokenAlreadySpent) {
+./merchant/session_test.go:96:		t.Fatal("expected errors.Is to match tollwallet.ErrTokenAlreadySpent through wrapped error")
+./merchant/session_test.go:103:	if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+./merchant/session_test.go:111:	if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+./merchant/quotes_wireformat_test.go:11:	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
+
+=== [D] nested modules under src ===
+./cli/go.mod
+./cmd/tollgate-cli/go.mod
+./config_manager/go.mod
+./go.mod
+./identity/go.mod
+./lightning/go.mod
+./merchant/go.mod
+./merchant_types/go.mod
+./sysexec/go.mod
+./tollgate_protocol/go.mod
+./tollwallet/go.mod
+./upstream_detector/go.mod
+./upstream_session_manager/go.mod
+./utils/go.mod
+./valve/go.mod
+./wireless_gateway_manager/go.mod

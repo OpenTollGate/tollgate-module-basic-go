@@ -1,0 +1,31 @@
+=== SDK facts ===
+sdk/openwrt-sdk-25.12.0-mediatek-filogic.tar.zst 252166179 bytes
+sdk/openwrt-sdk-25.12.0-ramips-mt7621.tar.zst 231673917 bytes
+7e45a85b4af8af53ff17ca610ad6a7df312568cb52b730f93a21a91899f33139  sdk/openwrt-sdk-25.12.0-mediatek-filogic.tar.zst
+3549daf11c183241448e965faa2859e26fba1a676a769bfadabba22b65c94696  sdk/openwrt-sdk-25.12.0-ramips-mt7621.tar.zst
+
+SDK release 25.12.0; toolchain openwrt GCC 14.3.0 musl
+=== build-inputs.json openwrt_sdk block (baseline-build-d0cb92f2 @ d0cb92f2) ===
+  "openwrt_sdk": {
+    "image": "openwrt/sdk",
+    "release": "25.12.0",
+    "targets": {
+      "mediatek-filogic": {
+        "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331"
+      },
+      "bcm27xx-bcm2711": {
+        "digest": "sha256:ba3b812f2f1fa5110219825599fd0f745f51b2da557f8f7eea41b1d78f9d7810"
+      },
+      "bcm27xx-bcm2709": {
+        "digest": "sha256:ec78c8925588d84ac046eea1045cd50b4665652d493334bc9b457b30059d992f"
+      },
+      "ramips-mt7621": {
+        "digest": "sha256:000f3add430c8d285e4ae7e7569f06d9143c48df8a0a03bf15891ece8d3dae0f"
+      },
+      "ath79-generic": {
+        "digest": "sha256:c927abbe74c5e036eb0283cfb3a63886caec7a3d735c6cc53a170e0fc0ea04ac"
+      },
+      "x86-64": {
+        "digest": "sha256:0061d8c6bb7559a79931074ffb50fb0d71add1d26840d314397b50ebbc3bf7be"
+      }
+    }

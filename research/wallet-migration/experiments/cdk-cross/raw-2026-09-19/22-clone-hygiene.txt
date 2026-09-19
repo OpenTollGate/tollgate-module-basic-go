@@ -1,0 +1,12 @@
+=== shared clones untouched? (before/after evidence) ===
+--- ~/repos/tollgate-module-basic-go (before was empty/clean) ---
+count: 0
+branch: fix/375-drain-cashu-safety
+--- worktrees of that repo ---
+/home/c03rad0r/repos/tollgate-module-basic-go    7e999bdd [fix/375-drain-cashu-safety]
+/home/c03rad0r/worktrees/t_7a133499/tmbg         3797ef41 (detached HEAD)
+/home/c03rad0r/worktrees/t_96483506              3797ef41 [research/wallet-migration]
+fatal: not a git repository (or any of the parent directories): .git
+--- ~/repos/cdk (shared) — only  was ever run on it ---
+112
+703849e fix(mintd): validate startup configuration

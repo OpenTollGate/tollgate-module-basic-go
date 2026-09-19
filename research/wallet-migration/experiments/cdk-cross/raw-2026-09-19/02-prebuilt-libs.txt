@@ -1,0 +1,39 @@
+=== prebuilt cdk-go native libs (cdk-go v0.17.3) ===
+-- ./checksums.sha256  376 bytes
+-- ./darwin_amd64/libcdk_ffi.dylib  32505348 bytes
+-- ./darwin_arm64/libcdk_ffi.dylib  30614112 bytes
+-- ./linux_amd64/libcdk_ffi.so  30187520 bytes
+-- ./linux_arm64/libcdk_ffi.so  26518672 bytes
+-- ./windows_amd64/cdk_ffi.dll  33533952 bytes
+
+=== readelf -d linux_arm64/libcdk_ffi.so ===
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-aarch64.so.1]
+
+=== readelf -d linux_amd64/libcdk_ffi.so ===
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-x86-64.so.2]
+
+=== file ===
+linux_arm64/libcdk_ffi.so: ELF 64-bit LSB shared object, ARM aarch64, version 1 (SYSV), dynamically linked, BuildID[sha1]=55d51462b0155e7557fe8c66ed244dd7528afd8f, stripped
+
+=== link_*.go build constraints ===
+--- link_darwin_amd64.go
+//go:build darwin && amd64
+// #cgo LDFLAGS: -L${SRCDIR}/native/darwin_amd64 -lcdk_ffi -Wl,-rpath,${SRCDIR}/native/darwin_amd64 -lm
+--- link_darwin_arm64.go
+//go:build darwin && arm64
+// #cgo LDFLAGS: -L${SRCDIR}/native/darwin_arm64 -lcdk_ffi -Wl,-rpath,${SRCDIR}/native/darwin_arm64 -lm
+--- link_linux_amd64.go
+//go:build linux && amd64
+// #cgo LDFLAGS: -L${SRCDIR}/native/linux_amd64 -lcdk_ffi -Wl,-rpath,${SRCDIR}/native/linux_amd64 -lm -ldl
+--- link_linux_arm64.go
+//go:build linux && arm64
+// #cgo LDFLAGS: -L${SRCDIR}/native/linux_arm64 -lcdk_ffi -Wl,-rpath,${SRCDIR}/native/linux_arm64 -lm -ldl
+--- link_windows_amd64.go
+//go:build windows && amd64
+// #cgo LDFLAGS: -L${SRCDIR}/native/windows_amd64 -lcdk_ffi

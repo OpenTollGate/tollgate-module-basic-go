@@ -1,0 +1,367 @@
+### mipsel-unknown-linux-musl: CDK's real dependency graph (cdk-ffi, default features)
+command: cargo +nightly check -Z build-std=std,panic_abort --target mipsel-unknown-linux-musl -p cdk-ffi
+rustc: rustc 1.100.0-nightly (330d31712 2026-09-17)
+toolchain: mipsel-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32713-f919e7899d) 14.3.0
+RUSTFLAGS: -C target-feature=-crt-static
+
+warning: unused workspace dependency `prometheus`
+   --> Cargo.toml:126:1
+    |
+126 | prometheus = { version = "0.13.4", features = ["process"], default-features = false }
+    | ^^^^^^^^^^
+    |
+    = note: `cargo::unused_workspace_dependencies` is set to `warn` by default
+help: consider removing the workspace dependency `prometheus`
+warning: workspace (manifest) generated 1 warning
+warning: missing `[lints]` to inherit `[workspace.lints]`
+  --> crates/cdk-bdk/Cargo.toml
+   = note: `cargo::missing_lints_inheritance` is set to `warn` by default
+help: to inherit `workspace.lints, add:
+   |
+36 ~ tempfile = "3"
+37 + [lints]
+38 + workspace = true
+   |
+help: to clarify your intent to not inherit, add:
+   |
+36 ~ tempfile = "3"
+37 + [lints]
+   |
+warning: `cdk-bdk` (manifest) generated 1 warning
+warning: unused build dependency `uniffi`
+  --> bindings/kotlin/rust/Cargo.toml:24:1
+   |
+24 | uniffi = { workspace = true, features = ["build"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `uniffi`
+warning: `cdk-ffi-kotlin` (manifest) generated 1 warning
+warning: unused build dependency `uniffi`
+  --> bindings/go/rust/Cargo.toml:20:1
+   |
+20 | uniffi = { workspace = true, features = ["build"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `uniffi`
+warning: `cdk-ffi-go` (manifest) generated 1 warning
+warning: unused build dependency `uniffi`
+  --> bindings/dart/rust/Cargo.toml:26:1
+   |
+26 | uniffi = { workspace = true, features = ["build"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `uniffi`
+warning: unused build dependency `uniffi-dart`
+  --> bindings/dart/rust/Cargo.toml:27:1
+   |
+27 | uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", features = ["build"], tag = "v0.1.0+v0.30.0"  }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `uniffi-dart`
+warning: `cdk-ffi-dart` (manifest) generated 2 warnings
+warning: unused build dependency `uniffi`
+  --> bindings/swift/rust/Cargo.toml:26:1
+   |
+26 | uniffi = { workspace = true, features = ["build"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `uniffi`
+warning: `cdk-ffi-swift` (manifest) generated 1 warning
+   Compiling compiler_builtins v0.1.160 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/compiler-builtins/compiler-builtins)
+   Compiling core v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core)
+   Compiling libc v0.2.189
+   Compiling object v0.39.1
+   Compiling std v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling find-msvc-tools v0.1.9
+   Compiling syn v2.0.118
+   Compiling shlex v2.0.1
+   Compiling portable-atomic v1.13.1
+   Compiling jobserver v0.1.34
+   Compiling zerocopy v0.8.52
+   Compiling cc v1.2.65
+   Compiling serde v1.0.228
+   Compiling version_check v0.9.5
+   Compiling parking_lot_core v0.9.12
+   Compiling generic-array v0.14.7
+   Compiling icu_normalizer_data v2.2.0
+   Compiling icu_properties_data v2.2.0
+   Compiling getrandom v0.4.3
+   Compiling autocfg v1.5.1
+   Compiling bitcoin-io v0.1.101
+   Compiling thiserror v2.0.18
+   Compiling zmij v1.0.21
+   Compiling ring v0.17.14
+   Compiling secp256k1-sys v0.10.1
+   Compiling pkg-config v0.3.33
+   Compiling synstructure v0.13.2
+   Compiling serde_json v1.0.150
+   Compiling getrandom v0.3.4
+   Compiling serde_derive v1.0.228
+   Compiling zerocopy-derive v0.8.52
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling tokio-macros v2.7.0
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.6
+   Compiling futures-macro v0.3.32
+   Compiling thiserror-impl v2.0.18
+   Compiling anyhow v1.0.103
+   Compiling httparse v1.10.1
+   Compiling rustls v0.23.41
+   Compiling tracing-attributes v0.1.31
+   Compiling heck v0.5.0
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling rustc-std-workspace-core v1.99.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/rustc-std-workspace-core)
+   Compiling alloc v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc)
+   Compiling memchr v2.8.3
+   Compiling adler2 v2.0.1
+   Compiling rustc-demangle v0.1.28
+   Compiling unwind v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/unwind)
+   Compiling cfg-if v1.0.4
+   Compiling rustc-literal-escaper v0.0.8
+   Compiling num-traits v0.2.19
+   Compiling rustix v1.1.4
+   Compiling hex_lit v0.1.1
+   Compiling thiserror v1.0.69
+   Compiling crc32fast v1.5.0
+   Compiling zstd-safe v7.2.4
+   Compiling thiserror-impl v1.0.69
+   Compiling bitcoin v0.32.101
+   Compiling rustc-std-workspace-alloc v1.99.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/rustc-std-workspace-alloc)
+   Compiling gimli v0.34.0
+   Compiling miniz_oxide v0.9.1
+   Compiling std_detect v0.1.5 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std_detect)
+   Compiling hashbrown v0.17.1
+   Compiling panic_unwind v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/panic_unwind)
+   Compiling panic_abort v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/panic_abort)
+   Compiling strsim v0.11.1
+   Compiling ident_case v1.0.1
+   Compiling num-conv v0.2.2
+   Compiling time-core v0.1.9
+   Compiling time-macros v0.2.30
+   Compiling addr2line v0.27.1
+   Compiling darling_core v0.23.0
+   Compiling libm v0.2.16
+   Compiling equivalent v1.0.2
+   Compiling indexmap v2.14.0
+   Compiling uniffi_internal_macros v0.30.0
+   Compiling async-trait v0.1.89
+   Compiling darling_macro v0.23.0
+   Compiling darling v0.23.0
+   Compiling lightning-macros v0.2.1
+   Compiling serde_with_macros v3.21.0
+   Compiling fs-err v2.11.0
+   Compiling winnow v0.7.15
+   Compiling paste v1.0.15
+   Compiling crossbeam-utils v0.8.21
+   Compiling proc_macro v0.0.0 (/home/c03rad0r/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/proc_macro)
+   Compiling strum_macros v0.27.2
+   Compiling ahash v0.8.12
+   Compiling linux-raw-sys v0.12.1
+   Compiling bitflags v2.13.0
+   Compiling vcpkg v0.2.15
+   Compiling once_cell v1.21.4
+   Compiling memchr v2.8.2
+   Compiling camino v1.2.3
+   Compiling fastrand v2.4.1
+   Compiling libsqlite3-sys v0.28.0
+   Compiling askama_parser v0.13.0
+   Compiling tempfile v3.27.0
+    Checking smallvec v1.15.2
+    Checking errno v0.3.14
+    Checking critical-section v1.2.0
+    Checking getrandom v0.2.17
+    Checking pin-project-lite v0.2.17
+    Checking bytes v1.12.0
+    Checking scopeguard v1.2.0
+    Checking lock_api v0.4.14
+    Checking stable_deref_trait v1.2.1
+    Checking zerofrom v0.1.8
+    Checking yoke v0.8.3
+    Checking parking_lot v0.12.5
+    Checking itoa v1.0.18
+    Checking futures-core v0.3.32
+    Checking signal-hook-registry v1.4.8
+    Checking mio v1.2.1
+    Checking socket2 v0.6.4
+    Checking zerovec v0.11.6
+    Checking tokio v1.52.3
+    Checking typenum v1.20.1
+    Checking tinystr v0.8.3
+    Checking writeable v0.6.3
+    Checking futures-sink v0.3.32
+    Checking litemap v0.8.2
+    Checking icu_locale_core v2.2.0
+    Checking potential_utf v0.1.5
+    Checking zerotrie v0.2.4
+    Checking ppv-lite86 v0.2.21
+    Checking utf8_iter v1.0.4
+    Checking icu_collections v2.2.0
+    Checking icu_provider v2.2.0
+    Checking percent-encoding v2.3.2
+    Checking zeroize v1.9.0
+    Checking log v0.4.33
+    Checking arrayvec v0.7.7
+    Checking rustls-pki-types v1.14.1
+    Checking slab v0.4.12
+    Checking futures-task v0.3.32
+    Checking icu_properties v2.2.0
+    Checking hex-conservative v0.2.2
+    Checking futures-util v0.3.32
+    Checking icu_normalizer v2.2.0
+    Checking crypto-common v0.1.7
+    Checking untrusted v0.9.0
+    Checking bitcoin_hashes v0.14.101
+    Checking idna_adapter v1.2.2
+    Checking form_urlencoded v1.2.2
+    Checking rand_core v0.6.4
+    Checking rand_chacha v0.3.1
+    Checking idna v1.1.0
+    Checking http v1.4.2
+    Checking url v2.5.8
+    Checking rand v0.8.6
+    Checking tracing-core v0.1.36
+    Checking base64 v0.22.1
+    Checking rand_core v0.9.5
+    Checking rustls-webpki v0.103.13
+    Checking secp256k1 v0.29.1
+    Checking block-padding v0.3.3
+    Checking bech32 v0.11.1
+    Checking subtle v2.6.1
+    Checking inout v0.1.4
+    Checking rand_chacha v0.9.0
+    Checking tracing v0.1.44
+    Checking data-encoding v2.11.0
+    Checking rand v0.9.4
+    Checking cipher v0.4.4
+    Checking webpki-roots v1.0.8
+    Checking block-buffer v0.10.4
+    Checking openssl-probe v0.2.1
+    Checking digest v0.10.7
+    Checking rustls-native-certs v0.8.4
+    Checking futures-channel v0.3.32
+    Checking sha1 v0.10.6
+    Checking utf-8 v0.7.6
+    Checking alloc-no-stdlib v2.0.4
+    Checking webpki-roots v0.26.11
+    Checking alloc-stdlib v0.2.4
+    Checking aes v0.8.4
+    Checking cbc v0.1.2
+    Checking chacha20 v0.9.1
+    Checking http-body v1.0.1
+    Checking futures-io v0.3.32
+    Checking minimal-lexical v0.2.1
+    Checking simd-adler32 v0.3.9
+    Checking hex v0.4.3
+    Checking nom v7.1.3
+    Checking nostr v0.44.3
+    Checking miniz_oxide v0.8.9
+    Checking num-integer v0.1.46
+    Checking brotli-decompressor v5.0.3
+    Checking tokio-rustls v0.26.4
+    Checking tungstenite v0.26.2
+    Checking base58ck v0.1.101
+    Checking bitcoin-units v0.1.101
+    Checking try-lock v0.2.5
+    Checking tinyvec_macros v0.1.1
+    Checking either v1.16.0
+    Checking tokio-tungstenite v0.26.2
+    Checking base64 v0.21.7
+    Checking tower-service v0.3.3
+    Checking ipnet v2.12.0
+    Checking tokio-socks v0.5.3
+    Checking tinyvec v1.11.0
+    Checking want v0.3.1
+    Checking flate2 v1.1.9
+    Checking brotli v8.0.4
+    Checking num-bigint v0.4.6
+    Checking zstd v0.13.3
+    Checking aho-corasick v1.1.4
+    Checking compression-core v0.4.32
+    Checking regex-syntax v0.8.11
+    Checking powerfmt v0.2.0
+    Checking atomic-waker v1.1.2
+    Checking lru v0.16.4
+    Checking deranged v0.5.8
+    Checking compression-codecs v0.4.38
+    Checking nostr-database v0.44.0
+    Checking regex-automata v0.4.14
+    Checking time v0.3.51
+    Checking hyper v1.10.1
+    Checking lightning-types v0.3.2
+    Checking async-wsocket v0.13.2
+    Checking uuid v1.23.4
+    Checking async-utility v0.3.1
+    Checking tokio-util v0.7.18
+    Checking half v2.7.1
+    Checking sync_wrapper v1.0.2
+    Checking tower-layer v0.3.3
+    Checking atomic-destructor v0.3.0
+    Checking negentropy v0.5.0
+    Checking tower v0.5.3
+    Checking lightning-invoice v0.34.1
+    Checking nostr-relay-pool v0.44.1
+error[E0432]: unresolved import `std::sync::atomic::AtomicU64`
+ --> /home/c03rad0r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nostr-relay-pool-0.44.1/src/relay/flags.rs:8:25
+  |
+8 | use std::sync::atomic::{AtomicU64, Ordering};
+  |                         ^^^^^^^^^ no `AtomicU64` in `sync::atomic`
+  |
+help: a similar name exists in the module
+  |
+8 - use std::sync::atomic::{AtomicU64, Ordering};
+8 + use std::sync::atomic::{AtomicU8, Ordering};
+  |
+
+error[E0432]: unresolved import `std::sync::atomic::AtomicU64`
+ --> /home/c03rad0r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nostr-relay-pool-0.44.1/src/relay/ping.rs:6:37
+  |
+6 | use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+  |                                     ^^^^^^^^^ no `AtomicU64` in `sync::atomic`
+  |
+help: a similar name exists in the module
+  |
+6 - use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+6 + use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+  |
+
+error[E0432]: unresolved import `std::sync::atomic::AtomicU64`
+ --> /home/c03rad0r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nostr-relay-pool-0.44.1/src/relay/stats.rs:7:25
+  |
+7 | use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+  |                         ^^^^^^^^^ no `AtomicU64` in `sync::atomic`
+  |
+help: a similar name exists in the module
+  |
+7 - use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+7 + use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+  |
+
+    Checking hyper-util v0.1.20
+    Checking async-compression v0.4.42
+    Checking nostr-gossip v0.44.0
+    Checking http-body-util v0.1.3
+    Checking dnssec-prover v0.6.8
+    Checking possiblyrandom v0.2.1
+    Checking ciborium-io v0.2.2
+    Checking ryu v1.0.23
+    Checking hashbrown v0.13.2
+    Checking hyper-rustls v0.27.9
+    Checking serde_urlencoded v0.7.1
+    Checking ciborium-ll v0.2.2
+    Checking tower-http v0.6.11
+    Checking num-rational v0.4.2
+For more information about this error, try `rustc --explain E0432`.
+    Checking lightning v0.2.3
+error: could not compile `nostr-relay-pool` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+EXIT=101

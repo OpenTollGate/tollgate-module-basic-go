@@ -34,6 +34,20 @@ dissent — and can check all of it out from this branch alone.
 > The **sidecar `cdk-cli` builds clean on aarch64** (19.7 MiB stripped, static)
 > but **fails on mipsel** (`std::sync::atomic::AtomicU64` absent; `nostr-relay-pool`).
 > Runtime RSS deferred to the physical aarch64 router.
+>
+> **T5c re-verification (2026-09-19) — read before quoting the line above.**
+> Re-run on the SDK release pinned in `packaging/build-inputs.json` (25.12.0
+> tarballs; the 2026-09-14 run used v25.12.5 images), with the *deployment* link
+> added and the `cdylib` claim corrected: the musl `cdylib` drop is musl's
+> `crt-static` default, and `-C target-feature=-crt-static` produces the `.so`.
+> **aarch64: cross-compiles with 2 patches** (`cdk-ffi` musl `.so` =
+> 26,452,880 B stripped; patched service link `exit=0`, 18,033,248 B, but with an
+> RPATH into the build machine and a 26.5 MB runtime `.so`). **mipsel: still
+> blocked** — and the blocker is now measured on the real `cdk-ffi` graph, not
+> just `cdk-cli` (`nostr-relay-pool` needs `AtomicU64`; `EXIT=101`). The sidecar
+> recommendation stands, with an honest price tag on the in-process alternative.
+> Evidence: `experiments/cdk-cross/FINDINGS-2026-09-19.md`, `env-2026-09-19.txt`,
+> `raw-2026-09-19/`; summary in `01-candidates/cdk.md` §T5c re-verification.
 
 ## Added after the scope change: nucula → OpenWrt port (2026-09-13)
 

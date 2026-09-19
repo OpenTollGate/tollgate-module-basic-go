@@ -1,0 +1,71 @@
+=== cdk-go binding crate rust/Cargo.toml ===
+[package]
+name = "cdk-ffi-go"
+edition = "2021"
+rust-version = "1.85.0"
+license = "MIT"
+homepage = "https://github.com/cashubtc/cdk"
+repository = "https://github.com/cashubtc/cdk.git"
+version = "0.17.3"
+readme = "README.md"
+
+[lib]
+crate-type = ["cdylib"]
+name = "cdk_ffi_go"
+
+[dependencies]
+cdk-ffi = { version = "=0.17.3", features = ["npubcash", "nwc", "bip353"] }
+uniffi = { version = "0.30", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.30", features = ["build"] }
+
+[lints]
+
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+
+=== cdk-go rust-toolchain.toml ===
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy", "rust-analyzer"]
+
+targets = [
+    # Android
+    "armv7-linux-androideabi",
+    "aarch64-linux-android",
+    "i686-linux-android",
+    "x86_64-linux-android",
+
+    # iOS (device + simulator)
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+    "x86_64-apple-ios",
+
+    # Windows
+    "aarch64-pc-windows-msvc",
+    "x86_64-pc-windows-msvc",
+
+    # Linux
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu",
+
+    # macOS
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+=== cdk-go README (native lib claim) ===
+5:Prebuilt native libraries are included — downstream consumers only need Go.
+31:> **Note:** Requires `CGO_ENABLED=1` (the default on most systems).
+43:CGO link flags are automatically selected per platform via build tags. No manual setup required.
+48:- `CGO_ENABLED=1`
+
+=== checksums.sha256 ===
+72f6f28a3e7b01c030f67127b388676f9e0dba860dfac2acb2d8c9e238073749  darwin_amd64/libcdk_ffi.dylib
+0d11bcbaaee648f0f70d9b5c9e3b636b590291b69073fa3ad648bd2630c1fb54  darwin_arm64/libcdk_ffi.dylib
+e1365ba313e2b629e064aec19916c149825e37b3b35240d3481288c7caac1813  linux_amd64/libcdk_ffi.so
+462a9bb7afa4414c0a7fea6ae58bc1b7d71ab93ff99ceee6248567c0f561d23c  linux_arm64/libcdk_ffi.so

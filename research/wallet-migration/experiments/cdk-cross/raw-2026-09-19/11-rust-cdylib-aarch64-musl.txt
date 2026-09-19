@@ -1,0 +1,20 @@
+=== rustc rustc 1.98.1 (48a229cea 2026-09-01) | target aarch64-unknown-linux-musl | linker=/home/c03rad0r/worktrees/t_7a133499/sdk/openwrt-sdk-25.12.0-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc ===
+
+### V1: default (cargo default = crt-static ON for musl)
+   Compiling probe_cdylib v0.1.0 (/home/c03rad0r/worktrees/t_7a133499/probe-cdylib)
+warning: dropping unsupported crate type `cdylib` for target `aarch64-unknown-linux-musl`
+
+warning: `probe_cdylib` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.76s
+EXIT=0
+-- artifacts:
+ls: cannot access 'target/aarch64-unknown-linux-musl/release/*.so': No such file or directory
+-rw-rw-r-- 2 c03rad0r c03rad0r 23683416 Sep 19 03:28 target/aarch64-unknown-linux-musl/release/libprobe_cdylib.a
+
+### V2: RUSTFLAGS=-C target-feature=-crt-static (dynamic musl)
+   Compiling probe_cdylib v0.1.0 (/home/c03rad0r/worktrees/t_7a133499/probe-cdylib)
+    Finished `release` profile [optimized] target(s) in 0.15s
+EXIT=0
+-- artifacts:
+-rw-rw-r-- 2 c03rad0r c03rad0r 23683416 Sep 19 03:28 target/aarch64-unknown-linux-musl/release/libprobe_cdylib.a
+-rwxrwxr-x 2 c03rad0r c03rad0r    67320 Sep 19 03:28 target/aarch64-unknown-linux-musl/release/libprobe_cdylib.so

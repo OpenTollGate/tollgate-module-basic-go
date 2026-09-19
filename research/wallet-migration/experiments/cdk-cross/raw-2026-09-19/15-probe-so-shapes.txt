@@ -1,0 +1,8 @@
+=== mipsel-unknown-linux-musl probe .so (nightly -Zbuild-std, -crt-static off) ===
+ 0x00000001 (NEEDED)                     Shared library: [libgcc_s.so.1]
+ 0x00000001 (NEEDED)                     Shared library: [libc.so]
+probe-cdylib/target/mipsel-unknown-linux-musl/release/libprobe_cdylib.so: ELF 32-bit LSB shared object, MIPS, MIPS32 rel2 version 1 (SYSV), dynamically linked, stripped
+
+=== vs the aarch64 one ===
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so]

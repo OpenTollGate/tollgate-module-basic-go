@@ -1,0 +1,37 @@
+################ aarch64-musl ################
+--- toolchain: /home/c03rad0r/worktrees/t_7a133499/sdk/openwrt-sdk-25.12.0-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc
+aarch64-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32713-f919e7899d) 14.3.0
+
+=== [aarch64-musl 1/2] library-level build (NO final link): go build -tags cdk_wallet ./... ===
+exit=0  (log: /home/c03rad0r/worktrees/t_7a133499/raw/aarch64-musl-build.txt, 0 lines)
+
+=== [aarch64-musl 2/2] FORCED LINK: go test -c -tags cdk_wallet (links a real binary) ===
+exit=1  (log: /home/c03rad0r/worktrees/t_7a133499/raw/aarch64-musl-link.txt, 146 lines)
+distinct undefined symbols reported: 138
+GLIBC-versioned refs:                @GLIBC_2.17 @GLIBC_2.28 @GLIBC_2.29 @GLIBC_2.32 @GLIBC_2.33 @GLIBC_2.34
+first 5 error lines:
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `open64@GLIBC_2.17'
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `writev@GLIBC_2.17'
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `epoll_wait@GLIBC_2.17'
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `__stack_chk_guard@GLIBC_2.17'
+/home/c03rad0r/go/pkg/mod/github.com/cashubtc/cdk-go@v0.17.3/bindings/cdkffi/native/linux_arm64/libcdk_ffi.so: undefined reference to `abort@GLIBC_2.17'
+
+################ mipsel-musl ################
+--- toolchain: /home/c03rad0r/worktrees/t_7a133499/sdk/openwrt-sdk-25.12.0-ramips-mt7621_gcc-14.3.0_musl.Linux-x86_64/staging_dir/toolchain-mipsel_24kc_gcc-14.3.0_musl/bin/mipsel-openwrt-linux-musl-gcc
+mipsel-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32713-f919e7899d) 14.3.0
+
+=== [mipsel-musl 1/2] library-level build (NO final link): go build -tags cdk_wallet ./... ===
+exit=0  (log: /home/c03rad0r/worktrees/t_7a133499/raw/mipsel-musl-build.txt, 0 lines)
+
+=== [mipsel-musl 2/2] FORCED LINK: go test -c -tags cdk_wallet (links a real binary) ===
+exit=1  (log: /home/c03rad0r/worktrees/t_7a133499/raw/mipsel-musl-link.txt, 2078 lines)
+distinct undefined symbols reported: 691
+GLIBC-versioned refs:
+first 5 error lines:
+/tmp/go-build/cgo-gcc-prolog:126:(.text+0x47c): undefined reference to `ffi_cdk_ffi_rust_future_complete_i8'
+/tmp/go-build/cgo-gcc-prolog:126:(.text+0x480): undefined reference to `ffi_cdk_ffi_rust_future_complete_i8'
+/tmp/go-build/cgo-gcc-prolog:145:(.text+0x50c): undefined reference to `ffi_cdk_ffi_rust_future_complete_rust_buffer'
+/tmp/go-build/cgo-gcc-prolog:145:(.text+0x518): undefined reference to `ffi_cdk_ffi_rust_future_complete_rust_buffer'
+/tmp/go-build/cgo-gcc-prolog:164:(.text+0x5fc): undefined reference to `ffi_cdk_ffi_rust_future_complete_u32'
+
+################ done ################
