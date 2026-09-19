@@ -162,13 +162,29 @@ func (t *MintHealthTracker) GetAllConfiguredMintConfigs() []config_manager.MintC
 
 func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
-	if t.reachableMints[mintURL] {
+	// A previously-reachable mint going down changes the reachable set: the
+	// callback must fire here (#401), or the probe path's setChanged
+	// comparison later runs against this already-updated count and the
+	// degraded-mode transition is silently suppressed for the rest of the
+	// outage whenever a payment observed it first.
+	fireSetChanged := t.reachableMints[mintURL]
+	if fireSetChanged {
 		t.reachableCount--
 	}
 	t.reachableMints[mintURL] = false
 	t.consecutiveSuccesses[mintURL] = 0
+
+	var callback func()
+	if fireSetChanged && t.onReachableSetChanged != nil {
+		callback = t.onReachableSetChanged
+	}
+	t.mu.Unlock()
+
+	if callback != nil {
+		log.Printf("MarkUnreachable: reachable set changed (mint=%s), firing callback", mintURL)
+		go callback()
+	}
 }
 
 // SetOnFirstReachableForDegraded registers a callback that fires once when a mint
