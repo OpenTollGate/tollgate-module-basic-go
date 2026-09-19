@@ -26,7 +26,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
-
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
@@ -167,6 +166,13 @@ func InitializeGlobalLogger(logLevel string) {
 }
 
 func init() {
+	// --version must not depend on config state: answer before the
+	// config manager init below, which is fatal on a broken config.
+	if versionRequested(os.Args) {
+		fmt.Printf("tollgate-wrt %s\n", cli.Version)
+		os.Exit(0)
+	}
+
 	http.DefaultTransport = &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: 10 * time.Second,
@@ -832,6 +838,17 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		Allotment:     status.Allotment,
 		Metric:        status.Metric,
 	})
+}
+
+// versionRequested reports whether the daemon was invoked with the
+// --version flag. The daemon takes no other command-line arguments;
+// OpenWrt package CI runs binaries with --version and expects the
+// version string on stdout.
+func versionRequested(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	return args[1] == "--version" || args[1] == "-version"
 }
 
 func main() {

@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -356,8 +357,18 @@ func (t *MintHealthTracker) probeMint(mintURL string) bool {
 	return t.probeMintWith(mintURL, t.httpClient)
 }
 
+// keysetsProbeResponse is the subset of the NUT-01 GET /v1/keysets response
+// the health probe validates.
+type keysetsProbeResponse struct {
+	Keysets []json.RawMessage `json:"keysets"`
+}
+
 func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) bool {
-	url := strings.TrimRight(mintURL, "/") + "/v1/info"
+	// Probe /v1/keysets, not /v1/info: a mint is only usable for payments if it
+	// serves its active keysets, and some fronts answer /v1/info with a 2xx HTML
+	// page (parked/hosted error pages), which a status-only check wrongly treats
+	// as healthy — leading to advertised mints whose token swaps then fail.
+	url := strings.TrimRight(mintURL, "/") + "/v1/keysets"
 
 	start := time.Now()
 	resp, err := client.Get(url)
@@ -368,7 +379,17 @@ func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) b
 	}
 	defer resp.Body.Close()
 
-	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
-	log.Printf("mint probe: url=%s status=%d elapsed=%s ok=%v", url, resp.StatusCode, elapsed, ok)
-	return ok
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("mint probe: url=%s status=%d elapsed=%s ok=false", url, resp.StatusCode, elapsed)
+		return false
+	}
+
+	var body keysetsProbeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || len(body.Keysets) == 0 {
+		log.Printf("mint probe: url=%s status=%d elapsed=%s ok=false reason=invalid-or-empty-keysets err=%v", url, resp.StatusCode, elapsed, err)
+		return false
+	}
+
+	log.Printf("mint probe: url=%s status=%d keysets=%d elapsed=%s ok=true", url, resp.StatusCode, len(body.Keysets), elapsed)
+	return true
 }

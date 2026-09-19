@@ -10,9 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
@@ -588,7 +587,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		return "", fmt.Errorf("main config is nil")
 	}
 
-	reachableMints := tracker.GetAllConfiguredMintConfigs()
+	reachableMints := tracker.GetReachableMintConfigs()
 
 	advertisementEvent := nostr.Event{
 		Kind: 10021,

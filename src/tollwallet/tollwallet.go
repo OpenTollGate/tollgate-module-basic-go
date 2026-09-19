@@ -142,8 +142,12 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		// "token already spent", so we match on the error string at this
 		// boundary and wrap it with our own sentinel (ErrTokenAlreadySpent).
 		// Callers should use errors.Is(err, ErrTokenAlreadySpent) — no
-		// further string matching needed downstream.
-		if strings.Contains(err.Error(), "Token already spent") {
+		// further string matching needed downstream. The patterns cover the
+		// phrases mints actually use, and only work at all since the gonuts
+		// bump: older versions swallowed the mint's rejection entirely
+		// (empty "could not swap proofs: " errors), so this mapping could
+		// never fire.
+		if isAlreadySpentError(err) {
 			return 0, fmt.Errorf("%w: %v", ErrTokenAlreadySpent, err)
 		}
 		return 0, err
@@ -310,6 +314,20 @@ func MintURLMatches(a, b string) bool {
 	return strings.EqualFold(ua.Host, ub.Host) &&
 		ua.Scheme == ub.Scheme &&
 		normalizePath(ua.Path) == normalizePath(ub.Path)
+}
+
+// isAlreadySpentError reports whether err is a mint rejection for reusing
+// spent secrets. Mint families phrase it differently — Nutshell-style
+// "Token already spent", CDK-style "inputs have already been spent" — and
+// the match is case-insensitive on purpose. The empty errors older gonuts
+// versions produced (swallowed rejections) deliberately do NOT match.
+func isAlreadySpentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already been spent") ||
+		strings.Contains(msg, "already spent")
 }
 
 func hasLockedProofs(proofs cashu.Proofs) bool {

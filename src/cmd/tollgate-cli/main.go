@@ -46,11 +46,19 @@ type CLIResponse struct {
 
 var jsonOutput bool
 
+// version is set at build time via -ldflags "-X main.version=<tag>". The
+// literal is the non-release sentinel (same convention as src/cli's Version):
+// a plain `go build` must not pass itself off as a release. It feeds cobra's
+// built-in --version flag, which OpenWrt package CI uses to verify built
+// binaries report their version.
+var version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "tollgate",
 	Short: "TollGate CLI - Control your TollGate instance",
 	Long: `TollGate CLI provides command-line access to your running TollGate service.
 You can check status, manage wallet, and control various aspects of the service.`,
+	Version: version,
 }
 
 var walletCmd = &cobra.Command{

@@ -1,7 +1,6 @@
 package merchant
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,6 +39,14 @@ func newTestTracker(config *config_manager.Config, client *http.Client) *MintHea
 	return t
 }
 
+// writeKeysetsOK writes a minimal valid NUT-01 /v1/keysets body so the health
+// probe (which validates keysets, not just HTTP status) sees a usable mint.
+func writeKeysetsOK(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`))
+}
+
 // --- Unit Tests ---
 
 func TestIsReachable_InitiallyFalse(t *testing.T) {
@@ -60,15 +67,15 @@ func TestIsReachable_UnknownMint(t *testing.T) {
 
 func TestRunInitialProbe_AllReachable(t *testing.T) {
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer srvA.Close()
 
 	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer srvB.Close()
@@ -94,13 +101,13 @@ func TestRunInitialProbe_NoneReachable(t *testing.T) {
 	tracker.RunInitialProbe()
 
 	if tracker.IsReachable(srv.URL) {
-		t.Error("expected mint to be unreachable when /v1/info returns 503")
+		t.Error("expected mint to be unreachable when /v1/keysets returns 503")
 	}
 }
 
 func TestRunInitialProbe_MixedReachability(t *testing.T) {
 	srvOK := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srvOK.Close()
 
@@ -131,7 +138,7 @@ func TestRunInitialProbe_ServerRefusesConnection(t *testing.T) {
 
 func TestMarkUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -151,7 +158,7 @@ func TestMarkUnreachable(t *testing.T) {
 
 func TestMarkUnreachable_ResetsConsecutiveSuccesses(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -179,7 +186,7 @@ func TestMarkUnreachable_UnknownMint_NoPanic(t *testing.T) {
 
 func TestProactiveCheck_RecoveryRequiresThreeConsecutiveSuccesses(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -208,7 +215,7 @@ func TestProactiveCheck_RecoveryRequiresThreeConsecutiveSuccesses(t *testing.T) 
 
 func TestProactiveCheck_FailedProbeResetsConsecutiveCounter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -251,7 +258,7 @@ func TestProactiveCheck_FailedProbeResetsConsecutiveCounter(t *testing.T) {
 
 func TestProactiveCheck_RemovesPreviouslyReachableMint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -284,7 +291,7 @@ func TestProactiveCheck_FlapDoesNotRecoverMint(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -348,7 +355,7 @@ func TestGetReachableMintConfigs_Empty(t *testing.T) {
 
 func TestGetReachableMintConfigs_OnlyReachable(t *testing.T) {
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srvA.Close()
 
@@ -382,17 +389,15 @@ func TestGetReachableMintConfigs_NilConfig(t *testing.T) {
 
 func TestEndToEnd_FullLifecycle(t *testing.T) {
 	mintA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"name": "mint-a"})
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer mintA.Close()
 
 	mintB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"name": "mint-b"})
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer mintB.Close()
@@ -512,7 +517,7 @@ func TestEndToEnd_MintGoesDownThenRecoversWithInterruption(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -609,7 +614,7 @@ func TestEndToEnd_MintGoesDownThenRecoversWithInterruption(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -650,7 +655,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 func TestOnReachableSetChanged_FiredWhenMintGoesDown(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -679,7 +684,7 @@ func TestOnReachableSetChanged_FiredWhenMintGoesDown(t *testing.T) {
 
 func TestOnReachableSetChanged_FiredWhenMintRecovers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -699,8 +704,8 @@ func TestOnReachableSetChanged_FiredWhenMintRecovers(t *testing.T) {
 	tracker.RunProactiveCheck()
 
 	_ = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 
@@ -717,7 +722,7 @@ func TestOnReachableSetChanged_FiredWhenMintRecovers(t *testing.T) {
 
 func TestOnReachableSetChanged_NotFiredWhenSetUnchanged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -740,12 +745,12 @@ func TestOnReachableSetChanged_NotFiredWhenSetUnchanged(t *testing.T) {
 
 func TestOnReachableSetChanged_MultipleMintsOneGoesDown(t *testing.T) {
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srvA.Close()
 
 	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srvB.Close()
 
@@ -781,7 +786,7 @@ func TestOnReachableSetChanged_MultipleMintsOneGoesDown(t *testing.T) {
 
 func TestOnReachableSetChanged_NilCallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -796,7 +801,7 @@ func TestOnReachableSetChanged_NilCallback(t *testing.T) {
 
 func TestSetOnReachableSetChanged_OverwriteCallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
@@ -833,15 +838,15 @@ func TestSetOnReachableSetChanged_OverwriteCallback(t *testing.T) {
 
 func TestRunInitialProbe_SetsReachableCount(t *testing.T) {
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer srvA.Close()
 
 	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer srvB.Close()
@@ -860,8 +865,8 @@ func TestRunInitialProbe_SetsReachableCount(t *testing.T) {
 
 func TestRunInitialProbe_PartialReachable_SetsCorrectCount(t *testing.T) {
 	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/info" {
-			w.WriteHeader(http.StatusOK)
+		if r.URL.Path == "/v1/keysets" {
+			writeKeysetsOK(w)
 		}
 	}))
 	defer srvA.Close()

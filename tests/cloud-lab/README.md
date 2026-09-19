@@ -52,11 +52,11 @@ docker compose ps
 docker compose run --rm client
 
 # Run a specific test file
-docker compose run --rm client pytest -sv test_smoke_payment.py
+docker compose run --rm client -sv test_smoke_payment.py
 
 # Run the two-router tests (starts reseller too)
 docker compose --profile two-router up -d
-docker compose run --rm client pytest -sv test_two_router_autopay.py
+docker compose run --rm client -sv test_two_router_autopay.py
 
 # Teardown
 docker compose down

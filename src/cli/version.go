@@ -7,10 +7,18 @@ import (
 	"strings"
 )
 
-// Build information. These variables are set via -ldflags at build time.
+// Build information. All of these are injected with -ldflags at build time.
 var (
-	// Version is the semantic version (e.g., "v0.0.4")
-	Version = "v0.0.0"
+	// Version is the release version (e.g. "v0.6.0-alpha2"). The single
+	// source of truth is the VERSION file at the repository root: every
+	// packaging path injects it here with -X, and the git tag must equal
+	// it (CI enforces that on tag builds). The literal below is only the
+	// fallback for a plain `go build` outside those paths — it is
+	// deliberately not a release string, so a mis-built binary can never
+	// pass itself off as a release. See CONTRIBUTING.md, "Version single source
+	// of truth"; scripts/check-version-sync.sh fails the tree if a
+	// version literal reappears here.
+	Version = "dev"
 
 	// GitCommit is the git commit hash
 	GitCommit = "unknown"

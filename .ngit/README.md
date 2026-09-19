@@ -10,6 +10,7 @@ untouched; the two systems run side by side.
 | --- | --- |
 | `act/workflows/test.yml` | The port of `.github/workflows/test.yml`: per-module Go tests over the module matrix, the main-package `testenv` test, `js-schema-lint`, the `Spec-quote drift check`, `build-purity`, and the dependency/import-path checks. |
 | `act/workflows/go-test.yml` | The pre-PR sequence documented in [AGENTS.md](../AGENTS.md), run from `src/`: `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`. |
+| `act/workflows/repro-check.yml` | The fast lane of `.github/workflows/repro-check.yml`: rebuild both Go binaries in two independent clean roots (separate HOME, module and build caches) and require byte-identical SHA-256s. The package targets (`portal`, `ipk`, `ipk-upx`, `apk`) stay on the GitHub workflow's `workflow_dispatch` slow lane and on a build host (they need `docker`), and are covered here by `build-package*.yml` below. |
 | `act/workflows/build-package-binaries.yml` | Stage 1 of the release pipeline: cross-compile the five GOARCH/GOARM/GOMIPS targets, build the captive-portal assets, mirror both to Blossom, and publish the build-id records stage 2 consumes. |
 | `act/workflows/build-package.yml` | Stage 2 of the release pipeline: the full `.ipk` (14) and `.apk` (3) matrix, Blossom mirroring, kind-1063 NIP-94 announcements, and the tollgate-os handoff. |
 

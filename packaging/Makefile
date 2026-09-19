@@ -3,6 +3,11 @@ PKG_MAKEFILE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tollgate-wrt
+# PACKAGE_VERSION is the release version, which CI takes from the git tag; the
+# tag must equal VERSION at the repository root (the single source of truth —
+# see CONTRIBUTING.md, "Version single source of truth"). It becomes the package version and is substituted into the
+# __TOLLGATE_VERSION__ placeholder shipped by files/etc/uci-defaults/99-tollgate-setup,
+# exactly as the .ipk payload staging does.
 TOLLGATE_DISPLAY_VERSION:=$(if $(strip $(PACKAGE_VERSION)),$(PACKAGE_VERSION),0.0.0)
 
 ifeq ($(CONFIG_USE_APK),y)
@@ -21,9 +26,8 @@ PREBUILT_CLI:=$(PKG_MAKEFILE_DIR)tollgate
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 PKG_MAINTAINER:=TollGate <tollgate@tollgate.me>
-PKG_LICENSE:=CC0-1.0
+PKG_LICENSE:=GPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
-
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
 
@@ -159,6 +163,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
+	$(SED) 's|__TOLLGATE_VERSION__|$(TOLLGATE_DISPLAY_VERSION)|g' $(1)/etc/uci-defaults/99-tollgate-setup
 
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
@@ -183,7 +188,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/hotplug.d/iface/95-tollgate-restart $(1)/etc/hotplug.d/iface/
 
 	$(INSTALL_DIR) $(1)/etc/nftables.d
-	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/etc/nftables.d/20-nds-enforce.nft $(1)/etc/nftables.d/
+	$(INSTALL_DATA) $(sort $(wildcard $(PKG_MAKEFILE_DIR)files/etc/nftables.d/*.nft)) $(1)/etc/nftables.d/
 
 	$(INSTALL_DIR) $(1)/usr/share/man/man8
 	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/man/man8/*.8 $(1)/usr/share/man/man8/

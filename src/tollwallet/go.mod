@@ -3,7 +3,7 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet
 go 1.25.0
 
 require (
-	github.com/OpenTollGate/gonuts-tollgate v0.11.1
+	github.com/OpenTollGate/gonuts-tollgate v0.11.2
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.10.0
 )
