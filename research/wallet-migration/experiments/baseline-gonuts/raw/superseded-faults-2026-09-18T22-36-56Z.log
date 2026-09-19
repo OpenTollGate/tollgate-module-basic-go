@@ -1,0 +1,89 @@
+=== 05-faults 2026-09-18T22-36-56Z (mock=http://192.168.1.2:18080 mint-of-token=https://testnut.cashu.space) ===
+config sha before: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+store sha before : ee4500b2edb4a51ed0ef7a17f556797ea3f61b627b1e9999feed98418c70144c  balance: {  "success": true,  "message": "Total wallet balance: 0 sats",  "data": {    "balance_sats": 0  },  "timestamp": "2026-09-18T22:36:57.250780662Z"}
+mock pid=4078808  local probe: {"mode": "ok"}
+router -> mock probe: HTTP 200
+backup sha: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+accepted_mints now: 8
+full mode: yes
+base token mint: cashuBo2F0gaJh...
+  token A mint (mock) : http://192.168.1.2:18080
+  token B mint (dead) : http://192.168.1.2:18081
+INJ-1a mode=refused url=http://192.168.1.2:18081 elapsed=0s store_ok=yes alive=yes verdict=FAIL
+   cli: timeout: failed to execute process: No such file or directory (os error 2)
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27454]: Exit (root) from <192.168.1.2:50448>: Disconnect received
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27456]: Child connection from 192.168.1.2:50450
+   log| Fri Sep 18 22:37:23 2026 authpriv.notice dropbear[27456]: Password auth succeeded for 'root' from 192.168.1.2:50450
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27456]: Exit (root) from <192.168.1.2:50450>: Disconnect received
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27458]: Child connection from 192.168.1.2:50452
+   log| Fri Sep 18 22:37:23 2026 authpriv.notice dropbear[27458]: Password auth succeeded for 'root' from 192.168.1.2:50452
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27458]: Exit (root) from <192.168.1.2:50452>: Disconnect received
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27465]: Child connection from 192.168.1.2:50454
+   log| Fri Sep 18 22:37:23 2026 authpriv.notice dropbear[27465]: Password auth succeeded for 'root' from 192.168.1.2:50454
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27465]: Exit (root) from <192.168.1.2:50454>: Disconnect received
+   log| Fri Sep 18 22:37:23 2026 authpriv.info dropbear[27467]: Child connection from 192.168.1.2:50456
+   log| Fri Sep 18 22:37:23 2026 authpriv.notice dropbear[27467]: Password auth succeeded for 'root' from 192.168.1.2:50456
+INJ-1b mode=slow url=http://192.168.1.2:18080 elapsed=0s store_ok=yes alive=yes verdict=FAIL
+   cli: timeout: failed to execute process: No such file or directory (os error 2)
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27478]: Exit (root) from <192.168.1.2:50478>: Disconnect received
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27480]: Child connection from 192.168.1.2:50486
+   log| Fri Sep 18 22:37:25 2026 authpriv.notice dropbear[27480]: Password auth succeeded for 'root' from 192.168.1.2:50486
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27480]: Exit (root) from <192.168.1.2:50486>: Disconnect received
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27482]: Child connection from 192.168.1.2:50502
+   log| Fri Sep 18 22:37:25 2026 authpriv.notice dropbear[27482]: Password auth succeeded for 'root' from 192.168.1.2:50502
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27482]: Exit (root) from <192.168.1.2:50502>: Disconnect received
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27489]: Child connection from 192.168.1.2:50508
+   log| Fri Sep 18 22:37:25 2026 authpriv.notice dropbear[27489]: Password auth succeeded for 'root' from 192.168.1.2:50508
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27489]: Exit (root) from <192.168.1.2:50508>: Disconnect received
+   log| Fri Sep 18 22:37:25 2026 authpriv.info dropbear[27491]: Child connection from 192.168.1.2:34914
+   log| Fri Sep 18 22:37:25 2026 authpriv.notice dropbear[27491]: Password auth succeeded for 'root' from 192.168.1.2:34914
+INJ-2 mode=http-500 url=http://192.168.1.2:18080 elapsed=0s store_ok=yes alive=yes verdict=FAIL
+   cli: timeout: failed to execute process: No such file or directory (os error 2)
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27502]: Exit (root) from <192.168.1.2:34940>: Disconnect received
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27504]: Child connection from 192.168.1.2:34956
+   log| Fri Sep 18 22:37:27 2026 authpriv.notice dropbear[27504]: Password auth succeeded for 'root' from 192.168.1.2:34956
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27504]: Exit (root) from <192.168.1.2:34956>: Disconnect received
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27506]: Child connection from 192.168.1.2:34962
+   log| Fri Sep 18 22:37:27 2026 authpriv.notice dropbear[27506]: Password auth succeeded for 'root' from 192.168.1.2:34962
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27506]: Exit (root) from <192.168.1.2:34962>: Disconnect received
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27513]: Child connection from 192.168.1.2:34972
+   log| Fri Sep 18 22:37:27 2026 authpriv.notice dropbear[27513]: Password auth succeeded for 'root' from 192.168.1.2:34972
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27513]: Exit (root) from <192.168.1.2:34972>: Disconnect received
+   log| Fri Sep 18 22:37:27 2026 authpriv.info dropbear[27515]: Child connection from 192.168.1.2:34988
+   log| Fri Sep 18 22:37:27 2026 authpriv.notice dropbear[27515]: Password auth succeeded for 'root' from 192.168.1.2:34988
+INJ-3a mode=malformed url=http://192.168.1.2:18080 elapsed=0s store_ok=yes alive=yes verdict=FAIL
+   cli: timeout: failed to execute process: No such file or directory (os error 2)
+   log| Fri Sep 18 22:37:29 2026 authpriv.notice dropbear[27529]: Password auth succeeded for 'root' from 192.168.1.2:35024
+   log| Fri Sep 18 22:37:29 2026 authpriv.info dropbear[27529]: Exit (root) from <192.168.1.2:35024>: Disconnect received
+   log| Fri Sep 18 22:37:29 2026 authpriv.info dropbear[27531]: Child connection from 192.168.1.2:35036
+   log| Fri Sep 18 22:37:29 2026 daemon.err tollgate-wrt[27346]: [36mINFO[0m[2026-09-18T22:37:29Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+   log| Fri Sep 18 22:37:29 2026 daemon.err tollgate-wrt[27346]: [36mINFO[0m[2026-09-18T22:37:29Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+   log| Fri Sep 18 22:37:29 2026 authpriv.notice dropbear[27531]: Password auth succeeded for 'root' from 192.168.1.2:35036
+   log| Fri Sep 18 22:37:29 2026 authpriv.info dropbear[27531]: Exit (root) from <192.168.1.2:35036>: Disconnect received
+   log| Fri Sep 18 22:37:29 2026 authpriv.info dropbear[27539]: Child connection from 192.168.1.2:35042
+   log| Fri Sep 18 22:37:29 2026 authpriv.notice dropbear[27539]: Password auth succeeded for 'root' from 192.168.1.2:35042
+   log| Fri Sep 18 22:37:29 2026 authpriv.info dropbear[27539]: Exit (root) from <192.168.1.2:35042>: Disconnect received
+   log| Fri Sep 18 22:37:29 2026 authpriv.info dropbear[27541]: Child connection from 192.168.1.2:35054
+   log| Fri Sep 18 22:37:29 2026 authpriv.notice dropbear[27541]: Password auth succeeded for 'root' from 192.168.1.2:35054
+INJ-3b mode=truncated url=http://192.168.1.2:18080 elapsed=0s store_ok=yes alive=yes verdict=FAIL
+   cli: timeout: failed to execute process: No such file or directory (os error 2)
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27552]: Exit (root) from <192.168.1.2:35076>: Disconnect received
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27554]: Child connection from 192.168.1.2:35088
+   log| Fri Sep 18 22:37:31 2026 authpriv.notice dropbear[27554]: Password auth succeeded for 'root' from 192.168.1.2:35088
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27554]: Exit (root) from <192.168.1.2:35088>: Disconnect received
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27556]: Child connection from 192.168.1.2:35098
+   log| Fri Sep 18 22:37:31 2026 authpriv.notice dropbear[27556]: Password auth succeeded for 'root' from 192.168.1.2:35098
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27556]: Exit (root) from <192.168.1.2:35098>: Disconnect received
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27563]: Child connection from 192.168.1.2:35100
+   log| Fri Sep 18 22:37:31 2026 authpriv.notice dropbear[27563]: Password auth succeeded for 'root' from 192.168.1.2:35100
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27563]: Exit (root) from <192.168.1.2:35100>: Disconnect received
+   log| Fri Sep 18 22:37:31 2026 authpriv.info dropbear[27565]: Child connection from 192.168.1.2:35116
+   log| Fri Sep 18 22:37:31 2026 authpriv.notice dropbear[27565]: Password auth succeeded for 'root' from 192.168.1.2:35116
+stopping mock (pid 4078808)
+--- restoring config.json verbatim ---
+RESTORE OK: config.json byte-identical
+full mode after restore: yes
+post-restore mints/tags : 7 / 7
+post-restore status     : {  "success": true,  "message": "Service status retrieved",  "data": {    "config_ok": true,    "network_ok": true,    "running": true,    "uptime": "867.174658ms",    "version": "TollGate v0.6.0-alpha2-gd0cb92f",    "wallet_ok": true  },  "timestamp": "2026-09-18T22:37:46.493945729Z"}
+post-restore store sha  : ef01a9ab621d284bd11267ac216438748ddca8ca9831e41e1fb417e8a61d27d5
+=== 05-faults done; artefacts: /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/faults-2026-09-18T22-36-56Z.csv /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/faults-mocklog-2026-09-18T22-36-56Z.log ===

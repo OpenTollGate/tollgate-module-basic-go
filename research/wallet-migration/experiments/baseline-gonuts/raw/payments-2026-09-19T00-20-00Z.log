@@ -1,0 +1,57 @@
+=== 04-payments 2026-09-19T00-20-00Z (cycles=20 amount=21 mint=https://testnut.cashu.space) ===
+config sha256 before     : 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+store size/sha256 before : 262144 / ef01a9ab621d284bd11267ac216438748ddca8ca9831e41e1fb417e8a61d27d5
+accepted_mints before    : 7
+test mint /v1/info       : HTTP 200
+backup sha256            : 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+--- sampler ---
+sampler-launched
+ts_epoch,vmrss_kb,vmhwm_kb,threads,fds,vm_size_kb,utime_ticks,stime_ticks,mmc_writes_completed,mmc_sectors_written,mmc_ms_writing,loop_writes_completed,loop_sectors_written,loop_ms_writing
+pid=413
+USER_HZ (calibrated)     : 99  (/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/user-hz-2026-09-19T00-20-00Z.txt)
+--- injecting test mint into accepted_mints ---
+accepted_mints after     : 8 (expected 8)
+--- restarting service for the injected config ---
+full mode: yes
+price_per_step tags      : 8
+wallet status            : {  "success": true,  "message": "Service status retrieved",  "data": {    "config_ok": true,    "network_ok": true,    "running": true,    "uptime": "453.386676ms",    "version": "TollGate v0.6.0-alpha2-gd0cb92f",    "wallet_ok": true  },  "timestamp": "2026-09-19T00:20:42.687100728Z"}
+cycle 1: lat=935ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=70ms (7 ticks @ 99Hz)
+cycle 2: lat=944ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=60ms (6 ticks @ 99Hz)
+cycle 3: lat=803ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=70ms (7 ticks @ 99Hz)
+cycle 4: lat=773ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=70ms (7 ticks @ 99Hz)
+cycle 5: lat=810ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=80ms (8 ticks @ 99Hz)
+cycle 6: lat=770ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=60ms (6 ticks @ 99Hz)
+cycle 7: lat=780ms amt=na store=262144->262144B mmc_bytes=28672 mmc_write_ops=10 loop_bytes=28672 cpu=60ms (6 ticks @ 99Hz)
+cycle 8: lat=850ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=17 loop_bytes=53248 cpu=101ms (10 ticks @ 99Hz)
+cycle 9: lat=857ms amt=20 store=262144->262144B mmc_bytes=57344 mmc_write_ops=17 loop_bytes=57344 cpu=70ms (7 ticks @ 99Hz)
+cycle 10: lat=802ms amt=20 store=262144->262144B mmc_bytes=57344 mmc_write_ops=18 loop_bytes=57344 cpu=70ms (7 ticks @ 99Hz)
+cycle 11: lat=747ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=16 loop_bytes=53248 cpu=60ms (6 ticks @ 99Hz)
+cycle 12: lat=681ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=15 loop_bytes=53248 cpu=60ms (6 ticks @ 99Hz)
+cycle 13: lat=740ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=17 loop_bytes=53248 cpu=70ms (7 ticks @ 99Hz)
+cycle 14: lat=700ms amt=20 store=262144->262144B mmc_bytes=57344 mmc_write_ops=17 loop_bytes=57344 cpu=70ms (7 ticks @ 99Hz)
+cycle 15: lat=707ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=18 loop_bytes=53248 cpu=70ms (7 ticks @ 99Hz)
+cycle 16: lat=755ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=17 loop_bytes=53248 cpu=60ms (6 ticks @ 99Hz)
+cycle 17: lat=1174ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=17 loop_bytes=53248 cpu=60ms (6 ticks @ 99Hz)
+cycle 18: lat=765ms amt=20 store=262144->262144B mmc_bytes=57344 mmc_write_ops=19 loop_bytes=57344 cpu=70ms (7 ticks @ 99Hz)
+cycle 19: lat=638ms amt=20 store=262144->262144B mmc_bytes=49152 mmc_write_ops=18 loop_bytes=49152 cpu=60ms (6 ticks @ 99Hz)
+cycle 20: lat=737ms amt=20 store=262144->262144B mmc_bytes=53248 mmc_write_ops=16 loop_bytes=53248 cpu=70ms (7 ticks @ 99Hz)
+--- draining the test balance so the wallet returns to 0 sats ---
+{
+  "success": true,
+  "message": "Successfully drained 260 sats from 1 mints",
+  "data": {
+    "success": true,
+    "tokens": [
+      {
+        "balance_sats": 260,
+        "mint_url": "https://testnut.cashu.space",
+        "token": "cashu[REDACTED-BEARER-TOKEN]: {  "success": true,  "message": "Total wallet balance: 0 sats",  "data": {    "balance_sats": 0  },  "timestamp": "2026-09-19T00:25:36.67039153Z"}
+stopped: 327 rows
+--- restoring config.json verbatim ---
+config sha256 after      : 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+RESTORE OK: config.json byte-identical to the pre-run state
+full mode after restore: yes
+post-restore mint count/tags: 7 / 7
+post-restore status      : {  "success": true,  "message": "Service status retrieved",  "data": {    "config_ok": true,    "network_ok": true,    "running": true,    "uptime": "1.064746911s",    "version": "TollGate v0.6.0-alpha2-gd0cb92f",    "wallet_ok": true  },  "timestamp": "2026-09-19T00:25:53.418263643Z"}
+post-restore wallet       : {  "success": true,  "message": "Wallet info - Total: 0 sats across 0 mints",  "data": {    "mint_balances": {},    "mint_count": 0,    "total_balance": 0  },  "timestamp": "2026-09-19T00:25:53.560427825Z"}
+=== 04-payments done; artefacts: /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/payments-cycles-2026-09-19T00-20-00Z.csv /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/payments-samples-2026-09-19T00-20-00Z.csv ===

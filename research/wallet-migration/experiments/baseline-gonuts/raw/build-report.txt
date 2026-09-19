@@ -1,0 +1,83 @@
+# F1/F2/F3/F4/F10/E1 — build-host metrics + deployed-artifact analysis
+# generated (UTC): 2026-09-18T22:13:58Z
+# candidate revision: d0cb92f2  (worktree: /home/c03rad0r/worktrees/baseline-build-d0cb92f2)
+
+## F1/F2 — binary size, documented CI/local build path
+# literal command (packaging/local-build-ipk.sh, .github/workflows/build-package.yml):
+#   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+#     go build -C src -o tollgate-wrt -trimpath -ldflags="<version stamps>" main.go
+PKG_VERSION=v0.6.0-alpha2 GIT_COMMIT=d0cb92f2
+
+file: /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.stripped.aarch64
+-rwxrwxr-x 1 c03rad0r c03rad0r 11796642 Sep 19 00:13 /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.stripped.aarch64
+23a6813ffaec30ea2681bed0a21afe02347b35d0dac6f9d4fc2e6f99d9854373  /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.stripped.aarch64
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.stripped.aarch64: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=5-L96RDnp6sqOUA3xA6U/yg5MfmR4whQtwGKmGWuw/zWBra4OONDcypcYD3LtC/PoNcBIn98b5qA26ZBsDa, BuildID[sha1]=5cf3beee428476b6fc57be4a1f6a5540eae71e08, stripped
+   text	   data	    bss	    dec	    hex	filename
+11244890	 425899	33867096	45537885	2b6da5d	/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.stripped.aarch64
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.stripped.aarch64: go1.26.0
+	path	command-line-arguments
+	dep	github.com/FactomProject/basen	v0.0.0-20150613233007-fe3947df716e	h1:ahyvB3q25YnZWly5Gq1ekg6jcmWaGj/vG/MhF4aisoc=
+
+file: /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.UNSTRIPPED.aarch64
+-rwxrwxr-x 1 c03rad0r c03rad0r 16673953 Sep 19 00:13 /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.UNSTRIPPED.aarch64
+b58a0910cccff9c7f94c54c4016b5b7a7230ec67f1c8995f1542026fca6a606c  /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.UNSTRIPPED.aarch64
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.UNSTRIPPED.aarch64: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=SSd9HXJYHg2Qi7M25Jic/yg5MfmR4whQtwGKmGWuw/zWBra4OONDcypcYD3LtC/2bf0wIL-TBHapUe1a5YL, BuildID[sha1]=3ac8ed76cd1e41262f35643328817102de70d8ca, with debug_info, not stripped
+   text	   data	    bss	    dec	    hex	filename
+11244890	 425899	33867096	45537885	2b6da5d	/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.UNSTRIPPED.aarch64
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build/tollgate-wrt.UNSTRIPPED.aarch64: go1.26.0
+	path	command-line-arguments
+	dep	github.com/FactomProject/basen	v0.0.0-20150613233007-fe3947df716e	h1:ahyvB3q25YnZWly5Gq1ekg6jcmWaGj/vG/MhF4aisoc=
+
+## F2 — section/symbol breakdown (unstripped)
+  [ 4] .rodata           PROGBITS         0000000000480000  00470000
+  [ 3] .text             PROGBITS         0000000000011000  00001000
+  [ 5] .gopclntab        PROGBITS         0000000000703dc0  006f3dc0
+  [25] .shstrtab         STRTAB           0000000000000000  00fe6b7d
+  [24] .strtab           STRTAB           0000000000000000  00f3e2f8
+  [23] .symtab           SYMTAB           0000000000000000  00ede1a8
+  [22] .debug_addr       PROGBITS         0000000000000000  00ed7b6d
+  [21] .debug_rnglists   PROGBITS         0000000000000000  00e8db4c
+  [20] .debug_loclists   PROGBITS         0000000000000000  00dc5fe3
+  [19] .debug_info       PROGBITS         0000000000000000  00c337dd
+  [18] .debug_gdb_s[...] PROGBITS         0000000000000000  00c337c5
+  [17] .debug_frame      PROGBITS         0000000000000000  00c06712
+  [16] .debug_line       PROGBITS         0000000000000000  00b40160
+  [15] .debug_abbrev     PROGBITS         0000000000000000  00b40000
+  [14] .noptrbss         NOBITS           0000000000b73fe0  00b63fe0
+
+stripping delta: 4877311 bytes (29.3% of unstripped)
+
+## F4 — dynamic dependencies / libc linkage
+--- documented build (CGO_ENABLED=0) ---
+NEEDED: (none — statically linked)
+--- deployed artifact (raw/tollgate-wrt.device.bin) ---
+-rw-rw-r-- 1 c03rad0r c03rad0r 12085824 Sep 19 00:05 /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/tollgate-wrt.device.bin
+0d567fb5fee9e45f6c7dcb3b6831429b2be6e2b4c38146010e1c2ffae1f96b8c  /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/tollgate-wrt.device.bin
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/tollgate-wrt.device.bin: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-aarch64.so.1, BuildID[sha1]=aeb8d99ced49677d59bc105adf0d5171a1672b08, stripped
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so]
+
+## E1 — direct + transitive dependency count and licences
+modules (go list -m all): 333
+go directive: go 1.25.0
+gonuts pin: 	github.com/OpenTollGate/gonuts-tollgate v0.11.2 // indirect
+replace directives: 14
+replace lines:
+replace (
+	github.com/OpenTollGate/tollgate-module-basic-go/src/cli => ./cli
+
+top modules by size contribution (approximate: file count in module cache)
+(see build-golist-mall.txt for the full list)
+
+## F3 — packaged .apk size contribution
+Deployed package as installed: tollgate-wrt-0.6.0_alpha2_pre7-r1 aarch64_cortex-a53 {/feed/net/tollgate-wrt} (GPL-3.0-only) [installed]
+Deployed /usr/bin/tollgate-wrt: -rwxr-xr-x    1 root     root      12085824 Jan  1  1970 /usr/bin/tollgate-wrt
+NOTE: the .apk is built by the feed (golang-package.mk, source-built with the
+      OpenWrt cross toolchain), not by the documented CI command — see the F4
+      delta above. Building the .apk here needs the OpenWrt SDK for
+      mediatek-filogic; that is E5/T5c work, not baseline work.
+
+## F8 — descriptor budget
+router ulimit -n (service): Max open files            4095                 4096                 files
+
+wrote /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/build-report.txt

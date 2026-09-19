@@ -1,0 +1,146 @@
+# analysis — derived from raw/*.csv, raw/*.txt   (generated 2026-09-19T00:39:12Z)
+# provenance: on-device measurements on GL-MT6000 / OpenWrt 25.12.5 (ENV-ROUTER-A64)
+
+## P3 latency, S2 flash writes, P4 CPU — per receive (raw/payments-cycles-*.csv)
+
+-- payments-cycles-2026-09-18T22-24-22Z
+   successful receives: 20    rejected receives: 0   (total rows: 20)
+   amount_sats column as written:      20 na
+   latency (success)               n=20   min=647      p50=719      p95=812      max=856      mean=728.5    ms
+   latency (rejected)              n=0
+   mmc bytes written (success)     n=20   min=49152    p50=53248    p95=57344    max=57344    mean=53862.4  B
+   mmc bytes written (rejected)    n=0
+   mmc write ops (success)         n=20   min=14       p50=17       p95=18       max=19       mean=16.8     ops
+   mmc write ops (rejected)        n=0
+   loop0 bytes written (success)   n=20   min=49152    p50=53248    p95=57344    max=57344    mean=53862.4  B
+   CPU in daemon (success)         n=0
+   loop0 == mmcblk0 for every successful row: yes
+
+-- payments-cycles-2026-09-18T22-29-55Z
+   successful receives: 2    rejected receives: 5   (total rows: 7)
+   amount_sats column as written:       2 20       5 na
+   latency (success)               n=2    min=780      p50=780      p95=820      max=820      mean=800.0    ms
+   latency (rejected)              n=5    min=699      p50=800      p95=873      max=873      mean=799.2    ms
+   mmc bytes written (success)     n=2    min=53248    p50=53248    p95=57344    max=57344    mean=55296.0  B
+   mmc bytes written (rejected)    n=5    min=28672    p50=28672    p95=28672    max=28672    mean=28672.0  B
+   mmc write ops (success)         n=2    min=16       p50=16       p95=18       max=18       mean=17.0     ops
+   mmc write ops (rejected)        n=5    min=10       p50=10       p95=10       max=10       mean=10.0     ops
+   loop0 bytes written (success)   n=2    min=53248    p50=53248    p95=57344    max=57344    mean=55296.0  B
+   CPU in daemon (success)         n=0
+   loop0 == mmcblk0 for every successful row: yes
+
+-- payments-cycles-2026-09-19T00-20-00Z
+   successful receives: 13    rejected receives: 7   (total rows: 20)
+   amount_sats column as written:      13 20       7 na
+   latency (success)               n=13   min=638      p50=747      p95=1174     max=1174     mean=781.0    ms
+   latency (rejected)              n=7    min=770      p50=803      p95=944      max=944      mean=830.7    ms
+   mmc bytes written (success)     n=13   min=49152    p50=53248    p95=57344    max=57344    mean=54193.2  B
+   mmc bytes written (rejected)    n=7    min=28672    p50=28672    p95=28672    max=28672    mean=28672.0  B
+   mmc write ops (success)         n=13   min=15       p50=17       p95=19       max=19       mean=17.1     ops
+   mmc write ops (rejected)        n=7    min=10       p50=10       p95=10       max=10       mean=10.0     ops
+   loop0 bytes written (success)   n=13   min=49152    p50=53248    p95=57344    max=57344    mean=54193.2  B
+   CPU in daemon (success)         n=13   min=60       p50=70       p95=101      max=101      mean=68.5     ms
+   loop0 == mmcblk0 for every successful row: yes
+
+## F5/F7/F8 — daemon footprint (VmRSS / VmHWM / threads / fds)
+
+-- idle-samples-2026-09-18T22-12-50Z.csv
+   samples=297  VmRSS min=26848 max=27224 KiB  VmHWM max=27780 KiB  fds min=10 max=13
+   thread-count distribution: 9 x297
+
+-- payments-samples-2026-09-18T22-24-22Z.csv
+   samples=254  VmRSS min=14932 max=27580 KiB  VmHWM max=27580 KiB  fds min=6 max=13
+   thread-count distribution: 8 x254
+
+-- payments-samples-2026-09-19T00-20-00Z.csv
+   samples=326  VmRSS min=17876 max=27424 KiB  VmHWM max=27740 KiB  fds min=6 max=13
+   thread-count distribution: 8 x2 9 x324
+
+## S1/S3 — store contents and growth (boltdump output, logical DB)
+
+-- store-analysis-after-22-receives.txt
+   file_bytes: 262144
+   tx_count: 0
+   logical_bytes: 212992
+   proofs: count=13 records_bytes=6.61 KiB
+   proof_record_bytes: min=521 median=521 max=521 mean=521.0
+         "path": "pending_proofs",
+         "keys": 50,
+         "sub_buckets": 0,
+         "value_bytes": 27217,
+   --
+         "path": "proofs",
+         "keys": 13,
+         "sub_buckets": 0,
+         "value_bytes": 5941,
+   --
+         "path": "seed",
+         "keys": 2,
+         "sub_buckets": 0,
+         "value_bytes": 141,
+
+-- store-analysis-after-payments.txt
+   file_bytes: 262144
+   tx_count: 0
+   logical_bytes: 200704
+   proofs: count=0 records_bytes=0 B
+         "path": "pending_proofs",
+         "keys": 50,
+         "sub_buckets": 0,
+         "value_bytes": 27217,
+   --
+         "path": "proofs",
+         "keys": 0,
+         "sub_buckets": 0,
+         "value_bytes": 0,
+   --
+         "path": "seed",
+         "keys": 2,
+         "sub_buckets": 0,
+         "value_bytes": 141,
+
+-- payments-store-timeline-2026-09-18T22-29-55Z.txt
+   file_bytes_on_router: 262144
+   file_bytes: 262144
+   tx_count: 0
+   logical_bytes: 200704
+   proofs: count=0 records_bytes=0 B
+         "path": "pending_proofs",
+         "keys": 50,
+         "sub_buckets": 0,
+         "value_bytes": 27217,
+   --
+         "path": "proofs",
+         "keys": 0,
+         "sub_buckets": 0,
+         "value_bytes": 0,
+   --
+         "path": "seed",
+         "keys": 2,
+         "sub_buckets": 0,
+         "value_bytes": 141,
+
+## INJ-1/2/3 — fault injections (raw/faults-*.csv)
+
+-- faults-2026-09-19T00-34-30Z.csv
+   inj      mode        elapsed_s store_ok bal_ok    alive  cli_rc  err_rep verdict
+   INJ-1a   refused     0         yes      yes       yes    0       yes     PASS
+   INJ-1b   slow        75        yes      yes       yes    124     yes     PASS
+   INJ-2    http-500    61        yes      yes       yes    0       yes     PASS
+   INJ-3a   malformed   0         yes      yes       yes    0       yes     PASS
+   INJ-3b   truncated   0         yes      yes       yes    0       yes     PASS
+
+## Environment reality checks
+-- user-hz-2026-09-19T00-20-00Z.txt
+   === USER_HZ calibration (on-device, 2026-09-19T00-20-00Z) ===
+   method: burn a busy loop for 10 s, divide its utime+stime delta by /proc/uptime delta
+   burn_cs=1000
+   ticks=998
+   user_hz=99
+   user_hz_used=99
+-- reachable-mint gate: only mints that answer the startup probe become
+   acceptedMints (src/merchant/merchant.go:111-126 GetReachableMintConfigs ->
+   tollwallet.NewWalletPort), so a configured-but-unreachable mint is absent
+   from the trust list and its tokens are rejected without a dial (INJ-1a).
+
+# done: /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/analysis-2026-09-19T00-39-12Z.txt

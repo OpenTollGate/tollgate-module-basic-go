@@ -1,0 +1,6 @@
+=== USER_HZ calibration (on-device, 2026-09-19T00-20-00Z) ===
+method: burn a busy loop for 10 s, divide its utime+stime delta by /proc/uptime delta
+burn_cs=1000
+ticks=998
+user_hz=99
+user_hz_used=99

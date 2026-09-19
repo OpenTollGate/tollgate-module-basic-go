@@ -1,0 +1,9 @@
+Linux TollGate 6.12.94 #0 SMP Mon Jun 29 12:59:20 2026 aarch64 GNU/Linux
+DISTRIB_ID='OpenWrt'
+DISTRIB_RELEASE='25.12.5'
+DISTRIB_REVISION='r33051-f5dae5ece4'
+DISTRIB_TARGET='mediatek/filogic'
+DISTRIB_ARCH='aarch64_cortex-a53'
+DISTRIB_DESCRIPTION='OpenWrt 25.12.5 r33051-f5dae5ece4'
+DISTRIB_TAINTS=''
+glinet,gl-mt6000

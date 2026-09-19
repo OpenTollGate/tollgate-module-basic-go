@@ -1,0 +1,22 @@
+P1: restarting tollgate-wrt on 192.168.1.1 and polling for wallet-ready
+16270
+ 22:23:55 up 3 days, 14:52,  load average: 0.00, 0.00, 0.00
+--- poll result ---
+t_proc=0.10 t_http=12.31 t_wallet=12.35
+--- post-restart state ---
+{
+  "success": true,
+  "message": "Service status retrieved",
+  "data": {
+    "config_ok": true,
+    "network_ok": true,
+    "running": true,
+    "uptime": "1.590975317s",
+    "version": "TollGate v0.6.0-alpha2-gd0cb92f",
+    "wallet_ok": true
+  },
+  "timestamp": "2026-09-18T22:24:08.790544908Z"
+}
+{"kind":10021,"id":"1e5fe653748bf9fd1a137f8aca0aa05a777a96642aa5845e02e1f2e8704f0d12","pubkey":"5cf217341cba4da0595ab8b4bd7faae4f17c9a1c79260128a3924f7d8b4c7e46","created_at":0,"tags":[["metric","byte
+tollgate-wrt-0.6.0_alpha2_pre7-r1 aarch64_cortex-a53 {/feed/net/tollgate-wrt} (GPL-3.0-only) [installed]
+19244

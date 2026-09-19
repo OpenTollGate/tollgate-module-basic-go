@@ -1,0 +1,11 @@
+lr-x------    1 root     root            64 Sep 18 22:01 0 -> /dev/null
+l-wx------    1 root     root            64 Sep 18 22:01 1 -> pipe:[7960133]
+lrwx------    1 root     root            64 Sep 18 22:10 10 -> socket:[9529372]
+l-wx------    1 root     root            64 Sep 18 22:01 2 -> pipe:[7960134]
+lrwx------    1 root     root            64 Sep 18 22:01 3 -> /etc/tollgate/wallet.db
+lrwx------    1 root     root            64 Sep 18 22:01 4 -> anon_inode:[eventpoll]
+lrwx------    1 root     root            64 Sep 18 22:01 5 -> anon_inode:[eventfd]
+lrwx------    1 root     root            64 Sep 18 22:01 6 -> socket:[7964097]
+lrwx------    1 root     root            64 Sep 18 22:01 7 -> socket:[7964102]
+lrwx------    1 root     root            64 Sep 18 22:01 8 -> socket:[7964971]
+lrwx------    1 root     root            64 Sep 18 22:01 9 -> socket:[7964972]

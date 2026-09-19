@@ -1,0 +1,667 @@
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:09:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:09:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:09:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:09:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:09:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:09:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:09:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:09:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:09:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:09:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:09:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:09:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:09:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:09:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:09:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:09:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:09:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:09:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:10 2026 authpriv.info dropbear[1329]: Child connection from 192.168.1.2:58658
+Fri Sep 18 22:10:10 2026 authpriv.notice dropbear[1329]: Password auth succeeded for 'root' from 192.168.1.2:58658
+Fri Sep 18 22:10:10 2026 authpriv.info dropbear[1329]: Exit (root) from <192.168.1.2:58658>: Disconnect received
+Fri Sep 18 22:10:10 2026 authpriv.info dropbear[1331]: Child connection from 192.168.1.2:58670
+Fri Sep 18 22:10:10 2026 authpriv.notice dropbear[1331]: Password auth succeeded for 'root' from 192.168.1.2:58670
+Fri Sep 18 22:10:10 2026 authpriv.info dropbear[1331]: Exit (root) from <192.168.1.2:58670>: Disconnect received
+Fri Sep 18 22:10:10 2026 authpriv.info dropbear[1333]: Child connection from 192.168.1.2:58678
+Fri Sep 18 22:10:10 2026 authpriv.notice dropbear[1333]: Password auth succeeded for 'root' from 192.168.1.2:58678
+Fri Sep 18 22:10:10 2026 authpriv.info dropbear[1333]: Exit (root) from <192.168.1.2:58678>: Disconnect received
+Fri Sep 18 22:10:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:10:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:10:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:10:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:14 2026 authpriv.info dropbear[1352]: Child connection from 192.168.1.2:58688
+Fri Sep 18 22:10:15 2026 authpriv.notice dropbear[1352]: Password auth succeeded for 'root' from 192.168.1.2:58688
+Fri Sep 18 22:10:15 2026 authpriv.info dropbear[1352]: Exit (root) from <192.168.1.2:58688>: Disconnect received
+Fri Sep 18 22:10:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:10:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:10:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:10:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:10:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:10:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:10:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:24 2026 authpriv.info dropbear[1363]: Child connection from 192.168.1.2:47716
+Fri Sep 18 22:10:24 2026 authpriv.notice dropbear[1363]: Password auth succeeded for 'root' from 192.168.1.2:47716
+Fri Sep 18 22:10:24 2026 authpriv.info dropbear[1363]: Exit (root) from <192.168.1.2:47716>: Disconnect received
+Fri Sep 18 22:10:24 2026 authpriv.info dropbear[1365]: Child connection from 192.168.1.2:47724
+Fri Sep 18 22:10:24 2026 authpriv.notice dropbear[1365]: Password auth succeeded for 'root' from 192.168.1.2:47724
+Fri Sep 18 22:10:24 2026 authpriv.info dropbear[1365]: Exit (root) from <192.168.1.2:47724>: Disconnect received
+Fri Sep 18 22:10:24 2026 authpriv.info dropbear[1367]: Child connection from 192.168.1.2:47738
+Fri Sep 18 22:10:24 2026 authpriv.notice dropbear[1367]: Password auth succeeded for 'root' from 192.168.1.2:47738
+Fri Sep 18 22:10:24 2026 authpriv.info dropbear[1367]: Exit (root) from <192.168.1.2:47738>: Disconnect received
+Fri Sep 18 22:10:28 2026 authpriv.info dropbear[1370]: Child connection from 192.168.1.2:47632
+Fri Sep 18 22:10:29 2026 authpriv.notice dropbear[1370]: Password auth succeeded for 'root' from 192.168.1.2:47632
+Fri Sep 18 22:10:29 2026 authpriv.info dropbear[1370]: Exit (root) from <192.168.1.2:47632>: Disconnect received
+Fri Sep 18 22:10:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:39 2026 authpriv.info dropbear[1377]: Child connection from 192.168.1.2:43992
+Fri Sep 18 22:10:39 2026 authpriv.notice dropbear[1377]: Password auth succeeded for 'root' from 192.168.1.2:43992
+Fri Sep 18 22:10:39 2026 authpriv.info dropbear[1377]: Exit (root) from <192.168.1.2:43992>: Disconnect received
+Fri Sep 18 22:10:39 2026 authpriv.info dropbear[1379]: Child connection from 192.168.1.2:44006
+Fri Sep 18 22:10:39 2026 authpriv.notice dropbear[1379]: Password auth succeeded for 'root' from 192.168.1.2:44006
+Fri Sep 18 22:10:39 2026 authpriv.info dropbear[1379]: Exit (root) from <192.168.1.2:44006>: Disconnect received
+Fri Sep 18 22:10:39 2026 authpriv.info dropbear[1381]: Child connection from 192.168.1.2:44008
+Fri Sep 18 22:10:40 2026 authpriv.notice dropbear[1381]: Password auth succeeded for 'root' from 192.168.1.2:44008
+Fri Sep 18 22:10:40 2026 authpriv.info dropbear[1381]: Exit (root) from <192.168.1.2:44008>: Disconnect received
+Fri Sep 18 22:10:40 2026 authpriv.info dropbear[1383]: Child connection from 192.168.1.2:44022
+Fri Sep 18 22:10:40 2026 authpriv.notice dropbear[1383]: Password auth succeeded for 'root' from 192.168.1.2:44022
+Fri Sep 18 22:10:40 2026 authpriv.info dropbear[1383]: Exit (root) from <192.168.1.2:44022>: Disconnect received
+Fri Sep 18 22:10:40 2026 authpriv.info dropbear[1386]: Child connection from 192.168.1.2:44030
+Fri Sep 18 22:10:40 2026 authpriv.notice dropbear[1386]: Password auth succeeded for 'root' from 192.168.1.2:44030
+Fri Sep 18 22:10:40 2026 authpriv.info dropbear[1386]: Exit (root) from <192.168.1.2:44030>: Disconnect received
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 runProactiveCheck: probing 7 mint(s)
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:10:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:10:42 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:42 mint probe: url=https://mint.coinos.io/v1/info status=200 elapsed=702.808502ms ok=true
+Fri Sep 18 22:10:42 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:42 mint probe: url=https://mint.minibits.cash/Bitcoin/v1/info status=200 elapsed=205.662632ms ok=true
+Fri Sep 18 22:10:43 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:43 mint probe: url=https://mint.lnserver.com/v1/info status=200 elapsed=404.322295ms ok=true
+Fri Sep 18 22:10:43 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:43 mint probe: url=https://mint.macadamia.cash/v1/info status=200 elapsed=190.625973ms ok=true
+Fri Sep 18 22:10:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:44 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:44 mint probe: url=https://mint.westernbtc.com/v1/info status=200 elapsed=920.707073ms ok=true
+Fri Sep 18 22:10:44 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:44 mint probe: url=https://kashu.me/v1/info status=200 elapsed=258.769953ms ok=true
+Fri Sep 18 22:10:45 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:10:45 mint probe: url=https://mint.cubabitcoin.org/v1/info status=200 elapsed=591.936317ms ok=true
+Fri Sep 18 22:10:45 2026 authpriv.info dropbear[4707]: Child connection from 192.168.1.2:44032
+Fri Sep 18 22:10:45 2026 authpriv.notice dropbear[4707]: Password auth succeeded for 'root' from 192.168.1.2:44032
+Fri Sep 18 22:10:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:10:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:10:46 2026 authpriv.info dropbear[4707]: Exit (root) from <192.168.1.2:44032>: Disconnect received
+Fri Sep 18 22:10:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:10:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:10:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:10:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:10:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:10:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:10:54 2026 authpriv.info dropbear[10998]: Child connection from 192.168.1.2:37878
+Fri Sep 18 22:10:55 2026 authpriv.notice dropbear[10998]: Password auth succeeded for 'root' from 192.168.1.2:37878
+Fri Sep 18 22:10:56 2026 authpriv.info dropbear[10998]: Exit (root) from <192.168.1.2:37878>: Disconnect received
+Fri Sep 18 22:10:56 2026 authpriv.info dropbear[11083]: Child connection from 192.168.1.2:41580
+Fri Sep 18 22:10:56 2026 authpriv.notice dropbear[11083]: Password auth succeeded for 'root' from 192.168.1.2:41580
+Fri Sep 18 22:10:56 2026 authpriv.info dropbear[11083]: Exit (root) from <192.168.1.2:41580>: Disconnect received
+Fri Sep 18 22:10:56 2026 authpriv.info dropbear[11085]: Child connection from 192.168.1.2:41586
+Fri Sep 18 22:10:56 2026 authpriv.notice dropbear[11085]: Password auth succeeded for 'root' from 192.168.1.2:41586
+Fri Sep 18 22:10:56 2026 authpriv.info dropbear[11085]: Exit (root) from <192.168.1.2:41586>: Disconnect received
+Fri Sep 18 22:10:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:10:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:11:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:11:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:11:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:11:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:11:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:11:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:11:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:11:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:11:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:20 2026 daemon.notice nodogsplash[5571]: Timeout preauthenticated idle user: 192.168.1.2 00:e0:4c:68:3d:2d, inactive: 2176s, in: 0kB, out: 0kB
+Fri Sep 18 22:11:20 2026 daemon.notice nodogsplash[5571]: Deleting 192.168.1.2 00:e0:4c:68:3d:2d token 5f28097d from client list
+Fri Sep 18 22:11:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11112]: Child connection from 192.168.1.2:49326
+Fri Sep 18 22:11:31 2026 authpriv.notice dropbear[11112]: Password auth succeeded for 'root' from 192.168.1.2:49326
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11112]: Exit (root) from <192.168.1.2:49326>: Disconnect received
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11120]: Child connection from 192.168.1.2:49334
+Fri Sep 18 22:11:31 2026 authpriv.notice dropbear[11120]: Password auth succeeded for 'root' from 192.168.1.2:49334
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11120]: Exit (root) from <192.168.1.2:49334>: Disconnect received
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11122]: Child connection from 192.168.1.2:49336
+Fri Sep 18 22:11:31 2026 authpriv.notice dropbear[11122]: Password auth succeeded for 'root' from 192.168.1.2:49336
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11122]: Exit (root) from <192.168.1.2:49336>: Disconnect received
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11126]: Child connection from 192.168.1.2:49338
+Fri Sep 18 22:11:31 2026 authpriv.notice dropbear[11126]: Password auth succeeded for 'root' from 192.168.1.2:49338
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11126]: Exit (root) from <192.168.1.2:49338>: Disconnect received
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11128]: Child connection from 192.168.1.2:49346
+Fri Sep 18 22:11:31 2026 authpriv.notice dropbear[11128]: Password auth succeeded for 'root' from 192.168.1.2:49346
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11128]: Exit (root) from <192.168.1.2:49346>: Disconnect received
+Fri Sep 18 22:11:31 2026 authpriv.info dropbear[11130]: Child connection from 192.168.1.2:49354
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11130]: Password auth succeeded for 'root' from 192.168.1.2:49354
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11130]: Exit (root) from <192.168.1.2:49354>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11132]: Child connection from 192.168.1.2:49368
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11132]: Password auth succeeded for 'root' from 192.168.1.2:49368
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11132]: Exit (root) from <192.168.1.2:49368>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11134]: Child connection from 192.168.1.2:49374
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11134]: Password auth succeeded for 'root' from 192.168.1.2:49374
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11134]: Exit (root) from <192.168.1.2:49374>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11136]: Child connection from 192.168.1.2:49388
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11136]: Password auth succeeded for 'root' from 192.168.1.2:49388
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11136]: Exit (root) from <192.168.1.2:49388>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11138]: Child connection from 192.168.1.2:49396
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11138]: Password auth succeeded for 'root' from 192.168.1.2:49396
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11138]: Exit (root) from <192.168.1.2:49396>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11140]: Child connection from 192.168.1.2:49406
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11140]: Password auth succeeded for 'root' from 192.168.1.2:49406
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11140]: Exit (root) from <192.168.1.2:49406>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11142]: Child connection from 192.168.1.2:49416
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11142]: Password auth succeeded for 'root' from 192.168.1.2:49416
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11142]: Exit (root) from <192.168.1.2:49416>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11144]: Child connection from 192.168.1.2:49426
+Fri Sep 18 22:11:32 2026 authpriv.notice dropbear[11144]: Password auth succeeded for 'root' from 192.168.1.2:49426
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11144]: Exit (root) from <192.168.1.2:49426>: Disconnect received
+Fri Sep 18 22:11:32 2026 authpriv.info dropbear[11146]: Child connection from 192.168.1.2:49442
+Fri Sep 18 22:11:33 2026 authpriv.notice dropbear[11146]: Password auth succeeded for 'root' from 192.168.1.2:49442
+Fri Sep 18 22:11:33 2026 authpriv.info dropbear[11146]: Exit (root) from <192.168.1.2:49442>: Disconnect received
+Fri Sep 18 22:11:35 2026 authpriv.info dropbear[11176]: Child connection from 192.168.1.2:49448
+Fri Sep 18 22:11:35 2026 authpriv.notice dropbear[11176]: Password auth succeeded for 'root' from 192.168.1.2:49448
+Fri Sep 18 22:11:35 2026 authpriv.info dropbear[11176]: Exit (root) from <192.168.1.2:49448>: Disconnect received
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:11:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:11:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:11:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:11:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:11:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:11:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:11:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:11:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:11:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:11:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:11:55 2026 authpriv.info dropbear[11463]: Child connection from 192.168.1.2:50354
+Fri Sep 18 22:11:55 2026 authpriv.notice dropbear[11463]: Password auth succeeded for 'root' from 192.168.1.2:50354
+Fri Sep 18 22:11:55 2026 authpriv.info dropbear[11463]: Exit (root) from <192.168.1.2:50354>: Disconnect received
+Fri Sep 18 22:11:56 2026 authpriv.info dropbear[11466]: Child connection from 192.168.1.2:45636
+Fri Sep 18 22:11:56 2026 authpriv.notice dropbear[11466]: Password auth succeeded for 'root' from 192.168.1.2:45636
+Fri Sep 18 22:11:56 2026 authpriv.info dropbear[11466]: Exit (root) from <192.168.1.2:45636>: Disconnect received
+Fri Sep 18 22:11:56 2026 authpriv.info dropbear[11469]: Child connection from 192.168.1.2:45642
+Fri Sep 18 22:11:56 2026 authpriv.notice dropbear[11469]: Password auth succeeded for 'root' from 192.168.1.2:45642
+Fri Sep 18 22:11:56 2026 authpriv.info dropbear[11469]: Exit (root) from <192.168.1.2:45642>: Disconnect received
+Fri Sep 18 22:11:56 2026 authpriv.info dropbear[11471]: Child connection from 192.168.1.2:45648
+Fri Sep 18 22:11:56 2026 authpriv.notice dropbear[11471]: Password auth succeeded for 'root' from 192.168.1.2:45648
+Fri Sep 18 22:11:56 2026 authpriv.info dropbear[11471]: Exit (root) from <192.168.1.2:45648>: Disconnect received
+Fri Sep 18 22:11:57 2026 authpriv.info dropbear[11473]: Child connection from 192.168.1.2:45664
+Fri Sep 18 22:11:57 2026 authpriv.notice dropbear[11473]: Password auth succeeded for 'root' from 192.168.1.2:45664
+Fri Sep 18 22:11:57 2026 authpriv.info dropbear[11473]: Exit (root) from <192.168.1.2:45664>: Disconnect received
+Fri Sep 18 22:11:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:11:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:12:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:12:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:12:12 2026 authpriv.info dropbear[11489]: Child connection from 192.168.1.2:40706
+Fri Sep 18 22:12:12 2026 authpriv.notice dropbear[11489]: Password auth succeeded for 'root' from 192.168.1.2:40706
+Fri Sep 18 22:12:12 2026 authpriv.info dropbear[11489]: Exit (root) from <192.168.1.2:40706>: Disconnect received
+Fri Sep 18 22:12:12 2026 authpriv.info dropbear[11497]: Child connection from 192.168.1.2:40716
+Fri Sep 18 22:12:12 2026 authpriv.notice dropbear[11497]: Password auth succeeded for 'root' from 192.168.1.2:40716
+Fri Sep 18 22:12:12 2026 authpriv.info dropbear[11497]: Exit (root) from <192.168.1.2:40716>: Disconnect received
+Fri Sep 18 22:12:12 2026 authpriv.info dropbear[11499]: Child connection from 192.168.1.2:40726
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11499]: Password auth succeeded for 'root' from 192.168.1.2:40726
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11499]: Exit (root) from <192.168.1.2:40726>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11503]: Child connection from 192.168.1.2:40728
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11503]: Password auth succeeded for 'root' from 192.168.1.2:40728
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11503]: Exit (root) from <192.168.1.2:40728>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11505]: Child connection from 192.168.1.2:40738
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11505]: Password auth succeeded for 'root' from 192.168.1.2:40738
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11505]: Exit (root) from <192.168.1.2:40738>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11507]: Child connection from 192.168.1.2:40748
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11507]: Password auth succeeded for 'root' from 192.168.1.2:40748
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11507]: Exit (root) from <192.168.1.2:40748>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11509]: Child connection from 192.168.1.2:40750
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11509]: Password auth succeeded for 'root' from 192.168.1.2:40750
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11509]: Exit (root) from <192.168.1.2:40750>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11511]: Child connection from 192.168.1.2:40760
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11511]: Password auth succeeded for 'root' from 192.168.1.2:40760
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11511]: Exit (root) from <192.168.1.2:40760>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11513]: Child connection from 192.168.1.2:40764
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11513]: Password auth succeeded for 'root' from 192.168.1.2:40764
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11513]: Exit (root) from <192.168.1.2:40764>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11515]: Child connection from 192.168.1.2:40774
+Fri Sep 18 22:12:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:13 2026 authpriv.notice dropbear[11515]: Password auth succeeded for 'root' from 192.168.1.2:40774
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11515]: Exit (root) from <192.168.1.2:40774>: Disconnect received
+Fri Sep 18 22:12:13 2026 authpriv.info dropbear[11519]: Child connection from 192.168.1.2:40780
+Fri Sep 18 22:12:14 2026 authpriv.notice dropbear[11519]: Password auth succeeded for 'root' from 192.168.1.2:40780
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11519]: Exit (root) from <192.168.1.2:40780>: Disconnect received
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11521]: Child connection from 192.168.1.2:40784
+Fri Sep 18 22:12:14 2026 authpriv.notice dropbear[11521]: Password auth succeeded for 'root' from 192.168.1.2:40784
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11521]: Exit (root) from <192.168.1.2:40784>: Disconnect received
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11523]: Child connection from 192.168.1.2:40786
+Fri Sep 18 22:12:14 2026 authpriv.notice dropbear[11523]: Password auth succeeded for 'root' from 192.168.1.2:40786
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11523]: Exit (root) from <192.168.1.2:40786>: Disconnect received
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11525]: Child connection from 192.168.1.2:40800
+Fri Sep 18 22:12:14 2026 authpriv.notice dropbear[11525]: Password auth succeeded for 'root' from 192.168.1.2:40800
+Fri Sep 18 22:12:14 2026 authpriv.info dropbear[11525]: Exit (root) from <192.168.1.2:40800>: Disconnect received
+Fri Sep 18 22:12:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:12:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:16 2026 authpriv.info dropbear[11559]: Child connection from 192.168.1.2:56796
+Fri Sep 18 22:12:16 2026 authpriv.notice dropbear[11559]: Password auth succeeded for 'root' from 192.168.1.2:56796
+Fri Sep 18 22:12:16 2026 authpriv.info dropbear[11559]: Exit (root) from <192.168.1.2:56796>: Disconnect received
+Fri Sep 18 22:12:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:12:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:12:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:12:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:12:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:12:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:23 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:23Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:12:23 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:23Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:23 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:23Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:23 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:23Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:24 2026 authpriv.info dropbear[11692]: Child connection from 192.168.1.2:56802
+Fri Sep 18 22:12:24 2026 authpriv.notice dropbear[11692]: Password auth succeeded for 'root' from 192.168.1.2:56802
+Fri Sep 18 22:12:24 2026 authpriv.info dropbear[11692]: Exit (root) from <192.168.1.2:56802>: Disconnect received
+Fri Sep 18 22:12:25 2026 authpriv.info dropbear[11709]: Child connection from 192.168.1.2:39892
+Fri Sep 18 22:12:25 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:25Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:25 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:25Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:26 2026 authpriv.notice dropbear[11709]: Password auth succeeded for 'root' from 192.168.1.2:39892
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11709]: Exit (root) from <192.168.1.2:39892>: Disconnect received
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11712]: Child connection from 192.168.1.2:39894
+Fri Sep 18 22:12:26 2026 authpriv.notice dropbear[11712]: Password auth succeeded for 'root' from 192.168.1.2:39894
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11712]: Exit (root) from <192.168.1.2:39894>: Disconnect received
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11714]: Child connection from 192.168.1.2:39902
+Fri Sep 18 22:12:26 2026 authpriv.notice dropbear[11714]: Password auth succeeded for 'root' from 192.168.1.2:39902
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11714]: Exit (root) from <192.168.1.2:39902>: Disconnect received
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11716]: Child connection from 192.168.1.2:39914
+Fri Sep 18 22:12:26 2026 authpriv.notice dropbear[11716]: Password auth succeeded for 'root' from 192.168.1.2:39914
+Fri Sep 18 22:12:26 2026 authpriv.info dropbear[11716]: Exit (root) from <192.168.1.2:39914>: Disconnect received
+Fri Sep 18 22:12:27 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:27Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:12:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:12:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:12:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:12:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:12:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:12:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:12:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:12:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:12:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:12:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:50 2026 authpriv.info dropbear[11749]: Child connection from 192.168.1.2:36078
+Fri Sep 18 22:12:50 2026 authpriv.notice dropbear[11749]: Password auth succeeded for 'root' from 192.168.1.2:36078
+Fri Sep 18 22:12:50 2026 authpriv.info dropbear[11749]: Exit (root) from <192.168.1.2:36078>: Disconnect received
+Fri Sep 18 22:12:50 2026 authpriv.info dropbear[11757]: Child connection from 192.168.1.2:36090
+Fri Sep 18 22:12:51 2026 authpriv.notice dropbear[11757]: Password auth succeeded for 'root' from 192.168.1.2:36090
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11757]: Exit (root) from <192.168.1.2:36090>: Disconnect received
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11759]: Child connection from 192.168.1.2:36104
+Fri Sep 18 22:12:51 2026 authpriv.notice dropbear[11759]: Password auth succeeded for 'root' from 192.168.1.2:36104
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11759]: Exit (root) from <192.168.1.2:36104>: Disconnect received
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11763]: Child connection from 192.168.1.2:36106
+Fri Sep 18 22:12:51 2026 authpriv.notice dropbear[11763]: Password auth succeeded for 'root' from 192.168.1.2:36106
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11763]: Exit (root) from <192.168.1.2:36106>: Disconnect received
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11765]: Child connection from 192.168.1.2:36114
+Fri Sep 18 22:12:51 2026 authpriv.notice dropbear[11765]: Password auth succeeded for 'root' from 192.168.1.2:36114
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11765]: Exit (root) from <192.168.1.2:36114>: Disconnect received
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11767]: Child connection from 192.168.1.2:36118
+Fri Sep 18 22:12:51 2026 authpriv.notice dropbear[11767]: Password auth succeeded for 'root' from 192.168.1.2:36118
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11767]: Exit (root) from <192.168.1.2:36118>: Disconnect received
+Fri Sep 18 22:12:51 2026 authpriv.info dropbear[11769]: Child connection from 192.168.1.2:36120
+Fri Sep 18 22:12:52 2026 authpriv.notice dropbear[11769]: Password auth succeeded for 'root' from 192.168.1.2:36120
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11769]: Exit (root) from <192.168.1.2:36120>: Disconnect received
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11771]: Child connection from 192.168.1.2:36122
+Fri Sep 18 22:12:52 2026 authpriv.notice dropbear[11771]: Password auth succeeded for 'root' from 192.168.1.2:36122
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11771]: Exit (root) from <192.168.1.2:36122>: Disconnect received
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11773]: Child connection from 192.168.1.2:36130
+Fri Sep 18 22:12:52 2026 authpriv.notice dropbear[11773]: Password auth succeeded for 'root' from 192.168.1.2:36130
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11773]: Exit (root) from <192.168.1.2:36130>: Disconnect received
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11775]: Child connection from 192.168.1.2:36144
+Fri Sep 18 22:12:52 2026 authpriv.notice dropbear[11775]: Password auth succeeded for 'root' from 192.168.1.2:36144
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11775]: Exit (root) from <192.168.1.2:36144>: Disconnect received
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11777]: Child connection from 192.168.1.2:36156
+Fri Sep 18 22:12:52 2026 authpriv.notice dropbear[11777]: Password auth succeeded for 'root' from 192.168.1.2:36156
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11777]: Exit (root) from <192.168.1.2:36156>: Disconnect received
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11779]: Child connection from 192.168.1.2:36168
+Fri Sep 18 22:12:52 2026 authpriv.notice dropbear[11779]: Password auth succeeded for 'root' from 192.168.1.2:36168
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11779]: Exit (root) from <192.168.1.2:36168>: Disconnect received
+Fri Sep 18 22:12:52 2026 authpriv.info dropbear[11781]: Child connection from 192.168.1.2:36172
+Fri Sep 18 22:12:53 2026 authpriv.notice dropbear[11781]: Password auth succeeded for 'root' from 192.168.1.2:36172
+Fri Sep 18 22:12:53 2026 authpriv.info dropbear[11781]: Exit (root) from <192.168.1.2:36172>: Disconnect received
+Fri Sep 18 22:12:53 2026 authpriv.info dropbear[11783]: Child connection from 192.168.1.2:36178
+Fri Sep 18 22:12:53 2026 authpriv.notice dropbear[11783]: Password auth succeeded for 'root' from 192.168.1.2:36178
+Fri Sep 18 22:12:53 2026 authpriv.info dropbear[11783]: Exit (root) from <192.168.1.2:36178>: Disconnect received
+Fri Sep 18 22:12:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:12:55 2026 authpriv.info dropbear[11815]: Child connection from 192.168.1.2:36180
+Fri Sep 18 22:12:55 2026 authpriv.notice dropbear[11815]: Password auth succeeded for 'root' from 192.168.1.2:36180
+Fri Sep 18 22:12:55 2026 authpriv.info dropbear[11815]: Exit (root) from <192.168.1.2:36180>: Disconnect received
+Fri Sep 18 22:12:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:12:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:13:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:13:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:13:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:13:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:13:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:13:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:13:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:13:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:13:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:13:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:13:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:13:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:13:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:13:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:13:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:13:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:13:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:13:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:13:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:13:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:13:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:02 2026 authpriv.info dropbear[12789]: Child connection from 192.168.1.2:52264
+Fri Sep 18 22:14:02 2026 authpriv.notice dropbear[12789]: Password auth succeeded for 'root' from 192.168.1.2:52264
+Fri Sep 18 22:14:02 2026 authpriv.info dropbear[12789]: Exit (root) from <192.168.1.2:52264>: Disconnect received
+Fri Sep 18 22:14:02 2026 authpriv.info dropbear[12793]: Child connection from 192.168.1.2:52268
+Fri Sep 18 22:14:02 2026 authpriv.notice dropbear[12793]: Password auth succeeded for 'root' from 192.168.1.2:52268
+Fri Sep 18 22:14:02 2026 authpriv.info dropbear[12793]: Exit (root) from <192.168.1.2:52268>: Disconnect received
+Fri Sep 18 22:14:02 2026 authpriv.info dropbear[12795]: Child connection from 192.168.1.2:52276
+Fri Sep 18 22:14:02 2026 authpriv.notice dropbear[12795]: Password auth succeeded for 'root' from 192.168.1.2:52276
+Fri Sep 18 22:14:02 2026 authpriv.info dropbear[12795]: Exit (root) from <192.168.1.2:52276>: Disconnect received
+Fri Sep 18 22:14:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:14:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:14:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:14:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:14:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:14:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:14:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:14:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:14:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:14:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:14:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:14:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:14:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:14:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:14:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:14:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:14:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:14:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:14:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:14:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:14:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:14:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:15:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:15:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:15:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:15:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:15:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:15:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:15:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:15:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:15:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 runProactiveCheck: probing 7 mint(s)
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:15:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:15:42 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:42 mint probe: url=https://mint.coinos.io/v1/info status=200 elapsed=684.838852ms ok=true
+Fri Sep 18 22:15:42 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:42 mint probe: url=https://mint.minibits.cash/Bitcoin/v1/info status=200 elapsed=303.544304ms ok=true
+Fri Sep 18 22:15:43 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:43 mint probe: url=https://mint.lnserver.com/v1/info status=200 elapsed=434.224106ms ok=true
+Fri Sep 18 22:15:43 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:43 mint probe: url=https://mint.macadamia.cash/v1/info status=200 elapsed=201.737209ms ok=true
+Fri Sep 18 22:15:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:44 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:44 mint probe: url=https://mint.westernbtc.com/v1/info status=200 elapsed=955.924347ms ok=true
+Fri Sep 18 22:15:44 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:44 mint probe: url=https://kashu.me/v1/info status=200 elapsed=208.688376ms ok=true
+Fri Sep 18 22:15:45 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:15:45 mint probe: url=https://mint.cubabitcoin.org/v1/info status=200 elapsed=567.145525ms ok=true
+Fri Sep 18 22:15:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:15:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:15:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:15:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:15:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:15:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:15:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:15:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:15:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:15:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:16:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:16:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:16:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:16:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:16:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:16:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:16:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:16:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:16:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:16:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:16:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:16:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:16:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:16:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:16:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:16:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:16:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:16:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:16:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:16:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:16:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:11Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:17:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:11Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:11Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:11Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:11Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:17:11 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:11Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:17:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:13Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:13 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:13Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:15Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:15Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:17:15 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:15Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:17:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:17:18 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:17:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:17:18 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:17:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:19 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:24 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:29 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: 2026/09/18 22:17:41 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:41Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:41Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:41Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:41Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:41Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Fri Sep 18 22:17:41 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:41Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:17:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:43Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:43 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:43Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:45Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:45Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Fri Sep 18 22:17:45 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:45Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:17:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:17:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:17:48 2026 daemon.err tollgate-wrt[22500]: [33mWARN[0m[2026-09-18T22:17:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Fri Sep 18 22:17:48 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Fri Sep 18 22:17:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:49 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:54 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Fri Sep 18 22:17:55 2026 authpriv.info dropbear[16191]: Child connection from 192.168.1.2:50550
+Fri Sep 18 22:17:55 2026 authpriv.notice dropbear[16191]: Password auth succeeded for 'root' from 192.168.1.2:50550
+Fri Sep 18 22:17:55 2026 authpriv.info dropbear[16191]: Exit (root) from <192.168.1.2:50550>: Disconnect received
+Fri Sep 18 22:17:56 2026 authpriv.info dropbear[16194]: Child connection from 192.168.1.2:49758
+Fri Sep 18 22:17:56 2026 authpriv.notice dropbear[16194]: Password auth succeeded for 'root' from 192.168.1.2:49758
+Fri Sep 18 22:17:56 2026 authpriv.info dropbear[16194]: Exit (root) from <192.168.1.2:49758>: Disconnect received
+Fri Sep 18 22:17:56 2026 authpriv.info dropbear[16197]: Child connection from 192.168.1.2:49774
+Fri Sep 18 22:17:56 2026 authpriv.notice dropbear[16197]: Password auth succeeded for 'root' from 192.168.1.2:49774
+Fri Sep 18 22:17:56 2026 authpriv.info dropbear[16197]: Exit (root) from <192.168.1.2:49774>: Disconnect received
+Fri Sep 18 22:17:56 2026 authpriv.info dropbear[16199]: Child connection from 192.168.1.2:49782
+Fri Sep 18 22:17:57 2026 authpriv.notice dropbear[16199]: Password auth succeeded for 'root' from 192.168.1.2:49782
+Fri Sep 18 22:17:57 2026 authpriv.info dropbear[16199]: Exit (root) from <192.168.1.2:49782>: Disconnect received
+Fri Sep 18 22:17:57 2026 authpriv.info dropbear[16201]: Child connection from 192.168.1.2:49790
+Fri Sep 18 22:17:57 2026 authpriv.notice dropbear[16201]: Password auth succeeded for 'root' from 192.168.1.2:49790
+Fri Sep 18 22:17:57 2026 authpriv.info dropbear[16201]: Exit (root) from <192.168.1.2:49790>: Disconnect received
+Fri Sep 18 22:17:59 2026 daemon.err tollgate-wrt[22500]: [36mINFO[0m[2026-09-18T22:17:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Fri Sep 18 22:18:09 2026 authpriv.info dropbear[16203]: Child connection from 192.168.1.2:36980
+Fri Sep 18 22:18:09 2026 authpriv.notice dropbear[16203]: Password auth succeeded for 'root' from 192.168.1.2:36980
+Fri Sep 18 22:18:09 2026 authpriv.info dropbear[16203]: Exit (root) from <192.168.1.2:36980>: Disconnect received
+Fri Sep 18 22:18:09 2026 authpriv.info dropbear[16206]: Child connection from 192.168.1.2:36994
+Fri Sep 18 22:18:09 2026 authpriv.notice dropbear[16206]: Password auth succeeded for 'root' from 192.168.1.2:36994
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: time="2026-09-18T22:18:10Z" level=info msg="Wireless gateway manager module loaded" module=wireless_gateway_manager
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:10 Using config paths: config=/etc/tollgate/config.json, install=/etc/tollgate/install.json, identities=/etc/tollgate/identities.json
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: [36mINFO[0m[2026-09-18T22:18:10Z] Global logger initialized                     [36mlog_level[0m=info
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: [36mINFO[0m[2026-09-18T22:18:10Z] Configuration loaded                          [36mip_randomized[0m=false [36mmodule[0m=main
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:10 === Merchant Initializing ===
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:10 RunInitialProbe: probing 7 mint(s)
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:10 mint probe: url=https://mint.coinos.io/v1/info status=200 elapsed=720.076061ms ok=true
+Fri Sep 18 22:18:10 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:10 mint probe: url=https://mint.minibits.cash/Bitcoin/v1/info status=200 elapsed=160.575509ms ok=true
+Fri Sep 18 22:18:11 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:11 mint probe: url=https://mint.lnserver.com/v1/info status=200 elapsed=421.716676ms ok=true
+Fri Sep 18 22:18:11 2026 daemon.err tollgate-wrt[16270]: 2026/09/18 22:18:11 mint probe: url=https://mint.macadamia.cash/v1/info status=200 elapsed=200.827467ms ok=true
+Fri Sep 18 22:18:11 2026 authpriv.info dropbear[16337]: Child connection from 192.168.1.2:37006
+Fri Sep 18 22:18:11 2026 authpriv.notice dropbear[16337]: Password auth succeeded for 'root' from 192.168.1.2:37006

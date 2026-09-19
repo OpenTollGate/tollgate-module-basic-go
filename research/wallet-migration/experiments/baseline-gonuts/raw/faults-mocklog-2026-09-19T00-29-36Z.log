@@ -1,0 +1,4 @@
+mock-mint listening on 0.0.0.0:18080 mode=ok
+1789777777.574 GET /_mode mode=ok
+1789777777.584 GET /_mode mode=ok
+1789777777.721 GET /_mode mode=ok

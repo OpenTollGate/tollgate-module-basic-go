@@ -1,0 +1,7 @@
+mock-mint listening on 0.0.0.0:18080 mode=ok
+1789770826.735 GET /_mode mode=ok
+1789770826.758 GET /_mode mode=ok
+1789770826.902 GET /_mode mode=ok
+1789770831.105 GET /v1/info mode=ok
+1789770840.193 GET /v1/keys mode=ok
+1789770840.195 GET /v1/keysets mode=ok

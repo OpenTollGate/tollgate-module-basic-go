@@ -1,0 +1,12 @@
+# Large binaries are not committed: every fact the report cites about them is
+# committed as text alongside (sha256 / size / file / readelf -d / go version -m
+# / section table). See README.md "What is not committed".
+raw/tollgate-wrt.device.bin
+raw/build/
+raw/boltdump
+
+# DBSCRATCH copies of the live wallet store contain the wallet SEED and are
+# written outside the repository on purpose (phases/04-payments.sh DBSCRATCH).
+# This pattern is here to make that mistake loud if someone changes the path.
+*.wallet.db.*
+wallet.db.*

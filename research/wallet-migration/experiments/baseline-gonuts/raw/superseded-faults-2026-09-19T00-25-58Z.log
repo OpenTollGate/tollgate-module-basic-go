@@ -1,0 +1,90 @@
+=== 05-faults 2026-09-19T00-25-58Z (mock=http://192.168.1.2:18080 mint-of-token=https://testnut.cashu.space) ===
+config sha before: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+store sha before : 538bf4621127bc59c4a3176ca216fdc856820c0ad1f1a60f06dfa209566b0d0f  balance: {  "success": true,  "message": "Total wallet balance: 0 sats",  "data": {    "balance_sats": 0  },  "timestamp": "2026-09-19T00:25:59.369729278Z"}
+mock pid=277269  local probe: {"mode": "ok"}
+router -> mock probe: HTTP 200
+backup sha: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+accepted_mints now: 8
+full mode: yes
+base token mint: cashuBo2F0gaJh...
+  token A mint (mock) : http://192.168.1.2:18080
+  token B mint (dead) : http://192.168.1.2:18081
+INJ-1a mode=refused url=http://192.168.1.2:18081 elapsed=0s store_ok=yes balance_ok=no alive=yes cli_rc=0 err_reported=yes verdict=FAIL
+   cli: {  "success": false,  "error": "Failed to fund wallet: failed to receive token: Token rejected. Token for mint http://192.168.1.2:18081 is not accepted and wallet does not allow swapping of untrusted mints. Accepted: [https://mint.coinos.io
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6626]: Exit (root) from <192.168.1.2:57132>: Disconnect received
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6634]: Child connection from 192.168.1.2:57144
+   log| Sat Sep 19 00:26:22 2026 authpriv.notice dropbear[6634]: Password auth succeeded for 'root' from 192.168.1.2:57144
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6634]: Exit (root) from <192.168.1.2:57144>: Disconnect received
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6636]: Child connection from 192.168.1.2:57150
+   log| Sat Sep 19 00:26:22 2026 authpriv.notice dropbear[6636]: Password auth succeeded for 'root' from 192.168.1.2:57150
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6636]: Exit (root) from <192.168.1.2:57150>: Disconnect received
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6643]: Child connection from 192.168.1.2:57160
+   log| Sat Sep 19 00:26:22 2026 authpriv.notice dropbear[6643]: Password auth succeeded for 'root' from 192.168.1.2:57160
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6643]: Exit (root) from <192.168.1.2:57160>: Disconnect received
+   log| Sat Sep 19 00:26:22 2026 authpriv.info dropbear[6645]: Child connection from 192.168.1.2:57174
+   log| Sat Sep 19 00:26:23 2026 authpriv.notice dropbear[6645]: Password auth succeeded for 'root' from 192.168.1.2:57174
+INJ-1b: CLI hit the 75s bound (rc=124)
+INJ-1b mode=slow url=http://192.168.1.2:18080 elapsed=75s store_ok=yes balance_ok=no alive=yes cli_rc=124 err_reported=yes verdict=FAIL
+   cli:
+   log| Sat Sep 19 00:27:39 2026 authpriv.info dropbear[6658]: Exit (root) from <192.168.1.2:57202>: Disconnect received
+   log| Sat Sep 19 00:27:39 2026 authpriv.info dropbear[6669]: Child connection from 192.168.1.2:50988
+   log| Sat Sep 19 00:27:39 2026 authpriv.notice dropbear[6669]: Password auth succeeded for 'root' from 192.168.1.2:50988
+   log| Sat Sep 19 00:27:39 2026 authpriv.info dropbear[6669]: Exit (root) from <192.168.1.2:50988>: Disconnect received
+   log| Sat Sep 19 00:27:39 2026 authpriv.info dropbear[6671]: Child connection from 192.168.1.2:51002
+   log| Sat Sep 19 00:27:39 2026 authpriv.notice dropbear[6671]: Password auth succeeded for 'root' from 192.168.1.2:51002
+   log| Sat Sep 19 00:27:39 2026 authpriv.info dropbear[6671]: Exit (root) from <192.168.1.2:51002>: Disconnect received
+   log| Sat Sep 19 00:27:39 2026 authpriv.info dropbear[6678]: Child connection from 192.168.1.2:51016
+   log| Sat Sep 19 00:27:40 2026 authpriv.notice dropbear[6678]: Password auth succeeded for 'root' from 192.168.1.2:51016
+   log| Sat Sep 19 00:27:40 2026 authpriv.info dropbear[6678]: Exit (root) from <192.168.1.2:51016>: Disconnect received
+   log| Sat Sep 19 00:27:40 2026 authpriv.info dropbear[6680]: Child connection from 192.168.1.2:51022
+   log| Sat Sep 19 00:27:40 2026 authpriv.notice dropbear[6680]: Password auth succeeded for 'root' from 192.168.1.2:51022
+INJ-2 mode=http-500 url=http://192.168.1.2:18080 elapsed=62s store_ok=yes balance_ok=no alive=yes cli_rc=0 err_reported=yes verdict=FAIL
+   cli: {  "success": false,  "error": "Failed to fund wallet: failed to receive token: could not get active keyset: error getting active keysets from mint: mint http://192.168.1.2:18080/v1/keysets returned server error (HTTP 500): {\"detail\": \"i
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6693]: Exit (root) from <192.168.1.2:51044>: Disconnect received
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6760]: Child connection from 192.168.1.2:44518
+   log| Sat Sep 19 00:28:43 2026 authpriv.notice dropbear[6760]: Password auth succeeded for 'root' from 192.168.1.2:44518
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6760]: Exit (root) from <192.168.1.2:44518>: Disconnect received
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6762]: Child connection from 192.168.1.2:44522
+   log| Sat Sep 19 00:28:43 2026 authpriv.notice dropbear[6762]: Password auth succeeded for 'root' from 192.168.1.2:44522
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6762]: Exit (root) from <192.168.1.2:44522>: Disconnect received
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6769]: Child connection from 192.168.1.2:44532
+   log| Sat Sep 19 00:28:43 2026 authpriv.notice dropbear[6769]: Password auth succeeded for 'root' from 192.168.1.2:44532
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6769]: Exit (root) from <192.168.1.2:44532>: Disconnect received
+   log| Sat Sep 19 00:28:43 2026 authpriv.info dropbear[6771]: Child connection from 192.168.1.2:44538
+   log| Sat Sep 19 00:28:43 2026 authpriv.notice dropbear[6771]: Password auth succeeded for 'root' from 192.168.1.2:44538
+INJ-3a mode=malformed url=http://192.168.1.2:18080 elapsed=0s store_ok=yes balance_ok=no alive=yes cli_rc=0 err_reported=yes verdict=FAIL
+   cli: {  "success": false,  "error": "Failed to fund wallet: failed to receive token: could not get active keyset: could not find an active keyset for the unit",  "timestamp": "2026-09-19T00:28:45.4456283Z"}
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6786]: Exit (root) from <192.168.1.2:44572>: Disconnect received
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6793]: Child connection from 192.168.1.2:44580
+   log| Sat Sep 19 00:28:45 2026 authpriv.notice dropbear[6793]: Password auth succeeded for 'root' from 192.168.1.2:44580
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6793]: Exit (root) from <192.168.1.2:44580>: Disconnect received
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6795]: Child connection from 192.168.1.2:44586
+   log| Sat Sep 19 00:28:45 2026 authpriv.notice dropbear[6795]: Password auth succeeded for 'root' from 192.168.1.2:44586
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6795]: Exit (root) from <192.168.1.2:44586>: Disconnect received
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6802]: Child connection from 192.168.1.2:38380
+   log| Sat Sep 19 00:28:45 2026 authpriv.notice dropbear[6802]: Password auth succeeded for 'root' from 192.168.1.2:38380
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6802]: Exit (root) from <192.168.1.2:38380>: Disconnect received
+   log| Sat Sep 19 00:28:45 2026 authpriv.info dropbear[6804]: Child connection from 192.168.1.2:38392
+   log| Sat Sep 19 00:28:46 2026 authpriv.notice dropbear[6804]: Password auth succeeded for 'root' from 192.168.1.2:38392
+INJ-3b mode=truncated url=http://192.168.1.2:18080 elapsed=0s store_ok=yes balance_ok=no alive=yes cli_rc=0 err_reported=yes verdict=FAIL
+   cli: {  "success": false,  "error": "Failed to fund wallet: failed to receive token: could not get active keyset: error getting active keysets from mint: error reading response from mint: unexpected end of JSON input",  "timestamp": "2026-09-19T
+   log| Sat Sep 19 00:28:47 2026 authpriv.info dropbear[6819]: Exit (root) from <192.168.1.2:38434>: Disconnect received
+   log| Sat Sep 19 00:28:47 2026 authpriv.info dropbear[6827]: Child connection from 192.168.1.2:38438
+   log| Sat Sep 19 00:28:47 2026 authpriv.notice dropbear[6827]: Password auth succeeded for 'root' from 192.168.1.2:38438
+   log| Sat Sep 19 00:28:47 2026 authpriv.info dropbear[6827]: Exit (root) from <192.168.1.2:38438>: Disconnect received
+   log| Sat Sep 19 00:28:47 2026 authpriv.info dropbear[6829]: Child connection from 192.168.1.2:38450
+   log| Sat Sep 19 00:28:47 2026 authpriv.notice dropbear[6829]: Password auth succeeded for 'root' from 192.168.1.2:38450
+   log| Sat Sep 19 00:28:47 2026 authpriv.info dropbear[6829]: Exit (root) from <192.168.1.2:38450>: Disconnect received
+   log| Sat Sep 19 00:28:47 2026 authpriv.info dropbear[6837]: Child connection from 192.168.1.2:38452
+   log| Sat Sep 19 00:28:48 2026 authpriv.notice dropbear[6837]: Password auth succeeded for 'root' from 192.168.1.2:38452
+   log| Sat Sep 19 00:28:48 2026 authpriv.info dropbear[6837]: Exit (root) from <192.168.1.2:38452>: Disconnect received
+   log| Sat Sep 19 00:28:48 2026 authpriv.info dropbear[6839]: Child connection from 192.168.1.2:38456
+   log| Sat Sep 19 00:28:48 2026 authpriv.notice dropbear[6839]: Password auth succeeded for 'root' from 192.168.1.2:38456
+stopping mock (pid 277269)
+--- restoring config.json verbatim ---
+RESTORE OK: config.json byte-identical
+full mode after restore: yes
+post-restore mints/tags : 7 / 7
+post-restore status     : {  "success": true,  "message": "Service status retrieved",  "data": {    "config_ok": true,    "network_ok": true,    "running": true,    "uptime": "873.420181ms",    "version": "TollGate v0.6.0-alpha2-gd0cb92f",    "wallet_ok": true  },  "timestamp": "2026-09-19T00:29:01.865695055Z"}
+post-restore store sha  : 90a355bec75f7b0c7a5f23c2f8ba78f74f6e4da3324031ecc0c0e15aca98ea0e
+=== 05-faults done; artefacts: /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/faults-2026-09-19T00-25-58Z.csv /home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/faults-mocklog-2026-09-19T00-25-58Z.log ===

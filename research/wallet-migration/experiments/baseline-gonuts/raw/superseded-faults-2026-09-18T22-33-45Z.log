@@ -1,0 +1,8 @@
+=== 05-faults 2026-09-18T22-33-45Z (mock=http://192.168.2.21:18080 mint-of-token=https://testnut.cashu.space) ===
+config sha before: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+store sha before : b74e8233f36bf5fd5bf1d5705ed4a06fd50a179bacbda56bebd804c311c1824b  balance: {  "success": true,  "message": "Total wallet balance: 0 sats",  "data": {    "balance_sats": 0  },  "timestamp": "2026-09-18T22:33:46.139930533Z"}
+mock pid=4071381  local probe: {"mode": "ok"}
+router -> mock probe: HTTP 200
+backup sha: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+accepted_mints now: 8
+full mode: yes

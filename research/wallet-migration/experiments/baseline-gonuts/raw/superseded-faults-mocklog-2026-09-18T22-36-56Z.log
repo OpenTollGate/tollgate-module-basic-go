@@ -1,0 +1,12 @@
+mock-mint listening on 0.0.0.0:18080 mode=ok
+1789771022.428 GET /_mode mode=ok
+1789771022.441 GET /_mode mode=ok
+1789771022.572 GET /_mode mode=ok
+1789771026.886 GET /v1/info mode=ok
+1789771035.241 GET /v1/keys mode=ok
+1789771035.243 GET /v1/keysets mode=ok
+1789771042.135 POST /_mode/refused mode=ok
+1789771044.058 POST /_mode/slow mode=refused
+1789771046.017 POST /_mode/http-500 mode=slow
+1789771047.945 POST /_mode/malformed mode=http-500
+1789771049.840 POST /_mode/truncated mode=malformed

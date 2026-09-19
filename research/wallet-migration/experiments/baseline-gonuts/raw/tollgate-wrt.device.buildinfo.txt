@@ -1,0 +1,123 @@
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/tollgate-wrt.device.bin: go1.27.1
+	path	github.com/OpenTollGate/tollgate-module-basic-go
+	mod	github.com/OpenTollGate/tollgate-module-basic-go	(devel)
+	dep	github.com/FactomProject/basen	v0.0.0-20150613233007-fe3947df716e	h1:ahyvB3q25YnZWly5Gq1ekg6jcmWaGj/vG/MhF4aisoc=
+	dep	github.com/FactomProject/btcutilecc	v0.0.0-20130527213604-d3a63a5752ec	h1:1Qb69mGp/UtRPn422BH4/Y4Q3SLUrD9KHuDkm8iodFc=
+	dep	github.com/ImVexed/fasturl	v0.0.0-20230304231329-4e41488060f3	h1:ClzzXMDDuUbWfNNZqGeYq4PnYOlwlOVIvSyNaIy0ykg=
+	dep	github.com/OpenTollGate/gonuts-tollgate	v0.11.2	h1:3cvOwYb0lJqOZIDb3dUM3uiID1qkcvIEQespvT2/nR8=
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/cli	v0.0.0-00010101000000-000000000000
+	=>	./cli	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager	v0.0.0
+	=>	./config_manager	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/identity	v0.0.0
+	=>	./identity	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning	v0.0.0-00010101000000-000000000000
+	=>	./lightning	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant	v0.0.0
+	=>	./merchant	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types	v0.0.0
+	=>	./merchant_types	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol	v0.0.0
+	=>	./tollgate_protocol	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet	v0.0.0
+	=>	./tollwallet	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector	v0.0.0-00010101000000-000000000000
+	=>	./upstream_detector	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager	v0.0.0-00010101000000-000000000000
+	=>	./upstream_session_manager	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/utils	v0.0.0
+	=>	./utils	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/valve	v0.0.0
+	=>	./valve	(devel)
+
+	dep	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager	v0.0.0
+	=>	./wireless_gateway_manager	(devel)
+
+	dep	github.com/aead/chacha20	v0.0.0-20180709150244-8b13a72661da	h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
+	dep	github.com/aead/siphash	v1.0.1	h1:FwHfE/T45KPKYuuSAKyyvE+oPWcaQ+CUmFW0bPlM+kg=
+	dep	github.com/btcsuite/btcd	v0.24.3-0.20250318170759-4f4ea81776d6	h1:8n9k3I7e8DkpdQ5YAP4j8ly/LSsbe6qX9vmVbrUGvVw=
+	dep	github.com/btcsuite/btcd/btcec/v2	v2.3.4	h1:3EJjcN70HCu/mwqlUsGK8GcNVyLVxFDlWurTXGPFfiQ=
+	dep	github.com/btcsuite/btcd/btcutil	v1.1.6	h1:zFL2+c3Lb9gEgqKNzowKUPQNb8jV7v5Oaodi/AYFd6c=
+	dep	github.com/btcsuite/btcd/btcutil/psbt	v1.1.10	h1:TC1zhxhFfhnGqoPjsrlEpoqzh+9TPOHrCgnPR47Mj9I=
+	dep	github.com/btcsuite/btcd/chaincfg/chainhash	v1.1.0	h1:59Kx4K6lzOW5w6nFlA0v5+lk/6sjybR934QNHSJZPTQ=
+	dep	github.com/btcsuite/btclog	v0.0.0-20241003133417-09c4e92e319c	h1:4HxD1lBUGUddhzgaNgrCPsFWd7cGYNpeFUgd9ZIgyM0=
+	dep	github.com/btcsuite/btclog/v2	v2.0.1-0.20250602222548-9967d19bb084	h1:y3bvkt8ki0KX35eUEU8XShRHusz1S+55QwXUTmxn888=
+	dep	github.com/btcsuite/btcwallet	v0.16.14	h1:CofysgmI1ednkLsXontAdBoXJkbiim7unXnFKhLLjnE=
+	dep	github.com/btcsuite/btcwallet/wallet/txauthor	v1.3.5	h1:Rr0njWI3r341nhSPesKQ2JF+ugDSzdPoeckS75SeDZk=
+	dep	github.com/btcsuite/btcwallet/wallet/txrules	v1.2.2	h1:YEO+Lx1ZJJAtdRrjuhXjWrYsmAk26wLTlNzxt2q0lhk=
+	dep	github.com/btcsuite/btcwallet/wallet/txsizes	v1.2.5	h1:93o5Xz9dYepBP4RMFUc9RGIFXwqP2volSWRkYJFrNtI=
+	dep	github.com/btcsuite/btcwallet/walletdb	v1.5.1	h1:HgMhDNCrtEFPC+8q0ei5DQ5U9Tl4RCspA22DEKXlopI=
+	dep	github.com/btcsuite/btcwallet/wtxmgr	v1.5.6	h1:Zwvr/rrJYdOLqdBCSr4eICEstnEA+NBUvjIWLkrXaYI=
+	dep	github.com/btcsuite/go-socks	v0.0.0-20170105172521-4720035b7bfd	h1:R/opQEbFEy9JGkIguV40SvRY1uliPX8ifOvi6ICsFCw=
+	dep	github.com/btcsuite/websocket	v0.0.0-20150119174127-31079b680792	h1:R8vQdOQdZ9Y3SkEwmHoWBmX1DNXhXZqlTpq6s4tyJGc=
+	dep	github.com/coder/websocket	v1.8.13	h1:f3QZdXy7uGVz+4uCJy2nTZyM0yTBj8yANEHhqlXZ9FE=
+	dep	github.com/davecgh/go-spew	v1.1.1	h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+	dep	github.com/decred/dcrd/crypto/blake256	v1.1.0	h1:zPMNGQCm0g4QTY27fOCorQW7EryeQ/U0x++OzVrdms8=
+	dep	github.com/decred/dcrd/dcrec/secp256k1/v4	v4.4.0	h1:NMZiJj8QnKe1LgsbDayM4UoHwbvwDRwnI3hwNaAHRnc=
+	dep	github.com/decred/dcrd/lru	v1.1.3	h1:w9EAbvGLyzm6jTjF83UKuqZEiUtJmvRhQDOCEIvSuE0=
+	dep	github.com/fxamacker/cbor/v2	v2.8.0	h1:fFtUGXUzXPHTIUdne5+zzMPTfffl3RD5qYnkY40vtxU=
+	dep	github.com/go-errors/errors	v1.5.1	h1:ZwEMSLRCapFLflTpT7NKaAc7ukJ8ZPEjzlxt8rPN8bk=
+	dep	github.com/josharian/intern	v1.0.0	h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
+	dep	github.com/jrick/logrotate	v1.1.2	h1:6ePk462NCX7TfKtNp5JJ7MbA2YIslkpfgP03TlTYMN0=
+	dep	github.com/json-iterator/go	v1.1.12	h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
+	dep	github.com/kkdai/bstream	v1.0.0	h1:Se5gHwgp2VT2uHfDrkbbgbgEvV9cimLELwrPJctSjg8=
+	dep	github.com/klauspost/compress	v1.18.0	h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
+	dep	github.com/lightninglabs/gozmq	v0.0.0-20191113021534-d20a764486bf	h1:HZKvJUHlcXI/f/O0Avg7t8sqkPo78HFzjmeYFl6DPnc=
+	dep	github.com/lightninglabs/neutrino	v0.16.1	h1:5Kz4ToxncEVkpKC6fwUjXKtFKJhuxlG3sBB3MdJTJjs=
+	dep	github.com/lightninglabs/neutrino/cache	v1.1.2	h1:C9DY/DAPaPxbFC+xNNEI/z1SJY9GS3shmlu5hIQ798g=
+	dep	github.com/lightningnetwork/lightning-onion	v1.2.1-0.20240712235311-98bd56499dfb	h1:yfM05S8DXKhuCBp5qSMZdtSwvJ+GFzl94KbXMNB1JDY=
+	dep	github.com/lightningnetwork/lnd	v0.19.1-beta.rc1	h1:VV7xpS1g7OpDhlGYIa50Ac4I7TDZhvHjZ2Mmf+L4a7Y=
+	dep	github.com/lightningnetwork/lnd/clock	v1.1.1	h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsDIBjgjWdZgA0=
+	dep	github.com/lightningnetwork/lnd/fn/v2	v2.0.8	h1:r2SLz7gZYQPVc3IZhU82M66guz3Zk2oY+Rlj9QN5S3g=
+	dep	github.com/lightningnetwork/lnd/queue	v1.1.1	h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
+	dep	github.com/lightningnetwork/lnd/ticker	v1.1.1	h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
+	dep	github.com/lightningnetwork/lnd/tlv	v1.3.1	h1:o7CZg06y+rJZfUMAo0WzBLr0pgBWCzrt0f9gpujYUzk=
+	dep	github.com/lightningnetwork/lnd/tor	v1.1.6	h1:WHUumk7WgU6BUFsqHuqszI9P6nfhMeIG+rjJBlVE6OE=
+	dep	github.com/mailru/easyjson	v0.9.0	h1:PrnmzHw7262yW8sTBwxi1PdJA3Iw/EKBa8psRf7d9a4=
+	dep	github.com/miekg/dns	v1.1.66	h1:FeZXOS3VCVsKnEAd+wBkjMC3D2K+ww66Cq3VnCINuJE=
+	dep	github.com/modern-go/concurrent	v0.0.0-20180306012644-bacd9c7ef1dd	h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
+	dep	github.com/modern-go/reflect2	v1.0.2	h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=
+	dep	github.com/nbd-wtf/go-nostr	v0.51.12	h1:MRQcrShiW/cHhnYSVDQ4SIEc7DlYV7U7gg/l4H4gbbE=
+	dep	github.com/nbd-wtf/ln-decodepay	v1.13.0	h1:ic32UwT6cBVbLw72fQ7vr0nTMziYTj67baQ2COwlxZk=
+	dep	github.com/pmezard/go-difflib	v1.0.0	h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+	dep	github.com/puzpuzpuz/xsync/v3	v3.5.1	h1:GJYJZwO6IdxN/IKbneznS6yPkVC+c3zyY/j19c++5Fg=
+	dep	github.com/sirupsen/logrus	v1.9.3	h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=
+	dep	github.com/stretchr/objx	v0.5.2	h1:xuMeJ0Sdp5ZMRXx/aWO6RZxdr3beISkG5/G/aIRr3pY=
+	dep	github.com/stretchr/testify	v1.10.0	h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
+	dep	github.com/tidwall/gjson	v1.18.0	h1:FIDeeyB800efLX89e5a8Y0BNH+LOngJyGrIWxG2FKQY=
+	dep	github.com/tidwall/match	v1.1.1	h1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=
+	dep	github.com/tidwall/pretty	v1.2.1	h1:qjsOFOWWQl+N3RsoF5/ssm1pHmJJwhjlSbZ51I6wMl4=
+	dep	github.com/tyler-smith/go-bip32	v1.0.0	h1:sDR9juArbUgX+bO/iblgZnMPeWY1KZMUC2AFUJdv5KE=
+	dep	github.com/tyler-smith/go-bip39	v1.1.0	h1:5eUemwrMargf3BSLRRCalXT93Ns6pQJIjYQN2nyfOP8=
+	dep	github.com/vishvananda/netlink	v1.3.1	h1:3AEMt62VKqz90r0tmNhog0r/PpWKmrEShJU0wJW6bV0=
+	dep	github.com/vishvananda/netns	v0.0.5	h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zdEY=
+	dep	github.com/x448/float16	v0.8.4	h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
+	dep	go.etcd.io/bbolt	v1.4.0	h1:TU77id3TnN/zKr7CO/uk+fBCwF2jGcMuw2B/FMAzYIk=
+	dep	golang.org/x/crypto	v0.54.0	h1:YLIA59K4fiNzHzjnZt2tUJQjQtUWfWbeHBqKtk3eScw=
+	dep	golang.org/x/exp	v0.0.0-20250506013437-ce4c2cf36ca6	h1:y5zboxd6LQAqYIhHnB48p0ByQ/GnQx2BE33L8BOHQkI=
+	dep	golang.org/x/net	v0.57.0	h1:K5+3DljvIuDG9/Jv9rvyMywYNFCQ9RSUY6OOTTkT+tE=
+	dep	golang.org/x/sync	v0.14.0	h1:woo0S4Yywslg6hp4eUFjTVOyKt0RookbpAHG4c1HmhQ=
+	dep	golang.org/x/sys	v0.47.0	h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
+	dep	golang.org/x/term	v0.45.0	h1:NwWyBmoJCbfTHpxrWoZ9C6/VxOf7ic219I8xZZFdrf0=
+	dep	golang.org/x/time	v0.15.0	h1:bbrp8t3bGUeFOx08pvsMYRTCVSMk89u4tKbNOZbp88U=
+	dep	gopkg.in/yaml.v3	v3.0.1	h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+	dep	pgregory.net/rapid	v1.2.0	h1:keKAYRcjm+e1F0oAuU5F5+YPAWcyxNNRK2wud503Gnk=
+	build	-buildmode=exe
+	build	-compiler=gc
+	build	-trimpath=true
+	build	DefaultGODEBUG=cryptocustomrand=1,tlssecpmlkem=0,tracebacklabels=0,urlstrictcolons=0,x509sslcertoverrideplatform=0
+	build	CGO_ENABLED=1
+	build	GOARCH=arm64
+	build	GOOS=linux
+	build	GOARM64=v8.0

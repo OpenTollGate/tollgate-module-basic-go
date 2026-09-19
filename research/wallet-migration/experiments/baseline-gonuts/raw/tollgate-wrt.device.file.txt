@@ -1,0 +1,1 @@
+/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/tollgate-wrt.device.bin: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-aarch64.so.1, BuildID[sha1]=aeb8d99ced49677d59bc105adf0d5171a1672b08, stripped

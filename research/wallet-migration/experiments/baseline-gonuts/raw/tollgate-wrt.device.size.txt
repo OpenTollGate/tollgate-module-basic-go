@@ -1,0 +1,2 @@
+   text	   data	    bss	    dec	    hex	filename
+11648628	 431147	33867376	45947151	2bd190f	/home/c03rad0r/worktrees/t_96483506/research/wallet-migration/experiments/baseline-gonuts/raw/tollgate-wrt.device.bin

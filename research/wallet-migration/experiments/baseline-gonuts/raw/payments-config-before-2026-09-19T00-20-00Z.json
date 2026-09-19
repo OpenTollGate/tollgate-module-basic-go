@@ -1,0 +1,147 @@
+{
+  "config_version": "v0.0.8",
+  "log_level": "info",
+  "accepted_mints": [
+    {
+      "url": "https://mint.coinos.io",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "https://mint.minibits.cash/Bitcoin",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "https://mint.lnserver.com",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "https://mint.macadamia.cash",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "https://mint.westernbtc.com",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "https://kashu.me",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "https://mint.cubabitcoin.org",
+      "min_balance": 64,
+      "balance_tolerance_percent": 10,
+      "payout_interval_seconds": 60,
+      "min_payout_amount": 128,
+      "price_per_step": 1,
+      "price_unit": "sat",
+      "purchase_min_steps": 0
+    }
+  ],
+  "profit_share": [
+    {
+      "factor": 0.79,
+      "identity": "owner"
+    },
+    {
+      "factor": 0.07,
+      "identity": "c08r4d0r"
+    },
+    {
+      "factor": 0.07,
+      "identity": "amperstrand"
+    },
+    {
+      "factor": 0.07,
+      "identity": "origami74"
+    }
+  ],
+  "step_size": 22020096,
+  "margin": 0.1,
+  "metric": "bytes",
+  "show_setup": true,
+  "reseller_mode": false,
+  "upstream_detector": {
+    "probe_timeout": 10000000000,
+    "probe_retry_count": 3,
+    "probe_retry_delay": 2000000000,
+    "require_valid_signature": true,
+    "ignore_interfaces": [
+      "lo",
+      "docker0",
+      "br-lan",
+      "hostap0"
+    ],
+    "only_interfaces": [],
+    "discovery_timeout": 300000000000
+  },
+  "upstream_session_manager": {
+    "max_price_per_millisecond": 0.002777777778,
+    "max_price_per_byte": 0.00003725782414,
+    "trust": {
+      "default_policy": "trust_all",
+      "allowlist": [],
+      "blocklist": []
+    },
+    "sessions": {
+      "preferred_session_increments_milliseconds": 60000,
+      "preferred_session_increments_bytes": 131100000,
+      "millisecond_renewal_offset": 10000,
+      "bytes_renewal_offset": 131100000
+    },
+    "usage_tracking": {
+      "data_monitoring_interval": 500000000
+    }
+  },
+  "upstream_wifi": {
+    "scan_interval_seconds": 300,
+    "fast_check_seconds": 30,
+    "lost_threshold": 2,
+    "hysteresis_db": 12,
+    "signal_floor": -85,
+    "blacklist_ttl_minutes": 60,
+    "emergency_penalty": 20,
+    "max_consecutive_failures": 3,
+    "switch_cooldown_minutes": 10,
+    "startup_grace_seconds": 90,
+    "post_switch_wait_seconds": 5,
+    "dhcp_timeout_seconds": 180,
+    "manual_pause_seconds": 120,
+    "vendor_ie_discovery": false
+  }
+}

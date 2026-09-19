@@ -1,0 +1,872 @@
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] CLI server initialized and listening on Unix socket  [36mmodule[0m=main
+Sat Sep 19 00:20:42 2026 daemon.info tollgate-wrt[932]: Starting Tollgate Core
+Sat Sep 19 00:20:42 2026 daemon.info tollgate-wrt[932]: Listening on all interfaces on port :2121
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Registering handlers...                       [36mmodule[0m=main
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Starting UpstreamDetector network monitoring  [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Starting event-driven network monitor         [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] UpstreamDetector started successfully         [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] UpstreamDetector event loop started           [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Starting periodic gateway check (every 30s)   [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] identity: /identity and /identity/reveal-seed routes registered  [36mmodule[0m=main
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Starting HTTP server on all interfaces...     [36mmodule[0m=main
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Monitoring network interface link changes...  [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Monitoring network interface address changes...  [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:42 2026 authpriv.notice dropbear[1197]: Password auth succeeded for 'root' from 192.168.1.2:56004
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:20:42 2026 authpriv.info dropbear[1197]: Exit (root) from <192.168.1.2:56004>: Disconnect received
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Startup check: no active STA, nothing to verify  [36merror[0m="<nil>" [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:20:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:42Z] Startup grace period active                   [36mgrace_seconds[0m=90 [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:20:42 2026 authpriv.info dropbear[1217]: Child connection from 192.168.1.2:56018
+Sat Sep 19 00:20:42 2026 authpriv.notice dropbear[1217]: Password auth succeeded for 'root' from 192.168.1.2:56018
+Sat Sep 19 00:20:42 2026 authpriv.info dropbear[1217]: Exit (root) from <192.168.1.2:56018>: Disconnect received
+Sat Sep 19 00:20:42 2026 authpriv.info dropbear[1219]: Child connection from 192.168.1.2:56022
+Sat Sep 19 00:20:42 2026 authpriv.notice dropbear[1219]: Password auth succeeded for 'root' from 192.168.1.2:56022
+Sat Sep 19 00:20:42 2026 authpriv.info dropbear[1219]: Exit (root) from <192.168.1.2:56022>: Disconnect received
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] Performing initial interface scan to report existing gateways  [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] Startup scan: Found interface with gateway - reporting to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] 📝 New gateway discovered                      [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:44Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:46Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:46Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:48Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:20:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:48Z] Startup scan: Found interface with gateway - reporting to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:48Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:20:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:48Z] 📝 New gateway discovered                      [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:20:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:48Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:20:51 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:51Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:51 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:51Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:56 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:56Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:56 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:20:56Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1467]: Child connection from 192.168.1.2:46982
+Sat Sep 19 00:20:59 2026 authpriv.notice dropbear[1467]: Password auth succeeded for 'root' from 192.168.1.2:46982
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1467]: Exit (root) from <192.168.1.2:46982>: Disconnect received
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1470]: Child connection from 192.168.1.2:46992
+Sat Sep 19 00:20:59 2026 authpriv.notice dropbear[1470]: Password auth succeeded for 'root' from 192.168.1.2:46992
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1470]: Exit (root) from <192.168.1.2:46992>: Disconnect received
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1487]: Child connection from 192.168.1.2:47002
+Sat Sep 19 00:20:59 2026 authpriv.notice dropbear[1487]: Password auth succeeded for 'root' from 192.168.1.2:47002
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1487]: Exit (root) from <192.168.1.2:47002>: Disconnect received
+Sat Sep 19 00:20:59 2026 authpriv.info dropbear[1490]: Child connection from 192.168.1.2:47014
+Sat Sep 19 00:20:59 2026 authpriv.notice dropbear[1490]: Password auth succeeded for 'root' from 192.168.1.2:47014
+Sat Sep 19 00:20:59 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:20:59 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:20:59 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:20:59 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:21:00 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:00 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:21:00 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:21:00Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:21:00 2026 authpriv.info dropbear[1490]: Exit (root) from <192.168.1.2:47014>: Disconnect received
+Sat Sep 19 00:21:00 2026 authpriv.info dropbear[1513]: Child connection from 192.168.1.2:47030
+Sat Sep 19 00:21:00 2026 authpriv.notice dropbear[1513]: Password auth succeeded for 'root' from 192.168.1.2:47030
+Sat Sep 19 00:21:00 2026 authpriv.info dropbear[1513]: Exit (root) from <192.168.1.2:47030>: Disconnect received
+Sat Sep 19 00:21:01 2026 authpriv.info dropbear[1516]: Child connection from 192.168.1.2:47044
+Sat Sep 19 00:21:01 2026 authpriv.notice dropbear[1516]: Password auth succeeded for 'root' from 192.168.1.2:47044
+Sat Sep 19 00:21:01 2026 authpriv.info dropbear[1516]: Exit (root) from <192.168.1.2:47044>: Disconnect received
+Sat Sep 19 00:21:01 2026 authpriv.info dropbear[1518]: Child connection from 192.168.1.2:47054
+Sat Sep 19 00:21:01 2026 authpriv.notice dropbear[1518]: Password auth succeeded for 'root' from 192.168.1.2:47054
+Sat Sep 19 00:21:01 2026 authpriv.info dropbear[1518]: Exit (root) from <192.168.1.2:47054>: Disconnect received
+Sat Sep 19 00:21:01 2026 authpriv.info dropbear[1535]: Child connection from 192.168.1.2:47060
+Sat Sep 19 00:21:01 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:01Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:01 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:01Z] Initial interface scan completed              [36mmodule[0m=upstream_detector
+Sat Sep 19 00:21:01 2026 authpriv.notice dropbear[1535]: Password auth succeeded for 'root' from 192.168.1.2:47060
+Sat Sep 19 00:21:01 2026 authpriv.info dropbear[1535]: Exit (root) from <192.168.1.2:47060>: Disconnect received
+Sat Sep 19 00:21:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:12Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:21:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:12Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:12Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:12Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:14Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:14Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:16Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:16Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:21:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:16Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1765]: Child connection from 192.168.1.2:39034
+Sat Sep 19 00:21:17 2026 authpriv.notice dropbear[1765]: Password auth succeeded for 'root' from 192.168.1.2:39034
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1765]: Exit (root) from <192.168.1.2:39034>: Disconnect received
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1767]: Child connection from 192.168.1.2:39050
+Sat Sep 19 00:21:17 2026 authpriv.notice dropbear[1767]: Password auth succeeded for 'root' from 192.168.1.2:39050
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1767]: Exit (root) from <192.168.1.2:39050>: Disconnect received
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1769]: Child connection from 192.168.1.2:39058
+Sat Sep 19 00:21:17 2026 authpriv.notice dropbear[1769]: Password auth succeeded for 'root' from 192.168.1.2:39058
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1769]: Exit (root) from <192.168.1.2:39058>: Disconnect received
+Sat Sep 19 00:21:17 2026 authpriv.info dropbear[1772]: Child connection from 192.168.1.2:39064
+Sat Sep 19 00:21:17 2026 authpriv.notice dropbear[1772]: Password auth succeeded for 'root' from 192.168.1.2:39064
+Sat Sep 19 00:21:17 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:17 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:21:17 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:17 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:21:18 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:18 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:21:18 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:21:18Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:21:18 2026 authpriv.info dropbear[1772]: Exit (root) from <192.168.1.2:39064>: Disconnect received
+Sat Sep 19 00:21:18 2026 authpriv.info dropbear[1794]: Child connection from 192.168.1.2:39080
+Sat Sep 19 00:21:18 2026 authpriv.notice dropbear[1794]: Password auth succeeded for 'root' from 192.168.1.2:39080
+Sat Sep 19 00:21:18 2026 authpriv.info dropbear[1794]: Exit (root) from <192.168.1.2:39080>: Disconnect received
+Sat Sep 19 00:21:18 2026 authpriv.info dropbear[1812]: Child connection from 192.168.1.2:39082
+Sat Sep 19 00:21:19 2026 authpriv.notice dropbear[1812]: Password auth succeeded for 'root' from 192.168.1.2:39082
+Sat Sep 19 00:21:19 2026 authpriv.info dropbear[1812]: Exit (root) from <192.168.1.2:39082>: Disconnect received
+Sat Sep 19 00:21:19 2026 authpriv.info dropbear[1814]: Child connection from 192.168.1.2:39094
+Sat Sep 19 00:21:19 2026 authpriv.notice dropbear[1814]: Password auth succeeded for 'root' from 192.168.1.2:39094
+Sat Sep 19 00:21:19 2026 authpriv.info dropbear[1814]: Exit (root) from <192.168.1.2:39094>: Disconnect received
+Sat Sep 19 00:21:19 2026 authpriv.info dropbear[1816]: Child connection from 192.168.1.2:39106
+Sat Sep 19 00:21:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:19 2026 authpriv.notice dropbear[1816]: Password auth succeeded for 'root' from 192.168.1.2:39106
+Sat Sep 19 00:21:19 2026 authpriv.info dropbear[1816]: Exit (root) from <192.168.1.2:39106>: Disconnect received
+Sat Sep 19 00:21:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:27 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:27Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:21:27 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:27Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:27 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:27Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:27 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:27Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:29Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:29Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:31 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:31Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:34 2026 authpriv.info dropbear[2062]: Child connection from 192.168.1.2:57218
+Sat Sep 19 00:21:34 2026 authpriv.notice dropbear[2062]: Password auth succeeded for 'root' from 192.168.1.2:57218
+Sat Sep 19 00:21:34 2026 authpriv.info dropbear[2062]: Exit (root) from <192.168.1.2:57218>: Disconnect received
+Sat Sep 19 00:21:35 2026 authpriv.info dropbear[2064]: Child connection from 192.168.1.2:57224
+Sat Sep 19 00:21:35 2026 authpriv.notice dropbear[2064]: Password auth succeeded for 'root' from 192.168.1.2:57224
+Sat Sep 19 00:21:35 2026 authpriv.info dropbear[2064]: Exit (root) from <192.168.1.2:57224>: Disconnect received
+Sat Sep 19 00:21:35 2026 authpriv.info dropbear[2081]: Child connection from 192.168.1.2:57234
+Sat Sep 19 00:21:35 2026 authpriv.notice dropbear[2081]: Password auth succeeded for 'root' from 192.168.1.2:57234
+Sat Sep 19 00:21:35 2026 authpriv.info dropbear[2081]: Exit (root) from <192.168.1.2:57234>: Disconnect received
+Sat Sep 19 00:21:35 2026 authpriv.info dropbear[2084]: Child connection from 192.168.1.2:57242
+Sat Sep 19 00:21:35 2026 authpriv.notice dropbear[2084]: Password auth succeeded for 'root' from 192.168.1.2:57242
+Sat Sep 19 00:21:35 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:35 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:21:35 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:35 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:21:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:36 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:21:36 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:21:36Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2084]: Exit (root) from <192.168.1.2:57242>: Disconnect received
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2106]: Child connection from 192.168.1.2:50152
+Sat Sep 19 00:21:36 2026 authpriv.notice dropbear[2106]: Password auth succeeded for 'root' from 192.168.1.2:50152
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2106]: Exit (root) from <192.168.1.2:50152>: Disconnect received
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2109]: Child connection from 192.168.1.2:50164
+Sat Sep 19 00:21:36 2026 authpriv.notice dropbear[2109]: Password auth succeeded for 'root' from 192.168.1.2:50164
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2109]: Exit (root) from <192.168.1.2:50164>: Disconnect received
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2111]: Child connection from 192.168.1.2:50176
+Sat Sep 19 00:21:36 2026 authpriv.notice dropbear[2111]: Password auth succeeded for 'root' from 192.168.1.2:50176
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2111]: Exit (root) from <192.168.1.2:50176>: Disconnect received
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2113]: Child connection from 192.168.1.2:50188
+Sat Sep 19 00:21:36 2026 authpriv.notice dropbear[2113]: Password auth succeeded for 'root' from 192.168.1.2:50188
+Sat Sep 19 00:21:36 2026 authpriv.info dropbear[2113]: Exit (root) from <192.168.1.2:50188>: Disconnect received
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://testnut.cashu.space, Balance 0 does not meet threshold of 1000000
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:42 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:42Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:42Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:42Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:42Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:44Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:44Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:46Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:46Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:21:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:46Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:21:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2357]: Child connection from 192.168.1.2:49918
+Sat Sep 19 00:21:53 2026 authpriv.notice dropbear[2357]: Password auth succeeded for 'root' from 192.168.1.2:49918
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2357]: Exit (root) from <192.168.1.2:49918>: Disconnect received
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2374]: Child connection from 192.168.1.2:49928
+Sat Sep 19 00:21:53 2026 authpriv.notice dropbear[2374]: Password auth succeeded for 'root' from 192.168.1.2:49928
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2374]: Exit (root) from <192.168.1.2:49928>: Disconnect received
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2376]: Child connection from 192.168.1.2:49944
+Sat Sep 19 00:21:53 2026 authpriv.notice dropbear[2376]: Password auth succeeded for 'root' from 192.168.1.2:49944
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2376]: Exit (root) from <192.168.1.2:49944>: Disconnect received
+Sat Sep 19 00:21:53 2026 authpriv.info dropbear[2379]: Child connection from 192.168.1.2:49954
+Sat Sep 19 00:21:54 2026 authpriv.notice dropbear[2379]: Password auth succeeded for 'root' from 192.168.1.2:49954
+Sat Sep 19 00:21:54 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:54 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:21:54 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:54 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:21:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:21:54 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:21:54 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:21:54 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:21:54Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:21:54 2026 authpriv.info dropbear[2379]: Exit (root) from <192.168.1.2:49954>: Disconnect received
+Sat Sep 19 00:21:54 2026 authpriv.info dropbear[2401]: Child connection from 192.168.1.2:49962
+Sat Sep 19 00:21:54 2026 authpriv.notice dropbear[2401]: Password auth succeeded for 'root' from 192.168.1.2:49962
+Sat Sep 19 00:21:54 2026 authpriv.info dropbear[2401]: Exit (root) from <192.168.1.2:49962>: Disconnect received
+Sat Sep 19 00:21:54 2026 authpriv.info dropbear[2404]: Child connection from 192.168.1.2:49974
+Sat Sep 19 00:21:54 2026 authpriv.notice dropbear[2404]: Password auth succeeded for 'root' from 192.168.1.2:49974
+Sat Sep 19 00:21:54 2026 authpriv.info dropbear[2404]: Exit (root) from <192.168.1.2:49974>: Disconnect received
+Sat Sep 19 00:21:54 2026 authpriv.info dropbear[2406]: Child connection from 192.168.1.2:49982
+Sat Sep 19 00:21:55 2026 authpriv.notice dropbear[2406]: Password auth succeeded for 'root' from 192.168.1.2:49982
+Sat Sep 19 00:21:55 2026 authpriv.info dropbear[2406]: Exit (root) from <192.168.1.2:49982>: Disconnect received
+Sat Sep 19 00:21:55 2026 authpriv.info dropbear[2408]: Child connection from 192.168.1.2:49996
+Sat Sep 19 00:21:55 2026 authpriv.notice dropbear[2408]: Password auth succeeded for 'root' from 192.168.1.2:49996
+Sat Sep 19 00:21:55 2026 authpriv.info dropbear[2408]: Exit (root) from <192.168.1.2:49996>: Disconnect received
+Sat Sep 19 00:21:59 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:21:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2590]: Child connection from 192.168.1.2:52490
+Sat Sep 19 00:22:07 2026 authpriv.notice dropbear[2590]: Password auth succeeded for 'root' from 192.168.1.2:52490
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2590]: Exit (root) from <192.168.1.2:52490>: Disconnect received
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2592]: Child connection from 192.168.1.2:52502
+Sat Sep 19 00:22:07 2026 authpriv.notice dropbear[2592]: Password auth succeeded for 'root' from 192.168.1.2:52502
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2592]: Exit (root) from <192.168.1.2:52502>: Disconnect received
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2594]: Child connection from 192.168.1.2:52518
+Sat Sep 19 00:22:07 2026 authpriv.notice dropbear[2594]: Password auth succeeded for 'root' from 192.168.1.2:52518
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2594]: Exit (root) from <192.168.1.2:52518>: Disconnect received
+Sat Sep 19 00:22:07 2026 authpriv.info dropbear[2597]: Child connection from 192.168.1.2:52530
+Sat Sep 19 00:22:07 2026 authpriv.notice dropbear[2597]: Password auth succeeded for 'root' from 192.168.1.2:52530
+Sat Sep 19 00:22:07 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:07 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:22:07 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:07 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:22:08 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:08 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:22:08 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:22:08Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2597]: Exit (root) from <192.168.1.2:52530>: Disconnect received
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2620]: Child connection from 192.168.1.2:52536
+Sat Sep 19 00:22:08 2026 authpriv.notice dropbear[2620]: Password auth succeeded for 'root' from 192.168.1.2:52536
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2620]: Exit (root) from <192.168.1.2:52536>: Disconnect received
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2623]: Child connection from 192.168.1.2:52552
+Sat Sep 19 00:22:08 2026 authpriv.notice dropbear[2623]: Password auth succeeded for 'root' from 192.168.1.2:52552
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2623]: Exit (root) from <192.168.1.2:52552>: Disconnect received
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2625]: Child connection from 192.168.1.2:52558
+Sat Sep 19 00:22:08 2026 authpriv.notice dropbear[2625]: Password auth succeeded for 'root' from 192.168.1.2:52558
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2625]: Exit (root) from <192.168.1.2:52558>: Disconnect received
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2627]: Child connection from 192.168.1.2:52564
+Sat Sep 19 00:22:08 2026 authpriv.notice dropbear[2627]: Password auth succeeded for 'root' from 192.168.1.2:52564
+Sat Sep 19 00:22:08 2026 authpriv.info dropbear[2627]: Exit (root) from <192.168.1.2:52564>: Disconnect received
+Sat Sep 19 00:22:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:12Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:22:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:12Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:12Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:12Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:12Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:22:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:12Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:22:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:14Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:14Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:16Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:16Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:22:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:16Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:22:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:22:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:22:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:22:18 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:22:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:22 2026 authpriv.info dropbear[2864]: Child connection from 192.168.1.2:35578
+Sat Sep 19 00:22:23 2026 authpriv.notice dropbear[2864]: Password auth succeeded for 'root' from 192.168.1.2:35578
+Sat Sep 19 00:22:23 2026 authpriv.info dropbear[2864]: Exit (root) from <192.168.1.2:35578>: Disconnect received
+Sat Sep 19 00:22:23 2026 authpriv.info dropbear[2881]: Child connection from 192.168.1.2:35582
+Sat Sep 19 00:22:23 2026 authpriv.notice dropbear[2881]: Password auth succeeded for 'root' from 192.168.1.2:35582
+Sat Sep 19 00:22:23 2026 authpriv.info dropbear[2881]: Exit (root) from <192.168.1.2:35582>: Disconnect received
+Sat Sep 19 00:22:23 2026 authpriv.info dropbear[2883]: Child connection from 192.168.1.2:35586
+Sat Sep 19 00:22:23 2026 authpriv.notice dropbear[2883]: Password auth succeeded for 'root' from 192.168.1.2:35586
+Sat Sep 19 00:22:23 2026 authpriv.info dropbear[2883]: Exit (root) from <192.168.1.2:35586>: Disconnect received
+Sat Sep 19 00:22:23 2026 authpriv.info dropbear[2886]: Child connection from 192.168.1.2:35594
+Sat Sep 19 00:22:23 2026 authpriv.notice dropbear[2886]: Password auth succeeded for 'root' from 192.168.1.2:35594
+Sat Sep 19 00:22:23 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:23 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:22:23 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:23 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:22:24 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:24 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:22:24 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:22:24Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2886]: Exit (root) from <192.168.1.2:35594>: Disconnect received
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2908]: Child connection from 192.168.1.2:35596
+Sat Sep 19 00:22:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:24 2026 authpriv.notice dropbear[2908]: Password auth succeeded for 'root' from 192.168.1.2:35596
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2908]: Exit (root) from <192.168.1.2:35596>: Disconnect received
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2911]: Child connection from 192.168.1.2:35612
+Sat Sep 19 00:22:24 2026 authpriv.notice dropbear[2911]: Password auth succeeded for 'root' from 192.168.1.2:35612
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2911]: Exit (root) from <192.168.1.2:35612>: Disconnect received
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2913]: Child connection from 192.168.1.2:35626
+Sat Sep 19 00:22:24 2026 authpriv.notice dropbear[2913]: Password auth succeeded for 'root' from 192.168.1.2:35626
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2913]: Exit (root) from <192.168.1.2:35626>: Disconnect received
+Sat Sep 19 00:22:24 2026 authpriv.info dropbear[2915]: Child connection from 192.168.1.2:35636
+Sat Sep 19 00:22:25 2026 authpriv.notice dropbear[2915]: Password auth succeeded for 'root' from 192.168.1.2:35636
+Sat Sep 19 00:22:25 2026 authpriv.info dropbear[2915]: Exit (root) from <192.168.1.2:35636>: Disconnect received
+Sat Sep 19 00:22:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3112]: Child connection from 192.168.1.2:37980
+Sat Sep 19 00:22:38 2026 authpriv.notice dropbear[3112]: Password auth succeeded for 'root' from 192.168.1.2:37980
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3112]: Exit (root) from <192.168.1.2:37980>: Disconnect received
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3129]: Child connection from 192.168.1.2:37996
+Sat Sep 19 00:22:38 2026 authpriv.notice dropbear[3129]: Password auth succeeded for 'root' from 192.168.1.2:37996
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3129]: Exit (root) from <192.168.1.2:37996>: Disconnect received
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3131]: Child connection from 192.168.1.2:38010
+Sat Sep 19 00:22:38 2026 authpriv.notice dropbear[3131]: Password auth succeeded for 'root' from 192.168.1.2:38010
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3131]: Exit (root) from <192.168.1.2:38010>: Disconnect received
+Sat Sep 19 00:22:38 2026 authpriv.info dropbear[3134]: Child connection from 192.168.1.2:38014
+Sat Sep 19 00:22:39 2026 authpriv.notice dropbear[3134]: Password auth succeeded for 'root' from 192.168.1.2:38014
+Sat Sep 19 00:22:39 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:39 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:22:39 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:39 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:22:39 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:39 Failed to receive cashu token: could not swap proofs: Duplicate outputs
+Sat Sep 19 00:22:39 2026 daemon.err tollgate-wrt[932]: [31mERRO[0m[2026-09-19T00:22:39Z] Failed to fund wallet via merchant            [31merror[0m="failed to receive token: could not swap proofs: Duplicate outputs" [31mmodule[0m=cli
+Sat Sep 19 00:22:39 2026 authpriv.info dropbear[3134]: Exit (root) from <192.168.1.2:38014>: Disconnect received
+Sat Sep 19 00:22:39 2026 authpriv.info dropbear[3156]: Child connection from 192.168.1.2:38026
+Sat Sep 19 00:22:39 2026 authpriv.notice dropbear[3156]: Password auth succeeded for 'root' from 192.168.1.2:38026
+Sat Sep 19 00:22:39 2026 authpriv.info dropbear[3156]: Exit (root) from <192.168.1.2:38026>: Disconnect received
+Sat Sep 19 00:22:39 2026 authpriv.info dropbear[3159]: Child connection from 192.168.1.2:38040
+Sat Sep 19 00:22:40 2026 authpriv.notice dropbear[3159]: Password auth succeeded for 'root' from 192.168.1.2:38040
+Sat Sep 19 00:22:40 2026 authpriv.info dropbear[3159]: Exit (root) from <192.168.1.2:38040>: Disconnect received
+Sat Sep 19 00:22:40 2026 authpriv.info dropbear[3161]: Child connection from 192.168.1.2:38044
+Sat Sep 19 00:22:40 2026 authpriv.notice dropbear[3161]: Password auth succeeded for 'root' from 192.168.1.2:38044
+Sat Sep 19 00:22:40 2026 authpriv.info dropbear[3161]: Exit (root) from <192.168.1.2:38044>: Disconnect received
+Sat Sep 19 00:22:40 2026 authpriv.info dropbear[3163]: Child connection from 192.168.1.2:38048
+Sat Sep 19 00:22:40 2026 authpriv.notice dropbear[3163]: Password auth succeeded for 'root' from 192.168.1.2:38048
+Sat Sep 19 00:22:40 2026 authpriv.info dropbear[3163]: Exit (root) from <192.168.1.2:38048>: Disconnect received
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://testnut.cashu.space, Balance 0 does not meet threshold of 1000000
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:42 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:42Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:42Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:42Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:42Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:42Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:22:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:42Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:22:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:44Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:44Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:46Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:46Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:22:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:46Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:22:48 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:22:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:22:48 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:22:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:22:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:22:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3413]: Child connection from 192.168.1.2:54916
+Sat Sep 19 00:22:55 2026 authpriv.notice dropbear[3413]: Password auth succeeded for 'root' from 192.168.1.2:54916
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3413]: Exit (root) from <192.168.1.2:54916>: Disconnect received
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3415]: Child connection from 192.168.1.2:54918
+Sat Sep 19 00:22:55 2026 authpriv.notice dropbear[3415]: Password auth succeeded for 'root' from 192.168.1.2:54918
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3415]: Exit (root) from <192.168.1.2:54918>: Disconnect received
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3417]: Child connection from 192.168.1.2:54932
+Sat Sep 19 00:22:55 2026 authpriv.notice dropbear[3417]: Password auth succeeded for 'root' from 192.168.1.2:54932
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3417]: Exit (root) from <192.168.1.2:54932>: Disconnect received
+Sat Sep 19 00:22:55 2026 authpriv.info dropbear[3420]: Child connection from 192.168.1.2:54946
+Sat Sep 19 00:22:55 2026 authpriv.notice dropbear[3420]: Password auth succeeded for 'root' from 192.168.1.2:54946
+Sat Sep 19 00:22:55 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:55 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:22:55 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:55 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:22:56 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:22:56 Successfully funded wallet with 20 sats
+Sat Sep 19 00:22:56 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:56Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3420]: Exit (root) from <192.168.1.2:54946>: Disconnect received
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3442]: Child connection from 192.168.1.2:45928
+Sat Sep 19 00:22:56 2026 authpriv.notice dropbear[3442]: Password auth succeeded for 'root' from 192.168.1.2:45928
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3442]: Exit (root) from <192.168.1.2:45928>: Disconnect received
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3445]: Child connection from 192.168.1.2:45940
+Sat Sep 19 00:22:56 2026 authpriv.notice dropbear[3445]: Password auth succeeded for 'root' from 192.168.1.2:45940
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3445]: Exit (root) from <192.168.1.2:45940>: Disconnect received
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3447]: Child connection from 192.168.1.2:45948
+Sat Sep 19 00:22:56 2026 authpriv.notice dropbear[3447]: Password auth succeeded for 'root' from 192.168.1.2:45948
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3447]: Exit (root) from <192.168.1.2:45948>: Disconnect received
+Sat Sep 19 00:22:56 2026 authpriv.info dropbear[3464]: Child connection from 192.168.1.2:45958
+Sat Sep 19 00:22:57 2026 authpriv.notice dropbear[3464]: Password auth succeeded for 'root' from 192.168.1.2:45958
+Sat Sep 19 00:22:57 2026 authpriv.info dropbear[3464]: Exit (root) from <192.168.1.2:45958>: Disconnect received
+Sat Sep 19 00:22:59 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:22:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3661]: Child connection from 192.168.1.2:58784
+Sat Sep 19 00:23:10 2026 authpriv.notice dropbear[3661]: Password auth succeeded for 'root' from 192.168.1.2:58784
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3661]: Exit (root) from <192.168.1.2:58784>: Disconnect received
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3663]: Child connection from 192.168.1.2:58792
+Sat Sep 19 00:23:10 2026 authpriv.notice dropbear[3663]: Password auth succeeded for 'root' from 192.168.1.2:58792
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3663]: Exit (root) from <192.168.1.2:58792>: Disconnect received
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3665]: Child connection from 192.168.1.2:58802
+Sat Sep 19 00:23:10 2026 authpriv.notice dropbear[3665]: Password auth succeeded for 'root' from 192.168.1.2:58802
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3665]: Exit (root) from <192.168.1.2:58802>: Disconnect received
+Sat Sep 19 00:23:10 2026 authpriv.info dropbear[3668]: Child connection from 192.168.1.2:58806
+Sat Sep 19 00:23:10 2026 authpriv.notice dropbear[3668]: Password auth succeeded for 'root' from 192.168.1.2:58806
+Sat Sep 19 00:23:10 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:10 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:23:10 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:10 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:23:11 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:11 Successfully funded wallet with 20 sats
+Sat Sep 19 00:23:11 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:11Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:23:11 2026 authpriv.info dropbear[3668]: Exit (root) from <192.168.1.2:58806>: Disconnect received
+Sat Sep 19 00:23:11 2026 authpriv.info dropbear[3691]: Child connection from 192.168.1.2:58822
+Sat Sep 19 00:23:11 2026 authpriv.notice dropbear[3691]: Password auth succeeded for 'root' from 192.168.1.2:58822
+Sat Sep 19 00:23:11 2026 authpriv.info dropbear[3691]: Exit (root) from <192.168.1.2:58822>: Disconnect received
+Sat Sep 19 00:23:11 2026 authpriv.info dropbear[3694]: Child connection from 192.168.1.2:58828
+Sat Sep 19 00:23:11 2026 authpriv.notice dropbear[3694]: Password auth succeeded for 'root' from 192.168.1.2:58828
+Sat Sep 19 00:23:11 2026 authpriv.info dropbear[3694]: Exit (root) from <192.168.1.2:58828>: Disconnect received
+Sat Sep 19 00:23:11 2026 authpriv.info dropbear[3696]: Child connection from 192.168.1.2:58842
+Sat Sep 19 00:23:12 2026 authpriv.notice dropbear[3696]: Password auth succeeded for 'root' from 192.168.1.2:58842
+Sat Sep 19 00:23:12 2026 authpriv.info dropbear[3696]: Exit (root) from <192.168.1.2:58842>: Disconnect received
+Sat Sep 19 00:23:12 2026 authpriv.info dropbear[3698]: Child connection from 192.168.1.2:58846
+Sat Sep 19 00:23:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:12Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:23:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:12Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:12Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:12Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:12 2026 authpriv.notice dropbear[3698]: Password auth succeeded for 'root' from 192.168.1.2:58846
+Sat Sep 19 00:23:12 2026 authpriv.info dropbear[3698]: Exit (root) from <192.168.1.2:58846>: Disconnect received
+Sat Sep 19 00:23:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:12Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:23:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:12Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:23:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:14Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:14Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:16Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:16Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:23:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:16Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:23:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:23:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:23:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:23:18 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:23:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3933]: Child connection from 192.168.1.2:44994
+Sat Sep 19 00:23:26 2026 authpriv.notice dropbear[3933]: Password auth succeeded for 'root' from 192.168.1.2:44994
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3933]: Exit (root) from <192.168.1.2:44994>: Disconnect received
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3935]: Child connection from 192.168.1.2:45010
+Sat Sep 19 00:23:26 2026 authpriv.notice dropbear[3935]: Password auth succeeded for 'root' from 192.168.1.2:45010
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3935]: Exit (root) from <192.168.1.2:45010>: Disconnect received
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3937]: Child connection from 192.168.1.2:45022
+Sat Sep 19 00:23:26 2026 authpriv.notice dropbear[3937]: Password auth succeeded for 'root' from 192.168.1.2:45022
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3937]: Exit (root) from <192.168.1.2:45022>: Disconnect received
+Sat Sep 19 00:23:26 2026 authpriv.info dropbear[3955]: Child connection from 192.168.1.2:45030
+Sat Sep 19 00:23:26 2026 authpriv.notice dropbear[3955]: Password auth succeeded for 'root' from 192.168.1.2:45030
+Sat Sep 19 00:23:26 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:26 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:23:26 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:26 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:23:27 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:27 Successfully funded wallet with 20 sats
+Sat Sep 19 00:23:27 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:27Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3955]: Exit (root) from <192.168.1.2:45030>: Disconnect received
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3963]: Child connection from 192.168.1.2:45040
+Sat Sep 19 00:23:27 2026 authpriv.notice dropbear[3963]: Password auth succeeded for 'root' from 192.168.1.2:45040
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3963]: Exit (root) from <192.168.1.2:45040>: Disconnect received
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3981]: Child connection from 192.168.1.2:45052
+Sat Sep 19 00:23:27 2026 authpriv.notice dropbear[3981]: Password auth succeeded for 'root' from 192.168.1.2:45052
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3981]: Exit (root) from <192.168.1.2:45052>: Disconnect received
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3983]: Child connection from 192.168.1.2:45058
+Sat Sep 19 00:23:27 2026 authpriv.notice dropbear[3983]: Password auth succeeded for 'root' from 192.168.1.2:45058
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3983]: Exit (root) from <192.168.1.2:45058>: Disconnect received
+Sat Sep 19 00:23:27 2026 authpriv.info dropbear[3985]: Child connection from 192.168.1.2:45072
+Sat Sep 19 00:23:28 2026 authpriv.notice dropbear[3985]: Password auth succeeded for 'root' from 192.168.1.2:45072
+Sat Sep 19 00:23:28 2026 authpriv.info dropbear[3985]: Exit (root) from <192.168.1.2:45072>: Disconnect received
+Sat Sep 19 00:23:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4197]: Child connection from 192.168.1.2:58768
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:42Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:42Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:42Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:42Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Skipping payout https://testnut.cashu.space, Balance 60 does not meet threshold of 1000000
+Sat Sep 19 00:23:42 2026 authpriv.notice dropbear[4197]: Password auth succeeded for 'root' from 192.168.1.2:58768
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4197]: Exit (root) from <192.168.1.2:58768>: Disconnect received
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:42Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:42Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4213]: Child connection from 192.168.1.2:58774
+Sat Sep 19 00:23:42 2026 authpriv.notice dropbear[4213]: Password auth succeeded for 'root' from 192.168.1.2:58774
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4213]: Exit (root) from <192.168.1.2:58774>: Disconnect received
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4215]: Child connection from 192.168.1.2:58786
+Sat Sep 19 00:23:42 2026 authpriv.notice dropbear[4215]: Password auth succeeded for 'root' from 192.168.1.2:58786
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4215]: Exit (root) from <192.168.1.2:58786>: Disconnect received
+Sat Sep 19 00:23:42 2026 authpriv.info dropbear[4218]: Child connection from 192.168.1.2:58790
+Sat Sep 19 00:23:42 2026 authpriv.notice dropbear[4218]: Password auth succeeded for 'root' from 192.168.1.2:58790
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:23:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:42 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:23:43 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:43 Successfully funded wallet with 20 sats
+Sat Sep 19 00:23:43 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:43Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4218]: Exit (root) from <192.168.1.2:58790>: Disconnect received
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4240]: Child connection from 192.168.1.2:58796
+Sat Sep 19 00:23:43 2026 authpriv.notice dropbear[4240]: Password auth succeeded for 'root' from 192.168.1.2:58796
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4240]: Exit (root) from <192.168.1.2:58796>: Disconnect received
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4243]: Child connection from 192.168.1.2:58812
+Sat Sep 19 00:23:43 2026 authpriv.notice dropbear[4243]: Password auth succeeded for 'root' from 192.168.1.2:58812
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4243]: Exit (root) from <192.168.1.2:58812>: Disconnect received
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4245]: Child connection from 192.168.1.2:58824
+Sat Sep 19 00:23:43 2026 authpriv.notice dropbear[4245]: Password auth succeeded for 'root' from 192.168.1.2:58824
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4245]: Exit (root) from <192.168.1.2:58824>: Disconnect received
+Sat Sep 19 00:23:43 2026 authpriv.info dropbear[4262]: Child connection from 192.168.1.2:58832
+Sat Sep 19 00:23:44 2026 authpriv.notice dropbear[4262]: Password auth succeeded for 'root' from 192.168.1.2:58832
+Sat Sep 19 00:23:44 2026 authpriv.info dropbear[4262]: Exit (root) from <192.168.1.2:58832>: Disconnect received
+Sat Sep 19 00:23:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:44Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:44Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:46Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:46Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:23:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:46Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:23:48 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:23:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:23:48 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:23:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:23:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:23:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:23:54 2026 authpriv.info dropbear[4423]: Child connection from 192.168.1.2:47974
+Sat Sep 19 00:23:55 2026 authpriv.notice dropbear[4423]: Password auth succeeded for 'root' from 192.168.1.2:47974
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4423]: Exit (root) from <192.168.1.2:47974>: Disconnect received
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4425]: Child connection from 192.168.1.2:47986
+Sat Sep 19 00:23:55 2026 authpriv.notice dropbear[4425]: Password auth succeeded for 'root' from 192.168.1.2:47986
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4425]: Exit (root) from <192.168.1.2:47986>: Disconnect received
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4442]: Child connection from 192.168.1.2:47992
+Sat Sep 19 00:23:55 2026 authpriv.notice dropbear[4442]: Password auth succeeded for 'root' from 192.168.1.2:47992
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4442]: Exit (root) from <192.168.1.2:47992>: Disconnect received
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4445]: Child connection from 192.168.1.2:47996
+Sat Sep 19 00:23:55 2026 authpriv.notice dropbear[4445]: Password auth succeeded for 'root' from 192.168.1.2:47996
+Sat Sep 19 00:23:55 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:55 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:23:55 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:55 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:23:55 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:23:55 Successfully funded wallet with 20 sats
+Sat Sep 19 00:23:55 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:55Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4445]: Exit (root) from <192.168.1.2:47996>: Disconnect received
+Sat Sep 19 00:23:55 2026 authpriv.info dropbear[4452]: Child connection from 192.168.1.2:60562
+Sat Sep 19 00:23:56 2026 authpriv.notice dropbear[4452]: Password auth succeeded for 'root' from 192.168.1.2:60562
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4452]: Exit (root) from <192.168.1.2:60562>: Disconnect received
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4460]: Child connection from 192.168.1.2:60566
+Sat Sep 19 00:23:56 2026 authpriv.notice dropbear[4460]: Password auth succeeded for 'root' from 192.168.1.2:60566
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4460]: Exit (root) from <192.168.1.2:60566>: Disconnect received
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4472]: Child connection from 192.168.1.2:60580
+Sat Sep 19 00:23:56 2026 authpriv.notice dropbear[4472]: Password auth succeeded for 'root' from 192.168.1.2:60580
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4472]: Exit (root) from <192.168.1.2:60580>: Disconnect received
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4474]: Child connection from 192.168.1.2:60596
+Sat Sep 19 00:23:56 2026 authpriv.notice dropbear[4474]: Password auth succeeded for 'root' from 192.168.1.2:60596
+Sat Sep 19 00:23:56 2026 authpriv.info dropbear[4474]: Exit (root) from <192.168.1.2:60596>: Disconnect received
+Sat Sep 19 00:23:59 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:23:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4611]: Child connection from 192.168.1.2:47120
+Sat Sep 19 00:24:06 2026 authpriv.notice dropbear[4611]: Password auth succeeded for 'root' from 192.168.1.2:47120
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4611]: Exit (root) from <192.168.1.2:47120>: Disconnect received
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4613]: Child connection from 192.168.1.2:47126
+Sat Sep 19 00:24:06 2026 authpriv.notice dropbear[4613]: Password auth succeeded for 'root' from 192.168.1.2:47126
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4613]: Exit (root) from <192.168.1.2:47126>: Disconnect received
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4630]: Child connection from 192.168.1.2:47130
+Sat Sep 19 00:24:06 2026 authpriv.notice dropbear[4630]: Password auth succeeded for 'root' from 192.168.1.2:47130
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4630]: Exit (root) from <192.168.1.2:47130>: Disconnect received
+Sat Sep 19 00:24:06 2026 authpriv.info dropbear[4633]: Child connection from 192.168.1.2:47146
+Sat Sep 19 00:24:06 2026 authpriv.notice dropbear[4633]: Password auth succeeded for 'root' from 192.168.1.2:47146
+Sat Sep 19 00:24:06 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:06 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:24:06 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:06 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:24:07 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:07 Successfully funded wallet with 20 sats
+Sat Sep 19 00:24:07 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:07Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4633]: Exit (root) from <192.168.1.2:47146>: Disconnect received
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4641]: Child connection from 192.168.1.2:47152
+Sat Sep 19 00:24:07 2026 authpriv.notice dropbear[4641]: Password auth succeeded for 'root' from 192.168.1.2:47152
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4641]: Exit (root) from <192.168.1.2:47152>: Disconnect received
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4648]: Child connection from 192.168.1.2:47160
+Sat Sep 19 00:24:07 2026 authpriv.notice dropbear[4648]: Password auth succeeded for 'root' from 192.168.1.2:47160
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4648]: Exit (root) from <192.168.1.2:47160>: Disconnect received
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4661]: Child connection from 192.168.1.2:47174
+Sat Sep 19 00:24:07 2026 authpriv.notice dropbear[4661]: Password auth succeeded for 'root' from 192.168.1.2:47174
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4661]: Exit (root) from <192.168.1.2:47174>: Disconnect received
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4663]: Child connection from 192.168.1.2:47182
+Sat Sep 19 00:24:07 2026 authpriv.notice dropbear[4663]: Password auth succeeded for 'root' from 192.168.1.2:47182
+Sat Sep 19 00:24:07 2026 authpriv.info dropbear[4663]: Exit (root) from <192.168.1.2:47182>: Disconnect received
+Sat Sep 19 00:24:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:12Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:24:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:12Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:12Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:12Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:12Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:24:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:12Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:24:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:14Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:14Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:16Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:16Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:24:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:16Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4818]: Child connection from 192.168.1.2:41808
+Sat Sep 19 00:24:17 2026 authpriv.notice dropbear[4818]: Password auth succeeded for 'root' from 192.168.1.2:41808
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4818]: Exit (root) from <192.168.1.2:41808>: Disconnect received
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4835]: Child connection from 192.168.1.2:41816
+Sat Sep 19 00:24:17 2026 authpriv.notice dropbear[4835]: Password auth succeeded for 'root' from 192.168.1.2:41816
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4835]: Exit (root) from <192.168.1.2:41816>: Disconnect received
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4837]: Child connection from 192.168.1.2:41826
+Sat Sep 19 00:24:17 2026 authpriv.notice dropbear[4837]: Password auth succeeded for 'root' from 192.168.1.2:41826
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4837]: Exit (root) from <192.168.1.2:41826>: Disconnect received
+Sat Sep 19 00:24:17 2026 authpriv.info dropbear[4840]: Child connection from 192.168.1.2:41838
+Sat Sep 19 00:24:18 2026 authpriv.notice dropbear[4840]: Password auth succeeded for 'root' from 192.168.1.2:41838
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:18 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:18 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:24:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:24:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:18 Successfully funded wallet with 20 sats
+Sat Sep 19 00:24:18 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:18Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:24:18 2026 authpriv.info dropbear[4840]: Exit (root) from <192.168.1.2:41838>: Disconnect received
+Sat Sep 19 00:24:18 2026 authpriv.info dropbear[4867]: Child connection from 192.168.1.2:41850
+Sat Sep 19 00:24:18 2026 authpriv.notice dropbear[4867]: Password auth succeeded for 'root' from 192.168.1.2:41850
+Sat Sep 19 00:24:18 2026 authpriv.info dropbear[4867]: Exit (root) from <192.168.1.2:41850>: Disconnect received
+Sat Sep 19 00:24:18 2026 authpriv.info dropbear[4870]: Child connection from 192.168.1.2:41864
+Sat Sep 19 00:24:18 2026 authpriv.notice dropbear[4870]: Password auth succeeded for 'root' from 192.168.1.2:41864
+Sat Sep 19 00:24:18 2026 authpriv.info dropbear[4870]: Exit (root) from <192.168.1.2:41864>: Disconnect received
+Sat Sep 19 00:24:18 2026 authpriv.info dropbear[4872]: Child connection from 192.168.1.2:41880
+Sat Sep 19 00:24:19 2026 authpriv.notice dropbear[4872]: Password auth succeeded for 'root' from 192.168.1.2:41880
+Sat Sep 19 00:24:19 2026 authpriv.info dropbear[4872]: Exit (root) from <192.168.1.2:41880>: Disconnect received
+Sat Sep 19 00:24:19 2026 authpriv.info dropbear[4874]: Child connection from 192.168.1.2:41886
+Sat Sep 19 00:24:19 2026 authpriv.notice dropbear[4874]: Password auth succeeded for 'root' from 192.168.1.2:41886
+Sat Sep 19 00:24:19 2026 authpriv.info dropbear[4874]: Exit (root) from <192.168.1.2:41886>: Disconnect received
+Sat Sep 19 00:24:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5026]: Child connection from 192.168.1.2:55214
+Sat Sep 19 00:24:29 2026 authpriv.notice dropbear[5026]: Password auth succeeded for 'root' from 192.168.1.2:55214
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5026]: Exit (root) from <192.168.1.2:55214>: Disconnect received
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5028]: Child connection from 192.168.1.2:55228
+Sat Sep 19 00:24:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:29 2026 authpriv.notice dropbear[5028]: Password auth succeeded for 'root' from 192.168.1.2:55228
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5028]: Exit (root) from <192.168.1.2:55228>: Disconnect received
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5030]: Child connection from 192.168.1.2:55230
+Sat Sep 19 00:24:29 2026 authpriv.notice dropbear[5030]: Password auth succeeded for 'root' from 192.168.1.2:55230
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5030]: Exit (root) from <192.168.1.2:55230>: Disconnect received
+Sat Sep 19 00:24:29 2026 authpriv.info dropbear[5033]: Child connection from 192.168.1.2:55236
+Sat Sep 19 00:24:29 2026 authpriv.notice dropbear[5033]: Password auth succeeded for 'root' from 192.168.1.2:55236
+Sat Sep 19 00:24:29 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:29 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:24:29 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:29 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:24:30 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:30 Successfully funded wallet with 20 sats
+Sat Sep 19 00:24:30 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:30Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5033]: Exit (root) from <192.168.1.2:55236>: Disconnect received
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5055]: Child connection from 192.168.1.2:55252
+Sat Sep 19 00:24:30 2026 authpriv.notice dropbear[5055]: Password auth succeeded for 'root' from 192.168.1.2:55252
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5055]: Exit (root) from <192.168.1.2:55252>: Disconnect received
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5058]: Child connection from 192.168.1.2:55258
+Sat Sep 19 00:24:30 2026 authpriv.notice dropbear[5058]: Password auth succeeded for 'root' from 192.168.1.2:55258
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5058]: Exit (root) from <192.168.1.2:55258>: Disconnect received
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5060]: Child connection from 192.168.1.2:55266
+Sat Sep 19 00:24:30 2026 authpriv.notice dropbear[5060]: Password auth succeeded for 'root' from 192.168.1.2:55266
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5060]: Exit (root) from <192.168.1.2:55266>: Disconnect received
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5062]: Child connection from 192.168.1.2:55268
+Sat Sep 19 00:24:30 2026 authpriv.notice dropbear[5062]: Password auth succeeded for 'root' from 192.168.1.2:55268
+Sat Sep 19 00:24:30 2026 authpriv.info dropbear[5062]: Exit (root) from <192.168.1.2:55268>: Disconnect received
+Sat Sep 19 00:24:40 2026 authpriv.info dropbear[5214]: Child connection from 192.168.1.2:51584
+Sat Sep 19 00:24:40 2026 authpriv.notice dropbear[5214]: Password auth succeeded for 'root' from 192.168.1.2:51584
+Sat Sep 19 00:24:40 2026 authpriv.info dropbear[5214]: Exit (root) from <192.168.1.2:51584>: Disconnect received
+Sat Sep 19 00:24:40 2026 authpriv.info dropbear[5216]: Child connection from 192.168.1.2:51594
+Sat Sep 19 00:24:40 2026 authpriv.notice dropbear[5216]: Password auth succeeded for 'root' from 192.168.1.2:51594
+Sat Sep 19 00:24:40 2026 authpriv.info dropbear[5216]: Exit (root) from <192.168.1.2:51594>: Disconnect received
+Sat Sep 19 00:24:40 2026 authpriv.info dropbear[5218]: Child connection from 192.168.1.2:51608
+Sat Sep 19 00:24:41 2026 authpriv.notice dropbear[5218]: Password auth succeeded for 'root' from 192.168.1.2:51608
+Sat Sep 19 00:24:41 2026 authpriv.info dropbear[5218]: Exit (root) from <192.168.1.2:51608>: Disconnect received
+Sat Sep 19 00:24:41 2026 authpriv.info dropbear[5221]: Child connection from 192.168.1.2:51616
+Sat Sep 19 00:24:41 2026 authpriv.notice dropbear[5221]: Password auth succeeded for 'root' from 192.168.1.2:51616
+Sat Sep 19 00:24:41 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:41 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:24:41 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:41 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:24:41 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:41 Successfully funded wallet with 20 sats
+Sat Sep 19 00:24:41 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:41Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:24:41 2026 authpriv.info dropbear[5221]: Exit (root) from <192.168.1.2:51616>: Disconnect received
+Sat Sep 19 00:24:41 2026 authpriv.info dropbear[5243]: Child connection from 192.168.1.2:51624
+Sat Sep 19 00:24:41 2026 authpriv.notice dropbear[5243]: Password auth succeeded for 'root' from 192.168.1.2:51624
+Sat Sep 19 00:24:41 2026 authpriv.info dropbear[5243]: Exit (root) from <192.168.1.2:51624>: Disconnect received
+Sat Sep 19 00:24:41 2026 authpriv.info dropbear[5246]: Child connection from 192.168.1.2:51640
+Sat Sep 19 00:24:42 2026 authpriv.notice dropbear[5246]: Password auth succeeded for 'root' from 192.168.1.2:51640
+Sat Sep 19 00:24:42 2026 authpriv.info dropbear[5246]: Exit (root) from <192.168.1.2:51640>: Disconnect received
+Sat Sep 19 00:24:42 2026 authpriv.info dropbear[5251]: Child connection from 192.168.1.2:51644
+Sat Sep 19 00:24:42 2026 authpriv.notice dropbear[5251]: Password auth succeeded for 'root' from 192.168.1.2:51644
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://mint.cubabitcoin.org, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://testnut.cashu.space, Balance 180 does not meet threshold of 1000000
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://mint.macadamia.cash, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://mint.coinos.io, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://mint.westernbtc.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://mint.lnserver.com, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 authpriv.info dropbear[5251]: Exit (root) from <192.168.1.2:51644>: Disconnect received
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:42Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:42Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:42Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:42Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://mint.minibits.cash/Bitcoin, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:42 Skipping payout https://kashu.me, Balance 0 does not meet threshold of 128
+Sat Sep 19 00:24:42 2026 authpriv.info dropbear[5271]: Child connection from 192.168.1.2:51646
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:42Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:24:42 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:42Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:24:42 2026 authpriv.notice dropbear[5271]: Password auth succeeded for 'root' from 192.168.1.2:51646
+Sat Sep 19 00:24:42 2026 authpriv.info dropbear[5271]: Exit (root) from <192.168.1.2:51646>: Disconnect received
+Sat Sep 19 00:24:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:44Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:44 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:44Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:46Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:46Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:24:46 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:46Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:24:48 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:24:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:24:48 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:24:48Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:24:48 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:48Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:24:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:49Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:49 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:49Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:53 2026 authpriv.info dropbear[5456]: Child connection from 192.168.1.2:35290
+Sat Sep 19 00:24:53 2026 authpriv.notice dropbear[5456]: Password auth succeeded for 'root' from 192.168.1.2:35290
+Sat Sep 19 00:24:53 2026 authpriv.info dropbear[5456]: Exit (root) from <192.168.1.2:35290>: Disconnect received
+Sat Sep 19 00:24:53 2026 authpriv.info dropbear[5458]: Child connection from 192.168.1.2:35302
+Sat Sep 19 00:24:53 2026 authpriv.notice dropbear[5458]: Password auth succeeded for 'root' from 192.168.1.2:35302
+Sat Sep 19 00:24:53 2026 authpriv.info dropbear[5458]: Exit (root) from <192.168.1.2:35302>: Disconnect received
+Sat Sep 19 00:24:53 2026 authpriv.info dropbear[5460]: Child connection from 192.168.1.2:35314
+Sat Sep 19 00:24:54 2026 authpriv.notice dropbear[5460]: Password auth succeeded for 'root' from 192.168.1.2:35314
+Sat Sep 19 00:24:54 2026 authpriv.info dropbear[5460]: Exit (root) from <192.168.1.2:35314>: Disconnect received
+Sat Sep 19 00:24:54 2026 authpriv.info dropbear[5463]: Child connection from 192.168.1.2:35330
+Sat Sep 19 00:24:54 2026 authpriv.notice dropbear[5463]: Password auth succeeded for 'root' from 192.168.1.2:35330
+Sat Sep 19 00:24:54 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:54 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:24:54 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:54 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:24:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:54Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:54 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:54Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:24:55 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:24:55 Successfully funded wallet with 20 sats
+Sat Sep 19 00:24:55 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:55Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5463]: Exit (root) from <192.168.1.2:35330>: Disconnect received
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5485]: Child connection from 192.168.1.2:35336
+Sat Sep 19 00:24:55 2026 authpriv.notice dropbear[5485]: Password auth succeeded for 'root' from 192.168.1.2:35336
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5485]: Exit (root) from <192.168.1.2:35336>: Disconnect received
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5503]: Child connection from 192.168.1.2:35350
+Sat Sep 19 00:24:55 2026 authpriv.notice dropbear[5503]: Password auth succeeded for 'root' from 192.168.1.2:35350
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5503]: Exit (root) from <192.168.1.2:35350>: Disconnect received
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5505]: Child connection from 192.168.1.2:35366
+Sat Sep 19 00:24:55 2026 authpriv.notice dropbear[5505]: Password auth succeeded for 'root' from 192.168.1.2:35366
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5505]: Exit (root) from <192.168.1.2:35366>: Disconnect received
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5507]: Child connection from 192.168.1.2:35376
+Sat Sep 19 00:24:55 2026 authpriv.notice dropbear[5507]: Password auth succeeded for 'root' from 192.168.1.2:35376
+Sat Sep 19 00:24:55 2026 authpriv.info dropbear[5507]: Exit (root) from <192.168.1.2:35376>: Disconnect received
+Sat Sep 19 00:24:59 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:24:59Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5672]: Child connection from 192.168.1.2:47994
+Sat Sep 19 00:25:06 2026 authpriv.notice dropbear[5672]: Password auth succeeded for 'root' from 192.168.1.2:47994
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5672]: Exit (root) from <192.168.1.2:47994>: Disconnect received
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5674]: Child connection from 192.168.1.2:48000
+Sat Sep 19 00:25:06 2026 authpriv.notice dropbear[5674]: Password auth succeeded for 'root' from 192.168.1.2:48000
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5674]: Exit (root) from <192.168.1.2:48000>: Disconnect received
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5676]: Child connection from 192.168.1.2:48006
+Sat Sep 19 00:25:06 2026 authpriv.notice dropbear[5676]: Password auth succeeded for 'root' from 192.168.1.2:48006
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5676]: Exit (root) from <192.168.1.2:48006>: Disconnect received
+Sat Sep 19 00:25:06 2026 authpriv.info dropbear[5696]: Child connection from 192.168.1.2:48012
+Sat Sep 19 00:25:06 2026 authpriv.notice dropbear[5696]: Password auth succeeded for 'root' from 192.168.1.2:48012
+Sat Sep 19 00:25:06 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:06 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:25:06 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:06 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:25:07 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:07 Successfully funded wallet with 20 sats
+Sat Sep 19 00:25:07 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:07Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5696]: Exit (root) from <192.168.1.2:48012>: Disconnect received
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5704]: Child connection from 192.168.1.2:48016
+Sat Sep 19 00:25:07 2026 authpriv.notice dropbear[5704]: Password auth succeeded for 'root' from 192.168.1.2:48016
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5704]: Exit (root) from <192.168.1.2:48016>: Disconnect received
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5719]: Child connection from 192.168.1.2:48032
+Sat Sep 19 00:25:07 2026 authpriv.notice dropbear[5719]: Password auth succeeded for 'root' from 192.168.1.2:48032
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5719]: Exit (root) from <192.168.1.2:48032>: Disconnect received
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5724]: Child connection from 192.168.1.2:48036
+Sat Sep 19 00:25:07 2026 authpriv.notice dropbear[5724]: Password auth succeeded for 'root' from 192.168.1.2:48036
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5724]: Exit (root) from <192.168.1.2:48036>: Disconnect received
+Sat Sep 19 00:25:07 2026 authpriv.info dropbear[5726]: Child connection from 192.168.1.2:48050
+Sat Sep 19 00:25:08 2026 authpriv.notice dropbear[5726]: Password auth succeeded for 'root' from 192.168.1.2:48050
+Sat Sep 19 00:25:08 2026 authpriv.info dropbear[5726]: Exit (root) from <192.168.1.2:48050>: Disconnect received
+Sat Sep 19 00:25:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:12Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:25:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:12Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:12Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:12Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:12Z] Running upstream scan cycle                   [36mactive_ssid[0m= [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream [36msignal[0m=0
+Sat Sep 19 00:25:12 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:12Z] Cleaning up stale STA interfaces              [36mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:25:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:14Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:14 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:14Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:16Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:16Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmac[0m="96:83:c4:d1:57:59" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:25:16 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:16Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=10.103.117.254 [36minterface[0m=br-private [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:25:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:25:18 2026 daemon.err tollgate-wrt[932]: [33mWARN[0m[2026-09-19T00:25:18Z] Radio scan failed                             [33merror[0m="empty scan result" [33mmodule[0m=wireless_gateway_manager
+Sat Sep 19 00:25:18 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:18Z] No known upstream candidates available        [36mmodule[0m=wireless_gateway_manager [36mreason[0m=no-active-upstream
+Sat Sep 19 00:25:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:19Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:19 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:19Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5919]: Child connection from 192.168.1.2:46072
+Sat Sep 19 00:25:19 2026 authpriv.notice dropbear[5919]: Password auth succeeded for 'root' from 192.168.1.2:46072
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5919]: Exit (root) from <192.168.1.2:46072>: Disconnect received
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5921]: Child connection from 192.168.1.2:46074
+Sat Sep 19 00:25:19 2026 authpriv.notice dropbear[5921]: Password auth succeeded for 'root' from 192.168.1.2:46074
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5921]: Exit (root) from <192.168.1.2:46074>: Disconnect received
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5923]: Child connection from 192.168.1.2:46088
+Sat Sep 19 00:25:19 2026 authpriv.notice dropbear[5923]: Password auth succeeded for 'root' from 192.168.1.2:46088
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5923]: Exit (root) from <192.168.1.2:46088>: Disconnect received
+Sat Sep 19 00:25:19 2026 authpriv.info dropbear[5926]: Child connection from 192.168.1.2:46096
+Sat Sep 19 00:25:19 2026 authpriv.notice dropbear[5926]: Password auth succeeded for 'root' from 192.168.1.2:46096
+Sat Sep 19 00:25:19 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:19 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:25:19 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:19 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:25:20 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:20 Successfully funded wallet with 20 sats
+Sat Sep 19 00:25:20 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:20Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5926]: Exit (root) from <192.168.1.2:46096>: Disconnect received
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5948]: Child connection from 192.168.1.2:46098
+Sat Sep 19 00:25:20 2026 authpriv.notice dropbear[5948]: Password auth succeeded for 'root' from 192.168.1.2:46098
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5948]: Exit (root) from <192.168.1.2:46098>: Disconnect received
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5951]: Child connection from 192.168.1.2:46114
+Sat Sep 19 00:25:20 2026 authpriv.notice dropbear[5951]: Password auth succeeded for 'root' from 192.168.1.2:46114
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5951]: Exit (root) from <192.168.1.2:46114>: Disconnect received
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5953]: Child connection from 192.168.1.2:46130
+Sat Sep 19 00:25:20 2026 authpriv.notice dropbear[5953]: Password auth succeeded for 'root' from 192.168.1.2:46130
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5953]: Exit (root) from <192.168.1.2:46130>: Disconnect received
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5955]: Child connection from 192.168.1.2:46138
+Sat Sep 19 00:25:20 2026 authpriv.notice dropbear[5955]: Password auth succeeded for 'root' from 192.168.1.2:46138
+Sat Sep 19 00:25:20 2026 authpriv.info dropbear[5955]: Exit (root) from <192.168.1.2:46138>: Disconnect received
+Sat Sep 19 00:25:23 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:23Z] 📡 Reporting gateway to upstream session manager  [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmac[0m="94:83:c4:d1:57:56" [36mmodule[0m=upstream_detector
+Sat Sep 19 00:25:23 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:23Z] 🔍 Checking if gateway is a TollGate           [36mgateway[0m=192.168.2.1 [36minterface[0m=eth1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:23 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:23Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=1 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:23 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:23Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=2 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:24Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://10.103.117.254:2121/\": dial tcp 10.103.117.254:2121: connect: no route to host" [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:24 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:24Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:25 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:25Z] ⚠️ Gateway probe failed - may not be a TollGate or temporarily unavailable  [36mattempt[0m=2 [36merror[0m="HTTP request failed: Get \"http://192.168.2.1:2121/\": dial tcp 192.168.2.1:2121: connect: connection refused" [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:25 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:25Z] 🔄 Retrying tollgate probe (may not be a TollGate)  [36mattempt[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager [36mtotal[0m=3
+Sat Sep 19 00:25:27 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:27Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=192.168.2.1 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:29 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:29Z] ℹ️ Gateway is not a TollGate or is currently unavailable (will retry via polling)  [36mattempts[0m=3 [36mgateway[0m=10.103.117.254 [36mmodule[0m=upstream_session_manager
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6134]: Child connection from 192.168.1.2:51828
+Sat Sep 19 00:25:31 2026 authpriv.notice dropbear[6134]: Password auth succeeded for 'root' from 192.168.1.2:51828
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6134]: Exit (root) from <192.168.1.2:51828>: Disconnect received
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6136]: Child connection from 192.168.1.2:51844
+Sat Sep 19 00:25:31 2026 authpriv.notice dropbear[6136]: Password auth succeeded for 'root' from 192.168.1.2:51844
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6136]: Exit (root) from <192.168.1.2:51844>: Disconnect received
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6138]: Child connection from 192.168.1.2:51856
+Sat Sep 19 00:25:31 2026 authpriv.notice dropbear[6138]: Password auth succeeded for 'root' from 192.168.1.2:51856
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6138]: Exit (root) from <192.168.1.2:51856>: Disconnect received
+Sat Sep 19 00:25:31 2026 authpriv.info dropbear[6141]: Child connection from 192.168.1.2:51864
+Sat Sep 19 00:25:32 2026 authpriv.notice dropbear[6141]: Password auth succeeded for 'root' from 192.168.1.2:51864
+Sat Sep 19 00:25:32 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:32 Funding wallet with cashu token (length: 1424)
+Sat Sep 19 00:25:32 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:32 Attempting to decode token (length: 1424, preview: cashu[REDACTED-BEARER-TOKEN]...)
+Sat Sep 19 00:25:32 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:32 Successfully funded wallet with 20 sats
+Sat Sep 19 00:25:32 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:32Z] Successfully funded wallet                    [36mamount[0m=20 [36mmodule[0m=cli
+Sat Sep 19 00:25:32 2026 authpriv.info dropbear[6141]: Exit (root) from <192.168.1.2:51864>: Disconnect received
+Sat Sep 19 00:25:32 2026 authpriv.info dropbear[6163]: Child connection from 192.168.1.2:51872
+Sat Sep 19 00:25:32 2026 authpriv.notice dropbear[6163]: Password auth succeeded for 'root' from 192.168.1.2:51872
+Sat Sep 19 00:25:32 2026 authpriv.info dropbear[6163]: Exit (root) from <192.168.1.2:51872>: Disconnect received
+Sat Sep 19 00:25:32 2026 authpriv.info dropbear[6166]: Child connection from 192.168.1.2:51876
+Sat Sep 19 00:25:32 2026 authpriv.notice dropbear[6166]: Password auth succeeded for 'root' from 192.168.1.2:51876
+Sat Sep 19 00:25:32 2026 authpriv.info dropbear[6166]: Exit (root) from <192.168.1.2:51876>: Disconnect received
+Sat Sep 19 00:25:32 2026 authpriv.info dropbear[6168]: Child connection from 192.168.1.2:51890
+Sat Sep 19 00:25:33 2026 authpriv.notice dropbear[6168]: Password auth succeeded for 'root' from 192.168.1.2:51890
+Sat Sep 19 00:25:33 2026 authpriv.info dropbear[6168]: Exit (root) from <192.168.1.2:51890>: Disconnect received
+Sat Sep 19 00:25:33 2026 authpriv.info dropbear[6170]: Child connection from 192.168.1.2:51902
+Sat Sep 19 00:25:33 2026 authpriv.notice dropbear[6170]: Password auth succeeded for 'root' from 192.168.1.2:51902
+Sat Sep 19 00:25:33 2026 authpriv.info dropbear[6170]: Exit (root) from <192.168.1.2:51902>: Disconnect received
+Sat Sep 19 00:25:36 2026 authpriv.info dropbear[6232]: Child connection from 192.168.1.2:36208
+Sat Sep 19 00:25:36 2026 authpriv.notice dropbear[6232]: Password auth succeeded for 'root' from 192.168.1.2:36208
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 Draining mint: mintURL=https://testnut.cashu.space, balance=260
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: attempting to drain all funds from mint https://testnut.cashu.space
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: draining 260 sats from mint https://testnut.cashu.space (includeFees=false)
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: received 36 proofs from wallet.Send
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[0]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[1]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[2]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[3]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[4]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[5]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[6]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[7]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[8]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[9]: amount=16
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[10]: amount=8
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[11]: amount=8
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[12]: amount=8
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[13]: amount=8
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[14]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[15]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[16]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[17]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[18]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[19]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[20]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[21]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[22]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[23]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[24]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[25]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[26]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[27]: amount=4
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[28]: amount=2
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[29]: amount=2
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[30]: amount=2
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[31]: amount=2
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[32]: amount=1
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[33]: amount=1
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[34]: amount=1
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: proof[35]: amount=1
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: total proof amount=260 (balance was=260)
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 TollWallet.Drain: successfully created drain token with 260 sats
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: 2026/09/19 00:25:36 Successfully drained mint https://testnut.cashu.space: amount=260, token_length=10677
+Sat Sep 19 00:25:36 2026 daemon.err tollgate-wrt[932]: [36mINFO[0m[2026-09-19T00:25:36Z] Created drain token                           [36mbalance[0m=260 [36mmint[0m="https://testnut.cashu.space" [36mmodule[0m=cli
+Sat Sep 19 00:25:36 2026 authpriv.info dropbear[6232]: Exit (root) from <192.168.1.2:36208>: Disconnect received
+Sat Sep 19 00:25:36 2026 authpriv.info dropbear[6239]: Child connection from 192.168.1.2:36210
+Sat Sep 19 00:25:36 2026 authpriv.notice dropbear[6239]: Password auth succeeded for 'root' from 192.168.1.2:36210
+Sat Sep 19 00:25:36 2026 authpriv.info dropbear[6239]: Exit (root) from <192.168.1.2:36210>: Disconnect received
+Sat Sep 19 00:25:36 2026 authpriv.info dropbear[6246]: Child connection from 192.168.1.2:36224
+Sat Sep 19 00:25:36 2026 authpriv.notice dropbear[6246]: Password auth succeeded for 'root' from 192.168.1.2:36224
+Sat Sep 19 00:25:36 2026 authpriv.info dropbear[6246]: Exit (root) from <192.168.1.2:36224>: Disconnect received
+Sat Sep 19 00:25:37 2026 authpriv.info dropbear[6249]: Child connection from 192.168.1.2:36232
+Sat Sep 19 00:25:37 2026 authpriv.notice dropbear[6249]: Password auth succeeded for 'root' from 192.168.1.2:36232
+Sat Sep 19 00:25:37 2026 authpriv.info dropbear[6249]: Exit (root) from <192.168.1.2:36232>: Disconnect received
+Sat Sep 19 00:25:37 2026 authpriv.info dropbear[6252]: Child connection from 192.168.1.2:36242
+Sat Sep 19 00:25:38 2026 authpriv.notice dropbear[6252]: Password auth succeeded for 'root' from 192.168.1.2:36242
+Sat Sep 19 00:25:38 2026 authpriv.info dropbear[6252]: Exit (root) from <192.168.1.2:36242>: Disconnect received
+Sat Sep 19 00:25:38 2026 authpriv.info dropbear[6254]: Child connection from 192.168.1.2:36250
+Sat Sep 19 00:25:38 2026 authpriv.notice dropbear[6254]: Password auth succeeded for 'root' from 192.168.1.2:36250

@@ -1,0 +1,36 @@
+=== 02-idle 2026-09-18T22-12-50Z (300s @ 1s) ===
+{
+  "success": true,
+  "message": "Service status retrieved",
+  "data": {
+    "config_ok": true,
+    "network_ok": true,
+    "running": true,
+    "uptime": "14h17m9.020756253s",
+    "version": "TollGate v0.6.0-alpha2-gd0cb92f",
+    "wallet_ok": true
+  },
+  "timestamp": "2026-09-18T22:12:50.899456172Z"
+}
+advertisement: {"kind":10021,"id":"1e5fe653748bf9fd1a137f8aca0aa05a777a96642aa5845e02e1f2e8704f0d12","pubkey":"5cf217341cba4da0595ab8b4
+wallet-bearing PID: 22500
+--- F6 feasibility ---
+/proc/22500/smaps: MISSING
+/proc/22500/smaps_rollup: MISSING
+/proc/22500/statm: present
+--- sampler ---
+sampler-launched
+ts_epoch,vmrss_kb,vmhwm_kb,threads,fds,vm_size_kb,mmc_writes_completed,mmc_sectors_written,mmc_ms_writing,loop_writes_completed,loop_sectors_written,loop_ms_writing
+pid=11785
+sampling for 300s ...
+stopped: 298 rows
+sample rows: 298
+--- F5/F7/F8 summary (idle, n=297) ---
+VmRSS   KiB: min=26848 median=26848 max=27224
+VmHWM   KiB: min=27780 median=27780 max=27780
+Threads : min=9 median=9 max=9
+Open FDs: min=10 median=10 max=13
+              total        used        free      shared  buff/cache   available
+Mem:        1010032      111748      672896       88148      225388      757452
+Swap:             0           0           0
+=== 02-idle done ===

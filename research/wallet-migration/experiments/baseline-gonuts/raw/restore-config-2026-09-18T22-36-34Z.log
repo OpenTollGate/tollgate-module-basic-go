@@ -1,0 +1,13 @@
+=== restore-config 2026-09-18T22-36-34Z ===
+current config sha : f30adbfdb8825ef940e54353b3d562174247d6a35c3288350bb6b03feaf9ecc2
+current mint count : 8
+backup file        : /etc/tollgate/config_backups/config.json.baseline-gonuts
+backup sha         : 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+restored config sha: 349f20851ca395d9bd4eef69f53ed9f7a53e3dc93d86f2ff2ea54ec22a8a2ad1
+RESTORE OK: config.json now byte-identical to the backup
+mints now          : 7
+price_per_step tags: 7
+testnut refs       : 0
+status             : {  "success": true,  "message": "Service status retrieved",  "data": {    "config_ok": true,    "network_ok": true,    "running": true,    "uptime": "901.785331ms",    "version": "TollGate v0.6.0-alpha2-gd0cb92f",    "wallet_ok": true  },  "timestamp": "2026-09-18T22:36:51.086726506Z"}
+wallet             : {  "success": true,  "message": "Wallet info - Total: 0 sats across 0 mints",  "data": {    "mint_balances": {},    "mint_count": 0,    "total_balance": 0  },  "timestamp": "2026-09-18T22:36:51.210408384Z"}
+=== restore-config done ===

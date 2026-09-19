@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "message": "Wallet info - Total: 0 sats across 0 mints",
+  "data": {
+    "mint_balances": {},
+    "mint_count": 0,
+    "total_balance": 0
+  },
+  "timestamp": "2026-09-19T00:25:38.401533684Z"
+}

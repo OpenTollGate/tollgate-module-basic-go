@@ -5,7 +5,7 @@ IN PROGRESS / DONE. Every task finishes by committing its artifact to this branc
 
 | # | Task | Owner | Status | Artifact |
 |---|---|---|---|---|
-| T1a | Baseline: measure gonuts footprint + storage + latency on the router | worker (firmware) | **DONE** | `03-baseline/gonuts.md`, `experiments/` |
+| T1a | Baseline: measure gonuts footprint + storage + latency on the router | worker (firmware) | **DONE** (on-device 2026-09-18/19: flash writes per payment, latency, CPU, fault set; supersedes the 2026-09-14 first pass) | `03-baseline/gonuts.md`, `experiments/baseline-gonuts/` (scripts + raw) |
 | T1b | Enumerate the `WalletPort` surface and the NUTs it implies (the acceptance contract) | worker (code) | **DONE** | `00-context/walletport-contract.md` |
 | T2 | nucula deep dive: NUT coverage from code, licence intent, flash storage, key handling, real footprint, logic-vs-firmware portability | consultant A | **DONE** | `01-candidates/nucula.md` |
 | T3 | CDK deep dive: licence terms, wallet API vs CLI, minimal feature set, musl cross-compile for router arches, RSS/threads, storage backends, NUT diff, churn/governance | consultant B | **DONE** | `01-candidates/cdk.md` |

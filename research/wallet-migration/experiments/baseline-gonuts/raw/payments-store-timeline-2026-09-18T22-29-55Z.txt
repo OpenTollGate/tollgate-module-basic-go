@@ -1,0 +1,109 @@
+=== store snapshot: c000-before (cycle window, on-device) ===
+file_bytes_on_router: 262144
+file_bytes: 262144
+tx_count: 0
+freelist_pages: 0
+pending_pages: 0
+logical_bytes: 200704
+buckets:
+[
+    {
+      "path": "keysets",
+      "keys": 0,
+      "sub_buckets": 8,
+      "value_bytes": 0,
+      "key_bytes": 0
+    },
+    {
+      "path": "keysets/https://kashu.me",
+      "keys": 1,
+      "sub_buckets": 0,
+      "value_bytes": 3964,
+      "key_bytes": 16
+    },
+    {
+      "path": "keysets/https://mint.coinos.io",
+      "keys": 3,
+      "sub_buckets": 0,
+      "value_bytes": 11966,
+      "key_bytes": 98
+    },
+    {
+      "path": "keysets/https://mint.cubabitcoin.org",
+      "keys": 2,
+      "sub_buckets": 0,
+      "value_bytes": 4116,
+      "key_bytes": 32
+    },
+    {
+      "path": "keysets/https://mint.lnserver.com",
+      "keys": 1,
+      "sub_buckets": 0,
+      "value_bytes": 3973,
+      "key_bytes": 16
+    },
+    {
+      "path": "keysets/https://mint.macadamia.cash",
+      "keys": 4,
+      "sub_buckets": 0,
+      "value_bytes": 2367,
+      "key_bytes": 114
+    },
+    {
+      "path": "keysets/https://mint.minibits.cash/Bitcoin",
+      "keys": 3,
+      "sub_buckets": 0,
+      "value_bytes": 2247,
+      "key_bytes": 98
+    },
+    {
+      "path": "keysets/https://mint.westernbtc.com",
+      "keys": 2,
+      "sub_buckets": 0,
+      "value_bytes": 4116,
+      "key_bytes": 32
+    },
+    {
+      "path": "keysets/https://testnut.cashu.space",
+      "keys": 2,
+      "sub_buckets": 0,
+      "value_bytes": 2143,
+      "key_bytes": 132
+    },
+    {
+      "path": "melt_quotes",
+      "keys": 0,
+      "sub_buckets": 0,
+      "value_bytes": 0,
+      "key_bytes": 0
+    },
+    {
+      "path": "mint_quotes",
+      "keys": 1,
+      "sub_buckets": 0,
+      "value_bytes": 546,
+      "key_bytes": 36
+    },
+    {
+      "path": "pending_proofs",
+      "keys": 50,
+      "sub_buckets": 0,
+      "value_bytes": 27217,
+      "key_bytes": 1650
+    },
+    {
+      "path": "proofs",
+      "keys": 0,
+      "sub_buckets": 0,
+      "value_bytes": 0,
+      "key_bytes": 0
+    },
+    {
+      "path": "seed",
+      "keys": 2,
+      "sub_buckets": 0,
+      "value_bytes": 141,
+      "key_bytes": 12
+    }
+  ]
+proofs: count=0 records_bytes=0 B
