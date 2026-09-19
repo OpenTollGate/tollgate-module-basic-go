@@ -59,6 +59,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A payment failure no longer suppresses the degraded-mode transition.**
+  `MintHealthTracker.MarkUnreachable` mutated the reachable count without
+  firing the reachable-set callback, so when real traffic observed a mint
+  outage before the periodic probe did, the probe path's change detection
+  compared against the already-zeroed count and the downgrade never fired
+  for the rest of the outage (live-reproduced in PRTA #110 Phase D). The
+  callback now fires whenever a previously-reachable mint goes down
+  ([#401](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/401); the companion recovery-path gap, #400, is tracked separately).
 - **Swap fees are explained, and pre-checked.** A token whose value is
   entirely consumed by the mint's swap fee used to fail with the mint's opaque
   `no outputs provided`. The wallet now reports the fee
