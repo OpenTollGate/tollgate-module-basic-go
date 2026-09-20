@@ -89,12 +89,12 @@ done
 
 # 3. control.tar.gz
 ( cd "$WORK/CONTROL" && \
-  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
+  "$TAR" --format=gnu --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
     -cf - . | "$GZIP_BIN" -n > "$WORK/control.tar.gz" )
 
 # 4. data.tar.gz
 ( cd "$PAYLOAD_DIR" && \
-  "$TAR" --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
+  "$TAR" --format=gnu --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
     -cf - . | "$GZIP_BIN" -n > "$WORK/data.tar.gz" )
 
 # 5. debian-binary
@@ -110,7 +110,7 @@ printf '2.0\n' > "$WORK/debian-binary"
 # timestamp.
 rm -f "$OUTPUT"
 ( cd "$WORK" && \
-  "$TAR" --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
+  "$TAR" --format=gnu --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner --mode=go-w \
     -cf - ./debian-binary ./data.tar.gz ./control.tar.gz \
     | "$GZIP_BIN" -n > "$OUTPUT" )
 
