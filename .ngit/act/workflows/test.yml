@@ -60,6 +60,22 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      - name: Spec-quote drift check
+        run: |
+          # Pinned greatspectations ref (scheduled bump: update when releasing).
+          GS_REF=0f226495657e5febebd270b6a07b8562cca003d3
+          # Pinned cashubtc/nuts snapshot (scheduled bump: update when releasing).
+          NUTS_REF=49a909ce4d0739824b3859d4b3da21e6c1abdaeb
+          pip install --user --break-system-packages "git+https://github.com/rustyrussell/greatspectations.git@$GS_REF"
+          export PATH="$PATH:$HOME/.local/bin"
+          git init -q nuts
+          git -C nuts remote add origin https://github.com/cashubtc/nuts.git
+          git -C nuts fetch --depth=1 origin "$NUTS_REF"
+          git -C nuts checkout --detach FETCH_HEAD
+          FILES=$(find src -name "*.go" -not -name "*_test.go")
+          # Spec drift FAILS the build: quotes verified against pinned nuts snapshot.
+          greatspectate check --config specquotes.toml --comment-start "// " --comment-continue "//" $FILES
+
   build-purity:
     runs-on: ubuntu-latest
     steps:

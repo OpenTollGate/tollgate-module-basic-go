@@ -83,11 +83,19 @@ uploads each artifact to multiple Blossom servers, and announces it as
 a Nostr event. Agents can fetch builds without GitHub access using
 `nak`.
 
-**Publisher pubkey** (all release events are signed by CI with this
-key):
+**Publisher pubkeys** (release events are signed by CI; two keys are
+live depending on which pipeline ran):
 
-- hex: `5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a`
-- npub: `npub12p67v8ctqjq53dspqhqa6u4matse2uek4evzgzr72th6xa8cg94qxks7ks`
+- GitHub Actions (historical, through 2026-08-27):
+  hex `5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a`,
+  npub `npub12p67v8ctqjq53dspqhqa6u4matse2uek4evzgzr72th6xa8cg94qxks7ks`.
+  The secret is unrecoverable from GitHub (write-only), so nothing new
+  will ever publish under it.
+- Nostr CI / ngit (from #410 onward):
+  hex `6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d`.
+  A dedicated CI release key, deliberately not the maintainer key.
+  Filter by `-a` on **both** keys (or rely on the `n`/`v`/`c`/`A` tags,
+  which are publisher-independent) to see the full release history.
 
 **Relays**: `wss://relay.damus.io`, `wss://nos.lol`,
 `wss://nostr.mom`, `wss://relay1.orangesync.tech`,
@@ -112,13 +120,17 @@ relay-filterable; multi-letter tags (`format`, `compression`) must be
 filtered client-side with `jq`:
 
 ```bash
-# Latest stable builds for one architecture
-nak req -k 1063 -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+# Latest stable builds for one architecture (both publisher keys)
+nak req -k 1063 \
+  -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+  -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
   --tag n=tollgate-wrt --tag c=stable --tag A=aarch64_cortex-a53 --limit 10 \
   wss://relay.damus.io wss://nos.lol
 
 # All artifacts for a specific version
-nak req -k 1063 -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+nak req -k 1063 \
+  -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+  -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
   --tag v=v0.5.0 --limit 50 wss://relay.damus.io wss://nos.lol
 ```
 
