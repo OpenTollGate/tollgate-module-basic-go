@@ -253,6 +253,16 @@ bash scripts/ngit-release-announce.sh "$VERSION" "$CHANNEL" "$RUN" "$BUILD" >/de
 check "an invocation without --dry-run/--publish is refused (exit 2)" 2 $?
 
 # ======================================================== the trigger driver
+echo "== scripts/ngit-commit-epoch.sh"
+[ "$(bash scripts/ngit-commit-epoch.sh HEAD)" = "$(git log -1 --format=%ct HEAD)" ] \
+  && ok "reads the commit time from local history" \
+  || bad "reads the commit time from local history"
+# No local history and an unreachable mirror: refuse, never guess. A wrong
+# SOURCE_DATE_EPOCH silently produces a differently-built artifact.
+bash scripts/ngit-commit-epoch.sh 0000000000000000000000000000000000000000 \
+  ws://127.0.0.1:1/nothing.git >/dev/null 2>&1
+check "refuses when the commit time cannot be determined (exit 1)" 1 $?
+
 echo "== scripts/ngit-ci-release.sh"
 bash scripts/ngit-ci-release.sh v0.0.1-test dev HEAD --dry-run >/dev/null 2>&1
 check "the driver renders a plan in --dry-run" 0 $?

@@ -12,8 +12,9 @@ untouched; the two systems run side by side.
 | `act/workflows/go-test.yml` | The pre-PR sequence documented in [AGENTS.md](../AGENTS.md), run from `src/`: `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`. |
 | `act/workflows/repro-check.yml` | The fast lane of `.github/workflows/repro-check.yml`: rebuild both Go binaries in two independent clean roots (separate HOME, module and build caches) and require byte-identical SHA-256s. The package targets (`portal`, `ipk`, `ipk-upx`, `apk`) stay on the GitHub workflow's `workflow_dispatch` slow lane and on a build host (they need `docker`), and are covered here by `build-package*.yml` below. |
 | `act/workflows/build-package-binaries.yml` | Stage 1 of the release pipeline: cross-compile the five GOARCH/GOARM/GOMIPS targets, build the captive-portal assets, mirror both to Blossom, and publish the build-id records stage 2 consumes. |
-| `act/workflows/build-package.yml` | Stage 2 of the release pipeline: the full `.ipk` (14) and `.apk` (3) matrix, Blossom mirroring, kind-1063 NIP-94 announcements, the in-run `verify-publication` gate, and the tollgate-os handoff. |
-| `act/workflows/verify-publication.yml` | The publication gate on its own: for every `(arch, format)` the release matrix declares, a kind-1063 announcement must exist for the verified version+channel, and the artifact must be fetchable from >= 2 Blossom mirrors with the sha256 carried in its `x` tag. Started by a `verify/<version>/<channel>[/<scope>]` ref, which names the published version to audit. |
+| `act/workflows/build-package-<shard>.yml` | Stage 2, **sharded**: one workflow file per group of legs, rendered from [`packaging/ngit-release-matrix.json`](../packaging/ngit-release-matrix.json) by [`scripts/ngit-gen-shards.py`](../scripts/ngit-gen-shards.py). Eleven shards cover the same 14 `.ipk` + 3 `.apk` matrix the single file used to. Each builds its legs, mirrors them to Blossom, and publishes one kind-30078 record per leg — **no** kind-1063. See "Sharded stage 2" below. |
+| `act/workflows/build-package-announce.yml` | The only file that publishes kind-1063. It runs [`scripts/ngit-release-announce.sh`](../scripts/ngit-release-announce.sh), which refuses unless every shard of this (version, channel, release run) reported success and every leg in the plan has a build record naming that same release run; then it announces, then it runs the publication gate over the whole matrix. |
+| `act/workflows/verify-publication.yml` | The publication gate on its own: for every `(arch, format)` the release matrix declares, a kind-1063 announcement must exist for the verified version+channel, and the artifact must be fetchable from >= 2 Blossom mirrors with the sha256 carried in its `x` tag. Started by a `verify/<version>/<channel>[/<scope>]` ref, which names the published version to audit. Expectations are the **union** of the shard files. |
 
 Two Go files because they cover different things: `test.yml` tests the nested
 modules (which `./...` from `src/` does not reach — they are separate modules)
@@ -46,41 +47,56 @@ greatspectate check --config specquotes.toml \
 ## Triggers
 
 `test.yml` and `go-test.yml` run on **push to `main`** and on **pull requests**.
-`build-package.yml` runs on **push to `main`** and on **`v*` tag** pushes, with
-the GitHub twin's `paths-ignore` (`**.md`, `docs/**`), plus pull requests.
+Stage 1 (`build-package-binaries.yml`) does too, with the GitHub twin's
+`paths-ignore` (`**.md`, `docs/**`), plus `v*` tags.
 
-Branch filters *are* honoured — pushing `.ngit/act/workflows/` to
-`ci/ngit-build-package` started only the file whose `on: push: branches:`
-matched that ref, not the two release files. That has a consequence worth
-stating plainly: a push to `main` (or a `v*` tag) enqueues **both** release
-files at the same moment, and `resolve-inputs` polls for only 10 minutes while
-stage 1 takes 11.8 min warm / 20.8 min cold. On a cold push, stage 2 can
-therefore give up before stage 1 has published its records. The sequencing that
-is actually verified is:
+The eleven stage-2 shard files and the announce file declare **`workflow_dispatch`
+only**, on purpose: a push to `main` must not fan out into twelve `act`
+invocations on a host whose `NGIT_CI_MAX_CONCURRENT_JOBS` is 1. They are started
+by manual replay — normally by [`scripts/ngit-ci-release.sh`](../scripts/ngit-ci-release.sh),
+which is also what enforces the order.
 
-1. push to `main` (or the tag) — stage 1 runs, 11.8–20.8 min;
-2. wait for its workflow result (kind 9842) to read `success`;
-3. start stage 2 by hand:
-   `scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml "$(git rev-parse main)" refs/heads/main`.
+**Sequencing, and why it is not automatic.** A push to `main` (or a `v*` tag)
+enqueues stage 1, and `resolve-inputs` in each shard polls for the stage-1
+records for only 10 minutes while stage 1 takes 11.8 min warm / 20.8 min cold.
+The pipeline is therefore driven, not fired:
 
-Raising the poll window only helps once the coordinator's job timeout makes
-room for both stages in one budget, which is the split discussed below.
+1. stage 1 runs on the push — or is replayed by hand, 11.8–20.8 min;
+2. its workflow result (kind 9842) must read `success`;
+3. every shard is then replayed in turn, and only after **all** of them are
+   `success` is `build-package-announce.yml` replayed.
+   `scripts/ngit-ci-release.sh <version> <channel> <commit>` does exactly this,
+   stops the chain at the first non-success, and resumes with `--release-run`
+   so a retry does not restart the whole matrix.
+
+The two release stages hand over through the build id (the commit's short SHA)
+and two addressable kind-30078 records stage 1 publishes, exactly as before:
+
+```
+d=tollgate-build/<build_id>/binaries   {"arm64":"<sha256>", "armv7":"…", …}
+d=tollgate-build/<build_id>/portal     {"sha256":"…","filename":"portal-assets.tar.gz","urls":[…]}
+```
+
+What changed with the sharding is only *who* publishes the artefacts and *when*:
+each shard publishes one kind-30078 record per leg, and the announcements moved
+to a file that can see all of them.
 
 What ngit-ci does **not** honour, and what the port does about it:
 
 | GitHub feature | ngit-ci | Port decision |
 | --- | --- | --- |
 | `schedule:` | not supported | not used |
-| `workflow_dispatch` | replay only; `inputs` are never delivered | the twin's `full_compression` boolean is replaced by a ref test (see below) |
+| `workflow_dispatch` | replay only; `inputs` are never delivered | the twin's `full_compression` boolean is replaced by a ref test (see below), and the shard/announce jobs take their version, channel and release run from the **ref** they are replayed at |
 | `concurrency:` | not honoured | documented; the build id is the commit, so coordination records are addressable and a re-run replaces rather than duplicates |
-| dynamic `strategy.matrix` from `needs.<job>.outputs` | **not supported** ("matrix values built from expressions do not [work]") | the matrices are written out as static YAML — the same 14 `.ipk` and 3 `.apk` entries |
+| `needs:` **across files** | impossible — one file is one `act` invocation | replaced by the ordered driver plus a relay-side gate: a shard never waits for another shard, but nothing is announced until all of them report |
+| dynamic `strategy.matrix` from `needs.<job>.outputs` | **not supported** ("matrix values built from expressions do not [work]") | the matrices are written out as static YAML — one file per shard, all rendered from `packaging/ngit-release-matrix.json` |
 | `matrix.*` in a **job-level** `if:` | rejected: `Failed to match job-factory: Unknown Variable Access matrix`, which invalidates the whole file | the variant rule is dropped (all variants always build) and `if:` at job level is used only as `always()` |
-| `container:` / `services:` | **refused** with `startup_failure` when the operator sets container options (this deployment does) | the SDK jobs run `docker run openwrt/sdk:<sdk>-25.12.0` from a plain job (see below) |
-| `actions/upload-artifact` / `download-artifact` | **fails**: `Unable to get the ACTIONS_RUNTIME_TOKEN env variable` | nothing crosses a job boundary in an artifact; the portal assets travel over Blossom, like the compiled binaries already did |
+| `container:` / `services:` | **refused** with `startup_failure` when the operator sets container options (this deployment does) | the SDK jobs run `docker run openwrt/sdk:<target>@sha256:<digest>` from a plain job (see below) |
+| `actions/upload-artifact` / `download-artifact` | **fails**: `Unable to get the ACTIONS_RUNTIME_TOKEN env variable` | nothing crosses a job boundary in an artifact, and nothing crosses a *file* boundary either; the portal assets travel over Blossom, like the compiled binaries already did |
 | `github.token` / `GITHUB_TOKEN` | empty | nothing depends on it |
 | `peter-evans/repository-dispatch@v4` | impossible | replaced by the `os-handoff` job (a kind-30078 Nostr record) plus a printed manual instruction |
 | secrets | only to maintainer-authored triggers | `secrets.NSEC_HEX` is provisioned operator-side (see below) |
-| 30-minute budget | the whole `act` invocation is bounded by `--job-timeout-secs` (1800 s) | see "Does the matrix fit?" |
+| 30-minute budget | the whole `act` invocation is bounded by `--job-timeout-secs` (1800 s) | see "Sharded stage 2" |
 
 The GitHub twin dropped the UPX compression variants on a non-release ref by
 filtering the matrix it generated with `jq`. Neither half of that is available
