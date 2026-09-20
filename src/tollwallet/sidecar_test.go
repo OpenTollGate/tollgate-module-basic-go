@@ -7,6 +7,7 @@ import (
 	"net"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -200,7 +201,11 @@ var _ WalletPort = (*SidecarWallet)(nil)
 // fakeDropDaemon serves one connection: it records every request it
 // receives, then closes the connection without answering when the
 // handler says so — a daemon that may already have executed the request.
-func fakeDropDaemon(t *testing.T, dropFor map[string]bool) (string, *[]string) {
+// Requests are read through the returned snapshot function, which takes
+// the same mutex the handlers append under: reading the slice directly
+// from the test goroutine is a data race (the detector flagged exactly
+// that on the reconnect path).
+func fakeDropDaemon(t *testing.T, dropFor map[string]bool) (string, func() []string) {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "wallet.sock")
 	ln, err := net.Listen("unix", sock)
@@ -253,7 +258,12 @@ func fakeDropDaemon(t *testing.T, dropFor map[string]bool) (string, *[]string) {
 			}(conn)
 		}
 	}()
-	return sock, &seen
+	snapshot := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+	return sock, snapshot
 }
 
 func mustJSONAny(v any) json.RawMessage {
@@ -291,7 +301,7 @@ func TestSidecarSwapFeeSats_UnimplementedSurfacesAsError(t *testing.T) {
 // must NOT put a second copy of the request on the wire — the old loop
 // re-executed money-moving RPCs.
 func TestSidecarMoneyMovingRequest_NotRetriedAfterWrite(t *testing.T) {
-	sock, seenPtr := fakeDropDaemon(t, map[string]bool{"send": true})
+	sock, seenSnapshot := fakeDropDaemon(t, map[string]bool{"send": true})
 	sw, _, err := NewSidecarWallet(sock)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -302,15 +312,15 @@ func TestSidecarMoneyMovingRequest_NotRetriedAfterWrite(t *testing.T) {
 	if !errors.Is(err, ErrSidecarAmbiguous) {
 		t.Fatalf("Send after an unanswered write = %v; want ErrSidecarAmbiguous", err)
 	}
-	if len(*seenPtr) != 2 { // info + exactly one send
-		t.Fatalf("daemon saw %v; want exactly one send (no blind retry)", *seenPtr)
+	if got := seenSnapshot(); len(got) != 2 { // info + exactly one send
+		t.Fatalf("daemon saw %v; want exactly one send (no blind retry)", got)
 	}
 }
 
 // TestSidecarReadOnlyRequest_RetriedAfterWrite: a read that was answered
 // by silence may be re-issued — a duplicate read cannot double-spend.
 func TestSidecarReadOnlyRequest_RetriedAfterWrite(t *testing.T) {
-	var drops int
+	var drops atomic.Int64
 	sock := filepath.Join(t.TempDir(), "wallet.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -341,8 +351,8 @@ func TestSidecarReadOnlyRequest_RetriedAfterWrite(t *testing.T) {
 					case "info":
 						result = Manifest{Backend: "fake", Kind: "sidecar"}
 					case "get_balance":
-						drops++
-						if drops == 1 {
+						drops.Add(1)
+						if drops.Load() == 1 {
 							return // first read dies unanswered
 						}
 						result = uint64(42)
