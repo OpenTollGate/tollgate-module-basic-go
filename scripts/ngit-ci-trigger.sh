@@ -50,7 +50,7 @@ REF=${3:-}
 cd "$WT"
 
 case "$WORKFLOW" in
-  *.ngit/act/workflows/*.yml|.ngit/act/workflows/*.yml) ;;
+  *.ngit/act/workflows/*.yml) ;;
   *) echo "ERROR: workflow must be a .ngit/act/workflows/*.yml path (got: $WORKFLOW)" >&2
      exit 1 ;;
 esac

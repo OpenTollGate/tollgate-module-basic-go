@@ -34,11 +34,11 @@ name: Build and Publish
 # There is no GITHUB_TOKEN. See .ngit/README.md.
 #
 # SEQUENCING (measured): a push to main or a v* tag enqueues BOTH release files
-# at once, and resolve-inputs polls for at most 10 minutes while stage 1 takes
-# 11.8 min warm / 20.8 min cold -- so on a cold push stage 2 can give up before
-# stage 1 has published its records. Run stage 2 after stage 1 reports success
-# (scripts/ngit-ci-trigger.sh), or raise the poll window once the coordinator's
-# job timeout makes room for it.
+# at once, and resolve-inputs polls for up to ~20.6 min worst case (36 attempts
+# x 25 s sleep + ~9.3 s nak each) while stage 1 takes 11.8 min warm / 20.8 min
+# cold -- warm pushes now resolve without operator action; a cold push can
+# still exhaust the window against the coordinator's 1800 s ceiling. Run stage
+# 2 after stage 1 reports success (scripts/ngit-ci-trigger.sh) in that case.
 
 on:
   push:
@@ -71,7 +71,11 @@ env:
 jobs:
   resolve-inputs:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The enforced ceiling is the coordinator's --job-timeout-secs (1800 s;
+    # .ngit/README.md), not this declared value — under it, this job has
+    # completed at 827–843 s. timeout-minutes mirrors the real ceiling so
+    # the YAML cannot mislead anyone budgeting by it (#438 finding 1).
+    timeout-minutes: 30
     outputs:
       build_id: ${{ steps.build-id.outputs.build_id }}
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
@@ -131,15 +135,21 @@ jobs:
           : ${GITHUB_OUTPUT:=/tmp/github_output}
 
           # Returns the newest event line for the addressable record <d>.
+          # Budget (#438): a failed attempt costs the 25 s sleep plus a
+          # measured ~9.1–9.5 s nak req, so 36 attempts worst-case ≈
+          # 36*25 + 36*9.3 ≈ 1235 s ≈ 20.6 min — inside the coordinator's
+          # enforced 1800 s ceiling. That covers stage 1's measured 11.8 min
+          # warm / 20.8 min cold up to the ceiling; a cold push that exceeds
+          # it still needs scripts/ngit-ci-trigger.sh to run stage 2 by hand.
           fetch_record() {
             local d="$1" out
-            for attempt in $(seq 1 20); do
+            for attempt in $(seq 1 36); do
               out=$(timeout 45 nak req -k 30078 --tag "d=tollgate-build/${BUILD_ID}/${d}" \
                 --limit 1 $COORDINATION_RELAYS < /dev/null 2>/dev/null \
                 | grep -m1 '^{' || true)
               if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
-              echo "  ${d} record not published yet (attempt $attempt/20); waiting 30s" >&2
-              sleep 30
+              echo "  ${d} record not published yet (attempt $attempt/36); waiting 25s" >&2
+              sleep 25
             done
             return 1
           }

@@ -271,6 +271,9 @@ stage 2, then run the gate (it is also a job inside stage 2, but a stage 2 that
 is cut off before it finishes the matrix never reaches that job):
 
 ```bash
+# NOTE: bash, not sh — the trigger script uses bash arrays and
+# `sh scripts/ngit-ci-trigger.sh` dies instantly with a syntax error on
+# Ubuntu (dash).
 # stage 1 — or just let the push trigger it
 scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package-binaries.yml "$(git rev-parse <commit>)" refs/heads/<ref>
 # stage 2, once stage 1 reported success

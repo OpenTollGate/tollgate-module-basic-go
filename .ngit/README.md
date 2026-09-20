@@ -53,9 +53,12 @@ Branch filters *are* honoured — pushing `.ngit/act/workflows/` to
 `ci/ngit-build-package` started only the file whose `on: push: branches:`
 matched that ref, not the two release files. That has a consequence worth
 stating plainly: a push to `main` (or a `v*` tag) enqueues **both** release
-files at the same moment, and `resolve-inputs` polls for only 10 minutes while
-stage 1 takes 11.8 min warm / 20.8 min cold. On a cold push, stage 2 can
-therefore give up before stage 1 has published its records. The sequencing that
+files at the same moment, and `resolve-inputs` polls for up to ~20.6 min worst
+case (36 attempts × 25 s sleep + a measured ~9.3 s `nak req` each) while stage
+1 takes 11.8 min warm / 20.8 min cold. Warm pushes now resolve without
+operator action; a cold push can still exhaust the window against the
+coordinator's enforced 1800 s ceiling (`--job-timeout-secs` — the declared
+`timeout-minutes` in the YAML is not the real bound). The sequencing that
 is actually verified is:
 
 1. push to `main` (or the tag) — stage 1 runs, 11.8–20.8 min;
