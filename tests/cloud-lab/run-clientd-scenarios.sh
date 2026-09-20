@@ -219,22 +219,29 @@ S5() {
   start_daemon S5b-clientd upstream-rotate client --wallet cdk-cli --wallet-dir /w/s5r --steps 2 --renew-below 45s
   sleep 25
   daemon_log S5b-clientd
-  if docker logs S5b-clientd 2>&1 | grep -q "paid"; then
-    mark "PASS S5b-rotation-survived (wallet re-keyed, payment succeeded)"
-  elif docker logs S5b-clientd 2>&1 | grep -q "top-up failed"; then
-    mark "PASS S5b-rotation-clean-failure (no crash, backoff active)"
+  if docker logs S5b-clientd 2>&1 | grep -q "paid" \
+     && docker logs S5b-clientd 2>&1 | grep -qE '\([0-9]+/[0-9]+\)'; then
+    mark "PASS S5b-rotation-survived (wallet re-keyed, payment credited — session observed)"
+  elif docker logs S5b-clientd 2>&1 | grep -qE "FATAL:.*(terminal code|payment-error-)"; then
+    mark "PASS S5b-rotation-terminal-stop (coded refusal, daemon exited — no wedge)"
   else
-    mark "FAIL S5b-rotation-no-signal"
+    mark "FAIL S5b-rotation-no-credit (no paid+session, no coded stop — wedged?)"
   fi
   docker rm -f S5b-clientd >/dev/null 2>&1
 
   start_daemon S5c-clientd upstream-rotate client --wallet cdk-cli --wallet-dir /w/s5f --mint http://mint-fees:8085 --steps 1 --renew-below 45s
   sleep 20
   daemon_log S5c-clientd
-  if docker logs S5c-clientd 2>&1 | grep -qE "top-up failed|paid"; then
-    mark "PASS S5c-fee-edge-clean (1-sat token handled without wedge)"
+  # A 1-sat token under a 1-sat swap fee is a TERMINAL coded refusal: the
+  # only acceptable outcomes are a credited session or the daemon stopping
+  # on the code. "top-up failed" backoff alone is a wedge, not a pass.
+  if docker logs S5c-clientd 2>&1 | grep -q "paid" \
+     && docker logs S5c-clientd 2>&1 | grep -qE '\([0-9]+/[0-9]+\)'; then
+    mark "PASS S5c-fee-edge-credited (unexpected but verified: session observed)"
+  elif docker logs S5c-clientd 2>&1 | grep -qE "FATAL:.*(terminal code payment-error-below-swap-fee|payment-error-below-swap-fee)"; then
+    mark "PASS S5c-fee-edge-terminal (1-sat token refused with the terminal code, daemon exited)"
   else
-    mark "FAIL S5c-fee-edge-no-signal"
+    mark "FAIL S5c-fee-edge-wedged (neither credited nor terminally stopped)"
   fi
   docker rm -f S5c-clientd >/dev/null 2>&1
   DC stop upstream-rotate mint-rotate mint-fees >/dev/null 2>&1
