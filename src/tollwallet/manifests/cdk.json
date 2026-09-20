@@ -1,0 +1,28 @@
+{
+  "backend": "cdk",
+  "kind": "sidecar",
+  "version": "0.18.0",
+  "arches": ["aarch64_cortex-a53", "mipsel_24kc"],
+  "size_bytes": {
+    "aarch64_cortex-a53": 4346264,
+    "mipsel_24kc": 9739104
+  },
+  "storage": {
+    "model": "sqlite",
+    "writes_per_payment": "o(1)",
+    "crash_consistent": true,
+    "seed_at_rest": "plaintext"
+  },
+  "contract": {
+    "nut_07": true,
+    "nut_09": true,
+    "restore": true,
+    "cgo": false
+  },
+  "licence": "MIT OR Apache-2.0",
+  "extra": {
+    "measured_by": "research/wallet-migration experiments/cdk-footprint",
+    "size_note": "wallet-only probe (constructor); aarch64 = release-smaller size-optimized, mipsel = release (not yet size-optimized)",
+    "note": "mipsel blocker was v0.17.3-only; use >=0.18.0"
+  }
+}

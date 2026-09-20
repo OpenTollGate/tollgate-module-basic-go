@@ -1,0 +1,25 @@
+{
+  "backend": "nucula",
+  "kind": "sidecar",
+  "version": "8ad081219c74f3e8372551738da37a08834835a9 (port spike)",
+  "arches": ["aarch64_cortex-a53", "mipsel_24kc"],
+  "size_bytes": {},
+  "storage": {
+    "model": "nvs-blob",
+    "writes_per_payment": "whole_blob",
+    "crash_consistent": false,
+    "seed_at_rest": "plaintext"
+  },
+  "contract": {
+    "nut_07": false,
+    "nut_09": false,
+    "restore": false,
+    "cgo": false
+  },
+  "licence": "NONE (upstream has no licence file; see nucula#8)",
+  "extra": {
+    "measured_by": "research/wallet-migration experiments/nucula-port",
+    "size_note": "core cross-compiles 20/20 on both arches; link+run and footprint pending",
+    "note": "storage model must move to per-proof writes before router use"
+  }
+}
