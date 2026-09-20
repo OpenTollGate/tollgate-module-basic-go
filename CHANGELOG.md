@@ -10,6 +10,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wi-Fi scanning now addresses the radio's interfaces.** `wireless_gateway_manager`
+  ran `iwinfo <radio> scan` with the uci section name (`radio0`), which is a usage
+  error on modern OpenWrt where a radio's interfaces are `phy<idx>-ap<k>` — the
+  scan silently returned "empty scan result" and the admin Wi-Fi page listed no
+  networks. The scanner now resolves `radioN` to its `phy<N>-ap*` interface
+  (falling back to the uci name when nothing maps) ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
+
 ### Changed / Internal
 
 - **Release pipeline shards stage 2, and announces only a complete

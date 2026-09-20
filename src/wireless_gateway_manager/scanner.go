@@ -85,9 +85,14 @@ func (s *Scanner) ScanAllRadios() ([]NetworkInfo, error) {
 }
 
 func (s *Scanner) scanRadio(radio string) ([]NetworkInfo, error) {
+	// iwinfo addresses *interfaces*, not uci radio sections. On modern OpenWrt
+	// the radio's interfaces are named phy<idx>-ap<k> (e.g. phy0-ap1), so
+	// `iwinfo radio0 scan` is a usage error and the scan silently comes back
+	// empty. Resolve the radio to a usable iwinfo device first.
+	device := s.resolveIwinfoDevice(radio)
 	var lastErr error
 	for retry := 0; retry < 3; retry++ {
-		cmd := exec.Command("iwinfo", radio, "scan")
+		cmd := exec.Command("iwinfo", device, "scan")
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -241,6 +246,71 @@ func (s *Scanner) GetRadios() ([]string, error) {
 		}
 	}
 	return radios, nil
+}
+
+// radioIndex parses the numeric index from a uci radio section name
+// ("radio0" -> 0). Returns ok=false for names that are not of that shape.
+func radioIndex(radio string) (int, bool) {
+	if !strings.HasPrefix(radio, "radio") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(radio, "radio"))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// phyInterfaces parses `iw dev` and returns the interface names belonging to
+// phy#<idx>, in the order they appear (e.g. phy0-ap0, phy0-ap1). Returns nil
+// when `iw` is unavailable or the phy has no interfaces.
+func phyInterfaces(idx int) []string {
+	out, err := exec.Command("iw", "dev").Output()
+	if err != nil {
+		return nil
+	}
+	return parsePhyInterfaces(string(out), idx)
+}
+
+// parsePhyInterfaces extracts the interface names under `phy#<idx>` from `iw
+// dev` output. Pure, so it is unit-tested against a captured fixture.
+func parsePhyInterfaces(out string, idx int) []string {
+	var names []string
+	cur := -1
+	for _, line := range strings.Split(out, "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "phy#") {
+			if n, err := strconv.Atoi(strings.TrimPrefix(l, "phy#")); err == nil {
+				cur = n
+			} else {
+				cur = -1
+			}
+			continue
+		}
+		if cur == idx && strings.HasPrefix(l, "Interface ") {
+			names = append(names, strings.TrimSpace(strings.TrimPrefix(l, "Interface ")))
+		}
+	}
+	return names
+}
+
+// resolveIwinfoDevice maps a uci radio section ("radio0") to an iwinfo device
+// name. If the argument already resolves as an iwinfo device it is returned
+// unchanged; otherwise the first interface of the matching phy (phy<idx>-ap<k>)
+// is used. Falls back to the original value when no mapping can be derived, so
+// callers never lose the diagnostic error.
+func (s *Scanner) resolveIwinfoDevice(radio string) string {
+	if err := exec.Command("iwinfo", radio, "info").Run(); err == nil {
+		return radio
+	}
+	idx, ok := radioIndex(radio)
+	if !ok {
+		return radio
+	}
+	if names := phyInterfaces(idx); len(names) > 0 {
+		return names[0]
+	}
+	return radio
 }
 
 func (s *Scanner) DetectEncryption(encryptionStr string) string {
