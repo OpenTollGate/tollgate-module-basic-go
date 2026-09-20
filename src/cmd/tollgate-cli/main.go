@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -34,6 +35,10 @@ const (
 // TOLLGATE_TEST_CONFIG_DIR; in production it is always SocketPath.
 func socketPath() string {
 	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
+		// #443: an env var set outside the test harness silently splits the
+		// CLI onto a different socket than the service. Say so on every
+		// honor so it is visible instead of mysterious.
+		log.Printf("WARNING: TOLLGATE_TEST_CONFIG_DIR is set — CLI socket redirected to %s", dir)
 		return filepath.Join(dir, "tollgate.sock")
 	}
 	return SocketPath

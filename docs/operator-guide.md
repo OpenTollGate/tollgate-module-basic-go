@@ -592,3 +592,18 @@ logread -e odhcp                                  # DHCP client logs
 
 Try moving closer to the access point, verifying the password, or
 checking that the upstream router is not out of DHCP leases.
+
+## `TOLLGATE_TEST_CONFIG_DIR` — test-only, and loud if set
+
+The `TOLLGATE_TEST_CONFIG_DIR` environment variable exists for the test
+harness: it redirects the config directory, the drain journal
+(`/etc/tollgate/wallet-drain-journal.jsonl` — **bearer tokens**) and the
+CLI socket to a temp directory. It is meant to be set only by `go test`.
+
+If it appears in a service drop-in, wrapper script or shell profile on a
+router, state silently splits: the drain journal lands elsewhere (0600,
+but wherever the variable points) while anything not sharing the
+environment still uses the stock paths. Both the service and the CLI now
+print a `WARNING: TOLLGATE_TEST_CONFIG_DIR is set` line whenever they
+honor it — if you see that line in `logread` on a production router,
+remove the variable from the environment and move the journal back.

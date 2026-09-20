@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -33,6 +34,10 @@ func drainJournalPath() string {
 	// TOLLGATE_TEST_CONFIG_DIR exists for the test harness only; in
 	// production the journal always lives under /etc/tollgate.
 	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
+		// Bearer tokens land wherever this points (#443): say so on every
+		// honor so a stray service drop-in or profile export is visible in
+		// logread instead of silently splitting state.
+		log.Printf("WARNING: TOLLGATE_TEST_CONFIG_DIR is set — drain journal (bearer tokens) redirected to %s", dir)
 		return filepath.Join(dir, "wallet-drain-journal.jsonl")
 	}
 	return filepath.Join("/etc/tollgate", "wallet-drain-journal.jsonl")
