@@ -89,6 +89,16 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A runtime downgrade can recover again.** When all mints went
+  unreachable under a running service, the downgrade path registered the
+  onUpgrade consumer but never the tracker's first-reachable trigger that
+  fires it (only the startup degraded paths did), so the service stayed
+  degraded — payments returning service-unavailable-class notices — until
+  manually restarted (live: 2h+ degraded with the mint probe healthy
+  again). `MerchantDegraded.WireRecoveryTrigger`/`AttemptUpgrade` now wire
+  the recovery cycle, used by the runtime downgrade in main
+  ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400); pair: #401/#420).
+
 - **A payment failure no longer suppresses the degraded-mode transition.**
   `MintHealthTracker.MarkUnreachable` mutated the reachable count without
   firing the reachable-set callback, so when real traffic observed a mint
