@@ -292,8 +292,10 @@ else
 fi
 
 # --- ngit-matrix-expectations.sh --------------------------------------------
-WF="$REPO_ROOT/.ngit/act/workflows/build-package.yml"
-out=$(bash "$MATRIX_HELPER" "$WF" 2>/dev/null); rc=$?
+# The release matrix is sharded across one workflow file per group of legs, so
+# the gate reads the union of them; a single shard would verify a subset.
+WF=("$REPO_ROOT"/.ngit/act/workflows/build-package-*.yml)
+out=$(bash "$MATRIX_HELPER" "${WF[@]}" 2>/dev/null); rc=$?
 if [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c .)" = "8" ]; then
   ok "extracts the 8 compression=none (arch, format) pairs from the ngit matrix"
 else
@@ -304,13 +306,13 @@ if printf '%s' "$out" | grep -qx "aarch64_cortex-a53/apk" && printf '%s' "$out" 
 else
   bad "the extraction covers ipk and apk rows" "out=$out"
 fi
-out=$(bash "$MATRIX_HELPER" "$WF" --formats ipk 2>/dev/null)
+out=$(bash "$MATRIX_HELPER" "${WF[@]}" --formats ipk 2>/dev/null)
 if [ "$(printf '%s\n' "$out" | grep -c .)" = "6" ]; then
   ok "--formats ipk extracts only the 6 .ipk architectures"
 else
   bad "--formats ipk extracts only the 6 .ipk architectures" "out=$out"
 fi
-out=$(bash "$MATRIX_HELPER" "$WF" --compression all --formats ipk 2>/dev/null)
+out=$(bash "$MATRIX_HELPER" "${WF[@]}" --compression all --formats ipk 2>/dev/null)
 if [ "$(printf '%s\n' "$out" | grep -c .)" = "6" ]; then
   ok "--compression all de-duplicates the UPX variants into the same pairs"
 else
