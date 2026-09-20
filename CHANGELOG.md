@@ -89,6 +89,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Captive portal no longer redirect-loops on nodogsplash 5.0.2.** The
+  first-boot setup no longer sets (and now actively deletes)
+  `nodogsplash.gatewaydomainname`: with it configured, NDS 5.0.2 answers
+  every splash request carrying a `redir` param with a redirect back to
+  the splash itself, so pre-auth phone/laptop clients abort with
+  `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
+  friendly `<hostname>.lan` name keeps resolving without the option —
+  dnsmasq serves the system hostname in the `lan` zone. The
+  whitelabel hostname is now brand-selected (`tollgate`, the default, or
+  `net4sats`) from a single `/etc/tollgate/brand` file, driving the
+  system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
+  SSIDs, and the NDS gateway name; the two brands differ only in
+  naming. `tollgate ssl` no longer sets the option either and cleans
+  it up on revert. ([#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
+
 - **Release-channel publication is now self-verifying.** A new
   `verify-publication` job runs after `publish-metadata`: every
   (architecture, format) the build matrix produced must have a kind-1063

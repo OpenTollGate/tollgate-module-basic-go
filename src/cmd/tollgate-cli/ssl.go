@@ -283,8 +283,7 @@ func sslApplyRealCert(args []string, lanIP string) error {
 	fmt.Printf("  [1] Install cert+key to %s/\n", sslDir)
 	fmt.Printf("  [2] uhttpd: set cert='%s' key='%s'\n", certDest, keyDest)
 	fmt.Printf("  [3] dnsmasq: resolve %s -> %s\n", domain, lanIP)
-	fmt.Printf("  [4] nodogsplash: gatewaydomainname='%s' (portal stays on HTTP port 80)\n", domain)
-	fmt.Println("  [5] nodogsplash: allow tcp port 443 so clients can reach uhttpd HTTPS")
+	fmt.Println("  [4] nodogsplash: allow tcp port 443 so clients can reach uhttpd HTTPS")
 	fmt.Println()
 
 	if !confirmOrYes("Apply all?") {
@@ -311,15 +310,10 @@ func sslApplyRealCert(args []string, lanIP string) error {
 	}
 	fmt.Printf("[3] dnsmasq configured: %s -> %s\n", domain, lanIP)
 
-	if err := configureNodogsplash(domain); err != nil {
-		return err
-	}
-	fmt.Println("[4] nodogsplash configured.")
-
 	if err := allowPort443(); err != nil {
 		return err
 	}
-	fmt.Println("[5] nodogsplash firewall updated.")
+	fmt.Println("[4] nodogsplash firewall updated.")
 
 	if err := reloadServices(true); err != nil {
 		return err
@@ -401,7 +395,7 @@ func sslRemoveRealCert(domain string) error {
 	fmt.Printf("  [1] Remove cert+key from %s/\n", sslDir)
 	fmt.Println("  [2] uhttpd: restore previous cert configuration")
 	fmt.Printf("  [3] dnsmasq: remove DNS entry for %s\n", domain)
-	fmt.Println("  [4] nodogsplash: revert gatewaydomainname and remove port 443 allow")
+	fmt.Println("  [4] nodogsplash: remove port 443 allow")
 	fmt.Println()
 
 	if !confirmOrYes("Revert all?") {
@@ -422,24 +416,16 @@ func sslRemoveRealCert(domain string) error {
 	}
 	fmt.Printf("[2] Removed dnsmasq entry for %s\n", domain)
 
-	originalDomain := fileRead(backupDir + "/nds.gatewaydomainname")
-	if originalDomain == "" {
-		originalDomain = "TollGate.lan"
-	}
-	originalPort := fileRead(backupDir + "/nds.gatewayport")
-	if originalPort == "" {
-		originalPort = "80"
-	}
-	if err := uciSetScalar("nodogsplash.@nodogsplash[0].gatewaydomainname", originalDomain); err != nil {
-		return err
-	}
-	if err := uciSetScalar("nodogsplash.@nodogsplash[0].gatewayport", originalPort); err != nil {
+	// gatewaydomainname is never set by this flow anymore; clear any value
+	// left by an older install — nodogsplash 5.0.2 redirect-loops the
+	// pre-auth splash when it is set (#428).
+	if err := uciDeleteIfExists("nodogsplash.@nodogsplash[0].gatewaydomainname"); err != nil {
 		return err
 	}
 	if err := removePort443Allow(); err != nil {
 		return err
 	}
-	fmt.Printf("[3] nodogsplash reverted to %s:%s\n", originalDomain, originalPort)
+	fmt.Println("[3] nodogsplash cleaned up (gatewaydomainname removed, port 443 allow removed)")
 
 	if err := uciCommitChecked("uhttpd"); err != nil {
 		return err
@@ -584,8 +570,6 @@ func sslBackup(mode, domain, lanIP string) error {
 
 	writeBackupFile(backupDir+"/uhttpd.cert", uciGetOrEmpty("uhttpd.main.cert"))
 	writeBackupFile(backupDir+"/uhttpd.key", uciGetOrEmpty("uhttpd.main.key"))
-	writeBackupFile(backupDir+"/nds.gatewaydomainname", uciGetOrEmpty("nodogsplash.@nodogsplash[0].gatewaydomainname"))
-	writeBackupFile(backupDir+"/nds.gatewayport", uciGetOrEmpty("nodogsplash.@nodogsplash[0].gatewayport"))
 	writeBackupFile(backupDir+"/ssl.domain", domain)
 	writeBackupFile(backupDir+"/ssl.lan_ip", lanIP)
 	writeBackupFile(backupDir+"/ssl.mode", mode)
@@ -651,13 +635,6 @@ func configureDnsmasq(domain, lanIP string) error {
 		return err
 	}
 	return uciCommitChecked("dhcp")
-}
-
-func configureNodogsplash(domain string) error {
-	if err := uciSetScalar("nodogsplash.@nodogsplash[0].gatewaydomainname", domain); err != nil {
-		return err
-	}
-	return uciCommitChecked("nodogsplash")
 }
 
 func allowPort443() error {
@@ -843,6 +820,18 @@ func listContains(list []string, value string) bool {
 
 func uciSetScalar(key, value string) error {
 	return runCommandChecked("uci", "set", key+"="+value)
+}
+
+func uciDeleteIfExists(key string) error {
+	// `uci delete` errors when the option is absent; absence is the
+	// common case here, so treat it as success.
+	if err := runCommandChecked("uci", "delete", key); err != nil {
+		if strings.Contains(err.Error(), "Entry not found") {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func uciCommitChecked(config string) error {
