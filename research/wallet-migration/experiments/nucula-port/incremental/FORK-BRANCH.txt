@@ -1,0 +1,14 @@
+# The change under test lives here (nothing from nucula is copied into this repo)
+
+fork:    https://github.com/felixfelix-bot/nucula
+branch:  feat/incremental-proof-store
+commit:  dbd1eb0e30d7b26713261b890d5c61c41a601d92
+subject: feat(nvs): persist proofs one entry each instead of rewriting the set
+based on: zeugmaster/nucula main 8ad081219c74f3e8372551738da37a08834835a9 (2026-07-20)
+touches:  main/wallet_nvs.cpp, main/wallet_internal.hpp  (storage layer only)
+
+Verify the branch without cloning nucula's sources into this repository:
+
+    git clone -b feat/incremental-proof-store https://github.com/felixfelix-bot/nucula
+    git -C nucula log --oneline -1
+    git -C nucula diff --stat 8ad0812

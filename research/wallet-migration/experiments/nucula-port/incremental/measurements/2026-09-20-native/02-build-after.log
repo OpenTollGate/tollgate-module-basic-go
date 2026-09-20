@@ -1,0 +1,114 @@
+-- The C compiler identification is GNU 15.2.0
+-- The CXX compiler identification is GNU 15.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found PkgConfig: /usr/bin/pkg-config (found version "2.5.1")
+-- Checking for module 'mbedtls'
+--   Found mbedtls, version 3.6.5
+-- Checking for module 'tinycbor'
+--   Found tinycbor, version 0.6.0
+-- Checking for module 'libsecp256k1'
+--   Found libsecp256k1, version 0.7.0
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (1.9s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/incremental/measurements/2026-09-20-native/build-after
+[1/49] Building C object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/crypto_bls.c.o
+[2/49] Building C object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/hex.c.o
+[3/49] Building C object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/crypto.c.o
+[4/49] Building C object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/crypto_test.c.o
+In file included from /home/c03rad0r/repos/nucula/main/crypto_test.c:8:
+/home/c03rad0r/repos/nucula/main/crypto_test.c: In function ‘crypto_run_benchmark’:
+/home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/src/shims/esp_log.h:48:61: warning: format ‘%lld’ expects argument of type ‘long long int’, but argument 5 has type ‘int64_t’ {aka ‘long int’} [-Wformat=]
+   48 | #define ESP_LOGI(tag, fmt, ...) nucula_shim_log('I', (tag), (fmt), ##__VA_ARGS__)
+      |                                                             ^~~~~
+/home/c03rad0r/repos/nucula/main/crypto_test.c:349:9: note: in expansion of macro ‘ESP_LOGI’
+  349 |         ESP_LOGI(TAG, "hash_to_curve x%d: %lld us/op", N, total / N);
+      |         ^~~~~~~~
+/home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/src/shims/esp_log.h:48:61: warning: format ‘%lld’ expects argument of type ‘long long int’, but argument 5 has type ‘int64_t’ {aka ‘long int’} [-Wformat=]
+   48 | #define ESP_LOGI(tag, fmt, ...) nucula_shim_log('I', (tag), (fmt), ##__VA_ARGS__)
+      |                                                             ^~~~~
+/home/c03rad0r/repos/nucula/main/crypto_test.c:370:9: note: in expansion of macro ‘ESP_LOGI’
+  370 |         ESP_LOGI(TAG, "blind_message x%d: %lld us/op", N, total / N);
+      |         ^~~~~~~~
+/home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/src/shims/esp_log.h:48:61: warning: format ‘%lld’ expects argument of type ‘long long int’, but argument 5 has type ‘int64_t’ {aka ‘long int’} [-Wformat=]
+   48 | #define ESP_LOGI(tag, fmt, ...) nucula_shim_log('I', (tag), (fmt), ##__VA_ARGS__)
+      |                                                             ^~~~~
+/home/c03rad0r/repos/nucula/main/crypto_test.c:402:9: note: in expansion of macro ‘ESP_LOGI’
+  402 |         ESP_LOGI(TAG, "verify_dleq   x%d: %lld us/op", N, total / N);
+      |         ^~~~~~~~
+[5/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/base64url.cpp.o
+[6/49] Building C object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/bip39.c.o
+[7/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/unit.cpp.o
+[8/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/nut10.cpp.o
+[9/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/keyset.cpp.o
+[10/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet.cpp.o
+[11/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/cashu_json.cpp.o
+[12/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_blind.cpp.o
+[13/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_keysets.cpp.o
+[14/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_identity.cpp.o
+[15/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/cashu_cbor.cpp.o
+[16/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_store.cpp.o
+[17/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_flows.cpp.o
+[18/49] Building C object CMakeFiles/nucula_platform.dir/src/platform/esp_shims.c.o
+[19/49] Building C object CMakeFiles/nucula_platform.dir/src/platform/freertos_shim.c.o
+[20/49] Building C object CMakeFiles/nucula_platform.dir/src/platform/http_linux.c.o
+[21/49] Building CXX object CMakeFiles/nucula_platform.dir/src/platform/nvs_file.cpp.o
+[22/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/selftest.cpp.o
+[23/49] Building C object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/crypto_bls.c.o
+[24/49] Linking CXX static library libnucula_platform.a
+[25/49] Building C object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/crypto.c.o
+[26/49] Building C object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/hex.c.o
+[27/49] Building C object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/crypto_test.c.o
+In file included from /home/c03rad0r/repos/nucula/main/crypto_test.c:8:
+/home/c03rad0r/repos/nucula/main/crypto_test.c: In function ‘crypto_run_benchmark’:
+/home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/src/shims/esp_log.h:48:61: warning: format ‘%lld’ expects argument of type ‘long long int’, but argument 5 has type ‘int64_t’ {aka ‘long int’} [-Wformat=]
+   48 | #define ESP_LOGI(tag, fmt, ...) nucula_shim_log('I', (tag), (fmt), ##__VA_ARGS__)
+      |                                                             ^~~~~
+/home/c03rad0r/repos/nucula/main/crypto_test.c:349:9: note: in expansion of macro ‘ESP_LOGI’
+  349 |         ESP_LOGI(TAG, "hash_to_curve x%d: %lld us/op", N, total / N);
+      |         ^~~~~~~~
+/home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/src/shims/esp_log.h:48:61: warning: format ‘%lld’ expects argument of type ‘long long int’, but argument 5 has type ‘int64_t’ {aka ‘long int’} [-Wformat=]
+   48 | #define ESP_LOGI(tag, fmt, ...) nucula_shim_log('I', (tag), (fmt), ##__VA_ARGS__)
+      |                                                             ^~~~~
+/home/c03rad0r/repos/nucula/main/crypto_test.c:370:9: note: in expansion of macro ‘ESP_LOGI’
+  370 |         ESP_LOGI(TAG, "blind_message x%d: %lld us/op", N, total / N);
+      |         ^~~~~~~~
+/home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port/src/shims/esp_log.h:48:61: warning: format ‘%lld’ expects argument of type ‘long long int’, but argument 5 has type ‘int64_t’ {aka ‘long int’} [-Wformat=]
+   48 | #define ESP_LOGI(tag, fmt, ...) nucula_shim_log('I', (tag), (fmt), ##__VA_ARGS__)
+      |                                                             ^~~~~
+/home/c03rad0r/repos/nucula/main/crypto_test.c:402:9: note: in expansion of macro ‘ESP_LOGI’
+  402 |         ESP_LOGI(TAG, "verify_dleq   x%d: %lld us/op", N, total / N);
+      |         ^~~~~~~~
+[28/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_selftest.cpp.o
+[29/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/base64url.cpp.o
+[30/49] Building CXX object CMakeFiles/nucula_core.dir/home/c03rad0r/repos/nucula/main/wallet_nvs.cpp.o
+[31/49] Linking CXX static library libnucula_core.a
+[32/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/unit.cpp.o
+[33/49] Building C object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/bip39.c.o
+[34/49] Building CXX object CMakeFiles/nucula_core_harness.dir/src/harness/nucula_core_harness.cpp.o
+[35/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/keyset.cpp.o
+[36/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/nut10.cpp.o
+[37/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/cashu_json.cpp.o
+[38/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet.cpp.o
+[39/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_blind.cpp.o
+[40/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_identity.cpp.o
+[41/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_keysets.cpp.o
+[42/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_store.cpp.o
+[43/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_flows.cpp.o
+[44/49] Linking CXX executable nucula_core_harness
+[45/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/cashu_cbor.cpp.o
+[46/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/selftest.cpp.o
+[47/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_selftest.cpp.o
+[48/49] Building CXX object CMakeFiles/nucula_port_bundle.dir/home/c03rad0r/repos/nucula/main/wallet_nvs.cpp.o
+[49/49] Linking CXX static library libnucula_port_bundle.a

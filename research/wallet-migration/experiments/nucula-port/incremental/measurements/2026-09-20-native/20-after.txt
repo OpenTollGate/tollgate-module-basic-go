@@ -1,0 +1,144 @@
+##### measurements/2026-09-20-native/20-after.txt: nucula_core_harness selftest
+I (crypto_test) running crypto test vectors
+I (crypto_test) sha256: ok
+I (crypto_test) hash_to_curve 1: OK
+I (crypto_test) hash_to_curve 2: OK
+I (crypto_test) hash_to_curve 3: OK
+I (crypto_test) blind_message 1: OK
+I (crypto_test) blind_message 2: OK
+I (crypto_test) unblind: OK
+I (crypto_test) DLEQ BlindSignature: OK
+I (crypto_test) DLEQ Proof: OK
+I (crypto_test) NUT-13 V2 counter=0: OK
+I (crypto_test) NUT-13 V2 counter=1: OK
+I (crypto_test) NUT-13 V2 counter=2: OK
+I (crypto_test) NUT-13 V2 counter=3: OK
+I (crypto_test) NUT-13 V2 counter=4: OK
+I (crypto_test) NUT-13 V2: all test vectors passed
+I (crypto_test) all crypto tests passed
+I (selftest) hex round-trip ok
+I (selftest) base64url round-trip ok
+I (selftest) base64url unpadded ok
+I (selftest) split_amount ok
+I (selftest) nut10 parse ok
+I (cashu_cbor) decoded V4 token: 2 proofs from https://mint.example
+I (selftest) cbor v4 round-trip ok
+I (wallet) calculate_fee ok
+I (wallet) unit views ok
+I (wallet) select_proofs happy ok
+E (wallet) select_proofs: insufficient sat balance (15 < 100)
+I (wallet) select_proofs insufficient ok
+I (wallet) resolve_keyset ok
+I (wallet) blank_output_count ok
+I (cashu_json) mint quote legacy ok
+I (cashu_json) mint quote pr382 ok
+I (cashu_json) mint quote paid-out ok
+I (cashu_json) melt quote no fee_reserve ok
+I (cashu_json) mint info matrix ok
+== crypto (NUT-00/11/12/13 vectors) ==
+-- crypto (NUT-00/11/12/13 vectors): PASS --
+== pure codec selftests (hex/base64url/split/NUT-10/CBOR V4) ==
+-- pure codec selftests: PASS --
+== wallet math selftests (NUT-02 fee, selection, units) ==
+-- wallet math selftests: PASS --
+== JSON parse contract selftests ==
+-- JSON parse contract selftests: PASS --
+SELFTEST_RESULT suites=4 failures=0
+##### measurements/2026-09-20-native/20-after.txt: nucula_core_harness measure --proofs 200
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+I (wallet_store) restored wallet [0] https://mint.example (0 keysets, 200 proofs)
+baseline (post-context, pre-store): RSS=4664 kB threads=1
+seeded slot 0: 200 proofs, JSON blob 47201 bytes
+wallet.load_from_nvs() = true, proofs loaded = 200, balance = 900 sat
+wallet_store_init() = true, slots = 1
+---- MEASURED ----
+nvs_dir                 = measurements/2026-09-20-native/nvs-a-measure
+proofs                  = 200
+rss_baseline_kb         = 4664
+rss_before_load_kb      = 5080
+rss_after_load_kb       = 5264
+rss_now_kb              = 5412
+vm_hwm_kb               = 5412
+vm_size_kb              = 9668
+threads                 = 1
+nvs_bytes_seed          = 47224
+nvs_bytes_one_rewrite   = 47202
+wallet_ready_us         = 21081
+MEASURE_RESULT {"proofs":200,"threads":1,"rss_kb":5412,"vm_hwm_kb":5412,"vm_size_kb":9668,"nvs_bytes_seed":47224,"nvs_bytes_one_rewrite":47202,"wallet_ready_us":21081}
+##### measurements/2026-09-20-native/20-after.txt: nucula_core_harness spend --proofs 200
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 197 proofs (0 of 200 slots written, 3 erased)
+I (wallet) [0] loaded 197 proofs from NVS (200 slots)
+---- SPEND: real wallet path, Wallet::remove_proofs() ----
+proofs                  = 200 -> 197
+spend_ok                = true
+reload_matches          = true
+nvs_bytes_mutation      = 0
+nvs_write_ops           = 0
+nvs_erase_ops           = 3
+spend_us                = 3339
+rss_kb                  = 5376
+threads                 = 1
+SPEND_RESULT {"proofs":200,"proofs_after":197,"bytes_mutation":0,"write_ops":0,"erase_ops":3,"spend_us":3339,"threads":1,"rss_kb":5376,"spend_ok":true,"reload_matches":true}
+##### measurements/2026-09-20-native/20-after.txt: nucula_core_harness pay --proofs 200 --payments 5
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (0 of 203 slots written, 0 erased)
+---- SEED: one write of the whole set ----
+nvs_bytes_seed          = 47203
+nvs_seed_writes         = 201
+nvs_seed_erases         = 0
+seed_roundtrip          = true
+---- PAYMENTS: spend 3 inputs, land 3 change outputs ----
+payment[0]              proofs=200 bytes=711 writes=4 erases=3 us=25199 roundtrip=true
+payment[1]              proofs=200 bytes=708 writes=3 erases=3 us=14944 roundtrip=true
+payment[2]              proofs=200 bytes=708 writes=3 erases=3 us=13952 roundtrip=true
+payment[3]              proofs=200 bytes=708 writes=3 erases=3 us=14393 roundtrip=true
+payment[4]              proofs=200 bytes=708 writes=3 erases=3 us=14574 roundtrip=true
+---- STEADY STATE ----
+live_proofs             = 200
+proof_slots             = 203
+unchanged_save_bytes    = 0
+unchanged_save_writes   = 0
+rss_kb                  = 5336
+threads                 = 1
+PAY_RESULT {"proofs":200,"payments":5,"bytes_seed":47203,"bytes_payments_total":3543,"payment_us_total":83062,"live_proofs":200,"proof_slots":203,"unchanged_save_bytes":0,"unchanged_save_writes":0,"threads":1,"rss_kb":5336,"roundtrip_failures":0,"seed_roundtrip":true}
+##### measurements/2026-09-20-native/20-after.txt: nucula_core_harness pay --proofs 400 --payments 3
+I (wallet) [0] saved 400 proofs (400 of 400 slots written, 0 erased)
+I (wallet) [0] loaded 400 proofs from NVS (400 slots)
+I (wallet) [0] saved 400 proofs (3 of 403 slots written, 3 erased)
+I (wallet) [0] loaded 400 proofs from NVS (403 slots)
+I (wallet) [0] saved 400 proofs (3 of 403 slots written, 3 erased)
+I (wallet) [0] loaded 400 proofs from NVS (403 slots)
+I (wallet) [0] saved 400 proofs (3 of 403 slots written, 3 erased)
+I (wallet) [0] loaded 400 proofs from NVS (403 slots)
+I (wallet) [0] saved 400 proofs (0 of 403 slots written, 0 erased)
+---- SEED: one write of the whole set ----
+nvs_bytes_seed          = 94403
+nvs_seed_writes         = 401
+nvs_seed_erases         = 0
+seed_roundtrip          = true
+---- PAYMENTS: spend 3 inputs, land 3 change outputs ----
+payment[0]              proofs=400 bytes=711 writes=4 erases=3 us=19889 roundtrip=true
+payment[1]              proofs=400 bytes=708 writes=3 erases=3 us=18295 roundtrip=true
+payment[2]              proofs=400 bytes=708 writes=3 erases=3 us=18538 roundtrip=true
+---- STEADY STATE ----
+live_proofs             = 400
+proof_slots             = 403
+unchanged_save_bytes    = 0
+unchanged_save_writes   = 0
+rss_kb                  = 5776
+threads                 = 1
+PAY_RESULT {"proofs":400,"payments":3,"bytes_seed":94403,"bytes_payments_total":2127,"payment_us_total":56722,"live_proofs":400,"proof_slots":403,"unchanged_save_bytes":0,"unchanged_save_writes":0,"threads":1,"rss_kb":5776,"roundtrip_failures":0,"seed_roundtrip":true}

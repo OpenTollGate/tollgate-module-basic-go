@@ -54,6 +54,27 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_inited = 0;
 static uint64_t g_bytes_written = 0;
 static char g_dir[512] = {0};
+static int g_ops = 0;          /* mutating ops attempted */
+static int g_writes = 0;       /* set_* ops attempted */
+static int g_erases = 0;       /* erase_key ops attempted */
+static int g_fail_after = -1;  /* <0: no injection */
+
+void nucula_nvs_set_fail_after(int ops) { g_fail_after = ops; }
+void nucula_nvs_reset_ops(void) { g_ops = 0; g_writes = 0; g_erases = 0; }
+int  nucula_nvs_writes(void) { return g_writes; }
+int  nucula_nvs_erases(void) { return g_erases; }
+int  nucula_nvs_ops(void) { return g_ops; }
+
+/* Count the attempt, then fail it if the injection budget is exhausted.
+ * Returns 1 when this operation must not touch the store. g_ops counts every
+ * attempt (that is what the injection budget is expressed in); g_writes and
+ * g_erases count operations that actually changed the store, so a probe of an
+ * absent key (nvs_erase_key -> NOT_FOUND) does not inflate them. */
+static int inject_failure(void)
+{
+    g_ops++;
+    return (g_fail_after >= 0 && g_ops > g_fail_after);
+}
 
 static const char *store_dir(void)
 {
@@ -239,6 +260,8 @@ static esp_err_t write_entry(const char *ns, const char *key, unsigned char type
     key_path(ns, key, path, sizeof path);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
 
+    if (inject_failure()) return ESP_ERR_NVS_NOT_ENOUGH_SPACE;
+
     int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) {
         ESP_LOGE(TAG, "open %s: %s", tmp, strerror(errno));
@@ -254,6 +277,7 @@ static esp_err_t write_entry(const char *ns, const char *key, unsigned char type
     if (rename(tmp, path) != 0) { unlink(tmp); return ESP_ERR_NVS_NOT_ENOUGH_SPACE; }
 
     g_bytes_written += len + 1;
+    g_writes++;
     return ESP_OK;
 }
 
@@ -263,9 +287,12 @@ esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key)
     if (!s) return ESP_ERR_NVS_INVALID_HANDLE;
     if (s->readonly) return ESP_ERR_NVS_READ_ONLY;
     if (!key) return ESP_ERR_INVALID_ARG;
+    if (inject_failure()) return ESP_ERR_NVS_NOT_ENOUGH_SPACE;
     char path[900];
     key_path(s->ns, key, path, sizeof path);
-    return unlink(path) == 0 ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
+    if (unlink(path) != 0) return ESP_ERR_NVS_NOT_FOUND;
+    g_erases++;
+    return ESP_OK;
 }
 
 esp_err_t nvs_erase_all(nvs_handle_t handle)

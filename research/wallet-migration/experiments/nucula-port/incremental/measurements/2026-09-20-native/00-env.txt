@@ -1,0 +1,13 @@
+# per-proof store measurement
+date:        2026-09-20T06:46:28Z
+host:        Linux 7.0.0-31-generic x86_64, 4 cpus
+before_src:  /home/c03rad0r/worktrees/t_dd262fc0/src-before
+after_src:   /home/c03rad0r/repos/nucula
+harness:     /home/c03rad0r/worktrees/nucula-persist-research/research/wallet-migration/experiments/nucula-port
+proofs:      200
+
+before wallets_nvs.cpp sha256: 085e14baf9fc0f0ad5df0b89c2abab345fa419c7ff2b6da7233edfb6f19c507a
+after  wallets_nvs.cpp sha256: bf0600e9fb92297d530e27e057990f17e2f33107db835b56298c496119d7c9fa
+before wallet_internal.hpp sha256: 8164890c6cd071491d343a4b42fddf1d23262b23e7783f831acbecaf1d0ebc5b
+after  wallet_internal.hpp sha256: 44b38b172b2d7574dac43bd353542a68729cb72f4f330ee5efe9618bedb92f17
+/home/c03rad0r/repos/nucula: git dbd1eb0e30d7b26713261b890d5c61c41a601d92

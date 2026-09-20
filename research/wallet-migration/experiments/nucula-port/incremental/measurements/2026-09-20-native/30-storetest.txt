@@ -1,0 +1,1191 @@
+##### measurements/2026-09-20-native/30-storetest.txt: nucula_core_harness storetest
+I (wallet) [0] saved 0 proofs (0 of 0 slots written, 0 erased)
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 1 proofs (1 of 1 slots written, 0 erased)
+I (wallet) [0] loaded 1 proofs from NVS (1 slots)
+I (wallet) [0] saved 200 proofs (200 of 201 slots written, 1 erased)
+I (wallet) [0] loaded 200 proofs from NVS (201 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 197 proofs (0 of 201 slots written, 3 erased)
+I (wallet) [0] loaded 197 proofs from NVS (201 slots)
+I (wallet) [0] saved 200 proofs (3 of 201 slots written, 0 erased)
+I (wallet) [0] saved 200 proofs (0 of 201 slots written, 0 erased)
+I (wallet) [0] saved 200 proofs (0 of 201 slots written, 0 erased)
+I (wallet) [0] saved 197 proofs (0 of 201 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 201 slots written, 0 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (9 of 209 slots written, 9 erased)
+I (wallet) [0] saved 200 proofs (3 of 209 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 209 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 201 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (120 of 320 slots written, 120 erased)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 3 erased)
+E (wallet) save_proofs: write p0_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (0 of 320 slots written, 0 erased)
+E (wallet) save_proofs: write p0_1 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 201 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (0 of 320 slots written, 1 erased)
+E (wallet) save_proofs: write p0_2 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 202 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (0 of 320 slots written, 2 erased)
+E (wallet) save_proofs: erase p0_3 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 203 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (0 of 320 slots written, 3 erased)
+E (wallet) save_proofs: erase p0_4 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 202 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (1 of 320 slots written, 3 erased)
+E (wallet) save_proofs: erase p0_5 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 201 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (2 of 320 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 3 erased)
+I (wallet) [0] saved 197 proofs (0 of 320 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (0 of 320 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_1 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 199 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (1 of 320 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_2 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 198 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (2 of 320 slots written, 0 erased)
+I (wallet) [0] saved 197 proofs (0 of 320 slots written, 3 erased)
+I (wallet) [0] loaded 197 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 0 erased)
+I (wallet) [0] saved 197 proofs (0 of 320 slots written, 3 erased)
+I (wallet) [0] loaded 197 proofs from NVS (320 slots)
+I (wallet) [0] saved 200 proofs (3 of 320 slots written, 0 erased)
+I (wallet) [0] saved 0 proofs (0 of 0 slots written, 200 erased)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: write pn_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (0 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_1 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_2 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_3 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_4 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_5 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_6 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_7 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_8 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_9 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_10 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_11 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_12 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_13 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_14 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_15 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_16 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_17 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_18 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_19 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_20 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_21 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_22 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_23 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_24 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_25 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_26 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_27 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_28 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_29 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_30 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_31 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_32 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_33 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_34 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_35 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_36 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_37 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_38 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_39 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_40 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_41 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_42 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_43 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_44 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_45 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_46 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_47 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_48 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_49 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_50 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_51 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_52 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_53 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_54 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_55 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_56 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_57 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_58 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_59 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_60 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_61 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_62 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_63 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_64 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_65 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_66 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_67 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_68 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_69 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_70 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_71 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_72 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_73 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_74 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_75 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_76 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_77 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_78 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_79 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_80 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_81 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_82 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_83 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_84 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_85 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_86 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_87 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_88 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_89 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_90 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_91 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_92 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_93 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_94 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_95 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_96 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_97 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_98 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_99 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_100 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_101 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_102 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_103 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_104 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_105 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_106 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_107 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_108 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_109 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_110 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_111 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_112 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_113 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_114 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_115 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_116 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_117 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_118 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_119 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_120 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_121 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_122 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_123 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_124 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_125 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_126 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_127 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_128 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_129 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_130 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_131 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_132 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_133 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_134 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_135 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_136 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_137 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_138 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_139 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_140 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_141 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_142 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_143 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_144 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_145 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_146 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_147 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_148 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_149 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_150 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_151 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_152 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_153 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_154 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_155 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_156 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_157 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_158 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_159 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_160 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_161 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_162 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_163 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_164 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_165 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_166 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_167 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_168 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_169 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_170 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_171 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_172 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_173 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_174 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_175 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_176 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_177 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_178 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_179 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_180 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_181 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_182 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_183 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_184 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_185 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_186 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_187 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_188 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_189 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_190 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_191 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_192 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_193 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_194 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_195 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_196 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_197 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_198 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: erase p0_199 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] saved 0 proofs (0 of 0 slots written, 200 erased)
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] saved 0 proofs (0 of 0 slots written, 200 erased)
+I (wallet) [0] loaded 0 proofs from NVS (0 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+E (wallet) save_proofs: write p0_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_1 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_2 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_3 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_4 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_5 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_6 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_7 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_8 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_9 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_10 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_11 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_12 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_13 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_14 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_15 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_16 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_17 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_18 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_19 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_20 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_21 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_22 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_23 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_24 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_25 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_26 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_27 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_28 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_29 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_30 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_31 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_32 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_33 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_34 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_35 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_36 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_37 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_38 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_39 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_40 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_41 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_42 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_43 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_44 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_45 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_46 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_47 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_48 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_49 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_50 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_51 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_52 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_53 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_54 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_55 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_56 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_57 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_58 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_59 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_60 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_61 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_62 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_63 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_64 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_65 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_66 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_67 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_68 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_69 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_70 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_71 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_72 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_73 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_74 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_75 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_76 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_77 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_78 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_79 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_80 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_81 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_82 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_83 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_84 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_85 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_86 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_87 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_88 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_89 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_90 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_91 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_92 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_93 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_94 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_95 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_96 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_97 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_98 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_99 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_100 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_101 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_102 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_103 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_104 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_105 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_106 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_107 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_108 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_109 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_110 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_111 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_112 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_113 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_114 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_115 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_116 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_117 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_118 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_119 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_120 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_121 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_122 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_123 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_124 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_125 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_126 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_127 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_128 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_129 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_130 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_131 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_132 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_133 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_134 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_135 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_136 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_137 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_138 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_139 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_140 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_141 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_142 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_143 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_144 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_145 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_146 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_147 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_148 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_149 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_150 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_151 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_152 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_153 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_154 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_155 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_156 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_157 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_158 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_159 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_160 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_161 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_162 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_163 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_164 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_165 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_166 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_167 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_168 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_169 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_170 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_171 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_172 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_173 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_174 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_175 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_176 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_177 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_178 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_179 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_180 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_181 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_182 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_183 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_184 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_185 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_186 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_187 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_188 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_189 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_190 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_191 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_192 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_193 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_194 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_195 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_196 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_197 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_198 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write p0_199 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+E (wallet) save_proofs: write pn_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 200 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+E (wallet) save_proofs: write p0_197 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (0 of 203 slots written, 0 erased)
+E (wallet) save_proofs: write p0_198 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 201 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (0 of 203 slots written, 1 erased)
+E (wallet) save_proofs: write p0_199 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 202 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (0 of 203 slots written, 2 erased)
+E (wallet) save_proofs: write pn_0 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 203 proofs from NVS (203 slots)
+I (wallet) [0] saved 200 proofs (0 of 203 slots written, 3 erased)
+E (wallet) save_proofs: erase p0_200 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+E (wallet) save_proofs: erase p0_201 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+E (wallet) save_proofs: erase p0_202 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 200 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) [0] saved 200 proofs (3 of 200 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] loaded 200 proofs from NVS (legacy blob)
+I (wallet) [0] saved 200 proofs (200 of 200 slots written, 0 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+E (wallet) [0] slot 5 unreadable, skipping
+I (wallet) [0] loaded 199 proofs from NVS (203 slots, some unreadable)
+I (wallet) [0] saved 200 proofs (1 of 203 slots written, 1 erased)
+E (wallet) save_proofs: write p0_5 failed: ESP_ERR_NVS_NOT_ENOUGH_SPACE
+I (wallet) [0] saved 200 proofs (3 of 200 slots written, 3 erased)
+I (wallet) [0] loaded 200 proofs from NVS (200 slots)
+I (wallet) [0] saved 200 proofs (3 of 203 slots written, 3 erased)
+I (wallet) erased NVS slot 0
+== round trips ==
+  [PASS] empty set round-trips
+  [PASS] single proof round-trips
+  [PASS] 200 proofs round-trip
+  [PASS] 200 proofs after a payment round-trip
+  [PASS] 200 proofs after a spend round-trip
+== what a save writes (the wear claim) ==
+  [PASS] re-saving an unchanged set writes no proof bytes -- 0 bytes, 0 write ops, 0 erase ops
+  [PASS] a spend of 3 proofs writes no proof bytes, only erases -- 0 bytes, 0 write ops, 3 erase ops
+  [PASS] a payment into a full store writes one entry per landed output plus the count -- 711 bytes, 4 write ops, 3 erase ops for 3 change outputs (236 B per entry)
+  [PASS] a steady-state payment writes one entry per landed output, no count -- 708 bytes, 3 write ops, 3 erase ops for 3 change outputs (236 B per entry)
+== slot allocation ==
+  [PASS] the high-water mark does not grow with churn -- mark=203 after 40 payments at 200 proofs
+== interruption sweeps (every save can stop after op k) ==
+  [PASS] payment (per-proof store): 8 interruption points -> 1 left the old state, 2 the new one, 5 a superset/stale-proof state; proofs lost=0, unknown proofs=0, save reported failure=6
+  [PASS] spend only (per-proof store): 5 interruption points -> 1 left the old state, 2 the new one, 2 a superset/stale-proof state; proofs lost=0, unknown proofs=0, save reported failure=3
+  [PASS] clear (per-proof store): 203 interruption points -> 1 left the old state, 202 the new one, 0 a superset/stale-proof state; proofs lost=0, unknown proofs=0, save reported failure=201
+  [PASS] first migration (legacy blob present): 203 interruption points -> 201 left the old state, 2 the new one, 0 a superset/stale-proof state; proofs lost=0, unknown proofs=0, save reported failure=201
+  [PASS] legacy blob still lingering: 9 interruption points -> 1 left the old state, 5 the new one, 3 a superset/stale-proof state; proofs lost=0, unknown proofs=0, save reported failure=7
+== legacy compatibility and retirement ==
+  [PASS] a legacy blob still loads
+  [PASS] the legacy blob is untouched by a load
+  [PASS] a successful save retires the legacy blob -- save=true legacy_blob_present=false
+  [PASS] the migrated store reads back as the new set
+== fault isolation and recovery ==
+  [PASS] one damaged entry does not take the whole set down -- 199 of 200 proofs loaded from the damaged store
+  [PASS] an injected failure is reported by the save
+  [PASS] a retry after a failed save converges on the exact set
+  [PASS] erase_nvs removes both stores -- erase_nvs=true legacy_blob_present=false
+STORETEST_RESULT checks_done=18 failures=0

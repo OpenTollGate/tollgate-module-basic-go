@@ -40,6 +40,10 @@ endif()
 
 option(NUCULA_HTTP_CURL "Use libcurl for the HTTP shim" OFF)
 option(NUCULA_LINK_SYSTEM_SECP "Link the host's libsecp256k1" ON)
+# The per-proof proof store adds storage-layer entry points (cashu::proof_store
+# in wallet_internal.hpp) that the harness drives directly. Off by default so
+# the same harness still builds against the pre-change tree.
+option(NUCULA_HARNESS_STORE_TESTS "Build the harness's proof-store modes" OFF)
 
 set(SHIM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/shims)
 set(PLATFORM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/platform)
@@ -161,6 +165,9 @@ find_package(Threads REQUIRED)
 # ---------------------------------------------------------------------------
 add_executable(nucula_core_harness src/harness/nucula_core_harness.cpp)
 target_include_directories(nucula_core_harness PRIVATE ${SHIM_DIR} ${NUCULA_SRC}/main)
+if(NUCULA_HARNESS_STORE_TESTS)
+  target_compile_definitions(nucula_core_harness PRIVATE HARNESS_PROOF_STORE=1)
+endif()
 target_link_options(nucula_core_harness PRIVATE -Wl,--gc-sections)
 target_link_libraries(nucula_core_harness PRIVATE
     nucula_core nucula_platform

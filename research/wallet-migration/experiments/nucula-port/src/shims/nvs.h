@@ -87,6 +87,21 @@ uint64_t nucula_nvs_bytes_written(void);
 void nucula_nvs_reset_stats(void);
 const char *nucula_nvs_dir(void);
 
+/* Shim-only fault injection: after `ops` mutating operations have been
+ * attempted, every further write or erase fails with
+ * ESP_ERR_NVS_NOT_ENOUGH_SPACE. A negative value disables injection.
+ * Used to enumerate the interruption points of a save (an interrupted commit
+ * or a full partition) without a power cut. */
+void nucula_nvs_set_fail_after(int ops);
+/* Mutating operations attempted since the last reset, split by kind. */
+void nucula_nvs_reset_ops(void);
+int  nucula_nvs_writes(void);
+int  nucula_nvs_erases(void);
+/* Every mutating operation ATTEMPTED, including ones that end in
+ * ESP_ERR_NVS_NOT_FOUND (a probe of an absent key). This is the number the
+ * injection budget counts. */
+int  nucula_nvs_ops(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,106 @@
+##### measurements/2026-09-20-native/10-before.txt: nucula_core_harness selftest
+I (crypto_test) running crypto test vectors
+I (crypto_test) sha256: ok
+I (crypto_test) hash_to_curve 1: OK
+I (crypto_test) hash_to_curve 2: OK
+I (crypto_test) hash_to_curve 3: OK
+I (crypto_test) blind_message 1: OK
+I (crypto_test) blind_message 2: OK
+I (crypto_test) unblind: OK
+I (crypto_test) DLEQ BlindSignature: OK
+I (crypto_test) DLEQ Proof: OK
+I (crypto_test) NUT-13 V2 counter=0: OK
+I (crypto_test) NUT-13 V2 counter=1: OK
+I (crypto_test) NUT-13 V2 counter=2: OK
+I (crypto_test) NUT-13 V2 counter=3: OK
+I (crypto_test) NUT-13 V2 counter=4: OK
+I (crypto_test) NUT-13 V2: all test vectors passed
+I (crypto_test) all crypto tests passed
+I (selftest) hex round-trip ok
+I (selftest) base64url round-trip ok
+I (selftest) base64url unpadded ok
+I (selftest) split_amount ok
+I (selftest) nut10 parse ok
+I (cashu_cbor) decoded V4 token: 2 proofs from https://mint.example
+I (selftest) cbor v4 round-trip ok
+I (wallet) calculate_fee ok
+I (wallet) unit views ok
+I (wallet) select_proofs happy ok
+E (wallet) select_proofs: insufficient sat balance (15 < 100)
+I (wallet) select_proofs insufficient ok
+I (wallet) resolve_keyset ok
+I (wallet) blank_output_count ok
+I (cashu_json) mint quote legacy ok
+I (cashu_json) mint quote pr382 ok
+I (cashu_json) mint quote paid-out ok
+I (cashu_json) melt quote no fee_reserve ok
+I (cashu_json) mint info matrix ok
+== crypto (NUT-00/11/12/13 vectors) ==
+-- crypto (NUT-00/11/12/13 vectors): PASS --
+== pure codec selftests (hex/base64url/split/NUT-10/CBOR V4) ==
+-- pure codec selftests: PASS --
+== wallet math selftests (NUT-02 fee, selection, units) ==
+-- wallet math selftests: PASS --
+== JSON parse contract selftests ==
+-- JSON parse contract selftests: PASS --
+SELFTEST_RESULT suites=4 failures=0
+##### measurements/2026-09-20-native/10-before.txt: nucula_core_harness measure --proofs 200
+I (wallet) [0] loaded 200 proofs from NVS
+I (wallet) [0] loaded 200 proofs from NVS
+I (wallet_store) restored wallet [0] https://mint.example (0 keysets, 200 proofs)
+baseline (post-context, pre-store): RSS=4696 kB threads=1
+seeded slot 0: 200 proofs, JSON blob 47201 bytes
+wallet.load_from_nvs() = true, proofs loaded = 200, balance = 900 sat
+wallet_store_init() = true, slots = 1
+---- MEASURED ----
+nvs_dir                 = measurements/2026-09-20-native/nvs-b-measure
+proofs                  = 200
+rss_baseline_kb         = 4696
+rss_before_load_kb      = 5064
+rss_after_load_kb       = 5248
+rss_now_kb              = 5396
+vm_hwm_kb               = 5396
+vm_size_kb              = 9648
+threads                 = 1
+nvs_bytes_seed          = 47224
+nvs_bytes_one_rewrite   = 47202
+wallet_ready_us         = 19025
+MEASURE_RESULT {"proofs":200,"threads":1,"rss_kb":5396,"vm_hwm_kb":5396,"vm_size_kb":9648,"nvs_bytes_seed":47224,"nvs_bytes_one_rewrite":47202,"wallet_ready_us":19025}
+##### measurements/2026-09-20-native/10-before.txt: nucula_core_harness spend --proofs 200
+I (wallet) [0] loaded 200 proofs from NVS
+I (wallet) [0] saved 197 proofs (46493 bytes)
+I (wallet) [0] loaded 197 proofs from NVS
+seeded slot 0: 200 proofs, JSON blob 47201 bytes
+---- SPEND: real wallet path, Wallet::remove_proofs() ----
+proofs                  = 200 -> 197
+spend_ok                = true
+reload_matches          = true
+nvs_bytes_mutation      = 46494
+nvs_write_ops           = 1
+nvs_erase_ops           = 0
+spend_us                = 4338
+rss_kb                  = 5420
+threads                 = 1
+SPEND_RESULT {"proofs":200,"proofs_after":197,"bytes_mutation":46494,"write_ops":1,"erase_ops":0,"spend_us":4338,"threads":1,"rss_kb":5420,"spend_ok":true,"reload_matches":true}
+##### measurements/2026-09-20-native/10-before.txt: nucula_core_harness measure --proofs 400
+I (wallet) [0] loaded 400 proofs from NVS
+I (wallet) [0] loaded 400 proofs from NVS
+I (wallet_store) restored wallet [0] https://mint.example (0 keysets, 400 proofs)
+baseline (post-context, pre-store): RSS=4692 kB threads=1
+seeded slot 0: 400 proofs, JSON blob 94401 bytes
+wallet.load_from_nvs() = true, proofs loaded = 400, balance = 1800 sat
+wallet_store_init() = true, slots = 1
+---- MEASURED ----
+nvs_dir                 = measurements/2026-09-20-native/nvs-b-measure2
+proofs                  = 400
+rss_baseline_kb         = 4692
+rss_before_load_kb      = 5156
+rss_after_load_kb       = 5652
+rss_now_kb              = 5852
+vm_hwm_kb               = 5852
+vm_size_kb              = 10116
+threads                 = 1
+nvs_bytes_seed          = 94424
+nvs_bytes_one_rewrite   = 94402
+wallet_ready_us         = 22389
+MEASURE_RESULT {"proofs":400,"threads":1,"rss_kb":5852,"vm_hwm_kb":5852,"vm_size_kb":10116,"nvs_bytes_seed":94424,"nvs_bytes_one_rewrite":94402,"wallet_ready_us":22389}
