@@ -76,6 +76,7 @@ jobs:
       build_id: ${{ steps.build-id.outputs.build_id }}
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
+      source_date_epoch: ${{ steps.fetch.outputs.source_date_epoch }}
       hashes: ${{ steps.fetch.outputs.hashes }}
       portal_hash: ${{ steps.fetch.outputs.portal_hash }}
     steps:
@@ -171,6 +172,24 @@ jobs:
           echo "binaries: $HASHES"
           echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
 
+          # Reproducibility pin (#383): stage 1 stamps the binaries with a
+          # SOURCE_DATE_EPOCH and records it in this record; packaging must
+          # use the SAME epoch or the .ipk mtimes disagree with the binaries'
+          # BuildTime. Records from before the field existed fall back to the
+          # same derivation stage 1 uses.
+          EPOCH=$(printf '%s' "$HASHES" | jq -r '.epoch // empty')
+          if [ -z "$EPOCH" ]; then
+            EPOCH="$(git -C "$GITHUB_WORKSPACE" log -1 --format=%ct HEAD 2>/dev/null || true)"
+            if [ -z "$EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
+              EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
+            fi
+            [ -n "$EPOCH" ] || EPOCH="$(date +%s)"
+            echo "NOTE: stage-1 record carried no epoch; derived $EPOCH locally" >&2
+          fi
+          case "$EPOCH" in *[!0-9]*|'') echo "ERROR: epoch is not an integer: $EPOCH" >&2; exit 1 ;; esac
+          echo "source_date_epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$EPOCH" >> "$GITHUB_ENV"
+
           PORTAL_EVENT=$(fetch_record portal) || {
             echo "ERROR: no portal record for build id $BUILD_ID." >&2
             exit 1
@@ -263,6 +282,11 @@ jobs:
     needs: [resolve-inputs]
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # Drives build-ipk.sh/build-env.sh archive mtimes (#383): the epoch
+      # stage 1 stamped into the binaries, so package and binary timestamps
+      # agree per commit.
+      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}
     strategy:
       fail-fast: false
       matrix:
@@ -489,6 +513,12 @@ jobs:
     needs: [resolve-inputs]
     runs-on: ubuntu-latest
     timeout-minutes: 28
+    env:
+      # Same reproducibility pin as package-ipk; consumed by build-env.sh
+      # consumers in the staged tree. (The SDK-container tar stream is not
+      # yet epoch-normalized — no apk leg has completed under this
+      # coordinator, see .ngit/README.md "Does the matrix fit?".)
+      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}
     strategy:
       fail-fast: false
       matrix:

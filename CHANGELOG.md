@@ -12,6 +12,20 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The ngit release lane stamps builds with `SOURCE_DATE_EPOCH`.** The
+  publishing lane compiled with a wall-clock `BuildTime` (and Go 1.25.0
+  while the #383 pin is 1.25.8 — aligned in #434), so the artifacts it
+  published could never be reproduced byte-for-byte even though the local
+  packaging path is reproducible. Stage 1 now derives the epoch from the
+  source commit (git, else the triggering commit's timestamp, else the
+  job clock — the chosen source is printed, and the value rides the
+  stage-1 kind-30078 rendezvous record), stamps `BuildTime` and the
+  portal from it, and stage 2 packages with exactly that epoch, so the
+  `.ipk` mtimes agree with the binaries' `BuildTime` per commit. The
+  `.apk` SDK-container tar stream is not yet epoch-normalized (no apk leg
+  has completed under the coordinator — `.ngit/README.md` "Does the
+  matrix fit?").
+
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
   `ngit-ci`, from `.ngit/act/workflows/`, as two workflows because one
