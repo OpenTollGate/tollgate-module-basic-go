@@ -169,25 +169,38 @@ The last two must match before anything is announced.
 
 The tag push is what triggers CI — but with GitHub Actions down since
 2026-08-27 that means the **ngit lane**, not the GitHub workflow (see "The ngit
-release lane" below for the stage sequence and how to read a run). Check, in
-order:
+release lane" below for the stage sequence and how to read a run). A tag push
+enqueues **both stages at once**, and stage 2's `resolve-inputs` can out-wait
+stage 1's measured 11.8 min warm / 20.8 min cold — the poll window is ~20.6 min
+worst case, bounded by the coordinator's enforced 1800 s job timeout, so warm
+pushes resolve unattended while a cold push can still exhaust the window; if it
+gives up, re-run stage 2 by hand — do not re-push the tag. Check, in order:
 
 ```bash
-# The runs exist and the VERSION guard passed: workflow results are kind 9842.
+# 1. The runs exist and the VERSION guard passed: workflow results are kind 9842.
 nak req -k 9842 -a 765cd47badcbbc4a38c7d0c57d5607663b484c20cd59773f9f7064487f9431e8 \
     -l 10 wss://relay.ngit.dev
 
-# The announced NIP-94 events carry the right version and channel. Filter by
-# BOTH release publisher keys, or the ngit-era releases are invisible.
+# 2. Watch stage 1 finish at the tagged commit — the kind-30078 records:
+nak req -k 30078 --tag "d=tollgate-build/<short-sha>/binaries" -l 1 \
+    wss://relay.damus.io wss://nos.lol wss://nostr.mom
+
+# 3. If stage 2 timed out waiting, trigger it by hand (maintainer key).
+#    NOTE: bash, not sh — dash rejects the script's bash arrays and dies on it:
+bash scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml \
+    <tagged-commit> refs/tags/<version>
+
+# 4. The announced NIP-94 events carry the right version and channel. Filter by
+#    BOTH release publisher keys, or the ngit-era releases are invisible.
 nak req -k 1063 \
     -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
     -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
     --tag n=tollgate-wrt --tag v=v0.6.0-alpha2 --limit 50 \
     wss://relay.damus.io wss://nos.lol wss://nostr.mom
 
-# The publication gate: every (arch, format) announced, every artifact on >= 2
-# mirrors with the sha256 from the x tag. Non-zero exit = the version did not
-# reach the channel; the output names the missing pair or the failing mirror.
+# 5. The publication gate: every (arch, format) announced, every artifact on >= 2
+#    mirrors with the sha256 from the x tag. Non-zero exit = the version did not
+#    reach the channel; the output names the missing pair or the failing mirror.
 VERIFY_EXPECT="$(scripts/ngit-matrix-expectations.sh .ngit/act/workflows/build-package.yml)" \
     scripts/verify_publication.sh v0.6.0-alpha2 alpha -
 ```
