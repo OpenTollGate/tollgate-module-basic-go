@@ -172,7 +172,7 @@ The current schema version is **`v0.0.7`**. An abridged example:
       "preferred_session_increments_milliseconds": 60000,
       "preferred_session_increments_bytes": 131100000,
       "millisecond_renewal_offset": 10000,
-      "bytes_renewal_offset": 131100000
+      "bytes_renewal_offset": 32775000
     },
     "usage_tracking": {
       "data_monitoring_interval": "500ms"

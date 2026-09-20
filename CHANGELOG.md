@@ -187,6 +187,15 @@ and [Semantic Versioning](https://semver.org/).
   (once, whenever the clamp takes effect) whenever the configured offset
   is overridden. Fixes [#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430).
 
+- **Fresh installs no longer ship a self-contradictory default
+  `bytes_renewal_offset`.** The old default (131,100,000 — equal to the
+  preferred increment) exceeds any allotment actually purchasable after
+  step quantization, the exact condition that made every bytes-metered
+  upstream session renew at near-zero usage ([#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430)).
+  The default is now 32,775,000 (25% of the preferred increment) in both
+  the config writer and the schema, and session creation warns when a
+  persisted config's renewal offset is at or above the preferred
+  increment. Existing saved configs are deliberately not rewritten.
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
   onUpgrade consumer but never the tracker's first-reachable trigger that
