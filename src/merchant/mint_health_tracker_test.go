@@ -156,6 +156,54 @@ func TestMarkUnreachable(t *testing.T) {
 	}
 }
 
+// TestMarkUnreachable_FiresSetChangedCallback pins #401: a payment failure
+// during a mint outage must not silently zero the reachable count — the
+// reachable-set callback has to fire so the degraded-mode transition is not
+// suppressed for the rest of the outage (with traffic present, the probe
+// path's setChanged comparison runs against the already-zeroed count).
+func TestMarkUnreachable_FiresSetChangedCallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeKeysetsOK(w)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.RunInitialProbe()
+	if !tracker.IsReachable(srv.URL) {
+		t.Fatal("precondition: mint reachable after initial probe")
+	}
+
+	fired := make(chan struct{}, 1)
+	tracker.SetOnReachableSetChanged(func() { fired <- struct{}{} })
+
+	// A payment against the now-dead mint fails and calls MarkUnreachable.
+	srv.Close()
+	tracker.MarkUnreachable(srv.URL)
+
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MarkUnreachable on a reachable mint did not fire onReachableSetChanged — degraded-mode transition would be suppressed (#401)")
+	}
+}
+
+// TestMarkUnreachable_UnknownMint_DoesNotFireSetChanged: marking a mint that
+// was never reachable must not fire the callback — the set did not change.
+func TestMarkUnreachable_UnknownMint_DoesNotFireSetChanged(t *testing.T) {
+	tracker := newTestTracker(mintConfigWithURLs("https://never-reachable.test"), nil)
+
+	fired := make(chan struct{}, 1)
+	tracker.SetOnReachableSetChanged(func() { fired <- struct{}{} })
+
+	tracker.MarkUnreachable("https://never-reachable.test")
+
+	select {
+	case <-fired:
+		t.Fatal("MarkUnreachable on an already-unreachable mint fired onReachableSetChanged")
+	default:
+	}
+}
+
 func TestMarkUnreachable_ResetsConsecutiveSuccesses(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeKeysetsOK(w)
