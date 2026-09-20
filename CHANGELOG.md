@@ -856,7 +856,7 @@ same-version short branch.
   the lab expire lazily (expiry recorded, not asserted); fee-charging
   mints credit `floor((amount − fee)/price)` steps; fresh
   `pip install cashu` needs `marshmallow<4` pinned (environs
-  incompatibility with marshmallow 4.x).
+  incompatibility with marshmallow 4.x). ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
 
 - **`tollgate-clientd` laptop client.** New
   `scripts/tollgate-clientd.py`: detects a TollGate on the default
@@ -872,7 +872,7 @@ same-version short branch.
   for cdk-mintd compatibility. Tested by a new unit suite
   (`tests/clientd/`, 31 tests over in-process mock TollGates) and a
   cloud-lab e2e lane (`tests/cloud-lab/test_clientd_autotopup.py`)
-  that pays the real backend and observes threshold renewal.
+  that pays the real backend and observes threshold renewal. ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
 
 ### Fixed
 
