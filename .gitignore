@@ -9,6 +9,9 @@
 # Go build outputs (binaries that land at repo or src/ root).
 # Anchored so the bare names cannot shadow source directories such as
 # src/cmd/tollgate-cli/ — unanchored, they silently ignore new files there.
+# A binary is named after the last element of the module path, so the CLI
+# module (src/cmd/tollgate-cli, module `tollgate-cli`) writes its executable
+# next to its sources — not at src/tollgate-cli.
 bin/
 artifacts/
 vendor/
@@ -19,7 +22,7 @@ vendor/
 src/tollgate
 src/tollgate-wrt
 src/tollgate-module-basic-go
-src/tollgate-cli
+src/cmd/tollgate-cli/tollgate-cli
 *.exe
 
 # Test artifacts
