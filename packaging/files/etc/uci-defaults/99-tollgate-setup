@@ -34,7 +34,9 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 BRAND="$(cat /etc/tollgate/brand 2>/dev/null | tr -d '[:space:]')"
 case "$BRAND" in
     net4sats) BRAND_HOSTNAME="Net4sats" ;;
-    *) BRAND_HOSTNAME="TollGate" ;;
+    *) BRAND_HOSTNAME="TollGate"
+       [ -n "$BRAND" ] && log "Brand '${BRAND}' not recognized — coercing to default 'tollgate' (expected: net4sats)"
+       ;;
 esac
 
 # -- setup steps ------------------------------------------------------------
@@ -137,11 +139,17 @@ setup_public_wifi() {
 setup_hostname() {
     local current_hostname
     current_hostname=$(uci -q get system.@system[0].hostname)
-    if [ "$current_hostname" = "OpenWrt" ]; then
+    if [ "$current_hostname" = "$BRAND_HOSTNAME" ]; then
+        log "Hostname '${current_hostname}' already matches the brand"
+    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "TollGate" ] || [ "$current_hostname" = "Net4sats" ]; then
+        # Fresh install (OpenWrt) or a known brand default from the other
+        # brand — migrate to this brand's hostname. Deliberately one-way
+        # and known-values-only: an operator's custom hostname is never
+        # touched (#444).
         uci set system.@system[0].hostname="$BRAND_HOSTNAME"
-        log "Hostname changed to $BRAND_HOSTNAME (was OpenWrt default)"
+        log "Hostname changed to $BRAND_HOSTNAME (was '${current_hostname}')"
     else
-        log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
+        log "Hostname '${current_hostname}' preserved (custom, not a brand default)"
     fi
     # TLS cert CN should match whatever hostname is active after the check above.
     local final_hostname
