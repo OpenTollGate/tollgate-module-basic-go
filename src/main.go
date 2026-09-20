@@ -125,6 +125,11 @@ func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
 			swapMerchant(upgraded)
 			registerReachableSetChangedCallback(upgraded)
 		})
+		// The runtime downgrade must also wire the recovery trigger — the
+		// onUpgrade consumer above fires only when the tracker's
+		// first-reachable callback is registered; without this the service
+		// stays degraded until manually restarted (#400).
+		deg.WireRecoveryTrigger()
 		swapMerchant(deg)
 	})
 }

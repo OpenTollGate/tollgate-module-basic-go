@@ -104,6 +104,25 @@ and [Semantic Versioning](https://semver.org/).
   naming. `tollgate ssl` no longer sets the option either and cleans
   it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
 
+- **A runtime downgrade can recover again.** When all mints went
+  unreachable under a running service, the downgrade path registered the
+  onUpgrade consumer but never the tracker's first-reachable trigger that
+  fires it (only the startup degraded paths did), so the service stayed
+  degraded — payments returning service-unavailable-class notices — until
+  manually restarted (live: 2h+ degraded with the mint probe healthy
+  again). `MerchantDegraded.WireRecoveryTrigger`/`AttemptUpgrade` now wire
+  the recovery cycle, used by the runtime downgrade in main
+  ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400); pair: #401/#420).
+
+- **A payment failure no longer suppresses the degraded-mode transition.**
+  `MintHealthTracker.MarkUnreachable` mutated the reachable count without
+  firing the reachable-set callback, so when real traffic observed a mint
+  outage before the periodic probe did, the probe path's change detection
+  compared against the already-zeroed count and the downgrade never fired
+  for the rest of the outage (live-reproduced in PRTA #110 Phase D). The
+  callback now fires whenever a previously-reachable mint goes down
+  ([#401](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/401); the companion recovery-path gap, #400, is tracked separately).
+
 - **Release-channel publication is now self-verifying.** A new
   `verify-publication` job runs after `publish-metadata`: every
   (architecture, format) the build matrix produced must have a kind-1063
