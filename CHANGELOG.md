@@ -160,6 +160,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Upgrades no longer abort on devices without `jq`.** The maintainer
+  scripts no longer shell out to `jq`: `packaging/preinst` stops
+  parsing `install.json` (the removed body ran only on upgrades and
+  aborted the upgrade on jq-less devices, which then orphan-removed
+  runtime dependencies), and Go now owns `install_time` end to end —
+  `config_manager` writes it on install where the scripts used to
+  read/patch it with `jq`. Fresh installs are untouched (they never ran
+  the `jq` path). ([#407](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/407))
+
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
   onUpgrade consumer but never the tracker's first-reachable trigger that
