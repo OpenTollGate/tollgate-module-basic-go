@@ -91,7 +91,9 @@ and [Semantic Versioning](https://semver.org/).
 
 - **Captive portal no longer redirect-loops on nodogsplash 5.0.2.** The
   first-boot setup no longer sets (and now actively deletes)
-  `nodogsplash.gatewaydomainname`: with it configured, NDS 5.0.2 answers
+  `nodogsplash.gatewaydomainname` — on version-changing upgrades and on
+  same-version setup re-runs (postinst / boot hook) alike: with it
+  configured, NDS 5.0.2 answers
   every splash request carrying a `redir` param with a redirect back to
   the splash itself, so pre-auth phone/laptop clients abort with
   `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
