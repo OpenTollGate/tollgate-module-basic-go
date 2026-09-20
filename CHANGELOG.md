@@ -281,7 +281,7 @@ and [Semantic Versioning](https://semver.org/).
   system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
   SSIDs, and the NDS gateway name; the two brands differ only in
   naming. `tollgate ssl` no longer sets the option either and cleans
-  it up on revert. ([#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
+  it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
 
 - **Release-channel publication is now self-verifying.** A new
   `verify-publication` job runs after `publish-metadata`: every
