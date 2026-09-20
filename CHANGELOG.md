@@ -177,6 +177,14 @@ and [Semantic Versioning](https://semver.org/).
   read/patch it with `jq`. Fresh installs are untouched (they never ran
   the `jq` path). ([#407](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/407))
 
+- **Bytes-metered upstream sessions no longer renew instantly on default
+  config.** The default `bytes_renewal_offset` (131,100,000) exceeds the
+  allotment actually purchasable from a typical upstream advertisement
+  (5 × 22,020,096 = 110,100,480 bytes after step quantization), so every
+  reseller session fired a renewal payment at near-zero usage — doubling
+  the session cost on startup. The renewal check now never fires while
+  more than half of the current allotment remains. Fixes [#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430).
+
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
   onUpgrade consumer but never the tracker's first-reachable trigger that

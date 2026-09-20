@@ -262,7 +262,17 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 	// Check if we need renewal (usage approaching allotment)
 	if allotment > 0 {
 		remaining := int64(allotment) - int64(usage)
-		if remaining <= int64(u.renewalOffset) {
+		// The configured renewal offset may exceed the allotment actually
+		// purchasable: the default bytes offset (131,100,000) is larger than
+		// the 5 x 22,020,096 = 110,100,480 bytes a typical upstream
+		// advertisement quantizes to, which made every bytes-metered session
+		// renew at near-zero usage (#430). Never renew while more than half
+		// of the current allotment remains.
+		effectiveOffset := int64(u.renewalOffset)
+		if half := int64(allotment) / 2; effectiveOffset > half {
+			effectiveOffset = half
+		}
+		if remaining <= effectiveOffset {
 			u.mu.Lock()
 			u.lastPaymentTrigger = time.Now()
 			u.mu.Unlock()
