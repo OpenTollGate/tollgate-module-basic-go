@@ -539,7 +539,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
 
-		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
+		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) && !isExpiredKeysetError(err) {
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
@@ -557,6 +557,11 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			errorMessage = fmt.Sprintf(
 				"This e-cash note is %d sat but mint %s charges a swap fee that leaves nothing left to spend. Use a larger token or a mint without fees.",
 				paymentCashuToken.Amount(), mintURL)
+		} else if isExpiredKeysetError(err) {
+			errorCode = "payment-error-keyset-expired"
+			errorMessage = fmt.Sprintf(
+				"This e-cash note was issued on a keyset that mint %s has retired (expired): the proofs are no longer spendable there. The note cannot be recovered by retrying; obtain a new token. Cause: %v",
+				mintURL, err)
 		} else if isMintUnreachableError(err) {
 			errorCode = "payment-error-mint-unreachable"
 			errorMessage = fmt.Sprintf(
@@ -632,6 +637,16 @@ func isBelowSwapFeeError(err error) bool {
 		strings.Contains(msg, "swap fees")
 }
 
+// isExpiredKeysetError reports whether err is a mint refusal because the
+// proofs sit on a keyset the mint has expired (NUT-02 rotation). cdk-mintd
+// 0.17.6 refuses such swaps outright ("Keyset has expired"); the mint itself
+// is healthy and a fresh-keyset payment succeeds — so this is a dead token,
+// not an outage (#440).
+func isExpiredKeysetError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "keyset") && strings.Contains(msg, "expired")
+}
+
 // isMintUnreachableError reports whether err indicates the mint's keysets (or
 // the mint itself) could not be reached, as opposed to a token rejection.
 func isMintUnreachableError(err error) bool {
@@ -644,12 +659,14 @@ func isMintUnreachableError(err error) bool {
 	}
 	// Keyset resolution failures: "short keyset ID ... not found in mint
 	// keysets", "could not resolve short keyset IDs", "error getting keyset ...".
+	// Expired-keyset refusals ("Keyset has expired") are deliberately NOT
+	// unreachable-class: the mint is healthy and the token is dead (#440).
 	if strings.Contains(msg, "keyset") &&
 		(strings.Contains(msg, "not found") ||
 			strings.Contains(msg, "could not") ||
 			strings.Contains(msg, "error getting") ||
 			strings.Contains(msg, "resolve")) {
-		return true
+		return !isExpiredKeysetError(err)
 	}
 	return false
 }

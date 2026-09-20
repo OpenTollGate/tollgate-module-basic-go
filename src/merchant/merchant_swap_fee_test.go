@@ -80,3 +80,37 @@ func TestIsMintUnreachableError(t *testing.T) {
 		}
 	}
 }
+
+func TestIsExpiredKeysetError(t *testing.T) {
+	cases := []struct {
+		msg  string
+		want bool
+	}{
+		// The live cdk-mintd 0.17.6 refusal pinned by the rotation lane (#440).
+		{"could not swap proofs: Keyset has expired", true},
+		{"swap: keyset 0118... has expired", true},
+		{"Keyset Has Expired", true},
+		// Not expiry: resolution failures stay unreachable-class.
+		{"could not resolve short keyset IDs: short keyset ID 0118 not found in mint keysets", false},
+		{"token already spent", false},
+		{"could not swap proofs: no outputs provided", false},
+	}
+	for _, c := range cases {
+		if got := isExpiredKeysetError(fmt.Errorf("%s", c.msg)); got != c.want {
+			t.Errorf("isExpiredKeysetError(%q) = %v, want %v", c.msg, got, c.want)
+		}
+	}
+}
+
+func TestExpiredKeysetNotClassifiedAsUnreachable(t *testing.T) {
+	// "could not swap proofs: Keyset has expired" contains both "keyset" and
+	// "could not" — the pre-#440 isMintUnreachableError matched it and told
+	// the customer the mint was down when their token was permanently dead.
+	msg := "could not swap proofs: Keyset has expired"
+	if isMintUnreachableError(fmt.Errorf("%s", msg)) {
+		t.Errorf("isMintUnreachableError(%q) = true, want false (#440)", msg)
+	}
+	if !isExpiredKeysetError(fmt.Errorf("%s", msg)) {
+		t.Errorf("isExpiredKeysetError(%q) = false, want true", msg)
+	}
+}
