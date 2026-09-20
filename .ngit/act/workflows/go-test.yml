@@ -27,13 +27,15 @@ jobs:
       GOFLAGS: -buildvcs=false
     steps:
       - uses: actions/checkout@v5
-      # The version is pinned explicitly to the one src/go.mod declares.
+      # The version is pinned to the reproducibility pin's Go
+      # (packaging/build-inputs.json, #383) so the test lane exercises the
+      # exact toolchain that builds the shipped binaries.
       # `go-version-file` resolution is what failed in this deployment's act
       # image on the first run (see .ngit/README.md); a literal version takes
       # a shorter, better-tested path through the action.
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.25.0"
+          go-version: "1.25.8"
           cache: false
       - name: Report the Go toolchain in use
         run: |

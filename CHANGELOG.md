@@ -26,6 +26,11 @@ and [Semantic Versioning](https://semver.org/).
   a false green. Research plans, experiment sources and raw logs stay out of
   this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
   ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
+- **ngit test lane runs on the reproducibility pin's Go.** The `go-test`
+  workflow's toolchain moves from 1.25.0 to 1.25.8, matching
+  `packaging/build-inputs.json` (#383) and the release build lane, so CI
+  tests exercise the exact toolchain that builds the shipped binaries.
+  Follow-up from the #434 review. ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
 
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
