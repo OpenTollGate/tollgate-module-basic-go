@@ -43,7 +43,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		return nil, fmt.Errorf("No mints provided. Wallet requires at least 1 accepted mint, none were provided")
 	}
 
-	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: acceptedMints[0]}
+	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: normalizeMintURL(acceptedMints[0])}
 	log.Printf("TollWallet.New: Loading wallet with config: %+v", config)
 
 	// TODO: Fix issue where wallet db is not unlocked if it doesn't get a nework connection when the tollgate application boots.
@@ -69,31 +69,49 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	return tw, nil
 }
 
+// normalizeMintURL returns the canonical form of a mint URL: scheme and
+// host lowercased, at most one trailing slash on the path. It is the single
+// mint-identity function for the whole package: registry keys
+// (registeredMints, and the URLs handed to wallet.AddMint) and URL
+// comparison (MintURLMatches) both derive from it, so two spellings of one
+// logical mint — e.g. https://mint.example/Bitcoin and
+// https://mint.example/Bitcoin/ — can never become two wallet entries
+// (issue #375). Path casing is preserved: /Bitcoin and /Liquid are
+// different paths on the same mint. Unparseable inputs are returned
+// trimmed, so equality still behaves as a plain string comparison there.
 func normalizeMintURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
+	trimmed := strings.TrimSpace(raw)
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return trimmed
 	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = normalizePath(u.Path)
 	return u.String()
 }
 
 func (w *TollWallet) registerMint(mintURL string) {
-	normalized := normalizeMintURL(mintURL)
+	canonical := normalizeMintURL(mintURL)
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.registeredMints[normalized] {
+	if w.registeredMints[canonical] {
 		return
 	}
 
-	if _, err := w.wallet.AddMint(mintURL); err != nil {
-		log.Printf("TollWallet: failed to register mint %s: %v", mintURL, err)
+	// Register the canonical form: gonuts keys its in-memory mint map by
+	// url.Parse(url).String(), which preserves trailing slashes, so passing
+	// a non-canonical URL here is exactly how duplicate per-mint entries
+	// (and phantom duplicate balances) were created.
+	if _, err := w.wallet.AddMint(canonical); err != nil {
+		log.Printf("TollWallet: failed to register mint %s: %v", canonical, err)
 		return
 	}
 
-	w.registeredMints[normalized] = true
-	log.Printf("TollWallet: registered mint %s", mintURL)
+	w.registeredMints[canonical] = true
+	log.Printf("TollWallet: registered mint %s", canonical)
 }
 
 func (w *TollWallet) ensureMintRegistered(mintURL string) {
@@ -298,22 +316,12 @@ func ParseToken(token string) (cashu.Token, error) {
 	return cashu.DecodeToken(token)
 }
 
-// MintURLMatches compares two mint URLs for equality, tolerating
-// differences in case (host), trailing slashes, and path normalization.
-// Both URLs must parse successfully; if either fails to parse, a plain
-// string comparison is used as fallback.
+// MintURLMatches reports whether two mint URLs identify the same logical
+// mint. Comparison is canonical equality via normalizeMintURL, so registry
+// keys and match results can never disagree (issue #375). Unparseable
+// inputs fall back to trimmed string comparison.
 func MintURLMatches(a, b string) bool {
-	ua, err := url.Parse(a)
-	if err != nil {
-		return a == b
-	}
-	ub, err := url.Parse(b)
-	if err != nil {
-		return a == b
-	}
-	return strings.EqualFold(ua.Host, ub.Host) &&
-		ua.Scheme == ub.Scheme &&
-		normalizePath(ua.Path) == normalizePath(ub.Path)
+	return normalizeMintURL(a) == normalizeMintURL(b)
 }
 
 // isAlreadySpentError reports whether err is a mint rejection for reusing
@@ -353,12 +361,6 @@ func normalizePath(p string) string {
 	return p
 }
 
-// mintURLMatches is kept for internal backwards compatibility within
-// the tollwallet package.
-func mintURLMatches(a, b string) bool {
-	return MintURLMatches(a, b)
-}
-
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
 		if MintURLMatches(item, str) {
@@ -375,19 +377,60 @@ func (w *TollWallet) GetBalance() uint64 {
 	return balance
 }
 
-// GetBalanceByMint returns the balance of a specific mint in the wallet
+// GetBalanceByMint returns the balance of a specific mint in the wallet.
+// The lookup tolerates historical non-canonical aliases already persisted
+// in wallet DBs (e.g. a trailing-slash variant), matching by logical mint
+// identity rather than exact string key.
 func (w *TollWallet) GetBalanceByMint(mintUrl string) uint64 {
 	balanceByMints := w.wallet.GetBalanceByMints()
 
 	if balance, exists := balanceByMints[mintUrl]; exists {
 		return balance
 	}
+	for url, balance := range balanceByMints {
+		if MintURLMatches(url, mintUrl) {
+			return balance
+		}
+	}
 	return 0
 }
 
-// GetAllMintBalances returns a map of all mints and their balances in the wallet
+// GetAllMintBalances returns a map of all logical mints and their balances
+// in the wallet. Wallet DBs created before URL canonicalization can hold
+// several URL aliases for one physical mint, each reporting the same
+// keyset-backed balance. This view merges such alias groups into a single
+// entry (representative: lexicographically smallest alias; balance: the
+// group's maximum view) so callers — notably the wallet-drain loop — can
+// never observe a phantom duplicate balance for one mint (issue #375).
+// Read-side only: the underlying wallet DB is never rewritten.
 func (w *TollWallet) GetAllMintBalances() map[string]uint64 {
-	return w.wallet.GetBalanceByMints()
+	balanceByMints := w.wallet.GetBalanceByMints()
+
+	type aliasGroup struct {
+		representative string
+		balance        uint64
+	}
+	groups := make(map[string]*aliasGroup, len(balanceByMints))
+	for alias, balance := range balanceByMints {
+		canonical := normalizeMintURL(alias)
+		group, merged := groups[canonical]
+		if !merged {
+			groups[canonical] = &aliasGroup{representative: alias, balance: balance}
+			continue
+		}
+		if alias < group.representative {
+			group.representative = alias
+		}
+		if balance > group.balance {
+			group.balance = balance
+		}
+	}
+
+	balances := make(map[string]uint64, len(groups))
+	for _, group := range groups {
+		balances[group.representative] = group.balance
+	}
+	return balances
 }
 
 // NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.

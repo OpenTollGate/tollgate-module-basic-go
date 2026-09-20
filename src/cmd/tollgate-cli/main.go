@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,6 +29,15 @@ func askConfirmation(message string) bool {
 const (
 	SocketPath = "/var/run/tollgate.sock"
 )
+
+// socketPath mirrors the service side: tests point it at a temp dir via
+// TOLLGATE_TEST_CONFIG_DIR; in production it is always SocketPath.
+func socketPath() string {
+	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
+		return filepath.Join(dir, "tollgate.sock")
+	}
+	return SocketPath
+}
 
 type CLIMessage struct {
 	Command   string            `json:"command"`
@@ -85,6 +96,8 @@ var drainCmd = &cobra.Command{
 	Long:  "Transfer wallet funds using different methods",
 }
 
+var drainAssumeYes bool
+
 var drainCashuCmd = &cobra.Command{
 	Use:   "cashu",
 	Short: "Drain wallet to Cashu tokens",
@@ -98,9 +111,8 @@ var drainCashuCmd = &cobra.Command{
 		fmt.Println("The funds will be converted to Cashu tokens that will be saved to a file.")
 		fmt.Println("Once drained, the tokens are OUT of the wallet and must be stored securely.")
 
-		if !askConfirmation("\nAre you sure you want to drain the wallet?") {
-			fmt.Println("Operation cancelled.")
-			return nil
+		if !drainAssumeYes && !askConfirmation("\nAre you sure you want to drain the wallet?") {
+			return errors.New("drain cancelled: no confirmation given (use --yes to run non-interactively)")
 		}
 
 		filename := fmt.Sprintf("wallet_drain_%s.txt", time.Now().Format("2006-01-02_15-04-05"))
@@ -110,7 +122,32 @@ var drainCashuCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\nTokens will be saved to: %s\n\n", filename)
-		return sendCommandAndDisplay("wallet", []string{"drain", "cashu"}, flags)
+
+		response, err := sendCommand(CLIMessage{
+			Command:   "wallet",
+			Args:      []string{"drain", "cashu"},
+			Flags:     flags,
+			Timestamp: time.Now(),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err)
+		}
+
+		// Show and persist whatever was drained even when some mints
+		// failed: a partial drain's tokens are real funds and must not be
+		// hidden behind the aggregate failure (issue #375).
+		if response.Message != "" {
+			fmt.Println(response.Message)
+		}
+		if response.Data != nil {
+			displayData(response.Data)
+		}
+		if !response.Success {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", response.Error)
+			return errors.New("drain failed; see details above")
+		}
+
+		return nil
 	},
 }
 
@@ -462,6 +499,8 @@ func init() {
 	logsCmd.Flags().IntP("tail", "n", 0, "Number of lines to show from the end (0 = all)")
 	logsCmd.Flags().BoolP("follow", "f", false, "Follow log output (like tail -f)")
 
+	drainCashuCmd.Flags().BoolVarP(&drainAssumeYes, "yes", "y", false, "Assume yes; skip the interactive confirmation prompt (for automation)")
+
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
@@ -512,6 +551,10 @@ func sendCommandAndDisplay(command string, args []string, flags map[string]strin
 	return nil
 }
 
+// sendCommandRaw prints the service response as JSON. Printing the JSON is
+// transport success, not operational success: a response with
+// success=false must still exit non-zero, otherwise automation cannot
+// detect failures (issue #375).
 func sendCommandRaw(command string, args []string, flags map[string]string) error {
 	msg := CLIMessage{
 		Command:   command,
@@ -522,14 +565,25 @@ func sendCommandRaw(command string, args []string, flags map[string]string) erro
 
 	response, err := sendCommand(msg)
 	if err != nil {
-		return printJSON(&CLIResponse{
+		if printErr := printJSON(&CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to communicate with TollGate service: %v", err),
 			Timestamp: time.Now(),
-		})
+		}); printErr != nil {
+			return printErr
+		}
+		return fmt.Errorf("command failed: service unreachable: %v", err)
 	}
 
-	return printJSON(response)
+	if err := printJSON(response); err != nil {
+		return err
+	}
+
+	if !response.Success {
+		return errors.New("command failed")
+	}
+
+	return nil
 }
 
 func printJSON(v interface{}) error {
@@ -542,7 +596,7 @@ func printJSON(v interface{}) error {
 }
 
 func sendCommand(msg CLIMessage) (*CLIResponse, error) {
-	conn, err := net.Dial("unix", SocketPath)
+	conn, err := net.Dial("unix", socketPath())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to TollGate service: %v", err)
 	}
@@ -585,7 +639,7 @@ func sendCommandStreaming(command string, args []string, flags map[string]string
 		Timestamp: time.Now(),
 	}
 
-	conn, err := net.Dial("unix", SocketPath)
+	conn, err := net.Dial("unix", socketPath())
 	if err != nil {
 		return fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err)
 	}

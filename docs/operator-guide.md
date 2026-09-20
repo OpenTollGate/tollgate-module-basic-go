@@ -236,6 +236,31 @@ Token 2:
   Token: cashuA...
 ```
 
+For scripts and other non-interactive callers, `--yes` (or `-y`)
+skips the confirmation prompt:
+
+```sh
+tollgate wallet drain cashu --yes
+```
+
+Draining each mint is an independent, irreversible operation. If one
+mint's drain fails after another's succeeded, the command reports a
+**partial** result: it prints and saves the tokens that were produced,
+lists the per-mint failures, and exits non-zero. Check the output
+carefully — a partial drain means some funds left the wallet as tokens
+while others stayed in it.
+
+Every successfully produced token is also appended (before the next
+mint is attempted) to `/etc/tollgate/wallet-drain-journal.jsonl`, an
+append-only safety copy in case the terminal session or the device is
+lost before the tokens are secured. Sweep and clear that file the same
+way you treat the drain output.
+
+Cancellation and failure are distinguishable from success by exit
+code: `0` only when the whole drain succeeded; a declined or
+unanswerable prompt (e.g. stdin at EOF) and any full or partial drain
+failure exit non-zero.
+
 Treat the output file as cash — anyone who reads a token string can
 spend it. Copy it somewhere safe and delete the plaintext once
 redeemed.
@@ -485,7 +510,13 @@ tollgate --json health
 
 When the service is unreachable, `--json` output still includes a
 `success: false` object with an `error` field rather than printing
-prose to stderr, so a wrapper script can parse the failure reliably.
+prose to stderr, so a wrapper script can parse the failure reliably —
+and the process exits non-zero whenever the reported result is a
+failure (full or partial), so exit-code checks and JSON parsing agree.
+A `wallet drain cashu` response with `"success": false` may still
+carry a `"tokens"` array inside `data`: those tokens were produced
+irreversibly and belong to you — persist them before investigating the
+`errors` entries.
 
 ## Troubleshooting
 
