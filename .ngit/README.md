@@ -12,7 +12,8 @@ untouched; the two systems run side by side.
 | `act/workflows/go-test.yml` | The pre-PR sequence documented in [AGENTS.md](../AGENTS.md), run from `src/`: `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`. |
 | `act/workflows/repro-check.yml` | The fast lane of `.github/workflows/repro-check.yml`: rebuild both Go binaries in two independent clean roots (separate HOME, module and build caches) and require byte-identical SHA-256s. The package targets (`portal`, `ipk`, `ipk-upx`, `apk`) stay on the GitHub workflow's `workflow_dispatch` slow lane and on a build host (they need `docker`), and are covered here by `build-package*.yml` below. |
 | `act/workflows/build-package-binaries.yml` | Stage 1 of the release pipeline: cross-compile the five GOARCH/GOARM/GOMIPS targets, build the captive-portal assets, mirror both to Blossom, and publish the build-id records stage 2 consumes. |
-| `act/workflows/build-package.yml` | Stage 2 of the release pipeline: the full `.ipk` (14) and `.apk` (3) matrix, Blossom mirroring, kind-1063 NIP-94 announcements, and the tollgate-os handoff. |
+| `act/workflows/build-package.yml` | Stage 2 of the release pipeline: the full `.ipk` (14) and `.apk` (3) matrix, Blossom mirroring, kind-1063 NIP-94 announcements, the in-run `verify-publication` gate, and the tollgate-os handoff. |
+| `act/workflows/verify-publication.yml` | The publication gate on its own: for every `(arch, format)` the release matrix declares, a kind-1063 announcement must exist for the verified version+channel, and the artifact must be fetchable from >= 2 Blossom mirrors with the sha256 carried in its `x` tag. Started by a `verify/<version>/<channel>[/<scope>]` ref, which names the published version to audit. |
 
 Two Go files because they cover different things: `test.yml` tests the nested
 modules (which `./...` from `src/` does not reach — they are separate modules)
@@ -496,6 +497,93 @@ green here. `go vet ./...`, `go build ./...` and
 `go test -race -count=1 -tags testenv ./...` pass locally with the pinned
 `go1.25`. On GitHub `main` before `cd67f81` the `gofmt` step is red; the fix
 is that same `gofmt -w .`.
+
+## Publication verification — the gate, and how to audit a release
+
+A release published from ngit must not be able to look successful while
+consumers see nothing. PR #406 added exactly that gate — and it added it only
+under `.github/workflows/`, which ngit-ci never executes, so the check shipped
+in the repository and ran **nowhere**. This is the `.ngit` twin of it, and the
+check is identical in meaning:
+
+* for every `(arch, format)` the release matrix declares, a **kind-1063 NIP-94
+  announcement** must exist on the channel relays for the published
+  `v=<version>` + `c=<channel>`;
+* the artifact must be fetchable from **at least two Blossom mirrors**, and the
+  downloaded bytes must hash to the `x` tag of the event;
+* a failure names the `(arch, format)` pair, or the mirror that failed, and
+  exits non-zero — so the workflow result is not `success`.
+
+### Where it runs
+
+| entry point | expectations | how it starts |
+| --- | --- | --- |
+| `verify-publication` job in `act/workflows/build-package.yml` | the full compression=none set of that file's static matrix — 6 `.ipk` + 2 `.apk` pairs | in the release run: `needs: [resolve-inputs, publish-metadata]` with `if: always()` |
+| `act/workflows/verify-publication.yml` | the same set, with an optional format scope taken from the ref | push of a `verify/<version>/<channel>[/<scope>]` ref |
+
+The second file exists because the first one sits behind a 17-job matrix that
+does not fit one 1800 s `act` invocation (see "Does the matrix fit?"): a run cut
+short after announcing part of the matrix never reaches its own gate. Standing
+the gate up as its own workflow gives it its own budget, and makes "did this
+version reach the channel?" answerable at any time, without re-running a
+release.
+
+### Expectations come from the matrix, never from the relays
+
+ngit-ci cannot build a `strategy.matrix` from job outputs, so the release matrix
+is written out as static YAML — and a hand-kept second copy of it inside the
+workflow's env would drift silently, which is the exact failure the gate exists
+to catch. Both entry points therefore extract the pairs from
+`build-package.yml` itself with `scripts/ngit-matrix-expectations.sh`, which
+exits 2 rather than printing an empty list: a parse failure can never become a
+vacuously green run.
+
+### Auditing a published version
+
+ngit-ci never delivers `workflow_dispatch` inputs, so **the ref is the
+parameter**:
+
+```bash
+git push ngit HEAD:refs/heads/verify/<version>/<channel>/ipk    # ipk | apk | all
+git push ngit --delete refs/heads/verify/<version>/<channel>/ipk
+```
+
+The scope is printed by the gate, and every expectation it excludes is listed as
+**NOT verified** — a narrowed pass must never read like a full one. The `.apk`
+family is why the scope exists: no `.apk` leg has ever completed under this
+coordinator (measured 2026-09-12: the three SDK legs never started inside the
+1800 s ceiling), so an `ipk`-scoped audit of an ngit-era version can pass while
+the in-run gate, which always checks the full set, would not.
+
+### Negative controls
+
+A gate whose failure mode is a vacuous pass has to be tested by making it
+refuse, so:
+
+```bash
+# a version that was never published must be refused
+VERIFY_EXPECT="$(scripts/ngit-matrix-expectations.sh .ngit/act/workflows/build-package.yml)" \
+  scripts/verify_publication.sh v0.9.9-does-not-exist alpha -
+# -> FAIL: zero events match v=v0.9.9-does-not-exist c=alpha ; exit 1
+
+# the same refusal as a red CI run
+git push ngit HEAD:refs/heads/verify/v0.9.9-does-not-exist/alpha
+```
+
+`tests/verify_publication_test.sh` covers the same ground offline — `nak` and
+`curl` are replaced by record/replay shims — including a missing `(arch,
+format)` pair, a mirror shortfall, a sha256 mismatch against the `x` tag, an
+announcement signed by an unrelated key, scope narrowing, and the fail-closed
+expectation parser.
+
+### Which key announced it
+
+The gate accepts **both** release publishers — the historical GitHub Actions key
+`5075e61f…` and the ngit CI key `6cfc53c0…` — because only one of them can still
+sign anything (see "Release signing" below). It prints the announcing
+publisher(s), and says explicitly when an announcement did **not** come from the
+historical key: a consumer filtering `-a 5075e61f…` alone sees nothing published
+after 2026-08-27, which is why `AGENTS.md` documents both keys.
 
 ## Not run here (deliberately)
 

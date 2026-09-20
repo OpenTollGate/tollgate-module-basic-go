@@ -708,7 +708,7 @@ jobs:
   # records exist for this build id are published; zero records is an error.
   # --------------------------------------------------------------------------
   os-handoff:
-    needs: [resolve-inputs, publish-metadata]
+    needs: [resolve-inputs, publish-metadata, verify-publication]
     # Job-level `if` may not use the matrix context in this act build (a
     # `matrix.*` expression there makes the schema validator reject the whole
     # file), so only `always()` is used here and the ref check lives in the step.
@@ -748,3 +748,52 @@ jobs:
           echo "machine-readable trigger and the build-os workflow must be started"
           echo "by hand with the version above."
           echo "---------------------------------------------------------------"
+
+  verify-publication:
+    name: Verify channel publication (events + mirrors)
+    needs: [resolve-inputs, publish-metadata]
+    # The gate runs whatever happened upstream: a package job that went red, or
+    # a run cut off by the 30-minute ceiling, must still get an honest verdict
+    # about what was published — and must never get a green one. Without this
+    # `always()`, a failing sibling would skip the gate and the workflow result
+    # would be red for the wrong reason.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Verify every matrix (arch, format) is announced and mirrored
+        # Same gate as the GitHub twin's verify-publication job: every
+        # (arch, format) this file's matrix declares must have a kind-1063
+        # announcement for the published version+channel, and the artifact must
+        # be fetchable from >= 2 Blossom mirrors with the sha256 in its `x` tag.
+        #
+        # Expectations are extracted from the static matrix in THIS file
+        # (scripts/ngit-matrix-expectations.sh) rather than hand-listed: the
+        # ngit lane has no dynamic `matrix` output to read, and a second copy
+        # of the matrix would drift silently — which is exactly the failure
+        # this gate exists to catch. Every expectation is checked (the GitHub
+        # twin samples the first .ipk + first .apk; this lane's budget is the
+        # same, and the full set costs one download per pair at most).
+        env:
+          PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.resolve-inputs.outputs.release_channel }}
+        run: |
+          set -euo pipefail
+
+          EXPECTATIONS=$(bash scripts/ngit-matrix-expectations.sh \
+            .ngit/act/workflows/build-package.yml --compression none --formats ipk,apk)
+          echo "$EXPECTATIONS"
+          export VERIFY_EXPECT="$EXPECTATIONS"
+
+          bash scripts/verify_publication.sh "$PACKAGE_VERSION" "$RELEASE_CHANNEL" -
