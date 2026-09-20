@@ -276,6 +276,23 @@ jobs:
         with:
           node-version: '20'
 
+      # packaging/portal-build.sh sources packaging/build-env.sh, which requires
+      # SOURCE_DATE_EPOCH and derives it from `git log -1 --format=%ct HEAD`
+      # when it is not in the environment. There is no git metadata in an act
+      # checkout, so the derivation dies with
+      #   "SOURCE_DATE_EPOCH not set and no git history available to derive it"
+      # and this job has been red since the reproducible-build requirement
+      # (#383) landed. The commit's own time is fetched from the mirror the
+      # release is built from -- never the wall clock, so two runs at the same
+      # commit still agree.
+      - name: Resolve SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          EPOCH=$(bash scripts/ngit-commit-epoch.sh "$GITHUB_SHA")
+          case "$EPOCH" in ''|*[!0-9]*) echo "ERROR: not an epoch: '$EPOCH'" >&2; exit 1 ;; esac
+          echo "SOURCE_DATE_EPOCH=$EPOCH" >> "${GITHUB_ENV:-/dev/null}"
+          echo "SOURCE_DATE_EPOCH=$EPOCH ($(date -u -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S UTC'))"
+
       - name: Build captive portal assets
         run: |
           set -euo pipefail
