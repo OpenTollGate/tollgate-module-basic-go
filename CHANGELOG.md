@@ -59,6 +59,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Release-channel publication is now self-verifying.** A new
+  `verify-publication` job runs after `publish-metadata`: every
+  (architecture, format) the build matrix produced must have a kind-1063
+  event on the channel relays for the published version+channel, and the
+  artifacts must be servable from ≥2 mirrors with the sha256 from the `x`
+  tag (sample mode: one ipk + one apk; `VERIFY_DOWNLOAD=all` for full).
+  `trigger-build-os` now depends on it — OS builds fire only on verified
+  publications. `BLOSSOM_MIN_SUCCESS` is raised to 3 for tag refs (stays 1
+  for branch/dev builds). Converts the two known silent failure modes —
+  v0.6.0-alpha1 published nowhere, and v0.5.0 mirror rot — into red builds
+  ([#406](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/406)).
+
 - **Swap fees are explained, and pre-checked.** A token whose value is
   entirely consumed by the mint's swap fee used to fail with the mint's opaque
   `no outputs provided`. The wallet now reports the fee
