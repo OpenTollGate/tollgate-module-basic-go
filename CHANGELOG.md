@@ -9,7 +9,6 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
-## [Unreleased]
 
 ### Fixed
 
