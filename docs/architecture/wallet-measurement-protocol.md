@@ -1,5 +1,7 @@
 # Wallet-backend measurement protocol
 
+<!-- markdownlint-disable MD013 — long table lines are data, not prose -->
+
 > **Status:** the procedure described here is a proposal, not a measurement.
 > Every threshold below is a **PROPOSED** acceptance criterion with its basis
 > stated. The maintainer may tune a threshold; the *procedure* is what must not
@@ -562,7 +564,9 @@ file. Consequences a replacement must not regress:
 
 ### A2. The documented CDK verify command is a false green (E4/E5)
 
-The command
+The command — as documented in the wallet-migration archive's
+candidate study [`01-candidates/cdk.md`](https://github.com/felixfelix-bot/tollgate-wallet-migration-research/blob/main/01-candidates/cdk.md)
+(and nowhere on `main`; nothing in this repository teaches it):
 
 ```
 $ cd src && GOFLAGS=-buildvcs=false go build -tags cdk_wallet ./...

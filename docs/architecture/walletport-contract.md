@@ -19,6 +19,11 @@ Source of truth: `src/tollwallet/port.go`. Callers: `src/merchant/*`,
 `src/lightning/*`. The interface is the seam; a replacement implements it and
 leaves the rest of the module untouched.
 
+The "NUTs implied" column below covers token-level NUT behaviour only;
+[docs/cashu-compatibility-matrix.md](../cashu-compatibility-matrix.md) is the
+authoritative per-NUT support matrix for the current backend — keep the two in
+sync when a NUT is added or dropped.
+
 | Method | Semantics | NUTs implied |
 |---|---|---|
 | `DecodeToken(str) (Token,error)` | Parse `cashuA…` (V3) / `cashuB…` (V4-CBOR) | NUT-00 (tokens), NUT-00 V4 |
@@ -83,8 +88,19 @@ The gonuts fork is **load-bearing**: it carries two fixes upstream can never
 absorb. **Any replacement must reproduce both, with a failing test per case
 before the old wallet is removed:**
 
-- `296c7bf` — **HTLC signature-enforcement bypass** fix.
-- `7dc430b` — **swap proof-loss** fix.
+- [`296c7bf`](https://github.com/OpenTollGate/gonuts-tollgate/commit/296c7bf) — **HTLC signature-enforcement bypass** fix (fork PR
+  [#16](https://github.com/OpenTollGate/gonuts-tollgate/pull/16), closing
+  this repo's #328).
+- [`7dc430b`](https://github.com/OpenTollGate/gonuts-tollgate/commit/7dc430b) — **swap proof-loss** fix (fork PR
+  [#11](https://github.com/OpenTollGate/gonuts-tollgate/pull/11)): old
+  proofs are deleted only after the new proofs are constructed.
+
+Both hashes live in the **gonuts-tollgate fork**
+([`OpenTollGate/gonuts-tollgate`](https://github.com/OpenTollGate/gonuts-tollgate),
+mirrored at `felixfelix-bot/gonuts-tollgate`), not in this repository. The
+per-case acceptance tests do **not** exist here yet — they are the removal
+gate this section defines, to be added under `src/merchant` /
+`src/tollwallet` before the gonuts backend is dropped.
 
 These are not notes; they are pass/fail acceptance tests.
 

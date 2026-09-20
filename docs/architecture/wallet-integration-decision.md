@@ -14,7 +14,9 @@ archive (<https://github.com/felixfelix-bot/tollgate-wallet-migration-research>)
 
 The choice is data (`wallet-policy.json`), not a build fork: the sidecar client
 is always compiled in (`src/tollwallet/sidecar.go`, landing with the
-wallet-backend pull request #395) and the router points at a daemon (or not) via
+wallet-backend pull request #395 — **not yet on `main` while #395 is open**;
+if #395 is ever abandoned, this paragraph describes a file that does not
+exist) and the router points at a daemon (or not) via
 `wallet.backend` + `wallet.socket`.
 
 ## Why
