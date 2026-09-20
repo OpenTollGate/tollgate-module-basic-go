@@ -10,11 +10,18 @@ This suite validates end-to-end — real cdk-mintd keysets, real gonuts wallet,
 real TollGate HTTP surface — what the unit tests stub:
   - the fee is visible in the mint's keyset info
   - a below-fee payment is refused BEFORE the swap with the coded
-    `payment-error-below-swap-fee` notice, and the token stays unspent
+    `payment-error-below-swap-fee` notice — pinned as the pre-check's
+    message (which names the fee), not the post-swap classifier's
+    (which does not) — and the token is proven unspent via the mint's
+    NUT-07 /v1/checkstate, not just by a deterministic retry
   - an above-fee payment succeeds and the fee is deducted from the allotment
 """
 
+import base64 as b64
+import hashlib
 import json
+import os
+import struct
 
 import pytest
 import requests
@@ -36,14 +43,88 @@ def notice_code(event):
     return None
 
 
+# --- NUT-07 spentness oracle --------------------------------------------
+#
+# Spentness is proven against the mint (POST /v1/checkstate needs each
+# proof's Y point), and the client image ships no ec library, so NUT-00
+# hash_to_curve lives here in pure python. It must stay byte-compatible
+# with gonuts' crypto.HashToCurve — the wallet the router actually runs:
+#   msg = SHA256("Secp256k1_HashToCurve_Cashu_" || secret)
+#   Y   = decompress(0x02 || SHA256(msg || le32(counter)))   # first valid x
+
+_SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+_HASH_TO_CURVE_DOMAIN = b"Secp256k1_HashToCurve_Cashu_"
+
+
+def _hash_to_curve_y(secret):
+    """Compressed 33-byte hex Y point for a proof secret (NUT-00)."""
+    msg = hashlib.sha256(_HASH_TO_CURVE_DOMAIN + secret.encode()).digest()
+    for counter in range(1 << 16):
+        digest = hashlib.sha256(msg + struct.pack("<I", counter)).digest()
+        x = int.from_bytes(digest, "big")
+        if x >= _SECP256K1_P:
+            continue
+        y_sq = (pow(x, 3, _SECP256K1_P) + 7) % _SECP256K1_P
+        y = pow(y_sq, (_SECP256K1_P + 1) // 4, _SECP256K1_P)
+        if (y * y - y_sq) % _SECP256K1_P != 0:
+            continue  # x is not a curve abscissa: next counter
+        if y % 2:  # 0x02 prefix selects the even-Y point
+            y = _SECP256K1_P - y
+        return f"02{x:064x}"
+    raise RuntimeError("hash_to_curve: no valid point in 2^16 iterations")
+
+
+def _token_secrets(token_str):
+    """Secrets of every proof in a V3 (cashuA…) token."""
+    assert token_str.startswith("cashuA"), (
+        f"expected a V3 token, got: {token_str[:20]}…"
+    )
+    payload = token_str[6:]
+    payload += "=" * (4 - len(payload) % 4)
+    data = json.loads(b64.urlsafe_b64decode(payload))
+    secrets = []
+    for entry in data.get("token", []):
+        for proof in entry.get("proofs", []):
+            secrets.append(proof["secret"])
+    assert secrets, f"no proofs in token: {json.dumps(data)[:200]}"
+    return secrets
+
+
+def assert_token_unspent(token_str, mint_url=MINT_FEES_URL):
+    """Every proof of `token_str` must report UNSPENT at the mint (NUT-07)."""
+    ys = [_hash_to_curve_y(s) for s in _token_secrets(token_str)]
+    r = requests.post(f"{mint_url}/v1/checkstate", json={"Ys": ys}, timeout=10)
+    r.raise_for_status()
+    states = r.json().get("states", [])
+    assert len(states) == len(ys), (
+        f"checkstate returned {len(states)} states for {len(ys)} Ys: {r.text}"
+    )
+    for y, state in zip(ys, states):
+        assert state.get("state") == "UNSPENT", (
+            f"proof {y} is {state.get('state')} at the mint — the refusal "
+            f"path spent it"
+        )
+
+
 # Session allotments are cumulative per MAC, so every test pays from a
 # distinct MAC to assert absolute amounts independently of test order. The
 # handler takes the MAC from the ?mac= query param (the way the splash page
 # passes it from nodogsplash preauth); without it every payment falls back
 # to the client IP's lease entry and lands on one shared MAC.
-BELOW_FEE_MAC = "02:00:00:00:00:21"
-ABOVE_FEE_MAC = "02:00:00:00:00:22"
-FREE_MINT_MAC = "02:00:00:00:00:23"
+#
+# The MACs are randomized per test-session (locally-administered 02:…): the
+# lab is a shared compose project, and two suites running concurrently
+# against one upstream would otherwise accumulate each other's allotments
+# on the same hardcoded MAC — observed live when two agents validated this
+# very file.
+def _mac(suffix):
+    rand = os.urandom(2).hex()
+    return f"02:{rand[0:2]}:{rand[2:4]}:00:00:{suffix:02x}"
+
+
+BELOW_FEE_MAC = _mac(0x21)
+ABOVE_FEE_MAC = _mac(0x22)
+FREE_MINT_MAC = _mac(0x23)
 
 
 def pay(token, upstream_pubkey, customer_identity, mac):
@@ -78,10 +159,16 @@ class TestSwapFees:
         self, upstream_health, upstream_pubkey, fees_ecash_wallet,
         customer_identity,
     ):
-        """A 1-sat token against a 1-sat swap fee is refused up front, and
-        the refusal is not a spend: the same token refuses identically twice.
-        (If the token had been swapped, the second attempt would fail with
-        payment-error-token-spent instead.)"""
+        """A 1-sat token against a 1-sat swap fee is refused by the
+        pre-flight check, and the refusal is not a spend.
+
+        The notice's content pins WHICH path refused: the pre-check's
+        message names the fee ("charges a 1 sat swap fee, so there is
+        nothing left to spend") while the post-swap classifier's does not
+        ("charges a swap fee that leaves nothing left to spend") — so
+        deleting merchant.go's pre-flight fails this assertion even though
+        the code tag stays identical. Spentness itself is proven against
+        the mint (NUT-07), not inferred from the identical retry."""
         token = create_cashu_token(fees_ecash_wallet, 1, mint_url=MINT_FEES_URL)
 
         r1 = pay(token, upstream_pubkey, customer_identity, BELOW_FEE_MAC)
@@ -95,6 +182,15 @@ class TestSwapFees:
         assert notice_code(event) == "payment-error-below-swap-fee", (
             f"Expected payment-error-below-swap-fee, got: {notice_code(event)}"
         )
+        assert "charges a 1 sat swap fee, so there is nothing left to spend" in event.get("content", ""), (
+            "Notice content does not match the pre-check message (which names "
+            f"the fee); got: {event.get('content')!r} — if this shows the "
+            "post-swap classifier wording ('charges a swap fee that leaves "
+            "nothing left to spend'), the pre-flight in merchant.go is gone "
+            "and only the classifier is answering"
+        )
+
+        assert_token_unspent(token)
 
         r2 = pay(token, upstream_pubkey, customer_identity, BELOW_FEE_MAC)
         assert r2.status_code == 400
@@ -102,6 +198,7 @@ class TestSwapFees:
             "Token was consumed by the first attempt (second refusal should be "
             f"identical, got: {notice_code(r2.json())})"
         )
+        assert_token_unspent(token)
 
     def test_above_swap_fee_succeeds_with_fee_deducted(
         self, upstream_health, upstream_pubkey, fees_ecash_wallet,
