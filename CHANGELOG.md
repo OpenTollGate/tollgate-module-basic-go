@@ -12,15 +12,37 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Release pipeline shards stage 2, and announces only a complete
+  release.** One `act` invocation is bounded by the coordinator's 1800 s
+  ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
+  it: the run at `b25d8a28` timed out after announcing 5 of the 17 legs, and
+  the `.apk`/SDK legs never got a slot at all. Stage 2 is now eleven workflow
+  files rendered from
+  [`packaging/ngit-release-matrix.json`](packaging/ngit-release-matrix.json),
+  each budgeted under 1500 s and each covering part of the same matrix — no
+  architecture or compression leg is dropped. A shard no longer publishes a
+  kind-1063: announcements moved to
+  `.ngit/act/workflows/build-package-announce.yml`, which runs
+  `scripts/ngit-release-announce.sh` and refuses unless every shard of the
+  same (version, channel, release run) succeeded **and** every leg has a build
+  record naming that same release run — so a shard that fails or times out
+  leaves the release unannounced instead of half-announced.
+  `scripts/ngit-ci-release.sh` drives the ordered run. `build-portal` on the
+  ngit lane was fixed in the same change: it had been red since the
+  reproducible-build requirement landed, because it could not derive
+  `SOURCE_DATE_EPOCH` without git history. See
+  [`.ngit/README.md`](.ngit/README.md)
+  ([#445](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/445)).
+
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
   `ngit-ci`, from `.ngit/act/workflows/`, as two workflows because one
   `act` invocation is bounded by the coordinator's 30-minute job ceiling:
   `build-package-binaries.yml` (versioning, the five cross-compile
   targets, the captive portal, and the Blossom mirroring plus the
-  build-id records stage 2 resolves) and `build-package.yml` (the 14
-  `.ipk` and 3 `.apk` matrix, per-artifact Blossom upload and kind-1063
-  announcement, the tollgate-os handoff record). The GitHub twin is
+  build-id records stage 2 resolves) and the sharded stage 2 described
+  above (the 14 `.ipk` and 3 `.apk` matrix, per-leg Blossom upload,
+  kind-1063 announcement, the tollgate-os handoff record). The GitHub twin is
   untouched and still runs where Actions is available. `container:`
   blocks — refused with `startup_failure` on this deployment — become
   `docker run` against the same SDK image; the release signing key is
