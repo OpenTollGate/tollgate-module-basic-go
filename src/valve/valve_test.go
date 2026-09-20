@@ -210,20 +210,27 @@ func TestAuthorizeMACRetriesThenSucceeds(t *testing.T) {
 	}()
 	authRetryDelay = time.Millisecond // keep the test fast
 
-	calls := 0
+	authCalls := 0
 	runNdsctl = func(args ...string) (string, error) {
-		calls++
-		if args[0] == "auth" && calls < 3 {
-			return "Client not found", fmt.Errorf("exit status 1")
+		switch args[0] {
+		case "auth":
+			authCalls++
+			if authCalls < 3 {
+				return "Client not found", fmt.Errorf("exit status 1")
+			}
+			return "ok", nil
+		case "json":
+			// Probe on failed auth: client still pending, not authenticated.
+			return `{"id":1,"state":"Pending"}`, nil
 		}
-		return "ok", nil
+		return "", fmt.Errorf("unexpected ndsctl call: %v", args)
 	}
 
 	if err := authorizeMAC("aa:bb:cc:dd:ee:ff"); err != nil {
 		t.Fatalf("expected authorizeMAC to succeed after retry, got %v", err)
 	}
-	if calls < 3 {
-		t.Fatalf("expected at least 3 attempts (fail,fail,ok), got %d", calls)
+	if authCalls < 3 {
+		t.Fatalf("expected at least 3 auth attempts (fail,fail,ok), got %d", authCalls)
 	}
 }
 
@@ -237,17 +244,145 @@ func TestAuthorizeMACFailsAfterMaxAttempts(t *testing.T) {
 	}()
 	authRetryDelay = time.Millisecond
 
-	calls := 0
+	authCalls := 0
 	runNdsctl = func(args ...string) (string, error) {
-		calls++
-		return "", fmt.Errorf("exit status 1")
+		switch args[0] {
+		case "auth":
+			authCalls++
+			return "", fmt.Errorf("exit status 1")
+		case "json":
+			// Probe: client not authenticated, so retrying must continue.
+			return `{"id":1,"state":"Pending"}`, nil
+		}
+		return "", fmt.Errorf("unexpected ndsctl call: %v", args)
 	}
 
 	err := authorizeMAC("aa:bb:cc:dd:ee:01")
 	if err == nil {
 		t.Fatal("expected error after exhausting retries")
 	}
-	if calls != authMaxAttempts {
-		t.Fatalf("expected exactly %d attempts, got %d", authMaxAttempts, calls)
+	if authCalls != authMaxAttempts {
+		t.Fatalf("expected exactly %d auth attempts, got %d", authMaxAttempts, authCalls)
+	}
+}
+
+// TestCheckClientStateNotRegistered verifies that an empty NDS client list
+// ("{}" from ndsctl json) is reported as a definitive not-registered state,
+// not a probe error.
+func TestCheckClientStateNotRegistered(t *testing.T) {
+	origNdsctl := runNdsctl
+	defer func() { runNdsctl = origNdsctl }()
+
+	runNdsctl = func(args ...string) (string, error) {
+		if args[0] != "json" {
+			t.Errorf("CheckClientState must be read-only, got ndsctl call: %v", args)
+		}
+		return "{}\n", nil
+	}
+
+	state, err := CheckClientState("aa:bb:cc:dd:ee:10")
+	if err != nil {
+		t.Fatalf("expected nil error for empty NDS client list, got %v", err)
+	}
+	if state.Registered {
+		t.Fatal("expected Registered=false when NDS reports no client")
+	}
+	if state.Authenticated {
+		t.Fatal("expected Authenticated=false when not registered")
+	}
+}
+
+// TestCheckClientStateAuthenticated verifies the probe reports both
+// registration and the Authenticated state for a live client.
+func TestCheckClientStateAuthenticated(t *testing.T) {
+	origNdsctl := runNdsctl
+	defer func() { runNdsctl = origNdsctl }()
+
+	runNdsctl = func(args ...string) (string, error) {
+		return `{"id":7,"mac":"aa:bb:cc:dd:ee:11","state":"Authenticated"}`, nil
+	}
+
+	state, err := CheckClientState("aa:bb:cc:dd:ee:11")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !state.Registered || !state.Authenticated {
+		t.Fatalf("expected Registered=true Authenticated=true, got %+v", state)
+	}
+}
+
+// TestCheckClientStatePending verifies a registered-but-pending client is
+// Registered=true, Authenticated=false.
+func TestCheckClientStatePending(t *testing.T) {
+	origNdsctl := runNdsctl
+	defer func() { runNdsctl = origNdsctl }()
+
+	runNdsctl = func(args ...string) (string, error) {
+		return `{"id":7,"mac":"aa:bb:cc:dd:ee:12","state":"Pending"}`, nil
+	}
+
+	state, err := CheckClientState("aa:bb:cc:dd:ee:12")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !state.Registered {
+		t.Fatal("expected Registered=true for a pending client")
+	}
+	if state.Authenticated {
+		t.Fatal("expected Authenticated=false for a pending client")
+	}
+}
+
+func TestCheckClientStateRejectsInvalidMAC(t *testing.T) {
+	if _, err := CheckClientState("not-a-mac"); err == nil {
+		t.Fatal("expected error for invalid MAC")
+	}
+}
+
+// TestCheckClientStateReturnsProbeError verifies ndsctl failures surface as
+// probe errors so callers can fail open.
+func TestCheckClientStateReturnsProbeError(t *testing.T) {
+	origNdsctl := runNdsctl
+	defer func() { runNdsctl = origNdsctl }()
+
+	runNdsctl = func(args ...string) (string, error) {
+		return "", fmt.Errorf("exit status 1")
+	}
+
+	if _, err := CheckClientState("aa:bb:cc:dd:ee:13"); err == nil {
+		t.Fatal("expected probe error to surface, got nil")
+	}
+}
+
+// TestAuthorizeMACAlreadyAuthenticatedClientSucceeds verifies that when NDS
+// 5.0.2's `ndsctl auth` exits 1 for a client that is ALREADY Authenticated,
+// authorizeMAC recognizes this via the read-only probe and treats the gate as
+// open instead of failing (issue #403 trigger (b): first payment after fresh
+// daemon state with a still-authed client).
+func TestAuthorizeMACAlreadyAuthenticatedClientSucceeds(t *testing.T) {
+	origNdsctl, origDelay := runNdsctl, authRetryDelay
+	defer func() {
+		runNdsctl = origNdsctl
+		authRetryDelay = origDelay
+	}()
+	authRetryDelay = time.Millisecond
+
+	authCalls := 0
+	runNdsctl = func(args ...string) (string, error) {
+		switch args[0] {
+		case "auth":
+			authCalls++
+			return "Client is already authenticated", fmt.Errorf("exit status 1")
+		case "json":
+			return `{"id":7,"state":"Authenticated"}`, nil
+		}
+		return "", fmt.Errorf("unexpected ndsctl call: %v", args)
+	}
+
+	if err := authorizeMAC("aa:bb:cc:dd:ee:14"); err != nil {
+		t.Fatalf("expected already-Authenticated client to succeed, got %v", err)
+	}
+	if authCalls == 0 {
+		t.Fatal("expected at least one real auth attempt before the probe")
 	}
 }

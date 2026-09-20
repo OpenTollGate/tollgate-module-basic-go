@@ -136,6 +136,21 @@ and [Semantic Versioning](https://semver.org/).
   `GPL-3.0-only`** in `packaging/Makefile`, `packaging/local-build-ipk.sh`,
   and the CI ipk control template, matching the repository's actual
   GPL-3.0 `LICENSE`. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **Payments refused up front when the gate provably cannot open.**
+  `PurchaseSession` consumed the customer's Cashu token (proofs swapped —
+  irreversible) before attempting gate-open, so a failed `ndsctl auth` left
+  the value in the operator wallet with no session and no refund path (both
+  lab-reproduced triggers of [#403](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/403):
+  unknown MAC, and NDS 5.0.2 exiting 1 for an already-Authenticated client).
+  A new read-only `ndsctl json` probe (`valve.CheckClientState`) now refuses
+  payment with an actionable `client-not-registered` notice *before*
+  `Receive` — re-probing at the valve auth-retry cadence so the reseller
+  flow's asynchronous NDS registration is not refused on first sight, and
+  failing open on probe errors so a broken probe cannot block payments —
+  while `authorizeMAC` treats an already-Authenticated client as authorized
+  instead of failing the first payment after fresh daemon state.
+  ([#412](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/412))
 ### Changed / Internal
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)

@@ -29,6 +29,18 @@ type CustomerSession struct {
 	Allotment  uint64 // Total allotment for this session
 }
 
+// ndsClientCheck is a seam over valve.CheckClientState so tests can stub the
+// read-only NDS probe without a router.
+var ndsClientCheck = valve.CheckClientState
+
+// preflightProbeAttempts mirrors the valve auth-retry budget: the reseller
+// flow's upstream NDS registers client sessions asynchronously, so absence at
+// first probe is not final.
+const preflightProbeAttempts = 5
+
+// preflightRetryDelay is a var so tests can shrink it.
+var preflightRetryDelay = 400 * time.Millisecond
+
 // MerchantInterface defines the interface for merchant payment operations
 type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
@@ -478,6 +490,15 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			}
 			return noticeEvent, nil
 		}
+	}
+
+	if !m.clientRegisteredForGate(macAddress) {
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "client-not-registered",
+			"No captive-portal session found for this device. Reconnect to the TollGate Wi-Fi and try again.", macAddress)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("client not registered and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
 	}
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
@@ -1132,6 +1153,31 @@ func (m *Merchant) restoreSession(macAddress string, previousSession *CustomerSe
 	}
 
 	delete(m.customerSessions, macAddress)
+}
+
+// clientRegisteredForGate is the pre-Receive pre-flight of issue #403: a
+// payment whose MAC NDS does not know cannot have its gate opened, so
+// accepting it would consume the customer's token with no session and no
+// refund path. Probe errors fail open — a broken probe must not become a
+// payment denial of service.
+func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
+	for attempt := 1; attempt <= preflightProbeAttempts; attempt++ {
+		state, err := ndsClientCheck(macAddress)
+		if err != nil {
+			log.Printf("PurchaseSession pre-flight: NDS probe error, failing open (attempt %d): %v", attempt, err)
+			return true
+		}
+		if state.Registered {
+			return true
+		}
+		if attempt < preflightProbeAttempts {
+			time.Sleep(preflightRetryDelay)
+		}
+	}
+
+	log.Printf("PurchaseSession pre-flight: MAC %s not registered in NDS after %d probes; refusing payment before Receive",
+		macAddress, preflightProbeAttempts)
+	return false
 }
 
 // AddAllotment adds allotment to a customer session, creating it if it doesn't exist
