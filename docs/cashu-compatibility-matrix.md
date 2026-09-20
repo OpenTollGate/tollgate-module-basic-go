@@ -3,6 +3,10 @@
 This document explains every combination of Cashu token format and keyset
 version, what it means, whether gonuts-tollgate supports it, and how to test it.
 
+For the wallet-*backend* contract (the seam a replacement wallet must
+implement, and its acceptance criteria), see
+[docs/architecture/walletport-contract.md](architecture/walletport-contract.md).
+
 ## Dimensions
 
 ### Token Formats (how the token is serialized for transport)
