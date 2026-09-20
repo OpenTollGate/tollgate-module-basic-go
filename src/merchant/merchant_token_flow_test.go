@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
@@ -83,20 +82,10 @@ func TestTokenFlowCharacterization(t *testing.T) {
 		// "Token rejected" error. Fund wraps this as "failed to receive token".
 		m := &Merchant{}
 
-		// Construct a valid V4 token using the cashu library.
-		proofs := cashu.Proofs{
-			{Amount: 1, Id: "00ad", C: "ab", Secret: "test-secret"},
-		}
-		token, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
-		if err != nil {
-			t.Fatalf("NewTokenV4: %v", err)
-		}
-		tokenStr, err := token.Serialize()
-		if err != nil {
-			t.Fatalf("Serialize: %v", err)
-		}
+		// Construct a valid V4 token via the wallet-agnostic fixture helper.
+		tokenStr := mustV4Token(t, 1, "test-secret")
 
-		_, err = m.Fund(tokenStr)
+		_, err := m.Fund(tokenStr)
 		if err == nil {
 			t.Fatal("Fund(valid token, zero wallet) should return error")
 		}
@@ -107,17 +96,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
 	})
 
 	t.Run("happy_path_v3_token", func(t *testing.T) {
-		proofs := cashu.Proofs{
-			{Amount: 2, Id: "00ad", C: "ab", Secret: "stub-secret-v3"},
-		}
-		tok, err := cashu.NewTokenV3(proofs, "https://testmint.example.com", cashu.Sat, false)
-		if err != nil {
-			t.Fatalf("NewTokenV3: %v", err)
-		}
-		tokenStr, err := tok.Serialize()
-		if err != nil {
-			t.Fatalf("Serialize: %v", err)
-		}
+		tokenStr := mustV3Token(t, 2, "stub-secret-v3")
 
 		m := &Merchant{tollwallet: &stubReceiveWallet{
 			receive: func(tollwallet.Token) (uint64, error) { return 2, nil },
@@ -132,17 +111,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
 	})
 
 	t.Run("happy_path_v4_token", func(t *testing.T) {
-		proofs := cashu.Proofs{
-			{Amount: 4, Id: "00ad", C: "ab", Secret: "stub-secret-v4"},
-		}
-		tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
-		if err != nil {
-			t.Fatalf("NewTokenV4: %v", err)
-		}
-		tokenStr, err := tok.Serialize()
-		if err != nil {
-			t.Fatalf("Serialize: %v", err)
-		}
+		tokenStr := mustV4Token(t, 4, "stub-secret-v4")
 
 		m := &Merchant{tollwallet: &stubReceiveWallet{
 			receive: func(tollwallet.Token) (uint64, error) { return 4, nil },
@@ -157,17 +126,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
 	})
 
 	t.Run("already_spent_token", func(t *testing.T) {
-		proofs := cashu.Proofs{
-			{Amount: 1, Id: "00ad", C: "ab", Secret: "stub-secret-spent"},
-		}
-		tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
-		if err != nil {
-			t.Fatalf("NewTokenV4: %v", err)
-		}
-		tokenStr, err := tok.Serialize()
-		if err != nil {
-			t.Fatalf("Serialize: %v", err)
-		}
+		tokenStr := mustV4Token(t, 1, "stub-secret-spent")
 
 		spentErr := fmt.Errorf("token already spent: proofs are used")
 		m := &Merchant{tollwallet: &stubReceiveWallet{
@@ -195,17 +154,7 @@ func TestTokenFlowCharacterization(t *testing.T) {
 // amount, with no face-value re-crediting. The allotment arithmetic over
 // these post-fee amounts is table-tested on #342.
 func TestFund_CreditsPostSwapFeeAmount_Fork63(t *testing.T) {
-	proofs := cashu.Proofs{
-		{Amount: 5, Id: "00ad", C: "ab", Secret: "fork63-five-sat"},
-	}
-	tok, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
-	if err != nil {
-		t.Fatalf("NewTokenV4: %v", err)
-	}
-	tokenStr, err := tok.Serialize()
-	if err != nil {
-		t.Fatalf("Serialize: %v", err)
-	}
+	tokenStr := mustV4Token(t, 5, "fork63-five-sat")
 
 	m := &Merchant{tollwallet: &stubReceiveWallet{
 		receive: func(tollwallet.Token) (uint64, error) {
