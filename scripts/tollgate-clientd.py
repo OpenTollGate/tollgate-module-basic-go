@@ -32,6 +32,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -44,19 +45,50 @@ import urllib.request
 
 PORT = 2121
 HTTP_TIMEOUT = 5.0
+PAYMENT_TIMEOUT = 30.0        # a router may swap synchronously — don't
+                              # abandon a live payment at 5 s (#423)
 POLL_INTERVAL = 2.0          # seconds between /usage polls
 PAYMENT_THROTTLE = 5.0       # minimum seconds between payment attempts
 PAYMENT_BACKOFF_MAX = 60.0   # max seconds of failure backoff
 PORTAL_PORT = 80             # hit once per payment so nodogsplash registers us
+DEFAULT_MAX_BLIND_PAYMENTS = 3
 
 DEFAULT_RENEW_BELOW_BYTES = 20 * 1024 * 1024   # 20 MiB
 DEFAULT_RENEW_BELOW_MS = 30_000                # 30 s
+
+# Router notice codes that retrying can never fix. Paying again with the
+# same amount is futile (below-swap-fee) or the token is already gone
+# (spent/invalid): the daemon must stop, not back off and re-mint.
+TERMINAL_PAYMENT_CODES = {
+    "payment-error-below-swap-fee",
+    "payment-error-invalid-token",
+    "payment-error-token-spent",
+}
 
 RECV_BUF = 1 << 20
 
 
 class ClientError(Exception):
     pass
+
+
+class TerminalPaymentError(ClientError):
+    """The router rejected the payment with a code retrying cannot fix."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+class BlindPaymentCapExceeded(ClientError):
+    """Payments succeed but /usage never reflects them: stop paying."""
+
+
+def default_state_dir() -> str:
+    """Where unacknowledged payment tokens are preserved (XDG state)."""
+    xdg = os.environ.get("XDG_STATE_HOME")
+    base = xdg if xdg else os.path.expanduser("~/.local/state")
+    return os.path.join(base, "tollgate-clientd")
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +238,9 @@ def get_usage(gateway: str) -> tuple[int, int] | None:
     return used, allotment
 
 
-def pay(gateway: str, mac: str, token: str) -> dict:
+def pay(gateway: str, mac: str, token: str, timeout: float = PAYMENT_TIMEOUT) -> dict:
     """POST a raw Cashu token; return the session event on success."""
-    status, body = http_post(f"{_base(gateway)}/?mac={mac}", token)
+    status, body = http_post(f"{_base(gateway)}/?mac={mac}", token, timeout=timeout)
     try:
         ev = json.loads(body)
     except json.JSONDecodeError:
@@ -216,10 +248,19 @@ def pay(gateway: str, mac: str, token: str) -> dict:
     if status == 200 and ev.get("kind") == 1022:
         return ev
     # kind 21023 notice (or anything else) — surface the router's message
+    # and its coded reason; terminal codes must stop the daemon instead
+    # of feeding the retry loop (#423).
     message = ev.get("content") or ""
+    code = None
     for tag in ev.get("tags", []):
         if tag[0] == "message":
             message = tag[1] if len(tag) > 1 else message
+        elif tag[0] == "code" and len(tag) > 1:
+            code = tag[1]
+    if code in TERMINAL_PAYMENT_CODES:
+        raise TerminalPaymentError(
+            code, f"payment rejected (HTTP {status}, terminal code {code}): "
+                  f"{message or body[:200]}")
     raise ClientError(f"payment rejected (HTTP {status}): {message or body[:200]}")
 
 
@@ -259,7 +300,13 @@ def _expand_keyset_ids(token: str, mint_url: str) -> str:
                     proof["id"] = short_to_full[pid]
         return "cashuA" + base64.urlsafe_b64encode(
             json.dumps(data).encode()).decode()
-    except Exception:  # noqa: BLE001 — workaround is best effort by design
+    except Exception as e:  # noqa: BLE001 — expansion is best effort by design
+        # But not silent: cdk-mintd rejects short keyset IDs outright, so a
+        # token that skips expansion is very likely to be refused with a
+        # misleading error at pay time. Say why the token went out bare.
+        print(f"warning: keyset-ID expansion failed ({e}); sending the "
+              f"token with its original keyset IDs — cdk-mintd mints will "
+              f"reject it", file=sys.stderr)
         return token
 
 
@@ -389,9 +436,44 @@ class ClientDaemon:
         self.steps = max(args.steps, self.offer.min_steps)
         self.last_payment = 0.0
         self.backoff = PAYMENT_THROTTLE
+        self.state_dir = args.state_dir or default_state_dir()
+        self.max_blind_payments = getattr(
+            args, "max_blind_payments", DEFAULT_MAX_BLIND_PAYMENTS)
+        self.payment_timeout = getattr(
+            args, "payment_timeout", PAYMENT_TIMEOUT)
+        # A payment that succeeds while /usage keeps reporting no session
+        # cannot be distinguished from one that vanished — count those and
+        # stop after --max-blind-payments instead of re-paying forever (#422).
+        self.blind_payments = 0
+        self.last_allotment: int | None = None
 
     def amount_sats(self) -> int:
         return self.steps * self.offer.price
+
+    def _pending_path(self) -> str:
+        digest = hashlib.sha1(
+            f"{self.offer.mint_url}|{self.amount_sats()}".encode()).hexdigest()[:12]
+        return os.path.join(self.state_dir, f"pending-{digest}.token")
+
+    def _load_pending_token(self) -> str | None:
+        try:
+            with open(self._pending_path()) as f:
+                return f.read().strip() or None
+        except OSError:
+            return None
+
+    def _save_pending_token(self, token: str) -> None:
+        os.makedirs(self.state_dir, mode=0o700, exist_ok=True)
+        path = self._pending_path()
+        with open(path, "w") as f:
+            f.write(token + "\n")
+        os.chmod(path, 0o600)
+
+    def _clear_pending_token(self) -> None:
+        try:
+            os.unlink(self._pending_path())
+        except OSError:
+            pass
 
     def top_up(self) -> str:
         """Pay for self.steps; returns a short status message."""
@@ -400,15 +482,44 @@ class ClientDaemon:
             return "throttled"
         self.last_payment = now
         register_with_portal(self.gateway)
-        token = self.wallet_sender(self.offer.mint_url, self.amount_sats(),
-                                   self.args.wallet_dir)
-        ev = pay(self.gateway, self.mac, token)
+        # A token minted for a previous attempt that never got acknowledged
+        # is still money: reuse it instead of minting (and paying for)
+        # another one (#423).
+        token = self._load_pending_token()
+        reused = token is not None
+        if not reused:
+            token = self.wallet_sender(self.offer.mint_url, self.amount_sats(),
+                                       self.args.wallet_dir)
+            self._save_pending_token(token)
+        try:
+            ev = pay(self.gateway, self.mac, token,
+                     timeout=self.payment_timeout)
+        except TerminalPaymentError as e:
+            if e.code == "payment-error-token-spent":
+                self._clear_pending_token()
+            raise
+        self._clear_pending_token()
         self.backoff = PAYMENT_THROTTLE
         allotment = ""
         for tag in ev.get("tags", []):
             if tag[0] == "allotment" and len(tag) > 1:
                 allotment = tag[1]
-        return f"paid {self.amount_sats()} sats (allotment now {allotment or '?'})"
+        # The router's 1022 event is NOT proof of credit for this client:
+        # in the #422 failure mode payments are accepted while /usage
+        # stays -1/-1 forever. Only run()'s /usage observations reset the
+        # counter; a payment that nothing observed counts as blind.
+        self.blind_payments += 1
+        if self.blind_payments >= self.max_blind_payments:
+            raise BlindPaymentCapExceeded(
+                f"{self.blind_payments} payment(s) accepted by the gateway "
+                f"without /usage ever reflecting them — the router cannot "
+                f"map this client to a session (its /usage stays -1/-1; "
+                f"see #422). Not paying again. Any unacknowledged token "
+                f"is preserved under {self.state_dir} (0600) for manual "
+                f"recovery.")
+        origin = "reused pending" if reused else "minted"
+        return (f"paid {self.amount_sats()} sats ({origin} token, "
+                f"allotment now {allotment or '?'})")
 
     def status(self) -> dict:
         usage = get_usage(self.gateway)
@@ -444,6 +555,14 @@ class ClientDaemon:
         while True:
             try:
                 st = self.status()
+                # Any allotment growth observed through /usage proves the
+                # gateway credits this client — clear the blind counter.
+                if st["allotment"] is not None:
+                    if (self.last_allotment is None
+                            or st["allotment"] > self.last_allotment):
+                        self.blind_payments = 0
+                    self.last_allotment = max(st["allotment"],
+                                              self.last_allotment or 0)
                 if st["remaining"] is None:
                     line = f"[TollGate {self.gateway}] no session — needs payment"
                 else:
@@ -463,11 +582,18 @@ class ClientDaemon:
                     try:
                         msg = self.top_up()
                         print(f"  -> {msg}", file=sys.stderr)
+                    except (TerminalPaymentError, BlindPaymentCapExceeded) as e:
+                        print(f"FATAL: {e}", file=sys.stderr)
+                        print("stopping — retrying cannot fix this; "
+                              "see the message above.", file=sys.stderr)
+                        raise
                     except (ClientError, OSError) as e:
                         self.backoff = min(self.backoff * 2, PAYMENT_BACKOFF_MAX)
                         self.last_payment = time.monotonic()
                         print(f"  !! top-up failed: {e} "
                               f"(retrying in {self.backoff:.0f}s)", file=sys.stderr)
+            except (TerminalPaymentError, BlindPaymentCapExceeded):
+                raise
             except (ClientError, urllib.error.URLError, OSError) as e:
                 print(f"waiting: {e}", file=sys.stderr)
                 time.sleep(self.args.interval)
@@ -536,6 +662,8 @@ def print_offers(daemon: ClientDaemon) -> None:
 # ---------------------------------------------------------------------------
 
 def selftest() -> int:
+    import shutil
+    import tempfile
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -607,6 +735,7 @@ def selftest() -> int:
         wallet_dir = None
         dry_run = False
         interval = 0.05
+        state_dir = tempfile.mkdtemp(prefix="clientd-selftest-")
 
     failures = []
     try:
@@ -676,6 +805,18 @@ def main() -> int:
                          "(default: 20MB / 30s)")
     ap.add_argument("--interval", type=float, default=POLL_INTERVAL,
                     help="seconds between usage polls")
+    ap.add_argument("--payment-timeout", type=float, default=PAYMENT_TIMEOUT,
+                    help=f"seconds to wait for a payment POST "
+                         f"(default: {PAYMENT_TIMEOUT:.0f} — routers may "
+                         f"swap synchronously)")
+    ap.add_argument("--max-blind-payments", type=int,
+                    default=DEFAULT_MAX_BLIND_PAYMENTS,
+                    help="stop (non-zero exit) after this many payments the "
+                         "gateway accepted without /usage ever reflecting "
+                         "them (default: 3)")
+    ap.add_argument("--state-dir",
+                    help="where unacknowledged payment tokens are preserved "
+                         "(default: ~/.local/state/tollgate-clientd)")
     ap.add_argument("--status", action="store_true",
                     help="print current status once and exit")
     ap.add_argument("--json", action="store_true",
@@ -716,6 +857,9 @@ def main() -> int:
     except KeyboardInterrupt:
         print(file=sys.stderr)
         return 0
+    except (TerminalPaymentError, BlindPaymentCapExceeded) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
