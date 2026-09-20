@@ -124,3 +124,23 @@ cloud-lab-tests:
 
 The mint container build (cargo install cdk-mintd) takes ~5-8 minutes
 on first run. Docker layer caching makes subsequent runs fast.
+
+## Per-checkout project isolation
+
+Every checkout of this repo resolves the same default compose project
+(`cloud-lab`, from the top-level `name:` in `docker-compose.yml`), so
+`compose up` from worktree B silently reuses worktree A's built images —
+the binary inside belongs to A's code. To isolate a checkout, set
+`COMPOSE_PROJECT_NAME` before any `docker compose` call, or copy
+`.env.example` to an untracked `.env` in this directory (auto-loaded):
+
+```bash
+cp tests/cloud-lab/.env.example tests/cloud-lab/.env
+echo "COMPOSE_PROJECT_NAME=cloud-lab-$(git branch --show-current)" >> tests/cloud-lab/.env
+```
+
+Isolated projects build their own images (docker layer cache is still
+shared, so rebuilds are fast) and own their containers, volumes and
+network. Note the compose file pins the `172.28.0.0/16` subnet, so two
+labs still cannot run simultaneously on one host — tear the other down
+first (`docker compose down -v`).
