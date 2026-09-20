@@ -26,6 +26,17 @@ esac
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
+# Whitelabel brand: 'tollgate' (default) or 'net4sats'. The two brands
+# differ only in naming; the brand file is written by whitelabel
+# installers before first boot, and everything derived from it — system
+# hostname (and thus <hostname>.lan DNS), AP SSIDs, NDS gateway name —
+# follows this single selector.
+BRAND="$(cat /etc/tollgate/brand 2>/dev/null | tr -d '[:space:]')"
+case "$BRAND" in
+    net4sats) BRAND_HOSTNAME="Net4sats" ;;
+    *) BRAND_HOSTNAME="TollGate" ;;
+esac
+
 # -- setup steps ------------------------------------------------------------
 
 setup_uhttpd() {
@@ -171,7 +182,7 @@ configure_radio_ap() {
 # Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
 setup_public_wifi() {
     RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
-    GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
+    GATEWAY_NAME="${BRAND_HOSTNAME}-${RANDOM_SUFFIX}"
     log "Gateway name: ${GATEWAY_NAME}"
 
     configure_radio_ap 'default_radio0' 'tollgate_2g_open'
@@ -184,8 +195,8 @@ setup_hostname() {
     local current_hostname
     current_hostname=$(uci -q get system.@system[0].hostname)
     if [ "$current_hostname" = "OpenWrt" ]; then
-        uci set system.@system[0].hostname='TollGate'
-        log "Hostname changed to TollGate (was OpenWrt default)"
+        uci set system.@system[0].hostname="$BRAND_HOSTNAME"
+        log "Hostname changed to $BRAND_HOSTNAME (was OpenWrt default)"
     else
         log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
     fi
@@ -233,6 +244,15 @@ setup_nodogsplash() {
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
     fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
+    # gatewaydomainname deliberately NOT set — and actively deleted on
+    # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
+    # a redir param back to the splash when it is configured, looping
+    # pre-auth clients (browsers abort with ERR_TOO_MANY_REDIRECTS and
+    # never reach the payment page). The friendly <hostname>.lan name
+    # keeps resolving without it: dnsmasq serves the system hostname in
+    # the 'lan' zone (domain/expandhosts/local are set in
+    # setup_dns_dnsmasq). See #428.
+    uci -q delete nodogsplash.@nodogsplash[0].gatewaydomainname
     uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
     # Let the Go backend control session duration: NDS defaults to
     # 1200 s (20 min), which would deauth users mid-session regardless
@@ -424,8 +444,8 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     # Recover gateway name from existing config for AP SSID consistency
     GATEWAY_NAME=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null) || \
     GATEWAY_NAME=$(uci -q get wireless.default_radio0.ssid 2>/dev/null) || \
-    GATEWAY_NAME="TollGate-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
-    RANDOM_SUFFIX="${GATEWAY_NAME#TollGate-}"
+    GATEWAY_NAME="${BRAND_HOSTNAME}-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
+    RANDOM_SUFFIX="${GATEWAY_NAME#*-}"
 
     configure_radio_ap 'default_radio0' 'tollgate_2g_open'
     configure_radio_ap 'default_radio1' 'tollgate_5g_open'
