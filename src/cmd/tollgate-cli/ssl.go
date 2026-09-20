@@ -382,9 +382,13 @@ func sslRemoveSelfSigned(domain string) error {
 
 	os.RemoveAll(backupDir)
 
+	portalName, err := uciGet("system.@system[0].hostname")
+	if err != nil || portalName == "" {
+		portalName = "tollgate"
+	}
 	fmt.Println()
 	fmt.Println("Done. Self-signed HTTPS removed.")
-	fmt.Println("  Portal URL: http://TollGate.lan/")
+	fmt.Printf("  Portal URL: http://%s.lan/\n", portalName)
 	return nil
 }
 
@@ -444,7 +448,11 @@ func sslRemoveRealCert(domain string) error {
 
 	fmt.Println()
 	fmt.Println("Done. HTTPS removed. Portal now served over HTTP.")
-	fmt.Printf("  Portal URL: http://%s/\n", originalDomain)
+	portalName, err := uciGet("system.@system[0].hostname")
+	if err != nil || portalName == "" {
+		portalName = "tollgate"
+	}
+	fmt.Printf("  Portal URL: http://%s.lan/\n", portalName)
 	return nil
 }
 
