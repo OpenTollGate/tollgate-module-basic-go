@@ -869,8 +869,19 @@ same-version short branch.
   that runs the full discovery/payment/renewal loop against a built-in
   mock TollGate. The cdk-cli adapter supports both the modern
   (`--v3 --amount`) and legacy (stdin) CLIs and expands short keyset IDs
-  for cdk-mintd compatibility. Tested by a new unit suite
-  (`tests/clientd/`, 31 tests over in-process mock TollGates) and a
+  for cdk-mintd compatibility. Money-path guards: payment tokens are
+  written to disk (0600, `--state-dir`, default
+  `~/.local/state/tollgate-clientd`) before the POST and reused on
+  retry instead of minting a fresh one; router notice `code` tags are
+  read and terminal codes (`payment-error-below-swap-fee`,
+  `-invalid-token`, `-token-spent`) stop the daemon with a non-zero
+  exit instead of feeding the backoff loop; the payment POST timeout is
+  configurable (`--payment-timeout`, default 30 s — routers may swap
+  synchronously); and `--max-blind-payments` (default 3) bounds the
+  runaway where payments are accepted but `/usage` never reflects them
+  (#422), stopping the daemon non-zero with the unacknowledged token's
+  location. Tested by a new unit suite
+  (`tests/clientd/`, 39 tests over in-process mock TollGates) and a
   cloud-lab e2e lane (`tests/cloud-lab/test_clientd_autotopup.py`)
   that pays the real backend and observes threshold renewal. ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
 
