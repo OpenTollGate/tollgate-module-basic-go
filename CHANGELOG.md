@@ -174,6 +174,18 @@ and [Semantic Versioning](https://semver.org/).
   `src/cli.*` ldflags, which its separate Go module never links, so
   the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
+- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
+  documents the supported-matrix placeholder (honest about what is untested),
+  the feed signing key and the repository line for OpenWrt 25.12, install,
+  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
+  rollback leaves behind, and the fact that `--force-downgrade` is not an
+  apk-tools 3.x option — the failure modes reproduced in practice, how to
+  report a result, and what to expect from an alpha. Every command was
+  executed against a real OpenWrt 25.12.5 userland; router-only steps are
+  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
+  `apk add --allow-untrusted`.
+  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+
 ### Changed / Internal
 
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
