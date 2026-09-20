@@ -1,8 +1,8 @@
 # The `WalletPort` acceptance contract
 
 **Status:** written 2026-09-14 from the actual interface in
-[`src/tollwallet/port.go`](../src/tollwallet/port.go), the wire-format rules in
-[`src/tollwallet/WIREFORMAT.md`](../src/tollwallet/WIREFORMAT.md), and the
+[`src/tollwallet/port.go`](../../src/tollwallet/port.go), the wire-format rules in
+[`src/tollwallet/WIREFORMAT.md`](../../src/tollwallet/WIREFORMAT.md), and the
 failure modes surfaced by the candidate studies (see the wallet-migration
 archive: <https://github.com/felixfelix-bot/tollgate-wallet-migration-research>).
 
