@@ -186,7 +186,7 @@ up` fails (`address already in use`) and — worse — a lab script that
 recreates containers mid-run can half-fail.
 
 **Fix:** drop a `docker-compose.override.yml` next to the compose file
-(keep it out of commits — it is host-specific):
+(host-specific; gitignored — see the root `.gitignore`):
 
 ```yaml
 services:
@@ -200,6 +200,10 @@ services:
     ports: !override
       - "21213:2121"
 ```
+
+`ports: !override` is a Compose-specific YAML tag introduced in
+**v2.24.4** — on older Compose the override file fails to parse instead
+of overriding, so check `docker compose version` first.
 
 Container-to-container traffic is unaffected; only your browser access
 to the mint/upstream moves to the high ports.

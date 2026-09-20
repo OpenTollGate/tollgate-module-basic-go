@@ -33,6 +33,10 @@ tests/.env
 # Per-checkout cloud-lab compose project isolation (.env.example is the template)
 tests/cloud-lab/.env
 
+# Host-specific cloud-lab port overrides (auto-loaded by docker compose;
+# see "Gotchas" in tests/cloud-lab/README.md)
+tests/cloud-lab/docker-compose.override.yml
+
 # Router credentials (copy from routers.env.example)
 routers.env
 
