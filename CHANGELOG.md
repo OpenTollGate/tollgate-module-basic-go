@@ -219,7 +219,17 @@ and [Semantic Versioning](https://semver.org/).
   or above the preferred increment. Existing saved configs are
   deliberately not rewritten; per-link-profile tuning is tracked in
   [#460](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/460).
->>>>>>> fa08fc8 (fix(config): right-size default upstream prepay for fast links)
+- **Expired-keyset payments are no longer misreported as a mint outage.**
+  A token whose proofs sit on a keyset the mint has retired (NUT-02
+  rotation; cdk-mintd refuses the swap with "Keyset has expired") was
+  classified `payment-error-mint-unreachable` — telling the customer to
+  retry or use another mint when the mint is healthy and the note is
+  permanently unspendable. It now carries the dedicated
+  `payment-error-keyset-expired` code with a message that says the
+  e-cash note cannot be recovered, and no longer marks the healthy mint
+  unreachable in the health tracker. Fixes [#440](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/440).
+
+
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
   onUpgrade consumer but never the tracker's first-reachable trigger that
