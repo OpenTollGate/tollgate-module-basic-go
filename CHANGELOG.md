@@ -222,18 +222,6 @@ and [Semantic Versioning](https://semver.org/).
   else in the file changes.
   ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
 
-- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
-  documents the supported-matrix placeholder (honest about what is untested),
-  the feed signing key and the repository line for OpenWrt 25.12, install,
-  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
-  rollback leaves behind, and the fact that `--force-downgrade` is not an
-  apk-tools 3.x option — the failure modes reproduced in practice, how to
-  report a result, and what to expect from an alpha. Every command was
-  executed against a real OpenWrt 25.12.5 userland; router-only steps are
-  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
-  `apk add --allow-untrusted`.
-  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
-
 - **ngit mirror linked from the README.** A new "Mirror, CI and releases on
   Nostr (ngit)" section documents the mirror's `nostr://` and HTTPS clone
   URLs, the gitworkshop browser URL, the ngit-CI dashboard, and how to fetch
