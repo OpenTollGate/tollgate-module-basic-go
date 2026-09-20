@@ -26,24 +26,31 @@ esac
 LOGFILE=/tmp/tollgate-setup.log
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
-# Whitelabel brand: 'tollgate' (default) or 'net4sats'. The two brands
-# differ only in naming; the brand file is written by whitelabel
+# -- setup steps ------------------------------------------------------------
+
+# load_brand: whitelabel selector — 'tollgate' (default) or 'net4sats'. The
+# two brands differ only in naming; the brand file is written by whitelabel
 # installers before first boot, and everything derived from it — system
 # hostname (and thus <hostname>.lan DNS), AP SSIDs, NDS gateway name —
 # follows this single selector.
+#
+# Called AFTER the log truncation in both the short and full paths: anything
+# logged before `: > "$LOGFILE"` is wiped, which silently ate the
+# coercion line when this ran at the top of the script.
+#
 # read -r strips the trailing newline and leading/trailing IFS whitespace
 # (verified on BusyBox ash). Do NOT use `tr -d '[:space:]'` here: BusyBox tr
 # treats the character class as a literal set and deletes every s/p/a/c/e
 # from the value — "net4sats" became "nt4t" and coerced to the default.
-read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
-case "$BRAND" in
-    net4sats) BRAND_HOSTNAME="Net4sats" ;;
-    *) BRAND_HOSTNAME="TollGate"
-       [ -n "$BRAND" ] && log "Brand '${BRAND}' not recognized — coercing to default 'tollgate' (expected: net4sats)"
-       ;;
-esac
-
-# -- setup steps ------------------------------------------------------------
+load_brand() {
+    read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
+    case "$BRAND" in
+        net4sats) BRAND_HOSTNAME="Net4sats" ;;
+        *) BRAND_HOSTNAME="TollGate"
+           [ -n "$BRAND" ] && log "Brand '${BRAND}' not recognized — coercing to default 'tollgate' (expected: net4sats)"
+           ;;
+    esac
+}
 
 setup_uhttpd() {
     uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
@@ -385,6 +392,8 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     chmod 600 "$LOGFILE"
     log "Flag matches $SETUP_VERSION — verifying wireless APs only"
 
+    load_brand
+
     # Recover gateway name from existing config for AP SSID consistency
     GATEWAY_NAME=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null) || \
     GATEWAY_NAME=$(uci -q get wireless.default_radio0.ssid 2>/dev/null) || \
@@ -416,6 +425,8 @@ fi
 : > "$LOGFILE"
 chmod 600 "$LOGFILE"  # contains the WiFi password — keep it root-only
 log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
+
+load_brand
 
 setup_uhttpd
 setup_uhttpd_portal
