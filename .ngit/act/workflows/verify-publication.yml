@@ -1,0 +1,178 @@
+name: Verify publication
+
+# ============================================================================
+# The publication gate, as a standalone ngit workflow.
+#
+# WHY IT EXISTS SEPARATELY
+#   `.ngit/act/workflows/build-package.yml` runs the same gate in-process, but
+#   ngit-ci bounds ONE `act` invocation (one workflow file) with one 30-minute
+#   budget, and the full 14 .ipk + 3 .apk matrix does not fit it: the measured
+#   stage-2 run was cut off after announcing 5 of the 14 .ipk legs, so a gate
+#   sitting behind that matrix never gets to run at all. This file is the gate
+#   as its own run, with its own budget, so the question "did this version
+#   really reach the channel?" can be asked and answered independently of
+#   whether the publish run had room to finish.
+#
+# WHAT IT CHECKS (identical in meaning to the GitHub twin's verify-publication)
+#   For every (arch, format) pair the release matrix declares, a kind-1063
+#   announcement must exist on the channel relays for the verified version +
+#   channel, and the artifact must be fetchable from at least two Blossom
+#   mirrors with the sha256 carried in its `x` tag. Expectations come from the
+#   static matrix in build-package.yml (scripts/ngit-matrix-expectations.sh),
+#   never from whatever happened to get published. A failure names the missing
+#   (arch, format) pair or the failing mirror and exits non-zero, so the
+#   workflow result is not `success`.
+#
+# TARGET RESOLUTION — the ref *is* the parameter
+#   ngit-ci never delivers `workflow_dispatch` inputs, so this file takes its
+#   target from the ref it was triggered at:
+#     refs/tags/v*                              version = tag, channel from the
+#                                               tag suffix (alpha/beta/stable/dev)
+#     refs/heads/verify/<version>/<channel>[/<scope>]
+#                                               exactly that published version
+#                                               and channel; optional scope
+#                                               ipk | apk | all (default: the
+#                                               full ipk,apk expectation set)
+#     anything else (a branch, a PR)            the version + channel this ref
+#                                               would publish, derived the same
+#                                               way resolve-inputs derives them
+#   Only `verify/**` refs trigger a run automatically: a run started at any
+#   other ref at the same moment as the release pipeline would race the publish
+#   and report a failure that says nothing about the channel. To audit a
+#   version published earlier, push that ref (and delete it afterwards):
+#
+#     git push ngit HEAD:refs/heads/verify/<version>/<channel>/ipk
+#     git push ngit --delete refs/heads/verify/<version>/<channel>/ipk
+#
+#   The scope is printed by the gate, and any expectation it excludes is listed
+#   as NOT verified — a narrowed pass must never read like a full one. The
+#   in-process gate in build-package.yml always uses the full set.
+#
+# A NEGATIVE CONTROL (the gate must refuse, not pass vacuously):
+#     git push ngit HEAD:refs/heads/verify/v0.9.9-does-not-exist/alpha
+#   ...fails with "zero events match v=… c=…", which is the v0.6.0-alpha1
+#   incident (a tag that published nothing) turned into a red run.
+# ============================================================================
+
+on:
+  push:
+    branches: ["verify/**"]
+
+jobs:
+  verify-publication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Resolve the verification target from the ref
+        id: target
+        run: |
+          set -euo pipefail
+          : "${GITHUB_OUTPUT:=/tmp/github_output}"
+          : "${GITHUB_ENV:=/dev/null}"
+          : "${GITHUB_STEP_SUMMARY:=/dev/null}"
+          REF="${GITHUB_REF:-}"
+          REF_NAME="${GITHUB_REF_NAME:-}"
+          SHA="${GITHUB_SHA:-}"
+          SCOPE=""
+
+          if [ -z "$REF_NAME" ]; then
+            echo "ERROR: GITHUB_REF_NAME is unset — cannot resolve the target." >&2
+            exit 2
+          fi
+
+          case "$REF" in
+            refs/tags/v*)
+              VERSION="$REF_NAME"
+              case "$REF_NAME" in
+                v[0-9]*.[0-9]*.[0-9]*-alpha*) CHANNEL=alpha ;;
+                v[0-9]*.[0-9]*.[0-9]*-beta*)  CHANNEL=beta  ;;
+                v[0-9]*.[0-9]*.[0-9])         CHANNEL=stable ;;
+                *)                            CHANNEL=dev   ;;
+              esac
+              ;;
+            refs/heads/verify/*)
+              REST="${REF_NAME#verify/}"
+              case "$REST" in
+                */ipk|*/apk|*/all)
+                  SCOPE="${REST##*/}"
+                  REST="${REST%/*}"
+                  ;;
+              esac
+              CHANNEL="${REST##*/}"
+              VERSION="${REST%/*}"
+              if [ -z "$VERSION" ] || [ "$VERSION" = "$REST" ]; then
+                echo "ERROR: verify ref must be verify/<version>/<channel>[/ipk|/apk|/all]" >&2
+                echo "       got: $REF_NAME" >&2
+                exit 2
+              fi
+              case "$CHANNEL" in
+                alpha|beta|stable|dev) ;;
+                *) echo "ERROR: unknown channel '$CHANNEL' in $REF_NAME (want alpha|beta|stable|dev)" >&2
+                   exit 2 ;;
+              esac
+              ;;
+            *)
+              # Same derivation as build-package.yml's resolve-inputs, so a
+              # branch/PR run asks about the version that ref would publish.
+              # The height fallback matters: ngit-ci checkouts have no git
+              # metadata, and both files must fall back the same way or they
+              # would disagree about the version string.
+              COMMIT_HEIGHT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+              VERSION="$(printf '%s' "$REF_NAME" | sed 's|/|-|g').${COMMIT_HEIGHT}.${SHA:0:8}"
+              CHANNEL=dev
+              ;;
+          esac
+
+          {
+            echo "version=$VERSION"
+            echo "channel=$CHANNEL"
+            echo "scope=$SCOPE"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "PACKAGE_VERSION=$VERSION"
+            echo "RELEASE_CHANNEL=$CHANNEL"
+            echo "VERIFY_SCOPE=$SCOPE"
+          } >> "$GITHUB_ENV"
+
+          echo "target version : $VERSION"
+          echo "target channel : $CHANNEL"
+          echo "format scope   : ${SCOPE:-ipk,apk (full)}"
+          {
+            echo "### Verify publication"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| version | \`$VERSION\` |"
+            echo "| channel | \`$CHANNEL\` |"
+            echo "| format scope | \`${SCOPE:-ipk,apk}\` |"
+            echo "| ref | \`$REF_NAME\` |"
+            echo "| commit | \`${GITHUB_SHA:-unknown}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify every matrix (arch, format) is announced and mirrored
+        run: |
+          set -euo pipefail
+
+          # PACKAGE_VERSION / RELEASE_CHANNEL / VERIFY_SCOPE come from the
+          # previous step via $GITHUB_ENV. The scope defaults to the verifier's
+          # full set (ipk,apk) when the ref did not narrow it.
+          # Expectations come from the release matrix itself, so a version that
+          # silently dropped an architecture is a failure rather than a smaller
+          # expectation set. The helper exits 2 rather than printing nothing.
+          EXPECTATIONS=$(bash scripts/ngit-matrix-expectations.sh \
+            .ngit/act/workflows/build-package.yml --compression none --formats ipk,apk)
+          echo "$EXPECTATIONS"
+          export VERIFY_EXPECT="$EXPECTATIONS"
+
+          bash scripts/verify_publication.sh "$PACKAGE_VERSION" "$RELEASE_CHANNEL" -
