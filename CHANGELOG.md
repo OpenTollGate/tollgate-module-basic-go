@@ -34,6 +34,21 @@ and [Semantic Versioning](https://semver.org/).
   [`.ngit/README.md`](.ngit/README.md)
   ([#445](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/445)).
 
+- **Wallet-backend documents: contract, integration decision, measurement
+  protocol.** Promotes the three production-worthy documents from the
+  wallet-migration research branch: `docs/architecture/walletport-contract.md`
+  (what a replacement Cashu backend must satisfy),
+  `docs/architecture/wallet-integration-decision.md` (in-process wallet vs CDK
+  sidecar, per target tier), and
+  `docs/architecture/wallet-measurement-protocol.md` (metric catalogue,
+  proposed blocker thresholds, the six-fact reproducibility contract and the
+  mandatory INJ-1…INJ-8 fault-injection set). The protocol document also
+  records two findings from the current-wallet audit: the seed shares
+  `wallet.db` with the proofs, and the documented `cdk_wallet` build command is
+  a false green. Research plans, experiment sources and raw logs stay out of
+  this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
+  ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
+
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
   `ngit-ci`, from `.ngit/act/workflows/`, as two workflows because one
@@ -51,6 +66,11 @@ and [Semantic Versioning](https://semver.org/).
   plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
   for the measurements, the trigger differences and the end-to-end
   verification evidence.
+- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
+  merchant token-flow tests no longer import the concrete wallet package; token
+  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
+  library-agnostic so the wallet backend can change without touching them.
+  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
 
 - **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
   from the `tmp/release-integration` pseudo-version to the tagged release
@@ -69,6 +89,24 @@ and [Semantic Versioning](https://semver.org/).
   ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
 
 ### Added
+
+- **Process-isolated wallet sidecar + capability manifests.** `src/tollwallet`
+  gains a `WalletPort` client that speaks a newline-delimited JSON RPC over an
+  `AF_UNIX` socket to an out-of-process wallet daemon, so a non-Go wallet
+  (e.g. CDK) can back the module without linking CGO. Per-backend capability
+  manifests (`manifests/{gonuts,cdk,nucula}.json`) and a
+  `wallet-policy.json` selection policy make the backend a per-target choice
+  behind the unchanged `WalletPort` contract; `select.go` resolves the policy to
+  a backend and `Call()` provides an explicit escape hatch for backend-specific
+  methods. `SwapFeeSats` is served by a `swap_fee_sats` RPC (a daemon without
+  the method answers `ok:false`, which surfaces as the error callers already
+  tolerate), and the transport distinguishes safe retries from
+  already-executed requests: money-moving methods (`send`, `melt`,
+  `receive`, `drain`, `mint_tokens`, …) that were written but not answered
+  fail with `ErrSidecarAmbiguous` instead of being re-issued — a blind
+  retry could double-spend — while read-only methods reconnect and retry.
+  Adds manifest/policy validation tests and a policy↔manifest
+  consistency check that runs in the test matrix. ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395))
 
 - **Reproducible builds.** Every byte-affecting build input is now pinned
   in `packaging/build-inputs.json` and loaded through the canonical
