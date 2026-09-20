@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -93,6 +94,8 @@ func testHandler(method string, _ json.RawMessage) (any, error) {
 		return map[string]any{"quote_id": "m1", "amount": 10, "fee_reserve": 1, "state": 0, "expiry": 99}, nil
 	case "melt":
 		return map[string]any{"quote_id": "m1", "paid": true, "preimage": "ff"}, nil
+	case "swap_fee_sats":
+		return uint64(7), nil
 	case "shutdown":
 		return nil, nil
 	default:
@@ -166,6 +169,9 @@ func TestSidecarWalletContract(t *testing.T) {
 	if r, err := sw.Melt("m1"); err != nil || !r.Paid || r.Preimage != "ff" {
 		t.Errorf("Melt = %+v, %v", r, err)
 	}
+	if fee, err := sw.SwapFeeSats(tok); err != nil || fee != 7 {
+		t.Errorf("SwapFeeSats = %d, %v; want 7, nil", fee, err)
+	}
 	if err := sw.Shutdown(); err != nil {
 		t.Errorf("Shutdown: %v", err)
 	}
@@ -190,3 +196,175 @@ func TestSidecarWalletUnreachable(t *testing.T) {
 }
 
 var _ WalletPort = (*SidecarWallet)(nil)
+
+// fakeDropDaemon serves one connection: it records every request it
+// receives, then closes the connection without answering when the
+// handler says so — a daemon that may already have executed the request.
+func fakeDropDaemon(t *testing.T, dropFor map[string]bool) (string, *[]string) {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "wallet.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var mu sync.Mutex
+	seen := []string{}
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				rd := bufio.NewReader(c)
+				for {
+					line, err := rd.ReadBytes('\n')
+					if err != nil {
+						return
+					}
+					var req sidecarRequest
+					if json.Unmarshal(line, &req) != nil {
+						return
+					}
+					mu.Lock()
+					seen = append(seen, req.Method)
+					drop := dropFor[req.Method]
+					mu.Unlock()
+					if drop {
+						return // executed, never answered
+					}
+					var result any
+					switch req.Method {
+					case "info":
+						result = Manifest{Backend: "fake", Kind: "sidecar"}
+					case "get_balance":
+						result = uint64(42)
+					default:
+						resp, _ := json.Marshal(sidecarResponse{ID: req.ID, OK: false, Error: "unexpected " + req.Method})
+						c.Write(append(resp, '\n'))
+						continue
+					}
+					resp, _ := json.Marshal(sidecarResponse{ID: req.ID, OK: true, Result: mustJSONAny(result)})
+					c.Write(append(resp, '\n'))
+				}
+			}(conn)
+		}
+	}()
+	return sock, &seen
+}
+
+func mustJSONAny(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// TestSidecarSwapFeeSats_UnimplementedSurfacesAsError: a daemon without
+// the RPC answers ok:false — per the port contract that must surface as
+// an error so callers fall back to classifying Receive themselves.
+func TestSidecarSwapFeeSats_UnimplementedSurfacesAsError(t *testing.T) {
+	sock := fakeSidecar(t, func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case "info":
+			return Manifest{Backend: "fake", Kind: "sidecar"}, nil
+		case "decode_token":
+			return tokenJSON{Token: "cashuBfake", Mint: "https://mint.example", Amount: 21}, nil
+		}
+		return nil, errors.New("unknown method " + method)
+	})
+	sw, _, err := NewSidecarWallet(sock)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sw.Shutdown()
+	tok, _ := sw.DecodeToken("cashuBfake")
+	if _, err := sw.SwapFeeSats(tok); err == nil {
+		t.Fatal("SwapFeeSats on a daemon without the method must return an error")
+	}
+}
+
+// TestSidecarMoneyMovingRequest_NotRetriedAfterWrite pins the retry
+// classification: when the daemon receives (and here: executes) a send but
+// dies before answering, the client must surface ErrSidecarAmbiguous and
+// must NOT put a second copy of the request on the wire — the old loop
+// re-executed money-moving RPCs.
+func TestSidecarMoneyMovingRequest_NotRetriedAfterWrite(t *testing.T) {
+	sock, seenPtr := fakeDropDaemon(t, map[string]bool{"send": true})
+	sw, _, err := NewSidecarWallet(sock)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sw.Shutdown()
+
+	_, err = sw.Send(50, "https://mint.example", false)
+	if !errors.Is(err, ErrSidecarAmbiguous) {
+		t.Fatalf("Send after an unanswered write = %v; want ErrSidecarAmbiguous", err)
+	}
+	if len(*seenPtr) != 2 { // info + exactly one send
+		t.Fatalf("daemon saw %v; want exactly one send (no blind retry)", *seenPtr)
+	}
+}
+
+// TestSidecarReadOnlyRequest_RetriedAfterWrite: a read that was answered
+// by silence may be re-issued — a duplicate read cannot double-spend.
+func TestSidecarReadOnlyRequest_RetriedAfterWrite(t *testing.T) {
+	var drops int
+	sock := filepath.Join(t.TempDir(), "wallet.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				rd := bufio.NewReader(c)
+				for {
+					line, err := rd.ReadBytes('\n')
+					if err != nil {
+						return
+					}
+					var req sidecarRequest
+					if json.Unmarshal(line, &req) != nil {
+						return
+					}
+					var result any
+					switch req.Method {
+					case "info":
+						result = Manifest{Backend: "fake", Kind: "sidecar"}
+					case "get_balance":
+						drops++
+						if drops == 1 {
+							return // first read dies unanswered
+						}
+						result = uint64(42)
+					default:
+						resp, _ := json.Marshal(sidecarResponse{ID: req.ID, OK: false, Error: "unexpected " + req.Method})
+						c.Write(append(resp, '\n'))
+						continue
+					}
+					resp, _ := json.Marshal(sidecarResponse{ID: req.ID, OK: true, Result: mustJSONAny(result)})
+					c.Write(append(resp, '\n'))
+				}
+			}(conn)
+		}
+	}()
+
+	sw, _, err := NewSidecarWallet(sock)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sw.Shutdown()
+
+	if got := sw.GetBalance(); got != 42 {
+		t.Fatalf("GetBalance = %d; want 42 (read-only retry must recover)", got)
+	}
+}

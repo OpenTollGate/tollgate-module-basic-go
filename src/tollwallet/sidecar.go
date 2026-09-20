@@ -28,6 +28,27 @@ import (
 // ErrSidecarNotConnected is returned when the daemon cannot be reached.
 var ErrSidecarNotConnected = errors.New("tollwallet: wallet sidecar not connected")
 
+// ErrSidecarAmbiguous is returned when a money-moving request was written
+// to the daemon but no valid response came back. The daemon may already
+// have executed it — re-issuing the request blindly could spend twice, so
+// the caller must reconcile (query balances/state) instead of retrying.
+var ErrSidecarAmbiguous = errors.New("tollwallet: sidecar request may have been executed; reconcile before retrying")
+
+// sidecarReadOnlyMethods are safe to re-issue even when the previous
+// attempt already reached the daemon: they move no funds, so a duplicate
+// execution is indistinguishable from a single one. Everything else
+// (send/melt/receive/drain/mint_tokens/…) may not be retried after the
+// request hit the wire.
+var sidecarReadOnlyMethods = map[string]bool{
+	"info":                  true,
+	"get_balance":           true,
+	"get_balance_by_mint":   true,
+	"get_all_mint_balances": true,
+	"decode_token":          true,
+	"mint_quote_state":      true,
+	"swap_fee_sats":         true,
+}
+
 type sidecarRequest struct {
 	ID     uint64          `json:"id"`
 	Method string          `json:"method"`
@@ -90,7 +111,11 @@ func (s *SidecarWallet) connectLocked() error {
 	return nil
 }
 
-// call performs one RPC round-trip. It reconnects once on a lost connection.
+// call performs one RPC round-trip. It reconnects and retries when the
+// failure provably happened before the request reached the daemon (write
+// failure) or the method is read-only; a money-moving request that was
+// written but not answered fails with ErrSidecarAmbiguous instead of
+// being retried — the daemon may already have executed it.
 func (s *SidecarWallet) call(method string, params any, out any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,8 +141,10 @@ func (s *SidecarWallet) call(method string, params any, out any) error {
 		if err != nil {
 			return err
 		}
+		written := false
 		if err := s.conn.SetDeadline(time.Now().Add(s.timeout)); err == nil {
 			if _, err = s.conn.Write(append(line, '\n')); err == nil {
+				written = true
 				var respLine []byte
 				if respLine, err = s.rd.ReadBytes('\n'); err == nil {
 					var resp sidecarResponse
@@ -133,10 +160,15 @@ func (s *SidecarWallet) call(method string, params any, out any) error {
 				}
 			}
 		}
-		// connection failed mid-call: drop it and retry once
+		// The connection is dead either way; whether the REQUEST is dead
+		// depends on whether it reached the wire and what it would do if
+		// the daemon executed a second copy.
 		s.conn.Close()
 		s.conn = nil
 		s.rd = nil
+		if written && !sidecarReadOnlyMethods[method] {
+			return fmt.Errorf("%w (method %s, request id %d)", ErrSidecarAmbiguous, method, req.ID)
+		}
 	}
 	return fmt.Errorf("%w: %s", ErrSidecarNotConnected, method)
 }
@@ -191,6 +223,22 @@ func (s *SidecarWallet) DecodeToken(tokenStr string) (Token, error) {
 		r.Token = tokenStr
 	}
 	return &sidecarToken{mint: r.Mint, amount: r.Amount, serialized: r.Token}, nil
+}
+
+// SwapFeeSats asks the daemon for the mint's swap fee over the token's
+// proofs. A daemon that does not implement the method answers ok:false,
+// which surfaces as an error here — matching the port contract that
+// callers fall back to classifying Receive when the fee is unknown.
+func (s *SidecarWallet) SwapFeeSats(token Token) (uint64, error) {
+	ser, err := token.Serialize()
+	if err != nil {
+		return 0, err
+	}
+	var fee uint64
+	if err := s.call("swap_fee_sats", map[string]string{"token": ser}, &fee); err != nil {
+		return 0, err
+	}
+	return fee, nil
 }
 
 // Receive accepts a token and credits the wallet.

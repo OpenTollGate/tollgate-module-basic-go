@@ -56,7 +56,14 @@ and [Semantic Versioning](https://semver.org/).
   `wallet-policy.json` selection policy make the backend a per-target choice
   behind the unchanged `WalletPort` contract; `select.go` resolves the policy to
   a backend and `Call()` provides an explicit escape hatch for backend-specific
-  methods. Adds manifest/policy validation tests and a policy↔manifest
+  methods. `SwapFeeSats` is served by a `swap_fee_sats` RPC (a daemon without
+  the method answers `ok:false`, which surfaces as the error callers already
+  tolerate), and the transport distinguishes safe retries from
+  already-executed requests: money-moving methods (`send`, `melt`,
+  `receive`, `drain`, `mint_tokens`, …) that were written but not answered
+  fail with `ErrSidecarAmbiguous` instead of being re-issued — a blind
+  retry could double-spend — while read-only methods reconnect and retry.
+  Adds manifest/policy validation tests and a policy↔manifest
   consistency check that runs in the test matrix. ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395))
 
 - **Reproducible builds.** Every byte-affecting build input is now pinned
