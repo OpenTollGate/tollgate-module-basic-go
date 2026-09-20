@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "_comment": [
+    "Single source of truth for the ngit release matrix and its shard plan.",
+    "",
+    "WHY THIS FILE EXISTS",
+    "  One `act` invocation -- one workflow file -- is bounded by the coordinator's",
+    "  NGIT_CI_JOB_TIMEOUT_SECS (1800 s on this deployment). The full 14 .ipk + 3 .apk",
+    "  matrix does not fit that, and neither does any per-arch grouping of it. So",
+    "  stage 2 is sharded into one workflow file per group of legs whose MEASURED",
+    "  cost leaves headroom under the ceiling, and this file is where the matrix and",
+    "  the shard assignment live.",
+    "",
+    "MEASURED COST OF THE EXPENSIVE LEGS (2 CPUs, the per-job cgroup cap)",
+    "  `upx --ultra-brute` is what made the unsharded run impossible. Two figures,",
+    "  and the difference between them is the whole argument for sharding:",
+    "    * ~29 min per leg inside the UNsharded run (2026-09-12, commit b25d8a28),",
+    "      where 14 package containers shared a 4-vCPU host through a 2-CPU-per-job",
+    "      cap -- the leg was starved, not slow;",
+    "    * 515 s (~8.6 min) for the same leg in isolation, measured 2026-09-20 on the",
+    "      aarch64_cortex-a53 pair (11.5 MB + 6.7 MB binaries) under `taskset -c 0,1`",
+    "      with the pinned upx 5.2.1. --fast 1.5 s, --best 67 s, --brute 401 s.",
+    "  So a shard that holds ONE ultra-brute leg costs under ten minutes and fits",
+    "  with room to spare; a shard that holds five of them does not. Do not read the",
+    "  515 s as licence to stack legs: the coordinator's host is shared, the CI job",
+    "  also pays the Blossom downloads, and a timed-out shard is what this plan",
+    "  exists to prevent. Re-measure before merging two legs into one shard.",
+    "",
+    "  Also note: the workflow installs `upx-ucl` from apt, which is NOT the pinned",
+    "  upx 5.2.1 from packaging/build-inputs.json. The measurements above use the",
+    "  pinned binary. Pinning the CI one is a separate change.",
+    "",
+    "  Stage 1 (.ngit/act/workflows/build-package-binaries.yml) is unchanged and is",
+    "  still located through the kind-30078 handover records.",
+    "",
+    "GENERATED FROM THIS FILE",
+    "  scripts/ngit-gen-shards.py renders .ngit/act/workflows/build-package-<id>.yml",
+    "  from the `shards` below. The rendered files are committed (act needs static",
+    "  YAML) and `scripts/ngit-gen-shards.py --check` fails when they drift.",
+    "",
+    "READ BY",
+    "  scripts/ngit-shards.sh        plan queries (legs, shard ids, expectations)",
+    "  scripts/ngit-release-announce.sh  completeness gate before anything is announced",
+    "  scripts/verify_publication.sh expectations (via scripts/ngit-shards.sh)",
+    "  scripts/ngit-ci-release.sh    the ordered trigger driver",
+    "",
+    "budget_secs is the shard's budget: the measured wall time where a run has been",
+    "measured (see `measured_secs`), otherwise the estimate that set the shard's",
+    "grain. It must stay under 1500 s so that the 1800 s ceiling keeps a real margin."
+  ],
+  "package": "tollgate-wrt",
+  "package_version_env": "PACKAGE_VERSION",
+  "ceiling_secs": 1800,
+  "target_budget_secs": 1500,
+  "shards": [
+    {
+      "id": "ipk-none",
+      "note": "Every compression=none .ipk leg. Measured 2026-09-12 (inside the unsharded 1800 s run) at under 7 minutes for five legs; this shard is the whole none set.",
+      "budget_secs": 600,
+      "legs": [
+        { "architecture": "aarch64_cortex-a53", "compile_key": "arm64",            "format": "ipk", "compression": "none" },
+        { "architecture": "aarch64_cortex-a72", "compile_key": "arm64",            "format": "ipk", "compression": "none" },
+        { "architecture": "arm_cortex-a7",      "compile_key": "armv7",            "format": "ipk", "compression": "none" },
+        { "architecture": "mipsel_24kc",        "compile_key": "mipsle-softfloat", "format": "ipk", "compression": "none" },
+        { "architecture": "mips_24kc",          "compile_key": "mips-softfloat",   "format": "ipk", "compression": "none" },
+        { "architecture": "x86_64",             "compile_key": "amd64",            "format": "ipk", "compression": "none" }
+      ]
+    },
+    {
+      "id": "ipk-upx-fast-best",
+      "note": "The two cheap UPX levels, measured on the 2-CPU cap against aarch64_cortex-a53: --fast 1.5 s, --best 67 s. Cheap enough to share one shard.",
+      "budget_secs": 420,
+      "legs": [
+        { "architecture": "mips_24kc", "compile_key": "mips-softfloat", "format": "ipk", "compression": "upx-fast" },
+        { "architecture": "mips_24kc", "compile_key": "mips-softfloat", "format": "ipk", "compression": "upx-best" }
+      ]
+    },
+    {
+      "id": "ipk-upx-brute-mips-24kc",
+      "note": "One leg per shard from here on: --brute and --ultra-brute are minutes of pure single-threaded CPU each and cannot be stacked inside one 1800 s invocation.",
+      "budget_secs": 1200,
+      "legs": [
+        { "architecture": "mips_24kc", "compile_key": "mips-softfloat", "format": "ipk", "compression": "upx-brute" }
+      ]
+    },
+    {
+      "id": "ipk-upx-ultrabrute-aarch64-cortex-a53",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "aarch64_cortex-a53", "compile_key": "arm64", "format": "ipk", "compression": "upx-ultra-brute" }
+      ]
+    },
+    {
+      "id": "ipk-upx-ultrabrute-aarch64-cortex-a72",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "aarch64_cortex-a72", "compile_key": "arm64", "format": "ipk", "compression": "upx-ultra-brute" }
+      ]
+    },
+    {
+      "id": "ipk-upx-ultrabrute-arm-cortex-a7",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "arm_cortex-a7", "compile_key": "armv7", "format": "ipk", "compression": "upx-ultra-brute" }
+      ]
+    },
+    {
+      "id": "ipk-upx-ultrabrute-mipsel-24kc",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "mipsel_24kc", "compile_key": "mipsle-softfloat", "format": "ipk", "compression": "upx-ultra-brute" }
+      ]
+    },
+    {
+      "id": "ipk-upx-ultrabrute-mips-24kc",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "mips_24kc", "compile_key": "mips-softfloat", "format": "ipk", "compression": "upx-ultra-brute" }
+      ]
+    },
+    {
+      "id": "apk-mediatek-filogic",
+      "note": "The SDK leg: pull openwrt/sdk:<target>@<pinned digest>, run it as a container against the dind sidecar, package and stream the .apk out. It needs a whole invocation to itself -- on the unsharded run its container was created and then never got a slot while 14 .ipk jobs held the host.",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "aarch64_cortex-a53", "compile_key": "arm64", "format": "apk", "compression": "none", "sdk": "mediatek-filogic" }
+      ]
+    },
+    {
+      "id": "apk-mediatek-filogic-ultrabrute",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "aarch64_cortex-a53", "compile_key": "arm64", "format": "apk", "compression": "upx-ultra-brute", "sdk": "mediatek-filogic" }
+      ]
+    },
+    {
+      "id": "apk-x86-64",
+      "budget_secs": 1500,
+      "legs": [
+        { "architecture": "x86_64", "compile_key": "amd64", "format": "apk", "compression": "none", "sdk": "x86-64" }
+      ]
+    }
+  ]
+}

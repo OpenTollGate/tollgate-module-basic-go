@@ -1,0 +1,448 @@
+# GENERATED FILE -- DO NOT EDIT BY HAND.
+#
+#   plan   : packaging/ngit-release-matrix.json
+#   render : scripts/ngit-gen-shards.py
+#   check  : scripts/ngit-gen-shards.py --check   (run by the release-guard job)
+#
+# This is shard `ipk-upx-ultrabrute-aarch64-cortex-a53` of the ngit release pipeline's stage 2. Stage 1 is
+# .ngit/act/workflows/build-package-binaries.yml and is unchanged.
+#
+# WHY SHARDS EXIST
+#   ngit-ci bounds ONE `act` invocation -- one workflow file -- with the
+#   coordinator's NGIT_CI_JOB_TIMEOUT_SECS (1800 s on this deployment).
+#   The full 14 .ipk + 3 .apk matrix does not fit that budget: the 5
+#   `compression: none` .ipk legs are cheap, `upx --ultra-brute` is minutes of
+#   single-threaded CPU per leg on a 2-CPU job cap, and on the first unsharded
+#   run (2026-09-12, commit b25d8a28) the 3 .apk/SDK legs never got a slot at
+#   all before the ceiling cut the run off. Coverage is not reduced by sharding
+#   -- the 14 + 3 matrix is the same, only split across invocations. Never trim
+#   a leg to make a shard fit.
+#
+# WHAT THIS SHARD DOES, AND WHAT IT DELIBERATELY DOES NOT
+#   It builds its legs, mirrors each artifact to Blossom, and publishes one
+#   kind-30078 record per leg carrying the sha256, the mirror URLs and the
+#   release run id. It does NOT publish a kind-1063 announcement: announcements
+#   are published by .ngit/act/workflows/build-package-announce.yml, and only
+#   once EVERY shard of the same (version, channel, release run) has reported
+#   success. A shard that fails or times out therefore leaves the release
+#   incomplete and unannounced, instead of announcing a partial matrix that
+#   looks finished. See scripts/ngit-release-guard.sh.
+#
+# HOW IT STARTS
+#   Manual replay only (`workflow_dispatch`), so a push to main does not fan out
+#   into one act invocation per shard. Start it with scripts/ngit-ci-release.sh,
+#   which triggers every shard in order, waits for each kind-9842 result, stops
+#   the chain on the first non-success, and only then starts the announce file.
+#   The ref it is replayed at carries the version, the channel and the release
+#   run:
+#
+#     refs/heads/release/<version>/<channel>/<release_run>/ipk-upx-ultrabrute-aarch64-cortex-a53
+#
+#   which is why every shard of one release publishes the same version and
+#   channel even though it is a separate invocation.
+#
+# MATRIX FOR THIS SHARD
+#   - aarch64_cortex-a53  ipk  upx-ultra-brute
+
+on:
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: "tollgate-wrt"
+  SHARD_ID: "ipk-upx-ultrabrute-aarch64-cortex-a53"
+  # blossom1.orangesync.tech is dropped from the GitHub twin's list: measured
+  # unreachable from a job container (25 s connect timeout) while the other four
+  # answer, and BLOSSOM_MIN_SUCCESS=1 means the dead mirror only bought ~60 s of
+  # retries per uploaded file.
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech https://drive.cashu.email"
+  BLOSSOM_MIN_SUCCESS: "1"
+  COORDINATION_RELAYS: >-
+    wss://relay.damus.io
+    wss://nos.lol
+    wss://nostr.mom
+    wss://relay1.orangesync.tech
+    wss://relay2.orangesync.tech
+  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
+
+jobs:
+
+  resolve-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      build_id: ${{ steps.identity.outputs.build_id }}
+      package_version: ${{ steps.identity.outputs.package_version }}
+      release_channel: ${{ steps.identity.outputs.release_channel }}
+      release_run: ${{ steps.identity.outputs.release_run }}
+      hashes: ${{ steps.fetch.outputs.hashes }}
+      portal_hash: ${{ steps.fetch.outputs.portal_hash }}
+      source_date_epoch: ${{ steps.fetch.outputs.source_date_epoch }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # One step, because the three values have to agree: the version and the
+      # channel are what the announcements are keyed by, and the release run is
+      # what the announce gate checks every shard of this release against. They
+      # all come from the replayed ref, so no shard can invent its own.
+      - name: Resolve build id, version, channel and release run
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          REF="${GITHUB_REF:-}"
+          REF_NAME="${GITHUB_REF_NAME:-unknown}"
+          BUILD_ID="${GITHUB_SHA:0:8}"
+          echo "build_id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+
+          if [[ "$REF" == refs/tags/* ]]; then
+            PACKAGE_VERSION="$REF_NAME"
+            case "$REF_NAME" in
+              v[0-9]*.[0-9]*.[0-9]*-alpha*) CHANNEL=alpha  ;;
+              v[0-9]*.[0-9]*.[0-9]*-beta*)  CHANNEL=beta   ;;
+              v[0-9]*.[0-9]*.[0-9])         CHANNEL=stable ;;
+              *)                            CHANNEL=dev    ;;
+            esac
+            RELEASE_RUN="${RELEASE_RUN:-$REF_NAME}"
+          elif [[ "$REF_NAME" =~ ^release/([^/]+)/([^/]+)/([^/]+)/[^/]+$ ]]; then
+            # refs/heads/release/<version>/<channel>/<release_run>/<shard_id>
+            PACKAGE_VERSION="${BASH_REMATCH[1]}"
+            CHANNEL="${BASH_REMATCH[2]}"
+            RELEASE_RUN="${BASH_REMATCH[3]}"
+          else
+            SANITIZED_BRANCH_NAME=$(printf '%s' "$REF_NAME" | sed 's|/|-|g')
+            COMMIT_HEIGHT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+            PACKAGE_VERSION="${SANITIZED_BRANCH_NAME}.${COMMIT_HEIGHT}.${BUILD_ID}"
+            CHANNEL=dev
+            RELEASE_RUN="${BUILD_ID}"
+          fi
+
+          echo "package_version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_channel=${CHANNEL}"         >> "$GITHUB_OUTPUT"
+          echo "release_run=${RELEASE_RUN}"         >> "$GITHUB_OUTPUT"
+          echo "ref=$REF version=$PACKAGE_VERSION channel=$CHANNEL release_run=$RELEASE_RUN"
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+
+      - name: Fetch the stage-1 records
+        id: fetch
+        env:
+          BUILD_ID: ${{ steps.identity.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+
+          # Returns the newest event line for the addressable record <d>.
+          fetch_record() {
+            local d="$1" out
+            for attempt in $(seq 1 20); do
+              out=$(timeout 45 nak req -k 30078 --tag "d=tollgate-build/${BUILD_ID}/${d}" \
+                --limit 1 $COORDINATION_RELAYS < /dev/null 2>/dev/null \
+                | grep -m1 '^{' || true)
+              if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
+              echo "  ${d} record not published yet (attempt $attempt/20); waiting 30s" >&2
+              sleep 30
+            done
+            return 1
+          }
+
+          # An event's `content` is itself a JSON document encoded as a string,
+          # so it has to be parsed twice.
+          record_content() {
+            printf '%s' "$1" | jq -r '.content' | jq -c .
+          }
+
+          BIN_EVENT=$(fetch_record binaries) || {
+            echo "ERROR: no binaries record for build id $BUILD_ID." >&2
+            echo "Run .ngit/act/workflows/build-package-binaries.yml at this same commit first." >&2
+            exit 1
+          }
+          HASHES=$(record_content "$BIN_EVENT")
+          printf '%s' "$HASHES" | jq -e 'type == "object"' > /dev/null || {
+            echo "ERROR: binaries record is not a JSON object: $HASHES" >&2; exit 1; }
+          missing=""
+          for k in arm64 armv7 mipsle-softfloat mips-softfloat amd64; do
+            printf '%s' "$HASHES" | jq -e --arg k "$k" 'has($k)' > /dev/null || missing="$missing $k"
+          done
+          if [ -n "$missing" ]; then
+            echo "ERROR: binaries record is missing compile keys:$missing" >&2
+            echo "refusing to build a partial architecture set from $HASHES" >&2
+            exit 1
+          fi
+          echo "binaries: $HASHES"
+          echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
+
+          # Reproducibility pin (#383, #441): stage 1 stamps the binaries
+          # with a SOURCE_DATE_EPOCH and rides it on this record; packaging
+          # must use the SAME epoch or the package mtimes disagree with the
+          # binaries' BuildTime. Records from before the field existed fall
+          # back to the same derivation stage 1 uses.
+          EPOCH=$(printf '%s' "$HASHES" | jq -r '.epoch // empty')
+          if [ -z "$EPOCH" ]; then
+            EPOCH=$(bash scripts/ngit-commit-epoch.sh "$GITHUB_SHA" 2>/dev/null || true)
+          fi
+          if [ -z "$EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
+            EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
+          fi
+          if [ -z "$EPOCH" ]; then
+            EPOCH="$(date +%s)"
+            echo "NOTE: stage-1 record carried no epoch; using job clock $EPOCH — package mtimes will NOT rebuild identically" >&2
+          fi
+          case "$EPOCH" in *[!0-9]*|'') echo "ERROR: epoch is not an integer: $EPOCH" >&2; exit 1 ;; esac
+          echo "source_date_epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$EPOCH"
+
+          PORTAL_EVENT=$(fetch_record portal) || {
+            echo "ERROR: no portal record for build id $BUILD_ID." >&2
+            exit 1
+          }
+          PORTAL_HASH=$(record_content "$PORTAL_EVENT" | jq -r '.sha256')
+          [ -n "$PORTAL_HASH" ] && [ "$PORTAL_HASH" != "null" ] || {
+            echo "ERROR: portal record has no sha256" >&2; exit 1; }
+          echo "portal: $PORTAL_HASH"
+          echo "portal_hash=$PORTAL_HASH" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: [resolve-inputs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # The packaging scripts (packaging/build-ipk.sh and the apk SDK lane)
+      # stamp mtimes from SOURCE_DATE_EPOCH (#383); it must be the same
+      # epoch the binaries were compiled with (resolve-inputs extracts it
+      # from the stage-1 record).
+      SOURCE_DATE_EPOCH: ${ needs.resolve-inputs.outputs.source_date_epoch }
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { architecture: aarch64_cortex-a53, compile_key: arm64, format: ipk, compression: upx-ultra-brute }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: .
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Download prebuilt binaries from Blossom
+        env:
+          HASHES_JSON: ${{ needs.resolve-inputs.outputs.hashes }}
+        run: |
+          set -euo pipefail
+          BINARIES_HASH=$(printf '%s' "$HASHES_JSON" | jq -r '."${{ matrix.compile_key }}"')
+          if [ -z "$BINARIES_HASH" ] || [ "$BINARIES_HASH" = "null" ]; then
+            echo "ERROR: no Blossom hash for compile_key=${{ matrix.compile_key }}" >&2
+            exit 1
+          fi
+          DOWNLOADED=false
+          for server in $BLOSSOM_SERVERS; do
+            if curl -fsSL -m 60 -o binaries.tar.gz "${server}/${BINARIES_HASH}"; then
+              DOWNLOADED=true
+              echo "Downloaded from ${server}"
+              break
+            fi
+          done
+          [ "$DOWNLOADED" = "true" ] || { echo "ERROR: failed to download binaries from any mirror" >&2; exit 1; }
+          mkdir -p bin
+          tar xzf binaries.tar.gz -C bin
+          ls -lh bin/
+
+      - name: Download portal assets from Blossom
+        env:
+          PORTAL_HASH: ${{ needs.resolve-inputs.outputs.portal_hash }}
+        run: |
+          set -euo pipefail
+          DOWNLOADED=false
+          for server in $BLOSSOM_SERVERS; do
+            if curl -fsSL -m 60 -o portal-assets.tar.gz "${server}/${PORTAL_HASH}"; then
+              DOWNLOADED=true
+              echo "Downloaded portal assets from ${server}"
+              break
+            fi
+          done
+          [ "$DOWNLOADED" = "true" ] || { echo "ERROR: portal assets unavailable on every mirror" >&2; exit 1; }
+          rm -rf ./packaging/files/tollgate-captive-portal-site
+          mkdir -p ./packaging/files/tollgate-captive-portal-site
+          tar xzf portal-assets.tar.gz -C ./packaging/files/tollgate-captive-portal-site
+
+      - name: Install UPX
+        if: ${{ matrix.compression != 'none' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
+
+      - name: Build .ipk
+        id: build
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          COMPRESSION_SUFFIX=""
+          [ "${{ matrix.compression }}" != "none" ] && COMPRESSION_SUFFIX="-${{ matrix.compression }}"
+          PACKAGE_FILENAME=${PACKAGE_NAME}_${{ needs.resolve-inputs.outputs.package_version }}_${{ matrix.architecture }}${COMPRESSION_SUFFIX}.ipk
+          echo "package_filename=$PACKAGE_FILENAME" >> "$GITHUB_OUTPUT"
+
+          PAYLOAD=$(mktemp -d)
+          install -D -m 0755 bin/tollgate-wrt "$PAYLOAD/usr/bin/tollgate-wrt"
+          install -D -m 0755 bin/tollgate     "$PAYLOAD/usr/bin/tollgate"
+
+          install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                          "$PAYLOAD/etc/init.d/tollgate-wrt"
+          install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
+          install -D -m 0755 packaging/files/etc/uci-defaults/99-tollgate-setup               "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+          install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                  "$PAYLOAD/usr/local/bin/first-login-setup"
+          install -D -m 0755 packaging/files/usr/bin/check_package_path                       "$PAYLOAD/usr/bin/check_package_path"
+          install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                      "$PAYLOAD/lib/upgrade/keep.d/tollgate"
+          install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart          "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
+
+          mkdir -p \
+            "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site" \
+            "$PAYLOAD/etc/tollgate/ecash" \
+            "$PAYLOAD/etc/crontabs"
+          cp -r packaging/files/tollgate-captive-portal-site/. "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site/"
+          install -D -m 0644 LICENSE "$PAYLOAD/usr/share/doc/${PACKAGE_NAME}/LICENSE"
+
+          if [ "${{ matrix.compression }}" != "none" ]; then
+            COMP="${{ matrix.compression }}"
+            UPX_FLAGS="--${COMP#upx-}"
+            ls -lh "$PAYLOAD/usr/bin/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate"
+            upx $UPX_FLAGS "$PAYLOAD/usr/bin/tollgate-wrt"
+            upx $UPX_FLAGS "$PAYLOAD/usr/bin/tollgate"
+            ls -lh "$PAYLOAD/usr/bin/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate"
+          fi
+
+          mkdir -p artifacts
+          env \
+            PKG_NAME="$PACKAGE_NAME" \
+            PKG_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \
+            ARCH="${{ matrix.architecture }}" \
+            MAINTAINER="TollGate <tollgate@tollgate.me>" \
+            LICENSE="CC0-1.0" \
+            DEPENDS="libc" \
+            PROVIDES="nodogsplash-files" \
+            REPLACES="nodogsplash, base-files" \
+            DESCRIPTION="TollGate Basic Module for OpenWrt" \
+            packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
+          ls -lh "artifacts/$PACKAGE_FILENAME"
+          echo "package_path=artifacts/$PACKAGE_FILENAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Blossom and publish the per-leg build record
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BUILD_ID: ${{ needs.resolve-inputs.outputs.build_id }}
+          PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.resolve-inputs.outputs.release_channel }}
+          RELEASE_RUN: ${{ needs.resolve-inputs.outputs.release_run }}
+        run: |
+          set -euo pipefail
+          PKG_FILE="${{ steps.build.outputs.package_path }}"
+          [ -n "$PKG_FILE" ] && [ -f "$PKG_FILE" ] || { echo "ERROR: no ipk to upload at '$PKG_FILE'" >&2; exit 1; }
+          PACKAGE_FILENAME=$(basename "$PKG_FILE")
+
+          PKG_HASH=""; ok=0; OK_SERVERS=""
+          for server in $BLOSSOM_SERVERS; do
+            attempt=1; delay=2
+            while [ $attempt -le 3 ]; do
+              resp=$(nak blossom upload --server "$server" --sec "$NSEC_HEX" "$PKG_FILE" < /dev/null 2>&1) || true
+              srv_hash=$(printf '%s' "$resp" | jq -r '.sha256 // empty' 2>/dev/null || echo "")
+              if [ -n "$srv_hash" ] && [ "$srv_hash" != "null" ]; then
+                ok=$((ok + 1)); [ -z "$PKG_HASH" ] && PKG_HASH="$srv_hash"
+                OK_SERVERS="$OK_SERVERS $server"
+                echo "  ok: ${server} -> ${srv_hash}" >&2
+                break
+              fi
+              echo "  attempt $attempt to $server failed; retrying in ${delay}s..." >&2
+              echo "  nak output: $(printf '%s' "$resp" | tail -1)" >&2
+              sleep $delay; delay=$((delay * 2)); attempt=$((attempt + 1))
+            done
+          done
+          if [ "$ok" -lt "$BLOSSOM_MIN_SUCCESS" ]; then
+            echo "ERROR: only ${ok} mirrors succeeded (need >= ${BLOSSOM_MIN_SUCCESS})" >&2
+            exit 1
+          fi
+          echo "  ${ok}/$(echo $BLOSSOM_SERVERS | wc -w) mirrors ok" >&2
+
+          PKG_URLS_JSON="[]"
+          for s in $OK_SERVERS; do
+            PKG_URLS_JSON=$(printf '%s' "$PKG_URLS_JSON" | jq -c --arg u "${s}/${PKG_HASH}.ipk" '. + [$u]')
+          done
+          compression_tag="${{ matrix.compression }}"
+          [ -z "$compression_tag" ] && compression_tag="none"
+
+          # NO kind-1063 here, deliberately. Announcements are published by
+          # .ngit/act/workflows/build-package-announce.yml and only once every
+          # shard of this (version, channel, release run) has succeeded, so a
+          # shard that dies at the ceiling cannot leave a release that looks
+          # complete. The record below is what that gate reads: it is written
+          # only after the Blossom upload succeeded, and it names the release
+          # run, which is what makes a stale record from an earlier run
+          # distinguishable from this one.
+          COORD_CONTENT=$(jq -cn \
+            --arg sha256 "$PKG_HASH" \
+            --arg filename "$PACKAGE_FILENAME" \
+            --argjson urls "$PKG_URLS_JSON" \
+            --arg arch "${{ matrix.architecture }}" \
+            --arg fmt "ipk" \
+            --arg compression "$compression_tag" \
+            --arg release_run "$RELEASE_RUN" \
+            --arg shard "$SHARD_ID" \
+            '{sha256:$sha256, filename:$filename, urls:$urls, architecture:$arch,
+               format:$fmt, compression:$compression, release_run:$release_run, shard:$shard}')
+
+          out=$(nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build/${BUILD_ID}/${{ matrix.architecture }}/ipk/${compression_tag}" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build" \
+            -c "$COORD_CONTENT" \
+            $COORDINATION_RELAYS < /dev/null 2>&1) || true
+          echo "  30078: $(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1)"
+          echo "Uploaded $PACKAGE_FILENAME -> $PKG_HASH (run=$RELEASE_RUN shard=$SHARD_ID)"
+
+
+  # The record the release gate reads before it announces anything. It is
+  # addressed by the RELEASE RUN, not by the commit, so a re-run of one shard
+  # cannot satisfy the gate for a different release run -- the staleness that
+  # makes "the record exists" a weak claim is designed out. It is addressed by
+  # its `d` tag, so NIP-33 replacement means the newest one wins.
+  shard-complete:
+    needs: [resolve-inputs, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+
+      - name: Publish this shard's completion record
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          BUILD_ID: ${{ needs.resolve-inputs.outputs.build_id }}
+          PACKAGE_VERSION: ${{ needs.resolve-inputs.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.resolve-inputs.outputs.release_channel }}
+          RELEASE_RUN: ${{ needs.resolve-inputs.outputs.release_run }}
+        run: |
+          set -euo pipefail
+          CONTENT=$(jq -cn \
+            --arg shard "$SHARD_ID" --arg run "$RELEASE_RUN" --arg build "$BUILD_ID" \
+            --arg version "$PACKAGE_VERSION" --arg channel "$RELEASE_CHANNEL" \
+            --argjson legs 1 \
+            '{shard:$shard, release_run:$run, build_id:$build, version:$version,
+               channel:$channel, legs:$legs, status:"success"}')
+          out=$(nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build/${RELEASE_RUN}/shard/${SHARD_ID}" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build-shard" \
+            -c "$CONTENT" $COORDINATION_RELAYS < /dev/null 2>&1) || true
+          echo "shard ${SHARD_ID} complete for release run ${RELEASE_RUN}"
+          echo "  30078: $(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1)"

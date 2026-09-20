@@ -1,0 +1,226 @@
+name: Announce Release (stage 2, after every shard)
+
+# ============================================================================
+# The LAST file of the ngit release pipeline, and the only one that publishes
+# kind-1063 announcements.
+#
+# WHY THIS IS A SEPARATE FILE
+#   Before the shards, each package job announced its own artifact the moment it
+#   uploaded it, so a run cut off at the 1800 s ceiling left a release that
+#   LOOKED finished while most of the matrix had never run (measured
+#   2026-09-12, commit b25d8a28: 5 of 17 legs announced, workflow result
+#   `timed_out`). Announcements are now published here and nowhere else, and
+#   only after every shard of the same (version, channel, release run) has
+#   reported success AND every leg in the plan has a build record naming that
+#   same release run.
+#
+#   The rule, the staleness argument and the exit codes are in
+#   scripts/ngit-release-announce.sh. This file is the CI front end for it.
+#
+# HOW IT STARTS
+#   Manual replay only, at
+#       refs/heads/release/<version>/<channel>/<release_run>/announce
+#   which is where the version, the channel and the release run come from. The
+#   normal path is scripts/ngit-ci-release.sh, which triggers every shard in
+#   order, waits for each kind-9842 result, stops the chain on the first
+#   non-success, and only then starts this file. Triggering it by hand is
+#   supported and is the point: the gate is re-evaluated from the relays, so a
+#   hand-run against an incomplete release refuses (exit 1) rather than
+#   announcing.
+#
+#   A push to main does NOT start this file -- `workflow_dispatch` only.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: "tollgate-wrt"
+  COORDINATION_RELAYS: >-
+    wss://relay.damus.io
+    wss://nos.lol
+    wss://nostr.mom
+    wss://relay1.orangesync.tech
+    wss://relay2.orangesync.tech
+  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Read-only. Decides whether this release may be announced at all. It is the
+  # job that must FAIL when a shard failed or timed out, so it runs the same
+  # gate the announce job runs, with --dry-run.
+  # --------------------------------------------------------------------------
+  release-guard:
+    name: Release completeness gate (no announcements yet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      package_version: ${{ steps.identity.outputs.package_version }}
+      release_channel: ${{ steps.identity.outputs.release_channel }}
+      release_run: ${{ steps.identity.outputs.release_run }}
+      build_id: ${{ steps.identity.outputs.build_id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      # The ref IS the parameter: ngit-ci never delivers workflow_dispatch
+      # inputs, so the version, the channel and the release run have to travel
+      # in the ref. A ref this file cannot read is refused rather than guessed
+      # -- announcing under a guessed (version, channel) is exactly the failure
+      # the gate exists to prevent.
+      - name: Resolve the release identity from the ref
+        id: identity
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          echo "build_id=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          REF_NAME="${GITHUB_REF_NAME:-}"
+          if [[ ! "$REF_NAME" =~ ^release/([^/]+)/([^/]+)/([^/]+)/announce$ ]]; then
+            echo "ERROR: this file announces a release and must be replayed at" >&2
+            echo "       refs/heads/release/<version>/<channel>/<release_run>/announce" >&2
+            echo "       got: '${REF_NAME:-<unset>}' (GITHUB_REF=${GITHUB_REF:-<unset>})" >&2
+            echo "       refusing to guess which release to announce." >&2
+            exit 1
+          fi
+          echo "package_version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          echo "release_channel=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+          echo "release_run=${BASH_REMATCH[3]}"     >> "$GITHUB_OUTPUT"
+          echo "announcing version=${BASH_REMATCH[1]} channel=${BASH_REMATCH[2]} release_run=${BASH_REMATCH[3]}"
+
+      - name: Gate (dry run — nothing is published here)
+        env:
+          PACKAGE_VERSION: ${{ steps.identity.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ steps.identity.outputs.release_channel }}
+          RELEASE_RUN: ${{ steps.identity.outputs.release_run }}
+          BUILD_ID: ${{ steps.identity.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          bash scripts/ngit-release-announce.sh \
+            "$PACKAGE_VERSION" "$RELEASE_CHANNEL" "$RELEASE_RUN" "$BUILD_ID" --dry-run
+
+  # --------------------------------------------------------------------------
+  # Publishes one kind-1063 per leg, from the leg's own build record. The gate
+  # runs again inside the script: this job cannot publish without a complete
+  # release even if it is reached on its own.
+  # --------------------------------------------------------------------------
+  announce:
+    needs: [release-guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Publish the kind-1063 announcements
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          PACKAGE_VERSION: ${{ needs.release-guard.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.release-guard.outputs.release_channel }}
+          RELEASE_RUN: ${{ needs.release-guard.outputs.release_run }}
+          BUILD_ID: ${{ needs.release-guard.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          bash scripts/ngit-release-announce.sh \
+            "$PACKAGE_VERSION" "$RELEASE_CHANNEL" "$RELEASE_RUN" "$BUILD_ID" --publish
+
+  # --------------------------------------------------------------------------
+  # The publication gate, on its own budget: every (arch, format) the plan
+  # declares must now have an announcement on the channel relays and be
+  # fetchable from >= 2 Blossom mirrors with the sha256 carried in its `x` tag.
+  # Expectations come from the shard plan, never from the relays.
+  # --------------------------------------------------------------------------
+  verify-publication:
+    name: Verify channel publication (events + mirrors)
+    needs: [release-guard, announce]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Verify every (arch, format) in the plan is announced and mirrored
+        env:
+          PACKAGE_VERSION: ${{ needs.release-guard.outputs.package_version }}
+          RELEASE_CHANNEL: ${{ needs.release-guard.outputs.release_channel }}
+          # Every pair, not a sample: the whole set costs one download per pair
+          # per mirror, and a sampled pass is what let mirror rot ship before.
+          VERIFY_DOWNLOAD: all
+        run: |
+          set -euo pipefail
+          EXPECTATIONS=$(bash scripts/ngit-shards.sh expectations --compression all --formats ipk,apk)
+          echo "$EXPECTATIONS"
+          export VERIFY_EXPECT="$EXPECTATIONS"
+          bash scripts/verify_publication.sh "$PACKAGE_VERSION" "$RELEASE_CHANNEL" -
+
+  # --------------------------------------------------------------------------
+  # The tollgate-os hand-off. `if: always()` so a red sibling upstream does not
+  # suppress it, and continue-on-error because it is a record plus a printed
+  # manual step, never a dispatch (the GitHub twin's cross-repo token does not
+  # exist here).
+  # --------------------------------------------------------------------------
+  os-handoff:
+    needs: [release-guard, announce]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+
+      - name: Publish the tollgate-os handoff record
+        env:
+          NSEC_HEX: ${{ secrets.NSEC_HEX }}
+          PACKAGE_VERSION: ${{ needs.release-guard.outputs.package_version }}
+          BUILD_ID: ${{ needs.release-guard.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "not a main-branch run (ref=${GITHUB_REF:-unset}) -- skipping the tollgate-os handoff"
+            echo "a release run announces version $PACKAGE_VERSION; the handoff is published by"
+            echo "the main-branch stage-2 run of the same commit."
+            exit 0
+          fi
+          CONTENT=$(jq -cn --arg v "$PACKAGE_VERSION" --arg b "$BUILD_ID" \
+            '{override_tollgate_wrt_version:$v, build_id:$b, repo:"tollgate-module-basic-go"}')
+          nak event --sec "$NSEC_HEX" -k 30078 \
+            --tag "d=tollgate-build-os-handoff/${BUILD_ID}" \
+            --tag "r=${BUILD_ID}" \
+            --tag "t=tollgate-build-os-handoff" \
+            -c "$CONTENT" $COORDINATION_RELAYS $RELAYS < /dev/null || true
+          echo "---------------------------------------------------------------"
+          echo "tollgate-os handoff: override_tollgate_wrt_version=$PACKAGE_VERSION"
+          echo "There is no GitHub Actions in OpenTollGate/tollgate-os (disabled"
+          echo "org-wide) and no cross-repo token, so the record above is the"
+          echo "machine-readable trigger and the build-os workflow must be started"
+          echo "by hand with the version above."
+          echo "---------------------------------------------------------------"

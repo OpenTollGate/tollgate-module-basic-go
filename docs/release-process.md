@@ -188,7 +188,7 @@ nak req -k 1063 \
 # The publication gate: every (arch, format) announced, every artifact on >= 2
 # mirrors with the sha256 from the x tag. Non-zero exit = the version did not
 # reach the channel; the output names the missing pair or the failing mirror.
-VERIFY_EXPECT="$(scripts/ngit-matrix-expectations.sh .ngit/act/workflows/build-package.yml)" \
+VERIFY_EXPECT="$(scripts/ngit-matrix-expectations.sh .ngit/act/workflows/build-package-*.yml)" \
     scripts/verify_publication.sh v0.6.0-alpha2 alpha -
 ```
 
@@ -252,9 +252,9 @@ verified", and honest limitation notes.
 
 | step | GitHub lane (dead) | ngit lane (live) |
 | --- | --- | --- |
-| build + announce | `build-package.yml` on the tag push | stage 1 (`build-package-binaries.yml`) then stage 2 (`build-package.yml`), at the same commit |
-| start stage 2 on a ref its `on:` does not cover | `workflow_dispatch` | `scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml <commit> <ref>` |
-| publication gate | `verify-publication` job in `build-package.yml` | the same job in `.ngit/act/workflows/build-package.yml`, plus the standalone `.ngit/act/workflows/verify-publication.yml` |
+| build + announce | `build-package.yml` on the tag push | stage 1 (`build-package-binaries.yml`), then the eleven stage-2 shards (`build-package-<shard>.yml`), then `build-package-announce.yml` - all at the same commit, driven by `scripts/ngit-ci-release.sh` |
+| start stage 2 on a ref its `on:` does not cover | `workflow_dispatch` | `scripts/ngit-ci-release.sh <version> <channel> <commit>`, which replays each shard at `refs/heads/release/<version>/<channel>/<release_run>/<shard>` |
+| publication gate | `verify-publication` job in `build-package.yml` | the `verify-publication` job in `.ngit/act/workflows/build-package-announce.yml` (it runs only after the release is announced), plus the standalone `.ngit/act/workflows/verify-publication.yml` |
 | read the result | `gh run list` | `nak req -k 9842 -a <coordinator-hex> wss://relay.ngit.dev` |
 
 Two properties of the port decide how a release is actually driven, and both are
@@ -273,8 +273,12 @@ is cut off before it finishes the matrix never reaches that job):
 ```bash
 # stage 1 — or just let the push trigger it
 scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package-binaries.yml "$(git rev-parse <commit>)" refs/heads/<ref>
-# stage 2, once stage 1 reported success
-scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml "$(git rev-parse <commit>)" refs/heads/<ref>
+# stage 2 (eleven shards) and then the announce, once stage 1 reported success.
+# The driver replays each shard at
+#   refs/heads/release/<version>/<channel>/<release_run>/<shard>
+# waits for its kind-9842, stops the chain on the first non-success, and only
+# starts the announce when every shard succeeded.
+scripts/ngit-ci-release.sh <version> <channel> "$(git rev-parse <commit>)"
 # the gate — the ref names the published version to verify (ngit-ci delivers no
 # workflow inputs, so the ref *is* the parameter)
 git push ngit HEAD:refs/heads/verify/<version>/<channel>/ipk    # ipk | apk | all
@@ -286,9 +290,10 @@ version+channel, and each artifact must be fetchable from >= 2 Blossom mirrors
 with the sha256 in its `x` tag. A failure names the missing pair or the failing
 mirror and exits non-zero, so the run is red — and it is tested against a version
 that does not exist so that a vacuous pass is impossible. The expectations come
-from the matrix in `build-package.yml` itself
-(`scripts/ngit-matrix-expectations.sh`), never from what happened to be
-published. Full detail, including the format scope and the negative controls:
+from the shard workflow files themselves — the union of them, never one shard's
+subset (`scripts/ngit-matrix-expectations.sh`), and they are cross-checked
+against the plan in `packaging/ngit-release-matrix.json` — never from what
+happened to be published. Full detail, including the format scope and the negative controls:
 `.ngit/README.md` → "Publication verification".
 
 ### The publish key era — what a consumer sees
