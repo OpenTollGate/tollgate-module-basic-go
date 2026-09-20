@@ -99,3 +99,45 @@ func TestRenewalTriggeredNearLimit(t *testing.T) {
 		)
 	}
 }
+
+// TestRenewalBoundaryAtHalfAllotment pins the exact clamp factor (review
+// finding F1 on the #430 fix): with the offset clamped to half the
+// allotment, renewal must fire at usage == allotment/2 and must NOT fire
+// one byte earlier. These two cases bracket the policy boundary so that
+// any change to the factor (e.g. /3 or *2/3) flips at least one of them.
+func TestRenewalBoundaryAtHalfAllotment(t *testing.T) {
+	const (
+		defaultBytesRenewalOffset = 131_100_000 // clamp binds: exceeds allotment/2
+		purchasedAllotment        = 5 * 22_020_096
+	)
+
+	t.Run("must_not_renew_below_half_usage", func(t *testing.T) {
+		rec := newRenewalRecorder()
+		tracker := NewUpstreamUsageTracker("192.168.1.1", defaultBytesRenewalOffset, rec.callback)
+
+		var usage uint64 = purchasedAllotment/2 - 1 // remaining = allotment/2 + 1
+		tracker.checkRenewal(usage, purchasedAllotment)
+
+		if rec.waitForRenewal(500 * time.Millisecond) {
+			t.Fatalf(
+				"renewal fired below the half-allotment boundary: usage=%d remaining=%d — the clamp factor has drifted past 1/2",
+				usage, purchasedAllotment-usage,
+			)
+		}
+	})
+
+	t.Run("must_renew_at_half_usage", func(t *testing.T) {
+		rec := newRenewalRecorder()
+		tracker := NewUpstreamUsageTracker("192.168.1.1", defaultBytesRenewalOffset, rec.callback)
+
+		var usage uint64 = purchasedAllotment / 2 // remaining = allotment/2, at the boundary
+		tracker.checkRenewal(usage, purchasedAllotment)
+
+		if !rec.waitForRenewal(2 * time.Second) {
+			t.Fatalf(
+				"renewal did not fire at the half-allotment boundary: usage=%d remaining=%d — the clamp factor has drifted below 1/2",
+				usage, purchasedAllotment-usage,
+			)
+		}
+	})
+}

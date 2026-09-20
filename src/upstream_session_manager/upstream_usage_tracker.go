@@ -271,6 +271,12 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 		effectiveOffset := int64(u.renewalOffset)
 		if half := int64(allotment) / 2; effectiveOffset > half {
 			effectiveOffset = half
+			logrus.WithFields(logrus.Fields{
+				"gateway":    u.gatewayIP,
+				"configured": u.renewalOffset,
+				"effective":  effectiveOffset,
+				"allotment":  allotment,
+			}).Info("🔧 Renewal offset exceeds half the allotment — clamped (explicit operator config overridden, #430)")
 		}
 		if remaining <= effectiveOffset {
 			u.mu.Lock()
