@@ -125,6 +125,7 @@ cloud-lab-tests:
 The mint container build (cargo install cdk-mintd) takes ~5-8 minutes
 on first run. Docker layer caching makes subsequent runs fast.
 
+<<<<<<< HEAD
 ## Per-checkout project isolation
 
 Every checkout of this repo resolves the same default compose project
@@ -144,3 +145,62 @@ shared, so rebuilds are fast) and own their containers, volumes and
 network. Note the compose file pins the `172.28.0.0/16` subnet, so two
 labs still cannot run simultaneously on one host — tear the other down
 first (`docker compose down -v`).
+=======
+## Gotchas from multi-branch lab runs (2026-09-20)
+
+Two environmental traps manufactured phantom test failures during
+multi-agent, multi-branch lab sessions. Both are environmental, not code
+bugs — but they cost hours if you don't know them.
+
+### 1. Stale images across worktrees (shared compose project name)
+
+`docker compose` derives the project (and therefore the image tags,
+e.g. `cloud-lab-upstream`) from the **directory name** — and every
+checkout of this repo has a `tests/cloud-lab/`. Run the lab from a
+worktree of branch A, later `compose up` from a worktree of branch B,
+and B silently **reuses A's built images** (the `tollgate` binary inside
+is A's code). Symptoms seen in the wild: a crash referencing
+`config.json.tmpl` (removed from the tree weeks earlier) and a wallet
+running with a months-old one-mint config — both vanishing after a
+rebuild.
+
+**Fix:** build explicitly when switching branches, or use a per-branch
+project name:
+
+```bash
+docker compose build upstream reseller   # force rebuild at this branch
+docker compose -p cl416 up -d mint upstream   # per-branch project (own images, own network)
+```
+
+Note `-p` also creates a **second network** — the compose file pins the
+`172.28.0.0/16` subnet, so two labs cannot run simultaneously on one
+host; tear one down first (`docker compose down -v`).
+
+### 2. Host port conflicts (8085 / 2121)
+
+The compose file publishes `8085` (mint) and `2121` (upstream/reseller)
+on the host for operator convenience — tests talk to `mint:8085` /
+`upstream:2121` **on the docker network**, never via the host ports. On
+a shared host where something else already binds those ports, `compose
+up` fails (`address already in use`) and — worse — a lab script that
+recreates containers mid-run can half-fail.
+
+**Fix:** drop a `docker-compose.override.yml` next to the compose file
+(keep it out of commits — it is host-specific):
+
+```yaml
+services:
+  mint:
+    ports: !override
+      - "28085:8085"
+  upstream:
+    ports: !override
+      - "21212:2121"
+  reseller:
+    ports: !override
+      - "21213:2121"
+```
+
+Container-to-container traffic is unaffected; only your browser access
+to the mint/upstream moves to the high ports.
+>>>>>>> 54f8615 (docs(cloud-lab): document the two environmental traps from multi-branch lab runs)
