@@ -7,8 +7,17 @@ package merchant
 // helpers so they stay wallet-agnostic; swapping the wallet is then a change to
 // this file plus a build-tagged sibling, not to every test.
 //
-// A future `testenv && cdk_wallet` sibling can build the same tokens via the
-// CDK bindings, keeping the tests identical across wallets.
+// The !cdk_wallet exclusion is deliberate but the cross-wallet parity it
+// hints at is NOT enforced today: a future `testenv && cdk_wallet`
+// sibling could build the same tokens via the CDK bindings, but until it
+// exists (post-RC, with the wallet swap in #395), running
+//
+//	go test -tags 'testenv cdk_wallet' ./merchant/
+//
+// silently drops this file and every test using it from the build and
+// still exits 0 — an absence, not a failure. Enforcing parity needs a
+// lane that runs both tag combinations and fails when the cdk_wallet side
+// is empty; that lands with the sibling, not before.
 
 import (
 	"testing"
