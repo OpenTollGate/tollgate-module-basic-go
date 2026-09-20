@@ -167,27 +167,37 @@ The last two must match before anything is announced.
 
 ### 4. Verify the tag build
 
-The tag push is what triggers CI. Check, in order:
+The tag push is what triggers CI — but with GitHub Actions down since
+2026-08-27 that means the **ngit lane**, not the GitHub workflow (see "The ngit
+release lane" below for the stage sequence and how to read a run). Check, in
+order:
 
 ```bash
-# The run exists and the VERSION guard passed.
-gh run list --repo OpenTollGate/tollgate-module-basic-go \
-    --workflow build-package.yml --limit 5
+# The runs exist and the VERSION guard passed: workflow results are kind 9842.
+nak req -k 9842 -a 765cd47badcbbc4a38c7d0c57d5607663b484c20cd59773f9f7064487f9431e8 \
+    -l 10 wss://relay.ngit.dev
 
-# The artifacts and the release page.
-gh release view v0.6.0-alpha2 --repo OpenTollGate/tollgate-module-basic-go
-
-# The announced NIP-94 events carry the right version and channel.
-nak req -k 1063 -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+# The announced NIP-94 events carry the right version and channel. Filter by
+# BOTH release publisher keys, or the ngit-era releases are invisible.
+nak req -k 1063 \
+    -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+    -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
     --tag n=tollgate-wrt --tag v=v0.6.0-alpha2 --limit 50 \
     wss://relay.damus.io wss://nos.lol wss://nostr.mom
+
+# The publication gate: every (arch, format) announced, every artifact on >= 2
+# mirrors with the sha256 from the x tag. Non-zero exit = the version did not
+# reach the channel; the output names the missing pair or the failing mirror.
+VERIFY_EXPECT="$(scripts/ngit-matrix-expectations.sh .ngit/act/workflows/build-package.yml)" \
+    scripts/verify_publication.sh v0.6.0-alpha2 alpha -
 ```
 
 Every artifact must be present for **every** architecture in the
 declared matrix — a partial set (say 7 of 8) reads as a broken feed, and
 `v` must be the tag name verbatim, `c` the intended channel. Download
 at least one artifact from its `url` tag and check the sha256 against
-the event's `x` tag before announcing anything.
+the event's `x` tag before announcing anything (the gate above does the whole
+matrix for you).
 
 ### 5. Publish and announce
 
@@ -229,6 +239,83 @@ the event's `x` tag before announcing anything.
   the next cycle (step 2.2 assumes it exists).
 - Record anything that could not be verified on hardware, in the
   release notes, rather than in private notes.
+
+## The ngit release lane (the lane that actually runs)
+
+GitHub Actions is dead for this repository: runs have sat `queued` since
+2026-08-27, so `.github/workflows/build-package.yml` — and the
+`verify-publication` job #406 added to it — never executes. Since PR #410 the
+lane that does publish is **ngit-ci**, reading `.ngit/act/workflows/` from the
+ngit mirror at the pushed ref. Everything above still applies through it: the
+version single source of truth, the tag/VERSION guard, "publish only what you
+verified", and honest limitation notes.
+
+| step | GitHub lane (dead) | ngit lane (live) |
+| --- | --- | --- |
+| build + announce | `build-package.yml` on the tag push | stage 1 (`build-package-binaries.yml`) then stage 2 (`build-package.yml`), at the same commit |
+| start stage 2 on a ref its `on:` does not cover | `workflow_dispatch` | `scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml <commit> <ref>` |
+| publication gate | `verify-publication` job in `build-package.yml` | the same job in `.ngit/act/workflows/build-package.yml`, plus the standalone `.ngit/act/workflows/verify-publication.yml` |
+| read the result | `gh run list` | `nak req -k 9842 -a <coordinator-hex> wss://relay.ngit.dev` |
+
+Two properties of the port decide how a release is actually driven, and both are
+measured, not assumed (`.ngit/README.md`):
+
+- one `act` invocation — one workflow file — is bounded by the coordinator's
+  1800 s job ceiling, and the full 14 `.ipk` + 3 `.apk` matrix does not fit it;
+- a push to `main` or a `v*` tag enqueues **both** stage files at once while
+  `resolve-inputs` polls for only 10 minutes, against a stage 1 that takes
+  11.8 min warm / 20.8 min cold.
+
+So the order is: stage 1, wait for its workflow result to read `success`, start
+stage 2, then run the gate (it is also a job inside stage 2, but a stage 2 that
+is cut off before it finishes the matrix never reaches that job):
+
+```bash
+# stage 1 — or just let the push trigger it
+scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package-binaries.yml "$(git rev-parse <commit>)" refs/heads/<ref>
+# stage 2, once stage 1 reported success
+scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package.yml "$(git rev-parse <commit>)" refs/heads/<ref>
+# the gate — the ref names the published version to verify (ngit-ci delivers no
+# workflow inputs, so the ref *is* the parameter)
+git push ngit HEAD:refs/heads/verify/<version>/<channel>/ipk    # ipk | apk | all
+```
+
+The gate is the same check #406 specified: every `(arch, format)` the release
+matrix declares must have a kind-1063 announcement for the published
+version+channel, and each artifact must be fetchable from >= 2 Blossom mirrors
+with the sha256 in its `x` tag. A failure names the missing pair or the failing
+mirror and exits non-zero, so the run is red — and it is tested against a version
+that does not exist so that a vacuous pass is impossible. The expectations come
+from the matrix in `build-package.yml` itself
+(`scripts/ngit-matrix-expectations.sh`), never from what happened to be
+published. Full detail, including the format scope and the negative controls:
+`.ngit/README.md` → "Publication verification".
+
+### The publish key era — what a consumer sees
+
+The release history is signed by **two** keys, and only one of them can still
+sign:
+
+| era | key (hex) | state |
+| --- | --- | --- |
+| GitHub Actions, up to 2026-08-27 | `5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a` | the Actions secret is write-only over every API and exists nowhere on this fleet, so **nothing new will ever be published under it** |
+| ngit / Nostr CI, from PR #410 | `6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d` | the dedicated CI release key; deliberately not the repository maintainer key (`36bdeb…`), which also signs the kind-30617 announcement of this repository |
+
+What follows from that for anyone fetching a release:
+
+- **Filter by both keys, or by no key at all.** A query pinned to
+  `-a 5075e61f…` returns nothing published after 2026-08-27, so a consumer using
+  the old example sees an empty release history even for a version that was
+  published. The kind-1063 tags (`n`, `v`, `c`, `A`, `format`, `compression`)
+  are publisher-independent and are the durable way to find artifacts. `AGENTS.md`
+  documents both keys with copy-pasteable `nak` queries.
+- **A gate pass on the new key is a pass.** `scripts/verify_publication.sh`
+  accepts either release publisher on purpose and prints which key signed each
+  announcement it verified, plus an explicit note when an announcement did *not*
+  come from the historical key — so a release that only the new key announced
+  cannot be mistaken for one the old key announced.
+- **Nothing published before the switch is invalidated.** Those events remain
+  valid and fetchable; they simply carry the old signature.
 
 ## Traps
 
