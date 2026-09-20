@@ -31,7 +31,11 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 # installers before first boot, and everything derived from it — system
 # hostname (and thus <hostname>.lan DNS), AP SSIDs, NDS gateway name —
 # follows this single selector.
-BRAND="$(cat /etc/tollgate/brand 2>/dev/null | tr -d '[:space:]')"
+# read -r strips the trailing newline and leading/trailing IFS whitespace
+# (verified on BusyBox ash). Do NOT use `tr -d '[:space:]'` here: BusyBox tr
+# treats the character class as a literal set and deletes every s/p/a/c/e
+# from the value — "net4sats" became "nt4t" and coerced to the default.
+read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
 case "$BRAND" in
     net4sats) BRAND_HOSTNAME="Net4sats" ;;
     *) BRAND_HOSTNAME="TollGate"
