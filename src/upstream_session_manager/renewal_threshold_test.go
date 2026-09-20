@@ -1,9 +1,12 @@
 package upstream_session_manager
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // renewalRecorder captures renewal callback invocations with their arguments.
@@ -140,4 +143,88 @@ func TestRenewalBoundaryAtHalfAllotment(t *testing.T) {
 			)
 		}
 	})
+}
+
+// clampLogCollector records log entries whose message mentions the clamp.
+type clampLogCollector struct {
+	mu      sync.Mutex
+	matches []string
+}
+
+func (c *clampLogCollector) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (c *clampLogCollector) Fire(e *logrus.Entry) error {
+	if strings.Contains(e.Message, "clamped") {
+		c.mu.Lock()
+		c.matches = append(c.matches, e.Message)
+		c.mu.Unlock()
+	}
+	return nil
+}
+
+func (c *clampLogCollector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.matches)
+}
+
+// TestClampLogEmittedOnChangeNotPerPoll pins the observability contract of
+// the clamp (review finding F2 on the #430 fix): the warning that the
+// configured offset was overridden must fire when the clamp (re)binds or
+// its effective value changes — never once per poll, which would spam the
+// router log once per second for the whole lifetime of every default-config
+// bytes session.
+func TestClampLogEmittedOnChangeNotPerPoll(t *testing.T) {
+	const (
+		defaultBytesRenewalOffset = 131_100_000
+		purchasedAllotment        = 5 * 22_020_096 // 110,100,480
+		belowHalfUsage            = 1_000_000      // clamp binds, renewal must not fire
+	)
+
+	collector := &clampLogCollector{}
+	prev := logrus.StandardLogger().ReplaceHooks(logrus.LevelHooks{})
+	logrus.StandardLogger().AddHook(collector)
+	defer logrus.StandardLogger().ReplaceHooks(prev)
+
+	rec := newRenewalRecorder()
+	tracker := NewUpstreamUsageTracker(
+		"192.168.1.1",
+		defaultBytesRenewalOffset,
+		rec.callback,
+	)
+
+	// Five consecutive polls with the clamp binding and the same effective
+	// offset: exactly one announcement.
+	for i := 0; i < 5; i++ {
+		tracker.checkRenewal(belowHalfUsage+uint64(i), purchasedAllotment)
+	}
+	if n := collector.count(); n != 1 {
+		t.Fatalf("clamp log emitted %d times across 5 polls with unchanged effective offset, want exactly 1", n)
+	}
+
+	// Allotment doubles (renewal completed upstream): the effective offset
+	// changes, so the clamp must be announced again — once, not per poll.
+	doubledAllotment := uint64(purchasedAllotment * 2)
+	for i := 0; i < 3; i++ {
+		tracker.checkRenewal(belowHalfUsage+uint64(i), doubledAllotment)
+	}
+	if n := collector.count(); n != 2 {
+		t.Fatalf("clamp log emitted %d times total after allotment change, want exactly 2 (one per distinct effective offset)", n)
+	}
+
+	// Clamp stops binding (offset fits within half the allotment): no new
+	// announcements, and a later re-bind is announced again.
+	hugeAllotment := uint64(1_000_000_000) // half = 500,000,000 > offset
+	for i := 0; i < 3; i++ {
+		tracker.checkRenewal(belowHalfUsage+uint64(i), hugeAllotment)
+	}
+	if n := collector.count(); n != 2 {
+		t.Fatalf("clamp log emitted while clamp not binding, want still 2")
+	}
+	for i := 0; i < 2; i++ {
+		tracker.checkRenewal(belowHalfUsage+uint64(i), purchasedAllotment)
+	}
+	if n := collector.count(); n != 3 {
+		t.Fatalf("clamp re-bind after unbind was not announced, want 3 total")
+	}
 }

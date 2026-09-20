@@ -183,7 +183,9 @@ and [Semantic Versioning](https://semver.org/).
   (5 × 22,020,096 = 110,100,480 bytes after step quantization), so every
   reseller session fired a renewal payment at near-zero usage — doubling
   the session cost on startup. The renewal check now never fires while
-  more than half of the current allotment remains. Fixes [#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430).
+  more than half of the current allotment remains; a warning is logged
+  (once, whenever the clamp takes effect) whenever the configured offset
+  is overridden. Fixes [#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430).
 
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
