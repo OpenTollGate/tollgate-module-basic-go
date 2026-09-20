@@ -247,6 +247,25 @@ and [Semantic Versioning](https://semver.org/).
   `payment-error-keyset-expired` code with a message that says the
   e-cash note cannot be recovered, and no longer marks the healthy mint
   unreachable in the health tracker. Fixes [#440](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/440).
+=======
+
+- **Captive portal no longer redirect-loops on nodogsplash 5.0.2.** The
+  first-boot setup no longer sets (and now actively deletes)
+  `nodogsplash.gatewaydomainname` — on version-changing upgrades and on
+  same-version setup re-runs (postinst / boot hook) alike: with it
+  configured, NDS 5.0.2 answers
+  every splash request carrying a `redir` param with a redirect back to
+  the splash itself, so pre-auth phone/laptop clients abort with
+  `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
+  friendly `<hostname>.lan` name keeps resolving without the option —
+  dnsmasq serves the system hostname in the `lan` zone. The
+  whitelabel hostname is now brand-selected (`tollgate`, the default, or
+  `net4sats`) from a single `/etc/tollgate/brand` file, driving the
+  system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
+  SSIDs, and the NDS gateway name; the two brands differ only in
+  naming. `tollgate ssl` no longer sets the option either and cleans
+  it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
+
 
 
 - **A runtime downgrade can recover again.** When all mints went
