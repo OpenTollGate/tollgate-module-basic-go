@@ -127,6 +127,24 @@ old ∩ new  ⊆  stored  ⊆  old ∪ new
 with both the intersection and the union taken as multisets of serialised
 proofs, for the resulting store after a cut, for every k.
 
+## Independent re-verification from the pushed branch (2026-09-20)
+
+The numbers above were taken from a local checkout of the fork branch, so the
+pushed branch was re-checked from a **fresh shallow clone** of
+`felixfelix-bot/nucula feat/incremental-proof-store`:
+
+* the clone's `HEAD` is the SHA in `FORK-BRANCH.txt` and `git diff --stat
+  HEAD~1` shows the storage layer only (2 files, +359/-42);
+* `main/wallet_nvs.cpp` in the clone hashes to the same sha256 the measurement
+  run recorded for the after tree (`bf0600e9…`), so the measured artifact and
+  the pushed artifact are the same bytes;
+* built against that clone with this directory's harness (same CMake options,
+  none of the local checkouts): `SELFTEST_RESULT suites=4 failures=0` and
+  `STORETEST_RESULT checks_done=18 failures=0`;
+* `pay --proofs 200 --payments 5` reproduces the headline: 711 B for the first
+  payment (no holes to reuse yet) and 708 B for each of the next four, 3 erases
+  each, round trip verified after every payment.
+
 ## What was NOT measured
 
 * **On hardware.** No router or ESP32 was touched (task constraint): no
