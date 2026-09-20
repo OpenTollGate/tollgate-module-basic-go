@@ -15,16 +15,23 @@ import (
 // Cashu swaps are irreversible once the mint accepts them (NUT-03): the
 // token returned by DrainMint is the only spendable representation of
 // those funds. Without the journal, that token exists solely in the
-// aggregate CLI response, so a later per-mint failure discarding it — or a
-// process crash between the swap and the response — destroys access to the
-// funds (issue #375). Journaling immediately after each success closes
-// that window; the pending-proof bucket of wallet.db is an independent,
-// wallet-internal second copy.
+// aggregate CLI response, so a later per-mint failure discarding it
+// destroys access to the funds (issue #375). Journaling immediately
+// after each success keeps an independent second copy for exactly that
+// case.
+//
+// What the journal is NOT: a crash-recovery mechanism. A crash inside
+// the swap itself — after the mint accepts the inputs but before the
+// token returns — leaves the proofs in wallet.db's pending bucket, and
+// recovery from there is scripts/token-recovery's job, not this file's.
+// The journal only covers tokens the CLI already holds.
 //
 // Entries are never removed by the service: tokens are bearer instruments
 // and the journal file is 0600 in a 0700 directory. Operators sweep the
 // file once the tokens are secured elsewhere.
 func drainJournalPath() string {
+	// TOLLGATE_TEST_CONFIG_DIR exists for the test harness only; in
+	// production the journal always lives under /etc/tollgate.
 	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
 		return filepath.Join(dir, "wallet-drain-journal.jsonl")
 	}

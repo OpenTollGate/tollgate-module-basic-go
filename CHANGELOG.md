@@ -19,7 +19,8 @@ and [Semantic Versioning](https://semver.org/).
   produced by earlier successful (and irreversible) mints — on wallets
   whose registry held two URL spellings of one mint (e.g. a trailing-slash
   variant) this could destroy real funds (#375). Mint URLs are now
-  canonicalized (scheme/host case, trailing slash) at registration and
+  canonicalized (scheme/host case, any trailing slashes, default ports
+  dropped, userinfo/query/fragment discarded) at registration and
   merged on read, so one logical mint can no longer appear as two
   phantom-balanced entries; per-mint failures are collected and reported
   as an explicit partial result (`success:false`, `partial:true`,

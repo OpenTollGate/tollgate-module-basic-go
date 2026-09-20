@@ -52,7 +52,7 @@ func TestDrainCashuCmd_JSONMode_OperationalFailure_ReturnsError(t *testing.T) {
 	// (mirroring the service side); a fresh temp dir guarantees no
 	// socket exists, so the command deterministically observes an
 	// operational failure.
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortTestConfigDir(t))
 
 	jsonOutput = true
 	if err := drainCashuCmd.RunE(drainCashuCmd, []string{}); err == nil {

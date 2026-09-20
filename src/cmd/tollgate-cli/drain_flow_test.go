@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+// shortTestConfigDir returns a config dir whose <dir>/tollgate.sock path
+// fits AF_UNIX's 108-byte sun_path limit. t.TempDir() nests under TMPDIR,
+// and on hosts with deep workspace paths the socket bind then fails with
+// EINVAL ("bind: invalid argument"), so fall back to /tmp when needed.
+func shortTestConfigDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if len(filepath.Join(dir, "tollgate.sock")) < 108 {
+		return dir
+	}
+	alt, err := os.MkdirTemp("/tmp", "tg-cli-test-")
+	if err != nil {
+		t.Fatalf("create short temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(alt) })
+	return alt
+}
+
 // startFakeService stands up a one-shot Unix socket service that replies to
 // a single CLI request with the given CLIResponse, so the client's full
 // RunE flow (prompt, socket round-trip, display, exit code) can be
@@ -23,7 +41,6 @@ func startFakeService(t *testing.T, response CLIResponse) {
 	if err != nil {
 		t.Fatalf("listen on fake socket: %v", err)
 	}
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -92,7 +109,7 @@ func drainResponseCanned(t *testing.T, success bool, saveToFile string) CLIRespo
 
 func TestDrainCashuCmd_JSONMode_ServerReportsFailure_ReturnsError(t *testing.T) {
 	resetDrainCmdState(t)
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortTestConfigDir(t))
 	startFakeService(t, CLIResponse{Success: false, Error: "no balance available", Timestamp: time.Now()})
 
 	jsonOutput = true
@@ -103,7 +120,7 @@ func TestDrainCashuCmd_JSONMode_ServerReportsFailure_ReturnsError(t *testing.T) 
 
 func TestDrainCashuCmd_JSONMode_ServerReportsSuccess_Succeeds(t *testing.T) {
 	resetDrainCmdState(t)
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortTestConfigDir(t))
 	startFakeService(t, CLIResponse{Success: true, Message: "drained", Timestamp: time.Now()})
 
 	jsonOutput = true
@@ -114,7 +131,7 @@ func TestDrainCashuCmd_JSONMode_ServerReportsSuccess_Succeeds(t *testing.T) {
 
 func TestDrainCashuCmd_YesFlag_SkipsPrompt_SavesTokens(t *testing.T) {
 	resetDrainCmdState(t)
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortTestConfigDir(t))
 
 	savePath := filepath.Join(t.TempDir(), "wallet_drain_test.txt")
 	startFakeService(t, drainResponseCanned(t, true, savePath))
@@ -139,7 +156,7 @@ func TestDrainCashuCmd_YesFlag_SkipsPrompt_SavesTokens(t *testing.T) {
 
 func TestDrainCashuCmd_PlainMode_PartialFailure_SavesTokens_ExitsNonZero(t *testing.T) {
 	resetDrainCmdState(t)
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortTestConfigDir(t))
 
 	savePath := filepath.Join(t.TempDir(), "wallet_drain_partial.txt")
 	startFakeService(t, drainResponseCanned(t, false, savePath))
@@ -166,7 +183,7 @@ func TestDrainCashuCmd_PlainMode_PartialFailure_SavesTokens_ExitsNonZero(t *test
 
 func TestDrainCashuCmd_PlainMode_ExplicitDecline_ReturnsError(t *testing.T) {
 	resetDrainCmdState(t)
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortTestConfigDir(t))
 
 	declined, err := os.CreateTemp(t.TempDir(), "stdin")
 	if err != nil {

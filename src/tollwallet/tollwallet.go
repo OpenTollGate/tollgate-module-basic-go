@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
@@ -79,6 +80,15 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 // (issue #375). Path casing is preserved: /Bitcoin and /Liquid are
 // different paths on the same mint. Unparseable inputs are returned
 // trimmed, so equality still behaves as a plain string comparison there.
+// normalizeMintURL reduces a mint URL to its canonical identity:
+// scheme+host+path. Mint-identity-irrelevant components are discarded —
+// userinfo credentials, query strings and fragments never select a
+// different mint — and default ports (443/https, 80/http) are dropped so
+// "https://m/Bitcoin" and "https://m:443/Bitcoin" are one mint, not two.
+// Trailing slashes collapse (any number of them), but an escaped slash
+// ("%2F") is part of the path text and stays distinct from a real one.
+// Mints already registered under distinct non-canonical spellings are
+// still merged read-side by GetAllMintBalances.
 func normalizeMintURL(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	u, err := url.Parse(trimmed)
@@ -86,9 +96,48 @@ func normalizeMintURL(raw string) string {
 		return trimmed
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	u.Path = normalizePath(u.Path)
+	u.Host = canonicalHost(u.Scheme, u.Host)
+	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
+
+	escaped := u.EscapedPath()
+	escaped = strings.TrimRight(escaped, "/")
+	if escaped == "" {
+		escaped = "/"
+	}
+	if decoded, unescapeErr := url.PathUnescape(escaped); unescapeErr == nil {
+		u.Path = decoded
+		if decoded == escaped {
+			u.RawPath = ""
+		} else {
+			u.RawPath = escaped
+		}
+	} else {
+		u.Path = escaped
+	}
 	return u.String()
+}
+
+// canonicalHost lowercases the host and drops the scheme's default port.
+// IPv6 literals keep their brackets.
+func canonicalHost(scheme, host string) string {
+	hostname := strings.ToLower(host)
+	port := ""
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		hostname = strings.ToLower(h)
+		port = p
+	}
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port == "" {
+		return hostname
+	}
+	if strings.Contains(hostname, ":") {
+		return "[" + hostname + "]:" + port
+	}
+	return hostname + ":" + port
 }
 
 func (w *TollWallet) registerMint(mintURL string) {
@@ -346,19 +395,6 @@ func hasLockedProofs(proofs cashu.Proofs) bool {
 		}
 	}
 	return false
-}
-
-// normalizePath strips a single trailing slash from the path so that
-// "/Bitcoin" and "/Bitcoin/" compare as equal, and treats empty path
-// the same as "/" (root).
-func normalizePath(p string) string {
-	if p == "" {
-		return "/"
-	}
-	if len(p) > 1 && p[len(p)-1] == '/' {
-		return p[:len(p)-1]
-	}
-	return p
 }
 
 func contains(slice []string, str string) bool {

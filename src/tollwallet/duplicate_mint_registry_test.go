@@ -158,3 +158,62 @@ func TestRegisterMint_CanonicalKey_PreventsDuplicateRegistration(t *testing.T) {
 		t.Errorf("registeredMints has %d entries after registering a second, different mint; want 2", got)
 	}
 }
+
+// TestGetAllMintBalances_MergesLegacyAliasEntries_Issue375 exercises the
+// read-side safety net: a wallet whose underlying gonuts state ALREADY
+// holds one logical mint under two spellings (created by an older
+// registration path — exactly the installs #375 left behind) must not
+// surface a phantom duplicate through GetAllMintBalances. The second
+// alias is injected below the registration layer on purpose:
+// registerMint canonicalizes and would never create it, so only this
+// path reaches the merge the CLI drain loop depends on.
+func TestGetAllMintBalances_MergesLegacyAliasEntries_Issue375(t *testing.T) {
+	server, keysetID, pubKeyHex := newTestMint(t)
+	aliasNoSlash := server.URL + "/Bitcoin"
+	aliasWithSlash := server.URL + "/Bitcoin/"
+
+	dir := t.TempDir()
+
+	seedDB, err := wallet.InitStorage(dir)
+	if err != nil {
+		t.Fatalf("init storage: %v", err)
+	}
+	if err := seedDB.SaveProofs(cashu.Proofs{
+		{Amount: 50, Id: keysetID, Secret: "issue375-legacy-secret", C: pubKeyHex},
+	}); err != nil {
+		t.Fatalf("seed proofs: %v", err)
+	}
+	if err := seedDB.Close(); err != nil {
+		t.Fatalf("close seed db: %v", err)
+	}
+
+	tw, err := New(dir, []string{aliasNoSlash}, false)
+	if err != nil {
+		t.Fatalf("create wallet: %v", err)
+	}
+	defer tw.Shutdown()
+
+	// Inject the legacy duplicate below the canonicalizing registration
+	// layer, as an older TollWallet version would have left it.
+	if _, err := tw.wallet.AddMint(aliasWithSlash); err != nil {
+		t.Fatalf("inject legacy alias entry: %v", err)
+	}
+
+	// Precondition: the underlying wallet really holds two spellings —
+	// otherwise this test exercises nothing (the merge is load-bearing
+	// only when there is something to merge).
+	raw := tw.wallet.GetBalanceByMints()
+	if len(raw) != 2 {
+		t.Fatalf("precondition: underlying wallet holds %d mint entries after alias injection; want 2 (%v)", len(raw), raw)
+	}
+
+	balances := tw.GetAllMintBalances()
+	if got := len(balances); got != 1 {
+		t.Errorf("GetAllMintBalances returned %d entries for a legacy-aliased single mint: %v; want 1 (read-side merge must repair existing installs)", got, balances)
+	}
+	for alias, bal := range balances {
+		if bal != 50 {
+			t.Errorf("merged balance for %s = %d, want 50 (max of the alias group, not the sum)", alias, bal)
+		}
+	}
+}
