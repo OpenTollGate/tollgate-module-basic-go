@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +102,15 @@ func authorizeMAC(macAddress string) error {
 		}
 
 		lastErr = err
+		// NDS 5.0.2 exits 1 when the client is already Authenticated; the gate
+		// is open in that case, so this auth "failure" is success (issue #403).
+		if state, perr := CheckClientState(macAddress); perr == nil && state.Authenticated {
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"attempt":     attempt,
+			}).Info("Client already Authenticated in NDS; treating gate as open")
+			return nil
+		}
 		if attempt == authMaxAttempts {
 			break
 		}
@@ -394,6 +404,54 @@ func GetClientUsage(macAddress string) (totalBytes uint64, err error) {
 		return 0, err
 	}
 	return downloaded + uploaded, nil
+}
+
+// ClientState is the read-only, NDS-reported view of a client MAC, used by
+// payment pre-flight checks (issue #403).
+type ClientState struct {
+	Registered    bool
+	Authenticated bool
+}
+
+// CheckClientState probes NoDogSplash for a client without changing any
+// state (`ndsctl json <mac>`). An empty client list ("{}") is reported as a
+// definitive not-registered answer, while ndsctl failures surface as errors
+// so callers can fail open.
+func CheckClientState(macAddress string) (ClientState, error) {
+	if !isValidMAC(macAddress) {
+		return ClientState{}, fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+
+	ndsctlMutex.Lock()
+	output, err := runNdsctl("json", macAddress)
+	ndsctlMutex.Unlock()
+
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Error("Error executing ndsctl json for client state")
+		return ClientState{}, fmt.Errorf("failed to execute ndsctl json for MAC %s: %w", macAddress, err)
+	}
+
+	if strings.TrimSpace(output) == "{}" {
+		return ClientState{Registered: false}, nil
+	}
+
+	var stats ClientStats
+	if err := json.Unmarshal([]byte(output), &stats); err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+			"output":      output,
+		}).Error("Error parsing ndsctl json for client state")
+		return ClientState{}, fmt.Errorf("failed to parse ndsctl json for MAC %s: %w", macAddress, err)
+	}
+
+	return ClientState{
+		Registered:    true,
+		Authenticated: strings.EqualFold(stats.State, "Authenticated"),
+	}, nil
 }
 
 func delayedAuth(macAddress string) {

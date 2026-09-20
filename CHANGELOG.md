@@ -12,9 +12,39 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Release pipeline runs on Nostr CI (no GitHub dependency).** The
+  `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
+  `ngit-ci`, from `.ngit/act/workflows/`, as two workflows because one
+  `act` invocation is bounded by the coordinator's 30-minute job ceiling:
+  `build-package-binaries.yml` (versioning, the five cross-compile
+  targets, the captive portal, and the Blossom mirroring plus the
+  build-id records stage 2 resolves) and `build-package.yml` (the 14
+  `.ipk` and 3 `.apk` matrix, per-artifact Blossom upload and kind-1063
+  announcement, the tollgate-os handoff record). The GitHub twin is
+  untouched and still runs where Actions is available. `container:`
+  blocks — refused with `startup_failure` on this deployment — become
+  `docker run` against the same SDK image; the release signing key is
+  provisioned operator-side as `NGIT_CI_SECRET_TMBG__NSEC_HEX`; the
+  GitHub-only cross-repo dispatch becomes a kind-30078 handoff record
+  plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
+  for the measurements, the trigger differences and the end-to-end
+  verification evidence.
+
 - **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
   from the `tmp/release-integration` pseudo-version to the tagged release
   `v0.11.2` (empty-proofs guard, LoadWallet deadlock fix, hostile-token corpus).
+
+- **`.gitignore` no longer misses the built CLI binary.** The anchoring
+  done in #383 stopped the bare build-output names from shadowing source
+  directories, but turned `tollgate-cli` into `src/tollgate-cli` — a path
+  no build writes. The CLI module lives in `src/cmd/tollgate-cli`, and a
+  binary is named after the last element of the module path, so its
+  `go build .` writes `src/cmd/tollgate-cli/tollgate-cli`. That executable
+  was therefore untracked *and* unignored: it showed up in `git status`
+  after any local build, and `git add -A` would have committed 9.9 MB of
+  binary. The entry now names the path the build actually writes; nothing
+  else in the file changes.
+  ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
 
 ### Added
 
@@ -67,6 +97,19 @@ and [Semantic Versioning](https://semver.org/).
   for the rest of the outage (live-reproduced in PRTA #110 Phase D). The
   callback now fires whenever a previously-reachable mint goes down
   ([#401](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/401); the companion recovery-path gap, #400, is tracked separately).
+
+- **Release-channel publication is now self-verifying.** A new
+  `verify-publication` job runs after `publish-metadata`: every
+  (architecture, format) the build matrix produced must have a kind-1063
+  event on the channel relays for the published version+channel, and the
+  artifacts must be servable from ≥2 mirrors with the sha256 from the `x`
+  tag (sample mode: one ipk + one apk; `VERIFY_DOWNLOAD=all` for full).
+  `trigger-build-os` now depends on it — OS builds fire only on verified
+  publications. `BLOSSOM_MIN_SUCCESS` is raised to 3 for tag refs (stays 1
+  for branch/dev builds). Converts the two known silent failure modes —
+  v0.6.0-alpha1 published nowhere, and v0.5.0 mirror rot — into red builds
+  ([#406](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/406)).
+
 - **Swap fees are explained, and pre-checked.** A token whose value is
   entirely consumed by the mint's swap fee used to fail with the mint's opaque
   `no outputs provided`. The wallet now reports the fee
@@ -114,6 +157,21 @@ and [Semantic Versioning](https://semver.org/).
   `GPL-3.0-only`** in `packaging/Makefile`, `packaging/local-build-ipk.sh`,
   and the CI ipk control template, matching the repository's actual
   GPL-3.0 `LICENSE`. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **Payments refused up front when the gate provably cannot open.**
+  `PurchaseSession` consumed the customer's Cashu token (proofs swapped —
+  irreversible) before attempting gate-open, so a failed `ndsctl auth` left
+  the value in the operator wallet with no session and no refund path (both
+  lab-reproduced triggers of [#403](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/403):
+  unknown MAC, and NDS 5.0.2 exiting 1 for an already-Authenticated client).
+  A new read-only `ndsctl json` probe (`valve.CheckClientState`) now refuses
+  payment with an actionable `client-not-registered` notice *before*
+  `Receive` — re-probing at the valve auth-retry cadence so the reseller
+  flow's asynchronous NDS registration is not refused on first sight, and
+  failing open on probe errors so a broken probe cannot block payments —
+  while `authorizeMAC` treats an already-Authenticated client as authorized
+  instead of failing the first payment after fresh daemon state.
+  ([#412](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/412))
 ### Changed / Internal
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
@@ -133,6 +191,15 @@ and [Semantic Versioning](https://semver.org/).
   build artifacts from Nostr (`kind 1063`) with sha256 verification instead
   of GitHub releases. ([#390](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/390))
 
+- **`tar` format pinned to GNU in the SDK-free ipk lane.** The three
+  `tar` invocations in `packaging/build-ipk.sh` now pass `--format=gnu`
+  explicitly, matching buildroot's `ipkg-build` which pins it: the lane
+  previously relied on the host tar's compile-time default format, so any
+  host defaulting to pax/posix would produce opkg-readable but
+  non-reproducible ipks. This was the last unpinned determinism knob on
+  the ipk path. Byte-neutral on the equivalence build host (identical
+  sha256 with and without the flag, aarch64 @ v0.6.0-alpha2 inputs).
+  ([#405](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/405))
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
   ships the runtime files under `packaging/files/`, and is wired into both
