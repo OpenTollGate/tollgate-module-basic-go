@@ -317,10 +317,10 @@ func NewDefaultConfig() *Config {
 				Blocklist:     []string{},
 			},
 			Sessions: SessionConfig{
-				PreferredSessionIncrementsMilliseconds: 60000,     // 1 minute
-				PreferredSessionIncrementsBytes:        500000000, // ~477 MiB prepay per renewal
-				MillisecondRenewalOffset:               10000,     // 10 seconds before expiry
-				BytesRenewalOffset:                     125000000, // 25% of the preferred bytes increment
+				PreferredSessionIncrementsMilliseconds: 60000,      // 1 minute
+				PreferredSessionIncrementsBytes:        2500000000, // ~2.5 GB prepay per renewal
+				MillisecondRenewalOffset:               10000,      // 10 seconds before expiry
+				BytesRenewalOffset:                     1225000000, // 49% of the preferred bytes increment
 			},
 			UsageTracking: UsageTrackingConfig{
 				DataMonitoringInterval: 500 * time.Millisecond,
