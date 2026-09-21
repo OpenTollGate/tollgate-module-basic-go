@@ -232,11 +232,11 @@ and [Semantic Versioning](https://semver.org/).
   plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
   for the measurements, the trigger differences and the end-to-end
   verification evidence.
-- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
-  merchant token-flow tests no longer import the concrete wallet package; token
-  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
-  library-agnostic so the wallet backend can change without touching them.
-  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
+- **Merchant tests de-coupled from the Cashu wallet library (T16).** Token
+  fixtures are centralised in `tokenfixture_test.go`, now the single place in
+  the merchant tests that touches a concrete Cashu library (gonuts) — swapping
+  the wallet backend is an edit to that one file plus a build-tagged sibling,
+  not to every test. ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
 
 - **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
   from the `tmp/release-integration` pseudo-version to the tagged release
