@@ -10,6 +10,22 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Radio assignment no longer assumes `radio0` is 2.4 GHz.** OpenWrt numbers
+  radio sections by detection order, not by band, so which section is the
+  2.4/5 GHz radio varies between routers — the first-boot setup and the
+  upstream STA interfaces were binding `tollgate_2g_open`/`private_radio0`/
+  `tollgate_sta_2g` to `radio0` and their 5 GHz counterparts to `radio1` by
+  name. Radios are now resolved by their `band` option (with legacy `hwmode`
+  and channel fallbacks, mirroring OpenWrt's own resolution order):
+  first-boot setup puts each public/private AP on the radio that actually
+  owns the band, rebinds sections left on the wrong radio by older installs,
+  and skips (instead of mis-labeling or creating phantoms) when a band has no
+  radio; the upstream connector creates `tollgate_sta_2g`/`tollgate_sta_5g`
+  on the band-matching radio so a 5 GHz upstream is never hunted with a
+  2.4 GHz radio.
+
 ### Changed / Internal
 
 - **Release pipeline shards stage 2, and announces only a complete

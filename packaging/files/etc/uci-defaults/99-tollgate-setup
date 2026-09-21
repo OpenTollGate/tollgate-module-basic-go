@@ -92,10 +92,92 @@ setup_dns_dnsmasq() {
     uci set dhcp.@dnsmasq[0].expandhosts='1'
 }
 
+# -- radio band detection ----------------------------------------------------
+#
+# OpenWrt numbers radio sections by detection order, not by band: radio0 is
+# the 2.4 GHz radio on some hardware and the 5 GHz radio on other, tri-band
+# devices add a third section, and single-band devices never get a radio1.
+# Every radio assignment below therefore resolves the band first and binds
+# sections by band, never by index.
+
+wifi_device_sections() {
+    uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"
+}
+
+# Band of a wifi-device section: the 'band' option on OpenWrt 21.02+, the
+# legacy 'hwmode' option on older releases, and finally the channel number
+# (channels above 14 are 5 GHz). Prints "" when nothing identifies the band.
+radio_band() {
+    local band hwmode channel
+    band=$(uci -q get "wireless.$1.band")
+    case "$band" in
+        2g|5g|6g|60g) printf '%s' "$band"; return 0 ;;
+    esac
+    hwmode=$(uci -q get "wireless.$1.hwmode")
+    case "$hwmode" in
+        11ad|ad) printf '60g'; return 0 ;;
+        11a*|a) printf '5g'; return 0 ;;
+        11b*|11g*|b|g|bg) printf '2g'; return 0 ;;
+    esac
+    channel=$(uci -q get "wireless.$1.channel")
+    case "$channel" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    if [ "$channel" -gt 14 ]; then printf '5g'; else printf '2g'; fi
+}
+
+# First wifi-device section reporting the given band.
+find_radio_by_band() {
+    local section
+    for section in $(wifi_device_sections); do
+        if [ "$(radio_band "$section")" = "$1" ]; then
+            printf '%s' "$section"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Exports: R2G, R5G (the 2.4/5 GHz wifi-device sections, possibly empty).
+# Only when NO radio reports a band do we fall back to the historical
+# radio0/radio1 literals — the last release's behavior.
+detect_band_radios() {
+    R2G=$(find_radio_by_band 2g)
+    R5G=$(find_radio_by_band 5g)
+    if [ -z "$R2G" ] && [ -z "$R5G" ]; then
+        uci -q get wireless.radio0 >/dev/null 2>&1 && R2G=radio0
+        uci -q get wireless.radio1 >/dev/null 2>&1 && R5G=radio1
+        log "No band information on radios, falling back to radio0/radio1"
+    fi
+    [ -n "$R2G" ] && log "2.4 GHz radio: $R2G"
+    [ -n "$R5G" ] && log "5 GHz radio: $R5G"
+}
+
+enable_all_radios() {
+    local section
+    for section in $(wifi_device_sections); do
+        uci set "wireless.$section.disabled=0"
+    done
+}
+
+# First adoptable AP-mode wifi-iface section on a radio (netifd names the
+# stock one default_radioN). STA sections are skipped: they hold the
+# upstream connection.
+first_ap_iface_on() {
+    local section
+    for section in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.]*\)=wifi-iface$/\1/p"); do
+        [ "$(uci -q get "wireless.$section.device")" = "$1" ] || continue
+        [ "$(uci -q get "wireless.$section.mode")" = "sta" ] && continue
+        printf '%s' "$section"
+        return 0
+    done
+    return 1
+}
+
 configure_radio_ap() {
-    local iface="$1" label="$2"
+    local iface="$1" label="$2" radio="$3"
     if ! uci -q get "wireless.$iface" >/dev/null; then
-        return
+        uci set "wireless.$iface=wifi-iface"
     fi
     local current_mode
     current_mode=$(uci -q get "wireless.$iface".mode)
@@ -103,12 +185,42 @@ configure_radio_ap() {
         log "$iface is STA, preserving upstream connection"
         return
     fi
-    uci set "wireless.$iface".name="$label"
-    uci set "wireless.$iface".mode='ap'
-    uci set "wireless.$iface".network='lan'
-    uci set "wireless.$iface".ssid="$GATEWAY_NAME"
-    uci set "wireless.$iface".encryption='none'
-    uci set "wireless.$iface".disabled='0'
+    # Rebind to the band's radio: sections adopted from an older install may
+    # sit on the wrong radio from when the script assumed radio0 is 2.4 GHz.
+    uci set "wireless.$iface.device=$radio"
+    uci set "wireless.$iface.name=$label"
+    uci set "wireless.$iface.mode=ap"
+    uci set "wireless.$iface.network=lan"
+    uci set "wireless.$iface.ssid=$GATEWAY_NAME"
+    uci set "wireless.$iface.encryption=none"
+    uci set "wireless.$iface.disabled=0"
+}
+
+# Ensure an open TollGate AP named <label> on the given band's radio. Adopts
+# an existing section by that name (possibly on the wrong radio from an older
+# install), else the radio's own stock AP section, else creates one. When no
+# radio reports the band, any stale section is dropped instead of lingering
+# bound to a radio that cannot serve it.
+setup_band_ap() {
+    local radio="$1" label="$2" iface
+    if [ -z "$radio" ]; then
+        if uci -q get "wireless.$label" >/dev/null 2>&1; then
+            log "No radio for $label; removing stale section"
+            uci delete "wireless.$label"
+        else
+            log "No radio for $label; skipping"
+        fi
+        return 0
+    fi
+
+    if uci -q get "wireless.$label" >/dev/null 2>&1; then
+        iface="$label"
+    else
+        iface=$(first_ap_iface_on "$radio")
+        [ -z "$iface" ] && iface="$label"
+    fi
+    log "Configuring $label on $radio (section $iface)"
+    configure_radio_ap "$iface" "$label" "$radio"
 }
 
 # Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
@@ -117,10 +229,9 @@ setup_public_wifi() {
     GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
     log "Gateway name: ${GATEWAY_NAME}"
 
-    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
-    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
-    uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
-    uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+    setup_band_ap "$R2G" 'tollgate_2g_open'
+    setup_band_ap "$R5G" 'tollgate_5g_open'
+    enable_all_radios
 }
 
 setup_hostname() {
@@ -238,8 +349,18 @@ enable_modems() {
 }
 
 # Consumes RANDOM_SUFFIX; derives a private /24 adjacent to the LAN subnet.
+# Consumes R2G/R5G (from detect_band_radios) for band-correct radio binding.
 setup_private_network() {
     local lan_ip octet1 octet2 octet3 private_octet3 private_ip private_ssid private_key
+
+    # On routers without a 2.4 GHz radio, private_radio0 rides the 5 GHz
+    # radio so the management network keeps existing at all.
+    PRIV2G="$R2G"
+    [ -n "$PRIV2G" ] || PRIV2G="$R5G"
+    if [ -z "$PRIV2G" ]; then
+        log "ERROR: no usable radio for the private network; skipping"
+        return
+    fi
 
     lan_ip=$(uci -q get network.lan.ipaddr)
     if [ -z "$lan_ip" ]; then
@@ -300,7 +421,7 @@ setup_private_network() {
     uci set dhcp.private.leasetime='12h'
 
     uci set wireless.private_radio0='wifi-iface'
-    uci set wireless.private_radio0.device='radio0'
+    uci set wireless.private_radio0.device="$PRIV2G"
     uci set wireless.private_radio0.network='private'
     uci set wireless.private_radio0.mode='ap'
     uci set wireless.private_radio0.ssid="$private_ssid"
@@ -308,14 +429,21 @@ setup_private_network() {
     uci set wireless.private_radio0.key="$private_key"
     uci set wireless.private_radio0.disabled='0'
 
-    uci set wireless.private_radio1='wifi-iface'
-    uci set wireless.private_radio1.device='radio1'
-    uci set wireless.private_radio1.network='private'
-    uci set wireless.private_radio1.mode='ap'
-    uci set wireless.private_radio1.ssid="$private_ssid"
-    uci set wireless.private_radio1.encryption='psk2+ccmp'
-    uci set wireless.private_radio1.key="$private_key"
-    uci set wireless.private_radio1.disabled='0'
+    # Second private AP only when a distinct 5 GHz radio exists; on
+    # single-band routers the stale section would bind to a phantom radio.
+    if [ -n "$R5G" ] && [ "$R5G" != "$PRIV2G" ]; then
+        uci set wireless.private_radio1='wifi-iface'
+        uci set wireless.private_radio1.device="$R5G"
+        uci set wireless.private_radio1.network='private'
+        uci set wireless.private_radio1.mode='ap'
+        uci set wireless.private_radio1.ssid="$private_ssid"
+        uci set wireless.private_radio1.encryption='psk2+ccmp'
+        uci set wireless.private_radio1.key="$private_key"
+        uci set wireless.private_radio1.disabled='0'
+    elif uci -q get wireless.private_radio1 >/dev/null 2>&1; then
+        log "No distinct 5 GHz radio; removing stale private_radio1"
+        uci delete wireless.private_radio1
+    fi
 
     uci set firewall.private_zone='zone'
     uci set firewall.private_zone.name='private'
@@ -360,10 +488,10 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     GATEWAY_NAME="TollGate-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
     RANDOM_SUFFIX="${GATEWAY_NAME#TollGate-}"
 
-    configure_radio_ap 'default_radio0' 'tollgate_2g_open'
-    configure_radio_ap 'default_radio1' 'tollgate_5g_open'
-    uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
-    uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
+    detect_band_radios
+    setup_band_ap "$R2G" 'tollgate_2g_open'
+    setup_band_ap "$R5G" 'tollgate_5g_open'
+    enable_all_radios
     uci commit wireless
     log "Wireless AP verification completed"
     exit 0
@@ -378,13 +506,14 @@ setup_uhttpd
 setup_uhttpd_portal
 setup_dns_dnsmasq
 setup_hostname
+detect_band_radios
 setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
-setup_private_network        # consumes RANDOM_SUFFIX
+setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
 commit_all
 
 log "TollGate setup completed (version $SETUP_VERSION)"
