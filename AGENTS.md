@@ -36,14 +36,18 @@ get wrong:
   committed: `README.md`, `CHANGELOG.md`, protocol specs, module docs.
 - **No coding-assistant attribution** in commits or PR bodies — no
   `Co-Authored-By: Claude`, no `Generated with ...` footers.
-- Before opening a PR, run from [src/](src/):
+- Before opening a PR, run the Go battery **from the repo root**:
 
   ```bash
-  gofmt -l .          # must print nothing
-  go vet ./...
-  go build ./...
-  go test -race -count=1 -tags testenv ./...
+  make go-battery
   ```
+
+  It runs `gofmt` (must print nothing), `go vet`, `go build` and
+  `go test -race -count=1 -tags testenv` in **every** Go module —
+  [src/](src/) is a multi-module tree (16 nested `go.mod` files), so
+  running those commands from `src/` alone covers only the root module
+  and silently skips all subpackages. One implementation:
+  [scripts/go-battery.sh](scripts/go-battery.sh).
 
   If the change touches the config schema or captive-portal contract,
   also run `node tests/contract/js-schema-lint.mjs` and
