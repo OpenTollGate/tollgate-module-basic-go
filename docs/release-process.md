@@ -102,12 +102,13 @@ go build ./...
 go test -race -count=1 -tags testenv ./...
 ```
 
-From the repo root, when the change touches the config schema or the
-captive-portal contract (these are CI gates):
+From the repo root, when the change touches the config schema, the
+captive-portal contract or a shipped default (these are CI gates):
 
 ```bash
 node tests/contract/js-schema-lint.mjs
 bash tests/contract/build-purity.sh
+bash tests/contract/check-ssid-format.sh
 ```
 
 From the repo root, always:

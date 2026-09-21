@@ -49,9 +49,10 @@ get wrong:
   and silently skips all subpackages. One implementation:
   [scripts/go-battery.sh](scripts/go-battery.sh).
 
-  If the change touches the config schema or captive-portal contract,
-  also run `node tests/contract/js-schema-lint.mjs` and
-  `bash tests/contract/build-purity.sh` from the repo root.
+  If the change touches the config schema, the captive-portal contract
+  or a shipped default, also run `node tests/contract/js-schema-lint.mjs`,
+  `bash tests/contract/build-purity.sh` and
+  `bash tests/contract/check-ssid-format.sh` from the repo root.
 - PRs are squash-merged; the maintainer rewrites the final commit
   message.
 
