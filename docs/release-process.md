@@ -108,6 +108,7 @@ captive-portal contract (these are CI gates):
 ```bash
 node tests/contract/js-schema-lint.mjs
 bash tests/contract/build-purity.sh
+bash tests/contract/check-identity-leak.sh
 ```
 
 From the repo root, always:

@@ -21,6 +21,13 @@ if git diff --cached --name-only \
     sh scripts/check-version-sync.sh
 fi
 
+# Shipped defaults must describe the product, never the person who built the
+# router: the private SSID is broadcast in the AP beacon.
+if git diff --cached --name-only | grep -qE '^packaging/files/'; then
+    echo "🔍 Checking shipped defaults for operator-identity leaks..."
+    bash tests/contract/check-identity-leak.sh
+fi
+
 # Check gofmt on staged Go files (--diff-filter=d: gofmt cannot read
 # deleted files; xargs -I{} keeps one file per line, spaces-safe)
 if git diff --cached --name-only | grep -q '\.go$'; then

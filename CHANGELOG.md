@@ -28,6 +28,20 @@ and [Semantic Versioning](https://semver.org/).
   `92-tollgate-admin-setup` evaluates for the same option. See
   [docs/architecture/uhttpd-redirect-https-ownership-decision.md](docs/architecture/uhttpd-redirect-https-ownership-decision.md).
 
+- **The default private SSID no longer names the operator.** The private
+  network's SSID is chosen in `99-tollgate-setup` when neither radio has one
+  yet, and it was generated as `c08r4d0r-${RANDOM_SUFFIX}` — a maintainer's
+  own handle, repeated in the AP beacon of every router that took the
+  default and therefore readable by any WiFi scanner in range: flashing a
+  router broadcast the operator's username. The default is now
+  `TollGate-Private-${RANDOM_SUFFIX}`, a product name, and
+  `tests/contract/check-identity-leak.sh` (a CI gate, also wired into
+  `hooks/pre-commit`) fails when a maintainer identity literal reappears
+  under `packaging/files/` or when the generated default stops being
+  device-unique and product-prefixed. Routers that already have a private
+  SSID keep it — the default is only generated when the option is unset —
+  so this changes no deployed network.
+
 ### Changed / Internal
 
 - **Recorded the captive-portal bundle-location decision.** The portal is
