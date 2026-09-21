@@ -10,144 +10,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Changed / Internal
-
-- **Release pipeline shards stage 2, and announces only a complete
-  release.** One `act` invocation is bounded by the coordinator's 1800 s
-  ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
-  it: the run at `b25d8a28` timed out after announcing 5 of the 17 legs, and
-  the `.apk`/SDK legs never got a slot at all. Stage 2 is now eleven workflow
-  files rendered from
-  [`packaging/ngit-release-matrix.json`](packaging/ngit-release-matrix.json),
-  each budgeted under 1500 s and each covering part of the same matrix — no
-  architecture or compression leg is dropped. A shard no longer publishes a
-  kind-1063: announcements moved to
-  `.ngit/act/workflows/build-package-announce.yml`, which runs
-  `scripts/ngit-release-announce.sh` and refuses unless every shard of the
-  same (version, channel, release run) succeeded **and** every leg has a build
-  record naming that same release run — so a shard that fails or times out
-  leaves the release unannounced instead of half-announced.
-  `scripts/ngit-ci-release.sh` drives the ordered run. `build-portal` on the
-  ngit lane was fixed in the same change: it had been red since the
-  reproducible-build requirement landed, because it could not derive
-  `SOURCE_DATE_EPOCH` without git history. See
-  [`.ngit/README.md`](.ngit/README.md)
-  ([#445](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/445)).
-
-- **Wallet-backend documents: contract, integration decision, measurement
-  protocol.** Promotes the three production-worthy documents from the
-  wallet-migration research branch: `docs/architecture/walletport-contract.md`
-  (what a replacement Cashu backend must satisfy),
-  `docs/architecture/wallet-integration-decision.md` (in-process wallet vs CDK
-  sidecar, per target tier), and
-  `docs/architecture/wallet-measurement-protocol.md` (metric catalogue,
-  proposed blocker thresholds, the six-fact reproducibility contract and the
-  mandatory INJ-1…INJ-8 fault-injection set). The protocol document also
-  records two findings from the current-wallet audit: the seed shares
-  `wallet.db` with the proofs, and the documented `cdk_wallet` build command is
-  a false green. Research plans, experiment sources and raw logs stay out of
-  this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
-  ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
-
-- **Release pipeline runs on Nostr CI (no GitHub dependency).** The
-  `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
-  `ngit-ci`, from `.ngit/act/workflows/`, as two workflows because one
-  `act` invocation is bounded by the coordinator's 30-minute job ceiling:
-  `build-package-binaries.yml` (versioning, the five cross-compile
-  targets, the captive portal, and the Blossom mirroring plus the
-  build-id records stage 2 resolves) and the sharded stage 2 described
-  above (the 14 `.ipk` and 3 `.apk` matrix, per-leg Blossom upload,
-  kind-1063 announcement, the tollgate-os handoff record). The GitHub twin is
-  untouched and still runs where Actions is available. `container:`
-  blocks — refused with `startup_failure` on this deployment — become
-  `docker run` against the same SDK image; the release signing key is
-  provisioned operator-side as `NGIT_CI_SECRET_TMBG__NSEC_HEX`; the
-  GitHub-only cross-repo dispatch becomes a kind-30078 handoff record
-  plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
-  for the measurements, the trigger differences and the end-to-end
-  verification evidence.
-- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
-  merchant token-flow tests no longer import the concrete wallet package; token
-  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
-  library-agnostic so the wallet backend can change without touching them.
-  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
-
-- **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
-  from the `tmp/release-integration` pseudo-version to the tagged release
-  `v0.11.2` (empty-proofs guard, LoadWallet deadlock fix, hostile-token corpus).
-
-- **`.gitignore` no longer misses the built CLI binary.** The anchoring
-  done in #383 stopped the bare build-output names from shadowing source
-  directories, but turned `tollgate-cli` into `src/tollgate-cli` — a path
-  no build writes. The CLI module lives in `src/cmd/tollgate-cli`, and a
-  binary is named after the last element of the module path, so its
-  `go build .` writes `src/cmd/tollgate-cli/tollgate-cli`. That executable
-  was therefore untracked *and* unignored: it showed up in `git status`
-  after any local build, and `git add -A` would have committed 9.9 MB of
-  binary. The entry now names the path the build actually writes; nothing
-  else in the file changes.
-  ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
-
-### Added
-
-- **Process-isolated wallet sidecar + capability manifests.** `src/tollwallet`
-  gains a `WalletPort` client that speaks a newline-delimited JSON RPC over an
-  `AF_UNIX` socket to an out-of-process wallet daemon, so a non-Go wallet
-  (e.g. CDK) can back the module without linking CGO. Per-backend capability
-  manifests (`manifests/{gonuts,cdk,nucula}.json`) and a
-  `wallet-policy.json` selection policy make the backend a per-target choice
-  behind the unchanged `WalletPort` contract; `select.go` resolves the policy to
-  a backend and `Call()` provides an explicit escape hatch for backend-specific
-  methods. `SwapFeeSats` is served by a `swap_fee_sats` RPC (a daemon without
-  the method answers `ok:false`, which surfaces as the error callers already
-  tolerate), and the transport distinguishes safe retries from
-  already-executed requests: money-moving methods (`send`, `melt`,
-  `receive`, `drain`, `mint_tokens`, …) that were written but not answered
-  fail with `ErrSidecarAmbiguous` instead of being re-issued — a blind
-  retry could double-spend — while read-only methods reconnect and retry.
-  Adds manifest/policy validation tests and a policy↔manifest
-  consistency check that runs in the test matrix. ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395))
-
-- **Reproducible builds.** Every byte-affecting build input is now pinned
-  in `packaging/build-inputs.json` and loaded through the canonical
-  `packaging/build-env.sh`: exact Go (1.25.8), Node (22.17.0), npm
-  (10.9.2), and UPX (5.2.1) toolchains with verified tarball hashes; the
-  captive-portal source pinned to an immutable commit SHA; OpenWrt SDK
-  images pinned by registry digest. `SOURCE_DATE_EPOCH` (default: the
-  TollGate HEAD commit timestamp) now drives every embedded timestamp —
-  `BuildTime` in the binaries, ipk archive mtimes (via `gzip -n` and
-  `--mtime`), portal output files, and files staged into the apk SDK
-  container. `make reproducibility-test` (and `scripts/repro-test.sh`)
-  rebuilds any artifact in two independent clean roots with isolated
-  caches and requires identical SHA-256s, with diffoscope diagnostics on
-  mismatch. Verified byte-identical on the build host: both Go binaries,
-  the portal tree, x86_64 and aarch64 ipk, a UPX-compressed ipk, and the
-  x86_64 apk. CI gains a fast binary reproducibility check on every
-  push plus a package check via workflow dispatch
-  (`.github/workflows/repro-check.yml`); the build workflow now pins the
-  Go patch release, derives `BuildTime` from the source epoch, adds
-  `-buildvcs=false`, uses the portal's declared Node/npm, fetches UPX
-  from the pinned manifest, and runs the apk SDK containers
-  digest-pinned. See [docs/reproducible-builds.md](docs/reproducible-builds.md). ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
-
-- **Hosted-runner-independent build script.**
-  `scripts/shc-build-package.sh` orders a short-lived Sovereign Hybrid
-  Compute VM (via the `shc` CLI), syncs the working tree, builds the
-  aarch64 `.ipk` through `packaging/local-build-ipk.sh`, verifies the
-  package control metadata and `--version` output of the built
-  binaries, copies the artifact to `artifacts/shc/`, and always
-  cancels the VM (exit trap plus reaper deadline backstop). Keeps
-  package builds possible while GitHub Actions is unavailable. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
-
-- **`--version` flag on both shipped binaries.** `tollgate --version`
-  (via cobra's built-in version support) and `tollgate-wrt --version`
-  now print the embedded version and exit, as expected by OpenWrt
-  package CI. The build now injects the CLI binary's version via
-  `-X main.version` — previously the CLI build reused the service's
-  `src/cli.*` ldflags, which its separate Go module never links, so
-  the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
-
 ### Fixed
+
+- **Wallet drain no longer discards tokens when a later mint fails.**
+  `wallet drain cashu` drained mints one by one but aborted with a bare
+  error on the first per-mint failure, silently discarding tokens already
+  produced by earlier successful (and irreversible) mints — on wallets
+  whose registry held two URL spellings of one mint (e.g. a trailing-slash
+  variant) this could destroy real funds (#375). Mint URLs are now
+  canonicalized (scheme/host case, any trailing slashes, default ports
+  dropped, userinfo/query/fragment discarded) at registration and
+  merged on read, so one logical mint can no longer appear as two
+  phantom-balanced entries; per-mint failures are collected and reported
+  as an explicit partial result (`success:false`, `partial:true`,
+  `tokens`, per-mint `errors`) in both plain and JSON output; and every
+  produced token is appended to an fsync'd
+  `/etc/tollgate/wallet-drain-journal.jsonl` before the next mint is
+  attempted, closing the crash window between the irreversible swap and
+  the aggregate response.
 
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
@@ -242,7 +122,75 @@ and [Semantic Versioning](https://semver.org/).
   while `authorizeMAC` treats an already-Authenticated client as authorized
   instead of failing the first payment after fresh daemon state.
   ([#412](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/412))
-### Changed / Internal
+
+### Added
+
+- **`--yes`/`-y` for `wallet drain cashu`.** Skips the interactive
+  confirmation prompt for non-interactive callers, so automation no
+  longer needs `--json` merely to bypass the prompt.
+
+- **Meaningful exit codes.** `wallet drain cashu` now exits non-zero on
+  cancellation (declined prompt or stdin at EOF) and on full or partial
+  drain failure; JSON-mode commands (via `--json`) exit non-zero
+  whenever the response reports `success:false` instead of exiting 0
+  because serialization succeeded (#375).
+
+- **Process-isolated wallet sidecar + capability manifests.** `src/tollwallet`
+  gains a `WalletPort` client that speaks a newline-delimited JSON RPC over an
+  `AF_UNIX` socket to an out-of-process wallet daemon, so a non-Go wallet
+  (e.g. CDK) can back the module without linking CGO. Per-backend capability
+  manifests (`manifests/{gonuts,cdk,nucula}.json`) and a
+  `wallet-policy.json` selection policy make the backend a per-target choice
+  behind the unchanged `WalletPort` contract; `select.go` resolves the policy to
+  a backend and `Call()` provides an explicit escape hatch for backend-specific
+  methods. `SwapFeeSats` is served by a `swap_fee_sats` RPC (a daemon without
+  the method answers `ok:false`, which surfaces as the error callers already
+  tolerate), and the transport distinguishes safe retries from
+  already-executed requests: money-moving methods (`send`, `melt`,
+  `receive`, `drain`, `mint_tokens`, …) that were written but not answered
+  fail with `ErrSidecarAmbiguous` instead of being re-issued — a blind
+  retry could double-spend — while read-only methods reconnect and retry.
+  Adds manifest/policy validation tests and a policy↔manifest
+  consistency check that runs in the test matrix. ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395))
+
+- **Reproducible builds.** Every byte-affecting build input is now pinned
+  in `packaging/build-inputs.json` and loaded through the canonical
+  `packaging/build-env.sh`: exact Go (1.25.8), Node (22.17.0), npm
+  (10.9.2), and UPX (5.2.1) toolchains with verified tarball hashes; the
+  captive-portal source pinned to an immutable commit SHA; OpenWrt SDK
+  images pinned by registry digest. `SOURCE_DATE_EPOCH` (default: the
+  TollGate HEAD commit timestamp) now drives every embedded timestamp —
+  `BuildTime` in the binaries, ipk archive mtimes (via `gzip -n` and
+  `--mtime`), portal output files, and files staged into the apk SDK
+  container. `make reproducibility-test` (and `scripts/repro-test.sh`)
+  rebuilds any artifact in two independent clean roots with isolated
+  caches and requires identical SHA-256s, with diffoscope diagnostics on
+  mismatch. Verified byte-identical on the build host: both Go binaries,
+  the portal tree, x86_64 and aarch64 ipk, a UPX-compressed ipk, and the
+  x86_64 apk. CI gains a fast binary reproducibility check on every
+  push plus a package check via workflow dispatch
+  (`.github/workflows/repro-check.yml`); the build workflow now pins the
+  Go patch release, derives `BuildTime` from the source epoch, adds
+  `-buildvcs=false`, uses the portal's declared Node/npm, fetches UPX
+  from the pinned manifest, and runs the apk SDK containers
+  digest-pinned. See [docs/reproducible-builds.md](docs/reproducible-builds.md). ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **Hosted-runner-independent build script.**
+  `scripts/shc-build-package.sh` orders a short-lived Sovereign Hybrid
+  Compute VM (via the `shc` CLI), syncs the working tree, builds the
+  aarch64 `.ipk` through `packaging/local-build-ipk.sh`, verifies the
+  package control metadata and `--version` output of the built
+  binaries, copies the artifact to `artifacts/shc/`, and always
+  cancels the VM (exit trap plus reaper deadline backstop). Keeps
+  package builds possible while GitHub Actions is unavailable. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
+
+- **`--version` flag on both shipped binaries.** `tollgate --version`
+  (via cobra's built-in version support) and `tollgate-wrt --version`
+  now print the embedded version and exit, as expected by OpenWrt
+  package CI. The build now injects the CLI binary's version via
+  `-X main.version` — previously the CLI build reused the service's
+  `src/cli.*` ldflags, which its separate Go module never links, so
+  the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
   documents the supported-matrix placeholder (honest about what is untested),
@@ -255,6 +203,86 @@ and [Semantic Versioning](https://semver.org/).
   marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
   `apk add --allow-untrusted`.
   ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
+
+### Changed / Internal
+
+- **Release pipeline shards stage 2, and announces only a complete
+  release.** One `act` invocation is bounded by the coordinator's 1800 s
+  ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
+  it: the run at `b25d8a28` timed out after announcing 5 of the 17 legs, and
+  the `.apk`/SDK legs never got a slot at all. Stage 2 is now eleven workflow
+  files rendered from
+  [`packaging/ngit-release-matrix.json`](packaging/ngit-release-matrix.json),
+  each budgeted under 1500 s and each covering part of the same matrix — no
+  architecture or compression leg is dropped. A shard no longer publishes a
+  kind-1063: announcements moved to
+  `.ngit/act/workflows/build-package-announce.yml`, which runs
+  `scripts/ngit-release-announce.sh` and refuses unless every shard of the
+  same (version, channel, release run) succeeded **and** every leg has a build
+  record naming that same release run — so a shard that fails or times out
+  leaves the release unannounced instead of half-announced.
+  `scripts/ngit-ci-release.sh` drives the ordered run. `build-portal` on the
+  ngit lane was fixed in the same change: it had been red since the
+  reproducible-build requirement landed, because it could not derive
+  `SOURCE_DATE_EPOCH` without git history. See
+  [`.ngit/README.md`](.ngit/README.md)
+  ([#445](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/445)).
+
+- **Wallet-backend documents: contract, integration decision, measurement
+  protocol.** Promotes the three production-worthy documents from the
+  wallet-migration research branch: `docs/architecture/walletport-contract.md`
+  (what a replacement Cashu backend must satisfy),
+  `docs/architecture/wallet-integration-decision.md` (in-process wallet vs CDK
+  sidecar, per target tier), and
+  `docs/architecture/wallet-measurement-protocol.md` (metric catalogue,
+  proposed blocker thresholds, the six-fact reproducibility contract and the
+  mandatory INJ-1…INJ-8 fault-injection set). The protocol document also
+  records two findings from the current-wallet audit: the seed shares
+  `wallet.db` with the proofs, and the documented `cdk_wallet` build command is
+  a false green. Research plans, experiment sources and raw logs stay out of
+  this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
+  ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
+
+- **Release pipeline runs on Nostr CI (no GitHub dependency).** The
+  `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
+  `ngit-ci`, from `.ngit/act/workflows/`, as two workflows because one
+  `act` invocation is bounded by the coordinator's 30-minute job ceiling:
+  `build-package-binaries.yml` (versioning, the five cross-compile
+  targets, the captive portal, and the Blossom mirroring plus the
+  build-id records stage 2 resolves) and `build-package.yml` (the 14
+  `.ipk` and 3 `.apk` matrix, per-artifact Blossom upload and kind-1063
+  announcement, the tollgate-os handoff record). The GitHub twin is
+  untouched and still runs where Actions is available. `container:`
+  blocks — refused with `startup_failure` on this deployment — become
+  `docker run` against the same SDK image; the release signing key is
+  provisioned operator-side as `NGIT_CI_SECRET_TMBG__NSEC_HEX`; the
+  GitHub-only cross-repo dispatch becomes a kind-30078 handoff record
+  plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
+  for the measurements, the trigger differences and the end-to-end
+  verification evidence.
+
+- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
+  merchant token-flow tests no longer import the concrete wallet package; token
+  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
+  library-agnostic so the wallet backend can change without touching them.
+  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
+
+- **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
+  from the `tmp/release-integration` pseudo-version to the tagged release
+  `v0.11.2` (empty-proofs guard, LoadWallet deadlock fix, hostile-token corpus).
+
+- **`.gitignore` no longer misses the built CLI binary.** The anchoring
+  done in #383 stopped the bare build-output names from shadowing source
+  directories, but turned `tollgate-cli` into `src/tollgate-cli` — a path
+  no build writes. The CLI module lives in `src/cmd/tollgate-cli`, and a
+  binary is named after the last element of the module path, so its
+  `go build .` writes `src/cmd/tollgate-cli/tollgate-cli`. That executable
+  was therefore untracked *and* unignored: it showed up in `git status`
+  after any local build, and `git add -A` would have committed 9.9 MB of
+  binary. The entry now names the path the build actually writes; nothing
+  else in the file changes.
+  ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
+
 - **ngit mirror linked from the README.** A new "Mirror, CI and releases on
   Nostr (ngit)" section documents the mirror's `nostr://` and HTTPS clone
   URLs, the gitworkshop browser URL, the ngit-CI dashboard, and how to fetch
@@ -270,6 +298,7 @@ and [Semantic Versioning](https://semver.org/).
   the ipk path. Byte-neutral on the equivalence build host (identical
   sha256 with and without the flag, aarch64 @ v0.6.0-alpha2 inputs).
   ([#405](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/405))
+
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
   ships the runtime files under `packaging/files/`, and is wired into both
@@ -281,6 +310,7 @@ and [Semantic Versioning](https://semver.org/).
   package artifact by name and fails loudly if it is not found, instead of
   testing whichever `.apk` happens to come first.
   ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387))
+
 - **Environment-variance check via `reprotest`.**
   `make reproducibility-variance` (`scripts/repro-variance.sh`) rebuilds
   the `.ipk` under hostile environment variations — umask, timezone,
@@ -298,18 +328,6 @@ and [Semantic Versioning](https://semver.org/).
   silently ignoring any new (untracked) files added there; patterns
   are now anchored to the repo and `src/` roots where the binaries
   actually land. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
-
-- **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)
-  documents the supported-matrix placeholder (honest about what is untested),
-  the feed signing key and the repository line for OpenWrt 25.12, install,
-  upgrade, remove and rollback — including the `/etc/apk/world` version pin a
-  rollback leaves behind, and the fact that `--force-downgrade` is not an
-  apk-tools 3.x option — the failure modes reproduced in practice, how to
-  report a result, and what to expect from an alpha. Every command was
-  executed against a real OpenWrt 25.12.5 userland; router-only steps are
-  marked UNTESTED. `RELEASE-NOTES.md` no longer suggests
-  `apk add --allow-untrusted`.
-  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381))
 
 - **Tester intake: one channel, a report template, and the stop-ship rule.**
   New [docs/tester-intake.md](docs/tester-intake.md) names the **single** intake
