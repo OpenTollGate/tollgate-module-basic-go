@@ -262,7 +262,6 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -q "port 8443"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
     fi
-    uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping
