@@ -91,6 +91,11 @@ jobs:
             exit 1
           fi
           echo "go $have matches packaging/build-inputs.json"
+      - name: Audit the SDK Go pins against the live OpenWrt feeds
+        # The pin's authority is the SDK's own packages feed: this fails when
+        # .go.version stops matching the pinned release's feed, or when the
+        # go_per_release map drifts from the openwrt/packages branches.
+        run: scripts/sdk-go-version.sh check
       - name: Deterministic binary rebuild check (both binaries)
         # Prints BUILD 1 / BUILD 2 SHA-256s per binary and REPRODUCIBLE: YES|NO.
         # A target that produces no artifact is a failure, not a pass: the
