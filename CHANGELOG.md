@@ -27,6 +27,14 @@ and [Semantic Versioning](https://semver.org/).
   2.4 GHz radio
   ([#452](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/452)).
 
+### Changed / Internal
+
+- **Recorded the captive-portal bundle-location decision.** The portal is
+  consumed as a hash-pinned CI-built artifact rather than merged into this
+  repo; the stale `portal.commit` pin and the guest-SPA-only
+  `portal-build.sh` are the real defects to fix. See
+  [docs/architecture/captive-portal-bundle-location-decision.md](docs/architecture/captive-portal-bundle-location-decision.md).
+
 ## [v0.6.0-alpha3] - 2026-09-21
 
 ### Fixed
