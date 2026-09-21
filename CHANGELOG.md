@@ -10,6 +10,27 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **The shipped captive portal advances to the admin-board sprint.** The
+  `portal.commit` pin in
+  [packaging/build-inputs.json](packaging/build-inputs.json) moves from
+  `86ac5fc` to `4f74a6d`, refreshing the hash-pinned artifact exactly as
+  the bundle-location ADR prescribes
+  ([#462](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/462)).
+  The guest portal gains: Lightning `AccessGranted` guarded on allocation,
+  the balance page wrapped in an ErrorBoundary, a prehydrate pass with a
+  usage display, and a stable success-checkmark id for test tooling. The
+  same portal wave carries the `:8090` admin-board webroot fixes
+  (brand-deterministic and LuCI-proof, plain HTTP with opt-in HTTPS on
+  `:8443`, captive-LAN access re-asserted on install, LuCI `:8080`
+  redirected to HTTPS when a cert exists, the Devices page fixed on
+  OpenWrt 25.x, ACL errors no longer mislabeled `SESSION_EXPIRED`) for the
+  whitelabel installer path; packaging the admin bundle from this repo
+  remains the ADR's open follow-up
+  ([portal compare](https://github.com/OpenTollGate/tollgate-captive-portal-site/compare/86ac5fc708a082b63fdc578ef9caf5f4ea2ec4df...4f74a6dd5a7c4dc985d55e72978a076cf8bbebaf);
+  portal PRs #40, #42, #44–#49).
+
 ### Changed / Internal
 
 - **Recorded the captive-portal bundle-location decision.** The portal is
