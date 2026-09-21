@@ -153,6 +153,39 @@ services:
       retries: 10
       start_period: 10s
 
+  # --- external-mint lane (run-external-mints.sh) -- profile "external-mints"
+  # A second upstream whose accepted_mints also lists a real internet
+  # mint (testnut.cashu.exchange, nutshell main with a FakeWallet). The
+  # default upstream must stay offline-only; live-mint tests target
+  # http://upstream-ext:2121 via UPSTREAM_URL.
+  upstream-ext:
+    build:
+      context: ../..
+      dockerfile: tests/cloud-lab/Dockerfile.tollgate
+    container_name: tg-upstream-ext
+    profiles: ["external-mints"]
+    depends_on:
+      mint:
+        condition: service_healthy
+    environment:
+      - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+      - TOLLGATE_RATE_LIMIT_RPM=600
+    volumes:
+      - ./configs/upstream-ext-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+    ports:
+      - "21214:2121"
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.12
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:2121/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   reseller:
     build:
       context: ../..

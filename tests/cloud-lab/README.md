@@ -43,7 +43,13 @@ with FakeWallet backend — no physical routers required.
   `payment-error-mint-unreachable` (#447 lands the dedicated code, filed as
   #440; the inactive-but-swappable
   fee-resolution branch needs a nutshell-style mint — tracked in the
-  signet-lane issue).
+  signet-lane issue)
+
+- **tg-upstream-ext** (profile `external-mints`) — A second upstream
+  whose `accepted_mints` also lists a real internet mint
+  (`testnut.cashu.exchange`, nutshell main + FakeWallet, free test
+  ecash). Used by `run-external-mints.sh`; the default upstream stays
+  offline-only. Real-money mints are never probed by this lane..
 
 - **tg-upstream** — The TollGate Go binary, built from source. Uses a
   fake `ndsctl` script instead of NoDogSplash, so all payment/session/
@@ -86,6 +92,7 @@ docker compose down
 | `test_smoke_payment.py` | Mint reachable, TollGate reachable, wallet funded, payment returns session event (kind 1022), gate opened, balance endpoint works |
 | `test_swap_fees.py` | Fee-charging mint: fee visible in keysets, below-fee token refused before the swap (`payment-error-below-swap-fee`, token stays unspent), above-fee payment credited net of fee, free-mint path unchanged |
 | `test_keyset_rotation.py` | Two-phase run via `./run-keyset-rotation.sh` (the phase tests are gated on `ROTATION_LANE=1` and skip in a default `client` run): proofs minted on a pre-rotation keyset are **refused** after it expires (cdk-mintd rejects swaps on expired keysets outright) — currently surfacing *misclassified* as `payment-error-mint-unreachable` while the mint is healthy and the token is permanently dead (#447 lands the dedicated code, filed as #440); sum-then-ceil fee boundary pinned across proof counts (255/1023/2047 sats) |
+| `test_external_mints.py` | Opt-in live lane via `./run-external-mints.sh` (`EXTERNAL_MINTS=1` gates it out of default runs; skips with a reason when the mint is down): real-mint keyset fees verified, a 1-sat token terminated by the #409 below-swap-fee pre-check, and a fee-deducted session credit — all against `testnut.cashu.exchange` (nutshell main, FakeWallet; real-money mints never probed) |
 | `test_mint_failure.py` | Kill mint mid-session → TollGate degrades gracefully (no crash) → restart mint → TollGate recovers and accepts payments again |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
 
