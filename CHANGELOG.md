@@ -10,6 +10,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **The admin board is reachable from captive clients.** `nodogsplash`'s
+  `users_to_router` now allows TCP `8090` (admin board) and `8443` (opt-in
+  HTTPS) on the captive LAN, exactly like LuCI on `8080`, so the config UI
+  works straight after a plain `apk`/`opkg` install
+  ([#458](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/458)).
+
 ### Fixed
 
 - **Wi-Fi scanning now addresses the radio's interfaces.** `wireless_gateway_manager`
