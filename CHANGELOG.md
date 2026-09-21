@@ -12,6 +12,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Lane-local Go literals are refused, not just derived around.**
+  `scripts/check-version-sync.sh` (pre-commit hook and release
+  precondition) now fails on any literal `go-version`/`GO_VERSION` in a
+  workflow — even one that matches today's manifest, since it would go
+  stale on the next pin bump — and checks the 16 module `go.mod`
+  directives for internal consistency. The enforcement half of the
+  manifest-as-single-source design.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
 - **Release pipeline shards stage 2, and announces only a complete
   release.** One `act` invocation is bounded by the coordinator's 1800 s
   ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
