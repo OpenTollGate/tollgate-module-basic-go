@@ -108,9 +108,9 @@ func GetConfigSchema() []FieldSchema {
 					Name: "Sessions", JSONKey: "sessions", Type: "object", Description: "Session settings", Required: true, Editable: true,
 					Children: []FieldSchema{
 						{Name: "PreferredSessionIncrementsMilliseconds", JSONKey: "preferred_session_increments_milliseconds", Type: "uint64", Description: "Preferred time session increment (ms)", Default: uint64(60000), Required: true, Editable: true},
-						{Name: "PreferredSessionIncrementsBytes", JSONKey: "preferred_session_increments_bytes", Type: "uint64", Description: "Preferred data session increment (bytes)", Default: uint64(131100000), Required: true, Editable: true},
+						{Name: "PreferredSessionIncrementsBytes", JSONKey: "preferred_session_increments_bytes", Type: "uint64", Description: "Preferred data session increment (bytes)", Default: uint64(500000000), Required: true, Editable: true},
 						{Name: "MillisecondRenewalOffset", JSONKey: "millisecond_renewal_offset", Type: "uint64", Description: "Renew this many ms before expiry", Default: uint64(10000), Required: true, Editable: true},
-						{Name: "BytesRenewalOffset", JSONKey: "bytes_renewal_offset", Type: "uint64", Description: "Renew this many bytes before limit", Default: uint64(32775000), Required: true, Editable: true},
+						{Name: "BytesRenewalOffset", JSONKey: "bytes_renewal_offset", Type: "uint64", Description: "Renew this many bytes before limit", Default: uint64(125000000), Required: true, Editable: true},
 					},
 				},
 				{
