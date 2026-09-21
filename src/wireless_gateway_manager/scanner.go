@@ -4,6 +4,7 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -45,12 +46,12 @@ func getInterfaceName() (string, error) {
 var _ ScannerInterface = (*Scanner)(nil)
 
 func (s *Scanner) ScanAllRadios() ([]NetworkInfo, error) {
-	radios, err := s.GetRadios()
+	targets, err := s.scanTargets()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(radios) == 0 {
+	if len(targets) == 0 {
 		return nil, errors.New("no radios found")
 	}
 
@@ -59,16 +60,16 @@ func (s *Scanner) ScanAllRadios() ([]NetworkInfo, error) {
 		err      error
 	}
 
-	results := make(chan scanResult, len(radios))
-	for _, radio := range radios {
-		go func(r string) {
-			networks, err := s.scanRadio(r)
+	results := make(chan scanResult, len(targets))
+	for _, target := range targets {
+		go func(t scanTarget) {
+			networks, err := s.scanRadio(t.Radio, t.Device)
 			results <- scanResult{networks: networks, err: err}
-		}(radio)
+		}(target)
 	}
 
 	var allNetworks []NetworkInfo
-	for i := 0; i < len(radios); i++ {
+	for i := 0; i < len(targets); i++ {
 		result := <-results
 		if result.err != nil {
 			logger.WithError(result.err).Warn("Radio scan failed")
@@ -84,12 +85,51 @@ func (s *Scanner) ScanAllRadios() ([]NetworkInfo, error) {
 	return allNetworks, nil
 }
 
-func (s *Scanner) scanRadio(radio string) ([]NetworkInfo, error) {
+// scanTarget pairs a uci radio section name with the iwinfo device to scan it
+// on. Device may be empty, in which case scanRadio resolves it itself.
+type scanTarget struct {
+	Radio  string
+	Device string
+}
+
+// scanTargets builds the list of radios to scan. netifd's wireless status is
+// the authoritative radio-to-interface mapping (it is what LuCI and travelmate
+// use), so it is preferred when available: it also reports which radios are
+// down or disabled, which are skipped instead of burning three failed scan
+// attempts each. Everything else falls back to reading the wireless config.
+func (s *Scanner) scanTargets() ([]scanTarget, error) {
+	if data, err := wirelessStatusOutput(); err == nil {
+		if status, err := parseWirelessStatus(data); err == nil && len(status) > 0 {
+			targets := scanTargetsFromStatus(status)
+			if skipped := len(status) - len(targets); skipped > 0 {
+				logger.WithField("skipped", skipped).Debug("Skipping down or disabled radios")
+			}
+			return targets, nil
+		}
+		logger.Debug("No usable wireless status, falling back to wireless config")
+	} else {
+		logger.WithError(err).Debug("ubus wireless status unavailable, falling back to wireless config")
+	}
+
+	radios, err := s.GetRadios()
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]scanTarget, 0, len(radios))
+	for _, radio := range radios {
+		targets = append(targets, scanTarget{Radio: radio})
+	}
+	return targets, nil
+}
+
+func (s *Scanner) scanRadio(radio, device string) ([]NetworkInfo, error) {
 	// iwinfo addresses *interfaces*, not uci radio sections. On modern OpenWrt
 	// the radio's interfaces are named phy<idx>-ap<k> (e.g. phy0-ap1), so
 	// `iwinfo radio0 scan` is a usage error and the scan silently comes back
 	// empty. Resolve the radio to a usable iwinfo device first.
-	device := s.resolveIwinfoDevice(radio)
+	if device == "" {
+		device = s.resolveIwinfoDevice(radio)
+	}
 	var lastErr error
 	for retry := 0; retry < 3; retry++ {
 		cmd := exec.Command("iwinfo", device, "scan")
@@ -311,6 +351,64 @@ func (s *Scanner) resolveIwinfoDevice(radio string) string {
 		return names[0]
 	}
 	return radio
+}
+
+// ubusRadioIface is one interface entry of a radio in netifd's wireless
+// status. Ifname is absent while the interface is down.
+type ubusRadioIface struct {
+	Section string `json:"section"`
+	Ifname  string `json:"ifname"`
+}
+
+// ubusRadioStatus is one radio entry of `ubus call network.wireless status`,
+// keyed in the payload by the uci section name (radio0, radio1, ...).
+type ubusRadioStatus struct {
+	Up         bool             `json:"up"`
+	Disabled   bool             `json:"disabled"`
+	Interfaces []ubusRadioIface `json:"interfaces"`
+}
+
+// wirelessStatusOutput runs the netifd wireless status query. Failing (no
+// ubus, no wireless system) is a supported condition handled by the caller.
+func wirelessStatusOutput() ([]byte, error) {
+	return exec.Command("ubus", "call", "network.wireless", "status").Output()
+}
+
+// parseWirelessStatus decodes the `ubus call network.wireless status` payload.
+// Pure, so it is unit-tested against captured fixtures.
+func parseWirelessStatus(data []byte) (map[string]ubusRadioStatus, error) {
+	var status map[string]ubusRadioStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("failed to parse wireless status JSON: %w", err)
+	}
+	return status, nil
+}
+
+// scanTargetsFromStatus turns the wireless status into scan targets: one per
+// live radio, in section-name order for deterministic behaviour. Radios that
+// are down or disabled, or whose interfaces have no ifname yet, are skipped —
+// they cannot be scanned and would only produce error noise.
+func scanTargetsFromStatus(status map[string]ubusRadioStatus) []scanTarget {
+	sections := make([]string, 0, len(status))
+	for section := range status {
+		sections = append(sections, section)
+	}
+	sort.Strings(sections)
+
+	targets := make([]scanTarget, 0, len(sections))
+	for _, section := range sections {
+		radio := status[section]
+		if radio.Disabled || !radio.Up {
+			continue
+		}
+		for _, iface := range radio.Interfaces {
+			if iface.Ifname != "" {
+				targets = append(targets, scanTarget{Radio: section, Device: iface.Ifname})
+				break
+			}
+		}
+	}
+	return targets
 }
 
 func (s *Scanner) DetectEncryption(encryptionStr string) string {

@@ -16,8 +16,10 @@ and [Semantic Versioning](https://semver.org/).
   ran `iwinfo <radio> scan` with the uci section name (`radio0`), which is a usage
   error on modern OpenWrt where a radio's interfaces are `phy<idx>-ap<k>` — the
   scan silently returned "empty scan result" and the admin Wi-Fi page listed no
-  networks. The scanner now resolves `radioN` to its `phy<N>-ap*` interface
-  (falling back to the uci name when nothing maps) ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
+  networks. The scanner now resolves `radioN` to a scannable interface —
+  preferring netifd's `ubus call network.wireless status` (and skipping radios
+  that are down or disabled), falling back to the `phy<N>-ap*` mapping and
+  finally the uci name ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
 
 ### Changed / Internal
 

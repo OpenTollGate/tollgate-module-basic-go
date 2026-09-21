@@ -65,3 +65,137 @@ func TestParsePhyInterfaces(t *testing.T) {
 		t.Errorf("empty = %v, want nil", got)
 	}
 }
+
+// Fixture: `ubus call network.wireless status` shape on a tri-band router,
+// following captured outputs from openwrt/packages#23875 and the netifd
+// wireless status docs. radio1 deliberately precedes radio0 to prove the
+// section-name ordering; radio2 is disabled and its interface carries no
+// ifname (netifd omits it while down).
+const ubusStatusFixture = `{
+	"radio1": {
+		"up": true,
+		"pending": false,
+		"autostart": true,
+		"disabled": false,
+		"retry_setup_failed": false,
+		"config": {
+			"path": "pci0000:00/0000:00:00.0",
+			"channel": "36",
+			"band": "5g",
+			"htmode": "HE80",
+			"cell_density": 0
+		},
+		"interfaces": [
+			{
+				"section": "wifinet1",
+				"ifname": "phy1-ap0",
+				"config": {
+					"mode": "ap",
+					"ssid": "tollgate-VIL4",
+					"encryption": "none",
+					"network": ["lan"]
+				}
+			},
+			{
+				"section": "tollgate_sta_5g",
+				"ifname": "phy1-sta0",
+				"config": {
+					"mode": "sta"
+				}
+			}
+		]
+	},
+	"radio0": {
+		"up": true,
+		"pending": false,
+		"autostart": true,
+		"disabled": false,
+		"retry_setup_failed": false,
+		"config": {
+			"path": "platform/soc/a000000.wifi",
+			"channel": "1",
+			"band": "2g",
+			"htmode": "HT20",
+			"cell_density": 0,
+			"txpower": 27
+		},
+		"interfaces": [
+			{
+				"section": "wifinet0",
+				"ifname": "phy0-ap0",
+				"config": {
+					"mode": "ap",
+					"ssid": "tollgate-VIL4",
+					"encryption": "none",
+					"network": ["lan"]
+				}
+			}
+		]
+	},
+	"radio2": {
+		"up": false,
+		"pending": false,
+		"autostart": true,
+		"disabled": true,
+		"retry_setup_failed": false,
+		"config": {
+			"path": "platform/soc/b000000.wifi",
+			"channel": "auto",
+			"band": "6g",
+			"htmode": "EHT80"
+		},
+		"interfaces": [
+			{
+				"section": "wifinet2",
+				"config": {
+					"mode": "ap"
+				}
+			}
+		]
+	}
+}`
+
+func TestParseWirelessStatus(t *testing.T) {
+	status, err := parseWirelessStatus([]byte(ubusStatusFixture))
+	if err != nil {
+		t.Fatalf("parseWirelessStatus: %v", err)
+	}
+	if len(status) != 3 {
+		t.Fatalf("parsed %d radios, want 3", len(status))
+	}
+	if got := status["radio0"].Interfaces[0].Ifname; got != "phy0-ap0" {
+		t.Errorf("radio0 first ifname = %q, want phy0-ap0", got)
+	}
+	if got := status["radio1"].Interfaces[1].Section; got != "tollgate_sta_5g" {
+		t.Errorf("radio1 second section = %q, want tollgate_sta_5g", got)
+	}
+	if !status["radio2"].Disabled {
+		t.Errorf("radio2 disabled = false, want true")
+	}
+}
+
+func TestParseWirelessStatus_Invalid(t *testing.T) {
+	if _, err := parseWirelessStatus([]byte("not json")); err == nil {
+		t.Error("parseWirelessStatus(invalid) = nil error, want error")
+	}
+}
+
+func TestScanTargetsFromStatus(t *testing.T) {
+	status, err := parseWirelessStatus([]byte(ubusStatusFixture))
+	if err != nil {
+		t.Fatalf("parseWirelessStatus: %v", err)
+	}
+	want := []scanTarget{
+		{Radio: "radio0", Device: "phy0-ap0"},
+		{Radio: "radio1", Device: "phy1-ap0"},
+	}
+	if got := scanTargetsFromStatus(status); !reflect.DeepEqual(got, want) {
+		t.Errorf("scanTargetsFromStatus = %v, want %v", got, want)
+	}
+}
+
+func TestScanTargetsFromStatus_Empty(t *testing.T) {
+	if got := scanTargetsFromStatus(map[string]ubusRadioStatus{}); len(got) != 0 {
+		t.Errorf("empty status produced %d targets, want 0", len(got))
+	}
+}
