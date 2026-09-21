@@ -6,6 +6,13 @@
 #   - Reseller TollGate (buys from upstream, resells) — started on demand
 #   - Client container (cdk-cli + nak + pytest for test execution)
 #
+# Project isolation (#437): every checkout of this repo resolves the same
+# default project name below, which is how one worktree silently reuses
+# another worktree's built images. Set COMPOSE_PROJECT_NAME (a gitignored
+# .env in this directory is auto-loaded; see .env.example) or pass -p to
+# isolate a checkout.
+name: ${COMPOSE_PROJECT_NAME:-cloud-lab}
+
 # All containers are on a single Docker bridge network with static IPs so
 # the TollGate's /tmp/dhcp.leases mapping stays valid.
 #
@@ -44,6 +51,77 @@ services:
       retries: 10
       start_period: 30s
 
+  mint-fees:
+    build:
+      context: .
+      dockerfile: Dockerfile.mint
+    container_name: tg-mint-fees
+    environment:
+      - CDK_MINTD_URL=http://mint-fees:8085
+      - CDK_MINTD_LN_BACKEND=fakewallet
+      - CDK_MINTD_LISTEN_HOST=0.0.0.0
+      - CDK_MINTD_LISTEN_PORT=8085
+      # Mirrors real-world mints (e.g. mint.coinos.io): every swapped proof
+      # costs input_fee_ppk/1000 sats — ceil(100/1000) = 1 sat per swap of a
+      # single-proof token, so a 1-sat token is entirely consumed by the fee.
+      - CDK_MINTD_INPUT_FEE_PPK=100
+      # Different mnemonic than `mint` so the two mints derive different keysets.
+      - CDK_MINTD_MNEMONIC=legal winner thank year wave sausage worth useful legal winner thank yellow
+      - CDK_MINTD_DATABASE=sqlite
+      - CDK_MINTD_DATABASE_PATH=data/mint
+      - CDK_MINTD_CACHE_BACKEND=memory
+    ports:
+      - "8086:8085"
+    volumes:
+      - mint-fees-data:/data
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/v1/keys"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  # Fee-charging mint with scriptable keyset rotation for testing payments
+  # on rotated-out keysets. The rotation list comes from the host-side
+  # $MINT_ROTATE_ROTATIONS (see run-keyset-rotation.sh): phase 1 boots one
+  # active keyset at input_fee_ppk=100; phase 2 recreates the container with
+  # that keyset expired (same deterministic ID) and a fresh zero-fee active
+  # keyset. cdk-mintd 0.17.6 refuses swaps on expired keysets outright, so
+  # phase 2 pins that pre-rotation proofs surface as a clean classified
+  # payment error. Keyset IDs are mnemonic-derived, so the stashed proofs
+  # land on the very keyset phase 2 expires.
+  mint-rotate:
+    build:
+      context: .
+      dockerfile: Dockerfile.mint
+    container_name: tg-mint-rotate
+    environment:
+      - CDK_MINTD_URL=http://mint-rotate:8085
+      - CDK_MINTD_LN_BACKEND=fakewallet
+      - CDK_MINTD_LISTEN_HOST=0.0.0.0
+      - CDK_MINTD_LISTEN_PORT=8085
+      - CDK_MINTD_MNEMONIC=abandon amount liar amount expire adjust cage candy arch gather drum buyer
+      - CDK_MINTD_DATABASE=sqlite
+      - CDK_MINTD_DATABASE_PATH=data/mint
+      - CDK_MINTD_CACHE_BACKEND=memory
+      - CDK_MINTD_FAKE_WALLET_KEYSET_ROTATIONS=${MINT_ROTATE_ROTATIONS:-[{"unit":"sat","version":"v1","input_fee_ppk":100,"expired":false}]}
+    ports:
+      - "8087:8085"
+    volumes:
+      - mint-rotate-data:/data
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.4
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/v1/keys"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   upstream:
     build:
       context: ../..
@@ -54,6 +132,11 @@ services:
         condition: service_healthy
     environment:
       - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+      # The limiter is per client IP (10/min default) and every suite in
+      # this lab pays from one client-container IP; the combined default
+      # run (smoke + swap fees + rotation boundaries) needs ~20 payments
+      # inside a minute and was 429ing mid-suite.
+      - TOLLGATE_RATE_LIMIT_RPM=600
     volumes:
       - ./configs/upstream-config.json:/etc/tollgate/config.json
       - ./configs/install.json:/etc/tollgate/install.json
@@ -102,6 +185,8 @@ services:
     depends_on:
       mint:
         condition: service_healthy
+      mint-fees:
+        condition: service_healthy
       upstream:
         condition: service_healthy
     volumes:
@@ -115,6 +200,8 @@ services:
 
 volumes:
   mint-data:
+  mint-fees-data:
+  mint-rotate-data:
 
 networks:
   tollgate-lab:

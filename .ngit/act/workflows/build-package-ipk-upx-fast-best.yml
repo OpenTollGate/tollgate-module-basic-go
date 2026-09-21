@@ -77,6 +77,7 @@ jobs:
       release_run: ${{ steps.identity.outputs.release_run }}
       hashes: ${{ steps.fetch.outputs.hashes }}
       portal_hash: ${{ steps.fetch.outputs.portal_hash }}
+      source_date_epoch: ${{ steps.fetch.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@v5
 
@@ -175,6 +176,26 @@ jobs:
           echo "binaries: $HASHES"
           echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
 
+          # Reproducibility pin (#383, #441): stage 1 stamps the binaries
+          # with a SOURCE_DATE_EPOCH and rides it on this record; packaging
+          # must use the SAME epoch or the package mtimes disagree with the
+          # binaries' BuildTime. Records from before the field existed fall
+          # back to the same derivation stage 1 uses.
+          EPOCH=$(printf '%s' "$HASHES" | jq -r '.epoch // empty')
+          if [ -z "$EPOCH" ]; then
+            EPOCH=$(bash scripts/ngit-commit-epoch.sh "$GITHUB_SHA" 2>/dev/null || true)
+          fi
+          if [ -z "$EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
+            EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
+          fi
+          if [ -z "$EPOCH" ]; then
+            EPOCH="$(date +%s)"
+            echo "NOTE: stage-1 record carried no epoch; using job clock $EPOCH — package mtimes will NOT rebuild identically" >&2
+          fi
+          case "$EPOCH" in *[!0-9]*|'') echo "ERROR: epoch is not an integer: $EPOCH" >&2; exit 1 ;; esac
+          echo "source_date_epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$EPOCH"
+
           PORTAL_EVENT=$(fetch_record portal) || {
             echo "ERROR: no portal record for build id $BUILD_ID." >&2
             exit 1
@@ -189,6 +210,12 @@ jobs:
     needs: [resolve-inputs]
     runs-on: ubuntu-latest
     timeout-minutes: 7
+    env:
+      # The packaging scripts (packaging/build-ipk.sh and the apk SDK lane)
+      # stamp mtimes from SOURCE_DATE_EPOCH (#383); it must be the same
+      # epoch the binaries were compiled with (resolve-inputs extracts it
+      # from the stage-1 record).
+      SOURCE_DATE_EPOCH: ${ needs.resolve-inputs.outputs.source_date_epoch }
     strategy:
       fail-fast: false
       matrix:

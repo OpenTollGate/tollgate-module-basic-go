@@ -16,6 +16,26 @@
       "price_per_step": 1,
       "price_unit": "sats",
       "purchase_min_steps": 0
+    },
+    {
+      "url": "http://mint-fees:8085",
+      "min_balance": 0,
+      "balance_tolerance_percent": 0,
+      "payout_interval_seconds": 999999,
+      "min_payout_amount": 999999,
+      "price_per_step": 1,
+      "price_unit": "sats",
+      "purchase_min_steps": 0
+    },
+    {
+      "url": "http://mint-rotate:8085",
+      "min_balance": 0,
+      "balance_tolerance_percent": 0,
+      "payout_interval_seconds": 999999,
+      "min_payout_amount": 999999,
+      "price_per_step": 1,
+      "price_unit": "sats",
+      "purchase_min_steps": 0
     }
   ],
   "profit_share": [

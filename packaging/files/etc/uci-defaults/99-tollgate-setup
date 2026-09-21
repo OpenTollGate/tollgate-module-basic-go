@@ -28,6 +28,30 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup steps ------------------------------------------------------------
 
+# load_brand: whitelabel selector — 'tollgate' (default) or 'net4sats'. The
+# two brands differ only in naming; the brand file is written by whitelabel
+# installers before first boot, and everything derived from it — system
+# hostname (and thus <hostname>.lan DNS), AP SSIDs, NDS gateway name —
+# follows this single selector.
+#
+# Called AFTER the log truncation in both the short and full paths: anything
+# logged before `: > "$LOGFILE"` is wiped, which silently ate the
+# coercion line when this ran at the top of the script.
+#
+# read -r strips the trailing newline and leading/trailing IFS whitespace
+# (verified on BusyBox ash). Do NOT use `tr -d '[:space:]'` here: BusyBox tr
+# treats the character class as a literal set and deletes every s/p/a/c/e
+# from the value — "net4sats" became "nt4t" and coerced to the default.
+load_brand() {
+    read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
+    case "$BRAND" in
+        net4sats) BRAND_HOSTNAME="Net4sats" ;;
+        *) BRAND_HOSTNAME="TollGate"
+           [ -n "$BRAND" ] && log "Brand '${BRAND}' not recognized — coercing to default 'tollgate' (expected: net4sats)"
+           ;;
+    esac
+}
+
 setup_uhttpd() {
     uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
     uci -q delete uhttpd.main.listen_http
@@ -72,6 +96,63 @@ setup_uhttpd_portal() {
     # The SPA ships no index.html — without this, / would serve a file
     # inventory to pre-auth clients.
     uci set uhttpd.portal.no_dirlists='1'
+}
+
+# Remove stray :8090 entries from uhttpd.main's listen list.
+#
+# uhttpd.main's docroot is /www, and LuCI's /www/index.html meta-refreshes
+# to cgi-bin/luci — so ANY port added to uhttpd.main serves "redirect to
+# LuCI". Repair attempts that add 8090 there (instead of creating the
+# dedicated configUI section below) produce exactly the reported
+# ":8090 redirects to LuCI instead of the configUI" symptom. Runs in both
+# setup paths so the misconfiguration cannot survive a reinstall.
+sanitize_uhttpd_main_configui_port() {
+    uci -q del_list uhttpd.main.listen_http='0.0.0.0:8090'
+    uci -q del_list uhttpd.main.listen_http='[::]:8090'
+}
+
+# Whitelabel config UI on :8090 (net4sats brand).
+#
+# The whitelabel admin/config UI lives in /www/net4sats — installed by the
+# whitelabel installer, never shipped by this package — and is served by a
+# DEDICATED uhttpd section, never by uhttpd.main (see
+# sanitize_uhttpd_main_configui_port). Mirrors the known-good deployed
+# layout exactly so upgrades of already-configured routers converge
+# instead of duplicating sections. Only created when the branded docroot
+# actually exists; stock tollgate routers get nothing on :8090.
+#
+# Deliberately NOT added to nodogsplash users_to_router: the config UI is
+# owner-facing and reached over the private network (br-private, not
+# NDS-gated). Pre-auth public-SSID guests must not reach an admin UI.
+setup_uhttpd_configui() {
+    # Self-contained brand check: read /etc/tollgate/brand directly (written
+    # by whitelabel installers) so this repair works regardless of whether
+    # the surrounding script defines a BRAND variable.
+    local cfgui_brand
+    # read (not `tr -d '[:space:]'`): busybox tr on some OpenWrt builds
+    # lacks character classes and would delete the literal chars
+    # [ : s p a c e — mangling "net4sats" into "nt4t". POSIX read strips
+    # leading/trailing IFS whitespace and the trailing newline itself.
+    read -r cfgui_brand < /etc/tollgate/brand || cfgui_brand=""
+    [ "$cfgui_brand" = "net4sats" ] || return 0
+    [ -d /www/net4sats ] || return 0
+
+    uci -q get uhttpd.net4sats >/dev/null 2>&1 || uci set uhttpd.net4sats=uhttpd
+    local cfgui_listen
+    cfgui_listen=$(uci -q get uhttpd.net4sats.listen_http 2>/dev/null || echo "")
+    if ! echo "$cfgui_listen" | grep -q "0.0.0.0:8090"; then
+        uci add_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
+    fi
+    if ! echo "$cfgui_listen" | grep -q "\[::\]:8090"; then
+        uci add_list uhttpd.net4sats.listen_http='[::]:8090'
+    fi
+    uci set uhttpd.net4sats.home='/www/net4sats'
+    uci set uhttpd.net4sats.ubus_prefix='/ubus'
+    uci set uhttpd.net4sats.script_timeout='60'
+    uci set uhttpd.net4sats.network_timeout='30'
+    uci set uhttpd.net4sats.max_requests='3'
+    uci set uhttpd.net4sats.tcp_keepalive='1'
+    log "Whitelabel configUI uhttpd section ensured on :8090 (home=/www/net4sats)"
 }
 
 setup_dns_dnsmasq() {
@@ -226,7 +307,7 @@ setup_band_ap() {
 # Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
 setup_public_wifi() {
     RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
-    GATEWAY_NAME="TollGate-${RANDOM_SUFFIX}"
+    GATEWAY_NAME="${BRAND_HOSTNAME}-${RANDOM_SUFFIX}"
     log "Gateway name: ${GATEWAY_NAME}"
 
     setup_band_ap "$R2G" 'tollgate_2g_open'
@@ -237,11 +318,17 @@ setup_public_wifi() {
 setup_hostname() {
     local current_hostname
     current_hostname=$(uci -q get system.@system[0].hostname)
-    if [ "$current_hostname" = "OpenWrt" ]; then
-        uci set system.@system[0].hostname='TollGate'
-        log "Hostname changed to TollGate (was OpenWrt default)"
+    if [ "$current_hostname" = "$BRAND_HOSTNAME" ]; then
+        log "Hostname '${current_hostname}' already matches the brand"
+    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "TollGate" ] || [ "$current_hostname" = "Net4sats" ]; then
+        # Fresh install (OpenWrt) or a known brand default from the other
+        # brand — migrate to this brand's hostname. Deliberately one-way
+        # and known-values-only: an operator's custom hostname is never
+        # touched (#444).
+        uci set system.@system[0].hostname="$BRAND_HOSTNAME"
+        log "Hostname changed to $BRAND_HOSTNAME (was '${current_hostname}')"
     else
-        log "Hostname '${current_hostname}' preserved (not default OpenWrt)"
+        log "Hostname '${current_hostname}' preserved (custom, not a brand default)"
     fi
     # TLS cert CN should match whatever hostname is active after the check above.
     local final_hostname
@@ -276,7 +363,25 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -q "port 2051$"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
-    uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
+    # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) must be
+    # reachable from the captive LAN unauthenticated, exactly like LuCI on
+    # :8080. Folded in here (not installer-side) so a plain apk/opkg install
+    # yields a working admin URL.
+    if ! echo "$nds_users" | grep -q "port 8090"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090'
+    fi
+    if ! echo "$nds_users" | grep -q "port 8443"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
+    fi
+    # gatewaydomainname deliberately NOT set — and actively deleted on
+    # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
+    # a redir param back to the splash when it is configured, looping
+    # pre-auth clients (browsers abort with ERR_TOO_MANY_REDIRECTS and
+    # never reach the payment page). The friendly <hostname>.lan name
+    # keeps resolving without it: dnsmasq serves the system hostname in
+    # the 'lan' zone (domain/expandhosts/local are set in
+    # setup_dns_dnsmasq). See #428.
+    uci -q delete nodogsplash.@nodogsplash[0].gatewaydomainname
     uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
     # Let the Go backend control session duration: NDS defaults to
     # 1200 s (20 min), which would deauth users mid-session regardless
@@ -482,17 +587,36 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     chmod 600 "$LOGFILE"
     log "Flag matches $SETUP_VERSION — verifying wireless APs only"
 
+    load_brand
+
     # Recover gateway name from existing config for AP SSID consistency
     GATEWAY_NAME=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null) || \
     GATEWAY_NAME=$(uci -q get wireless.default_radio0.ssid 2>/dev/null) || \
-    GATEWAY_NAME="TollGate-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
-    RANDOM_SUFFIX="${GATEWAY_NAME#TollGate-}"
+    GATEWAY_NAME="${BRAND_HOSTNAME}-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
+    RANDOM_SUFFIX="${GATEWAY_NAME#*-}"
 
     detect_band_radios
     setup_band_ap "$R2G" 'tollgate_2g_open'
     setup_band_ap "$R5G" 'tollgate_5g_open'
     enable_all_radios
     uci commit wireless
+    # Reinstall must also repair the :8090 layout — a repair that added
+    # 8090 to uhttpd.main (LuCI docroot) survives same-version reinstalls
+    # otherwise, and the configUI section is never re-ensured.
+    sanitize_uhttpd_main_configui_port
+    setup_uhttpd_configui
+    uci commit uhttpd
+
+    # The #428 loop guard must also fire here: a device upgrading from a
+    # pre-#432 install can carry a stale gatewaydomainname while its
+    # SETUP_VERSION already matches (postinst and the boot hook re-run
+    # this script, but only version-changing upgrades reached the full
+    # setup where the delete used to live).
+    if uci -q get nodogsplash.@nodogsplash[0].gatewaydomainname >/dev/null 2>&1; then
+        uci delete nodogsplash.@nodogsplash[0].gatewaydomainname
+        uci commit nodogsplash
+        log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
+    fi
     log "Wireless AP verification completed"
     exit 0
 fi
@@ -502,8 +626,12 @@ fi
 chmod 600 "$LOGFILE"  # contains the WiFi password — keep it root-only
 log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
 
+load_brand
+
 setup_uhttpd
 setup_uhttpd_portal
+sanitize_uhttpd_main_configui_port
+setup_uhttpd_configui
 setup_dns_dnsmasq
 setup_hostname
 detect_band_radios
