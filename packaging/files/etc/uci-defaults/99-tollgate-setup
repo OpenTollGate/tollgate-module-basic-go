@@ -723,7 +723,10 @@ setup_private_network() {
     # generate only when unset.
     private_ssid=$(uci -q get wireless.private_radio0.ssid)
     if [ -z "$private_ssid" ]; then
-        private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
+        # Product name, never a person: this SSID is broadcast in the AP
+        # beacon and readable by any scanner in range, so naming it after the
+        # operator's handle leaked their username to the street.
+        private_ssid="TollGate-Private-${RANDOM_SUFFIX}"
     fi
 
     private_key=$(uci -q get wireless.private_radio0.key)

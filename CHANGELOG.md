@@ -181,6 +181,22 @@ same-version short branch.
   same-version branch against a fake `uci`/`apk`.
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
+- **The default private SSID no longer names the operator.** The private
+  network's SSID is chosen in `99-tollgate-setup` when neither radio has one
+  yet, and it was generated as `c08r4d0r-${RANDOM_SUFFIX}` — a maintainer's
+  own handle, repeated in the AP beacon of every router that took the
+  default and therefore readable by any WiFi scanner in range: flashing a
+  router broadcast the operator's username. The default is now
+  `TollGate-Private-${RANDOM_SUFFIX}`, a product name, and
+  `tests/contract/check-identity-leak.sh` (a CI gate, also wired into
+  `hooks/pre-commit`) fails when a maintainer identity literal reappears
+  under `packaging/files/` or when the generated default stops being
+  device-unique and product-prefixed. Routers that already have a private
+  SSID keep it — the default is only generated when the option is unset —
+  so this changes no deployed network.
+
+### Changed / Internal
+
 ### Changed / Internal
 - **ngit stage 1 now builds the portal from the pinned toolchain.** The
   `build-portal` job stopped overriding `PORTAL_REF` with a floating `main`
