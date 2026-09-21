@@ -222,8 +222,8 @@ radio_band() {
     hwmode=$(uci -q get "wireless.$1.hwmode")
     case "$hwmode" in
         11ad|ad) printf '60g'; return 0 ;;
-        11a*|a) printf '5g'; return 0 ;;
-        11b*|11g*|b|g|bg) printf '2g'; return 0 ;;
+        11a*|11na|a) printf '5g'; return 0 ;;
+        11b*|11g*|11ng|b|g|bg) printf '2g'; return 0 ;;
     esac
     channel=$(uci -q get "wireless.$1.channel")
     case "$channel" in
@@ -598,6 +598,13 @@ commit_all() {
 }
 
 # -- driver -----------------------------------------------------------------
+
+# Offline-test hook: sourcing with TOLLGATE_SETUP_LIB_ONLY=1 defines every
+# function above without running the setup — tests/uci-defaults-band_test.sh
+# exercises the band logic against a fake uci. Never set on a router.
+if [ "${TOLLGATE_SETUP_LIB_ONLY:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # Check if full setup is needed (version mismatch or first boot)
 EXISTING_VERSION=""
