@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "match": { "arch": "mipsel_24kc", "flash_mb": 16 },
+      "backend": "gonuts",
+      "note": "16 MB / mipsel: in-process, best write behaviour; sidecars are a tight fit"
+    },
+    {
+      "match": { "arch": "mipsel_24kc" },
+      "backend": "cdk",
+      "socket": "/var/run/tollgate/wallet-cdk.sock",
+      "note": "roomier mipsel: CDK sidecar (wallet-only builds for mipsel on cdk >= 0.18.0)"
+    },
+    {
+      "match": { "arch": "aarch64_cortex-a53" },
+      "backend": "cdk",
+      "socket": "/var/run/tollgate/wallet-cdk.sock",
+      "note": "aarch64: CDK sidecar, ~4.1 MiB size-optimized"
+    }
+  ]
+}

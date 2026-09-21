@@ -10,7 +10,81 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **The admin board is reachable from captive clients.** `nodogsplash`'s
+  `users_to_router` now allows TCP `8090` (admin board) and `8443` (opt-in
+  HTTPS) on the captive LAN, exactly like LuCI on `8080`, so the config UI
+  works straight after a plain `apk`/`opkg` install
+  ([#458](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/458)).
+
+### Fixed
+
+- **Wi-Fi scanning now addresses the radio's interfaces.** `wireless_gateway_manager`
+  ran `iwinfo <radio> scan` with the uci section name (`radio0`), which is a usage
+  error on modern OpenWrt where a radio's interfaces are `phy<idx>-ap<k>` — the
+  scan silently returned "empty scan result" and the admin Wi-Fi page listed no
+  networks. The scanner now resolves `radioN` to a scannable interface —
+  preferring netifd's `ubus call network.wireless status` (and skipping radios
+  that are down or disabled), falling back to the `phy<N>-ap*` mapping and
+  finally the uci name ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
+
 ### Changed / Internal
+
+- **The ngit release lane stamps builds with `SOURCE_DATE_EPOCH`.** The
+  publishing lane compiled with a wall-clock `BuildTime` (and Go 1.25.0
+  while the #383 pin is 1.25.8 — aligned in #434), so the artifacts it
+  published could never be reproduced byte-for-byte even though the local
+  packaging path is reproducible. Ported onto the sharded release lane
+  (#445): stage 1 derives the epoch from the
+  source commit (git, else the triggering commit's timestamp, else the
+  job clock — the chosen source is printed, and the value rides the
+  stage-1 kind-30078 rendezvous record), stamps `BuildTime` and the
+  portal from it, and each shard's resolve-inputs extracts that epoch
+  from the record (same-derivation fallback for pre-epoch records) and
+  exports it to the packaging jobs, so the `.ipk` mtimes agree with the
+  binaries' `BuildTime` per commit. The
+  `.apk` SDK-container tar stream is not yet epoch-normalized (no apk leg
+  has completed under the coordinator — `.ngit/README.md` "Does the
+  matrix fit?").
+
+- **Release pipeline shards stage 2, and announces only a complete
+  release.** One `act` invocation is bounded by the coordinator's 1800 s
+  ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
+  it: the run at `b25d8a28` timed out after announcing 5 of the 17 legs, and
+  the `.apk`/SDK legs never got a slot at all. Stage 2 is now eleven workflow
+  files rendered from
+  [`packaging/ngit-release-matrix.json`](packaging/ngit-release-matrix.json),
+  each budgeted under 1500 s and each covering part of the same matrix — no
+  architecture or compression leg is dropped. A shard no longer publishes a
+  kind-1063: announcements moved to
+  `.ngit/act/workflows/build-package-announce.yml`, which runs
+  `scripts/ngit-release-announce.sh` and refuses unless every shard of the
+  same (version, channel, release run) succeeded **and** every leg has a build
+  record naming that same release run — so a shard that fails or times out
+  leaves the release unannounced instead of half-announced.
+  `scripts/ngit-ci-release.sh` drives the ordered run. `build-portal` on the
+  ngit lane was fixed in the same change: it had been red since the
+  reproducible-build requirement landed, because it could not derive
+  `SOURCE_DATE_EPOCH` without git history. See
+  [`.ngit/README.md`](.ngit/README.md)
+  ([#445](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/445)).
+
+- **Wallet-backend documents: contract, integration decision, measurement
+  protocol.** Promotes the three production-worthy documents from the
+  wallet-migration research branch: `docs/architecture/walletport-contract.md`
+  (what a replacement Cashu backend must satisfy),
+  `docs/architecture/wallet-integration-decision.md` (in-process wallet vs CDK
+  sidecar, per target tier), and
+  `docs/architecture/wallet-measurement-protocol.md` (metric catalogue,
+  proposed blocker thresholds, the six-fact reproducibility contract and the
+  mandatory INJ-1…INJ-8 fault-injection set). The protocol document also
+  records two findings from the current-wallet audit: the seed shares
+  `wallet.db` with the proofs, and the documented `cdk_wallet` build command is
+  a false green. Research plans, experiment sources and raw logs stay out of
+  this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
+  ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
+
 
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
@@ -18,9 +92,9 @@ and [Semantic Versioning](https://semver.org/).
   `act` invocation is bounded by the coordinator's 30-minute job ceiling:
   `build-package-binaries.yml` (versioning, the five cross-compile
   targets, the captive portal, and the Blossom mirroring plus the
-  build-id records stage 2 resolves) and `build-package.yml` (the 14
-  `.ipk` and 3 `.apk` matrix, per-artifact Blossom upload and kind-1063
-  announcement, the tollgate-os handoff record). The GitHub twin is
+  build-id records stage 2 resolves) and the sharded stage 2 described
+  above (the 14 `.ipk` and 3 `.apk` matrix, per-leg Blossom upload,
+  kind-1063 announcement, the tollgate-os handoff record). The GitHub twin is
   untouched and still runs where Actions is available. `container:`
   blocks — refused with `startup_failure` on this deployment — become
   `docker run` against the same SDK image; the release signing key is
@@ -29,6 +103,11 @@ and [Semantic Versioning](https://semver.org/).
   plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
   for the measurements, the trigger differences and the end-to-end
   verification evidence.
+- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
+  merchant token-flow tests no longer import the concrete wallet package; token
+  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
+  library-agnostic so the wallet backend can change without touching them.
+  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
 
 - **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
   from the `tmp/release-integration` pseudo-version to the tagged release
@@ -47,6 +126,24 @@ and [Semantic Versioning](https://semver.org/).
   ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
 
 ### Added
+
+- **Process-isolated wallet sidecar + capability manifests.** `src/tollwallet`
+  gains a `WalletPort` client that speaks a newline-delimited JSON RPC over an
+  `AF_UNIX` socket to an out-of-process wallet daemon, so a non-Go wallet
+  (e.g. CDK) can back the module without linking CGO. Per-backend capability
+  manifests (`manifests/{gonuts,cdk,nucula}.json`) and a
+  `wallet-policy.json` selection policy make the backend a per-target choice
+  behind the unchanged `WalletPort` contract; `select.go` resolves the policy to
+  a backend and `Call()` provides an explicit escape hatch for backend-specific
+  methods. `SwapFeeSats` is served by a `swap_fee_sats` RPC (a daemon without
+  the method answers `ok:false`, which surfaces as the error callers already
+  tolerate), and the transport distinguishes safe retries from
+  already-executed requests: money-moving methods (`send`, `melt`,
+  `receive`, `drain`, `mint_tokens`, …) that were written but not answered
+  fail with `ErrSidecarAmbiguous` instead of being re-issued — a blind
+  retry could double-spend — while read-only methods reconnect and retry.
+  Adds manifest/policy validation tests and a policy↔manifest
+  consistency check that runs in the test matrix. ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395))
 
 - **Reproducible builds.** Every byte-affecting build input is now pinned
   in `packaging/build-inputs.json` and loaded through the canonical
@@ -89,6 +186,40 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Upgrades no longer abort on devices without `jq`.** The maintainer
+  scripts no longer shell out to `jq`: `packaging/preinst` stops
+  parsing `install.json` (the removed body ran only on upgrades and
+  aborted the upgrade on jq-less devices, which then orphan-removed
+  runtime dependencies), and Go now owns `install_time` end to end —
+  `config_manager` writes it on install where the scripts used to
+  read/patch it with `jq`. Fresh installs are untouched (they never ran
+  the `jq` path). ([#407](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/407))
+
+- **Bytes-metered upstream sessions no longer renew instantly on default
+  config.** The default `bytes_renewal_offset` (131,100,000) exceeds the
+  allotment actually purchasable from a typical upstream advertisement
+  (5 × 22,020,096 = 110,100,480 bytes after step quantization), so every
+  reseller session fired a renewal payment at near-zero usage — doubling
+  the session cost on startup. The renewal check now never fires while
+  more than half of the current allotment remains; a warning is logged
+  (once, whenever the clamp takes effect) whenever the configured offset
+  is overridden. Fixes [#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430).
+
+- **Fresh installs now ship coherent, right-sized prepay defaults for
+  bytes-metered upstream sessions.** The old `bytes_renewal_offset`
+  default (131,100,000 — equal to the preferred increment) exceeded any
+  allotment actually purchasable after step quantization, the exact
+  condition that made every bytes-metered upstream session renew at
+  near-zero usage ([#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430)).
+  The defaults are now `preferred_session_increments_bytes`
+  500,000,000 (~477 MiB prepaid per renewal) and `bytes_renewal_offset`
+  125,000,000 (25% of the preferred increment — about 10 s of renewal
+  runway at 100 Mbps), in both the config writer and the schema, and
+  session creation warns when a persisted config's renewal offset is at
+  or above the preferred increment. Existing saved configs are
+  deliberately not rewritten; per-link-profile tuning is tracked in
+  [#460](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/460).
+>>>>>>> fa08fc8 (fix(config): right-size default upstream prepay for fast links)
 - **A runtime downgrade can recover again.** When all mints went
   unreachable under a running service, the downgrade path registered the
   onUpgrade consumer but never the tracker's first-reachable trigger that
@@ -182,6 +313,22 @@ and [Semantic Versioning](https://semver.org/).
   while `authorizeMAC` treats an already-Authenticated client as authorized
   instead of failing the first payment after fresh daemon state.
   ([#412](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/412))
+
+- **Whitelabel config UI on :8090 no longer degrades into a LuCI
+  redirect.** The net4sats whitelabel admin UI (docroot
+  `/www/net4sats`, installed by the whitelabel installer) is served by
+  a dedicated `uhttpd` section on port 8090; first-boot/reinstall
+  setup now re-ensures that section whenever the branded docroot is
+  present, mirroring the known-good deployed layout. Repair attempts
+  that instead added `:8090` to `uhttpd.main` land on LuCI's docroot
+  (`/www`, whose `index.html` meta-refreshes to `cgi-bin/luci` — the
+  reported ":8090 redirects to LuCI instead of the configUI" symptom);
+  setup now strips such stray entries from `uhttpd.main` on every run,
+  including same-version reinstalls, which previously left them in
+  place. Port 8090 is deliberately not opened for pre-auth
+  public-SSID clients: the config UI is owner-facing and reached over
+  the private network. ([#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451))
+
 ### Changed / Internal
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)

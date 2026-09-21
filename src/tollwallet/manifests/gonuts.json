@@ -1,0 +1,24 @@
+{
+  "backend": "gonuts",
+  "kind": "in_process",
+  "version": "OpenTollGate/gonuts-tollgate v0.11.2 (fork of elnosh/gonuts)",
+  "arches": ["aarch64_cortex-a53", "mipsel_24kc"],
+  "size_bytes": {},
+  "storage": {
+    "model": "sqlite",
+    "writes_per_payment": "o(1)",
+    "crash_consistent": true,
+    "seed_at_rest": "plaintext"
+  },
+  "contract": {
+    "nut_07": true,
+    "nut_09": true,
+    "restore": true,
+    "cgo": false
+  },
+  "licence": "GPL-3.0-only (fork)",
+  "extra": {
+    "size_note": "in-process: the wallet is part of the tollgate-wrt binary, no separate size",
+    "ownership": "grade C (we own the fork); carries HTLC-signature + swap-proof-loss fixes"
+  }
+}

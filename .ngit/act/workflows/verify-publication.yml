@@ -170,8 +170,12 @@ jobs:
           # Expectations come from the release matrix itself, so a version that
           # silently dropped an architecture is a failure rather than a smaller
           # expectation set. The helper exits 2 rather than printing nothing.
+          # The matrix is sharded across one workflow file per group of legs, so
+          # the expectation set is the union of the shard files — see
+          # packaging/ngit-release-matrix.json. Passing only one shard's file
+          # would leave every other shard's (arch, format) pairs unverified.
           EXPECTATIONS=$(bash scripts/ngit-matrix-expectations.sh \
-            .ngit/act/workflows/build-package.yml --compression none --formats ipk,apk)
+            .ngit/act/workflows/build-package-*.yml --compression all --formats ipk,apk)
           echo "$EXPECTATIONS"
           export VERIFY_EXPECT="$EXPECTATIONS"
 
