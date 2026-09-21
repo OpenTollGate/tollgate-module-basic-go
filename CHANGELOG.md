@@ -66,6 +66,15 @@ and [Semantic Versioning](https://semver.org/).
   `.apk` SDK-container tar stream is not yet epoch-normalized (no apk leg
   has completed under the coordinator — `.ngit/README.md` "Does the
   matrix fit?").
+=======
+- **One Go battery, one truth.** `make go-battery` (from the repo root,
+  via `scripts/go-battery.sh`) runs the full pre-PR gate — gofmt, vet,
+  build, `-race -count=1 -tags testenv` tests — in **every** Go module.
+  The documented `cd src && go test ./...` form covered only the root
+  module of the 16-module tree and silently skipped all subpackages;
+  AGENTS.md and CONTRIBUTING.md now point at the single implementation.
+  ([#455](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/455))
+
 
 - **Release pipeline shards stage 2, and announces only a complete
   release.** One `act` invocation is bounded by the coordinator's 1800 s

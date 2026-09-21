@@ -45,13 +45,15 @@ lives in the canonical spec repo
 
 ```bash
 git clone https://github.com/OpenTollGate/tollgate-module-basic-go.git
-cd tollgate-module-basic-go/src
-go build ./...
-go test -tags testenv ./...
+cd tollgate-module-basic-go
+make go-battery
 ```
 
-Go tooling runs from [src/](src/), not the repo root. The Go version is
-pinned in [src/go.mod](src/go.mod); CI installs exactly that version
+`make go-battery` is the full gate across all 16 modules; the bare
+`cd src && go build ./...` form covers only the root module. Go tooling
+that targets one module still runs from [src/](src/), not the repo root.
+The Go version is pinned in [src/go.mod](src/go.mod); CI installs
+exactly that version
 via `go-version-file`. The `testenv` build tag provisions a hermetic
 temp config dir so the main package's `init()` does not depend on
 `/etc/tollgate/config.json` — letting the suite run off-router. The tag
@@ -124,14 +126,18 @@ purpose.
 
 ### Required before opening any PR
 
-Run these locally, from [src/](src/), and confirm they all pass:
+Run these locally **from the repo root** and confirm they pass:
 
 ```bash
-gofmt -l .          # must print nothing
-go vet ./...
-go build ./...
-go test -race -count=1 -tags testenv ./...
+make go-battery
 ```
+
+That is the same gate CI runs: `gofmt -l .` (must print nothing),
+`go vet ./...`, `go build ./...` and `go test -race -count=1 -tags
+testenv ./...` — executed in **every** Go module. src/ is a multi-module
+tree (16 nested `go.mod` files): running the commands from `src/` alone
+covers only the root module and silently skips the subpackages. The one
+implementation is [scripts/go-battery.sh](scripts/go-battery.sh).
 
 CI runs the test suite per-module with `-race`, so a data race in any
 touched package will fail the build.
