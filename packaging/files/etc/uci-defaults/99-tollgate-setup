@@ -105,7 +105,11 @@ setup_uhttpd_configui() {
     # by whitelabel installers) so this repair works regardless of whether
     # the surrounding script defines a BRAND variable.
     local cfgui_brand
-    cfgui_brand="$(tr -d '[:space:]' < /etc/tollgate/brand 2>/dev/null)"
+    # read (not `tr -d '[:space:]'`): busybox tr on some OpenWrt builds
+    # lacks character classes and would delete the literal chars
+    # [ : s p a c e — mangling "net4sats" into "nt4t". POSIX read strips
+    # leading/trailing IFS whitespace and the trailing newline itself.
+    read -r cfgui_brand < /etc/tollgate/brand || cfgui_brand=""
     [ "$cfgui_brand" = "net4sats" ] || return 0
     [ -d /www/net4sats ] || return 0
 
