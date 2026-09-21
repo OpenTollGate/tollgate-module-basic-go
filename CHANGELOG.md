@@ -249,6 +249,13 @@ same-version short branch.
   [docs/architecture/uhttpd-redirect-https-ownership-decision.md](docs/architecture/uhttpd-redirect-https-ownership-decision.md)
   ([#472](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/472)).
 
+- **Mints that recover after the tollgate booted are accepted again
+  without a restart.** The wallet's accepted-mint set was frozen at the
+  boot probe, so a configured mint that was unreachable at startup kept
+  rejecting tokens forever — even once healthy. The health tracker now
+  admits recovered mints into the running wallet
+  (`WalletPort.AcceptMint`), after the same 3-probe threshold that
+  governs recovery elsewhere. ([#486](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/486))
 
 - **Full setup re-runs again on apk-based OpenWrt (25.x) upgrades.** The
   packaging's global `__TOLLGATE_VERSION__` substitution also rewrote the

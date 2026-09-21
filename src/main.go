@@ -113,6 +113,10 @@ func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
 		}
 		reachableMints := full.GetMintHealthTracker().GetReachableMintConfigs()
 		if len(reachableMints) > 0 {
+			// A configured mint that was unreachable at boot may have
+			// recovered — grow the wallet's accepted set so its tokens
+			// are no longer rejected (#481).
+			full.AdmitReachableMints()
 			return
 		}
 		mainLogger.Warn("All mints unreachable — downgrading to degraded mode")
