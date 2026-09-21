@@ -77,6 +77,16 @@ and [Semantic Versioning](https://semver.org/).
   attempted, closing the crash window between the irreversible swap and
   the aggregate response.
 
+- **UPX in the ngit release shards is pinned.** The upx legs installed
+  `upx-ucl` from apt unpinned — and upx output is part of the artifact
+  bytes, so those legs were only reproducible while the CI hosts' apt
+  snapshots agreed. All shards now fetch the UPX pinned in
+  `packaging/build-inputs.json` (5.2.1, sha256-verified) via
+  `scripts/fetch-upx.sh`, matching the GitHub twin; the apk
+  ultrabrute leg also provisions that binary into the SDK container,
+  which it was missing entirely
+  ([#474](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/474)).
+
 ### Added
 
 - **The admin board is reachable from captive clients.** `nodogsplash`'s
