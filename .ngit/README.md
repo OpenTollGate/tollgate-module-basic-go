@@ -148,6 +148,19 @@ DQ05, `embedded-act` runner, `ghcr.io/catthehacker/ubuntu:act-latest`) with
   falls back to `0` when history is unavailable; tagged releases are unaffected
   because their version is the tag name. `GOFLAGS=-buildvcs=false` for the same
   reason.
+  This also removes the **commit timestamp**, which the reproducible-build pin
+  (#383) needs for `SOURCE_DATE_EPOCH`. `scripts/ngit-commit-epoch.sh` is the one
+  derivation: the commit time from local history where there is one, and
+  otherwise a depth-1 fetch of *exactly that commit* from the ngit mirror the
+  release is built from — so the value is a property of the commit, not of the
+  run. Stage 1 (`determine-versioning`, `build-portal`) and the shards'
+  `resolve-inputs` all call it. When neither source answers, the job **fails**
+  instead of substituting the runner clock: the earlier cascade had a
+  `date +%s` last resort, and because the coordinator's synthesized push payload
+  carries `head_commit` with no timestamp it took that branch on *every* run
+  (`source: job clock (NOT commit-derived …)` at `ca5d07a2`), so two builds of
+  one commit stamped different `BuildTime` strings and the published bytes could
+  never be reproduced or compared.
 * **Blossom reachability from the runner.** `blossom.primal.net`,
   `blossom.psbt.me`, `blossom2.orangesync.tech` and `drive.cashu.email` answer;
   `blossom1.orangesync.tech` times out (25 s). The server list is left as the
