@@ -77,7 +77,8 @@ wait_for_iface() {
 }
 
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
-              /etc/uci-defaults/99-tollgate-setup; do
+              /etc/uci-defaults/99-tollgate-setup \
+              /etc/uci-defaults/92-tollgate-admin-setup; do
     if [ -x "$$script" ]; then
         echo "Running $$script ..."
         "$$script" || echo "Warning: $$script exited with code $$?"
@@ -146,6 +147,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 	$(SED) 's|__TOLLGATE_VERSION__|$(TOLLGATE_DISPLAY_VERSION)|g' $(1)/etc/uci-defaults/99-tollgate-setup
+	# 92-tollgate-admin-setup (dedicated uhttpd instance on :8090) is staged by
+	# packaging/portal-build.sh from the pinned portal tree with __ADMIN_HOME__
+	# already substituted for this build's webroot, so it carries no placeholder.
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/92-tollgate-admin-setup $(1)/etc/uci-defaults/
 
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
@@ -156,6 +161,18 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/tollgate/tollgate-captive-portal-site
 	$(CP) $(PKG_MAKEFILE_DIR)files/tollgate-captive-portal-site/* $(1)/etc/tollgate/tollgate-captive-portal-site/
+
+	# Admin board (Preact SPA) from the same pinned portal commit: served at the
+	# root of the dedicated uhttpd instance on :8090, from /www/tollgate.
+	$(INSTALL_DIR) $(1)/www/tollgate
+	$(CP) $(PKG_MAKEFILE_DIR)files/tollgate-admin/. $(1)/www/tollgate/
+
+	# rpcd plugin + ACL backing the `tollgate` ubus object the board talks to.
+	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/libexec/rpcd/tollgate $(1)/usr/libexec/rpcd/
+
+	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
+	$(INSTALL_CONF) $(PKG_MAKEFILE_DIR)files/usr/share/rpcd/acl.d/tollgate.json $(1)/usr/share/rpcd/acl.d/
 
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/check_package_path $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
@@ -185,6 +202,10 @@ FILES_$(PKG_NAME) += \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
+	/etc/uci-defaults/92-tollgate-admin-setup \
+	/www/tollgate/* \
+	/usr/libexec/rpcd/tollgate \
+	/usr/share/rpcd/acl.d/tollgate.json \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
