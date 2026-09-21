@@ -1,0 +1,67 @@
+# docker-compose.bytes.yml — bytes-metered variant of the cloud lab.
+#
+# Differences from the base docker-compose.yml:
+#   - upstream + reseller run with metric "bytes", step_size 22,020,096
+#     (the numbers from the three-router #430 lab: 5 purchasable steps =
+#     110,100,480 bytes)
+#   - reseller keeps the SHIPPED default session config, including
+#     bytes_renewal_offset 131,100,000 — simulating a router with the
+#     persisted pre-fix default, exactly the field condition of #430
+#   - a second bridge network (wan-lab) holds upstream (172.29.0.1) and
+#     reseller (172.29.0.5). The reseller's gateway inference picks
+#     172.29.0.1 = the upstream, so the upstream_detector discovers a real
+#     TollGate without WiFi. The IPAM gateway is parked at 172.29.0.254 so
+#     it cannot collide with the upstream container's address
+#   - upstream and reseller do NOT publish host ports: published ports are
+#     hairpin-reachable at the bridge gateway IPs (x.x.x.1), which let the
+#     detector form sessions against phantom gateways. Test access goes
+#     through `docker exec ... curl localhost:2121` instead
+#   - dhcp.leases.bytes additionally maps 172.29.0.5 to the reseller MAC,
+#     so the upstream can key the reseller's session when its requests
+#     arrive from the wan-lab network
+#
+# Usage (from tests/cloud-lab):
+#   docker compose -f docker-compose.yml -f docker-compose.bytes.yml \
+#     --profile two-router up -d
+#   bash renewal_e2e.sh
+#
+# NOTE: always pass BOTH compose files to every docker compose invocation
+# in this directory (up, down, run). A base-only `compose run` recreates
+# the dependency containers from the base (milliseconds) config and
+# silently reverts this lab.
+
+services:
+
+  upstream:
+    ports: !override []
+    volumes: !override
+      - ./configs/upstream-config-bytes.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases.bytes:/tmp/dhcp.leases
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.10
+      wan-lab:
+        ipv4_address: 172.29.0.1
+
+  reseller:
+    ports: !override []
+    cap_add:
+      - NET_ADMIN
+    volumes: !override
+      - ./configs/reseller-config-bytes.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.11
+      wan-lab:
+        ipv4_address: 172.29.0.5
+
+networks:
+  wan-lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+          gateway: 172.29.0.254
