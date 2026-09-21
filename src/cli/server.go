@@ -254,7 +254,10 @@ func (s *CLIServer) handleWalletDrain(drainArgs []string, flags map[string]strin
 	}
 }
 
-// handleCashuDrain drains all wallet balances to Cashu tokens for each mint
+// handleCashuDrain drains all wallet balances to Cashu tokens for each mint.
+// The per-mint drains are independent and individually irreversible: each
+// success is journaled before the next mint is attempted, and a per-mint
+// failure is collected and reported without discarding earlier tokens.
 func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 	m := s.merchantProvider.GetMerchant()
 	if m == nil {
@@ -277,6 +280,7 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 	}
 
 	var tokens []CashuToken
+	var drainErrors []MintDrainError
 	var totalDrained uint64
 
 	// For each mint in the wallet, drain if balance > 0
@@ -297,25 +301,46 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 				"error":   err,
 			}).Error("Failed to drain mint")
 
-			return CLIResponse{
-				Success:   false,
-				Error:     fmt.Sprintf("Failed to drain mint %s: %v", mintURL, err),
-				Timestamp: time.Now(),
-			}
+			drainErrors = append(drainErrors, MintDrainError{
+				MintURL: mintURL,
+				Error:   err.Error(),
+			})
+			continue
 		}
 
-		tokens = append(tokens, CashuToken{
+		token := CashuToken{
 			MintURL: mintURL,
 			Balance: actualAmount,
 			Token:   tokenString,
-		})
-
+		}
+		tokens = append(tokens, token)
 		totalDrained += actualAmount
+
+		// The swap at the mint already happened and is irreversible: this
+		// token is now the only spendable representation of those funds.
+		// Make it durably recoverable before attempting any further mint,
+		// so neither a later mint's failure nor a crash can lose it.
+		if journalErr := appendDrainJournal(mintURL, actualAmount, tokenString); journalErr != nil {
+			cliLogger.WithFields(logrus.Fields{
+				"mint":  mintURL,
+				"error": journalErr,
+			}).Error("Drained mint but failed to journal token; not draining further mints")
+
+			drainErrors = append(drainErrors, MintDrainError{
+				MintURL: mintURL,
+				Error:   fmt.Sprintf("drained %d sats but could not make the token durable (%v); the token is included in this response only", actualAmount, journalErr),
+			})
+			break
+		}
 
 		cliLogger.WithFields(logrus.Fields{
 			"mint":    mintURL,
 			"balance": actualAmount,
 		}).Info("Created drain token")
+	}
+
+	if len(drainErrors) > 0 {
+		return partialDrainResponse(flags, tokens, drainErrors, totalDrained)
 	}
 
 	if len(tokens) == 0 {
@@ -355,6 +380,61 @@ func (s *CLIServer) handleCashuDrain(flags map[string]string) CLIResponse {
 		Success:   true,
 		Message:   fmt.Sprintf("Successfully drained %d sats from %d mints", totalDrained, len(tokens)),
 		Data:      result,
+		Timestamp: time.Now(),
+	}
+}
+
+// partialDrainResponse builds the explicit partial-failure result: the
+// operation is not atomic, so every successfully produced token is
+// reported alongside the per-mint failures. The save_to_file flag is
+// honored so plain-mode clients persist whatever was drained.
+func partialDrainResponse(flags map[string]string, tokens []CashuToken, drainErrors []MintDrainError, totalDrained uint64) CLIResponse {
+	if tokens == nil {
+		tokens = []CashuToken{}
+	}
+
+	var message string
+	if len(tokens) > 0 {
+		message = fmt.Sprintf("Partially drained %d sats from %d mint(s); %d mint(s) failed", totalDrained, len(tokens), len(drainErrors))
+	} else {
+		message = fmt.Sprintf("Failed to drain %d mint(s); no tokens produced", len(drainErrors))
+	}
+
+	// Summary error keeps the historical "Failed to drain mint %s: %v"
+	// phrasing per mint, so string-matching automation keeps working.
+	summaries := make([]string, len(drainErrors))
+	for i, drainErr := range drainErrors {
+		summaries[i] = fmt.Sprintf("Failed to drain mint %s: %s", drainErr.MintURL, drainErr.Error)
+	}
+
+	if filename, ok := flags["save_to_file"]; ok && filename != "" {
+		return CLIResponse{
+			Success: false,
+			Message: message,
+			Data: map[string]interface{}{
+				"success":      false,
+				"partial":      len(tokens) > 0,
+				"tokens":       tokens,
+				"errors":       drainErrors,
+				"total_sats":   totalDrained,
+				"save_to_file": filename,
+			},
+			Error:     strings.Join(summaries, "; "),
+			Timestamp: time.Now(),
+		}
+	}
+
+	return CLIResponse{
+		Success: false,
+		Message: message,
+		Data: WalletDrainResult{
+			Success: false,
+			Partial: len(tokens) > 0,
+			Tokens:  tokens,
+			Errors:  drainErrors,
+			Total:   totalDrained,
+		},
+		Error:     strings.Join(summaries, "; "),
 		Timestamp: time.Now(),
 	}
 }

@@ -236,6 +236,31 @@ Token 2:
   Token: cashuA...
 ```
 
+For scripts and other non-interactive callers, `--yes` (or `-y`)
+skips the confirmation prompt:
+
+```sh
+tollgate wallet drain cashu --yes
+```
+
+Draining each mint is an independent, irreversible operation. If one
+mint's drain fails after another's succeeded, the command reports a
+**partial** result: it prints and saves the tokens that were produced,
+lists the per-mint failures, and exits non-zero. Check the output
+carefully — a partial drain means some funds left the wallet as tokens
+while others stayed in it.
+
+Every successfully produced token is also appended (before the next
+mint is attempted) to `/etc/tollgate/wallet-drain-journal.jsonl`, an
+append-only safety copy in case the terminal session or the device is
+lost before the tokens are secured. Sweep and clear that file the same
+way you treat the drain output.
+
+Cancellation and failure are distinguishable from success by exit
+code: `0` only when the whole drain succeeded; a declined or
+unanswerable prompt (e.g. stdin at EOF) and any full or partial drain
+failure exit non-zero.
+
 Treat the output file as cash — anyone who reads a token string can
 spend it. Copy it somewhere safe and delete the plaintext once
 redeemed.
@@ -485,7 +510,13 @@ tollgate --json health
 
 When the service is unreachable, `--json` output still includes a
 `success: false` object with an `error` field rather than printing
-prose to stderr, so a wrapper script can parse the failure reliably.
+prose to stderr, so a wrapper script can parse the failure reliably —
+and the process exits non-zero whenever the reported result is a
+failure (full or partial), so exit-code checks and JSON parsing agree.
+A `wallet drain cashu` response with `"success": false` may still
+carry a `"tokens"` array inside `data`: those tokens were produced
+irreversibly and belong to you — persist them before investigating the
+`errors` entries.
 
 ## Troubleshooting
 
@@ -561,3 +592,18 @@ logread -e odhcp                                  # DHCP client logs
 
 Try moving closer to the access point, verifying the password, or
 checking that the upstream router is not out of DHCP leases.
+
+## `TOLLGATE_TEST_CONFIG_DIR` — test-only, and loud if set
+
+The `TOLLGATE_TEST_CONFIG_DIR` environment variable exists for the test
+harness: it redirects the config directory, the drain journal
+(`/etc/tollgate/wallet-drain-journal.jsonl` — **bearer tokens**) and the
+CLI socket to a temp directory. It is meant to be set only by `go test`.
+
+If it appears in a service drop-in, wrapper script or shell profile on a
+router, state silently splits: the drain journal lands elsewhere (0600,
+but wherever the variable points) while anything not sharing the
+environment still uses the stock paths. Both the service and the CLI now
+print a `WARNING: TOLLGATE_TEST_CONFIG_DIR is set` line whenever they
+honor it — if you see that line in `logread` on a production router,
+remove the variable from the environment and move the journal back.
