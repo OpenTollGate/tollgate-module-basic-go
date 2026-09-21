@@ -31,6 +31,23 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The ngit release lane stamps builds with `SOURCE_DATE_EPOCH`.** The
+  publishing lane compiled with a wall-clock `BuildTime` (and Go 1.25.0
+  while the #383 pin is 1.25.8 — aligned in #434), so the artifacts it
+  published could never be reproduced byte-for-byte even though the local
+  packaging path is reproducible. Ported onto the sharded release lane
+  (#445): stage 1 derives the epoch from the
+  source commit (git, else the triggering commit's timestamp, else the
+  job clock — the chosen source is printed, and the value rides the
+  stage-1 kind-30078 rendezvous record), stamps `BuildTime` and the
+  portal from it, and each shard's resolve-inputs extracts that epoch
+  from the record (same-derivation fallback for pre-epoch records) and
+  exports it to the packaging jobs, so the `.ipk` mtimes agree with the
+  binaries' `BuildTime` per commit. The
+  `.apk` SDK-container tar stream is not yet epoch-normalized (no apk leg
+  has completed under the coordinator — `.ngit/README.md` "Does the
+  matrix fit?").
+
 - **Release pipeline shards stage 2, and announces only a complete
   release.** One `act` invocation is bounded by the coordinator's 1800 s
   ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
@@ -67,6 +84,7 @@ and [Semantic Versioning](https://semver.org/).
   a false green. Research plans, experiment sources and raw logs stay out of
   this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
   ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
+
 
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under
