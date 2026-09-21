@@ -21,6 +21,7 @@ Real-money mints are deliberately NOT probed here.
 
 import json
 import os
+import sys
 
 import pytest
 import requests
@@ -38,9 +39,6 @@ pytestmark = pytest.mark.skipif(
 # Per-run MACs against the dedicated upstream-ext service: locally
 # administered, randomized per session so cumulative allotments from a
 # previous run can never break the absolute assertions.
-import sys
-
-
 def _mac(suffix):
     rand = os.urandom(2).hex()
     return f"02:{rand[0:2]}:{rand[2:4]}:00:00:{suffix:02x}"
