@@ -165,6 +165,16 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -q "port 2051$"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
+    # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) must be
+    # reachable from the captive LAN unauthenticated, exactly like LuCI on
+    # :8080. Folded in here (not installer-side) so a plain apk/opkg install
+    # yields a working admin URL.
+    if ! echo "$nds_users" | grep -q "port 8090"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090'
+    fi
+    if ! echo "$nds_users" | grep -q "port 8443"; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
+    fi
     uci set nodogsplash.@nodogsplash[0].gatewaydomainname='TollGate.lan'
     uci set nodogsplash.@nodogsplash[0].gatewayport='2050'
     # Let the Go backend control session duration: NDS defaults to
