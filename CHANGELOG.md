@@ -67,6 +67,18 @@ and [Semantic Versioning](https://semver.org/).
   has completed under the coordinator — `.ngit/README.md` "Does the
   matrix fit?").
 =======
+=======
+- **Mirror and relay lists are drift-checked.** The Blossom mirror set
+  and the announce/verify relay set are carried by ~13 workflow files,
+  the shard-generator template and `verify_publication.sh`'s default;
+  `tests/contract/check-mirror-sync.py` (wired into the test lane next
+  to the dependency-sync check) fails when any copy diverges from the
+  majority, so a dying mirror or an added relay is a coordinated change
+  or a red build. The GitHub twin's deliberately different mirror list
+  and the coordination relays are documented exclusions.
+  ([#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451))
+
+
 - **One Go battery, one truth.** `make go-battery` (from the repo root,
   via `scripts/go-battery.sh`) runs the full pre-PR gate — gofmt, vet,
   build, `-race -count=1 -tags testenv` tests — in **every** Go module.
@@ -74,6 +86,9 @@ and [Semantic Versioning](https://semver.org/).
   module of the 16-module tree and silently skipped all subpackages;
   AGENTS.md and CONTRIBUTING.md now point at the single implementation.
   ([#455](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/455))
+=======
+  ([#450](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/450))
+
 
 
 - **Release pipeline shards stage 2, and announces only a complete
@@ -256,7 +271,6 @@ and [Semantic Versioning](https://semver.org/).
   `payment-error-keyset-expired` code with a message that says the
   e-cash note cannot be recovered, and no longer marks the healthy mint
   unreachable in the health tracker. Fixes [#440](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/440).
-=======
 
 - **Captive portal no longer redirect-loops on nodogsplash 5.0.2.** The
   first-boot setup no longer sets (and now actively deletes)
