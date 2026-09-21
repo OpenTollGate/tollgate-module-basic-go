@@ -14,6 +14,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Full setup re-runs again on apk-based OpenWrt (25.x) upgrades.** The
+  packaging's global `__TOLLGATE_VERSION__` substitution also rewrote the
+  setup script's own `case` pattern, so the version gate self-matched on
+  every shipped script, fell through to the opkg-only lookup, and pinned
+  the marker to `unsubstituted` on apk systems (no `/usr/lib/opkg/status`)
+  — after the first boot, no setup function ever ran again, silently
+  dropping upgrade-time changes (e.g. #458's admin-board port allows).
+  The placeholder reference is now built by string concatenation the
+  substitution cannot rewrite, and the unsubstituted-run fallback also
+  resolves the version from `apk list --installed` when opkg is absent.
+  Fixes [#459](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/459).
+
 - **Upgrades move the hostname with the brand, and keep custom ones.**
   The upgrade path now migrates the system hostname together with the
   whitelabel brand (`tollgate.lan` / `net4sats.lan`) instead of leaving a
