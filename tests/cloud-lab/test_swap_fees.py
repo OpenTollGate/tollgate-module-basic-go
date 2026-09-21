@@ -51,6 +51,14 @@ def notice_code(event):
 # with gonuts' crypto.HashToCurve — the wallet the router actually runs:
 #   msg = SHA256("Secp256k1_HashToCurve_Cashu_" || secret)
 #   Y   = decompress(0x02 || SHA256(msg || le32(counter)))   # first valid x
+#
+# Two guards keep that compatibility honest (NUT-07 answers UNSPENT for
+# points it has never seen, so a drifting oracle would pass vacuously):
+#   - test_hash_to_curve_matches_gonuts_vectors pins this implementation
+#     against gonuts' own test vectors (crypto/bdhke_test.go), and
+#   - test_above_swap_fee_succeeds_with_fee_deducted ends with a negative
+#     control: a token the payment DID spend must make assert_token_unspent
+#     fail, proving the oracle can detect spentness at all.
 
 _SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 _HASH_TO_CURVE_DOMAIN = b"Secp256k1_HashToCurve_Cashu_"
@@ -127,6 +135,20 @@ ABOVE_FEE_MAC = _mac(0x22)
 FREE_MINT_MAC = _mac(0x23)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _log_session_macs():
+    """Surface the randomized MACs so a red run can be replayed.
+
+    The MACs are re-randomized every session; printing them (setup-phase
+    capture, shown for any failing test, and live under -s) lets a failed
+    run be reproduced with the same identities.
+    """
+    print(
+        f"swap-fee suite MACs: below-fee={BELOW_FEE_MAC} "
+        f"above-fee={ABOVE_FEE_MAC} free-mint={FREE_MINT_MAC}"
+    )
+
+
 def pay(token, upstream_pubkey, customer_identity, mac):
     """POST a payment event attributed to `mac`; returns the Response."""
     customer_sec, customer_pub = customer_identity
@@ -137,6 +159,31 @@ def pay(token, upstream_pubkey, customer_identity, mac):
 
 
 class TestSwapFees:
+
+    def test_hash_to_curve_matches_gonuts_vectors(self):
+        """The spentness oracle's hash_to_curve must be byte-compatible
+        with gonuts' crypto.HashToCurve — the wallet the router runs.
+
+        These are gonuts' own vectors (crypto/bdhke_test.go,
+        TestHashToCurve). They pin the counter start (gonuts begins at
+        0), the domain separator, the little-endian counter encoding and
+        the even-Y selection: the first vector resolves at counter=0, so
+        an off-by-one in the loop already fails here instead of making
+        every checkstate query miss the real points (NUT-07 answers
+        UNSPENT for points it has never seen).
+        """
+        vectors = [
+            ("\x00" * 32,
+             "024cce997d3b518f739663b757deaec95bcd9473c30a14ac2fd04023a739d1a725"),
+            ("\x00" * 31 + "\x01",
+             "022e7158e11c9506f1aa4248bf531298daa7febd6194f003edcd9b93ade6253acf"),
+        ]
+        for secret, expected_y in vectors:
+            assert _hash_to_curve_y(secret) == expected_y, (
+                f"hash_to_curve drifted from gonuts for secret {secret!r}: "
+                f"got {_hash_to_curve_y(secret)}, expected {expected_y} — "
+                "every spentness assertion in this suite is now vacuous"
+            )
 
     def test_fee_mint_charges_input_fee(self, fees_mint_health):
         """The mint-fees keysets must actually carry the fee this suite pins.
@@ -228,6 +275,13 @@ class TestSwapFees:
             f"Allotment {allotment} does not reflect the 1-sat swap fee "
             f"(expected {99 * 60000} = 99 steps): {tags}"
         )
+
+        # Negative control for the spentness oracle: this payment SWAPPED
+        # the token's proofs, so the mint must report them SPENT. If
+        # assert_token_unspent cannot fail here, its UNSPENT passes in the
+        # refusal test prove nothing.
+        with pytest.raises(AssertionError, match="SPENT"):
+            assert_token_unspent(token)
 
     def test_fee_mint_payments_do_not_break_the_free_mint_path(
         self, upstream_health, upstream_pubkey, ecash_wallet,
