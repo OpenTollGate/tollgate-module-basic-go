@@ -106,6 +106,8 @@ services:
         condition: service_healthy
     volumes:
       - .:/tests
+      # tollgate-clientd.py for test_clientd_autotopup.py (CLIENTD=/clientd/…)
+      - ../../scripts:/clientd:ro
     working_dir: /tests
     networks:
       tollgate-lab:
