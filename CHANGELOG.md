@@ -256,7 +256,7 @@ and [Semantic Versioning](https://semver.org/).
   including same-version reinstalls, which previously left them in
   place. Port 8090 is deliberately not opened for pre-auth
   public-SSID clients: the config UI is owner-facing and reached over
-  the private network. ([#NNN](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/NNN))
+  the private network. ([#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451))
 
 ### Changed / Internal
 
