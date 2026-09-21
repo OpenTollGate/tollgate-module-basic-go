@@ -23,7 +23,7 @@ and [Semantic Versioning](https://semver.org/).
   gigabit uplinks at ~39% and left ~10 s of runway at 100 Mbps.
   Operators on slow or expensive links should tune down per the
   operator table in `tests/sim/RESULTS.md`. Existing saved configs are
-  not rewritten.
+  not rewritten. ([#478](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/478))
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only

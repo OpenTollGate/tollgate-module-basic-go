@@ -58,7 +58,8 @@ flight) as long as F3's rule holds for the bytes metric's tank size.
 | ≥1 Gbps | 1–2.5 GB | 10–25% | throttle-bound; **shipped default (2.5 GB / 49%) fits** |
 | ~$10/GB-class pricing | 50–125 MB | 25% | cap stranded capital |
 
-> **Shipped default since the lenient-defaults change**: 2.5 GB
+> **Shipped default since the lenient-defaults change**
+> ([#478](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/478)): 2.5 GB
 > preferred / 1.225 GB offset (49% — renew near half a tank, under the
 > #442 clamp). Chosen so the happy path holds across the whole table
 > except the expensive-pricing row: throttle ceiling ~2 Gbps (2×
