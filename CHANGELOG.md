@@ -50,6 +50,27 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Keyset-rotation lane in the cloud lab.** A third cdk-mintd service
+  (`mint-rotate`) with scriptable keyset rotation
+  (`CDK_MINTD_FAKE_WALLET_KEYSET_ROTATIONS`), driven by
+  `tests/cloud-lab/run-keyset-rotation.sh`: phase A mints proofs on a
+  100-ppk keyset, phase B expires that keyset (same deterministic ID) and
+  activates a zero-fee one. Discovered and pinned in the process: cdk-mintd
+  0.17.6 refuses swaps on expired keysets outright, and the refusal is
+  **misclassified** today — "could not swap proofs: Keyset has expired"
+  matches the mint-unreachable pattern, so the customer is told the mint is
+  down when it is healthy and their pre-rotation token is permanently dead
+  (#447 lands the dedicated expired-keyset code, filed as #440; the lane
+  pins the current
+  classification so the refinement is a conscious change). The phase tests
+  are gated on `ROTATION_LANE=1` (exported by the runner) so a default
+  `docker compose run --rm client` no longer collects them.
+  `test_keyset_rotation.py` also pins the sum-then-ceil fee boundary
+  across proof counts (255/1023/2047-sat tokens).
+  Depends on #409 and #413.
+  ([#416](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/416))
+- **Packaging artifact-contents test.** New
+  `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
 - **The ngit release lane stamps builds with `SOURCE_DATE_EPOCH`.** The
   publishing lane compiled with a wall-clock `BuildTime` (and Go 1.25.0
   while the #383 pin is 1.25.8 — aligned in #434), so the artifacts it
