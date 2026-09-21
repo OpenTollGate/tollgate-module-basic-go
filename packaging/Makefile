@@ -49,29 +49,11 @@ endef
 
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
+# No-op: the binary owns install.json (config_manager.EnsureDefaultInstall)
+# and stamps install_time itself. A jq-dependent preinst aborted upgrades on
+# jq-less minimal systems (see Amperstrand/tollgate-module-basic-go#93).
 
-if [ -f /etc/tollgate/install.json ]; then
-	CURRENT_TIMESTAMP=$$(date +%s)
-	if ! jq ".install_time = $$CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
-		echo "Error: Failed to update install_time using jq" >&2
-		echo "$$(date) - Error: Failed to update install_time using jq" >> /tmp/tollgate-setup.log
-		exit 1
-	fi
-	if ! mv /tmp/install.json.tmp /etc/tollgate/install.json; then
-		echo "Error: Failed to move temporary file to /etc/tollgate/install.json" >&2
-		echo "$$(date) - Error: Failed to move temporary file to /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
-		exit 1
-	fi
-else
-	mkdir -p /etc/tollgate
-	CURRENT_TIMESTAMP=$$(date +%s)
-	if ! echo "{\"install_time\": $$CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
-		echo "Error: Failed to create /etc/tollgate/install.json" >&2
-		echo "$$(date) - Error: Failed to create /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
-		exit 1
-	fi
-	echo "$$(date) - install_time set to $$CURRENT_TIMESTAMP" >> /tmp/tollgate-setup.log
-fi
+exit 0
 
 exit 0
 endef
