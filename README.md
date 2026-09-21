@@ -193,6 +193,26 @@ Key fields:
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
 
+## SSID conventions
+
+On first boot the router derives its Wi-Fi names from a single 4-hex
+suffix `RANDOM_SUFFIX` drawn from `/dev/urandom`.
+
+- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
+  the 4-hex uppercase suffix. Both the 2.4 GHz and 5 GHz radios advertise
+  the **same** SSID (band steering), so clients are handed off between
+  radios seamlessly.
+- **Private management AP** — `TollGate-Private-XXXX` (same `XXXX` suffix
+  as the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+  memorable `Word-Word-Word-NN` string set on first boot and preserved on
+  upgrade.
+- **nodogsplash name** — the captive-portal gate shows
+  `TollGate-XXXX Portal` as its `gatewayname`.
+
+Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
+which swaps the `TollGate` prefix for that brand's name everywhere. The
+public AP format is pinned by `tests/contract/check-ssid-format.sh`.
+
 ## Testing
 
 Unit tests, from the [src/](src/) directory:
