@@ -10,7 +10,23 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0-alpha3] - 2026-09-21
+
 ### Fixed
+
+- **Upgrades move the hostname with the brand, and keep custom ones.**
+  The upgrade path now migrates the system hostname together with the
+  whitelabel brand (`tollgate.lan` / `net4sats.lan`) instead of leaving a
+  stale name behind, while a hostname the operator chose themselves is
+  preserved untouched
+  ([#444](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/444)).
+
+- **A redirected config directory is now loud.** Running the CLI or
+  service with `TOLLGATE_TEST_CONFIG_DIR` set — which silently redirects
+  the production `/etc/tollgate` paths to a test location — prints an
+  explicit warning, so a test run can no longer be mistaken for a
+  production one
+  ([#443](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/443)).
 
 - **Wallet drain no longer discards tokens when a later mint fails.**
   `wallet drain cashu` drained mints one by one but aborted with a bare
@@ -50,6 +66,13 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Cloud-lab isolation and docs (batched).** Cloud-lab compose runs are
+  isolated per checkout, so parallel checkouts no longer share project
+  state
+  ([#446](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/446));
+  the multi-branch lab traps (stale images, host ports) are documented
+  ([#436](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/436)).
+
 - **Keyset-rotation lane in the cloud lab.** A third cdk-mintd service
   (`mint-rotate`) with scriptable keyset rotation
   (`CDK_MINTD_FAKE_WALLET_KEYSET_ROTATIONS`), driven by
@@ -87,8 +110,7 @@ and [Semantic Versioning](https://semver.org/).
   `.apk` SDK-container tar stream is not yet epoch-normalized (no apk leg
   has completed under the coordinator — `.ngit/README.md` "Does the
   matrix fit?").
-=======
-=======
+
 - **Mirror and relay lists are drift-checked.** The Blossom mirror set
   and the announce/verify relay set are carried by ~13 workflow files,
   the shard-generator template and `verify_publication.sh`'s default;
@@ -97,7 +119,7 @@ and [Semantic Versioning](https://semver.org/).
   majority, so a dying mirror or an added relay is a coordinated change
   or a red build. The GitHub twin's deliberately different mirror list
   and the coordination relays are documented exclusions.
-  ([#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451))
+  ([#456](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/456))
 
 
 - **One Go battery, one truth.** `make go-battery` (from the repo root,
@@ -107,10 +129,6 @@ and [Semantic Versioning](https://semver.org/).
   module of the 16-module tree and silently skipped all subpackages;
   AGENTS.md and CONTRIBUTING.md now point at the single implementation.
   ([#455](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/455))
-=======
-  ([#450](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/450))
-
-
 
 - **Release pipeline shards stage 2, and announces only a complete
   release.** One `act` invocation is bounded by the coordinator's 1800 s
@@ -283,6 +301,7 @@ and [Semantic Versioning](https://semver.org/).
   or above the preferred increment. Existing saved configs are
   deliberately not rewritten; per-link-profile tuning is tracked in
   [#460](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/460).
+  ([#450](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/450))
 - **Expired-keyset payments are no longer misreported as a mint outage.**
   A token whose proofs sit on a keyset the mint has retired (NUT-02
   rotation; cdk-mintd refuses the swap with "Keyset has expired") was
@@ -1288,7 +1307,8 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha2...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha3...main
+[v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
