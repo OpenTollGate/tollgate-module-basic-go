@@ -16,9 +16,21 @@ SETUP_FLAG="/etc/tollgate-setup-done"
 # leaves the placeholder in place, so fall back to the version the package
 # manager recorded for this package rather than writing a bogus marker.
 SETUP_VERSION="__TOLLGATE_VERSION__"
+# The placeholder reference below is CONCATENATED so the packaging's global
+# __TOLLGATE_VERSION__ substitution cannot rewrite it (#459): a substituted
+# pattern (*v0.6.0-alpha3*) self-matched the already-substituted assignment
+# above, forced every run into this resolve branch, and on apk systems
+# (no /usr/lib/opkg/status) pinned SETUP_VERSION to "unsubstituted" forever —
+# full setup never re-ran after the first boot.
+PLACEHOLDER="__TOLLGATE""_VERSION__"
 case "$SETUP_VERSION" in
-    *__TOLLGATE_VERSION__*)
+    "$PLACEHOLDER")
+        # Source run or an unsubstituted script: resolve the real version
+        # from whichever package manager owns this system.
         SETUP_VERSION=$(sed -n '/^Package: tollgate-wrt$/,/^$/s/^Version: //p' /usr/lib/opkg/status 2>/dev/null | head -n1)
+        if [ -z "$SETUP_VERSION" ] && command -v apk >/dev/null 2>&1; then
+            SETUP_VERSION=$(apk list --installed 2>/dev/null | sed -n 's/^tollgate-wrt-\([^ ]*\).*/\1/p' | head -n1)
+        fi
         [ -n "$SETUP_VERSION" ] || SETUP_VERSION="unsubstituted"
         ;;
 esac

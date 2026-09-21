@@ -32,6 +32,9 @@ BASE_COMPOSE_FILE="docker-compose.yml"
 BYTES_COMPOSE_FILE="docker-compose.bytes.yml"
 BASE="docker compose -f $BASE_COMPOSE_FILE"
 FULL="docker compose -f $BASE_COMPOSE_FILE -f $BYTES_COMPOSE_FILE"
+# Host-port override support: -f disables auto-loading of
+# docker-compose.override.yml, so append it explicitly when present.
+[ -f docker-compose.override.yml ] && FULL="$FULL -f docker-compose.override.yml"
 
 RESELLER="tg-reseller"
 UPSTREAM="tg-upstream"

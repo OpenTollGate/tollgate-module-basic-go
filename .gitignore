@@ -68,6 +68,16 @@ handover*.md
 ulw-*.md
 # Captive portal build output (built from source via packaging/portal-build.sh)
 packaging/files/tollgate-captive-portal-site/assets/
+# The rest of the bundle staged from the same pinned portal commit: the admin
+# board SPA, the rpcd plugin + ACL and the 92-tollgate-admin-setup
+# uci-default. Build products — never commit built JS (upstream issue #335).
+packaging/files/tollgate-admin/
+packaging/files/usr/libexec/rpcd/tollgate
+packaging/files/usr/share/rpcd/acl.d/tollgate.json
+packaging/files/etc/uci-defaults/92-tollgate-admin-setup
+# Portal build records written by packaging/portal-build.sh.
+packaging/portal-resolved.sha
+packaging/portal-build-inputs.json
 nuts/
 packaging/*.ipk
 scripts/token-recovery/token-recovery

@@ -35,9 +35,33 @@ and [Semantic Versioning](https://semver.org/).
   `portal-build.sh` are the real defects to fix. See
   [docs/architecture/captive-portal-bundle-location-decision.md](docs/architecture/captive-portal-bundle-location-decision.md).
 
+- **Build the full captive-portal bundle in-tree from the pinned portal pin.**
+  `packaging/portal-build.sh` now stages all five portal build products into
+  `packaging/files/`: the guest SPA (`tollgate-captive-portal-site`), the admin
+  board SPA (`tollgate-admin/`, installed to `/www/tollgate`), the `tollgate`
+  rpcd plugin and its ACL, and the `92-tollgate-admin-setup` uci-default (with
+  `__ADMIN_HOME__` substituted for this build's webroot). The portal pin moves
+  to `OpenTollGate/tollgate-captive-portal-site@4f74a6dd…`. This implements the
+  approved bundle-location ADR above: the module builds and stages the whole
+  bundle instead of a stale, hand-vendored subset. A missing source artifact at
+  the pin is now a hard build error, so the bundle can no longer silently come
+  from a pin that cannot produce it.
+
 ## [v0.6.0-alpha3] - 2026-09-21
 
 ### Fixed
+
+- **Full setup re-runs again on apk-based OpenWrt (25.x) upgrades.** The
+  packaging's global `__TOLLGATE_VERSION__` substitution also rewrote the
+  setup script's own `case` pattern, so the version gate self-matched on
+  every shipped script, fell through to the opkg-only lookup, and pinned
+  the marker to `unsubstituted` on apk systems (no `/usr/lib/opkg/status`)
+  — after the first boot, no setup function ever ran again, silently
+  dropping upgrade-time changes (e.g. #458's admin-board port allows).
+  The placeholder reference is now built by string concatenation the
+  substitution cannot rewrite, and the unsubstituted-run fallback also
+  resolves the version from `apk list --installed` when opkg is absent.
+  Fixes [#459](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/459).
 
 - **Upgrades move the hostname with the brand, and keep custom ones.**
   The upgrade path now migrates the system hostname together with the
@@ -90,6 +114,21 @@ and [Semantic Versioning](https://semver.org/).
   finally the uci name ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
 
 ### Changed / Internal
+
+- **Renewal-policy simulation study (#460).** `tests/sim/renewal_sim.py`
+  models the upstream renewal mechanics (poll cadence, #442 clamp,
+  non-blocking payment RTT, the 10 s trigger throttle, step
+  quantization, cumulative allotment, stranded capital on session loss)
+  and sweeps link/increment/offset/price cells; `tests/sim/RESULTS.md`
+  carries the findings — the 10 s throttle caps sustained throughput at
+  increment-per-10-s, the shipped #450 defaults are right for
+  ≤400 Mbps uplinks, offset's real job is covering payment RTT — plus an
+  operator table and the `auto`-mode spec for the fast-link quadrants.
+  Anchored to the live bytes lab (`renewal_e2e.sh`, 14 PASS / 0 FAIL on
+  merged main). Also: `renewal_e2e.sh` now honors the documented
+  docker-compose override file (explicit `-f` flags disabled its
+  auto-load — the #436 gotcha family).
+  ([#465](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/465))
 
 - **Cloud-lab isolation and docs (batched).** Cloud-lab compose runs are
   isolated per checkout, so parallel checkouts no longer share project
