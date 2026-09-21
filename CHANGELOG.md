@@ -26,11 +26,24 @@ and [Semantic Versioning](https://semver.org/).
   a false green. Research plans, experiment sources and raw logs stay out of
   this tree (archive: `felixfelix-bot/tollgate-wallet-migration-research`).
   ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431))
-- **ngit test lane runs on the reproducibility pin's Go.** The `go-test`
-  workflow's toolchain moves from 1.25.0 to 1.25.8, matching
-  `packaging/build-inputs.json` (#383) and the release build lane, so CI
-  tests exercise the exact toolchain that builds the shipped binaries.
-  Follow-up from the #434 review. ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+- **Go pin follows the official OpenWrt SDK feed (1.25.8 → 1.26.8).** The
+  reproducibility pin moves to the golang the pinned 25.12.0 SDK's packages
+  feed actually ships (`golang1.26-1.26.8-r1`), not a minor of our own
+  choosing: `packaging/build-inputs.json` gains
+  `.openwrt_sdk.go_per_release` — the official golang per OpenWrt release
+  line (23.05 → 1.21.13, 24.10 → 1.23.12, 25.12 → 1.26.8) — audited
+  against the live `openwrt/packages` branches and released feeds by the
+  new `scripts/sdk-go-version.sh` (`check` fails on drift, `update`
+  refreshes the map). Bumping the pin changes shipped-binary bytes once,
+  as any toolchain bump does.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+- **CI Go versions derive from `packaging/build-inputs.json`.** Every lane
+  that needs the reproducibility pin's Go (ngit `go-test`, ngit
+  `repro-check`, ngit `build-package-binaries` — whose workflow-level
+  `GO_VERSION` had drifted to a stale 1.25.0 after #434 closed unmerged —
+  and the GitHub `build-package` lane) resolves `go-version` from the
+  manifest at run time, so no lane-local literal can go stale again.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
 
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
   `.ipk`/`.apk` → Blossom → kind-1063 release path now also runs under

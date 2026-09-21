@@ -12,7 +12,7 @@ and how to verify a build yourself.
 | TollGate source commit | the git commit being built (`SOURCE_DATE_EPOCH` derives from it) |
 | Captive portal commit | `packaging/build-inputs.json` → `.portal.commit` (an immutable SHA; floating refs are rejected) |
 | `SOURCE_DATE_EPOCH` | default = TollGate HEAD commit timestamp (`git log -1 --format=%ct HEAD`); export to override (e.g. to reproduce a historical release) |
-| Go toolchain | `.go.version` (exact patch, e.g. `1.25.8`) + verified tarball sha256 |
+| Go toolchain | `.go.version` (exact patch, e.g. `1.26.8`) + verified tarball sha256. Must equal the official golang of the pinned SDK release's packages feed — see "SDK Go alignment" below |
 | Node | `.node.version` (the portal's declared engine, e.g. `22.17.0`) + sha256 |
 | npm | `.npm.version` (bundled with the pinned Node; verified at build time) |
 | UPX (compressed builds) | `.upx.version` + tarball sha256, fetched by `scripts/fetch-upx.sh` |
@@ -57,6 +57,9 @@ also enables strict-inputs mode (`TG_STRICT_INPUTS=1`).
 - `scripts/build-sdk-package.sh` — apk path: SDK image pinned by digest,
   staged mtimes normalized, `SOURCE_DATE_EPOCH` propagated into the
   container.
+- `scripts/sdk-go-version.sh` — reads the official golang of an OpenWrt
+  release from the SDK's own sources (feed branch + released feed) and
+  audits the manifest's SDK Go pins against them.
 - `scripts/fetch-upx.sh` — pinned UPX download with sha256 verification.
 - `scripts/repro-test.sh` + `make reproducibility-test` — the test below.
 
@@ -133,9 +136,10 @@ it is not pinned in `build-inputs.json`.
 
 Edit `packaging/build-inputs.json` — one value, one PR:
 
-- **Go**: bump `.go.version` + the tarball sha256 from
-  `https://go.dev/dl/?mode=json`, and `.github/workflows/build-package.yml`
-  `GO_VERSION` (comment there points here).
+- **Go**: the pin must equal the official golang of the pinned OpenWrt SDK
+  release's packages feed (see "SDK Go alignment" below). Bump `.go.version`
+  + the tarball sha256 from `https://go.dev/dl/?mode=json`. CI lanes read
+  the version from the manifest at run time — nothing else to keep in sync.
 - **Node/npm**: pick what the portal's `package.json` `engines` declares;
   take the sha256 from the nodejs.org `SHASUMS256.txt` for that version.
   Update the workflow's `node-version:` to match.
@@ -146,9 +150,54 @@ Edit `packaging/build-inputs.json` — one value, one PR:
   paste the digest for each target into `packaging/build-inputs.json`.
   The CI package matrix injects every row's digest from the manifest at
   generation time, so the two lists cannot drift.
+- **OpenWrt SDK release**: set `.openwrt_sdk.release`, refresh the target
+  digests, and run `scripts/sdk-go-version.sh update` so
+  `.openwrt_sdk.go_per_release` follows the release lines; then treat the
+  Go bullet above as the constraint it names.
 
 Bumping a pin is a reproducibility event: expect artifact hashes to change
 once, then be stable again.
+
+## SDK Go alignment
+
+The OpenWrt SDK does not pin a Go version itself — its packages feed does.
+Each release line's feed (the `openwrt/packages` branch `openwrt-<series>`,
+e.g. `openwrt-25.12`) defines one official golang, and each point release
+publishes it to `downloads.openwrt.org/releases/<release>/packages/`, the
+feed the digest-pinned SDK image resolves against. `build-inputs.json`
+records that mapping:
+
+- `.openwrt_sdk.go_per_release` — official golang per release line
+  (23.05 → 1.21.13, 24.10 → 1.23.12, 25.12 → 1.26.8 at the time of
+  writing), maintained by `scripts/sdk-go-version.sh update` from the live
+  feed branches.
+- `.go.version` — the toolchain this repository builds with; it must equal
+  the released feed's golang of the pinned `.openwrt_sdk.release`.
+
+`scripts/sdk-go-version.sh check` verifies both against the live OpenWrt
+sources and exits non-zero on drift:
+
+```sh
+scripts/sdk-go-version.sh print 24.10    # official golang on a feed branch
+scripts/sdk-go-version.sh released       # golang in the pinned release's feed
+scripts/sdk-go-version.sh check          # audit the manifest (CI-able)
+scripts/sdk-go-version.sh update         # refresh go_per_release only
+```
+
+Why it matters for the two build paths: the SDK lane cross-compiles the
+binaries on the host with the pinned Go and stages them into the SDK for
+packaging (`packaging/Makefile` `PREBUILT_BIN`), so today the SDK's own
+golang never touches our bytes. The alignment is the contract that keeps
+that true in both directions — if these two paths ever disagree (a full
+in-SDK Go build through the feed's `golang/host`, or a toolchain bump the
+SDK has not shipped), the binaries the two paths produce would differ, and
+`check` is what turns that from a silent divergence into a red light.
+
+One caveat for older lines: a full in-SDK Go build also needs the source
+tree's language minimum (`src/go.mod` `go` directive, currently 1.25.0) to
+be ≤ the line's official golang. 23.05 (1.21.x) and 24.10 (1.23.x) do not
+qualify; their artifacts must come from the host-compiled staging path the
+release lanes use today.
 
 ## Reproducing a historical release
 
