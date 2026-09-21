@@ -95,5 +95,7 @@ jobs:
           go-version-file: src/go.mod
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
+      - name: Mirror and relay sync check
+        run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
