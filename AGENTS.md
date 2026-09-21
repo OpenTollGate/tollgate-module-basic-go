@@ -36,6 +36,11 @@ get wrong:
   committed: `README.md`, `CHANGELOG.md`, protocol specs, module docs.
 - **No coding-assistant attribution** in commits or PR bodies — no
   `Co-Authored-By: Claude`, no `Generated with ...` footers.
+- **Only `felixfelix-bot` may be requested as a PR reviewer — never a
+  human.** Review requests to humans are spam (an agent session did
+  this once, on #413). Agent hosts typically hard-block human review
+  requests at the `gh` wrapper; if you hit such a block, do not work
+  around it.
 - Before opening a PR, run from [src/](src/):
 
   ```bash
