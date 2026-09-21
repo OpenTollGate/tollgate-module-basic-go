@@ -18,6 +18,18 @@ and [Semantic Versioning](https://semver.org/).
   `portal-build.sh` are the real defects to fix. See
   [docs/architecture/captive-portal-bundle-location-decision.md](docs/architecture/captive-portal-bundle-location-decision.md).
 
+- **Build the full captive-portal bundle in-tree from the pinned portal pin.**
+  `packaging/portal-build.sh` now stages all five portal build products into
+  `packaging/files/`: the guest SPA (`tollgate-captive-portal-site`), the admin
+  board SPA (`tollgate-admin/`, installed to `/www/tollgate`), the `tollgate`
+  rpcd plugin and its ACL, and the `92-tollgate-admin-setup` uci-default (with
+  `__ADMIN_HOME__` substituted for this build's webroot). The portal pin moves
+  to `OpenTollGate/tollgate-captive-portal-site@4f74a6dd…`. This implements the
+  approved bundle-location ADR above: the module builds and stages the whole
+  bundle instead of a stale, hand-vendored subset. A missing source artifact at
+  the pin is now a hard build error, so the bundle can no longer silently come
+  from a pin that cannot produce it.
+
 ## [v0.6.0-alpha3] - 2026-09-21
 
 ### Fixed
