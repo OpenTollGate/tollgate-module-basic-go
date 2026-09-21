@@ -34,11 +34,24 @@ type CashuToken struct {
 	Token   string `json:"token"`
 }
 
-// WalletDrainResult represents the result of draining a wallet
+// MintDrainError describes the failure of draining a single mint within a
+// multi-mint wallet drain.
+type MintDrainError struct {
+	MintURL string `json:"mint_url"`
+	Error   string `json:"error"`
+}
+
+// WalletDrainResult represents the result of draining a wallet. A drain is
+// not atomic across mints: Success is false if any mint failed, Partial is
+// true when at least one other mint's token was produced, and Tokens always
+// contains every successfully produced token — a per-mint failure must
+// never discard them (issue #375).
 type WalletDrainResult struct {
-	Success bool         `json:"success"`
-	Tokens  []CashuToken `json:"tokens"`
-	Total   uint64       `json:"total_sats"`
+	Success bool             `json:"success"`
+	Partial bool             `json:"partial"`
+	Tokens  []CashuToken     `json:"tokens"`
+	Errors  []MintDrainError `json:"errors,omitempty"`
+	Total   uint64           `json:"total_sats"`
 }
 
 // ServiceStatus represents basic service status

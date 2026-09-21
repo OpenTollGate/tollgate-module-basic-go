@@ -1,9 +1,17 @@
 #!/bin/sh
+# Apply a pending self-update: install the package staged at the path recorded
+# in /etc/tollgate/install.json ("package_path"), then reset the field.
+#
+# install.json is written exclusively by tollgate-wrt (Go, MarshalIndent,
+# stable field order) — a targeted sed on the single "package_path" string
+# field is safe and needs no jq on board (minimal installs ship without it).
+#
+# Field semantics: the Go default is the string "false" (no pending update).
 
 config_path="/etc/tollgate/install.json"
-update_path=$(jq -r '.package_path // ""' "$config_path")
+update_path=$(sed -n 's/.*"package_path": *"\([^"]*\)".*/\1/p' "$config_path" 2>/dev/null)
 
-if [ -n "$update_path" ] && [ -f "$update_path" ]; then
+if [ -n "$update_path" ] && [ "$update_path" != "false" ] && [ -f "$update_path" ]; then
 	if command -v apk >/dev/null 2>&1; then
 		apk add --allow-untrusted "$update_path"
 		rc=$?
@@ -16,7 +24,7 @@ if [ -n "$update_path" ] && [ -f "$update_path" ]; then
 	fi
 
 	if [ "$rc" -eq 0 ]; then
-		jq '.update_path = null' "$config_path" > /tmp/config.json
-		mv /tmp/config.json "$config_path"
+		sed 's/\("package_path": *"\)[^"]*"/\1false"/' "$config_path" > /tmp/install.json.tmp \
+			&& mv /tmp/install.json.tmp "$config_path"
 	fi
 fi

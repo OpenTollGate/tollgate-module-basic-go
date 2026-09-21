@@ -49,29 +49,11 @@ endef
 
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
+# No-op: the binary owns install.json (config_manager.EnsureDefaultInstall)
+# and stamps install_time itself. A jq-dependent preinst aborted upgrades on
+# jq-less minimal systems (see Amperstrand/tollgate-module-basic-go#93).
 
-if [ -f /etc/tollgate/install.json ]; then
-	CURRENT_TIMESTAMP=$$(date +%s)
-	if ! jq ".install_time = $$CURRENT_TIMESTAMP" /etc/tollgate/install.json > /tmp/install.json.tmp; then
-		echo "Error: Failed to update install_time using jq" >&2
-		echo "$$(date) - Error: Failed to update install_time using jq" >> /tmp/tollgate-setup.log
-		exit 1
-	fi
-	if ! mv /tmp/install.json.tmp /etc/tollgate/install.json; then
-		echo "Error: Failed to move temporary file to /etc/tollgate/install.json" >&2
-		echo "$$(date) - Error: Failed to move temporary file to /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
-		exit 1
-	fi
-else
-	mkdir -p /etc/tollgate
-	CURRENT_TIMESTAMP=$$(date +%s)
-	if ! echo "{\"install_time\": $$CURRENT_TIMESTAMP}" > /etc/tollgate/install.json; then
-		echo "Error: Failed to create /etc/tollgate/install.json" >&2
-		echo "$$(date) - Error: Failed to create /etc/tollgate/install.json" >> /tmp/tollgate-setup.log
-		exit 1
-	fi
-	echo "$$(date) - install_time set to $$CURRENT_TIMESTAMP" >> /tmp/tollgate-setup.log
-fi
+exit 0
 
 exit 0
 endef
@@ -95,7 +77,8 @@ wait_for_iface() {
 }
 
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
-              /etc/uci-defaults/99-tollgate-setup; do
+              /etc/uci-defaults/99-tollgate-setup \
+              /etc/uci-defaults/92-tollgate-admin-setup; do
     if [ -x "$$script" ]; then
         echo "Running $$script ..."
         "$$script" || echo "Warning: $$script exited with code $$?"
@@ -164,6 +147,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 	$(SED) 's|__TOLLGATE_VERSION__|$(TOLLGATE_DISPLAY_VERSION)|g' $(1)/etc/uci-defaults/99-tollgate-setup
+	# 92-tollgate-admin-setup (dedicated uhttpd instance on :8090) is staged by
+	# packaging/portal-build.sh from the pinned portal tree with __ADMIN_HOME__
+	# already substituted for this build's webroot, so it carries no placeholder.
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/92-tollgate-admin-setup $(1)/etc/uci-defaults/
 
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
@@ -174,6 +161,18 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/tollgate/tollgate-captive-portal-site
 	$(CP) $(PKG_MAKEFILE_DIR)files/tollgate-captive-portal-site/* $(1)/etc/tollgate/tollgate-captive-portal-site/
+
+	# Admin board (Preact SPA) from the same pinned portal commit: served at the
+	# root of the dedicated uhttpd instance on :8090, from /www/tollgate.
+	$(INSTALL_DIR) $(1)/www/tollgate
+	$(CP) $(PKG_MAKEFILE_DIR)files/tollgate-admin/. $(1)/www/tollgate/
+
+	# rpcd plugin + ACL backing the `tollgate` ubus object the board talks to.
+	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/libexec/rpcd/tollgate $(1)/usr/libexec/rpcd/
+
+	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
+	$(INSTALL_CONF) $(PKG_MAKEFILE_DIR)files/usr/share/rpcd/acl.d/tollgate.json $(1)/usr/share/rpcd/acl.d/
 
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/check_package_path $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
@@ -203,6 +202,10 @@ FILES_$(PKG_NAME) += \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
+	/etc/uci-defaults/92-tollgate-admin-setup \
+	/www/tollgate/* \
+	/usr/libexec/rpcd/tollgate \
+	/usr/share/rpcd/acl.d/tollgate.json \
 	/etc/tollgate/tollgate-captive-portal-site/* \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
