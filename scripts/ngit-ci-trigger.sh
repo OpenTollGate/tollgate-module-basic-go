@@ -28,7 +28,19 @@
 #   WT         repository root (default: the git root of this script)
 #   KEYFILE    file containing the maintainer nsec (default below)
 #   COORD_HEX  coordinator pubkey to name in the `p` tag
-#   MAINT_HEX  maintainer pubkey the signing key must resolve to
+#   MAINT_HEX  maintainer pubkey the signing key must resolve to. This is also
+#              the identity in the `a=30617:<hex>:<repo>` coordinate, so it has
+#              to track the repository's CURRENT announcement.
+#
+# THE MAINTAINER KEY ROTATED (2026-09-13): it is now
+#   9cd14d9acdbab7ca162b772c91fa514da8e3248f61f924bf3441e6e72c5f0dee
+# (npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew, the key in
+# ~/.hermes/.ngit-new-key). The previous 36bdeb23… signature is superseded and
+# the identity above signs the live kind-30617. A stale MAINT_HEX fails closed —
+# it refuses to sign — but it also names the wrong repo coordinate, so a trigger
+# would be dispatched for a coordinate the coordinator no longer serves. Check
+# the live announcement when this fires:
+#   nak req -k 30617 -d tollgate-module-basic-go wss://relay.ngit.dev
 #   RELAYS     relays to publish to
 #
 # The signing key is never printed, echoed or passed on a command line that
@@ -39,7 +51,7 @@ set -euo pipefail
 WT=${WT:-$(git -C "$(dirname -- "$0")" rev-parse --show-toplevel)}
 KEYFILE=${KEYFILE:-${HOME}/.hermes/.ngit-new-key}
 COORD_HEX=${COORD_HEX:-765cd47badcbbc4a38c7d0c57d5607663b484c20cd59773f9f7064487f9431e8}
-MAINT_HEX=${MAINT_HEX:-36bdeb239fbebe0ef4f9d50e92ae1583cda2a9c81df015ba91a1fde726dc74e0}
+MAINT_HEX=${MAINT_HEX:-9cd14d9acdbab7ca162b772c91fa514da8e3248f61f924bf3441e6e72c5f0dee}
 REPO_ID=${REPO_ID:-tollgate-module-basic-go}
 RELAYS=${RELAYS:-"wss://relay.ngit.dev wss://gitnostr.com"}
 
