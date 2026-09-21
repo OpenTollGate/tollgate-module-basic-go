@@ -270,6 +270,22 @@ and [Semantic Versioning](https://semver.org/).
   while `authorizeMAC` treats an already-Authenticated client as authorized
   instead of failing the first payment after fresh daemon state.
   ([#412](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/412))
+
+- **Whitelabel config UI on :8090 no longer degrades into a LuCI
+  redirect.** The net4sats whitelabel admin UI (docroot
+  `/www/net4sats`, installed by the whitelabel installer) is served by
+  a dedicated `uhttpd` section on port 8090; first-boot/reinstall
+  setup now re-ensures that section whenever the branded docroot is
+  present, mirroring the known-good deployed layout. Repair attempts
+  that instead added `:8090` to `uhttpd.main` land on LuCI's docroot
+  (`/www`, whose `index.html` meta-refreshes to `cgi-bin/luci` — the
+  reported ":8090 redirects to LuCI instead of the configUI" symptom);
+  setup now strips such stray entries from `uhttpd.main` on every run,
+  including same-version reinstalls, which previously left them in
+  place. Port 8090 is deliberately not opened for pre-auth
+  public-SSID clients: the config UI is owner-facing and reached over
+  the private network. ([#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451))
+
 ### Changed / Internal
 
 - **Tester guide for the alpha RC.** New [docs/rc-tester-guide.md](docs/rc-tester-guide.md)

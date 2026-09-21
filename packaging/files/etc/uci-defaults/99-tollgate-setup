@@ -74,6 +74,63 @@ setup_uhttpd_portal() {
     uci set uhttpd.portal.no_dirlists='1'
 }
 
+# Remove stray :8090 entries from uhttpd.main's listen list.
+#
+# uhttpd.main's docroot is /www, and LuCI's /www/index.html meta-refreshes
+# to cgi-bin/luci — so ANY port added to uhttpd.main serves "redirect to
+# LuCI". Repair attempts that add 8090 there (instead of creating the
+# dedicated configUI section below) produce exactly the reported
+# ":8090 redirects to LuCI instead of the configUI" symptom. Runs in both
+# setup paths so the misconfiguration cannot survive a reinstall.
+sanitize_uhttpd_main_configui_port() {
+    uci -q del_list uhttpd.main.listen_http='0.0.0.0:8090'
+    uci -q del_list uhttpd.main.listen_http='[::]:8090'
+}
+
+# Whitelabel config UI on :8090 (net4sats brand).
+#
+# The whitelabel admin/config UI lives in /www/net4sats — installed by the
+# whitelabel installer, never shipped by this package — and is served by a
+# DEDICATED uhttpd section, never by uhttpd.main (see
+# sanitize_uhttpd_main_configui_port). Mirrors the known-good deployed
+# layout exactly so upgrades of already-configured routers converge
+# instead of duplicating sections. Only created when the branded docroot
+# actually exists; stock tollgate routers get nothing on :8090.
+#
+# Deliberately NOT added to nodogsplash users_to_router: the config UI is
+# owner-facing and reached over the private network (br-private, not
+# NDS-gated). Pre-auth public-SSID guests must not reach an admin UI.
+setup_uhttpd_configui() {
+    # Self-contained brand check: read /etc/tollgate/brand directly (written
+    # by whitelabel installers) so this repair works regardless of whether
+    # the surrounding script defines a BRAND variable.
+    local cfgui_brand
+    # read (not `tr -d '[:space:]'`): busybox tr on some OpenWrt builds
+    # lacks character classes and would delete the literal chars
+    # [ : s p a c e — mangling "net4sats" into "nt4t". POSIX read strips
+    # leading/trailing IFS whitespace and the trailing newline itself.
+    read -r cfgui_brand < /etc/tollgate/brand || cfgui_brand=""
+    [ "$cfgui_brand" = "net4sats" ] || return 0
+    [ -d /www/net4sats ] || return 0
+
+    uci -q get uhttpd.net4sats >/dev/null 2>&1 || uci set uhttpd.net4sats=uhttpd
+    local cfgui_listen
+    cfgui_listen=$(uci -q get uhttpd.net4sats.listen_http 2>/dev/null || echo "")
+    if ! echo "$cfgui_listen" | grep -q "0.0.0.0:8090"; then
+        uci add_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
+    fi
+    if ! echo "$cfgui_listen" | grep -q "\[::\]:8090"; then
+        uci add_list uhttpd.net4sats.listen_http='[::]:8090'
+    fi
+    uci set uhttpd.net4sats.home='/www/net4sats'
+    uci set uhttpd.net4sats.ubus_prefix='/ubus'
+    uci set uhttpd.net4sats.script_timeout='60'
+    uci set uhttpd.net4sats.network_timeout='30'
+    uci set uhttpd.net4sats.max_requests='3'
+    uci set uhttpd.net4sats.tcp_keepalive='1'
+    log "Whitelabel configUI uhttpd section ensured on :8090 (home=/www/net4sats)"
+}
+
 setup_dns_dnsmasq() {
     # Only override DNS if it's unset or pointing at localhost.
     local current_dns
@@ -375,6 +432,12 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
     uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
     uci commit wireless
+    # Reinstall must also repair the :8090 layout — a repair that added
+    # 8090 to uhttpd.main (LuCI docroot) survives same-version reinstalls
+    # otherwise, and the configUI section is never re-ensured.
+    sanitize_uhttpd_main_configui_port
+    setup_uhttpd_configui
+    uci commit uhttpd
     log "Wireless AP verification completed"
     exit 0
 fi
@@ -386,6 +449,8 @@ log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-n
 
 setup_uhttpd
 setup_uhttpd_portal
+sanitize_uhttpd_main_configui_port
+setup_uhttpd_configui
 setup_dns_dnsmasq
 setup_hostname
 setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
