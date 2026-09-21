@@ -66,3 +66,9 @@ nuts/
 packaging/*.ipk
 scripts/token-recovery/token-recovery
 *.cov
+
+# agent/session working files
+__pycache__/
+.pytest_cache/
+demo-player-midplay.png
+waybar-tollgate-preview.png
