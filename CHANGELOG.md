@@ -10,6 +10,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
+  same-version branch of `99-tollgate-setup` — the branch a reinstall or an
+  apk upgrade takes while `/etc/tollgate-setup-done` still matches the
+  running version — re-verified the wireless APs and never re-ran
+  `setup_uhttpd`, so the uhttpd settings this script owns could drift out of
+  contract across upgrades. The branch now re-runs `setup_uhttpd` and
+  `setup_uhttpd_portal` (alongside the existing `:8090` layout repair) and
+  commits `uhttpd` only when the resulting config differs. That drift is
+  what locked the operator out of LuCI on the 2026-09-21 pre13 build: a
+  stale `uhttpd.main.redirect_https` sent `:8080` to a `:443` listener that
+  was not running. `redirect_https` itself is now a derived value — set to
+  `1` only when the cert/key pair is readable and non-empty — instead of a
+  hardcoded `0`, so it always agrees with the rule the feed's
+  `92-tollgate-admin-setup` evaluates for the same option. See
+  [docs/architecture/uhttpd-redirect-https-ownership-decision.md](docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+
 ### Changed / Internal
 
 - **Fresh installs now size upstream prepay for a large renewal margin.**

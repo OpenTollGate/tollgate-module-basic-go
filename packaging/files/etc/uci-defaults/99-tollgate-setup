@@ -4,7 +4,8 @@
 # no service restarts here (uci-defaults runs before procd brings services up).
 #
 # The flag file stores the setup version. On reinstall/upgrade:
-# - Same version → verify wireless APs only (belt-and-suspenders)
+# - Same version → verify wireless APs and re-assert the uhttpd contract
+#   (uhttpd.main/uhttpd.portal drift is repaired; the rest is not re-run)
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
@@ -80,7 +81,19 @@ setup_uhttpd() {
         uci set uhttpd.main.cert='/etc/uhttpd.crt'
         uci set uhttpd.main.key='/etc/uhttpd.key'
     fi
-    uci set uhttpd.main.redirect_https='0'
+    # uhttpd.main.redirect_https is a DERIVED value, not a configured one:
+    # LuCI's :8080 is redirected to the TLS listener only when that listener is
+    # real. The feed's 92-tollgate-admin-setup computes the same rule (readable,
+    # non-empty cert/key pair AND a configured listen_https) because both scripts
+    # write this option and install order decides which lands last - the two must
+    # agree, and a router that lost its certs must never keep a stale redirect to
+    # a dead :443 (the 2026-09-21 pre13 LuCI lockout).
+    if [ -r /etc/uhttpd.crt ] && [ -s /etc/uhttpd.crt ] &&
+       [ -r /etc/uhttpd.key ] && [ -s /etc/uhttpd.key ]; then
+        uci set uhttpd.main.redirect_https='1'
+    else
+        uci set uhttpd.main.redirect_https='0'
+    fi
     uci set uhttpd.main.home='/www'
     uci set uhttpd.main.rfc1918_filter='1'
     uci set uhttpd.main.max_requests='3'
@@ -465,11 +478,12 @@ if [ -f "$SETUP_FLAG" ]; then
 fi
 
 if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
-    # Same version — verify wireless APs only (fixes #103/#173: APs missing
-    # after reinstall when setup-done flag persisted from a prior install).
+    # Same version — verify wireless APs, re-assert the uhttpd contract
+    # (fixes #103/#173: APs missing after reinstall when setup-done flag
+    # persisted from a prior install).
     : > "$LOGFILE"
     chmod 600 "$LOGFILE"
-    log "Flag matches $SETUP_VERSION — verifying wireless APs only"
+    log "Flag matches $SETUP_VERSION — verifying wireless APs and the uhttpd contract"
 
     load_brand
 
@@ -484,12 +498,31 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     uci -q get wireless.radio0 >/dev/null && uci set wireless.radio0.disabled='0'
     uci -q get wireless.radio1 >/dev/null && uci set wireless.radio1.disabled='0'
     uci commit wireless
+
+    # A reinstall/upgrade re-asserts the whole uhttpd contract — not just the
+    # wireless APs. uhttpd.main and uhttpd.portal are written by this script
+    # AND by the feed's 92-tollgate-admin-setup, and install order decides
+    # which write lands last; skipping setup_uhttpd here left the loser of
+    # that race in charge of the config. A stale uhttpd.main.redirect_https
+    # pointing :8080 at a dead :443 is what locked the operator out of LuCI
+    # on the 2026-09-21 pre13 build. Every function below is idempotent, so
+    # the export diff decides whether a commit is needed at all — an
+    # unreadable export commits unconditionally rather than drop a delta.
+    uhttpd_before=$(uci export uhttpd)
+    setup_uhttpd
+    setup_uhttpd_portal
     # Reinstall must also repair the :8090 layout — a repair that added
     # 8090 to uhttpd.main (LuCI docroot) survives same-version reinstalls
     # otherwise, and the configUI section is never re-ensured.
     sanitize_uhttpd_main_configui_port
     setup_uhttpd_configui
-    uci commit uhttpd
+    uhttpd_after=$(uci export uhttpd)
+    if [ -z "$uhttpd_before" ] || [ "$uhttpd_before" != "$uhttpd_after" ]; then
+        uci commit uhttpd
+        log "uhttpd config re-asserted (drift repaired)"
+    else
+        log "uhttpd config already matches the contract — nothing to commit"
+    fi
 
     # The #428 loop guard must also fire here: a device upgrading from a
     # pre-#432 install can carry a stale gatewaydomainname while its
