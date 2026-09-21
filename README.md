@@ -324,6 +324,26 @@ Notes that matter when you change them:
   machine-shaped one is re-derived from the stored code, a custom one is left
   alone), so the applier and the setup writer agree on what you chose.
 
+## SSID conventions
+
+On first boot the router derives its Wi-Fi names from a single 4-hex
+suffix `RANDOM_SUFFIX` drawn from `/dev/urandom`.
+
+- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
+  the 4-hex uppercase suffix. Both the 2.4 GHz and 5 GHz radios advertise
+  the **same** SSID (band steering), so clients are handed off between
+  radios seamlessly.
+- **Private management AP** — `TollGate-Private-XXXX` (same `XXXX` suffix
+  as the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+  memorable `Word-Word-Word-NN` string set on first boot and preserved on
+  upgrade.
+- **nodogsplash name** — the captive-portal gate shows
+  `TollGate-XXXX Portal` as its `gatewayname`.
+
+Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
+which swaps the `TollGate` prefix for that brand's name everywhere. The
+public AP format is pinned by `tests/contract/check-ssid-format.sh`.
+
 ## Testing
 
 Unit tests, from the [src/](src/) directory:
