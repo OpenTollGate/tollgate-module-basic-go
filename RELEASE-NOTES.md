@@ -1,425 +1,343 @@
-# TollGate v0.6.0-alpha2 (tollgate-wrt)
+# TollGate v0.6.0-alpha3 (tollgate-wrt)
 
-**Released**: 2026-09-13
+**Released**: 2026-09-21
 **Channel**: `alpha` — a tester-facing release candidate, not a stable
 release. Expect rough edges; report them.
 
 <!-- markdownlint-disable MD013 -->
 
-`v0.6.0-alpha2` is the first TollGate release cut from **upstream** `main`
-since `v0.5.0` — the `v0.6.0-alpha1` tag and the `v0.7.0-alpha*` tags that
-preceded it exist only on a fork and point at branches that were never
-merged, so nothing was ever published from them. If you chased one of those
-versions, this is the one that replaces them.
+`v0.6.0-alpha3` supersedes `v0.6.0-alpha2`, which was prepared on
+2026-09-13 but never tagged or published. It is the first TollGate
+release **published from the Nostr CI lane** — GitHub Actions has been
+down org-wide since 2026-08-27 — and the first whose published
+artifacts are reproducible byte-for-byte (pinned toolchains plus a
+commit-derived `SOURCE_DATE_EPOCH` on both the local packaging path
+and the publishing lane). Publication itself changed shape: the
+release matrix is sharded across budgeted workflow runs, and
+**announcements are emitted only when every shard of the release
+succeeded** — a partial build no longer looks like a finished one.
 
-The theme is *the router stops lying to the client*: the captive portal is
-served by its own uhttpd instance instead of through NoDogSplash, the client
-MAC now travels with the request instead of being guessed from ARP, the
-NoDogSplash session ceiling no longer expires a session the customer paid
-for, and a mint that answers badly — or crashes the wallet goroutine —
-produces a signed failure notice instead of a dead daemon or a 30-second
-stall. Alongside that: vendor-IE discovery for router-to-router scanning,
-a NIP-06/HKDF identity module, a token-recovery tool for funds stranded by
-gate-side failures, and a packaging/release-engineering cleanup that gives
-the project one version number instead of three.
+The theme is *funds safety and honest failure*: the wallet drain can no
+longer destroy tokens when a later mint fails; payments are refused up
+front when the gate provably cannot open them; an expired-keyset note
+is reported as unrecoverable instead of "mint unreachable"; renewal no
+longer double-charges at near-zero usage; the portal works on
+nodogsplash 5.0.2; upgrades no longer abort on minimal systems without
+`jq`. Alongside the fixes sits one deliberate **feature**: a
+process-isolated wallet sidecar architecture (alpha quality, unit
+tested, not router-validated) that lets a non-Go wallet back the
+module behind the unchanged `WalletPort` contract.
 
 ## At a glance
 
-- **Captive portal served directly.** A dedicated uhttpd instance on
-  `0.0.0.0:2051` serves the SPA; NoDogSplash keeps a sub-1 KB stub page
-  pre-auth and no longer proxies the portal.
-- **Payment-path hardening.** Panics in the payment goroutine are contained
-  and reported, locked (P2PK/HTLC) tokens are rejected, mint rate limiting
-  is reported as such, HTTP response bodies are capped at 1 MB, and the
-  cashu wallet's swap-counter race — which bricked a wallet permanently on
-  a transient mint failure — is fixed.
-- **Sessions survive.** Quote persistence across restarts and a 24 h
-  NoDogSplash ceiling mean a purchased session is no longer cut short by a
-  service restart or by NDS's 20-minute default.
-- **Discovery: vendor IE + scan history.** The wireless gateway manager
-  decodes the TollGate vendor IE from beacon frames, and every scan cycle is
-  logged to `/etc/tollgate/discovery_log.jsonl` with pricing and signal, with
-  `tollgate-cli upstream known` to read the accumulated view.
-- **Identity module.** NIP-06 12-word mnemonic derivation, HKDF-derived
-  IPv4/MAC/password attributes, and a loopback-only seed-reveal endpoint.
-- **Operator tooling.** `scripts/token-recovery/` salvages tokens rejected by
-  gate-side failures; `docs/operator-guide.md` documents the whole CLI.
-- **One version number.** `VERSION` at the repository root is now the single
-  source of truth for the release version; CI refuses a tag that disagrees
-  with it, and the maintainer tag/publish runbook is documented.
+- **Wallet drain safety**
+  ([#375](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/375)):
+  canonical mint identity, per-mint partial results, an fsync'd token
+  journal written before the next mint is attempted, `--yes`/`-y`, and
+  meaningful exit codes.
+- **Payments refused when the gate provably cannot open**
+  ([#412](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/412)):
+  a read-only `ndsctl` probe rejects the payment up front
+  (`client-not-registered`) instead of consuming an irreversible token
+  for a session that can never start.
+- **Degraded mode recovers on its own**
+  ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400),
+  [#401](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/401)):
+  the runtime downgrade wires its recovery trigger, and a mint outage
+  observed by real traffic fires the downgrade the periodic probe used
+  to miss.
+- **Renewal no longer double-charges**
+  ([#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430),
+  fixed): the renewal check never fires while more than half of the
+  current allotment remains, and the default `bytes_renewal_offset` is
+  coherent with what an advertisement can actually sell.
+- **Expired keysets are reported honestly**
+  ([#440](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/440)):
+  a note on a retired keyset gets a dedicated
+  `payment-error-keyset-expired` "cannot be recovered" code instead of
+  being misclassified as mint-unreachable — and no longer poisons the
+  health tracker.
+- **Swap fees explained; only healthy mints advertised**
+  ([#409](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/409),
+  [#408](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/408)).
+- **Portal on nodogsplash 5.0.2, whitelabel brand**
+  ([#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428)):
+  `gatewaydomainname` is no longer set (and is deleted on upgrade and
+  re-runs); the whitelabel hostname (`tollgate` or `net4sats`) comes
+  from `/etc/tollgate/brand` and now moves with the brand on upgrade
+  while custom hostnames are kept.
+- **Packaging survives the real world**: upgrades no longer abort on
+  `jq`-less minimal systems
+  ([#407](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/407));
+  the full nftables ruleset actually ships, so the backend API on
+  `:2121` is LAN-protected
+  ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387));
+  the whitelabel config UI has its own `uhttpd` section on `:8090`
+  ([#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451))
+  and the admin board is reachable from captive clients
+  ([#458](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/458));
+  Wi-Fi scanning addresses the radio's real interfaces instead of the
+  uci section name
+  ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
+- **Wallet sidecar architecture (alpha feature)**
+  ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395)):
+  a `WalletPort` client speaking newline-delimited JSON-RPC over an
+  `AF_UNIX` socket to an out-of-process wallet daemon, per-backend
+  capability manifests (`gonuts`, `cdk`, `nucula`) and a
+  `wallet-policy.json` selection policy — the groundwork for backing
+  the module with a non-Go wallet without linking CGO. Unit tested
+  only; see the wallet-backend contract and measurement protocol docs
+  ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431)).
+- **Reproducible, self-verifying, sharded releases**
+  ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383),
+  [#410](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/410),
+  [#435](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/435),
+  [#445](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/445),
+  [#441](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/441)):
+  pinned toolchains; `SOURCE_DATE_EPOCH` stamped end-to-end via the
+  stage-1 rendezvous record; the matrix sharded into budgeted runs;
+  and a post-publish gate that requires every declared `(arch,
+  format)` to be announced and mirrored with a matching sha256.
 
 ## What's new
 
-### Captive portal
+### Wallet and payment safety
 
-The portal is no longer served through NoDogSplash. `/etc/nodogsplash/htdocs`
-is not a symlink to the SPA any more; NDS serves a tiny stub page with a JS
-redirect to port 2051, plus a `<noscript>` fallback that is built from the LAN
-IP (with CIDR suffixes stripped — `192.168.1.1/24` used to produce a malformed
-URL on routers that store the address in CIDR form; found on a GL.iNet MT3000).
-The stub also preserves the query string, so the `?clientmac=…` parameter NDS
-hands out survives the redirect.
+`wallet drain cashu` is now safe to run on a wallet that holds funds:
+mint URLs are canonicalized (scheme/host case, trailing slashes,
+default ports, userinfo/query/fragment) and merged on read, so one
+logical mint can no longer appear as two phantom-balanced entries;
+per-mint failures produce an explicit partial result
+(`success:false`, `partial:true`, `tokens`, per-mint `errors`) instead
+of discarding earlier tokens; every produced token is appended to an
+fsync'd `/etc/tollgate/wallet-drain-journal.jsonl` **before** the next
+mint is attempted; `--yes`/`-y` and distinguishable exit codes round
+it out.
 
-A second uhttpd instance (`config uhttpd portal`) serves the SPA on
-`0.0.0.0:2051`, with directory listings disabled, the NDS `users_to_router`
-allow list extended to 2051, and the installer hardened (an `htdocs` that
-exists as a regular file is removed rather than silently ignored).
+The payment path refuses what it cannot deliver: a read-only
+`ndsctl json` probe rejects payment up front with an actionable
+`client-not-registered` notice when NDS has no client session for the
+MAC — re-probing at the valve's auth-retry cadence so the reseller
+flow's asynchronous registration is not refused on first sight, and
+failing open on probe errors. A note on a retired keyset gets the
+dedicated `payment-error-keyset-expired` code (the mint is healthy;
+the note is permanently unspendable) instead of a misleading
+retry-flavored error. Swap fees are reported (`WalletPort.SwapFeeSats`)
+and pre-checked, and only mints serving a real NUT-01 keyset list are
+advertised. The gonuts hardening wave is included (empty-proofs
+panic contained, verbatim mint rejections, `ErrTokenAlreadySpent`
+reachable, wallet-locked error instead of deadlock).
 
-Clients now come with a MAC attached: the backend accepts a `mac` field in
-Lightning invoice and Cashu payment requests, and a `mac` query parameter for
-invoice polling and `/whoami`, so the splash page passes the MAC it already
-knows instead of the backend falling back to ARP/DHCP lookup behind a reverse
-proxy. Handlers that used to return 400/500 when no MAC could be resolved now
-log and fall back.
+The sidecar architecture is the one feature: `src/tollwallet` gains
+the RPC client, the three capability manifests and the policy
+selector. It ships behind the unchanged `WalletPort` contract with the
+in-process backend still the default; treat it as scaffolding for the
+wallet migration, not a supported configuration.
 
-### Payments and wallet safety
+### Sessions and renewal
 
-A panic inside the wallet layer during `PurchaseSession`'s `Receive` call
-(a mint returning malformed keysets) used to take the whole daemon down with
-every active session on it. The goroutine now recovers and pushes an explicit
-`payment processing panicked: …` error into the existing result channel, so
-the caller gets a signed `payment-processing-failed` notice immediately
-([#360](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/360)).
+Reseller sessions no longer pay twice at startup
+([#430](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/430)):
+the renewal check never fires while more than half of the current
+allotment remains (with a once-per-effect warning when the configured
+offset is overridden), and the default `bytes_renewal_offset` no
+longer exceeds what a typical advertisement can sell after step
+quantization.
 
-`tollwallet.Receive()` checks each proof's secret for spending conditions
-before crediting a user: P2PK and HTLC-locked tokens are rejected with
-`ErrLockedToken`, closing a "free internet with tokens the gateway can never
-spend" path found in the Layer 3 cashu audit (fixes
-[#324](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/324)).
-Mint HTTP 429 now maps to `mint-rate-limited` with a human-readable message
-instead of a generic payment failure, and `merchant.Fund()` decodes V3 as well
-as V4 tokens (fixes
-[#325](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/325)).
+### Captive portal, brand and packaging
 
-Mint URLs are matched with `tollwallet.MintURLMatches()` in
-`calculateAllotment()`, so a trailing slash, an upper-case host or a
-normalized path no longer fails an otherwise valid payment
-([#250](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/250),
-[#251](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/251)).
-
-### Sessions and quotes
-
-Lightning quotes are persisted to `quotes.json` in the wallet directory and
-reloaded on startup, and monitoring is relaunched for unpaid quotes, so a
-restart no longer leaves a paying customer staring at "Waiting for payment"
-([#248](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/248)).
-Persistence is also race-free and crash-safe now: records are deep-copied
-under the lock and the temp file is `fsync`ed before the rename, with five
-concurrency tests as regression guards.
-
-NoDogSplash's `sessiontimeout` is set to 86400 (24 h) and
-`authidletimeout` to 3600, so NDS's 1200-second default can no longer deauth
-a client mid-session; the Go backend stays the sole authority on purchased
-session lifetime.
-
-### Discovery and upstream
-
-The wireless gateway manager reads the TollGate vendor-specific Information
-Element from beacon frames — implemented from the wire-format spec with
-round-trip tests and an overflow check before the cast — and boosts a
-discovered AP's score accordingly; the config schema gains an optional
-`vendor_ie_discovery` boolean (default `false`).
-
-Every scan cycle now records each discovered AP (BSSID, SSID, signal, radio,
-TollGate flag, price/step) to `/etc/tollgate/discovery_log.jsonl`, log-rotated
-and persistent across reboots, with an in-memory registry tracking signal
-range, sample count and latest pricing across scans;
-`tollgate-cli upstream known` prints that view, and `upstream scan` reports
-`is_tollgate`, `price_per_step` and `step_size` for real TollGate APs
-([#312](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/312)).
-
-### Identity
-
-New `src/identity` module: NIP-06 12-word BIP39 mnemonic derivation, HKDF
-(RFC 5869) attribute derivation for IPv4/MAC/password replacing raw SHA-256,
-and a loopback-only `/identity/reveal-seed` endpoint with a 1 KB body limit.
-14 tests
-([#331](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/331)).
-
-### Operator tooling and docs
-
-`scripts/token-recovery/` parses `/etc/tollgate/tokens-to-recover.txt`, checks
-each proof's state at the mint via NUT-07 `/v1/checkstate`, and recovers
-UNSPENT value through the wallet; `-dry-run` reports recoverable/spent/pending
-counts without touching the wallet — for salvaging tokens rejected by the
-gate-side failures of the exit-status-1 class
-([#354](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/354)).
-
-`docs/operator-guide.md` documents every `tollgate` CLI subcommand (service,
-wallet, private network, upstream Wi-Fi, config, health) with flags, example
-output and troubleshooting
-([#188](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/188)).
-
-A Docker-based integration lab (`tests/cloud-lab/`) brings up a cdk-mintd
-FakeWallet mint, upstream and reseller TollGate containers against a
-fake-ndsctl shim, and a client container with smoke-payment, mint-failure and
-two-router autopay suites
-([#362](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/362)).
+`gatewaydomainname` is gone — set nowhere, deleted on version-changing
+upgrades **and** same-version setup re-runs — fixing the NDS 5.0.2
+pre-auth redirect loop
+([#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428)).
+The whitelabel hostname is selected by `/etc/tollgate/brand`
+(`tollgate` default, `net4sats`), drives hostname, DNS, SSIDs and the
+NDS gateway name, and moves with the brand on upgrade while
+operator-chosen hostnames are preserved
+([#444](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/444)).
+The whitelabel config UI is served by a dedicated `uhttpd` section on
+`:8090` (no more LuCI redirect), the admin board (`:8090`/`:8443`) is
+reachable from captive clients exactly like LuCI on `:8080`, and
+Wi-Fi scanning resolves real radio interfaces (`phyN-apK`) instead of
+uci section names, so the admin page lists networks again.
 
 ### Release engineering
 
-The release version now has a single source of truth: `VERSION` at the
-repository root. Three literals used to disagree — `v0.0.0` in
-`src/cli/version.go`, `v0.7.0-alpha10` in `packaging/local-build-ipk.sh` and
-`v0.6.2` in the setup script. CI refuses a tag that is not byte-identical to
-`VERSION`, every packaging path substitutes a `__TOLLGATE_VERSION__`
-placeholder in the setup script, `scripts/build-sdk-package.sh` derives its
-version from `VERSION`, and `scripts/check-version-sync.sh` (wired into
-`hooks/pre-commit`) fails the tree if a version literal creeps back in. The
-maintainer runbook — pre-flight gates, the annotated-tag commands on upstream
-`main`, and the publish/verify sequence — is
-[docs/release-process.md](docs/release-process.md).
+The publishing lane is deterministic and self-verifying: pinned
+toolchains (#383), a commit-derived `SOURCE_DATE_EPOCH` that rides the
+stage-1 rendezvous record so every shard packages with the epoch the
+binaries were stamped with (#441), and the post-publish gate from
+#435. Stage 2 is now eleven budgeted shard workflows rendered from
+`packaging/ngit-release-matrix.json` (no leg dropped), and
+announcements moved to a dedicated workflow that refuses unless every
+shard succeeded and every leg has a build record naming the same
+release run — a failed or timed-out shard leaves the release
+unannounced instead of half-announced (#445). One `make go-battery`
+runs the documented Go gate across all 16 modules (#455).
 
 ## Behavior changes worth flagging
 
-- **The portal lives on port 2051.** NoDogSplash still answers pre-auth on
-  port 80 with a stub page; the SPA itself is served by uhttpd on 2051. If
-  you allow-listed or firewalled portal ports, allow 2051.
-- **The backend API on port 2121 is LAN-only.** A new nftables include
-  (`30-backend-firewall.nft`) blocks the API on non-LAN interfaces. WiFi
-  clients keep reaching the payment endpoint through the NDS
-  `users_to_router` rules; WAN-side and upstream clients can no longer probe
-  it. Defense in depth for the API's trust model.
-- **CORS no longer echoes a wildcard.** `Access-Control-Allow-Origin: *` is
-  gone; the origin is echoed only for local/private origins and for pages the
-  router itself serves on another port, with `Vary: Origin` added. POSTs
-  with content types other than `text/plain` or `application/json` now return
-  415 ([#349](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/349)).
-- **NDS timeouts are 24 h / 1 h** (session / idle), by design — the Go
-  backend decides session lifetime. Adjust in `setup_nodogsplash()` if your
-  deployment needs a shorter ceiling.
-- **Setup rerun on upgrade.** The setup script's version marker now carries
-  the real release version (it used to be a hand-written `v0.6.2`, which
-  never matched a release), so upgrading re-runs setup. Existing management
-  WiFi credentials are preserved: the private SSID/PSK is reused from
-  `wireless.private_radio0` and only generated when none is configured.
-- **`/tmp/tollgate-setup.log` is root-only (0600).** It contains the
-  generated management-WiFi password.
-- **Config schema version is unchanged (`v0.0.8`).** No migration is needed;
-  `vendor_ie_discovery` is optional and defaults to `false`.
+- **`gatewaydomainname` is gone** (deleted on upgrade and re-runs);
+  `<hostname>.lan` keeps resolving via dnsmasq.
+- **`/etc/tollgate/brand` selects the whitelabel hostname**, and on
+  upgrade the hostname moves with the brand; custom hostnames are kept.
+- **The admin board (`:8090`, opt-in `:8443`) is reachable from
+  captive clients** like LuCI — a deliberate `users_to_router` widening.
+- **Payments are refused before the token is consumed** when NDS has
+  no client session for the MAC (`client-not-registered`).
+- **`wallet drain cashu` has new output and exit codes**, a journal
+  file (`/etc/tollgate/wallet-drain-journal.jsonl`, root-only, never
+  auto-removed), and `--yes`/`-y`.
+- **`preinst` is a no-op**; the binary owns `install_time`.
+- **The renewal clamp may log a warning** when it overrides a
+  configured `bytes_renewal_offset` larger than half the allotment.
+- **No partial releases are announced anymore**: if a build shard
+  fails, consumers see *no* kind-1063 events for that version at all —
+  by design.
 
 ## Notable bug fixes
 
-- Payment-goroutine panics no longer kill the daemon
-  ([#360](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/360)).
-- The local build script no longer injects the test mint into release builds:
-  `GitBranch` was left `unknown`, which `IsDevBuild()` treated as a feature
-  branch, adding a dummy-invoice test mint to every locally built `.ipk`
-  ([#359](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/359)).
-- Splash redirect preserves query parameters, so MAC-based session logic sees
-  the real client MAC ([#363](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/363)).
-- NoDogSplash no longer overrides purchased session duration
-  ([#363](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/363)).
-- **Critical:** the cashu wallet's swap-counter race is fixed by
-  `gonuts-tollgate` v0.7.4. In v0.7.1 the counter advanced only after a
-  successful swap, so a transient mint failure left it stuck, every retry
-  reused it, the mint answered NUT-02 code 10002 and the wallet was bricked
-  with no self-recovery. v0.7.4 advances the counter before the swap and
-  regenerates blinded messages on retry.
-- SSRF guard on the post-payment NDS session trigger: loopback, link-local
-  and unspecified upstream addresses are rejected
-  ([#315](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/315),
-  [#347](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/347)).
-- HTTP response bodies are limited to 1 MB across LNURL resolve, invoice
-  fetch, gateway probes and the usage tracker, preventing OOM on
-  resource-constrained routers ([#267](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/267)).
-- Notice event codes and the advertisement `tips` tag now match TIP-01/02
-  instead of implementation-specific codes and non-existent TIP numbers.
-- Wireless config is read gracefully when `/etc/config/wireless` is absent;
-  the dead `firewall-tollgate` include (silently rejected by fw4) is gone,
-  along with two Makefile references to it that broke package builds
-  ([#196](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/196),
-  [#235](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/235)).
-
-### Security
-
-- **Exposed deployment backup purged from history.** A router deployment
-  backup committed by accident in #358 (`deploy-backup-20260730/`) contained
-  the merchant private identity key, an ecash `wallet.db` and spendable
-  recovery tokens. `main` was rewritten on 2026-08-27 and force-pushed;
-  `SECURITY.md` records the incident and the residual exposure, and key
-  rotation is tracked in
-  [#364](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/364).
-  If you ran any build between those dates, treat the affected key material
-  as compromised.
-- Wildcard CORS removed, backend API restricted to LAN interfaces,
-  P2PK/HTLC-locked tokens rejected, 1 MB response-body cap
-  (see above).
+- A runtime downgrade recovers when a mint comes back (live case: 2 h+
+  degraded with a healthy probe)
+  ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400));
+  a mint outage observed by real traffic fires the transition the
+  periodic probe missed
+  ([#401](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/401)).
+- The full nftables ruleset ships; the backend API on `:2121` is
+  LAN-only on fresh installs as documented
+  ([#387](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/387)).
+- Package license metadata corrected to `GPL-3.0-only`
+  ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383)).
 
 ## Internal changes (CI, tests, dependencies)
 
-- Spec-quote drift is checked in CI against current cashubtc/nuts HEAD; one
-  drifted NUT-03 quote was fixed and a NUT-05 quote added at the
-  `RequestMeltQuote` site
-  ([#357](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/357)).
-- `src/tollwallet` pins NUT-00 `HashToCurve` output against the canonical
-  cross-implementation vectors (gonuts/btcec ↔ cashu-core-lite/k256 ↔
-  Python coincurve), because divergence there makes NUT-07 checkstate report
-  spent proofs as unspent
-  ([#351](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/351)).
-- New `src/sysexec/` safe-exec wrapper (`Runner` interface, context,
-  timeout, retry) — foundation for the 37 `exec.Command` call sites
-  ([#265](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/265)).
-- New `src/tollwallet` `WalletPort` interface with a `GonutsWallet` adapter,
-  decoupling the merchant from gonuts types
-  ([#299](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/299)).
-- The personal-fork `replace` directive on `gonuts-tollgate` is gone now that
-  the official v0.11.1 tag exists; both modules re-tidied
-  ([#361](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/361)).
-- CI: `src/merchant` joined the test matrix, `config_manager` buildinfo tests
-  were updated for the five extra production mints
-  ([#365](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/365));
-  `package-apk` uses Node 20 instead of the SDK container's Node 12, which
-  had been failing the portal build on every push since Aug 26
-  ([#366](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/366));
-  build triggers are restricted to `main` + `v*` tags with docs-only paths
-  ignored and redundant runs cancelled
-  ([#369](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/369));
-  the SDK build tree is cached and every heavy job has a timeout,
-  carried onto `main` by the #370 follow-up after #370's merge landed
-  on the squash-merged `ci/trigger-hygiene` branch
-  ([#370](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/370),
-  [#385](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/385));
-  the portal is built once per run instead of per matrix leg, which also
-  removed per-leg commit drift
-  ([#368](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/368)).
-- The tree is `gofmt`- and `goimports`-clean, so the documented pre-PR gate
-  prints nothing
-  ([#352](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/352)).
+- `gonuts-tollgate` re-pinned to the tagged `v0.11.2`
+  ([#394](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/394)).
+- Wallet-backend architecture docs: contract, integration decision and
+  the measurement protocol (incl. the INJ-1…INJ-8 fault-injection set)
+  ([#431](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/431)).
+- Merchant tests decoupled from the live wallet via centralized Cashu
+  token fixtures
+  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396)).
+- Cloud-lab runs isolated per checkout
+  ([#446](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/446));
+  contract fixtures gained a mirror/relay-list sync check
+  ([#456](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/456));
+  `make go-battery` runs the whole Go gate
+  ([#455](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/455)).
+- Tester guide and the single-channel tester intake with S1 stop-ship
+  rules
+  ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381));
+  the ngit mirror is linked from the README
+  ([#390](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/390)).
 
 ## Known issues
 
-- **`tollgate wallet drain cashu` can lose funds
-  ([#375](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/375),
-  open).** Reproduced on a GL.iNet MT3000 over SSH without a PTY: the command
-  prints `Operation cancelled.` and exits 0 without draining, and `--json`
-  can destroy funds on a wallet whose per-mint registry holds a duplicate or
-  stale entry. This is the CLI path, not the payment path, and the fix is
-  tracked for this release cycle — check the issue before draining a wallet
-  that holds funds. If you drain manually, work from the non-JSON output and
-  verify the mint's balance afterwards.
-- **NoDogSplash pre-auth is still fragile for unmappable clients.** Stock NDS
-  5.0.2 answers HTTP 500 (its own error page) on every request from a client
-  it cannot map to a MAC (`ip neigh` miss). The SPA itself now loads from
-  uhttpd regardless, which is the mitigation; the NDS-side behaviour is
-  upstream and unaddressed.
-- **`src/cli`, `src/upstream_detector` and `src/upstream_session_manager`
-  are still outside the standalone go-test matrix** pending the same module
-  rewrite `src/merchant` received
-  ([#365](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/365)).
+- **nodogsplash 5.0.2 on OpenWrt 22.03**: iptables-nft translation
+  strips port matchers, so pre-auth DNAT hijacks all TCP, not just :80
+  ([#398](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/398),
+  open).
+- **Runtime-downgrade recovery is proactive-cycle-bound (~13 min)** —
+  recovery waits for the periodic probe cycle; the aggressive loop is
+  not armed on runtime downgrades
+  ([#429](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/429),
+  open).
+- **Payout melts and drain ignore mint input fees** —
+  `balance_tolerance_percent` acts as accidental compensation
+  ([#414](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/414),
+  open).
+- **No refund path when gate-open fails after a successful `Receive`**
+  beyond the L1 pre-check landed in #412
+  ([#403](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/403),
+  remainder open).
+- **Config can reset to the factory-default mint** if the daemon exits
+  during degraded mode
+  ([#402](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/402),
+  open).
+- **Keyset `final_expiry` silently kills held balances**; wallets must
+  rotate off inactive keysets — the payment path now at least says so
+  ([#417](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/417),
+  open; #440/#447 improved the reporting).
+- **NDS still answers HTTP 500 for unmappable clients** (stock NDS
+  5.0.2, upstream behaviour; the SPA loads from uhttpd regardless).
+- **The wallet sidecar is scaffolding, not a supported backend** —
+  unit tested only, no router validation, no measurement baseline
+  published yet.
+- **The sharded publish pipeline has never run against a real tag** —
+  branch/dev runs prove the mechanics; a tag run is first-of-its-kind.
+- `tollgate-clientd` is **not** part of this release (its PR remains
+  open pending its own fixes).
 
 ## Verification status (read this before trusting a build)
 
-Be sceptical of "the tests pass" for router-visible behavior — several
-changes in this release only exist on a real device.
-
-- **Validated on hardware**: the captive-portal stub/redirect path and the
-  no-CIDR LAN IP case (GL.iNet MT3000), and NDS behavior on stock NDS 5.0.2.
-- **Covered by unit/race tests only**: the payment-goroutine panic
-  containment, quote persistence and crash safety, spending-condition
-  rejection, mint error mapping, the discovery logger, the identity module,
-  the `sysexec` and `WalletPort` foundations, and the CI/release-engineering
-  changes.
-- **Not verified at all on a router for this release**: the version
-  single-source change was exercised in a checkout and by simulating the CI
-  steps, not by installing a package built from this tag and watching
-  `99-tollgate-setup` re-run. Treat the setup-rerun behavior as untested
-  until a tester confirms it on hardware.
+- **Unit/race, this exact tip**: `make go-battery` green across all 16
+  modules (gofmt/vet/build + race-enabled `testenv` suite), and the
+  config-schema and build-purity contract checks pass on the release
+  commit content.
+- **Live/lab evidence** (per fix, before this tag): the degraded-mode
+  pair was live-reproduced (PRTA #110); the drain regression was
+  live-validated (PRTA #107); the gate-open refusal triggers were
+  lab-reproduced; the NDS 5.0.2 redirect loop was observed on real
+  clients before the fix; the renewal double-charge was measured on
+  the reseller lab.
+- **Not verified on a router from this tag**: everything — router
+  validation is what this alpha cycle is for. The sidecar specifically
+  has unit coverage only.
 
 ## Upgrade notes
 
-- **Back up the wallet directory and `/etc/tollgate/config.json` before
-  upgrading.** The deployment backup that leaked in August is a reminder of
-  what that data is worth.
-- **Package filenames are `tollgate-wrt_v0.6.0-alpha2_<arch>.ipk` and
-  `…_<arch>.apk`** (the tag name verbatim; UPX variants add a `-upx-…`
-  suffix before the extension).
-- **`.apk` (OpenWrt 25.x)**: install it from the testing feed — see
-  [docs/rc-tester-guide.md](docs/rc-tester-guide.md) for the key, the
-  repository line and the verified install/upgrade/rollback commands. Inside
-  the package apk-tools sees the normalised version `0.6.0_alpha2-r0`.
-
-  **An unsigned downloaded file is not a substitute for the feed.** `apk`
-  will refuse `apk add ./tollgate-wrt_v0.6.0-alpha2_<arch>.apk` on its own
-  (`UNTRUSTED signature`), because the file is not signed with a key the
-  router trusts. It only installs with `--allow-untrusted`, and only after
-  you have verified the file against the `sha256` published in the
-  announcement:
-
-  ```bash
-  sha256sum tollgate-wrt_v0.6.0-alpha2_<arch>.apk   # must equal the announced sha256
-  apk add --allow-untrusted ./tollgate-wrt_v0.6.0-alpha2_<arch>.apk
-  ```
-
-  Never `--allow-untrusted` a file whose `sha256` you have not checked — and
-  never use that flag on the feed path: the index and key exist so that
-  verification stays on.
-- **`.ipk` (OpenWrt 24.10 and earlier)**: `opkg install
-  tollgate-wrt_v0.6.0-alpha2_<arch>.ipk`; the control-file version is the
-  tag name, `v0.6.0-alpha2`.
-- **Do not reuse `v0.6.0-alpha1` or any `v0.7.0-alpha*` package.** Those
-  tags are fork-only and point at unmerged branches; `v0.6.0-alpha1` has a
-  0-asset prerelease page and no usable artifacts.
+- **Back up the wallet directory and `/etc/tollgate/config.json`
+  before upgrading.**
+- **`.ipk` filenames** are `tollgate-wrt_v0.6.0-alpha3_<arch>.ipk`
+  (UPX variants add a `-upx-…` suffix); the control-file version is
+  the tag name verbatim. `opkg install` on OpenWrt 24.10 and earlier.
+- **`.apk` (OpenWrt 25.x)**: the sharded pipeline is built to let the
+  SDK legs finish within their budgets; whether they do on a real tag
+  is exactly what this RC establishes. Check for announcements before
+  promising 25.x testers anything.
+- **Do not reuse `v0.6.0-alpha1` or any `v0.7.0-alpha*` package** —
+  fork tags, unmerged branches, no usable artifacts.
 - **Expect a setup rerun after installing.** Existing WiFi/portal
-  configuration is preserved, including management-WiFi credentials; check
-  `/tmp/tollgate-setup.log` (root-only) afterwards.
-- **If you reached the backend API from outside the LAN, that path is
-  closed** (port 2121 is LAN-only now). Use the portal path WiFi clients use,
-  or reach the router's shell.
+  configuration is preserved; the hostname moves with the brand unless
+  you set your own; check `/tmp/tollgate-setup.log` (root-only).
 
-## Getting v0.6.0-alpha2
+## Getting v0.6.0-alpha3
 
-- **Packages**: CI builds `.ipk` and `.apk` per architecture on the tag and
-  uploads each artifact to multiple Blossom mirrors; every artifact is
-  announced as a NIP-94 `1063` event (`n=tollgate-wrt`,
-  `v=v0.6.0-alpha2`, `c=alpha`) on the project relays. Download from any
-  `url` tag and **verify the sha256 against the event's `x` tag** before
-  installing:
+- Packages are announced as NIP-94 kind-`1063` events
+  (`n=tollgate-wrt`, `v=v0.6.0-alpha3`, `c=alpha`). Filter by **both**
+  publisher keys — the ngit CI key publishes now; the historical
+  Actions key never will again:
 
   ```bash
-  nak req -k 1063 -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
-      --tag n=tollgate-wrt --tag v=v0.6.0-alpha2 --limit 50 \
+  nak req -k 1063 \
+      -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
+      -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
+      --tag n=tollgate-wrt --tag v=v0.6.0-alpha3 --limit 50 \
       wss://relay.damus.io wss://nos.lol wss://nostr.mom
   ```
 
-- **From source**: [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh)
-  cross-compiles the binaries and stages the canonical
-  [packaging/](packaging/) recipe into the OpenWrt SDK, producing either
-  format. It takes `PACKAGE_VERSION` from the environment and otherwise reads
-  `VERSION`, so a checkout at this tag builds `v0.6.0-alpha2` by default.
-- **OpenWrt 25.12 testers: install from the feed, not from a file.**
-  [docs/rc-tester-guide.md](docs/rc-tester-guide.md) has the feed key, the
-  repository line, the install/upgrade/remove/rollback commands and what a
-  successful install looks like. It also states the supported matrix and
-  marks every step that has not yet been exercised on router hardware.
-- **Announcements**: `RELEASE-NOTES.md` (this document) and the
-  `v0.6.0-alpha2` section of [CHANGELOG.md](CHANGELOG.md) are the
-  authoritative description of the release; the per-PR detail lives in the
-  changelog.
-- **Reporting problems**: [docs/tester-intake.md](docs/tester-intake.md) is the
-  intake document for this release — it names the **single** channel
-  (a comment on the pinned *Tester reports — TollGate v0.6.0-alpha2 (alpha
-  channel)* issue in the
-  [project tracker](https://github.com/OpenTollGate/tollgate-module-basic-go/issues)),
-  carries the report template, and states the triage and severity rules; the
-  tester guide's *How to report a result* section lists the exact commands to
-  run. Send the facts they ask for (router model, `cat /etc/openwrt_release`,
-  `apk --print-arch`, the feed line, `apk list --installed tollgate-wrt`,
-  `tollgate version`, `sha256sum` of the installed binaries,
-  `logread -e tollgate | tail -50`, expected vs actual) and never a key, seed,
-  wallet file or token. A report without a package version and an architecture
-  is untriaged: we ask once, then close it. Any wallet/funds symptom is
-  **S1 = stop-ship** — the feed index is pulled before we investigate. Read the
-  known-issues section above first.
+- **No events for this version means the release is not published** —
+  a failed shard suppresses all announcements by design; do not
+  install stray artifacts from other versions' events.
+- Download from any `url` tag (mirrors of the same blob) and **verify
+  the file's sha256 against the event's `x` tag** before installing:
+
+  ```bash
+  echo "<x-tag-sha256>  tollgate-wrt_v0.6.0-alpha3_<arch>.ipk" | sha256sum -c -
+  opkg install tollgate-wrt_v0.6.0-alpha3_<arch>.ipk
+  ```
+
+- **Reporting problems**:
+  [docs/tester-intake.md](docs/tester-intake.md) names the single
+  intake channel and the report template;
+  [docs/rc-tester-guide.md](docs/rc-tester-guide.md) documents
+  install/upgrade/rollback. Any wallet/funds symptom is **S1 =
+  stop-ship**.
 
 ## Contributors
 
-Commits since `v0.5.0` came from Amperstrand, c03rad0r, Felix and Matt Van
-Horn, on top of the review, hardware-testing and bug-reporting work that
-made this release possible. The v0.5.0 contributor list —
-[@c03rad0r](https://github.com/c03rad0r),
-[@Amperstrand](https://github.com/Amperstrand),
-[@Origami74](https://github.com/Origami74) and Alex Xie — remains part of
-what this release is built on.
-
-The full per-PR record is [CHANGELOG.md](CHANGELOG.md).
+Commits since the never-published `v0.6.0-alpha2` preparation came
+from Amperstrand, c03rad0r and Felix (via `felixfelix-bot`), on top of
+the `v0.5.0`-era contributor base — c03rad0r, Amperstrand, Origami74,
+Matt Van Horn and Alex Xie. The full per-PR record is
+[CHANGELOG.md](CHANGELOG.md).
