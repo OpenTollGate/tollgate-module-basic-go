@@ -88,6 +88,12 @@ and [Semantic Versioning](https://semver.org/).
   else in the file changes.
   ([#411](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/411))
 
+- **Agents may only request reviews from `felixfelix-bot`.** New rule in
+  the contributing process after an agent session requested a human
+  reviewer on #413: review requests must never name a human, and agent
+  hosts hard-block them at the `gh` wrapper.
+  ([#453](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/453))
+
 ### Added
 
 - **Process-isolated wallet sidecar + capability manifests.** `src/tollwallet`
