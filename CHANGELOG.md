@@ -98,6 +98,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Renewal-policy simulation study (#460).** `tests/sim/renewal_sim.py`
+  models the upstream renewal mechanics (poll cadence, #442 clamp,
+  non-blocking payment RTT, the 10 s trigger throttle, step
+  quantization, cumulative allotment, stranded capital on session loss)
+  and sweeps link/increment/offset/price cells; `tests/sim/RESULTS.md`
+  carries the findings — the 10 s throttle caps sustained throughput at
+  increment-per-10-s, the shipped #450 defaults are right for
+  ≤400 Mbps uplinks, offset's real job is covering payment RTT — plus an
+  operator table and the `auto`-mode spec for the fast-link quadrants.
+  Anchored to the live bytes lab (`renewal_e2e.sh`, 14 PASS / 0 FAIL on
+  merged main). Also: `renewal_e2e.sh` now honors the documented
+  docker-compose override file (explicit `-f` flags disabled its
+  auto-load — the #436 gotcha family).
+  ([#465](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/465))
+
 - **Cloud-lab isolation and docs (batched).** Cloud-lab compose runs are
   isolated per checkout, so parallel checkouts no longer share project
   state
