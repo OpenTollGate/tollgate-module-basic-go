@@ -44,7 +44,11 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.25.0"
+  # Matches the reproducibility pin (packaging/build-inputs.json go.version,
+  # #383): the cross-compiled, shipped binaries must be built by the exact
+  # toolchain the pin documents, or a rebuild of one commit cannot be
+  # reproduced. repro-check.yml uses the same literal.
+  GO_VERSION: "1.25.8"
   # blossom1.orangesync.tech is dropped from the GitHub twin's list: it did not
   # answer from a job container on 2026-09-12 (25 s connect timeout) while
   # primal.net, psbt.me, blossom2 and drive.cashu.email did, and with

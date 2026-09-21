@@ -271,6 +271,9 @@ stage 2, then run the gate (it is also a job inside stage 2, but a stage 2 that
 is cut off before it finishes the matrix never reaches that job):
 
 ```bash
+# NOTE: invoke these drivers as shown (shebang picks bash). Do not run
+# them with `sh` — both use bash arrays and dash dies instantly with a
+# syntax error on Ubuntu.
 # stage 1 — or just let the push trigger it
 scripts/ngit-ci-trigger.sh .ngit/act/workflows/build-package-binaries.yml "$(git rev-parse <commit>)" refs/heads/<ref>
 # stage 2 (eleven shards) and then the announce, once stage 1 reported success.

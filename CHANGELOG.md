@@ -12,6 +12,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Release build and test lanes run on the reproducibility pin's Go.** The
+  last two literal `1.25.0` pins — `build-package-binaries.yml` (the
+  cross-compile lane that builds the shipped binaries) and the `go-test`
+  workflow — move to 1.25.8, matching `packaging/build-inputs.json` (#383)
+  and the already-aligned `repro-check.yml`. CI now builds and tests with
+  the exact toolchain the pin documents. `test.yml` deliberately resolves
+  from `src/go.mod` (the module minimum, unchanged). Also adds the
+  bash-not-sh note for the release driver scripts to the runbook — the
+  one-liner invited when #434 closed as superseded by #445.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+
 - **Release pipeline shards stage 2, and announces only a complete
   release.** One `act` invocation is bounded by the coordinator's 1800 s
   ceiling, and the single stage-2 matrix (14 `.ipk` + 3 `.apk`) did not fit
