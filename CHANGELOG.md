@@ -65,6 +65,9 @@ and [Semantic Versioning](https://semver.org/).
   `GO_VERSION` had drifted to a stale 1.25.0 after #434 closed unmerged —
   and the GitHub `build-package` lane) resolves `go-version` from the
   manifest at run time, so no lane-local literal can go stale again.
+  `test.yml` deliberately keeps resolving from `src/go.mod` (the module
+  minimum, unchanged). Also carries the bash-not-sh runbook note for the
+  release driver scripts (dash dies on their bash arrays).
   ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
 
 - **Release pipeline runs on Nostr CI (no GitHub dependency).** The
