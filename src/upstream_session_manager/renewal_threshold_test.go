@@ -228,3 +228,43 @@ func TestClampLogEmittedOnChangeNotPerPoll(t *testing.T) {
 		t.Fatalf("clamp re-bind after unbind was not announced, want 3 total")
 	}
 }
+
+// TestRenewalOffsetAboveInt64StillClampsAndRenews pins review F3 on #442:
+// a renewal_offset at or above 2^63 is representable in the uint64 config
+// field; casting it to int64 naively turns it negative, which silently
+// suppressed every renewal. The clamp comparison runs in uint64, so such
+// a config still renews at the half-allotment boundary like any other
+// over-large offset.
+func TestRenewalOffsetAboveInt64StillClampsAndRenews(t *testing.T) {
+	const purchasedAllotment = 5 * 22_020_096 // 110,100,480
+
+	t.Run("does_not_renew_below_half", func(t *testing.T) {
+		rec := newRenewalRecorder()
+		tracker := NewUpstreamUsageTracker(
+			"192.168.1.1",
+			1<<63, // above MaxInt64: would be negative as int64
+			rec.callback,
+		)
+
+		tracker.checkRenewal(1_000_000, purchasedAllotment)
+
+		if rec.waitForRenewal(500 * time.Millisecond) {
+			t.Fatalf("renewal fired below the half-allotment boundary with an above-2^63 offset")
+		}
+	})
+
+	t.Run("renews_at_half", func(t *testing.T) {
+		rec := newRenewalRecorder()
+		tracker := NewUpstreamUsageTracker(
+			"192.168.1.1",
+			1<<63,
+			rec.callback,
+		)
+
+		tracker.checkRenewal(purchasedAllotment/2, purchasedAllotment)
+
+		if !rec.waitForRenewal(2 * time.Second) {
+			t.Fatalf("above-2^63 renewal offset silently suppressed renewal at the boundary (F3 regression)")
+		}
+	})
+}

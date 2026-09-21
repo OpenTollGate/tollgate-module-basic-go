@@ -275,8 +275,14 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 		// of the current allotment remains.
 		effectiveOffset := int64(u.renewalOffset)
 		clamped := false
-		if half := int64(allotment) / 2; effectiveOffset > half {
-			effectiveOffset = half
+		// Compare in uint64 before any cast (review F3 on #442): a
+		// renewal_offset at or above 2^63 is settable through config and
+		// would turn negative as int64, silently suppressing renewal.
+		// Both casts below stay in range: allotment comes from the wire
+		// already gated to MaxInt64 by the usage parser, and an unclamped
+		// renewalOffset ≤ allotment/2 is below MaxInt64 as well.
+		if half := allotment / 2; u.renewalOffset > half {
+			effectiveOffset = int64(half)
 			clamped = true
 		}
 
