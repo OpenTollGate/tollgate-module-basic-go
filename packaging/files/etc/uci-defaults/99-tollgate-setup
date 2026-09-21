@@ -16,8 +16,18 @@ SETUP_FLAG="/etc/tollgate-setup-done"
 # leaves the placeholder in place, so fall back to the version the package
 # manager recorded for this package rather than writing a bogus marker.
 SETUP_VERSION="__TOLLGATE_VERSION__"
+# The packaging paths substitute the version placeholder *globally* (see
+# packaging/local-build-ipk.sh and CI's payload staging), so a literal
+# sentinel inside the case pattern below would be rewritten to the real
+# version — and then match the substituted value, making this fallback fire
+# on every shipped build. On apk systems /usr/lib/opkg/status does not
+# exist, so the marker degenerated to "unsubstituted", the flag file
+# recorded it, and every later run took the verify-only branch (#459).
+# Assemble the sentinel at runtime from two halves: only the assignment
+# above ever carries the full, substitutable token.
+_setup_sentinel="__TOLLGATE_"
 case "$SETUP_VERSION" in
-    *__TOLLGATE_VERSION__*)
+    *"${_setup_sentinel}VERSION__"*)
         SETUP_VERSION=$(sed -n '/^Package: tollgate-wrt$/,/^$/s/^Version: //p' /usr/lib/opkg/status 2>/dev/null | head -n1)
         [ -n "$SETUP_VERSION" ] || SETUP_VERSION="unsubstituted"
         ;;

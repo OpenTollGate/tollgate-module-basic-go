@@ -10,6 +10,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Full setup re-runs on upgrades again (apk).** Every packaging path
+  substitutes the version placeholder into `99-tollgate-setup` *globally*,
+  which also rewrote the sentinel inside the fallback `case` pattern — the
+  pattern then matched the already-substituted value, the fallback fired on
+  every shipped build, and on apk systems (no `/usr/lib/opkg/status`) the
+  setup marker degenerated to `"unsubstituted"`, pinning every later run to
+  the verify-wireless-only branch: full setup — nodogsplash, firewall,
+  private network — never re-ran after first boot. The sentinel is now
+  assembled at runtime from two halves so only the assignment carries the
+  substitutable token, and a version-sync check enforces the placeholder
+  appears exactly once. Routers already carrying an `"unsubstituted"` marker
+  re-run full setup on the next upgrade (#459).
+
 ### Changed / Internal
 
 - **Recorded the captive-portal bundle-location decision.** The portal is

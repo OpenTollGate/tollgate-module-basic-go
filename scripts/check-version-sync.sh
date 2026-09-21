@@ -118,6 +118,19 @@ else
     fail "$SETUP_SCRIPT does not define SETUP_VERSION=\"__TOLLGATE_VERSION__\""
 fi
 
+# --- 5b. the placeholder appears on exactly one line (the assignment) ------
+# Packaging substitutes __TOLLGATE_VERSION__ globally. A second occurrence —
+# e.g. a literal sentinel inside the case-pattern guard — gets rewritten to
+# the real version, matches the substituted assignment, and makes the
+# fallback fire on every shipped build; on apk the marker then degenerates
+# to "unsubstituted" and full setup never re-runs after first boot (#459).
+PLACEHOLDER_LINES=$(grep -c '__TOLLGATE_VERSION__' "$SETUP_SCRIPT" || true)
+if [ "$PLACEHOLDER_LINES" -eq 1 ]; then
+    pass "$SETUP_SCRIPT carries the placeholder exactly once (assignment only)"
+else
+    fail "$SETUP_SCRIPT carries __TOLLGATE_VERSION__ on $PLACEHOLDER_LINES lines; global substitution rewrites every occurrence, so it must appear only in the SETUP_VERSION assignment (#459)"
+fi
+
 # --- 6. every packaging path substitutes the placeholder --------------------
 # .ipk through CI's payload staging:
 if grep -q 's|__TOLLGATE_VERSION__|${{ needs.determine-versioning.outputs.package_version }}|g' .github/workflows/build-package.yml; then
