@@ -6,6 +6,13 @@
 #   - Reseller TollGate (buys from upstream, resells) — started on demand
 #   - Client container (cdk-cli + nak + pytest for test execution)
 #
+# Project isolation (#437): every checkout of this repo resolves the same
+# default project name below, which is how one worktree silently reuses
+# another worktree's built images. Set COMPOSE_PROJECT_NAME (a gitignored
+# .env in this directory is auto-loaded; see .env.example) or pass -p to
+# isolate a checkout.
+name: ${COMPOSE_PROJECT_NAME:-cloud-lab}
+
 # All containers are on a single Docker bridge network with static IPs so
 # the TollGate's /tmp/dhcp.leases mapping stays valid.
 #
