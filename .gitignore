@@ -72,3 +72,6 @@ nuts/
 packaging/*.ipk
 scripts/token-recovery/token-recovery
 *.cov
+
+# pytest bytecode from local (possibly root-owned) cloud-lab runs
+tests/cloud-lab/__pycache__/

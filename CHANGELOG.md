@@ -592,7 +592,16 @@ and [Semantic Versioning](https://semver.org/).
   the ipk path. Byte-neutral on the equivalence build host (identical
   sha256 with and without the flag, aarch64 @ v0.6.0-alpha2 inputs).
   ([#405](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/405))
-
+- **Fee-charging mint in the cloud lab.** A second cdk-mintd FakeWallet
+  service (`mint-fees`) runs with `CDK_MINTD_INPUT_FEE_PPK=100`, mirroring
+  real-world mints such as mint.coinos.io where a single-proof swap costs
+  1 sat. New `tests/cloud-lab/test_swap_fees.py` validates end-to-end what
+  the swap-fee unit tests stub: the fee is visible in the mint's keysets, a
+  below-fee token is refused before the swap with
+  `payment-error-below-swap-fee` and stays unspent, an above-fee payment is
+  credited net of the fee, and zero-fee payments are unchanged.
+  Depends on #409 for the refusal path.
+  ([#413](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/413))
 - **Packaging artifact-contents test.** New
   `tests/packaging/assert-artifact-contents.sh` asserts a built `.ipk`/`.apk`
   ships the runtime files under `packaging/files/`, and is wired into both
