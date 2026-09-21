@@ -514,9 +514,11 @@ class ClientDaemon:
                 f"{self.blind_payments} payment(s) accepted by the gateway "
                 f"without /usage ever reflecting them — the router cannot "
                 f"map this client to a session (its /usage stays -1/-1; "
-                f"see #422). Not paying again. Any unacknowledged token "
-                f"is preserved under {self.state_dir} (0600) for manual "
-                f"recovery.")
+                f"see #422). Not paying again. These payments were "
+                f"ACCEPTED by the gateway, so the sats are in its wallet "
+                f"— reconcile with the gateway operator, not with local "
+                f"files. (Only a rejected attempt leaves a recoverable "
+                f"token under {self.state_dir}.)")
         origin = "reused pending" if reused else "minted"
         return (f"paid {self.amount_sats()} sats ({origin} token, "
                 f"allotment now {allotment or '?'})")
