@@ -71,6 +71,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Dependency-sweep completion: every module resolves gonuts-tollgate
+  v0.12.1.** #506's bump touched the directly-declaring go.mods but left
+  `src/cli`'s indirect pin at v0.11.2, failing `make go-battery` there.
+  Tidied (caught independently in the #507 and #511 verification passes).
+  ([#516](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/516))
+
 - **Release lane: the portal build no longer passes a floating ref.**
   Stage 1's build-portal step invoked `portal-build.sh` with
   `PORTAL_REF=main`, which the script's pin-hardening rejects
