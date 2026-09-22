@@ -169,6 +169,14 @@ func (w *GonutsWallet) Drain(mintUrl string) (Token, uint64, error) {
 	return &gonutsToken{inner: t}, amount, nil
 }
 
+// CheckTokenSpendable reports whether every proof of the token is still
+// UNSPENT at the token's mint (NUT-07). It does not touch wallet state:
+// any serialized token can be checked, which is what journal-based drain
+// recovery relies on.
+func (w *GonutsWallet) CheckTokenSpendable(tokenStr string) (bool, error) {
+	return CheckTokenSpendable(tokenStr)
+}
+
 func (w *GonutsWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
 	return w.inner.MeltToLightning(mintUrl, targetAmount, maxCost, lnurl)
 }
