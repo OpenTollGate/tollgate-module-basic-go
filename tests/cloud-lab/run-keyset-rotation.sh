@@ -26,7 +26,14 @@ PHASE_B_ROTATIONS='[{"unit":"sat","version":"v1","input_fee_ppk":100,"expired":t
 # reachable URL, which MINT_ROTATE_PROBE_URL then points at the network
 # path (docker compose run --rm --entrypoint python3 client
 # probe_mint_settlement.py http://mint-rotate:8085).
-COMPOSE=(docker compose)
+COMPOSE=(docker compose -f docker-compose.yml)
+# An explicit -f replaces the default compose file set instead of layering
+# on it, so the base file must be passed explicitly and the auto-loaded
+# docker-compose.override.yml re-appended (#436's trap; renewal_e2e.sh
+# carries the same fix) — otherwise EXTRA_COMPOSE alone builds "service
+# reseller has neither an image nor a build context" and the isolation
+# escape hatch silently disappears for override users.
+[ -f docker-compose.override.yml ] && COMPOSE+=(-f docker-compose.override.yml)
 if [ -n "${CLOUD_LAB_EXTRA_COMPOSE:-}" ]; then
     COMPOSE+=(-f "$CLOUD_LAB_EXTRA_COMPOSE")
 fi

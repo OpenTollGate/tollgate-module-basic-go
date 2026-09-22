@@ -34,20 +34,6 @@ from conftest import (
 
 class TestTwoRouterAutopay:
 
-    @pytest.fixture(scope="module", autouse=True)
-    def require_reseller(self):
-        """The reseller only runs under the 'two-router' profile. Skip the
-        whole module when it is not up instead of failing two of the three
-        tests with connection errors in a default `docker compose run
-        --rm client` invocation."""
-        try:
-            wait_for(RESELLER_URL, timeout=10)
-        except TimeoutError:
-            pytest.skip(
-                "Reseller TollGate not running. "
-                "Start with: docker compose --profile two-router up -d"
-            )
-
     def test_both_tollgates_reachable(self):
         """Both upstream and reseller TollGates are running."""
         wait_for(UPSTREAM_URL)
