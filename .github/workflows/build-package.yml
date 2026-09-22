@@ -509,15 +509,19 @@ jobs:
           fi
 
           mkdir -p artifacts
+          # nodogsplash is a RUNTIME dependency (the module gates the network
+          # through the daemon): Replaces: it would purge the captive portal on
+          # install. Kept in step with packaging/local-build-ipk.sh by
+          # tests/packaging/package-nodogsplash-dependency_test.sh.
           env \
             PKG_NAME="$PACKAGE_NAME" \
             PKG_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
             LICENSE="GPL-3.0-only" \
-            DEPENDS="libc" \
+            DEPENDS="libc, nodogsplash, jq" \
             PROVIDES="nodogsplash-files" \
-            REPLACES="nodogsplash, base-files" \
+            REPLACES="base-files" \
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
 

@@ -1,6 +1,6 @@
 # TollGate v0.6.0-alpha4 (tollgate-wrt)
 
-**Released**: 2026-09-21
+**Released**: 2026-09-22
 **Channel**: `alpha` — a tester-facing release candidate, not a stable
 release. Expect rough edges; report them.
 
@@ -30,6 +30,28 @@ nodogsplash 5.0.2; upgrades no longer abort on minimal systems without
 process-isolated wallet sidecar architecture (alpha quality, unit
 tested, not router-validated) that lets a non-Go wallet back the
 module behind the unchanged `WalletPort` contract.
+
+## What v0.6.0-alpha4 changes
+
+- **The captive portal is a dependency, not something the package
+  replaces.** The SDK package definition declared no runtime dependency and
+  the `.ipk` recipes stamped `Replaces: nodogsplash`, so an install could end
+  up with no portal manager at all. `DEPENDS` now carries `nodogsplash` and
+  the `Replaces` line is gone.
+- **The pre-auth allow list carries `:443`.** With a cert/key pair in place
+  `uhttpd.main` answers the `:8080` LuCI port with `307 Location:
+  https://<router>/`; the client that follows that redirect needs a
+  nodogsplash rule for `:443` or it dead-ends on a port the gateway still
+  REJECTs — which is how LuCI became unreachable before authentication.
+- **A same-version reinstall re-asserts that list.** The short branch taken
+  when `/etc/tollgate-setup-done` already equals the installed version now
+  repairs a stale or absent `users_to_router` list instead of inheriting it,
+  idempotently (missing entries are added, nothing is duplicated).
+- **The management subnet steps aside when the upstream collides.** The
+  private `/24` is no longer assumed collision-free against a private WAN; a
+  collision falls back to a random non-overlapping `/24`.
+
+The entries, tests and links are in [CHANGELOG.md](CHANGELOG.md).
 
 ## At a glance
 

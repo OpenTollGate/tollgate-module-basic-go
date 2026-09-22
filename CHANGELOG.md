@@ -22,7 +22,38 @@ and [Semantic Versioning](https://semver.org/).
   regenerated, and the pipeline test pins both the `${{ }}` form's
   presence and the absence of the collapsed form. ([#491](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/491))
 
-## [v0.6.0-alpha4] - 2026-09-21
+## [v0.6.0-alpha4] - 2026-09-22
+
+Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
+captive-portal lane (PR #513): the module now depends on `nodogsplash`
+instead of replacing it, the pre-auth allow list carries the `:443` entry the
+`:8080` → `https://` redirect needs, a reinstall whose version string is
+unchanged now re-asserts that list, and the management subnet steps out of the
+way of a colliding upstream. Nothing in the Go module changes. The version
+string moves to `v0.6.0-alpha4` (`0.6.0_alpha4-r0`) so that `apk` sees a real
+upgrade over `alpha3` and takes the full setup path rather than the
+same-version short branch.
+
+### Added
+
+- **Management subnet selection avoids upstream collisions instead of assuming
+  it is safe.** The private network's /24 was derived as "the LAN's /24 with
+  the third octet stepped by one" with no look at the upstream side, so a WAN
+  side that is itself a private LAN in that same /24 (a hotel, a site uplink,
+  another router's LAN) put the management subnet and the uplink subnet in the
+  same network: the private bridge's default route then pointed at an address
+  the router also owned, and traffic for the upstream's client range was
+  routed back into the router instead of out of the WAN. The candidate is
+  still the LAN-adjacent /24 — operators expect it and the DNS/DHCP defaults
+  assume it — but it is now checked against the LAN's real mask and against
+  every upstream-side network (the configured WAN address, plus every
+  non-LAN address the kernel knows, which is where DHCP/STA/FIPS uplinks
+  live), and a collision falls back to a random non-overlapping /24 from 10/8,
+  logged so a field report shows why. The Go-side knob
+  (`IPAddressRandomized`) is still only logged and stays out of scope here.
+  See
+  [docs/architecture/private-subnet-collision-avoidance-decision.md](docs/architecture/private-subnet-collision-avoidance-decision.md).
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Fixed
 
@@ -82,6 +113,59 @@ and [Semantic Versioning](https://semver.org/).
   several exist (kernel route-selection order). Root-caused with a
   netns probe reproducing both route-add forms against the exact pinned
   `vishvananda/netlink v1.3.1`. Fixes [#454](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/454).
+- **Installing the module no longer leaves the router without a captive
+  portal.** The SDK package definition declared no runtime dependency at all
+  (`DEPENDS:=+libc`), and the `.ipk` recipes stamped `Replaces: nodogsplash`
+  into the control file opkg reads. On the apk lane the shipped artifact
+  carried `depends:libc` and no `replaces` field (verified from the raw
+  `apk mkpkg` invocation in the build log), so nothing pulled or retained the
+  daemon: after installing on a GL-MT3000 running OpenWrt 25.12.5, nodogsplash
+  was gone and the portal was down until it was reinstalled by hand -- the same
+  failure class `packaging/preinst` documents for an undeclared runtime
+  dependency that a maintainer script needs ([#93](https://github.com/Amperstrand/tollgate-module-basic-go/issues/93)).
+  On the opkg lane `Replaces` supersedes the named package outright, so those
+  recipes would have removed the daemon too. The module's recipes now match the
+  shipping-path feed definition (`net/tollgate-wrt/Makefile`:
+  `DEPENDS:=+nodogsplash +jq`), keep the virtual `nodogsplash-files` ownership,
+  and narrow `Replaces` to `base-files`, where only the payload-file ownership
+  overlap is intentional.
+  `tests/packaging/package-nodogsplash-dependency_test.sh` pins the contract
+  across every recipe, their generated ngit shards and the built `.ipk`
+  control file.
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+- **Pre-auth clients can reach LuCI's TLS port, so the `:8080` redirect lands.**
+  `uhttpd.main.redirect_https` derives to `1` whenever a cert/key pair is
+  readable, so a captive-LAN client hitting the LuCI port on `:8080` is
+  answered `307 Location: https://<router>/` — but `setup_nodogsplash()`'s
+  pre-auth allow list covered `:2121`, `:8080`, `:2050`, `:2051`, `:8090` and
+  `:8443` and not `:443`, so nodogsplash REJECTed the redirect target and the
+  operator could not reach LuCI before authenticating at all: the same lockout
+  the neighbouring uhttpd ownership decision exists to prevent. The Go CLI's
+  `ssl enable` path already wrote this rule (`src/cmd/tollgate-cli/ssl.go`);
+  first boot — every freshly flashed router — was the only path without it.
+  The rule is now written with the rest of the list and matched as a whole
+  field, so `allow tcp port 8443` can never satisfy the `:443` check, whether
+  uci renders the list one entry per line or space separated. See
+  [docs/architecture/luci-https-pre-auth-reachability-decision.md](docs/architecture/luci-https-pre-auth-reachability-decision.md).
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+- **The same-version reinstall path re-asserts the captive-portal allow list.**
+  The short branch `99-tollgate-setup` takes when `/etc/tollgate-setup-done`
+  already equals the installed version verified the wireless APs and
+  re-asserted the uhttpd contract, but never wrote the nodogsplash
+  `users_to_router` allow list. An install of a build whose version string is
+  unchanged (the pre15 round over pre14: both reported `v0.6.0-alpha3`, so
+  `apk` saw the same package version and the flag stayed equal) therefore kept
+  the previous install's list verbatim and came out without the pre-auth
+  `:443` rule — nodogsplash REJECTed the `:8080` → `https://` redirect target
+  and the post-install sweep scored 4/9. The writer is now one idempotent
+  function (`assert_nodogsplash_allow_entries`) called by both the full-setup
+  and the same-version path: it adds only what is missing (a list holding
+  `:8443` but not `:443` gains `:443`, and the anchored `:443` match keeps
+  `:8443` from satisfying it) and never duplicates an entry, so a
+  same-version install repairs a stale or absent list instead of inheriting
+  it. `tests/uci-defaults-same-version-allowlist_test.sh` drives the real
+  same-version branch against a fake `uci`/`apk`.
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Changed / Internal
 
@@ -1506,6 +1590,7 @@ earlier work. Not documented in this changelog.
 
 [Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...main
 [v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha4
+[v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
