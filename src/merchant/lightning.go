@@ -485,7 +485,9 @@ func (m *Merchant) grantSessionAccess(macAddress string, allotment uint64) (*Cus
 	return session, nil
 }
 
-func openGateForSession(macAddress string, session *CustomerSession) error {
+// openGateForSession is a var so tests can stub gate opening without a
+// real ndsctl binary (same convention as valve.runNdsctl).
+var openGateForSession = func(macAddress string, session *CustomerSession) error {
 	switch session.Metric {
 	case "milliseconds":
 		endTimestamp := session.StartTime + int64(session.Allotment/1000)
