@@ -23,6 +23,124 @@ map and configuration reference.
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
 
+## Fund safety, crash consistency, and distributed transaction invariants
+
+Any change touching payments, wallets, sessions, gates, mints, payouts,
+retries, or persistent identifiers is a **distributed state-machine
+change**, not a local edit. The router can lose power, the process can be
+killed, the mint can rate-limit (429), time out, return 5xx, restart, or
+accept a request and lose the response. Every such change must state:
+the point of no return, what durable state is written **before** it,
+recovery behavior after a crash at each step, retry and duplicate-
+execution behavior, and the compensating action if a later step fails.
+
+Hard rules, each earned from a real incident (issue numbers in
+parentheses):
+
+- **Never reuse deterministic Cashu derivation outputs.** Once a
+  derivation range `[counter, counter+n)` has been exposed to a mint —
+  sent in a swap/mint/melt request — it must never be derived again.
+  Re-derivation triggers mint error 10002 / "Duplicate outputs" and has
+  repeatedly bricked wallets (#257, #266, #480).
+- **Persistent keyset counters are monotonic.** Reserve/persist the
+  counter range *before* the network call that exposes it (#266), and
+  never let a freshly-fetched keyset record (counter 0) overwrite a
+  persisted record with a higher counter — that exact overwrite is how
+  #480 bricked swaps after restart. See `SaveKeyset`'s monotonic guard
+  and `mergeMintURLAliases` in gonuts-tollgate.
+- **Canonicalize persistent mint identities at every layer.** The
+  wallet DB, `registeredMints`, accepted-mint comparison, and config
+  must all agree via `normalizeMintURL` (scheme/host case, default
+  ports, trailing slash). Two spellings of one mint used to create two
+  keyset/counter/balance copies (#375, #480). New persistence keyed by
+  a mint URL must go through the same function.
+- **Do not perform irreversible monetary operations (swap, mint, melt,
+  LN settlement) before validations that can be done locally** — token
+  decode, spending-condition check, swap-fee pre-check, MAC/NDS
+  pre-flight all run before `Receive` on purpose (#403, #409).
+- **Every irreversible operation followed by fallible work needs either
+  durable forward recovery or a compensating action.** `Receive →
+  session → gate-open → response` is a business transaction spanning
+  the wallet, memory, NDS, and the HTTP client. Wallet-internal
+  atomicity does NOT make this chain atomic. When the gate fails after
+  a successful Receive, the value is in the operator wallet and the
+  customer has nothing (#258, #403 — decide refund vs late-grant
+  explicitly; do not silently drop it).
+- **Ambiguous network results must be reconciled, never blindly
+  retried.** A swap/melt timeout does not mean failure — the mint may
+  have processed it. On timeout, query proof/quote state before
+  regenerating or retrying; on error 10002 regenerate outputs from a
+  *freshly incremented* counter (and note the counter must then also
+  advance for the retry range).
+- **Retries must be idempotent or use fresh state.** Concurrent
+  duplicate submissions of one token must not double-count; retrying a
+  melt with the *same* derivation range is a brick.
+- **Partial successes must never be discarded.** Drain produced tokens
+  before the failing mint must survive the failure (#375); a payout
+  that paid the owner but failed a maintainer must record what was
+  paid.
+- **Process-memory state is not authoritative.** `customerSessions`,
+  gate deauth timers, and data baselines live only in memory; Lightning
+  quotes are persisted deliberately (`quote_store.go`) because payment
+  recognition must survive restart. Anything that affects money, access
+  or recovery must either be persisted or reconciled from an external
+  authority (NDS client state) on startup — and today it is not, which
+  is a known gap: restart loses session metering.
+- **Migration paths must preserve value even when individual items
+  fail.** A failed item in a batch migration is retained (old DB kept
+  or item journaled), never dropped silently.
+
+Before modifying wallet/payment logic, research first — in this order:
+the relevant Cashu NUTs (NUT-02 keysets/fees, NUT-03 swap, NUT-04 mint,
+NUT-05 melt, NUT-07 checkstate, NUT-19 error semantics), current
+upstream `gonuts-tollgate` / `cashubtc/cdk` behavior (CDK's wallet saga
+in `crates/cdk/src/wallet/{swap,send,receive,melt}/saga/` is the
+reference model for crash-safe Cashu operations), existing TollGate
+issues (#257, #258, #266, #375, #403, #417, #480, #481), and Nutshell /
+cashu-ts behavior where the spec is ambiguous.
+
+> Do not guess about Cashu or Lightning protocol behavior from local
+> wrappers alone. Use web research, z.ai/zread, upstream source,
+> specifications, and existing issue history before making
+> protocol-sensitive changes.
+
+Tests for payment/wallet changes should kill/restart the process at
+transaction boundaries (between counter increment and swap, between
+swap and proof save, between receive and session grant, between session
+grant and gate open, between gate open and HTTP response) and exercise:
+network failure, 429, timeout, mint restart, router restart, mint URL
+aliases, keyset rotation, and partial failure. `tests/cloud-lab/` has
+lanes for fees, keyset rotation and mint failure — extend it rather
+than inventing new harnesses.
+
+### Implementation-specific (Go + gonuts-tollgate)
+
+- **gonuts-tollgate is our fork to maintain.** Upstream `elnosh/gonuts`
+  is dead (last release v0.4.2, 2025); we carry ~40 patches. Every
+  wallet-level fix lands in `OpenTollGate/gonuts-tollgate` first, is
+  tagged, then bumped here via the `replace` directive (three `go.mod`
+  files). Never fix a wallet bug by patching around the fork locally.
+- **bbolt persistence.** Keyset records (which own derivation counters)
+  are nested under mint-URL-named buckets; the DB has no transactions
+  spanning "fetch keysets + swap + save proofs". This is why counter
+  discipline is manual here — CDK gets it from a single-transaction
+  saga record, we get it only from the rules above.
+- **Counter ownership.** In gonuts, the derivation counter is *keyset
+  state* stored inside the keyset record — every writer of keyset
+  metadata (`SaveKeyset`, `AddMint`, keyset refresh, restore) is a
+  counter writer and must be audited as such. In CDK the counter is a
+  standalone atomic row — the structural difference motivating the
+  long-term migration.
+- **WalletPort / sidecar.** `src/tollwallet/port.go` is the seam:
+  gonuts in-process (default), cdk-go behind a build tag, or a CDK/
+  nucula sidecar daemon over AF_UNIX (`sidecar.go`). Money-moving
+  sidecar requests surface `ErrSidecarAmbiguous` — reconcile, never
+  blind-retry.
+- **Pure-Go/OpenWrt constraint.** The binary must stay `CGO_ENABLED=0`
+  and build for mips/mipsel/arm/arm64/x86. Any wallet dependency that
+  breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not
+  in-process.
+
 ## Contributing process
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md). The parts agents most often
