@@ -388,26 +388,26 @@ assert_nodogsplash_allow_entries() {
     # Add firewall allow rules only if not already present (idempotent).
     local nds_users
     nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
-    if ! echo "$nds_users" | grep -q "port 2121"; then
+    if ! uci_list_has_port 2121; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
     fi
-    if ! echo "$nds_users" | grep -q "port 8080"; then
+    if ! uci_list_has_port 8080; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
     fi
-    if ! echo "$nds_users" | grep -q "port 2050"; then
+    if ! uci_list_has_port 2050; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
     fi
-    if ! echo "$nds_users" | grep -q "port 2051$"; then
+    if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
     # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) must be
     # reachable from the captive LAN unauthenticated, exactly like LuCI on
     # :8080. Folded in here (not installer-side) so a plain apk/opkg install
     # yields a working admin URL.
-    if ! echo "$nds_users" | grep -q "port 8090"; then
+    if ! uci_list_has_port 8090; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090'
     fi
-    if ! echo "$nds_users" | grep -q "port 8443"; then
+    if ! uci_list_has_port 8443; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
     fi
     # :443 belongs with :8080 above: with a cert/key pair in place
@@ -420,12 +420,21 @@ assert_nodogsplash_allow_entries() {
     # reason. tollgate-cli's
     # `ssl enable` path already writes this rule for the routers that enable
     # TLS from the CLI (src/cmd/tollgate-cli/ssl.go); first boot was the only
-    # path without it. Matched as a whole field — not `port 443$` alone —
-    # because "allow tcp port 8443" must never satisfy this check and uci may
-    # print a list option either one entry per line or space separated.
-    if ! echo "$nds_users" | grep -qE '(^|[[:space:]])port 443([[:space:]]|$)'; then
+    # path without it. Whole-field matching via uci_list_has_port (see #516).
+    if ! uci_list_has_port 443; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
     fi
+}
+
+
+# uci_list_has_port P: succeeds when the users_to_router listing already
+# contains a whole `port P` field. `uci get` renders a list option either
+# one entry per line OR as a quoted single-line list ('a' 'b' ...); the
+# delimiters below cover both renderings — plain substring or
+# end-of-line matching misses the quoted form and duplicates the rule on
+# every rerun (#516).
+uci_list_has_port() {
+    printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
 }
 
 setup_nodogsplash() {
