@@ -265,6 +265,13 @@ same-version short branch.
   files correctly (base + override + extra) instead of replacing the
   default set.
   ([#485](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/485))
+
+- **Two-router autopay skips without the profile.** A default
+  `docker compose run --rm client` failed two reseller tests on
+  connection-refused whenever the two-router profile wasn't started;
+  the module now probes the reseller at collection (5 s grace) and
+  skips with the profile start command as the reason.
+  ([#484](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/484))
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only
