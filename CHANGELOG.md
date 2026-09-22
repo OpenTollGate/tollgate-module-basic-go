@@ -124,6 +124,24 @@ and [Semantic Versioning](https://semver.org/).
   uci renders the list one entry per line or space separated. See
   [docs/architecture/luci-https-pre-auth-reachability-decision.md](docs/architecture/luci-https-pre-auth-reachability-decision.md).
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+- **The same-version reinstall path re-asserts the captive-portal allow list.**
+  The short branch `99-tollgate-setup` takes when `/etc/tollgate-setup-done`
+  already equals the installed version verified the wireless APs and
+  re-asserted the uhttpd contract, but never wrote the nodogsplash
+  `users_to_router` allow list. An install of a build whose version string is
+  unchanged (the pre15 round over pre14: both reported `v0.6.0-alpha3`, so
+  `apk` saw the same package version and the flag stayed equal) therefore kept
+  the previous install's list verbatim and came out without the pre-auth
+  `:443` rule — nodogsplash REJECTed the `:8080` → `https://` redirect target
+  and the post-install sweep scored 4/9. The writer is now one idempotent
+  function (`assert_nodogsplash_allow_entries`) called by both the full-setup
+  and the same-version path: it adds only what is missing (a list holding
+  `:8443` but not `:443` gains `:443`, and the anchored `:443` match keeps
+  `:8443` from satisfying it) and never duplicates an entry, so a
+  same-version install repairs a stale or absent list instead of inheriting
+  it. `tests/uci-defaults-same-version-allowlist_test.sh` drives the real
+  same-version branch against a fake `uci`/`apk`.
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Changed / Internal
 

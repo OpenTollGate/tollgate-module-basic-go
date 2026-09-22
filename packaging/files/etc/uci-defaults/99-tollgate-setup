@@ -4,8 +4,9 @@
 # no service restarts here (uci-defaults runs before procd brings services up).
 #
 # The flag file stores the setup version. On reinstall/upgrade:
-# - Same version → verify wireless APs and re-assert the uhttpd contract
-#   (uhttpd.main/uhttpd.portal drift is repaired; the rest is not re-run)
+# - Same version → verify wireless APs, re-assert the uhttpd contract and the
+#   nodogsplash pre-auth allow list (uhttpd.main/uhttpd.portal drift and a
+#   stale users_to_router list are repaired; the rest is not re-run)
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
@@ -365,14 +366,25 @@ setup_hostname() {
     log "Hostname applied to running kernel: ${final_hostname}"
 }
 
-setup_nodogsplash() {
+# The ONE writer of nodogsplash's pre-auth allow list, shared by the full-setup
+# path (setup_nodogsplash, below) and the same-version path (the driver's
+# short branch): a stale or absent users_to_router list must be repaired by
+# every setup path, not only first boot. A same-version install — one whose
+# /etc/tollgate-setup-done already equals SETUP_VERSION, e.g. the pre15 round
+# over pre14 while both reported v0.6.0-alpha3 — used to verify the wireless
+# APs and re-assert the uhttpd contract and nothing else, so it kept whatever
+# allow list the previous install left behind: the pre-auth :443 rule below was
+# missing on the router and the post-install sweep came out 4/9.
+#
+# Idempotent by construction: each rule is added only when its whole entry is
+# absent, so re-running adds nothing and duplicates nothing, and a config that
+# has :8443 but not :443 gains exactly :443 (the anchored match below is what
+# keeps :8443 from satisfying the :443 check).
+assert_nodogsplash_allow_entries() {
     [ -f /etc/config/nodogsplash ] || touch /etc/config/nodogsplash
     if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
         uci add nodogsplash nodogsplash >/dev/null
     fi
-    uci set nodogsplash.@nodogsplash[0].enabled='1'
-    uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
-    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # Add firewall allow rules only if not already present (idempotent).
     local nds_users
     nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
@@ -414,6 +426,15 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -qE '(^|[[:space:]])port 443([[:space:]]|$)'; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
     fi
+}
+
+setup_nodogsplash() {
+    # The section, its pre-auth allow list and the whole-list repair live in
+    # one place so the same-version path can call exactly the same writer.
+    assert_nodogsplash_allow_entries
+    uci set nodogsplash.@nodogsplash[0].enabled='1'
+    uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping
@@ -797,7 +818,7 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     # persisted from a prior install).
     : > "$LOGFILE"
     chmod 600 "$LOGFILE"
-    log "Flag matches $SETUP_VERSION — verifying wireless APs and the uhttpd contract"
+    log "Flag matches $SETUP_VERSION — verifying wireless APs, the uhttpd contract and the portal allow list"
 
     load_brand
 
@@ -836,6 +857,25 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
         log "uhttpd config re-asserted (drift repaired)"
     else
         log "uhttpd config already matches the contract — nothing to commit"
+    fi
+
+    # The captive-portal allow list is re-asserted here for the same reason
+    # the uhttpd contract is: this path runs on every reinstall whose version
+    # string is unchanged, and the list decides what the pre-auth client can
+    # reach at all. A list written by an older install (or by an install
+    # predating a new rule) survived the reinstall untouched, so the pre-auth
+    # :443 allow entry was missing on a router that had just been "upgraded" —
+    # nodogsplash REJECTed the redirect_https hop and LuCI stayed unreachable.
+    # Idempotent: nothing is added when the list is already complete, and the
+    # export diff decides whether a commit is needed at all.
+    nds_before=$(uci export nodogsplash)
+    assert_nodogsplash_allow_entries
+    nds_after=$(uci export nodogsplash)
+    if [ -z "$nds_before" ] || [ "$nds_before" != "$nds_after" ]; then
+        uci commit nodogsplash
+        log "nodogsplash allow list re-asserted (missing pre-auth entries repaired)"
+    else
+        log "nodogsplash allow list already complete — nothing to commit"
     fi
 
     # The #428 loop guard must also fire here: a device upgrading from a

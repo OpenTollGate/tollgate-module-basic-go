@@ -99,6 +99,21 @@ seed() { # seed <list entry>...
     local e
     for e in "$@"; do printf '%s=%s\n' "$KEY" "$e" >> "$UCI_STATE"; done
 }
+# seed_lines <newline separated entries> [extra entry]... — the LEGACY list's
+# entries contain spaces, so it must be passed through intact: `seed $LEGACY`
+# word-splits on those spaces and seeds "allow"/"tcp"/"port"/"8443" as four
+# separate entries, which silently turned the anchoring case below into an
+# empty-list case.
+seed_lines() {
+    : > "$UCI_STATE"
+    printf '%s=nodogsplash\n' 'nodogsplash.@nodogsplash[0]' >> "$UCI_STATE"
+    printf '%s\n' "$1" | while IFS= read -r e; do
+        [ -n "$e" ] && printf '%s=%s\n' "$KEY" "$e" >> "$UCI_STATE"
+    done
+    shift
+    local e
+    for e in "$@"; do printf '%s=%s\n' "$KEY" "$e" >> "$UCI_STATE"; done
+}
 count_entry() { grep -F -c "$KEY=$1" "$UCI_STATE" 2>/dev/null | tr -d ' '; }
 has_entry() { grep -F -q "$KEY=$1" "$UCI_STATE"; }
 
@@ -136,7 +151,7 @@ else
 fi
 
 echo "== the :8443 rule must not satisfy the :443 check"
-seed $(printf '%s\n' "$LEGACY")
+seed_lines "$LEGACY"
 setup_nodogsplash >/dev/null 2>&1
 if has_entry 'allow tcp port 443'; then
     ok "list ending in 'allow tcp port 8443' still gains the :443 rule"
@@ -153,7 +168,7 @@ n=$(count_entry 'allow tcp port 443')
               || bad "re-run over the legacy list: :443 rule present $n times (want 1)"
 
 echo "== pre-existing :443 (added by tollgate-cli ssl enable) is not duplicated"
-seed $(printf '%s\n' "$LEGACY") 'allow tcp port 443'
+seed_lines "$LEGACY" 'allow tcp port 443'
 setup_nodogsplash >/dev/null 2>&1
 n=$(count_entry 'allow tcp port 443')
 [ "$n" = 1 ] && ok "existing :443 rule left alone (no duplicate)" \
@@ -165,7 +180,7 @@ for port in 2121 8080 2050 2051 8090 8443; do
 done
 
 echo "== single-line (space separated) list form is handled too"
-UCI_LIST_SEP=' ' seed $(printf '%s\n' "$LEGACY") 'allow tcp port 443'
+UCI_LIST_SEP=' ' seed_lines "$LEGACY" 'allow tcp port 443'
 UCI_LIST_SEP=' ' setup_nodogsplash >/dev/null 2>&1
 n=$(count_entry 'allow tcp port 443')
 [ "$n" = 1 ] && ok "space separated list: :443 not duplicated when mid-line" \
