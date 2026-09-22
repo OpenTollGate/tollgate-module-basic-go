@@ -23,9 +23,16 @@ and [Semantic Versioning](https://semver.org/).
   `992cf7f1` → `d699367` (upstream `main`, portal #55), which decodes through
   the keyset-agnostic `getTokenMetadata` first, and the bundle was regenerated
   from that pin with `bash packaging/portal-build.sh`, so the shipped bytes
-  and the pin agree again. ([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))
+  and the pin agree again. ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517))
 
 ### Changed / Internal
+
+- **ngit stage 1 now builds the portal from the pinned toolchain.** The
+  `build-portal` job stopped overriding `PORTAL_REF` with a floating `main`
+  (refused by the #466 reproducibility gate, red on every push to `main`
+  since) and pins node 22.17.0 with the GitHub twin's npm verification, so
+  the job matches `packaging/build-inputs.json` again.
+  ([#477](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/477))
 
 - **The committed portal bundle is now regenerated from the pin, and the
   contract is guarded.** The checked-in copy under
@@ -36,7 +43,7 @@ and [Semantic Versioning](https://semver.org/).
   mirror of the pin. It now matches the pinned build output exactly, and
   `tests/packaging/assert-portal-bundle-contract.sh` fails the build when the
   pinned revision validates tokens with a keyset-requiring decode or when the
-  committed copy drifts from what the pin builds. ([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))
+  committed copy drifts from what the pin builds. ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517))
 - **The default production mint list is guarded against test mints.**
   `defaultProductionMints()` is what a release-line configuration offers a
   paying customer, so a test mint reaching it would route real traffic at a
@@ -45,7 +52,7 @@ and [Semantic Versioning](https://semver.org/).
   `testnut.cashu.space`, `nofee.testnut.cashu.space`,
   `nofees.testnut.cashu.space` and `testnut.cashu.exchange`, and keeps the
   `IsDevBuild()` gate that owns the one test mint the module does know
-  (`testnut.cashu.exchange`) under test. ([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))
+  (`testnut.cashu.exchange`) under test. ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517))
 
 - **The ngit release shards now carry a valid `SOURCE_DATE_EPOCH`
   expression.** The shard generator emitted the package-job env line from
