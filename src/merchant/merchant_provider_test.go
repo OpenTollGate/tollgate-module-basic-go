@@ -21,6 +21,9 @@ func (m *mockMerchantForProvider) CreatePaymentTokenWithOverpayment(mintURL stri
 	return "", fmt.Errorf("mock: %s", m.name)
 }
 
+func (m *mockMerchantForProvider) CheckTokenSpendable(token string) (bool, error) {
+	return false, nil
+}
 func (m *mockMerchantForProvider) DrainMint(mintURL string) (string, uint64, error) {
 	return "", 0, fmt.Errorf("mock: %s", m.name)
 }
