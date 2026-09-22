@@ -694,6 +694,7 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 			Encryption:   net.Encryption,
 			BSSID:        net.BSSID,
 			Radio:        net.Radio,
+			Band:         net.Band,
 			IsTollGate:   net.IsTollGate,
 			PricePerStep: net.PricePerStep,
 			StepSize:     net.StepSize,

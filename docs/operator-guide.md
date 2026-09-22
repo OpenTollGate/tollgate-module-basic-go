@@ -272,9 +272,10 @@ redeemed.
 
 The private Wi-Fi is the network *you* (the operator) connect to,
 distinct from the captive-portal guest network. Commands operate on
-both the 2.4 GHz (`radio0`) and 5 GHz (`radio1`) private interfaces
-simultaneously. If the router only has one radio, the 5 GHz steps log
-a warning and are skipped.
+both the 2.4 GHz and 5 GHz private interfaces simultaneously; the
+radios are found by band, not by section name (which radio is 2.4 GHz
+varies between routers). If the router has no radio for one of the
+bands, that band's steps log a warning and are skipped.
 
 ### View current settings
 
@@ -352,14 +353,16 @@ for manual control.
 tollgate upstream scan
 ```
 
-Scans all radios and lists visible networks sorted by signal:
+Scans all radios and lists visible networks sorted by signal. Each entry
+also reports the band of the radio that scanned it, so a 2.4 GHz SSID can
+be told apart from a 5 GHz one without assuming radio0 is 2.4 GHz:
 
 ```
-SSID                             Signal    Ch     Encryption           Radio
---------------------------------------------------------------------------------
-HomeFibre                        -42 dBm   36     WPA2                radio1
-TollGate-Cafe                    -55 dBm   6      WPA2                radio0
-OpenGuest                        -67 dBm   11     none                radio0
+SSID                             Signal    Ch     Encryption           Radio  Band
+------------------------------------------------------------------------------------
+HomeFibre                        -42 dBm   36     WPA2                radio1 5g
+TollGate-Cafe                    -55 dBm   6      WPA2                radio0 2g
+OpenGuest                        -67 dBm   11     none                radio0 2g
 ```
 
 ### Connect
