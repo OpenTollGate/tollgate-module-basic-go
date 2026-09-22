@@ -120,6 +120,19 @@ else
     fail "$SETUP_SCRIPT does not define SETUP_VERSION=\"__TOLLGATE_VERSION__\""
 fi
 
+# --- 5b. the placeholder appears exactly once in code (the assignment) ------
+# Packaging substitutes __TOLLGATE_VERSION__ globally. A second occurrence in
+# actual code — the #459 bug was a literal sentinel inside the case pattern —
+# gets rewritten to the real version, matches the substituted assignment, and
+# makes the fallback fire on every shipped build. Mentions inside comments are
+# harmless (and #463's fix carries one), so only non-comment lines count.
+PLACEHOLDER_CODE_LINES=$(grep -v '^[[:space:]]*#' "$SETUP_SCRIPT" | grep -c '__TOLLGATE_VERSION__' || true)
+if [ "$PLACEHOLDER_CODE_LINES" -eq 1 ]; then
+    pass "$SETUP_SCRIPT uses the placeholder exactly once in code (assignment only)"
+else
+    fail "$SETUP_SCRIPT uses __TOLLGATE_VERSION__ on $PLACEHOLDER_CODE_LINES non-comment lines; global substitution rewrites every occurrence, so it must appear only in the SETUP_VERSION assignment (#459)"
+fi
+
 # --- 6. every packaging path substitutes the placeholder --------------------
 # .ipk through CI's payload staging:
 if grep -q 's|__TOLLGATE_VERSION__|${{ needs.determine-versioning.outputs.package_version }}|g' .github/workflows/build-package.yml; then

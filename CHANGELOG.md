@@ -282,6 +282,13 @@ same-version short branch.
   the mint is down (canary, not gate); the default upstream stays
   offline-only and real-money mints are never probed.
   ([#476](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/476))
+
+- **Version-sync guard against placeholder duplication.** `check-version-sync.sh`
+  now fails when `__TOLLGATE_VERSION__` appears in more than one non-comment
+  line of `99-tollgate-setup`: the #459 bug was exactly such a second
+  occurrence (a literal sentinel in the case pattern) being rewritten by the
+  global packaging substitution. Complements the substitution-proof gate from
+  #463; comment mentions stay exempt.
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only
