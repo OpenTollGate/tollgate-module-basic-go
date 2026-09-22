@@ -44,7 +44,6 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.25.0"
   # blossom1.orangesync.tech is dropped from the GitHub twin's list: it did not
   # answer from a job container on 2026-09-12 (25 s connect timeout) while
   # primal.net, psbt.me, blossom2 and drive.cashu.email did, and with
@@ -154,11 +153,29 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The Go version is resolved from packaging/build-inputs.json — the
+      # reproducibility pin the shipped binaries are built with — so no
+      # lane-local literal can drift from the manifest (#448; this lane's
+      # stale "1.25.0" was exactly that drift). `go-version-file` resolution
+      # is what failed first in this act image (see .ngit/README.md); a
+      # version resolved to a plain string still takes the shorter,
+      # better-tested path through the action.
+      - name: Resolve the pinned Go from the manifest
+        id: go_pin
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            SUDO=""
+            command -v sudo >/dev/null 2>&1 && SUDO=sudo
+            $SUDO apt-get update -qq
+            $SUDO apt-get install -y -qq jq
+          fi
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          echo "version=$(jq -r '.go.version' packaging/build-inputs.json)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v6
         with:
-          # Literal version, not go-version-file: resolving the file is what
-          # failed first in this act image (see .ngit/README.md).
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ steps.go_pin.outputs.version }}
           cache: false
 
       - name: Report the Go toolchain

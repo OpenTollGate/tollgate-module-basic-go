@@ -2,10 +2,11 @@
   "schema": 1,
   "comment": "Immutable build inputs for reproducible tollgate-wrt artifacts. Every byte-affecting external input is pinned here. Update intentionally (see docs/reproducible-builds.md); never point portal.commit at a floating ref.",
   "go": {
-    "version": "1.25.8",
+    "version": "1.26.8",
+    "comment": "The toolchain that compiles the shipped binaries. Must equal the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release; scripts/sdk-go-version.sh check enforces it).",
     "tarball_linux_amd64": {
-      "url": "https://go.dev/dl/go1.25.8.linux-amd64.tar.gz",
-      "sha256": "ceb5e041bbc3893846bd1614d76cb4681c91dadee579426cf21a63f2d7e03be6"
+      "url": "https://go.dev/dl/go1.26.8.linux-amd64.tar.gz",
+      "sha256": "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b"
     }
   },
   "node": {
@@ -33,6 +34,12 @@
   "openwrt_sdk": {
     "image": "openwrt/sdk",
     "release": "25.12.0",
+    "go_per_release": {
+      "_comment": "Official Go toolchain of each OpenWrt release line, as shipped by that line's openwrt/packages feed (branch openwrt-<series>). scripts/sdk-go-version.sh check|update audits these against the live feed; the pinned .go.version must match the entry of the pinned .release's series. In-SDK Go builds on 23.05/24.10 additionally require src/go.mod's language minimum to be <= these versions (currently 1.25.0, so only 25.x qualifies).",
+      "23.05": "1.21.13",
+      "24.10": "1.23.12",
+      "25.12": "1.26.8"
+    },
     "targets": {
       "mediatek-filogic": {
         "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331"

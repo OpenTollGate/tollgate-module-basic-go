@@ -101,6 +101,36 @@ and [Semantic Versioning](https://semver.org/).
   the pin is now a hard build error, so the bundle can no longer silently come
   from a pin that cannot produce it.
 
+- **Go pin follows the official OpenWrt SDK feed (1.25.8 → 1.26.8).** The
+  reproducibility pin moves to the golang the pinned 25.12.0 SDK's packages
+  feed actually ships (`golang1.26-1.26.8-r1`), not a minor of our own
+  choosing: `packaging/build-inputs.json` gains
+  `.openwrt_sdk.go_per_release` — the official golang per OpenWrt release
+  line (23.05 → 1.21.13, 24.10 → 1.23.12, 25.12 → 1.26.8) — audited
+  against the live `openwrt/packages` branches and released feeds by the
+  new `scripts/sdk-go-version.sh` (`check` fails on drift, `update`
+  refreshes the map). Bumping the pin changes shipped-binary bytes once,
+  as any toolchain bump does.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+- **CI Go versions derive from `packaging/build-inputs.json`.** Every lane
+  that needs the reproducibility pin's Go (ngit `go-test`, ngit
+  `repro-check`, ngit `build-package-binaries` — whose workflow-level
+  `GO_VERSION` had drifted to a stale 1.25.0 after #434 closed unmerged —
+  and the GitHub `build-package` lane) resolves `go-version` from the
+  manifest at run time, so no lane-local literal can go stale again.
+  `test.yml` deliberately keeps resolving from `src/go.mod` (the module
+  minimum, unchanged). Also carries the bash-not-sh runbook note for the
+  release driver scripts (dash dies on their bash arrays).
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+- **Lane-local Go literals are refused, not just derived around.**
+  `scripts/check-version-sync.sh` (pre-commit hook and release
+  precondition) now fails on any literal `go-version`/`GO_VERSION` in a
+  workflow — even one that matches today's manifest, since it would go
+  stale on the next pin bump — and checks the 16 module `go.mod`
+  directives for internal consistency. The enforcement half of the
+  manifest-as-single-source design.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+
 ## [v0.6.0-alpha3] - 2026-09-21
 
 ### Fixed

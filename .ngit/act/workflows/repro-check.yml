@@ -46,18 +46,6 @@ jobs:
       GOFLAGS: -buildvcs=false
     steps:
       - uses: actions/checkout@v5
-      # The version is pinned explicitly to the one packaging/build-inputs.json
-      # declares. `go-version-file` resolution is what failed in this
-      # deployment's act image on the first run (see .ngit/README.md); a
-      # literal version takes a shorter, better-tested path through the action.
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.25.8"
-          cache: false
-      - name: Report the Go toolchain in use
-        run: |
-          go version
-          go env GOROOT GOCACHE GOVERSION
       - name: Ensure jq is present
         # packaging/build-env.sh reads the pinned inputs with jq and refuses to
         # run without it. GitHub runners ship jq; the act images are leaner.
@@ -71,6 +59,26 @@ jobs:
             $SUDO apt-get install -y -qq jq
           fi
           jq --version
+      # The version is resolved from packaging/build-inputs.json — the exact
+      # patch every reproducible build must use — so no lane-local literal can
+      # drift from the manifest (#448). `go-version-file` resolution is what
+      # failed in this deployment's act image on the first run (see
+      # .ngit/README.md); a version resolved to a plain string still takes the
+      # shorter, better-tested path through the action.
+      - name: Resolve the pinned Go from the manifest
+        id: go_pin
+        run: |
+          set -euo pipefail
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          echo "version=$(jq -r '.go.version' packaging/build-inputs.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ steps.go_pin.outputs.version }}
+          cache: false
+      - name: Report the Go toolchain in use
+        run: |
+          go version
+          go env GOROOT GOCACHE GOVERSION
       - name: Check the toolchain matches the pinned manifest
         run: |
           set -euo pipefail
@@ -79,10 +87,15 @@ jobs:
           if [ "$have" != "$want" ]; then
             echo "ERROR: go $have does not match the pinned .go.version $want" >&2
             echo "Reproducibility is only meaningful with the pinned patch release;" >&2
-            echo "bump .go.version in packaging/build-inputs.json (and this pin) together." >&2
+            echo "bump .go.version in packaging/build-inputs.json to move it." >&2
             exit 1
           fi
           echo "go $have matches packaging/build-inputs.json"
+      - name: Audit the SDK Go pins against the live OpenWrt feeds
+        # The pin's authority is the SDK's own packages feed: this fails when
+        # .go.version stops matching the pinned release's feed, or when the
+        # go_per_release map drifts from the openwrt/packages branches.
+        run: scripts/sdk-go-version.sh check
       - name: Deterministic binary rebuild check (both binaries)
         # Prints BUILD 1 / BUILD 2 SHA-256s per binary and REPRODUCIBLE: YES|NO.
         # A target that produces no artifact is a failure, not a pass: the

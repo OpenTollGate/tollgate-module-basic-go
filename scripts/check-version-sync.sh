@@ -17,8 +17,10 @@
 #     99-tollgate-setup carries;
 #   * packaging/local-build-ipk.sh falls back to reading VERSION itself.
 #
-# This script refuses to let a hand-written version literal creep back in, and
-# optionally checks the tag against VERSION. Usage:
+# This script refuses to let a hand-written version literal creep back in,
+# refuses a workflow Go pin that disagrees with packaging/build-inputs.json
+# (the toolchain single source of truth), and optionally checks the tag
+# against VERSION. Usage:
 #
 #   scripts/check-version-sync.sh            # internal consistency
 #   scripts/check-version-sync.sh v0.6.0-alpha2   # ... and tag == VERSION
@@ -184,6 +186,54 @@ if [ -f docs/release-process.md ] \
     pass "docs/release-process.md carries the upstream tag runbook"
 else
     fail "docs/release-process.md is missing or does not document tagging on upstream (never the fork)"
+fi
+
+# --- 10. no lane-local Go literals: the manifest is the only source --------
+# packaging/build-inputs.json is the single source of truth for the toolchain
+# that builds the shipped binaries, and the lanes derive from it at run time
+# (the go_pin step resolves .go.version via jq). A lane-local literal is the
+# exact defect class that built 1.25.0 binaries against a 1.25.8 pin, so none
+# may exist — not even one that happens to match today (it would go stale on
+# the next pin bump). go-version-file users (test.yml resolves src/go.mod's
+# module minimum) are deliberately exempt: that is a different invariant,
+# checked below only for uniformity among the modules.
+if command -v python3 >/dev/null 2>&1 && [ -f packaging/build-inputs.json ]; then
+    PIN_GO="$(python3 -c 'import json; print(json.load(open("packaging/build-inputs.json"))["go"]["version"])' 2>/dev/null || true)"
+    if [ -z "$PIN_GO" ]; then
+        fail "cannot read go.version from packaging/build-inputs.json (the lanes derive their toolchain from it — a lane would resolve nothing)"
+    else
+        pin_drift=0
+        for wf in .ngit/act/workflows/*.yml .github/workflows/*.yml; do
+            [ -f "$wf" ] || continue
+            for lit in $(sed -n 's/.*\(GO_VERSION\|go-version\): *"\([0-9][^"]*\)".*/\2/p' "$wf"); do
+                fail "$wf carries a lane-local Go literal ($lit); derive from packaging/build-inputs.json ($PIN_GO) via the go_pin step instead"
+                pin_drift=1
+            done
+        done
+        if [ "$pin_drift" -eq 0 ]; then
+            pass "no lane-local Go literals; every lane derives from build-inputs.json ($PIN_GO)"
+        fi
+    fi
+else
+    printf '  SKIP  python3 or packaging/build-inputs.json unavailable; Go-literal check not run\n' >&2
+fi
+
+# The 16 module go.mod directives must agree with each other. The module
+# minimum is a separate invariant from the build pin (it may trail it) — only
+# internal consistency is enforced.
+gomod_first=""
+gomod_drift=0
+for gm in $(find src -name go.mod | sort); do
+    gomod_go="$(sed -n 's/^go //p' "$gm" | head -1)"
+    if [ -z "$gomod_first" ]; then
+        gomod_first="$gomod_go"
+    elif [ "$gomod_go" != "$gomod_first" ]; then
+        fail "$gm declares go $gomod_go; the other modules declare $gomod_first"
+        gomod_drift=1
+    fi
+done
+if [ "$gomod_drift" -eq 0 ]; then
+    pass "all module go.mod directives agree (go $gomod_first)"
 fi
 
 printf '\n'
