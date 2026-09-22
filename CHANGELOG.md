@@ -381,6 +381,13 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
+- **The hardware-fleet tests no longer ship credentials.** Router and
+  Wi-Fi passwords and the install IPK URL were default values (and
+  template values) in a public repository; they are now required from the
+  environment or the gitignored `tests/.env`, with fail-fast guidance.
+  Previously committed values must be rotated.
+  ([#526](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/526))
+
 
 - **The module can report the gates it believes it holds, so the ones nothing
   else examines are reachable.** `valve.TrackedGates()` returns a sorted,
