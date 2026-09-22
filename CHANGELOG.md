@@ -12,6 +12,13 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Ambiguous send and melt outcomes now self-heal.** Proofs stranded in
+  `pending` by a failed send, a lost melt response, or an ambiguous swap
+  were stuck forever — the reclaim machinery existed in the wallet
+  library but the daemon never invoked it. The daemon now runs a
+  pending-proof reclaimer (NUT-07 checkstate + reclaim swap), so stuck
+  funds recover without operator intervention. ([#507](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/507))
+
 - **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
   same-version branch of `99-tollgate-setup` — the branch a reinstall or an
   apk upgrade takes while `/etc/tollgate-setup-done` still matches the
