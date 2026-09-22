@@ -44,6 +44,12 @@ and [Semantic Versioning](https://semver.org/).
   ([#452](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/452)).
 
 ### Changed / Internal
+- **Pinned that an outage-refused payment never burns the token.** New
+  cloud-lab lane (`run-rejection-safety.sh`): a payment refused while the
+  mint is down must leave every proof UNSPENT at the mint (NUT-07) and
+  the same token must still buy a session after recovery; a replayed
+  token must never buy a second session (#423-class property).
+
 
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
