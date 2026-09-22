@@ -1,10 +1,54 @@
-# TollGate v0.6.0-alpha3 (tollgate-wrt)
+# TollGate v0.6.0-alpha4 (tollgate-wrt)
 
-**Released**: 2026-09-21
+**Released**: 2026-09-22
 **Channel**: `alpha` — a tester-facing release candidate, not a stable
 release. Expect rough edges; report them.
 
 <!-- markdownlint-disable MD013 -->
+
+`v0.6.0-alpha4` supersedes `v0.6.0-alpha3`. It is a **packaging fix cut on
+the captive-portal lane (PR #513)**, not a feature step: the Go module is
+unchanged and the feature set is alpha3's. It exists because alpha3 could
+not be repaired in place — installing the fixed build over an alpha3 install
+left the router without the pre-auth HTTPS allow entry and the post-install
+sweep scored 4/9, because both builds carried the same `apk` version string
+(`0.6.0_alpha3-r0`), so `apk` had nothing to upgrade and the setup script's
+same-version short branch was the only branch that ran. The version string
+now moves to `v0.6.0-alpha4` (`0.6.0_alpha4-r0`), which makes the install a
+real upgrade and makes the repaired script take its full path.
+
+## What v0.6.0-alpha4 changes
+
+- **The captive portal is a dependency, not something the package
+  replaces.** The SDK package definition declared no runtime dependency and
+  the `.ipk` recipes stamped `Replaces: nodogsplash`, so an install could end
+  up with no portal manager at all. `DEPENDS` now carries `nodogsplash` and
+  the `Replaces` line is gone.
+- **The pre-auth allow list carries `:443`.** With a cert/key pair in place
+  `uhttpd.main` answers the `:8080` LuCI port with `307 Location:
+  https://<router>/`; the client that follows that redirect needs a
+  nodogsplash rule for `:443` or it dead-ends on a port the gateway still
+  REJECTs — which is how LuCI became unreachable before authentication.
+- **A same-version reinstall re-asserts that list.** The short branch taken
+  when `/etc/tollgate-setup-done` already equals the installed version now
+  repairs a stale or absent `users_to_router` list instead of inheriting it,
+  idempotently (missing entries are added, nothing is duplicated).
+- **The management subnet steps aside when the upstream collides.** The
+  private `/24` is no longer assumed collision-free against a private WAN; a
+  collision falls back to a random non-overlapping `/24`.
+
+The entries, tests and links are in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+**Everything from here down is the `v0.6.0-alpha3` release note, kept
+verbatim.** `v0.6.0-alpha4` changes packaging only, so the capability
+descriptions, the behaviour notes, the known-issue list and the verification
+status below still describe this build. Where a line names
+`v0.6.0-alpha3` (artifact filenames, the download commands in "Getting"),
+read it as the alpha line: this build's packages are `0.6.0_alpha4-r0`.
+
+---
 
 `v0.6.0-alpha3` supersedes `v0.6.0-alpha2`, which was prepared on
 2026-09-13 but never tagged or published. It is the first TollGate

@@ -10,6 +10,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0-alpha4] - 2026-09-22
+
+Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
+captive-portal lane (PR #513): the module now depends on `nodogsplash`
+instead of replacing it, the pre-auth allow list carries the `:443` entry the
+`:8080` → `https://` redirect needs, a reinstall whose version string is
+unchanged now re-asserts that list, and the management subnet steps out of the
+way of a colliding upstream. Nothing in the Go module changes. The version
+string moves to `v0.6.0-alpha4` (`0.6.0_alpha4-r0`) so that `apk` sees a real
+upgrade over `alpha3` and takes the full setup path rather than the
+same-version short branch.
+
 ### Added
 
 - **Management subnet selection avoids upstream collisions instead of assuming
@@ -1530,7 +1542,8 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha3...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...main
+[v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha3...v0.6.0-alpha4
 [v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
