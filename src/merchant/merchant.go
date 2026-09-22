@@ -183,6 +183,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	m.StartPayoutRoutine()
 	m.StartDataUsageMonitoring()
 	m.startLightningQuoteJanitor()
+	m.StartPendingProofReclaimer()
 
 	return m, nil
 }

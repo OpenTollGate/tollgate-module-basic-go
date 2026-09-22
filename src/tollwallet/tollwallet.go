@@ -183,6 +183,29 @@ func (w *TollWallet) Shutdown() error {
 	return nil
 }
 
+// PendingBalance returns the total value of proofs currently in the
+// pending/reserved bucket — proofs selected for a send or melt whose
+// outcome was never resolved. They are excluded from GetBalance.
+func (w *TollWallet) PendingBalance() uint64 {
+	return w.wallet.PendingBalance()
+}
+
+// ReclaimPendingProofs asks each holding mint for the NUT-07 state of the
+// pending proofs and re-swaps the unspent ones back into spendable proofs.
+// It is the recovery path for ambiguous send/melt outcomes (interrupted
+// hand-off, lost melt response); spent-but-still-pending proofs are left
+// untouched and remain visible through PendingBalance.
+func (w *TollWallet) ReclaimPendingProofs() (uint64, error) {
+	amount, err := w.wallet.ReclaimUnspentProofs()
+	if err != nil {
+		return 0, err
+	}
+	if amount > 0 {
+		log.Printf("TollWallet: reclaimed %d sats of pending proofs back to spendable", amount)
+	}
+	return amount, nil
+}
+
 // NUT #00: `Carol` can send `(x, C)` to `Bob` who then checks that `k*hash_to_curve(x) == C` (**verification**), and if so treats it as a valid spend of a token, adding `x` to the list of spent secrets.
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	mint := token.Mint()
