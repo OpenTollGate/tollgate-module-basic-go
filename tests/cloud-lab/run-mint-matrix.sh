@@ -67,7 +67,7 @@ PYEOF
 mkdir -p matrix-wallets
 declare -a OK_MINTS FAIL_MINTS
 for pair in ${MINTS//,/ }; do
-  name="${pair%%=}"; url="${pair#*=}"
+  name="${pair%%=*}"; url="${pair#*=}"
   echo "== funding float for $name ($url, ${ZOO_FUND_SATS} sats over signet)"
   if ! ( if [ "$ZOO_VIA" = "local" ]; then
            ZOO_CDK_NETWORK="$LAB_NET" ZOO_CLIENT_IMAGE=zoo-client:tmp \
