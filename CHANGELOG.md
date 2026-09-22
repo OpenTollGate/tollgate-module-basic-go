@@ -10,6 +10,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The default private SSID names the product and says what the network
+  is.** The private network is the operator's own: whitelisted devices
+  connect without paying (PSK-protected, no captive portal). The shipped
+  default SSID was generated as `c08r4d0r-${RANDOM_SUFFIX}` — a specific
+  operator's handle, which neither describes the network's purpose nor
+  survives rebranding. The default is now `TollGate-Private-${RANDOM_SUFFIX}`,
+  and `tests/contract/check-identity-leak.sh` (a CI gate, also wired into
+  `hooks/pre-commit`) keeps shipped defaults product-prefixed and
+  device-unique, and free of operator-identity literals — whitelabel
+  hygiene: a rebranded or resold router should not ship another
+  operator's identity in its defaults. Routers that already have a private
+  SSID keep it — the default is only generated when the option is unset —
+  so this changes no deployed network.
+
+
+
 ## [v0.6.0-alpha4] - 2026-09-22
 
 Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
@@ -180,22 +198,6 @@ same-version short branch.
   it. `tests/uci-defaults-same-version-allowlist_test.sh` drives the real
   same-version branch against a fake `uci`/`apk`.
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
-
-- **The default private SSID names the product and says what the network
-  is.** The private network is the operator's own: whitelisted devices
-  connect without paying (PSK-protected, no captive portal). The shipped
-  default SSID was generated as `c08r4d0r-${RANDOM_SUFFIX}` — a specific
-  operator's handle, which neither describes the network's purpose nor
-  survives rebranding. The default is now `TollGate-Private-${RANDOM_SUFFIX}`,
-  and `tests/contract/check-identity-leak.sh` (a CI gate, also wired into
-  `hooks/pre-commit`) keeps shipped defaults product-prefixed and
-  device-unique, and free of operator-identity literals — whitelabel
-  hygiene: a rebranded or resold router should not ship another
-  operator's identity in its defaults. Routers that already have a private
-  SSID keep it — the default is only generated when the option is unset —
-  so this changes no deployed network.
-
-### Changed / Internal
 
 ### Changed / Internal
 - **ngit stage 1 now builds the portal from the pinned toolchain.** The
