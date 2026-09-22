@@ -12,6 +12,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Runtime downgrades recover in seconds, not the next proactive
+  cycle.** When all mints went unreachable under a running service, the
+  downgrade path wired the recovery trigger (#400) but nothing probed
+  aggressively — recovery waited for the 5-minute proactive check
+  (~13 minutes stuck in degraded mode observed live after a transient
+  mint blip). The aggressive 15-second probe loop that the startup path
+  already used is now armed on the runtime downgrade too, and it fires
+  the same first-reachable callback, so a wired recovery triggers within
+  seconds of the mint returning. The aggressive timings moved from
+  package constants to per-tracker fields so tests can shorten them
+  without shared mutable state (which itself raced under `-race`).
+  Fixes [#429](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/429).
 - **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
   same-version branch of `99-tollgate-setup` — the branch a reinstall or an
   apk upgrade takes while `/etc/tollgate-setup-done` still matches the
@@ -52,18 +64,6 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **Runtime downgrades recover in seconds, not the next proactive
-  cycle.** When all mints went unreachable under a running service, the
-  downgrade path wired the recovery trigger (#400) but nothing probed
-  aggressively — recovery waited for the 5-minute proactive check
-  (~13 minutes stuck in degraded mode observed live after a transient
-  mint blip). The aggressive 15-second probe loop that the startup path
-  already used is now armed on the runtime downgrade too, and it fires
-  the same first-reachable callback, so a wired recovery triggers within
-  seconds of the mint returning. The aggressive timings moved from
-  package constants to per-tracker fields so tests can shorten them
-  without shared mutable state (which itself raced under `-race`).
-  Fixes [#429](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/429).
 
 - **Full setup re-runs again on apk-based OpenWrt (25.x) upgrades.** The
   packaging's global `__TOLLGATE_VERSION__` substitution also rewrote the
