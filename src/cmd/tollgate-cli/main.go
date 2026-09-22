@@ -156,6 +156,91 @@ var drainCashuCmd = &cobra.Command{
 	},
 }
 
+var recoverCmd = &cobra.Command{
+	Use:   "recover",
+	Short: "Recover still-spendable drain tokens",
+	Long: `Check the drain journal against the mints (NUT-07 proof state) and report
+which tokens produced by past wallet drains are still spendable. Use this
+after an interrupted or partially failed drain to secure tokens whose
+output was lost. Read-only: it never moves funds.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if jsonOutput {
+			return sendCommandRaw("wallet", []string{"recover"}, nil)
+		}
+
+		response, err := sendCommand(CLIMessage{
+			Command:   "wallet",
+			Args:      []string{"recover"},
+			Timestamp: time.Now(),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err)
+		}
+
+		displayRecoverResponse(response)
+		if !response.Success {
+			return errors.New("recovery status incomplete; see details above")
+		}
+		return nil
+	},
+}
+
+func displayRecoverResponse(response *CLIResponse) {
+	if response.Message != "" {
+		fmt.Println(response.Message)
+	}
+
+	data, ok := response.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	if entries, ok := data["entries"].([]interface{}); ok {
+		for _, e := range entries {
+			entry, ok := e.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			state, _ := entry["state"].(string)
+			if state == "live" || state == "spent" {
+				continue // summarized in the live-token list / message
+			}
+			fmt.Printf("  ? %s: state=%s", printable(entry["mint_url"]), state)
+			if errMsg, _ := entry["error"].(string); errMsg != "" {
+				fmt.Printf(" (%s)", errMsg)
+			}
+			fmt.Println()
+		}
+	}
+
+	tokens, ok := data["tokens"].([]interface{})
+	if !ok || len(tokens) == 0 {
+		return
+	}
+	fmt.Printf("\nStill-spendable drain tokens (%d):\n", len(tokens))
+	for i, t := range tokens {
+		token, ok := t.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fmt.Printf("\nToken %d:\n", i+1)
+		fmt.Printf("  Mint:    %s\n", printable(token["mint_url"]))
+		fmt.Printf("  Balance: %s sats\n", printable(token["balance_sats"]))
+		fmt.Printf("  Token:   %s\n", printable(token["token"]))
+	}
+}
+
+func printable(v interface{}) string {
+	switch value := v.(type) {
+	case string:
+		return value
+	case float64:
+		return fmt.Sprintf("%.0f", value)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
 var balanceCmd = &cobra.Command{
 	Use:   "balance",
 	Short: "Show wallet balance",
@@ -507,7 +592,7 @@ func init() {
 	drainCashuCmd.Flags().BoolVarP(&drainAssumeYes, "yes", "y", false, "Assume yes; skip the interactive confirmation prompt (for automation)")
 
 	drainCmd.AddCommand(drainCashuCmd)
-	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
+	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd, recoverCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
 	networkCmd.AddCommand(privateCmd)
 	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)
