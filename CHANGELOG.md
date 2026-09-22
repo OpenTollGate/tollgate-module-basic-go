@@ -71,6 +71,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Fresh installs now size upstream prepay for a large renewal margin.**
+  Defaults move to `preferred_session_increments_bytes` 2,500,000,000
+  and `bytes_renewal_offset` 1,225,000,000 (49% of the increment —
+  renew near half a tank, just under the #442 clamp so it stays
+  dormant). Anchored to the #460/#465 simulation: the 2.5 GB tank keeps
+  the 10 s renewal trigger throttle from capping sustained throughput
+  below ~2 Gbps, and the offset covers multi-second payment RTTs at
+  gigabit rates; the previous pair (500,000,000 / 125,000,000) capped
+  gigabit uplinks at ~39% and left ~10 s of runway at 100 Mbps.
+  Operators on slow or expensive links should tune down per the
+  operator table in `tests/sim/RESULTS.md`. Existing saved configs are
+  not rewritten. ([#478](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/478))
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only
