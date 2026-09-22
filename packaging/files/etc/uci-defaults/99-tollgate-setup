@@ -398,6 +398,22 @@ setup_nodogsplash() {
     if ! echo "$nds_users" | grep -q "port 8443"; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
     fi
+    # :443 belongs with :8080 above: with a cert/key pair in place
+    # uhttpd.main sets redirect_https=1 and answers the :8080 LuCI port with
+    # `307 Location: https://<router>/`, so the pre-auth client that follows
+    # the redirect needs a nodogsplash rule for :443 or it dead-ends on a port
+    # the gateway still REJECTs — the operator lockout
+    # docs/architecture/uhttpd-redirect-https-ownership-decision.md exists to
+    # prevent; the :8443 admin-board HTTPS rule above is allowed for the same
+    # reason. tollgate-cli's
+    # `ssl enable` path already writes this rule for the routers that enable
+    # TLS from the CLI (src/cmd/tollgate-cli/ssl.go); first boot was the only
+    # path without it. Matched as a whole field — not `port 443$` alone —
+    # because "allow tcp port 8443" must never satisfy this check and uci may
+    # print a list option either one entry per line or space separated.
+    if ! echo "$nds_users" | grep -qE '(^|[[:space:]])port 443([[:space:]]|$)'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
+    fi
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping

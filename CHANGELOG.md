@@ -84,6 +84,21 @@ and [Semantic Versioning](https://semver.org/).
   across every recipe, their generated ngit shards and the built `.ipk`
   control file.
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+- **Pre-auth clients can reach LuCI's TLS port, so the `:8080` redirect lands.**
+  `uhttpd.main.redirect_https` derives to `1` whenever a cert/key pair is
+  readable, so a captive-LAN client hitting the LuCI port on `:8080` is
+  answered `307 Location: https://<router>/` — but `setup_nodogsplash()`'s
+  pre-auth allow list covered `:2121`, `:8080`, `:2050`, `:2051`, `:8090` and
+  `:8443` and not `:443`, so nodogsplash REJECTed the redirect target and the
+  operator could not reach LuCI before authenticating at all: the same lockout
+  the neighbouring uhttpd ownership decision exists to prevent. The Go CLI's
+  `ssl enable` path already wrote this rule (`src/cmd/tollgate-cli/ssl.go`);
+  first boot — every freshly flashed router — was the only path without it.
+  The rule is now written with the rest of the list and matched as a whole
+  field, so `allow tcp port 8443` can never satisfy the `:443` check, whether
+  uci renders the list one entry per line or space separated. See
+  [docs/architecture/luci-https-pre-auth-reachability-decision.md](docs/architecture/luci-https-pre-auth-reachability-decision.md).
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Changed / Internal
 
