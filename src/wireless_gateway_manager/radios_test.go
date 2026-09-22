@@ -165,3 +165,21 @@ func TestRadioForBand(t *testing.T) {
 	assert.Equal(t, "", radioForBand(map[string]string{}, []string{"radio0"}, "5g", "radio1"))
 	assert.Equal(t, "", radioForBand(map[string]string{}, nil, "2g", "radio0"))
 }
+
+// TestAssignNetworkBands guards the scan-path half of #452: the installer and
+// admin SPA see a network's Radio (e.g. "radio1") but not which band that
+// radio is on. Each scanned NetworkInfo must carry the classified band so the
+// consumer can tell a 2.4 GHz SSID from a 5 GHz one without re-deriving it.
+func TestAssignNetworkBands(t *testing.T) {
+	networks := []NetworkInfo{
+		{SSID: "Home24", Radio: "radio1"},
+		{SSID: "Home50", Radio: "radio0"},
+		{SSID: "UnknownRadio", Radio: "radio9"},
+	}
+	// Swapped hardware: radio0 = 5 GHz, radio1 = 2.4 GHz (the #452 box).
+	bandByRadio := map[string]string{"radio0": "5g", "radio1": "2g"}
+	out := assignNetworkBands(networks, bandByRadio)
+	assert.Equal(t, "2g", out[0].Band, "radio1 is the 2.4 GHz radio")
+	assert.Equal(t, "5g", out[1].Band, "radio0 is the 5 GHz radio")
+	assert.Equal(t, "unknown", out[2].Band, "band unknown on a radio without band info")
+}

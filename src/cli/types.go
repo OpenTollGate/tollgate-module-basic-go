@@ -78,6 +78,7 @@ type UpstreamNetwork struct {
 	Encryption   string `json:"encryption"`
 	BSSID        string `json:"bssid"`
 	Radio        string `json:"radio"`
+	Band         string `json:"band"` // "2g"/"5g", or "unknown"
 	IsTollGate   bool   `json:"is_tollgate"`
 	PricePerStep int    `json:"price_per_step,omitempty"`
 	StepSize     int    `json:"step_size,omitempty"`

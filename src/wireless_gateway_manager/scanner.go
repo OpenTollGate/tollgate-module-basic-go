@@ -82,6 +82,12 @@ func (s *Scanner) ScanAllRadios() ([]NetworkInfo, error) {
 		return allNetworks[i].Signal > allNetworks[j].Signal
 	})
 
+	// Stamp the band of the radio each network was scanned on, so consumers
+	// (installer / admin SPA) can tell 2.4 GHz from 5 GHz SSIDs without
+	// assuming radio0 is 2.4 GHz. Falls back to "unknown" when the wireless
+	// config carries no band information (#452).
+	allNetworks = assignNetworkBands(allNetworks, radioBandMapFromConfig())
+
 	return allNetworks, nil
 }
 

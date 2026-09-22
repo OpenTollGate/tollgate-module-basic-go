@@ -4,6 +4,7 @@ package wireless_gateway_manager
 
 import (
 	"bufio"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -115,6 +116,35 @@ func radioBandMap(showOutput string) map[string]string {
 		}
 	}
 	return bands
+}
+
+// radioBandMapFromConfig reads the live /etc/config/wireless and returns the
+// band→radio map in uci order. A missing/unreadable config yields an empty
+// map (callers then fall back to "unknown" bands), never an error.
+func radioBandMapFromConfig() map[string]string {
+	data, err := os.ReadFile("/etc/config/wireless")
+	if err != nil {
+		return map[string]string{}
+	}
+	return radioBandMap(string(data))
+}
+
+// assignNetworkBands stamps each scanned NetworkInfo with the band of the
+// radio that produced it, resolved through radioBandMap (`band` option,
+// legacy hwmode, then channel). Networks from a radio with no band
+// information at all get "unknown" — the consumer must never guess a band
+// from the section number, since radio0 is not always 2.4 GHz.
+func assignNetworkBands(networks []NetworkInfo, bandByRadio map[string]string) []NetworkInfo {
+	out := make([]NetworkInfo, len(networks))
+	for i, net := range networks {
+		out[i] = net
+		if band, ok := bandByRadio[net.Radio]; ok {
+			out[i].Band = band
+		} else {
+			out[i].Band = "unknown"
+		}
+	}
+	return out
 }
 
 // radioForBand picks the wifi-device section for a band. When the config
