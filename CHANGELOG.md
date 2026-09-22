@@ -10,6 +10,27 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Management subnet selection avoids upstream collisions instead of assuming
+  it is safe.** The private network's /24 was derived as "the LAN's /24 with
+  the third octet stepped by one" with no look at the upstream side, so a WAN
+  side that is itself a private LAN in that same /24 (a hotel, a site uplink,
+  another router's LAN) put the management subnet and the uplink subnet in the
+  same network: the private bridge's default route then pointed at an address
+  the router also owned, and traffic for the upstream's client range was
+  routed back into the router instead of out of the WAN. The candidate is
+  still the LAN-adjacent /24 — operators expect it and the DNS/DHCP defaults
+  assume it — but it is now checked against the LAN's real mask and against
+  every upstream-side network (the configured WAN address, plus every
+  non-LAN address the kernel knows, which is where DHCP/STA/FIPS uplinks
+  live), and a collision falls back to a random non-overlapping /24 from 10/8,
+  logged so a field report shows why. The Go-side knob
+  (`IPAddressRandomized`) is still only logged and stays out of scope here.
+  See
+  [docs/architecture/private-subnet-collision-avoidance-decision.md](docs/architecture/private-subnet-collision-avoidance-decision.md).
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+
 ### Fixed
 
 - **Runtime downgrades recover in seconds, not the next proactive
