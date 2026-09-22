@@ -256,6 +256,15 @@ same-version short branch.
   Operators on slow or expensive links should tune down per the
   operator table in `tests/sim/RESULTS.md`. Existing saved configs are
   not rewritten. ([#478](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/478))
+
+- **The cloud-lab's default client run is green as documented.** The
+  quick start brings up the full default topology (the fee tests need
+  `mint-fees`), the `requires_docker` pytest mark is registered, and
+  `run-keyset-rotation.sh` honors compose project isolation plus an
+  optional port-stripping override for shared hosts, layering compose
+  files correctly (base + override + extra) instead of replacing the
+  default set.
+  ([#485](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/485))
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only

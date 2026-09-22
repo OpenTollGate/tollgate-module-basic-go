@@ -58,8 +58,9 @@ with FakeWallet backend — no physical routers required.
 ## Quick Start
 
 ```bash
-# Build and start the mint + upstream TollGate
-docker compose up -d mint upstream
+# Build and start the default topology: mint, mint-fees and upstream.
+# The fee tests need mint-fees; a bare `mint upstream` start leaves them red.
+docker compose up -d
 
 # Wait for health checks to pass
 docker compose ps
@@ -135,7 +136,7 @@ cloud-lab-tests:
     - uses: actions/checkout@v4
     - working-directory: tests/cloud-lab
       run: |
-        docker compose up -d mint upstream
+        docker compose up -d
         docker compose run --rm client
         docker compose down -v
 ```
