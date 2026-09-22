@@ -352,7 +352,11 @@ jobs:
       - name: Build captive portal assets
         run: |
           set -euo pipefail
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          # PORTAL_REF must stay unset: the script defaults it to the
+          # manifest-pinned portal.commit, and a floating ref has been a
+          # hard error since the pin-hardening — this "main" default is
+          # what turned build-portal red on every main push.
+          bash packaging/portal-build.sh
           echo "Portal assets built:"
           ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 

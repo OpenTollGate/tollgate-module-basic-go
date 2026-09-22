@@ -71,6 +71,13 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Release lane: the portal build no longer passes a floating ref.**
+  Stage 1's build-portal step invoked `portal-build.sh` with
+  `PORTAL_REF=main`, which the script's pin-hardening rejects
+  outright ("does not match the pinned portal commit") — the job had
+  been red on every `main` push since the enforcement landed while the
+  pinned build itself was green. The step now uses the script default
+  (the manifest SHA).
 - **Fresh installs now size upstream prepay for a large renewal margin.**
   Defaults move to `preferred_session_increments_bytes` 2,500,000,000
   and `bytes_renewal_offset` 1,225,000,000 (49% of the increment —
