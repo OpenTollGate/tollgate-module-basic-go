@@ -214,7 +214,7 @@ jobs:
       # stamp mtimes from SOURCE_DATE_EPOCH (#383); it must be the same
       # epoch the binaries were compiled with (resolve-inputs extracts it
       # from the stage-1 record).
-      SOURCE_DATE_EPOCH: ${ needs.resolve-inputs.outputs.source_date_epoch }
+      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}
     strategy:
       fail-fast: false
       matrix:

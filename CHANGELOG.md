@@ -10,6 +10,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed / Internal
+
+- **The ngit release shards now carry a valid `SOURCE_DATE_EPOCH`
+  expression.** The shard generator emitted the package-job env line from
+  inside an f-string, collapsing `${{ … }}` to `${ … }` in all eleven
+  committed workflows — the runner passes that through literally and
+  `packaging/build-env.sh`'s epoch validation would have failed every
+  package job on the first ngit-lane release run. The line is now
+  token-emitted like every other brace-bearing template, the shards are
+  regenerated, and the pipeline test pins both the `${{ }}` form's
+  presence and the absence of the collapsed form. ([#491](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/491))
+
 ## [v0.6.0-alpha4] - 2026-09-22
 
 Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
@@ -157,6 +169,19 @@ same-version short branch.
 
 ### Changed / Internal
 
+- **Dependency-sweep completion: every module resolves gonuts-tollgate
+  v0.12.1.** #506's bump touched the directly-declaring go.mods but left
+  `src/cli`'s indirect pin at v0.11.2, failing `make go-battery` there.
+  Tidied (caught independently in the #507 and #511 verification passes).
+  ([#516](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/516))
+
+- **Release lane: the portal build no longer passes a floating ref.**
+  Stage 1's build-portal step invoked `portal-build.sh` with
+  `PORTAL_REF=main`, which the script's pin-hardening rejects
+  outright ("does not match the pinned portal commit") — the job had
+  been red on every `main` push since the enforcement landed while the
+  pinned build itself was green. The step now uses the script default
+  (the manifest SHA).
 - **Fresh installs now size upstream prepay for a large renewal margin.**
   Defaults move to `preferred_session_increments_bytes` 2,500,000,000
   and `bytes_renewal_offset` 1,225,000,000 (49% of the increment —
