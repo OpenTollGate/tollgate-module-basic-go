@@ -110,6 +110,14 @@ env:
   RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
 """
 
+# The package-job epoch env is a ${{ ... }} workflow expression, so it must
+# never live inside the package-job f-string: f-strings collapse {{ to {,
+# which is how the single-brace form reached the committed shards in #441.
+# The runner passes that literal through and packaging/build-env.sh's epoch
+# validation (non-integer => tg_die) fails every package job. Token-emitted
+# like every other brace-bearing line.
+EPOCH_ENV_LINE = "      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}"
+
 RESOLVE_INPUTS = """\
   resolve-inputs:
     runs-on: ubuntu-latest
@@ -625,7 +633,7 @@ def render_shard(shard: dict, plan: dict) -> str:
       # stamp mtimes from SOURCE_DATE_EPOCH (#383); it must be the same
       # epoch the binaries were compiled with (resolve-inputs extracts it
       # from the stage-1 record).
-      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}
+@@EPOCH_ENV@@
     strategy:
       fail-fast: false
       matrix:
@@ -646,6 +654,8 @@ def render_shard(shard: dict, plan: dict) -> str:
 {build}
 {upload}
 """
+
+    package_job = package_job.replace("@@EPOCH_ENV@@", EPOCH_ENV_LINE)
 
     return "\n".join([header, "on:\n  workflow_dispatch:\n", env, "jobs:\n",
                       RESOLVE_INPUTS, package_job, complete])
