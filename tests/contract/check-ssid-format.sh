@@ -100,16 +100,21 @@ run_setup_public_wifi() {
     local state="$SANDBOX/state" iface
     rm -rf "$state"
     mkdir -p "$state"
-    # A first-boot wireless config as uci-defaults sees it: two AP radios, both
-    # enabled, neither in STA mode.
-    printf '%s' wifi-iface > "$state/wireless.default_radio0"
-    printf '%s' ap         > "$state/wireless.default_radio0.mode"
-    printf '%s' wifi-iface > "$state/wireless.default_radio1"
-    printf '%s' ap         > "$state/wireless.default_radio1.mode"
-    printf '%s' 1          > "$state/wireless.radio0"
-    printf '%s' 1          > "$state/wireless.radio0.disabled"
-    printf '%s' 1          > "$state/wireless.radio1"
-    printf '%s' 1          > "$state/wireless.radio1.disabled"
+    # A first-boot wireless config as uci-defaults sees it: two AP radios,
+    # both enabled, neither in STA mode, each declaring its band (the
+    # band-aware setup resolves radios by band before assigning APs).
+    printf '%s' wifi-device > "$state/wireless.radio0"
+    printf '%s' 2g          > "$state/wireless.radio0.band"
+    printf '%s' 1           > "$state/wireless.radio0.disabled"
+    printf '%s' wifi-device > "$state/wireless.radio1"
+    printf '%s' 5g          > "$state/wireless.radio1.band"
+    printf '%s' 1           > "$state/wireless.radio1.disabled"
+    printf '%s' wifi-iface  > "$state/wireless.default_radio0"
+    printf '%s' ap          > "$state/wireless.default_radio0.mode"
+    printf '%s' radio0      > "$state/wireless.default_radio0.device"
+    printf '%s' wifi-iface  > "$state/wireless.default_radio1"
+    printf '%s' ap          > "$state/wireless.default_radio1.mode"
+    printf '%s' radio1      > "$state/wireless.default_radio1.device"
 
     (
         set -u
@@ -120,6 +125,9 @@ run_setup_public_wifi() {
         # shellcheck disable=SC2034  # read by the sourced log()
         LOGFILE="$SANDBOX/setup.log"   # never append to the router's real log
         load_brand
+        # setup_public_wifi consumes R2G/R5G, which the driver derives via
+        # detect_band_radios() before calling it — same order here.
+        detect_band_radios
         setup_public_wifi
     ) > "$SANDBOX/harness.log" 2>&1
     # The exit status is deliberately not asserted: the last statement of
@@ -128,7 +136,10 @@ run_setup_public_wifi() {
     # written. What the contract cares about is whether an SSID landed, and
     # that is read back from the stub's state below.
 
-    for iface in default_radio0 default_radio1; do
+    # The band-aware setup writes the open APs onto the tollgate_*_open
+    # sections (adopting or creating them per radio); those labels are the
+    # contract's assignment sites, so they are what is read back.
+    for iface in tollgate_2g_open tollgate_5g_open; do
         if [ -f "$state/wireless.$iface.ssid" ]; then
             cat "$state/wireless.$iface.ssid"
         else
