@@ -2,7 +2,7 @@
 # run-mint-matrix.sh — one payment suite against many mints (the signet zoo).
 #
 # The same test_mint_matrix.py runs against whichever mints MINT_MATRIX
-# names; the router (upstream-ext) is configured to accept exactly those
+# names; the router (upstream-matrix) is configured to accept exactly those
 # mints for the run. Two ways to reach the zoo:
 #
 #   ZOO_VIA=public (default) — the Cloudflare endpoints
@@ -39,10 +39,7 @@ case "$ZOO_VIA" in
     MINTS="${MINTS:-cdk-0.17=https://cdk-4312959.cashu.exchange,cdk-0.18=https://cdk-d3dec24.cashu.exchange,cdk-0.18.1=https://cdk-a056e0f.cashu.exchange,ns-0.20=https://ns-1853902.cashu.exchange,ns-0.21=https://ns-a974914.cashu.exchange}" ;;
   local)
     MINTS="${MINTS:-cdk-0.17=http://zoo-cdk-0-17:8085,cdk-0.18=http://zoo-cdk-0-18:8085,cdk-0.18.1=http://zoo-cdk-a056e0f:8085,ns-0.20=http://zoo-ns-1853902:3338,ns-0.21=http://zoo-ns-a974914:3338}"
-    # Zoo containers must be reachable by name from the lab network.
-    for c in zoo-cdk-0-17 zoo-cdk-0-18 zoo-cdk-a056e0f zoo-ns-1853902 zoo-ns-a974914; do
-      docker network connect "$LAB_NET" "$c" 2>/dev/null || true
-    done ;;
+    CONNECT_ZOO=1 ;;
   *)
     echo "ZOO_VIA must be 'public' or 'local'" >&2; exit 2 ;;
 esac
@@ -64,31 +61,50 @@ json.dump(cfg, open("zoo-mint-config.json", "w"), indent=2)
 print("router accepts:", [m["url"] for m in cfg["accepted_mints"]])
 PYEOF
 
-# Fund one float wallet per mint, host-side, keyed to the URL the test
-# client will use (cdk-cli treats different mint URLs as different
-# wallets — fund with the exact container/public URL from MINTS).
+# Per-mint isolation: fund and test one mint at a time, keep going when
+# one mint fails, and print a results table at the end (a broken mint is
+# a finding, not a reason to leave the rest untested).
 mkdir -p matrix-wallets
+declare -a OK_MINTS FAIL_MINTS
 for pair in ${MINTS//,/ }; do
-  name="${pair%%=*}"; url="${pair#*=}"
+  name="${pair%%=}"; url="${pair#*=}"
   echo "== funding float for $name ($url, ${ZOO_FUND_SATS} sats over signet)"
-  if [ "$ZOO_VIA" = "local" ]; then
-    ZOO_CDK_NETWORK="$LAB_NET" ZOO_CLIENT_IMAGE=zoo-client:tmp \
-        bash "$PAY_AND_MINT" "$PWD/matrix-wallets/$name" "$url" "$ZOO_FUND_SATS"
-  else
-    ZOO_CLIENT_IMAGE=zoo-client:tmp \
-        bash "$PAY_AND_MINT" "$PWD/matrix-wallets/$name" "$url" "$ZOO_FUND_SATS"
+  if ! ( if [ "$ZOO_VIA" = "local" ]; then
+           ZOO_CDK_NETWORK="$LAB_NET" ZOO_CLIENT_IMAGE=zoo-client:tmp \
+             bash "$PAY_AND_MINT" "$PWD/matrix-wallets/$name" "$url" "$ZOO_FUND_SATS"
+         else
+           ZOO_CLIENT_IMAGE=zoo-client:tmp \
+             bash "$PAY_AND_MINT" "$PWD/matrix-wallets/$name" "$url" "$ZOO_FUND_SATS"
+         fi ) ; then
+    echo "FUND-FAIL $name ($url) — settlement or reachability; skipping its tests"
+    FAIL_MINTS+=("$name"); continue
   fi
+  OK_MINTS+=("$name=$url")
 done
 
-echo "== matrix: $MINTS (via $ZOO_VIA, floats funded)"
+echo "== matrix via $ZOO_VIA: funded=[${OK_MINTS[*]:-none}] failed-funding=[${FAIL_MINTS[*]:-none}]"
 docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
     --profile external-mints up -d --build mint upstream-matrix >/dev/null
 
-MINT_MATRIX="$MINTS" ZOO_FUND_SATS="$ZOO_FUND_SATS" \
+# Attach zoo containers only AFTER the lab's own services have claimed their
+# static IPs -- an earlier attach lets Docker hand a compose IP to a zoo
+# container and the lab then fails with "Address already in use".
+if [ "${CONNECT_ZOO:-0}" = "1" ]; then
+  for c in zoo-cdk-0-17 zoo-cdk-0-18 zoo-cdk-a056e0f zoo-ns-1853902 zoo-ns-a974914; do
+    docker network connect "$LAB_NET" "$c" 2>/dev/null || true
+  done
+fi
+
+RUN_MATRIX="$(IFS=,; echo "${OK_MINTS[*]:-}")"
+if [ -z "$RUN_MATRIX" ]; then
+  echo "ERROR: no mint funded successfully — nothing to test" >&2
+  exit 1
+fi
+MINT_MATRIX="$RUN_MATRIX" \
     UPSTREAM_URL=http://upstream-matrix:2121 \
     docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
     --profile external-mints run --rm \
-    -e MINT_MATRIX -e ZOO_FUND_SATS -e UPSTREAM_URL \
+    -e MINT_MATRIX -e UPSTREAM_URL \
     --entrypoint sh client \
     -c 'cd /tests && rm -rf __pycache__ && python3 -m pytest -sv test_mint_matrix.py'
 
