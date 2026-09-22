@@ -21,6 +21,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A wedged mint no longer stalls the payment lane for minutes.** The swap-fee
+  precheck now runs under a 3-second budget: against a mint that accepts
+  nothing (`docker pause` reproduces it), the wallet client's retry ladder
+  (30 s per attempt, up to five, chained endpoints) parked the precheck for
+  5+ minutes before any deadline applied — the customer's request hung and
+  each attempt stacked a stuck goroutine, while the token itself stayed
+  unspent. Past the budget the payment proceeds and Receive's own error
+  classification (or its receive timeout) governs — the fee check is an
+  optimization, not a gate. Fixes
+  [#525](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/525).
+  ([#533](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/533))
+
 - **The repair path's portal banner is now committed, and both setup paths write
   one identical value.** The verify/repair path a same-version reinstall takes
   converged `nodogsplash.gatewayname` on a second spelling — `"$GATEWAY_NAME"`,
