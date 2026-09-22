@@ -2,10 +2,12 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -79,4 +81,29 @@ func appendDrainJournal(mintURL string, amountSats uint64, token string) error {
 		return fmt.Errorf("sync drain journal: %w", err)
 	}
 	return nil
+}
+
+// readDrainJournal returns the journal's parseable entries plus the raw
+// text of any unparseable lines, so callers can report journal corruption
+// instead of silently skipping it. A missing journal is not an error.
+func readDrainJournal() (entries []drainJournalEntry, invalid []string, err error) {
+	data, err := os.ReadFile(drainJournalPath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("read drain journal: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry drainJournalEntry
+		if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr != nil {
+			invalid = append(invalid, line)
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, invalid, nil
 }
