@@ -172,6 +172,22 @@ if "package" not in d.get("jobs", {}): sys.exit(1)
 PY
 done
 ok "every shard renders, and each declares workflow_dispatch + a package job"
+# The package-job epoch env must render the ${{ }} expression form. The
+# generator once emitted it from inside an f-string, collapsing {{ to {;
+# the runner then passes '${ ... }' through literally and
+# packaging/build-env.sh's epoch validation (non-integer => tg_die) fails
+# every package job.
+SHARD_COUNT=$(bash scripts/ngit-shards.sh list | wc -l | tr -d ' ')
+GOOD_EPOCH=$(grep -rlF 'SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}' \
+  .ngit/act/workflows/ | wc -l | tr -d ' ')
+[ "$GOOD_EPOCH" -eq "$SHARD_COUNT" ] \
+  && ok "every shard carries the \${{ }} epoch expression ($GOOD_EPOCH/$SHARD_COUNT)" \
+  || bad "every shard carries the \${{ }} epoch expression ($GOOD_EPOCH/$SHARD_COUNT)"
+if grep -rFq 'SOURCE_DATE_EPOCH: ${ ' .ngit/act/workflows/; then
+  bad "no shard carries a collapsed single-brace epoch env"
+else
+  ok "no shard carries a collapsed single-brace epoch env"
+fi
 # Negative control: perturb the plan and the check must fail.
 cp packaging/ngit-release-matrix.json "$TMP/plan.bak"
 python3 - <<'PY'

@@ -10,6 +10,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed / Internal
+
+- **The ngit release shards now carry a valid `SOURCE_DATE_EPOCH`
+  expression.** The shard generator emitted the package-job env line from
+  inside an f-string, collapsing `${{ … }}` to `${ … }` in all eleven
+  committed workflows — the runner passes that through literally and
+  `packaging/build-env.sh`'s epoch validation would have failed every
+  package job on the first ngit-lane release run. The line is now
+  token-emitted like every other brace-bearing template, the shards are
+  regenerated, and the pipeline test pins both the `${{ }}` form's
+  presence and the absence of the collapsed form.
+
 ### Fixed
 
 - **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
