@@ -24,9 +24,9 @@ concurrency:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  # Pinned patch release for reproducible binaries. Keep in sync with
-  # packaging/build-inputs.json (.go.version).
-  GO_VERSION: "1.25.8"
+  # The Go toolchain version is NOT set here: the compile-binaries job
+  # resolves it from packaging/build-inputs.json (.go.version) so the
+  # workflow and the manifest cannot drift apart (#448).
   DEBUG: "true"
   BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
   # Tag publishes must land on enough mirrors that the redundancy the channel
@@ -194,9 +194,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Reproducible binaries need the exact patch pinned in
+      # packaging/build-inputs.json (.go.version) — resolved here so the
+      # workflow and the manifest cannot drift apart (#448).
+      - name: Resolve the pinned Go from the manifest
+        id: go_pin
+        run: |
+          set -euo pipefail
+          echo "version=$(jq -r '.go.version' packaging/build-inputs.json)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ steps.go_pin.outputs.version }}
           cache: true
           cache-dependency-path: src/go.sum
 
@@ -379,6 +388,14 @@ jobs:
           echo "Portal assets built:"
           ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 
+      - name: Assert portal bundle contract
+        run: |
+          # Fails when the pinned revision carries the keyset-requiring token
+          # decode (#CU102) or when the committed bundle drifted from what the
+          # pin builds. Uses the checkout portal-build.sh just made in
+          # /tmp/tollgate-captive-portal-site.
+          bash tests/packaging/assert-portal-bundle-contract.sh
+
       - name: Resolve portal commit SHA
         id: portal-sha
         run: |
@@ -500,15 +517,19 @@ jobs:
           fi
 
           mkdir -p artifacts
+          # nodogsplash is a RUNTIME dependency (the module gates the network
+          # through the daemon): Replaces: it would purge the captive portal on
+          # install. Kept in step with packaging/local-build-ipk.sh by
+          # tests/packaging/package-nodogsplash-dependency_test.sh.
           env \
             PKG_NAME="$PACKAGE_NAME" \
             PKG_VERSION="${{ needs.determine-versioning.outputs.package_version }}" \
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
             LICENSE="GPL-3.0-only" \
-            DEPENDS="libc" \
+            DEPENDS="libc, nodogsplash, jq" \
             PROVIDES="nodogsplash-files" \
-            REPLACES="nodogsplash, base-files" \
+            REPLACES="base-files" \
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
 

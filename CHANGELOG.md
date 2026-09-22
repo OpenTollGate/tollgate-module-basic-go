@@ -10,8 +10,79 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0-alpha4] - 2026-09-22
+
+Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
+captive-portal lane (PR #513): the module now depends on `nodogsplash`
+instead of replacing it, the pre-auth allow list carries the `:443` entry the
+`:8080` → `https://` redirect needs, a reinstall whose version string is
+unchanged now re-asserts that list, and the management subnet steps out of the
+way of a colliding upstream. Nothing in the Go module changes. The version
+string moves to `v0.6.0-alpha4` (`0.6.0_alpha4-r0`) so that `apk` sees a real
+upgrade over `alpha3` and takes the full setup path rather than the
+same-version short branch.
+
+### Added
+
+- **Management subnet selection avoids upstream collisions instead of assuming
+  it is safe.** The private network's /24 was derived as "the LAN's /24 with
+  the third octet stepped by one" with no look at the upstream side, so a WAN
+  side that is itself a private LAN in that same /24 (a hotel, a site uplink,
+  another router's LAN) put the management subnet and the uplink subnet in the
+  same network: the private bridge's default route then pointed at an address
+  the router also owned, and traffic for the upstream's client range was
+  routed back into the router instead of out of the WAN. The candidate is
+  still the LAN-adjacent /24 — operators expect it and the DNS/DHCP defaults
+  assume it — but it is now checked against the LAN's real mask and against
+  every upstream-side network (the configured WAN address, plus every
+  non-LAN address the kernel knows, which is where DHCP/STA/FIPS uplinks
+  live), and a collision falls back to a random non-overlapping /24 from 10/8,
+  logged so a field report shows why. The Go-side knob
+  (`IPAddressRandomized`) is still only logged and stays out of scope here.
+  See
+  [docs/architecture/private-subnet-collision-avoidance-decision.md](docs/architecture/private-subnet-collision-avoidance-decision.md).
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+
 ### Fixed
 
+- **The captive portal no longer rejects v4 (`cashuB`) tokens that carry a
+  short keyset id.** The shipped portal is built from the revision pinned in
+  `packaging/build-inputs.json`, and that revision decoded the token with
+  `getDecodedToken(token)` — a call that needs a `MintKeyset` list and
+  therefore throws `A short keyset ID v2 was encountered, but got no keysets
+  to map it to` on every token whose keyset id is a short one, which is what
+  coinos/minibits hand out; the portal surfaced that to the user as `#CU102`
+  and the payment could not be made. `.portal.commit` moves
+  `992cf7f1` → `d699367` (upstream `main`, portal #55), which decodes through
+  the keyset-agnostic `getTokenMetadata` first, and the bundle was regenerated
+  from that pin with `bash packaging/portal-build.sh`, so the shipped bytes
+  and the pin agree again. ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517))
+
+- **Runtime downgrades recover in seconds, not the next proactive
+  cycle.** When all mints went unreachable under a running service, the
+  downgrade path wired the recovery trigger (#400) but nothing probed
+  aggressively — recovery waited for the 5-minute proactive check
+  (~13 minutes stuck in degraded mode observed live after a transient
+  mint blip). The aggressive 15-second probe loop that the startup path
+  already used is now armed on the runtime downgrade too, and it fires
+  the same first-reachable callback, so a wired recovery triggers within
+  seconds of the mint returning. The aggressive timings moved from
+  package constants to per-tracker fields so tests can shorten them
+  without shared mutable state (which itself raced under `-race`).
+  Fixes [#429](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/429).
+
+- **The schema's config-version default caught up to `v0.0.8` — and a
+  test now keeps every schema default in lockstep with the shipped
+  defaults.** The schema table still declared `v0.0.7` while
+  `NewDefaultConfig` and the migration stamp ship `v0.0.8` (the README
+  said v0.0.7 too; aligned).
+  `TestSchemaDefaultsMatchNewDefaultConfig` walks the schema and fails
+  on any leaf default that disagrees with `NewDefaultConfig` — the two
+  tables must change together, as the lenient-defaults change (#478)
+  had to do by hand. Verified by mutation: a one-sided default change
+  or a version regression reds the suite.
+
+### Fixed
 - **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
   same-version branch of `99-tollgate-setup` — the branch a reinstall or an
   apk upgrade takes while `/etc/tollgate-setup-done` still matches the
@@ -45,6 +116,182 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Gateway detection sees explicit default routes again; inference is a
+  last resort.** `netlink.RouteList` decodes default routes with `Dst`
+  as the parsed `0.0.0.0/0` (or `::/0`) rather than nil on the pinned
+  library version, so the detector's `Dst == nil` comparisons matched
+  nothing: both route-based lookup methods were dead code for IPv4 and
+  gateway selection always fell through to x.x.x.1 IP inference — which
+  can point reseller mode at the wrong gateway whenever the real one is
+  not the subnet's .1 (observed live in the #430 lab: an explicit
+  `default via 172.29.0.10 metric 100` was ignored in favor of an
+  inferred 172.29.0.1). A family-safe default-route predicate now
+  accepts both encodings, and the lowest-metric default wins when
+  several exist (kernel route-selection order). Root-caused with a
+  netns probe reproducing both route-add forms against the exact pinned
+  `vishvananda/netlink v1.3.1`. Fixes [#454](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/454).
+- **Installing the module no longer leaves the router without a captive
+  portal.** The SDK package definition declared no runtime dependency at all
+  (`DEPENDS:=+libc`), and the `.ipk` recipes stamped `Replaces: nodogsplash`
+  into the control file opkg reads. On the apk lane the shipped artifact
+  carried `depends:libc` and no `replaces` field (verified from the raw
+  `apk mkpkg` invocation in the build log), so nothing pulled or retained the
+  daemon: after installing on a GL-MT3000 running OpenWrt 25.12.5, nodogsplash
+  was gone and the portal was down until it was reinstalled by hand -- the same
+  failure class `packaging/preinst` documents for an undeclared runtime
+  dependency that a maintainer script needs ([#93](https://github.com/Amperstrand/tollgate-module-basic-go/issues/93)).
+  On the opkg lane `Replaces` supersedes the named package outright, so those
+  recipes would have removed the daemon too. The module's recipes now match the
+  shipping-path feed definition (`net/tollgate-wrt/Makefile`:
+  `DEPENDS:=+nodogsplash +jq`), keep the virtual `nodogsplash-files` ownership,
+  and narrow `Replaces` to `base-files`, where only the payload-file ownership
+  overlap is intentional.
+  `tests/packaging/package-nodogsplash-dependency_test.sh` pins the contract
+  across every recipe, their generated ngit shards and the built `.ipk`
+  control file.
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+- **Pre-auth clients can reach LuCI's TLS port, so the `:8080` redirect lands.**
+  `uhttpd.main.redirect_https` derives to `1` whenever a cert/key pair is
+  readable, so a captive-LAN client hitting the LuCI port on `:8080` is
+  answered `307 Location: https://<router>/` — but `setup_nodogsplash()`'s
+  pre-auth allow list covered `:2121`, `:8080`, `:2050`, `:2051`, `:8090` and
+  `:8443` and not `:443`, so nodogsplash REJECTed the redirect target and the
+  operator could not reach LuCI before authenticating at all: the same lockout
+  the neighbouring uhttpd ownership decision exists to prevent. The Go CLI's
+  `ssl enable` path already wrote this rule (`src/cmd/tollgate-cli/ssl.go`);
+  first boot — every freshly flashed router — was the only path without it.
+  The rule is now written with the rest of the list and matched as a whole
+  field, so `allow tcp port 8443` can never satisfy the `:443` check, whether
+  uci renders the list one entry per line or space separated. See
+  [docs/architecture/luci-https-pre-auth-reachability-decision.md](docs/architecture/luci-https-pre-auth-reachability-decision.md).
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+- **The same-version reinstall path re-asserts the captive-portal allow list.**
+  The short branch `99-tollgate-setup` takes when `/etc/tollgate-setup-done`
+  already equals the installed version verified the wireless APs and
+  re-asserted the uhttpd contract, but never wrote the nodogsplash
+  `users_to_router` allow list. An install of a build whose version string is
+  unchanged (the pre15 round over pre14: both reported `v0.6.0-alpha3`, so
+  `apk` saw the same package version and the flag stayed equal) therefore kept
+  the previous install's list verbatim and came out without the pre-auth
+  `:443` rule — nodogsplash REJECTed the `:8080` → `https://` redirect target
+  and the post-install sweep scored 4/9. The writer is now one idempotent
+  function (`assert_nodogsplash_allow_entries`) called by both the full-setup
+  and the same-version path: it adds only what is missing (a list holding
+  `:8443` but not `:443` gains `:443`, and the anchored `:443` match keeps
+  `:8443` from satisfying it) and never duplicates an entry, so a
+  same-version install repairs a stale or absent list instead of inheriting
+  it. `tests/uci-defaults-same-version-allowlist_test.sh` drives the real
+  same-version branch against a fake `uci`/`apk`.
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+
+### Changed / Internal
+- **ngit stage 1 now builds the portal from the pinned toolchain.** The
+  `build-portal` job stopped overriding `PORTAL_REF` with a floating `main`
+  (refused by the #466 reproducibility gate, red on every push to `main`
+  since) and pins node 22.17.0 with the GitHub twin's npm verification, so
+  the job matches `packaging/build-inputs.json` again.
+  ([#477](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/477))
+
+- **The committed portal bundle is now regenerated from the pin, and the
+  contract is guarded.** The checked-in copy under
+  `packaging/files/tollgate-captive-portal-site/` still listed
+  `assets/index-DxBkINUB.js` in `asset-manifest.json`, shipped a
+  `welcome.html` the pinned build no longer produces, and was missing the
+  `logo192/512.png` the pinned build does produce — a build log, not a
+  mirror of the pin. It now matches the pinned build output exactly, and
+  `tests/packaging/assert-portal-bundle-contract.sh` fails the build when the
+  pinned revision validates tokens with a keyset-requiring decode or when the
+  committed copy drifts from what the pin builds. ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517))
+- **The default production mint list is guarded against test mints.**
+  `defaultProductionMints()` is what a release-line configuration offers a
+  paying customer, so a test mint reaching it would route real traffic at a
+  throwaway mint; `config_manager_production_mints_test.go` pins both the
+  list itself and the release-line default config against
+  `testnut.cashu.space`, `nofee.testnut.cashu.space`,
+  `nofees.testnut.cashu.space` and `testnut.cashu.exchange`, and keeps the
+  `IsDevBuild()` gate that owns the one test mint the module does know
+  (`testnut.cashu.exchange`) under test. ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517))
+
+- **The ngit release shards now carry a valid `SOURCE_DATE_EPOCH`
+  expression.** The shard generator emitted the package-job env line from
+  inside an f-string, collapsing `${{ … }}` to `${ … }` in all eleven
+  committed workflows — the runner passes that through literally and
+  `packaging/build-env.sh`'s epoch validation would have failed every
+  package job on the first ngit-lane release run. The line is now
+  token-emitted like every other brace-bearing template, the shards are
+  regenerated, and the pipeline test pins both the `${{ }}` form's
+  presence and the absence of the collapsed form. ([#491](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/491))
+
+
+- **Pinned that an outage-refused payment never burns the token.** New
+  cloud-lab lane (`run-rejection-safety.sh`): a payment refused while the
+  mint is down must leave every proof UNSPENT at the mint (NUT-07) and
+  the same token must still buy a session after recovery; a replayed
+  token must never buy a second session (#423-class property).
+  ([#512](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/512))
+
+
+- **Dependency-sweep completion: every module resolves gonuts-tollgate
+  v0.12.1.** #506's bump touched the directly-declaring go.mods but left
+  `src/cli`'s indirect pin at v0.11.2, failing `make go-battery` there.
+  Tidied (caught independently in the #507 and #511 verification passes).
+  ([#516](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/516))
+
+- **Release lane: the portal build no longer passes a floating ref.**
+  Stage 1's build-portal step invoked `portal-build.sh` with
+  `PORTAL_REF=main`, which the script's pin-hardening rejects
+  outright ("does not match the pinned portal commit") — the job had
+  been red on every `main` push since the enforcement landed while the
+  pinned build itself was green. The step now uses the script default
+  (the manifest SHA).
+- **Fresh installs now size upstream prepay for a large renewal margin.**
+  Defaults move to `preferred_session_increments_bytes` 2,500,000,000
+  and `bytes_renewal_offset` 1,225,000,000 (49% of the increment —
+  renew near half a tank, just under the #442 clamp so it stays
+  dormant). Anchored to the #460/#465 simulation: the 2.5 GB tank keeps
+  the 10 s renewal trigger throttle from capping sustained throughput
+  below ~2 Gbps, and the offset covers multi-second payment RTTs at
+  gigabit rates; the previous pair (500,000,000 / 125,000,000) capped
+  gigabit uplinks at ~39% and left ~10 s of runway at 100 Mbps.
+  Operators on slow or expensive links should tune down per the
+  operator table in `tests/sim/RESULTS.md`. Existing saved configs are
+  not rewritten. ([#478](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/478))
+
+- **The cloud-lab's default client run is green as documented.** The
+  quick start brings up the full default topology (the fee tests need
+  `mint-fees`), the `requires_docker` pytest mark is registered, and
+  `run-keyset-rotation.sh` honors compose project isolation plus an
+  optional port-stripping override for shared hosts, layering compose
+  files correctly (base + override + extra) instead of replacing the
+  default set.
+  ([#485](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/485))
+
+- **Two-router autopay skips without the profile.** A default
+  `docker compose run --rm client` failed two reseller tests on
+  connection-refused whenever the two-router profile wasn't started;
+  the module now probes the reseller at collection (5 s grace) and
+  skips with the profile start command as the reason.
+  ([#484](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/484))
+
+- **Live external-mint lane in the cloud lab.** First committed coverage
+  against a Cashu mint this repo does not control: a profile-gated
+  `upstream-ext` service (its `accepted_mints` also lists
+  `testnut.cashu.exchange` — nutshell main with a FakeWallet, free test
+  ecash, active sat keyset fees `input_fee_ppk=10`) driven by
+  `tests/cloud-lab/run-external-mints.sh`. `test_external_mints.py`
+  pins, against the live mint: the keyset fee policy, a 1-sat token
+  terminated by the #409 below-swap-fee pre-check, and a fee-deducted
+  session credit. Gated on `EXTERNAL_MINTS=1`, skips with a reason when
+  the mint is down (canary, not gate); the default upstream stays
+  offline-only and real-money mints are never probed.
+  ([#476](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/476))
+
+- **Version-sync guard against placeholder duplication.** `check-version-sync.sh`
+  now fails when `__TOLLGATE_VERSION__` appears in more than one non-comment
+  line of `99-tollgate-setup`: the #459 bug was exactly such a second
+  occurrence (a literal sentinel in the case pattern) being rewritten by the
+  global packaging substitution. Complements the substitution-proof gate from
+  #463; comment mentions stay exempt.
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only
@@ -63,9 +310,50 @@ and [Semantic Versioning](https://semver.org/).
   the pin is now a hard build error, so the bundle can no longer silently come
   from a pin that cannot produce it.
 
+- **Go pin follows the official OpenWrt SDK feed (1.25.8 → 1.26.8).** The
+  reproducibility pin moves to the golang the pinned 25.12.0 SDK's packages
+  feed actually ships (`golang1.26-1.26.8-r1`), not a minor of our own
+  choosing: `packaging/build-inputs.json` gains
+  `.openwrt_sdk.go_per_release` — the official golang per OpenWrt release
+  line (23.05 → 1.21.13, 24.10 → 1.23.12, 25.12 → 1.26.8) — audited
+  against the live `openwrt/packages` branches and released feeds by the
+  new `scripts/sdk-go-version.sh` (`check` fails on drift, `update`
+  refreshes the map). Bumping the pin changes shipped-binary bytes once,
+  as any toolchain bump does.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+- **CI Go versions derive from `packaging/build-inputs.json`.** Every lane
+  that needs the reproducibility pin's Go (ngit `go-test`, ngit
+  `repro-check`, ngit `build-package-binaries` — whose workflow-level
+  `GO_VERSION` had drifted to a stale 1.25.0 after #434 closed unmerged —
+  and the GitHub `build-package` lane) resolves `go-version` from the
+  manifest at run time, so no lane-local literal can go stale again.
+  `test.yml` deliberately keeps resolving from `src/go.mod` (the module
+  minimum, unchanged). Also carries the bash-not-sh runbook note for the
+  release driver scripts (dash dies on their bash arrays).
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+- **Lane-local Go literals are refused, not just derived around.**
+  `scripts/check-version-sync.sh` (pre-commit hook and release
+  precondition) now fails on any literal `go-version`/`GO_VERSION` in a
+  workflow — even one that matches today's manifest, since it would go
+  stale on the next pin bump — and checks the 16 module `go.mod`
+  directives for internal consistency. The enforcement half of the
+  manifest-as-single-source design.
+  ([#448](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/448))
+
 ## [v0.6.0-alpha3] - 2026-09-21
 
 ### Fixed
+
+  [docs/architecture/uhttpd-redirect-https-ownership-decision.md](docs/architecture/uhttpd-redirect-https-ownership-decision.md)
+  ([#472](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/472)).
+
+- **Mints that recover after the tollgate booted are accepted again
+  without a restart.** The wallet's accepted-mint set was frozen at the
+  boot probe, so a configured mint that was unreachable at startup kept
+  rejecting tokens forever — even once healthy. The health tracker now
+  admits recovered mints into the running wallet
+  (`WalletPort.AcceptMint`), after the same 3-probe threshold that
+  governs recovery elsewhere. ([#486](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/486))
 
 - **Full setup re-runs again on apk-based OpenWrt (25.x) upgrades.** The
   packaging's global `__TOLLGATE_VERSION__` substitution also rewrote the
@@ -110,6 +398,16 @@ and [Semantic Versioning](https://semver.org/).
   attempted, closing the crash window between the irreversible swap and
   the aggregate response.
 
+- **UPX in the ngit release shards is pinned.** The upx legs installed
+  `upx-ucl` from apt unpinned — and upx output is part of the artifact
+  bytes, so those legs were only reproducible while the CI hosts' apt
+  snapshots agreed. All shards now fetch the UPX pinned in
+  `packaging/build-inputs.json` (5.2.1, sha256-verified) via
+  `scripts/fetch-upx.sh`, matching the GitHub twin; the apk
+  ultrabrute leg also provisions that binary into the SDK container,
+  which it was missing entirely
+  ([#474](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/474)).
+
 ### Added
 
 - **The admin board is reachable from captive clients.** `nodogsplash`'s
@@ -130,6 +428,24 @@ and [Semantic Versioning](https://semver.org/).
   finally the uci name ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
 
 ### Changed / Internal
+
+- **Recorded the captive-portal bundle-location decision.** The portal is
+  consumed as a hash-pinned CI-built artifact rather than merged into this
+  repo; the stale `portal.commit` pin and the guest-SPA-only
+  `portal-build.sh` are the real defects to fix. See
+  [docs/architecture/captive-portal-bundle-location-decision.md](docs/architecture/captive-portal-bundle-location-decision.md).
+
+- **Build the full captive-portal bundle in-tree from the pinned portal pin.**
+  `packaging/portal-build.sh` now stages all five portal build products into
+  `packaging/files/`: the guest SPA (`tollgate-captive-portal-site`), the admin
+  board SPA (`tollgate-admin/`, installed to `/www/tollgate`), the `tollgate`
+  rpcd plugin and its ACL, and the `92-tollgate-admin-setup` uci-default (with
+  `__ADMIN_HOME__` substituted for this build's webroot). The portal pin moves
+  to `OpenTollGate/tollgate-captive-portal-site@4f74a6dd…`. This implements the
+  approved bundle-location ADR above: the module builds and stages the whole
+  bundle instead of a stale, hand-vendored subset. A missing source artifact at
+  the pin is now a hard build error, so the bundle can no longer silently come
+  from a pin that cannot produce it.
 
 - **Renewal-policy simulation study (#460).** `tests/sim/renewal_sim.py`
   models the upstream renewal mechanics (poll cadence, #442 clamp,
@@ -265,11 +581,11 @@ and [Semantic Versioning](https://semver.org/).
   plus a documented manual step. See [`.ngit/README.md`](.ngit/README.md)
   for the measurements, the trigger differences and the end-to-end
   verification evidence.
-- **Merchant tests de-coupled from the Cashu wallet library (T16).** The
-  merchant token-flow tests no longer import the concrete wallet package; token
-  fixtures are centralised in `tokenfixture_test.go`. This keeps the tests
-  library-agnostic so the wallet backend can change without touching them.
-  ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
+- **Merchant tests de-coupled from the Cashu wallet library (T16).** Token
+  fixtures are centralised in `tokenfixture_test.go`, now the single place in
+  the merchant tests that touches a concrete Cashu library (gonuts) — swapping
+  the wallet backend is an edit to that one file plus a build-tagged sibling,
+  not to every test. ([#396](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/396))
 
 - **gonuts re-pin.** Re-pin `github.com/OpenTollGate/gonuts-tollgate`
   from the `tmp/release-integration` pseudo-version to the tagged release
@@ -1387,7 +1703,8 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha3...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...main
+[v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha4
 [v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0

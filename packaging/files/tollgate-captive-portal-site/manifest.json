@@ -3,6 +3,18 @@
   "name": "Tollgate Captive Portal",
   "icons": [
     {
+      "src": "logo192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "favicon.ico",
       "sizes": "72x72",
       "type": "image/x-icon"

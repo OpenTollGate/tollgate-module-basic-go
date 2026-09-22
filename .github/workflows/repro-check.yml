@@ -39,6 +39,11 @@ jobs:
           sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go.tgz
           echo "/usr/local/go/bin" >> "$GITHUB_PATH"
           go version
+      - name: Audit the SDK Go pins against the live OpenWrt feeds
+        # The pin's authority is the SDK's own packages feed: this fails when
+        # .go.version stops matching the pinned release's feed, or when the
+        # go_per_release map drifts from the openwrt/packages branches.
+        run: scripts/sdk-go-version.sh check
       - name: Deterministic binary rebuild check
         run: bash scripts/repro-test.sh binaries x86_64
 

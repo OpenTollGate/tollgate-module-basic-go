@@ -113,6 +113,10 @@ func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
 		}
 		reachableMints := full.GetMintHealthTracker().GetReachableMintConfigs()
 		if len(reachableMints) > 0 {
+			// A configured mint that was unreachable at boot may have
+			// recovered — grow the wallet's accepted set so its tokens
+			// are no longer rejected (#481).
+			full.AdmitReachableMints()
 			return
 		}
 		mainLogger.Warn("All mints unreachable — downgrading to degraded mode")
@@ -130,6 +134,12 @@ func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
 		// first-reachable callback is registered; without this the service
 		// stays degraded until manually restarted (#400).
 		deg.WireRecoveryTrigger()
+		// Arm the aggressive probe loop on the downgrade itself: recovery
+		// otherwise waits for the next 5-minute proactive cycle (~13 min
+		// stuck-degraded observed live); the aggressive loop fires the same
+		// first-reachable callback within seconds of the mint returning
+		// (#429).
+		full.GetMintHealthTracker().ArmAggressiveRetry()
 		swapMerchant(deg)
 	})
 }

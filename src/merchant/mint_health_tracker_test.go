@@ -3,6 +3,8 @@ package merchant
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -930,4 +932,73 @@ func TestRunInitialProbe_PartialReachable_SetsCorrectCount(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected reachableCount=1, got %d", count)
 	}
+}
+
+// TestArmAggressiveRetry_RecoversWithinSeconds pins #429: after a runtime
+// downgrade (healthy start, mint blip, degraded re-registration), arming the
+// aggressive loop must fire the first-reachable callback within the
+// aggressive interval — not wait for the 5-minute proactive cycle.
+func TestArmAggressiveRetry_RecoversWithinSeconds(t *testing.T) {
+
+	var healthy atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/keysets" && healthy.Load() {
+			writeKeysetsOK(w)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	// Short per-instance aggressive timings, set before any loop starts:
+	// no package-level mutable state, nothing to restore, no race window.
+	tracker.aggressiveInterval = 30 * time.Millisecond
+	tracker.aggressiveTimeout = 500 * time.Millisecond
+	tracker.aggressiveWindow = 30 * time.Second
+
+	// Healthy start: probe reaches, proactive checks run (no aggressive —
+	// reachableCount > 0).
+	healthy.Store(true)
+	tracker.RunInitialProbe()
+	if !tracker.IsReachable(srv.URL) {
+		t.Fatal("setup: mint should be reachable after initial probe")
+	}
+	tracker.StartProactiveChecks()
+	defer tracker.Stop()
+
+	// Mint blip: mint goes away, the proactive check marks it unreachable,
+	// and the downgrade path re-registers the degraded trigger (this resets
+	// hadReachableMint, exactly as WireRecoveryTrigger does).
+	healthy.Store(false)
+	tracker.RunProactiveCheck()
+	if tracker.IsReachable(srv.URL) {
+		t.Fatal("setup: mint should be unreachable after the blip")
+	}
+	fired := make(chan struct{})
+	var once sync.Once
+	tracker.SetOnFirstReachableForDegraded(func() {
+		once.Do(func() { close(fired) })
+	})
+
+	// Mint returns; WITHOUT arming, nothing fires within the shortened
+	// proactive interval.
+	healthy.Store(true)
+	select {
+	case <-fired:
+		t.Fatal("recovery fired without arming — the test no longer discriminates")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// Arm (#429): recovery must arrive within the aggressive interval.
+	tracker.ArmAggressiveRetry()
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("aggressive retry did not fire first-reachable within 2s of arming")
+	}
+
+	// Idempotence: arming again while a loop is winding down must not
+	// panic or double-fire (the once-guard above asserts single fire).
+	tracker.ArmAggressiveRetry()
 }

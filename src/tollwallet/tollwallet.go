@@ -30,6 +30,10 @@ type TollWallet struct {
 	allowAndSwapUntrustedMints bool
 	registeredMints            map[string]bool
 	mu                         sync.Mutex
+	// mintMu guards acceptedMints: AcceptMint grows the slice at runtime
+	// (late-admission of a recovered mint) while Receive reads it on every
+	// payment.
+	mintMu sync.RWMutex
 }
 
 // New creates a new Cashu wallet instance
@@ -183,6 +187,31 @@ func (w *TollWallet) Shutdown() error {
 	return nil
 }
 
+// AcceptMint admits a configured mint into the accepted set at runtime.
+// It exists because the set is otherwise frozen at wallet construction:
+// a mint that was unreachable at boot (mint outage during router
+// startup) would stay rejected forever even after it recovered. The
+// health tracker calls this when a configured mint becomes reachable.
+// Idempotent; registration with the underlying wallet is best-effort —
+// Receive's ensureMintRegistered retries it on first use.
+func (w *TollWallet) AcceptMint(mintURL string) error {
+	mint := normalizeMintURL(mintURL)
+
+	w.mintMu.Lock()
+	if contains(w.acceptedMints, mint) {
+		w.mintMu.Unlock()
+		return nil
+	}
+	w.acceptedMints = append(w.acceptedMints, mint)
+	w.mintMu.Unlock()
+
+	if w.wallet != nil {
+		w.registerMint(mint)
+	}
+	log.Printf("TollWallet.AcceptMint: admitted mint %s", mint)
+	return nil
+}
+
 // NUT #00: `Carol` can send `(x, C)` to `Bob` who then checks that `k*hash_to_curve(x) == C` (**verification**), and if so treats it as a valid spend of a token, adding `x` to the list of spent secrets.
 func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 	mint := token.Mint()
@@ -193,9 +222,13 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 
 	swapToTrusted := false
 
-	if !contains(w.acceptedMints, mint) {
+	w.mintMu.RLock()
+	accepted := w.acceptedMints
+	w.mintMu.RUnlock()
+
+	if !contains(accepted, mint) {
 		if !w.allowAndSwapUntrustedMints {
-			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints. Accepted: %v", mint, w.acceptedMints)
+			err := fmt.Errorf("Token rejected. Token for mint %s is not accepted and wallet does not allow swapping of untrusted mints. Accepted: %v", mint, accepted)
 			return 0, err
 		}
 		swapToTrusted = true

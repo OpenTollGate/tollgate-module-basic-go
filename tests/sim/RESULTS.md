@@ -20,10 +20,11 @@ Measured: 1 Gbps link achieves 3.5% / 8.8% / 19.4% / 38.8% / 79.3% / 100%
 across that column; 100 Mbps achieves 100% from 250 MB up; ≤25 Mbps links
 never bind. Offset fraction (10/25/40%) changed nothing on fast links.
 
-**F2 — The shipped #450 defaults (500 MB preferred, 125 MB offset) are
+**F2 — The #450 defaults (500 MB preferred, 125 MB offset) were
 well-chosen for ≤400 Mbps uplinks** (100% of link at 100 Mbps, zero
 stalls). Gigabit resellers need 1–2.5 GB increments to use their pipe;
-at 500 MB they cap at ~39%.
+at 500 MB they cap at ~39%. (Superseded as the shipped default by the
+lenient pair — see the note under the operator table.)
 
 **F3 — The offset's only real job is covering payment latency.** It binds
 exactly when `offset < payment_RTT × link_rate`: at 100 Mbps with an
@@ -52,10 +53,20 @@ flight) as long as F3's rule holds for the bytes metric's tank size.
 |---|---|---|---|
 | 3G (~3 Mbps) | 50–125 MB | 25% | stall-impossible; keep capital light |
 | 4G (~25 Mbps) | 125–250 MB | 25% | churn ≤ ~80/h |
-| Cable/fiber ≤100 Mbps | 250–500 MB | 25% | **shipped default fits** |
+| Cable/fiber ≤100 Mbps | 250–500 MB | 25% | any tank ≥50 MB is stall-free (F4); tune down from the default to cut capital |
 | Satellite (20 Mbps, high RTT) | 125–250 MB | 25% | RTT covered at this rate |
-| ≥1 Gbps | 1–2.5 GB | 10–25% | throttle-bound; 500 MB caps at ~39% |
+| ≥1 Gbps | 1–2.5 GB | 10–25% | throttle-bound; **shipped default (2.5 GB / 49%) fits** |
 | ~$10/GB-class pricing | 50–125 MB | 25% | cap stranded capital |
+
+> **Shipped default since the lenient-defaults change**
+> ([#478](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/478)): 2.5 GB
+> preferred / 1.225 GB offset (49% — renew near half a tank, under the
+> #442 clamp). Chosen so the happy path holds across the whole table
+> except the expensive-pricing row: throttle ceiling ~2 Gbps (2×
+> line-rate headroom, F1), offset covering F3's `2 × RTT × rate` rule
+> up to ~5 s RTT at 1 Gbps. Tune **down** per the table on slow,
+> expensive, or churn-sensitive links — per F4 smaller tanks cost zero
+> stall risk and only trade renewal frequency and stranded capital.
 
 ## Verdict: static-per-profile now, adaptive later
 

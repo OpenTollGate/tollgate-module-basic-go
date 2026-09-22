@@ -214,7 +214,7 @@ jobs:
       # stamp mtimes from SOURCE_DATE_EPOCH (#383); it must be the same
       # epoch the binaries were compiled with (resolve-inputs extracts it
       # from the stage-1 record).
-      SOURCE_DATE_EPOCH: ${ needs.resolve-inputs.outputs.source_date_epoch }
+      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}
     strategy:
       fail-fast: false
       matrix:
@@ -336,6 +336,15 @@ jobs:
             USE_UPX=1
             UPX_FLAGS="${{ matrix.compression }}"
             UPX_FLAGS="${UPX_FLAGS#upx-}"
+          fi
+
+          # Pinned UPX into the SDK container: packaging/Makefile runs `upx`
+          # from PATH when USE_UPX=1, the SDK image ships none, and apt's
+          # upx-ucl floats while its output IS part of the artifact.
+          if [ "$USE_UPX" = "1" ]; then
+            UPX_DIR=$(bash src-checkout/scripts/fetch-upx.sh)
+            docker exec -i "$SVC" sh -c 'cat > /usr/local/bin/upx && chmod 0755 /usr/local/bin/upx' < "$UPX_DIR/upx"
+            docker exec "$SVC" upx --version | head -1
           fi
 
           docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \

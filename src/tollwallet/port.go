@@ -240,6 +240,12 @@ type WalletPort interface {
 	// wallet proofs.
 	Melt(quoteID string) (*MeltResult, error)
 
+	// AcceptMint admits a configured mint into the accepted set at
+	// runtime (idempotent). Mints unreachable at wallet construction are
+	// otherwise rejected forever, even after they recover — the health
+	// tracker calls this when a configured mint becomes reachable.
+	AcceptMint(mintURL string) error
+
 	// Shutdown releases wallet resources (database handles, CGO
 	// objects). Must be idempotent.
 	Shutdown() error

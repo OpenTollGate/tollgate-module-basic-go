@@ -4,8 +4,9 @@
 # no service restarts here (uci-defaults runs before procd brings services up).
 #
 # The flag file stores the setup version. On reinstall/upgrade:
-# - Same version → verify wireless APs and re-assert the uhttpd contract
-#   (uhttpd.main/uhttpd.portal drift is repaired; the rest is not re-run)
+# - Same version → verify wireless APs, re-assert the uhttpd contract and the
+#   nodogsplash pre-auth allow list (uhttpd.main/uhttpd.portal drift and a
+#   stale users_to_router list are repaired; the rest is not re-run)
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
@@ -365,39 +366,84 @@ setup_hostname() {
     log "Hostname applied to running kernel: ${final_hostname}"
 }
 
-setup_nodogsplash() {
+# The ONE writer of nodogsplash's pre-auth allow list, shared by the full-setup
+# path (setup_nodogsplash, below) and the same-version path (the driver's
+# short branch): a stale or absent users_to_router list must be repaired by
+# every setup path, not only first boot. A same-version install — one whose
+# /etc/tollgate-setup-done already equals SETUP_VERSION, e.g. the pre15 round
+# over pre14 while both reported v0.6.0-alpha3 — used to verify the wireless
+# APs and re-assert the uhttpd contract and nothing else, so it kept whatever
+# allow list the previous install left behind: the pre-auth :443 rule below was
+# missing on the router and the post-install sweep came out 4/9.
+#
+# Idempotent by construction: each rule is added only when its whole entry is
+# absent, so re-running adds nothing and duplicates nothing, and a config that
+# has :8443 but not :443 gains exactly :443 (the anchored match below is what
+# keeps :8443 from satisfying the :443 check).
+assert_nodogsplash_allow_entries() {
     [ -f /etc/config/nodogsplash ] || touch /etc/config/nodogsplash
     if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
         uci add nodogsplash nodogsplash >/dev/null
     fi
-    uci set nodogsplash.@nodogsplash[0].enabled='1'
-    uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
-    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # Add firewall allow rules only if not already present (idempotent).
     local nds_users
     nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
-    if ! echo "$nds_users" | grep -q "port 2121"; then
+    if ! uci_list_has_port 2121; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
     fi
-    if ! echo "$nds_users" | grep -q "port 8080"; then
+    if ! uci_list_has_port 8080; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
     fi
-    if ! echo "$nds_users" | grep -q "port 2050"; then
+    if ! uci_list_has_port 2050; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
     fi
-    if ! echo "$nds_users" | grep -q "port 2051$"; then
+    if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
     # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) must be
     # reachable from the captive LAN unauthenticated, exactly like LuCI on
     # :8080. Folded in here (not installer-side) so a plain apk/opkg install
     # yields a working admin URL.
-    if ! echo "$nds_users" | grep -q "port 8090"; then
+    if ! uci_list_has_port 8090; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090'
     fi
-    if ! echo "$nds_users" | grep -q "port 8443"; then
+    if ! uci_list_has_port 8443; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
     fi
+    # :443 belongs with :8080 above: with a cert/key pair in place
+    # uhttpd.main sets redirect_https=1 and answers the :8080 LuCI port with
+    # `307 Location: https://<router>/`, so the pre-auth client that follows
+    # the redirect needs a nodogsplash rule for :443 or it dead-ends on a port
+    # the gateway still REJECTs — the operator lockout
+    # docs/architecture/uhttpd-redirect-https-ownership-decision.md exists to
+    # prevent; the :8443 admin-board HTTPS rule above is allowed for the same
+    # reason. tollgate-cli's
+    # `ssl enable` path already writes this rule for the routers that enable
+    # TLS from the CLI (src/cmd/tollgate-cli/ssl.go); first boot was the only
+    # path without it. Whole-field matching via uci_list_has_port (see #516).
+    if ! uci_list_has_port 443; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
+    fi
+}
+
+
+# uci_list_has_port P: succeeds when the users_to_router listing already
+# contains a whole `port P` field. `uci get` renders a list option either
+# one entry per line OR as a quoted single-line list ('a' 'b' ...); the
+# delimiters below cover both renderings — plain substring or
+# end-of-line matching misses the quoted form and duplicates the rule on
+# every rerun (#516).
+uci_list_has_port() {
+    printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
+}
+
+setup_nodogsplash() {
+    # The section, its pre-auth allow list and the whole-list repair live in
+    # one place so the same-version path can call exactly the same writer.
+    assert_nodogsplash_allow_entries
+    uci set nodogsplash.@nodogsplash[0].enabled='1'
+    uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping
@@ -478,10 +524,171 @@ enable_modems() {
     done
 }
 
+# -- management (private) subnet selection -----------------------------------
+#
+# The private network's /24 is picked next to the LAN's (x.y.(z+1).0/24): that
+# is what operators expect and what the DNS/DHCP defaults assume. It is only
+# safe while it does not overlap a network the router is already attached to
+# on the upstream side -- the private bridge's default route leaves through
+# the WAN, so a management subnet that contains, or sits inside, the upstream
+# subnet makes traffic for that subnet route back into the router instead of
+# out of the WAN. Seen in the field with a DHCP upstream in the same /24 the
+# deterministic rule had picked.
+#
+# POSIX sh / BusyBox ash only: cut, tr, grep, awk, hexdump.
+
+octet_of() { echo "$1" | cut -d. -f"$2"; }
+prefix24_of() { echo "$1" | cut -d. -f1-3; }
+
+# 255.255.255.0 -> 24. An absent mask is treated as /24, the unit the
+# collision check works in.
+netmask_to_prefixlen() {
+    local bits=0 o
+    for o in $(echo "$1" | tr '.' ' '); do
+        case "$o" in
+            255) bits=$((bits + 8)) ;;
+            254) bits=$((bits + 7)) ;;
+            252) bits=$((bits + 6)) ;;
+            248) bits=$((bits + 5)) ;;
+            240) bits=$((bits + 4)) ;;
+            224) bits=$((bits + 3)) ;;
+            192) bits=$((bits + 2)) ;;
+            128) bits=$((bits + 1)) ;;
+            0) ;;
+        esac
+    done
+    if [ "$bits" -gt 0 ]; then echo "$bits"; else echo 24; fi
+}
+
+# The networks the management /24 must not overlap, as CIDR strings. Two
+# sources, because an upstream address lives in exactly one of them: the
+# configured WAN address (static setups carry it in UCI) and the kernel's view
+# of every address that is not the LAN or the private bridge itself -- a
+# DHCP/STA/FIPS uplink only exists there.
+upstream_networks() {
+    local lan_dev priv_dev wan_ip wan_mask
+    lan_dev=$(uci -q get network.lan.device 2>/dev/null)
+    priv_dev=$(uci -q get network.private.device 2>/dev/null)
+    [ -n "$lan_dev" ] || lan_dev="br-lan"
+    [ -n "$priv_dev" ] || priv_dev="br-private"
+
+    wan_ip=$(uci -q get network.wan.ipaddr 2>/dev/null)
+    if [ -n "$wan_ip" ]; then
+        wan_mask=$(uci -q get network.wan.netmask 2>/dev/null)
+        [ -n "$wan_mask" ] || wan_mask="255.255.255.0"
+        echo "${wan_ip}/$(netmask_to_prefixlen "$wan_mask")"
+    fi
+
+    command -v ip >/dev/null 2>&1 || return 0
+    ip -4 -o addr show 2>/dev/null | awk -v lan="$lan_dev" -v priv="$priv_dev" '
+        {
+            for (i = 1; i <= NF; i++) {
+                if ($i == "inet") {
+                    split($(i + 1), a, "/")
+                    if ($2 != "lo" && $2 != lan && $2 != priv) print a[1] "/" a[2]
+                    break
+                }
+            }
+        }'
+}
+
+# Does the /24 prefix $1 ("a.b.c") overlap the network given as CIDR $2?
+subnet_overlaps_cidr() {
+    local cand="$1" cidr="$2" addr len
+    addr="${cidr%%/*}"
+    len="${cidr#*/}"
+    [ "$len" = "$cidr" ] && len=24
+    case "$len" in
+        ''|*[!0-9]*) len=24 ;;
+    esac
+    if [ "$len" -le 8 ]; then
+        [ "$(octet_of "$cand" 1)" = "$(octet_of "$addr" 1)" ]
+    elif [ "$len" -le 16 ]; then
+        [ "$(octet_of "$cand" 1)" = "$(octet_of "$addr" 1)" ] &&
+            [ "$(octet_of "$cand" 2)" = "$(octet_of "$addr" 2)" ]
+    else
+        [ "$(octet_of "$cand" 1)" = "$(octet_of "$addr" 1)" ] &&
+            [ "$(octet_of "$cand" 2)" = "$(octet_of "$addr" 2)" ] &&
+            [ "$(octet_of "$cand" 3)" = "$(octet_of "$addr" 3)" ]
+    fi
+}
+
+# Is the /24 prefix $1 excluded by any of the CIDRs in the remaining args?
+subnet_conflicts() {
+    local cand="$1" cidr
+    shift
+    for cidr in "$@"; do
+        [ -n "$cidr" ] || continue
+        if subnet_overlaps_cidr "$cand" "$cidr"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# One random octet (0-255), using the same BusyBox-safe hexdump idiom as the
+# RSSID suffix above (BusyBox has no `od` guarantee; hexdump it ships).
+random_octet() {
+    local hex
+    hex=$(hexdump -n 1 -e '4/1 "%02X"' /dev/urandom 2>/dev/null | cut -c1-2)
+    case "$hex" in
+        [0-9a-fA-F][0-9a-fA-F]) echo "$(( 0x$hex ))" ;;
+        *) echo 0 ;;
+    esac
+}
+
+# Choose the /24 prefix ("a.b.c") for the management network.
+# $1 is the deterministic, LAN-adjacent candidate, kept whenever it is safe;
+# the remaining arguments are CIDRs it must not overlap.
+choose_private_subnet() {
+    local candidate="$1" tries=0 pick
+    shift
+
+    if ! subnet_conflicts "$candidate" "$@"; then
+        echo "$candidate"
+        return 0
+    fi
+
+    log "Private subnet ${candidate}.0/24 overlaps an upstream-side network; selecting a random non-overlapping /24"
+    while [ "$tries" -lt 32 ]; do
+        pick="10.$(random_octet).$(random_octet)"
+        if ! subnet_conflicts "$pick" "$@"; then
+            echo "$pick"
+            return 0
+        fi
+        tries=$((tries + 1))
+    done
+
+    # Pathological case (an upstream /8, a broken RNG): walk 10/8 for the
+    # first free /24 instead of handing out a subnet we know collides.
+    tries=0
+    while [ "$tries" -lt 4096 ]; do
+        pick="10.$((tries / 256)).$((tries % 256))"
+        if ! subnet_conflicts "$pick" "$@"; then
+            echo "$pick"
+            return 0
+        fi
+        tries=$((tries + 1))
+    done
+
+    log "WARNING: no free management /24 upstream of the collision; keeping ${candidate}.0/24"
+    echo "$candidate"
+}
+
 # Consumes RANDOM_SUFFIX; derives a private /24 adjacent to the LAN subnet.
 # Consumes R2G/R5G (from detect_band_radios) for band-correct radio binding.
 setup_private_network() {
-    local lan_ip octet1 octet2 octet3 private_octet3 private_ip private_ssid private_key
+    local lan_ip lan_mask candidate_prefix candidate_octet3 private_prefix private_ip
+    local private_ssid private_key
+
+    # On routers without a 2.4 GHz radio, private_radio0 rides the 5 GHz
+    # radio so the management network keeps existing at all.
+    PRIV2G="$R2G"
+    [ -n "$PRIV2G" ] || PRIV2G="$R5G"
+    if [ -z "$PRIV2G" ]; then
+        log "ERROR: no usable radio for the private network; skipping"
+        return
+    fi
 
     # On routers without a 2.4 GHz radio, private_radio0 rides the 5 GHz
     # radio so the management network keeps existing at all.
@@ -497,15 +704,26 @@ setup_private_network() {
         log "ERROR: no network.lan.ipaddr; skipping private network"
         return
     fi
-    octet1=$(echo "$lan_ip" | cut -d. -f1)
-    octet2=$(echo "$lan_ip" | cut -d. -f2)
-    octet3=$(echo "$lan_ip" | cut -d. -f3)
-    if [ "$octet3" -eq 255 ]; then
-        private_octet3=$((octet3 - 1))
+    # Candidate: the /24 next to the LAN, kept when it is free -- operators
+    # expect it and the DNS/DHCP defaults assume it -- and replaced only when
+    # it would overlap the LAN's own mask or a network on the upstream side
+    # (see choose_private_subnet: a colliding management subnet routes the
+    # upstream's own address range back into the router).
+    lan_mask=$(uci -q get network.lan.netmask)
+    [ -n "$lan_mask" ] || lan_mask="255.255.255.0"
+    candidate_prefix=$(prefix24_of "$lan_ip")
+    candidate_octet3=$(octet_of "$candidate_prefix" 3)
+    if [ "$candidate_octet3" -eq 255 ]; then
+        candidate_octet3=$((candidate_octet3 - 1))
     else
-        private_octet3=$((octet3 + 1))
+        candidate_octet3=$((candidate_octet3 + 1))
     fi
-    private_ip="${octet1}.${octet2}.${private_octet3}.1"
+    candidate_prefix="$(octet_of "$candidate_prefix" 1).$(octet_of "$candidate_prefix" 2).${candidate_octet3}"
+
+    private_prefix=$(choose_private_subnet "$candidate_prefix" \
+        "${lan_ip}/$(netmask_to_prefixlen "$lan_mask")" \
+        $(upstream_networks))
+    private_ip="${private_prefix}.1"
 
     # Preserve credentials across reruns: a SETUP_VERSION bump triggers a
     # full setup on upgraded routers, and regenerating the SSID/PSK there
@@ -618,7 +836,7 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     # persisted from a prior install).
     : > "$LOGFILE"
     chmod 600 "$LOGFILE"
-    log "Flag matches $SETUP_VERSION — verifying wireless APs and the uhttpd contract"
+    log "Flag matches $SETUP_VERSION — verifying wireless APs, the uhttpd contract and the portal allow list"
 
     load_brand
 
@@ -657,6 +875,25 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
         log "uhttpd config re-asserted (drift repaired)"
     else
         log "uhttpd config already matches the contract — nothing to commit"
+    fi
+
+    # The captive-portal allow list is re-asserted here for the same reason
+    # the uhttpd contract is: this path runs on every reinstall whose version
+    # string is unchanged, and the list decides what the pre-auth client can
+    # reach at all. A list written by an older install (or by an install
+    # predating a new rule) survived the reinstall untouched, so the pre-auth
+    # :443 allow entry was missing on a router that had just been "upgraded" —
+    # nodogsplash REJECTed the redirect_https hop and LuCI stayed unreachable.
+    # Idempotent: nothing is added when the list is already complete, and the
+    # export diff decides whether a commit is needed at all.
+    nds_before=$(uci export nodogsplash)
+    assert_nodogsplash_allow_entries
+    nds_after=$(uci export nodogsplash)
+    if [ -z "$nds_before" ] || [ "$nds_before" != "$nds_after" ]; then
+        uci commit nodogsplash
+        log "nodogsplash allow list re-asserted (missing pre-auth entries repaired)"
+    else
+        log "nodogsplash allow list already complete — nothing to commit"
     fi
 
     # The #428 loop guard must also fire here: a device upgrading from a

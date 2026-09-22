@@ -1,13 +1,16 @@
-# TollGate v0.6.0-alpha3 (tollgate-wrt)
+# TollGate v0.6.0-alpha4 (tollgate-wrt)
 
-**Released**: 2026-09-21
+**Released**: 2026-09-22
 **Channel**: `alpha` — a tester-facing release candidate, not a stable
 release. Expect rough edges; report them.
 
 <!-- markdownlint-disable MD013 -->
 
-`v0.6.0-alpha3` supersedes `v0.6.0-alpha2`, which was prepared on
-2026-09-13 but never tagged or published. It is the first TollGate
+`v0.6.0-alpha4` supersedes two never-published predecessors:
+`v0.6.0-alpha2` (prepared 2026-09-13, never tagged) and
+`v0.6.0-alpha3` (tagged 2026-09-21 but held back before a single
+artifact shipped — the ngit mirror had been re-keyed mid-migration and
+the portal pin had drifted past its manifest). It is the first TollGate
 release **published from the Nostr CI lane** — GitHub Actions has been
 down org-wide since 2026-08-27 — and the first whose published
 artifacts are reproducible byte-for-byte (pinned toolchains plus a
@@ -27,6 +30,28 @@ nodogsplash 5.0.2; upgrades no longer abort on minimal systems without
 process-isolated wallet sidecar architecture (alpha quality, unit
 tested, not router-validated) that lets a non-Go wallet back the
 module behind the unchanged `WalletPort` contract.
+
+## What v0.6.0-alpha4 changes
+
+- **The captive portal is a dependency, not something the package
+  replaces.** The SDK package definition declared no runtime dependency and
+  the `.ipk` recipes stamped `Replaces: nodogsplash`, so an install could end
+  up with no portal manager at all. `DEPENDS` now carries `nodogsplash` and
+  the `Replaces` line is gone.
+- **The pre-auth allow list carries `:443`.** With a cert/key pair in place
+  `uhttpd.main` answers the `:8080` LuCI port with `307 Location:
+  https://<router>/`; the client that follows that redirect needs a
+  nodogsplash rule for `:443` or it dead-ends on a port the gateway still
+  REJECTs — which is how LuCI became unreachable before authentication.
+- **A same-version reinstall re-asserts that list.** The short branch taken
+  when `/etc/tollgate-setup-done` already equals the installed version now
+  repairs a stale or absent `users_to_router` list instead of inheriting it,
+  idempotently (missing entries are added, nothing is duplicated).
+- **The management subnet steps aside when the upstream collides.** The
+  private `/24` is no longer assumed collision-free against a private WAN; a
+  collision falls back to a random non-overlapping `/24`.
+
+The entries, tests and links are in [CHANGELOG.md](CHANGELOG.md).
 
 ## At a glance
 
@@ -79,6 +104,11 @@ module behind the unchanged `WalletPort` contract.
   Wi-Fi scanning addresses the radio's real interfaces instead of the
   uci section name
   ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
+- **The package ships the full pinned portal bundle**: the guest SPA,
+  the admin board SPA and the `tollgate` rpcd plugin all build in-tree
+  from the manifest pin (#466) — a missing artifact at the pin is now a
+  hard build error — and apk-based OpenWrt 25.x upgrades run setup
+  again: the version gate no longer self-matches (#463, fixes #459).
 - **Wallet sidecar architecture (alpha feature)**
   ([#395](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/395)):
   a `WalletPort` client speaking newline-delimited JSON-RPC over an
@@ -197,6 +227,14 @@ runs the documented Go gate across all 16 modules (#455).
 
 ## Notable bug fixes
 
+- **v4 (`cashuB`) tokens with short keyset ids are accepted again.** The
+  shipped portal decoded them through a call that requires a keyset
+  list, so every token from a coinos/minibits-style mint failed with
+  `#CU102` and the payment could not be made. The portal pin moves to
+  the keyset-agnostic decode (portal #55, `992cf7f1` → `d699367`) and
+  the shipped bundle is regenerated from that pin
+  ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517)).
+
 - A runtime downgrade recovers when a mint comes back (live case: 2 h+
   degraded with a healthy probe)
   ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400));
@@ -225,6 +263,12 @@ runs the documented Go gate across all 16 modules (#455).
   ([#456](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/456));
   `make go-battery` runs the whole Go gate
   ([#455](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/455)).
+- A renewal-policy simulation study with measured results (the 10-s
+  throttle cap, the right defaults for ≤400 Mbps uplinks), and the
+  cloud-lab e2e driver honors the documented compose override
+  ([#465](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/465));
+  the captive-portal bundle-location decision is recorded as an ADR
+  ([#462](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/462)).
 - Tester guide and the single-channel tester intake with S1 stop-ship
   rules
   ([#381](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/381));
@@ -288,23 +332,26 @@ runs the documented Go gate across all 16 modules (#455).
 
 - **Back up the wallet directory and `/etc/tollgate/config.json`
   before upgrading.**
-- **`.ipk` filenames** are `tollgate-wrt_v0.6.0-alpha3_<arch>.ipk`
+- **`.ipk` filenames** are `tollgate-wrt_v0.6.0-alpha4_<arch>.ipk`
   (UPX variants add a `-upx-…` suffix); the control-file version is
   the tag name verbatim. `opkg install` on OpenWrt 24.10 and earlier.
 - **`.apk` (OpenWrt 25.x)**: the sharded pipeline is built to let the
   SDK legs finish within their budgets; whether they do on a real tag
   is exactly what this RC establishes. Check for announcements before
   promising 25.x testers anything.
-- **Do not reuse `v0.6.0-alpha1` or any `v0.7.0-alpha*` package** —
-  fork tags, unmerged branches, no usable artifacts.
+- **Do not reuse `v0.6.0-alpha1/2/3` or any `v0.7.0-alpha*` package** —
+  none of them published a single artifact: alpha1's prerelease page is
+  empty, and the alpha2/alpha3 tags were cut but shipped nothing
+  (alpha3 was held back by release-lane incidents and is superseded by
+  this release).
 - **Expect a setup rerun after installing.** Existing WiFi/portal
   configuration is preserved; the hostname moves with the brand unless
   you set your own; check `/tmp/tollgate-setup.log` (root-only).
 
-## Getting v0.6.0-alpha3
+## Getting v0.6.0-alpha4
 
 - Packages are announced as NIP-94 kind-`1063` events
-  (`n=tollgate-wrt`, `v=v0.6.0-alpha3`, `c=alpha`). Filter by **both**
+  (`n=tollgate-wrt`, `v=v0.6.0-alpha4`, `c=alpha`). Filter by **both**
   publisher keys — the ngit CI key publishes now; the historical
   Actions key never will again:
 
@@ -312,7 +359,7 @@ runs the documented Go gate across all 16 modules (#455).
   nak req -k 1063 \
       -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
       -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
-      --tag n=tollgate-wrt --tag v=v0.6.0-alpha3 --limit 50 \
+      --tag n=tollgate-wrt --tag v=v0.6.0-alpha4 --limit 50 \
       wss://relay.damus.io wss://nos.lol wss://nostr.mom
   ```
 
@@ -323,8 +370,8 @@ runs the documented Go gate across all 16 modules (#455).
   the file's sha256 against the event's `x` tag** before installing:
 
   ```bash
-  echo "<x-tag-sha256>  tollgate-wrt_v0.6.0-alpha3_<arch>.ipk" | sha256sum -c -
-  opkg install tollgate-wrt_v0.6.0-alpha3_<arch>.ipk
+  echo "<x-tag-sha256>  tollgate-wrt_v0.6.0-alpha4_<arch>.ipk" | sha256sum -c -
+  opkg install tollgate-wrt_v0.6.0-alpha4_<arch>.ipk
   ```
 
 - **Reporting problems**:

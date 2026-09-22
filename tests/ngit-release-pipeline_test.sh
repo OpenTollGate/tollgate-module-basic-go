@@ -172,6 +172,22 @@ if "package" not in d.get("jobs", {}): sys.exit(1)
 PY
 done
 ok "every shard renders, and each declares workflow_dispatch + a package job"
+# The package-job epoch env must render the ${{ }} expression form. The
+# generator once emitted it from inside an f-string, collapsing {{ to {;
+# the runner then passes '${ ... }' through literally and
+# packaging/build-env.sh's epoch validation (non-integer => tg_die) fails
+# every package job.
+SHARD_COUNT=$(bash scripts/ngit-shards.sh list | wc -l | tr -d ' ')
+GOOD_EPOCH=$(grep -rlF 'SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}' \
+  .ngit/act/workflows/ | wc -l | tr -d ' ')
+[ "$GOOD_EPOCH" -eq "$SHARD_COUNT" ] \
+  && ok "every shard carries the \${{ }} epoch expression ($GOOD_EPOCH/$SHARD_COUNT)" \
+  || bad "every shard carries the \${{ }} epoch expression ($GOOD_EPOCH/$SHARD_COUNT)"
+if grep -rFq 'SOURCE_DATE_EPOCH: ${ ' .ngit/act/workflows/; then
+  bad "no shard carries a collapsed single-brace epoch env"
+else
+  ok "no shard carries a collapsed single-brace epoch env"
+fi
 # Negative control: perturb the plan and the check must fail.
 cp packaging/ngit-release-matrix.json "$TMP/plan.bak"
 python3 - <<'PY'
@@ -186,6 +202,33 @@ check "check FAILS when the plan gains a leg (drift is caught)" 1 $?
 cp "$TMP/plan.bak" packaging/ngit-release-matrix.json
 python3 scripts/ngit-gen-shards.py --check >/dev/null 2>&1
 check "check passes again once the plan is restored" 0 $?
+
+# UPX must come from the pinned fetcher (packaging/build-inputs.json holds
+# the version + sha256), never from a floating apt package: upx output IS
+# part of the artifact bytes, so an unpinned upx makes the upx legs
+# unreproducible across CI hosts.
+echo "== upx pinning in rendered shards"
+for id in $(bash scripts/ngit-shards.sh list); do
+  f=".ngit/act/workflows/build-package-$id.yml"
+  if grep -q "apt-get install -y upx-ucl" "$f"; then
+    bad "shard $id installs floating apt upx-ucl"
+  fi
+  if grep -q "compression: upx" "$f"; then
+    grep -q "scripts/fetch-upx.sh" "$f" \
+      && ok "shard $id pins upx via fetch-upx.sh" \
+      || bad "shard $id has upx legs but no pinned fetch-upx.sh"
+  fi
+done
+# The apk SDK lane runs upx INSIDE the container (packaging/Makefile,
+# USE_UPX=1); that binary must be the pinned one, provisioned from the
+# host-side fetcher into the container.
+apk_ub=".ngit/act/workflows/build-package-apk-mediatek-filogic-ultrabrute.yml"
+grep -q "src-checkout/scripts/fetch-upx.sh" "$apk_ub" \
+  && ok "the apk ultrabrute shard provisions pinned upx into the SDK container" \
+  || bad "the apk ultrabrute shard provisions pinned upx into the SDK container"
+grep -q "/usr/local/bin/upx" "$apk_ub" \
+  && ok "the provisioned upx lands on the container PATH" \
+  || bad "the provisioned upx lands on the container PATH"
 
 # ============================================================ the announce gate
 echo "== scripts/ngit-release-announce.sh"

@@ -3,7 +3,7 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet
 go 1.25.0
 
 require (
-	github.com/OpenTollGate/gonuts-tollgate v0.11.2
+	github.com/OpenTollGate/gonuts-tollgate v0.12.1
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.10.0
 )
@@ -34,7 +34,7 @@ require (
 	github.com/cashubtc/cdk-go v0.17.3
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/decred/dcrd/lru v1.1.3 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect

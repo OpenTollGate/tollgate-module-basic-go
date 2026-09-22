@@ -195,6 +195,19 @@ func (m *Merchant) SetOnReachableSetChanged(callback func()) {
 	m.mintHealthTracker.SetOnReachableSetChanged(callback)
 }
 
+// AdmitReachableMints grows the wallet's accepted set with every mint the
+// health tracker currently sees as reachable. The wallet's set is frozen
+// at construction from the boot probe; without this, a configured mint
+// that was unreachable at boot stays rejected forever — even after it
+// recovers (#481). Idempotent: mints already accepted are untouched.
+func (m *Merchant) AdmitReachableMints() {
+	for _, mint := range m.mintHealthTracker.GetReachableMintConfigs() {
+		if err := m.tollwallet.AcceptMint(mint.URL); err != nil {
+			log.Printf("AdmitReachableMints: failed to admit %s: %v", mint.URL, err)
+		}
+	}
+}
+
 func (m *Merchant) GetMintHealthTracker() *MintHealthTracker {
 	return m.mintHealthTracker
 }
