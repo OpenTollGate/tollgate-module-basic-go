@@ -68,6 +68,22 @@ and [Semantic Versioning](https://semver.org/).
   several exist (kernel route-selection order). Root-caused with a
   netns probe reproducing both route-add forms against the exact pinned
   `vishvananda/netlink v1.3.1`. Fixes [#454](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/454).
+- **Installing the module no longer purges the captive portal.** The SDK
+  package definition declared `REPLACES:=nodogsplash base-files` while
+  depending on `libc` alone, and every `.ipk` recipe stamped the same
+  `Replaces: nodogsplash` into the control file opkg reads. `Replaces` means
+  "my files supersede yours" — the package manager removes the replaced
+  package — so installing tollgate-wrt deleted nodogsplash, the daemon the
+  module gates the network with, and a fresh install came up with no captive
+  portal until it was reinstalled by hand. The shipping-path feed definition
+  (`net/tollgate-wrt/Makefile`) never had the bug
+  (`DEPENDS:=+nodogsplash +jq`); the module's recipes now match it, keep the
+  virtual `nodogsplash-files` ownership, and narrow `Replaces` to
+  `base-files`, where only the payload-file ownership overlap is intentional.
+  `tests/packaging/package-nodogsplash-dependency_test.sh` pins the contract
+  across every recipe, their generated ngit shards and the built `.ipk`
+  control file.
+  ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Changed / Internal
 

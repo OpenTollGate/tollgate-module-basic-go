@@ -135,15 +135,19 @@ echo "=== Building .ipk: $PACKAGE_FILENAME ==="
 # path (e.g. the OpenWrt SDK) byte-stable too.
 normalize_mtime "$PAYLOAD"
 
+# nodogsplash is a RUNTIME dependency, never a replaced package: `Replaces:`
+# makes opkg purge the daemon the module gates the network with, which is how
+# an install used to end up with no captive portal at all. base-files stays —
+# only the payload-file ownership overlap with it is intentional.
 env \
   PKG_NAME="$PKG_NAME" \
   PKG_VERSION="$PKG_VERSION" \
   ARCH="$ARCH" \
   MAINTAINER="TollGate <tollgate@tollgate.me>" \
   LICENSE="GPL-3.0-only" \
-  DEPENDS="libc" \
+  DEPENDS="libc, nodogsplash, jq" \
   PROVIDES="nodogsplash-files" \
-  REPLACES="nodogsplash, base-files" \
+  REPLACES="base-files" \
   DESCRIPTION="TollGate Basic Module for OpenWrt" \
   bash packaging/build-ipk.sh "$PAYLOAD" "packaging/$PACKAGE_FILENAME"
 

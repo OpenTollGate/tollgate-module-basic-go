@@ -33,14 +33,20 @@ PKG_USE_MIPS16:=0
 
 include $(INCLUDE_DIR)/package.mk
 
+# nodogsplash is a RUNTIME dependency, not a package this one supersedes: the
+# module gates the network *through* the daemon and only ships files into its
+# config/doc space. REPLACES:=nodogsplash made opkg/apk remove the replaced
+# package on install, so installing tollgate-wrt purged the captive portal and
+# left the router without one until it was reinstalled by hand. Same contract
+# as the feed's net/tollgate-wrt/Makefile (`DEPENDS:=+nodogsplash +jq`).
 define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+libc
+	DEPENDS:=+nodogsplash +jq
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
-	REPLACES:=nodogsplash base-files
+	REPLACES:=base-files
 endef
 
 define Package/$(PKG_NAME)/description

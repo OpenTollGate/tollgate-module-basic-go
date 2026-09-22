@@ -424,6 +424,10 @@ IPK_BUILD = """\
             ls -lh "$PAYLOAD/usr/bin/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate"
           fi
 
+          # nodogsplash is a RUNTIME dependency (the module gates the network
+          # through the daemon): Replaces: it would purge the captive portal on
+          # install. Kept in step with the other recipes by
+          # tests/packaging/package-nodogsplash-dependency_test.sh.
           mkdir -p artifacts
           env \\
             PKG_NAME="$PACKAGE_NAME" \\
@@ -431,9 +435,9 @@ IPK_BUILD = """\
             ARCH="${{ matrix.architecture }}" \\
             MAINTAINER="TollGate <tollgate@tollgate.me>" \\
             LICENSE="CC0-1.0" \\
-            DEPENDS="libc" \\
+            DEPENDS="libc, nodogsplash, jq" \\
             PROVIDES="nodogsplash-files" \\
-            REPLACES="nodogsplash, base-files" \\
+            REPLACES="base-files" \\
             DESCRIPTION="TollGate Basic Module for OpenWrt" \\
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
           ls -lh "artifacts/$PACKAGE_FILENAME"
