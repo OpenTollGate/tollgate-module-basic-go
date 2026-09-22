@@ -391,8 +391,14 @@ IPK_BUILD = """\
       - name: Install UPX
         if: ${{ matrix.compression != 'none' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y upx-ucl
+          set -euo pipefail
+          # Pinned UPX (version + sha256 in packaging/build-inputs.json);
+          # apt's upx-ucl floats and its output IS part of the artifact —
+          # same pin as the GitHub twin's Install UPX steps. SOURCE_DATE_EPOCH
+          # is in this job's env, which packaging/build-env.sh requires.
+          UPX_DIR=$(bash scripts/fetch-upx.sh)
+          echo "PATH=$UPX_DIR:$PATH" >> "${GITHUB_ENV:-/dev/null}"
+          "$UPX_DIR/upx" --version | head -1
 
       - name: Build .ipk
         id: build
@@ -527,6 +533,15 @@ APK_BUILD = """\
             USE_UPX=1
             UPX_FLAGS="${{ matrix.compression }}"
             UPX_FLAGS="${UPX_FLAGS#upx-}"
+          fi
+
+          # Pinned UPX into the SDK container: packaging/Makefile runs `upx`
+          # from PATH when USE_UPX=1, the SDK image ships none, and apt's
+          # upx-ucl floats while its output IS part of the artifact.
+          if [ "$USE_UPX" = "1" ]; then
+            UPX_DIR=$(bash src-checkout/scripts/fetch-upx.sh)
+            docker exec -i "$SVC" sh -c 'cat > /usr/local/bin/upx && chmod 0755 /usr/local/bin/upx' < "$UPX_DIR/upx"
+            docker exec "$SVC" upx --version | head -1
           fi
 
           docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \\

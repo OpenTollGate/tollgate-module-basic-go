@@ -338,6 +338,15 @@ jobs:
             UPX_FLAGS="${UPX_FLAGS#upx-}"
           fi
 
+          # Pinned UPX into the SDK container: packaging/Makefile runs `upx`
+          # from PATH when USE_UPX=1, the SDK image ships none, and apt's
+          # upx-ucl floats while its output IS part of the artifact.
+          if [ "$USE_UPX" = "1" ]; then
+            UPX_DIR=$(bash src-checkout/scripts/fetch-upx.sh)
+            docker exec -i "$SVC" sh -c 'cat > /usr/local/bin/upx && chmod 0755 /usr/local/bin/upx' < "$UPX_DIR/upx"
+            docker exec "$SVC" upx --version | head -1
+          fi
+
           docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \
             -e USE_UPX="$USE_UPX" -e UPX_FLAGS="$UPX_FLAGS" \
             -e PKG_NAME="$PACKAGE_NAME" -e DEBUG="$DEBUG" \
