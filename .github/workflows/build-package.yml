@@ -388,6 +388,14 @@ jobs:
           echo "Portal assets built:"
           ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 
+      - name: Assert portal bundle contract
+        run: |
+          # Fails when the pinned revision carries the keyset-requiring token
+          # decode (#CU102) or when the committed bundle drifted from what the
+          # pin builds. Uses the checkout portal-build.sh just made in
+          # /tmp/tollgate-captive-portal-site.
+          bash tests/packaging/assert-portal-bundle-contract.sh
+
       - name: Resolve portal commit SHA
         id: portal-sha
         run: |
