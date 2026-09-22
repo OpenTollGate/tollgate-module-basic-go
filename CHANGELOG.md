@@ -201,6 +201,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **One payment suite against many mints (the signet zoo matrix).** `tests/cloud-lab/run-mint-matrix.sh` runs `test_mint_matrix.py` against any `MINT_MATRIX` list while the run-scoped `upstream-matrix` router accepts exactly those mints: fee expectations derive live from each target's `/v1/keysets`, and a float wallet is funded once per mint over real signet routing (the zoo's `pay-and-mint.sh`) so tests spend offline. `ZOO_VIA=public` targets the zoo's Cloudflare endpoints; `ZOO_VIA=local` attaches the zoo containers to the lab network (tunnel-dark fallback).
+- **The ngit release shards now carry a valid `SOURCE_DATE_EPOCH`
+  expression.** The shard generator emitted the package-job env line from
+  inside an f-string, collapsing `${{ … }}` to `${ … }` in all eleven
+  committed workflows — the runner passes that through literally and
+  `packaging/build-env.sh`'s epoch validation would have failed every
+  package job on the first ngit-lane release run. The line is now
+  token-emitted like every other brace-bearing template, the shards are
+  regenerated, and the pipeline test pins both the `${{ }}` form's
+  presence and the absence of the collapsed form. ([#491](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/491))
+
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
