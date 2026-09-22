@@ -309,6 +309,32 @@ For implementation questions specific to your PR, ask in the PR
 itself. For design or roadmap questions that don't have a clear PR
 home yet, file a GitHub issue.
 
+## Branding, the operator nym, and net4sats
+
+Read this before filing a PR or an issue that mentions either of these —
+they are a recurring source of confusion.
+
+- **TollGate is the non-profit, reference implementation of the TollGate
+  protocol.** It does not adopt net4sats branding.
+- **`net4sats` is a commercial re-brand of TollGate.** It is shipped as a
+  separate whitelabel build (distinct `brand` value — hostname, DNS, AP SSIDs
+  and the admin webroot all derive from `brand`). Naming and branding decisions
+  for net4sats are made by the net4sats project, not by this repo. Do not treat
+  `net4sats` and `tollgate` as interchangeable; they are `$BRAND` variants.
+- **`c08r4d0r` is a shared pseudonym for "a TollGate operator", not a personal
+  identifier.** Everyone who runs a TollGate may go by the nym `c08r4d0r`. It
+  deliberately names no real person. The codebase uses it as the representative
+  operator identity (e.g. the 0.07 profit-share example identity in
+  `README.md` and `docs/merchant.md`), and it appears as the default private
+  SSID prefix (`c08r4d0r-<suffix>`). Because it is a shared, anonymous nym, an
+  SSID like `c08r4d0r-AB12` leaks no operator identity — it only indicates a
+  private (operator-owned) AP. Do not report it or a guard test on it as an
+  "identity leak".
+
+When you see `c08r4d0r`, `net4sats`, or `tollgate` in a diff and suspect a
+naming bug, confirm the intent against the `brand` value and this section
+before asserting a leak or a rebranding error.
+
 ## Further reading
 
 - [PR-REVIEW.md](PR-REVIEW.md) — the 13-criteria PR review checklist
