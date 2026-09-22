@@ -244,3 +244,8 @@ func mapNut04State(s nut04.State) MintQuoteState {
 		return StateUnknown
 	}
 }
+
+// AcceptMint delegates runtime mint admission to the inner TollWallet.
+func (w *GonutsWallet) AcceptMint(mintURL string) error {
+	return w.inner.AcceptMint(mintURL)
+}
