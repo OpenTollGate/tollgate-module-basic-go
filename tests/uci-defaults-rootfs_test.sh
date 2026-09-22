@@ -18,7 +18,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 PASS=0
 FAIL=0
@@ -384,6 +384,31 @@ assert_bindings() {
     return 0
 }
 assert_bindings
+# The pre-auth allow list is a stability contract (#472/#513/#516/#518):
+# every setup path must leave the six anchored entries present, and no
+# rerun may duplicate one. The whole-field match mirrors the writer's
+# uci_list_has_port (:8443 must not satisfy a :443-class check).
+assert_allowlist() {
+    nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
+    if [ -z "$nds_users" ]; then
+        echo "FAIL: users_to_router list absent after setup"
+        return 0
+    fi
+    for port in 2121 8080 2050 2051 8090 8443; do
+        if printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $port([[:space:]]'|'|\$)"; then
+            echo "PASS: allow-list has :$port"
+        else
+            echo "FAIL: allow-list missing :$port"
+        fi
+        n=$(printf '%s\n' "$nds_users" | grep -oE "(^|[[:space:]'])port $port([[:space:]]'|'|\$)" | wc -l)
+        if [ "$n" -eq 1 ]; then
+            echo "PASS: :$port appears exactly once"
+        else
+            echo "FAIL: :$port appears $n times (duplicate class #516)"
+        fi
+    done
+}
+assert_allowlist
 
 case "$TOPO" in
     upgrade-misbound)
@@ -409,6 +434,8 @@ grep -q "Flag matches" /tmp/tollgate-setup.log \
     && echo "PASS: rerun took verify-only path" \
     || echo "FAIL: rerun re-ran full setup"
 assert_bindings
+# The rerun is the duplicate-class witness: it must add nothing.
+assert_allowlist
 exit 0
 EOF
 
