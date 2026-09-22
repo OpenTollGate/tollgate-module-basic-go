@@ -85,3 +85,7 @@ scripts/token-recovery/token-recovery
 
 # pytest bytecode from local (possibly root-owned) cloud-lab runs
 tests/cloud-lab/__pycache__/
+
+# Conformance lane runtime state (tokens stashed between phases, generated
+# config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
+tests/cloud-lab/.conformance/
