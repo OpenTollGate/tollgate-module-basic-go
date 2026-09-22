@@ -272,6 +272,19 @@ same-version short branch.
   the module now probes the reseller at collection (5 s grace) and
   skips with the profile start command as the reason.
   ([#484](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/484))
+
+- **Live external-mint lane in the cloud lab.** First committed coverage
+  against a Cashu mint this repo does not control: a profile-gated
+  `upstream-ext` service (its `accepted_mints` also lists
+  `testnut.cashu.exchange` — nutshell main with a FakeWallet, free test
+  ecash, active sat keyset fees `input_fee_ppk=10`) driven by
+  `tests/cloud-lab/run-external-mints.sh`. `test_external_mints.py`
+  pins, against the live mint: the keyset fee policy, a 1-sat token
+  terminated by the #409 below-swap-fee pre-check, and a fee-deducted
+  session credit. Gated on `EXTERNAL_MINTS=1`, skips with a reason when
+  the mint is down (canary, not gate); the default upstream stays
+  offline-only and real-money mints are never probed.
+  ([#476](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/476))
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only
@@ -1008,18 +1021,6 @@ same-version short branch.
   the ipk path. Byte-neutral on the equivalence build host (identical
   sha256 with and without the flag, aarch64 @ v0.6.0-alpha2 inputs).
   ([#405](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/405))
-- **Live external-mint lane in the cloud lab.** First committed coverage
-  against a Cashu mint this repo does not control: a profile-gated
-  `upstream-ext` service (its `accepted_mints` also lists
-  `testnut.cashu.exchange` — nutshell main with a FakeWallet, free test
-  ecash, active sat keyset fees `input_fee_ppk=10`) driven by
-  `tests/cloud-lab/run-external-mints.sh`. `test_external_mints.py`
-  pins, against the live mint: the keyset fee policy, a 1-sat token
-  terminated by the #409 below-swap-fee pre-check, and a fee-deducted
-  session credit. Gated on `EXTERNAL_MINTS=1`, skips with a reason when
-  the mint is down (canary, not gate); the default upstream stays
-  offline-only and real-money mints are never probed.
-  ([#476](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/476))
 - **Fee-charging mint in the cloud lab.** A second cdk-mintd FakeWallet
   service (`mint-fees`) runs with `CDK_MINTD_INPUT_FEE_PPK=100`, mirroring
   real-world mints such as mint.coinos.io where a single-proof swap costs
