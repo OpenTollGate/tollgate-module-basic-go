@@ -3,6 +3,7 @@ package merchant
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
@@ -113,4 +114,52 @@ func TestExpiredKeysetNotClassifiedAsUnreachable(t *testing.T) {
 	if !isExpiredKeysetError(fmt.Errorf("%s", msg)) {
 		t.Errorf("isExpiredKeysetError(%q) = false, want true", msg)
 	}
+}
+
+// wedgedFeeWallet reproduces #525: SwapFeeSats never returns (a wedged or
+// partitioned mint — docker pause — parks the fee precheck on the client's
+// retry ladder for minutes). Receive answers normally: the payment lane must
+// not stall just because the fee cannot be determined.
+type wedgedFeeWallet struct {
+	tollwallet.WalletPort
+	receiveCalled chan struct{}
+}
+
+func (w *wedgedFeeWallet) DecodeToken(string) (tollwallet.Token, error) { return panicToken{}, nil }
+func (w *wedgedFeeWallet) SwapFeeSats(tollwallet.Token) (uint64, error) {
+	select {} // park forever, like a mint that accepts nothing
+}
+func (w *wedgedFeeWallet) Receive(tollwallet.Token) (uint64, error) {
+	close(w.receiveCalled)
+	return 0, fmt.Errorf("token already spent")
+}
+
+func TestPurchaseSession_FeePrecheckIsTimeBounded(t *testing.T) {
+	cm, _ := setupTestConfigManager(t)
+	w := &wedgedFeeWallet{receiveCalled: make(chan struct{})}
+	m := &Merchant{
+		tollwallet:        w,
+		configManager:     cm,
+		mintHealthTracker: newTestTracker(cm.GetConfig(), nil),
+	}
+
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = m.PurchaseSession("cashuAstub", "AA:BB:CC:DD:EE:FF")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// PurchaseSession returned without waiting for the wedged precheck.
+	case <-time.After(8 * time.Second):
+		t.Fatal("PurchaseSession stalled on a wedged fee precheck (#525): still blocked after 8s")
+	}
+	select {
+	case <-w.receiveCalled:
+	default:
+		t.Fatal("the payment lane never reached Receive past the wedged precheck")
+	}
+	_ = err // the classification of Receive's error is not this test's subject
 }
