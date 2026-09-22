@@ -227,6 +227,14 @@ runs the documented Go gate across all 16 modules (#455).
 
 ## Notable bug fixes
 
+- **v4 (`cashuB`) tokens with short keyset ids are accepted again.** The
+  shipped portal decoded them through a call that requires a keyset
+  list, so every token from a coinos/minibits-style mint failed with
+  `#CU102` and the payment could not be made. The portal pin moves to
+  the keyset-agnostic decode (portal #55, `992cf7f1` → `d699367`) and
+  the shipped bundle is regenerated from that pin
+  ([#517](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/517)).
+
 - A runtime downgrade recovers when a mint comes back (live case: 2 h+
   degraded with a healthy probe)
   ([#400](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/400));
