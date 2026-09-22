@@ -465,6 +465,11 @@ type PurchaseSessionResult struct {
 	Description string
 }
 
+type receiveResult struct {
+	amount uint64
+	err    error
+}
+
 // PurchaseSession processes a payment with cashu token and MAC address, returns either a session event or a notice event
 // Spec (NUT 00) verification quote lives above TollWallet.Receive — single source; duplicate quotes flag in speccheck.
 func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
@@ -517,10 +522,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
-	type receiveResult struct {
-		amount uint64
-		err    error
-	}
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -541,10 +542,17 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		amountAfterSwap = res.amount
 		err = res.err
 		log.Printf("PurchaseSession: Receive completed, amount=%d, err=%v", amountAfterSwap, err)
-	case <-time.After(30 * time.Second):
-		log.Printf("PurchaseSession: Receive TIMED OUT after 30s for mint=%s mac=%s", paymentCashuToken.Mint(), macAddress)
+	case <-time.After(receiveTimeout):
+		log.Printf("PurchaseSession: Receive TIMED OUT after %s for mint=%s mac=%s", receiveTimeout, paymentCashuToken.Mint(), macAddress)
+		// The abandoned Receive keeps running (#498): a timeout is an
+		// ambiguous outcome, not a failure — the mint may still complete
+		// the swap and land the funds. When it does, the customer gets
+		// the session they paid for (visible via GET /usage) instead of a
+		// silently confiscated token; a late failure is logged with the
+		// same classification the inline path uses.
+		go m.reconcileLateReceive(ch, paymentCashuToken, macAddress)
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-timeout",
-			fmt.Sprintf("Payment processing timed out after 30 seconds. Please try again."), macAddress)
+			fmt.Sprintf("Payment processing timed out after %d seconds and may still complete. Check your usage before retrying.", int(receiveTimeout.Seconds())), macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("payment timeout and failed to create notice: %w", noticeErr)
 		}
@@ -631,6 +639,39 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 
 	return sessionEvent, nil
+}
+
+// receiveTimeout bounds how long PurchaseSession waits for the wallet's
+// Receive before answering the customer with a timeout notice. The
+// underlying operation keeps running and is reconciled by
+// reconcileLateReceive, so this is a response deadline, not a cancel.
+var receiveTimeout = 30 * time.Second
+
+// reconcileLateReceive adopts the outcome of a Receive that outlived the
+// response deadline (#498): a late success grants the session the
+// customer paid for; a late failure is logged with the inline path's
+// classification. It is crash-unsafe by design — the durable version is
+// the payment-record saga (#502); this closes the value-loss window for
+// the common case (process survives the timeout).
+func (m *Merchant) reconcileLateReceive(ch <-chan receiveResult, paymentCashuToken tollwallet.Token, macAddress string) {
+	res, ok := <-ch
+	if !ok {
+		return
+	}
+	if res.err != nil {
+		log.Printf("PurchaseSession: late Receive FAILED for mint=%s mac=%s: %v", paymentCashuToken.Mint(), macAddress, res.err)
+		return
+	}
+	log.Printf("PurchaseSession: late Receive completed for mint=%s mac=%s amount=%d — granting the paid-for session", paymentCashuToken.Mint(), macAddress, res.amount)
+
+	allotment, err := m.calculateAllotment(res.amount, paymentCashuToken.Mint())
+	if err != nil {
+		log.Printf("PurchaseSession: late grant aborted, allotment calculation failed: %v", err)
+		return
+	}
+	if _, err := m.grantSessionAccess(macAddress, allotment); err != nil {
+		log.Printf("PurchaseSession: late grant failed for mac=%s: %v (customer credit stands; see #403/#502)", macAddress, err)
+	}
 }
 
 func isRateLimitError(err error) bool {
