@@ -3,25 +3,19 @@
 # packaging recipe — no router, no SDK, no network needed.
 #
 # The real bug this guards: the module's SDK package definition declared
-# `REPLACES:=nodogsplash base-files` (and the equivalent Replaces: field in
-# the .ipk recipes) while depending only on libc. Replaces means "my files
-# supersede yours": opkg/apk removes the replaced package. Installing
-# tollgate-wrt therefore PURGED nodogsplash — the captive-portal daemon the
-# module gates the network with — leaving a router whose portal never came up
-# until nodogsplash was reinstalled by hand. The feed/shipping-path definition
-# (net/tollgate-wrt/Makefile in the OpenWrt feed) already had it right
+# The bug: the SDK package definition declared `REPLACES:=nodogsplash
+# base-files` while depending on libc alone, and the `.ipk` recipes stamped the
+# equivalent `Replaces: nodogsplash` into the control file opkg reads. On the
+# apk lane the installed artifact carried `depends:libc` and no `replaces`
+# field (raw `apk mkpkg` invocation in the build log), so nothing pulled or
+# retained the daemon and the portal was down after install until nodogsplash
+# was reinstalled by hand; on the opkg lane `Replaces` supersedes the named
+# package. Either way the module must declare the daemon it gates the network
+# with and must never claim to replace it.
+#
+# The shipping-path feed definition never had the bug
 # (`DEPENDS:=+nodogsplash +jq`, no REPLACES); this test pins the module's own
-# recipes to the same contract so the divergence cannot come back.
-#
-# Every recipe that writes a package definition is covered:
-#   * packaging/Makefile            (OpenWrt SDK / .apk path)
-#   * packaging/local-build-ipk.sh  (deterministic .ipk path)
-#   * .github/workflows/build-package.yml              (CI .ipk build)
-#   * scripts/ngit-gen-shards.py + .ngit/act/workflows/*.yml (ngit CI shards,
-#     generated — the generator is checked, and `--check` keeps the committed
-#     copies honest)
-#
-# Usage: bash tests/packaging/package-nodogsplash-dependency_test.sh
+# recipes to that contract so the divergence cannot come back.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -41,7 +35,7 @@ RECIPES=(
 )
 
 # The package definition block of packaging/Makefile is what the SDK builds
-# from; the DEPENDS/REPLACES pair there is the one the bug was reported on.
+# from; its DEPENDS line is the contract the module's recipes must match.
 depends_line() { # first DEPENDS assignment of a recipe file
     grep -E '^[[:space:]]*DEPENDS[:]?=' "$1" 2>/dev/null | head -n1
 }
@@ -72,7 +66,7 @@ for recipe in "${RECIPES[@]}"; do
     rline=$(replaces_line "$recipe")
     case "$rline" in
         *nodogsplash*)
-            bad "$recipe: REPLACES still lists nodogsplash — installing the module would purge the captive-portal daemon (got: $rline)" ;;
+            bad "$recipe: REPLACES still lists nodogsplash — the module must not claim to replace the daemon it depends on (got: $rline)" ;;
         *)
             ok "$recipe: REPLACES does not list nodogsplash" ;;
     esac

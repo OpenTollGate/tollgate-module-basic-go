@@ -135,10 +135,25 @@ echo "=== Building .ipk: $PACKAGE_FILENAME ==="
 # path (e.g. the OpenWrt SDK) byte-stable too.
 normalize_mtime "$PAYLOAD"
 
-# nodogsplash is a RUNTIME dependency, never a replaced package: `Replaces:`
-# makes opkg purge the daemon the module gates the network with, which is how
-# an install used to end up with no captive portal at all. base-files stays —
-# only the payload-file ownership overlap with it is intentional.
+# nodogsplash is a RUNTIME dependency, not a package this one supersedes: the
+# module gates the network *through* the daemon and only ships files into its
+# config/doc space. The defect was the missing DEPENDS -- and it showed on both
+# lanes:
+#
+#   - apk lane (the SDK build we installed on hardware): the artifact carried
+#     `depends:libc` and no `replaces:` field at all -- verified from the raw
+#     `apk mkpkg` invocation in the build log -- so nothing pulled or retained
+#     the daemon. After installing on a GL-MT3000 (OpenWrt 25.12.5) nodogsplash
+#     was gone and the captive portal was down until it was reinstalled by
+#     hand. Same failure class packaging/preinst already documents: an
+#     undeclared runtime dependency that a maintainer script needs, ending in
+#     the daemon being orphan-removed.
+#   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
+#     into the control file, where `Replaces` does supersede the named package.
+#
+# So: declare the daemon, never also claim to replace it. Same contract as the
+# shipping-path feed definition, net/tollgate-wrt/Makefile
+# (`DEPENDS:=+nodogsplash +jq`).
 env \
   PKG_NAME="$PKG_NAME" \
   PKG_VERSION="$PKG_VERSION" \

@@ -89,18 +89,22 @@ and [Semantic Versioning](https://semver.org/).
   several exist (kernel route-selection order). Root-caused with a
   netns probe reproducing both route-add forms against the exact pinned
   `vishvananda/netlink v1.3.1`. Fixes [#454](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/454).
-- **Installing the module no longer purges the captive portal.** The SDK
-  package definition declared `REPLACES:=nodogsplash base-files` while
-  depending on `libc` alone, and every `.ipk` recipe stamped the same
-  `Replaces: nodogsplash` into the control file opkg reads. `Replaces` means
-  "my files supersede yours" — the package manager removes the replaced
-  package — so installing tollgate-wrt deleted nodogsplash, the daemon the
-  module gates the network with, and a fresh install came up with no captive
-  portal until it was reinstalled by hand. The shipping-path feed definition
-  (`net/tollgate-wrt/Makefile`) never had the bug
-  (`DEPENDS:=+nodogsplash +jq`); the module's recipes now match it, keep the
-  virtual `nodogsplash-files` ownership, and narrow `Replaces` to
-  `base-files`, where only the payload-file ownership overlap is intentional.
+- **Installing the module no longer leaves the router without a captive
+  portal.** The SDK package definition declared no runtime dependency at all
+  (`DEPENDS:=+libc`), and the `.ipk` recipes stamped `Replaces: nodogsplash`
+  into the control file opkg reads. On the apk lane the shipped artifact
+  carried `depends:libc` and no `replaces` field (verified from the raw
+  `apk mkpkg` invocation in the build log), so nothing pulled or retained the
+  daemon: after installing on a GL-MT3000 running OpenWrt 25.12.5, nodogsplash
+  was gone and the portal was down until it was reinstalled by hand -- the same
+  failure class `packaging/preinst` documents for an undeclared runtime
+  dependency that a maintainer script needs ([#93](https://github.com/Amperstrand/tollgate-module-basic-go/issues/93)).
+  On the opkg lane `Replaces` supersedes the named package outright, so those
+  recipes would have removed the daemon too. The module's recipes now match the
+  shipping-path feed definition (`net/tollgate-wrt/Makefile`:
+  `DEPENDS:=+nodogsplash +jq`), keep the virtual `nodogsplash-files` ownership,
+  and narrow `Replaces` to `base-files`, where only the payload-file ownership
+  overlap is intentional.
   `tests/packaging/package-nodogsplash-dependency_test.sh` pins the contract
   across every recipe, their generated ngit shards and the built `.ipk`
   control file.
