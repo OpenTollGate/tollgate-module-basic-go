@@ -227,6 +227,17 @@ func (w *GonutsWallet) Melt(quoteID string) (*MeltResult, error) {
 
 func (w *GonutsWallet) Shutdown() error { return w.inner.Shutdown() }
 
+// PendingBalance / ReclaimPendingProofs are deliberately NOT part of the
+// WalletPort interface: the sidecar/CDK backends do not implement
+// pending-proof recovery yet, and forcing the wire protocol to grow it
+// belongs to its own change. Callers discover the capability by type
+// assertion (merchant's pending-proof reclaimer does exactly that).
+func (w *GonutsWallet) PendingBalance() uint64 { return w.inner.PendingBalance() }
+
+func (w *GonutsWallet) ReclaimPendingProofs() (uint64, error) {
+	return w.inner.ReclaimPendingProofs()
+}
+
 // --- Internal helpers ---
 
 // mapNut04State converts a gonuts nut04.State to the port's MintQuoteState.
