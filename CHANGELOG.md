@@ -210,6 +210,13 @@ same-version short branch.
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Changed / Internal
+- **Pinned that an outage-refused payment never burns the token.** New
+  cloud-lab lane (`run-rejection-safety.sh`): a payment refused while the
+  mint is down must leave every proof UNSPENT at the mint (NUT-07) and
+  the same token must still buy a session after recovery; a replayed
+  token must never buy a second session (#423-class property).
+  ([#512](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/512))
+
 
 - **Dependency-sweep completion: every module resolves gonuts-tollgate
   v0.12.1.** #506's bump touched the directly-declaring go.mods but left
