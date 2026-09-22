@@ -49,6 +49,7 @@ and [Semantic Versioning](https://semver.org/).
   mint is down must leave every proof UNSPENT at the mint (NUT-07) and
   the same token must still buy a session after recovery; a replayed
   token must never buy a second session (#423-class property).
+  ([#512](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/512))
 
 
 - **Recorded the captive-portal bundle-location decision.** The portal is
