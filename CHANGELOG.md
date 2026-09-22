@@ -22,6 +22,8 @@ and [Semantic Versioning](https://semver.org/).
   regenerated, and the pipeline test pins both the `${{ }}` form's
   presence and the absence of the collapsed form. ([#491](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/491))
 
+## [v0.6.0-alpha4] - 2026-09-21
+
 ### Fixed
 
 - **Runtime downgrades recover in seconds, not the next proactive
@@ -160,6 +162,9 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+  [docs/architecture/uhttpd-redirect-https-ownership-decision.md](docs/architecture/uhttpd-redirect-https-ownership-decision.md)
+  ([#472](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/472)).
+
 
 - **Full setup re-runs again on apk-based OpenWrt (25.x) upgrades.** The
   packaging's global `__TOLLGATE_VERSION__` substitution also rewrote the
@@ -224,6 +229,24 @@ and [Semantic Versioning](https://semver.org/).
   finally the uci name ([#449](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/449)).
 
 ### Changed / Internal
+
+- **Recorded the captive-portal bundle-location decision.** The portal is
+  consumed as a hash-pinned CI-built artifact rather than merged into this
+  repo; the stale `portal.commit` pin and the guest-SPA-only
+  `portal-build.sh` are the real defects to fix. See
+  [docs/architecture/captive-portal-bundle-location-decision.md](docs/architecture/captive-portal-bundle-location-decision.md).
+
+- **Build the full captive-portal bundle in-tree from the pinned portal pin.**
+  `packaging/portal-build.sh` now stages all five portal build products into
+  `packaging/files/`: the guest SPA (`tollgate-captive-portal-site`), the admin
+  board SPA (`tollgate-admin/`, installed to `/www/tollgate`), the `tollgate`
+  rpcd plugin and its ACL, and the `92-tollgate-admin-setup` uci-default (with
+  `__ADMIN_HOME__` substituted for this build's webroot). The portal pin moves
+  to `OpenTollGate/tollgate-captive-portal-site@4f74a6dd…`. This implements the
+  approved bundle-location ADR above: the module builds and stages the whole
+  bundle instead of a stale, hand-vendored subset. A missing source artifact at
+  the pin is now a hard build error, so the bundle can no longer silently come
+  from a pin that cannot produce it.
 
 - **Renewal-policy simulation study (#460).** `tests/sim/renewal_sim.py`
   models the upstream renewal mechanics (poll cadence, #442 clamp,
@@ -1481,8 +1504,8 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha3...main
-[v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...main
+[v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha4
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
