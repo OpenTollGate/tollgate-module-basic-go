@@ -17,9 +17,14 @@ const (
 	probeInterval                  = 5 * time.Minute
 
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
-	// not yet connected), probe every 15s with immediate recovery (threshold=1)
-	// for up to 5 minutes. This complements the OpenWrt hotplug script that
-	// restarts tollgate when the wwan interface comes up.
+	// not yet connected) OR after a runtime downgrade to degraded mode, probe
+	// every 15s with immediate recovery (threshold=1) for up to 5 minutes.
+	// This complements the OpenWrt hotplug script that restarts tollgate when
+	// the wwan interface comes up, and keeps a transient mint blip from
+	// stranding the service in degraded mode for a whole proactive cycle
+	// (~13 min observed in the field, #429). The live values live on the
+	// tracker struct (per-instance, settable before any loop starts) so tests
+	// can shorten them without package-level mutable state.
 	aggressiveProbeInterval = 15 * time.Second
 	aggressiveProbeTimeout  = 10 * time.Second
 	aggressiveDuration      = 5 * time.Minute
@@ -41,6 +46,10 @@ type MintHealthTracker struct {
 	onReachableSetChanged func()
 	reachableCount        int
 	stopCh                chan struct{}
+	aggressiveArmed       bool
+	aggressiveInterval    time.Duration
+	aggressiveTimeout     time.Duration
+	aggressiveWindow      time.Duration
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
@@ -52,6 +61,10 @@ func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker 
 		},
 		configProvider:    configProvider,
 		recoveryThreshold: defaultRecoveryThreshold,
+
+		aggressiveInterval: aggressiveProbeInterval,
+		aggressiveTimeout:  aggressiveProbeTimeout,
+		aggressiveWindow:   aggressiveDuration,
 	}
 }
 
@@ -67,14 +80,9 @@ func (t *MintHealthTracker) StartProactiveChecks() {
 	t.mu.Unlock()
 
 	go func() {
-		var aggressiveDone chan struct{}
 		if needAggressive {
-			log.Printf("StartProactiveChecks: starting aggressive retry (no reachable mints at startup)")
-			aggressiveDone = t.runAggressiveRetry(stopCh)
-			go func() {
-				<-aggressiveDone
-				log.Printf("StartProactiveChecks: aggressive retry completed")
-			}()
+			log.Printf("StartProactiveChecks: no reachable mints at startup — arming aggressive retry")
+			t.ArmAggressiveRetry()
 		}
 
 		ticker := time.NewTicker(probeInterval)
@@ -91,14 +99,46 @@ func (t *MintHealthTracker) StartProactiveChecks() {
 	}()
 }
 
+// ArmAggressiveRetry starts the aggressive (15 s) probe loop on a tracker
+// that is already running proactive checks. Armed on the runtime downgrade
+// path (#429): without it, recovery from a transient mint blip waits for
+// the next 5-minute proactive cycle — a ~13-minute stuck-degraded window
+// was observed live. On success the aggressive check fires the same
+// first-reachable and set-changed callbacks as the proactive check, so a
+// wired recovery trigger (see MerchantDegraded.WireRecoveryTrigger) fires
+// within seconds. Idempotent: a second call while armed is a no-op.
+func (t *MintHealthTracker) ArmAggressiveRetry() {
+	t.mu.Lock()
+	if t.stopCh == nil {
+		t.mu.Unlock()
+		log.Printf("ArmAggressiveRetry: proactive checks not running — nothing to arm")
+		return
+	}
+	if t.aggressiveArmed {
+		t.mu.Unlock()
+		return
+	}
+	t.aggressiveArmed = true
+	stopCh := t.stopCh
+	t.mu.Unlock()
+
+	done := t.runAggressiveRetry(stopCh)
+	go func() {
+		<-done
+		t.mu.Lock()
+		t.aggressiveArmed = false
+		t.mu.Unlock()
+	}()
+}
+
 func (t *MintHealthTracker) runAggressiveRetry(stopCh chan struct{}) chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		aggressiveClient := &http.Client{Timeout: aggressiveProbeTimeout}
-		ticker := time.NewTicker(aggressiveProbeInterval)
+		aggressiveClient := &http.Client{Timeout: t.aggressiveTimeout}
+		ticker := time.NewTicker(t.aggressiveInterval)
 		defer ticker.Stop()
-		timer := time.NewTimer(aggressiveDuration)
+		timer := time.NewTimer(t.aggressiveWindow)
 		defer timer.Stop()
 
 		for {
@@ -109,7 +149,7 @@ func (t *MintHealthTracker) runAggressiveRetry(stopCh chan struct{}) chan struct
 					return
 				}
 			case <-timer.C:
-				log.Printf("runAggressiveRetry: aggressive period ended (%v), falling back to normal interval", aggressiveDuration)
+				log.Printf("runAggressiveRetry: aggressive period ended (%v), falling back to normal interval", t.aggressiveWindow)
 				return
 			case <-stopCh:
 				return

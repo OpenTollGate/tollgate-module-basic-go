@@ -130,6 +130,12 @@ func registerReachableSetChangedCallback(m merchant.MerchantInterface) {
 		// first-reachable callback is registered; without this the service
 		// stays degraded until manually restarted (#400).
 		deg.WireRecoveryTrigger()
+		// Arm the aggressive probe loop on the downgrade itself: recovery
+		// otherwise waits for the next 5-minute proactive cycle (~13 min
+		// stuck-degraded observed live); the aggressive loop fires the same
+		// first-reachable callback within seconds of the mint returning
+		// (#429).
+		full.GetMintHealthTracker().ArmAggressiveRetry()
 		swapMerchant(deg)
 	})
 }
