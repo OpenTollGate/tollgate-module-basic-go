@@ -41,6 +41,33 @@ type MintDrainError struct {
 	Error   string `json:"error"`
 }
 
+// RecoveredDrainToken describes the liveness of one journaled drain token:
+// state is "live" (still spendable, Token set), "spent" (already
+// redeemed), "unknown" (mint unreachable / check failed), or "invalid"
+// (unparseable journal line).
+type RecoveredDrainToken struct {
+	MintURL    string `json:"mint_url"`
+	AmountSats uint64 `json:"amount_sats"`
+	State      string `json:"state"`
+	Error      string `json:"error,omitempty"`
+	Token      string `json:"token,omitempty"`
+}
+
+// WalletRecoverResult is the outcome of checking the drain journal
+// against the mints (NUT-07). Tokens lists exactly the still-spendable
+// drain tokens, so an operator can secure them.
+type WalletRecoverResult struct {
+	JournalPath string                `json:"journal_path"`
+	Checked     int                   `json:"checked"`
+	Live        int                   `json:"live"`
+	Spent       int                   `json:"spent"`
+	Unknown     int                   `json:"unknown"`
+	Invalid     int                   `json:"invalid"`
+	LiveSats    uint64                `json:"live_sats"`
+	Tokens      []CashuToken          `json:"tokens"`
+	Entries     []RecoveredDrainToken `json:"entries"`
+}
+
 // WalletDrainResult represents the result of draining a wallet. A drain is
 // not atomic across mints: Success is false if any mint failed, Partial is
 // true when at least one other mint's token was produced, and Tokens always
