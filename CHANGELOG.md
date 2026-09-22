@@ -10,7 +10,42 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The captive portal no longer rejects v4 (`cashuB`) tokens that carry a
+  short keyset id.** The shipped portal is built from the revision pinned in
+  `packaging/build-inputs.json`, and that revision decoded the token with
+  `getDecodedToken(token)` — a call that needs a `MintKeyset` list and
+  therefore throws `A short keyset ID v2 was encountered, but got no keysets
+  to map it to` on every token whose keyset id is a short one, which is what
+  coinos/minibits hand out; the portal surfaced that to the user as `#CU102`
+  and the payment could not be made. `.portal.commit` moves
+  `992cf7f1` → `d699367` (upstream `main`, portal #55), which decodes through
+  the keyset-agnostic `getTokenMetadata` first, and the bundle was regenerated
+  from that pin with `bash packaging/portal-build.sh`, so the shipped bytes
+  and the pin agree again. ([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))
+
 ### Changed / Internal
+
+- **The committed portal bundle is now regenerated from the pin, and the
+  contract is guarded.** The checked-in copy under
+  `packaging/files/tollgate-captive-portal-site/` still listed
+  `assets/index-DxBkINUB.js` in `asset-manifest.json`, shipped a
+  `welcome.html` the pinned build no longer produces, and was missing the
+  `logo192/512.png` the pinned build does produce — a build log, not a
+  mirror of the pin. It now matches the pinned build output exactly, and
+  `tests/packaging/assert-portal-bundle-contract.sh` fails the build when the
+  pinned revision validates tokens with a keyset-requiring decode or when the
+  committed copy drifts from what the pin builds. ([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))
+- **The default production mint list is guarded against test mints.**
+  `defaultProductionMints()` is what a release-line configuration offers a
+  paying customer, so a test mint reaching it would route real traffic at a
+  throwaway mint; `config_manager_production_mints_test.go` pins both the
+  list itself and the release-line default config against
+  `testnut.cashu.space`, `nofee.testnut.cashu.space`,
+  `nofees.testnut.cashu.space` and `testnut.cashu.exchange`, and keeps the
+  `IsDevBuild()` gate that owns the one test mint the module does know
+  (`testnut.cashu.exchange`) under test. ([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))
 
 - **The ngit release shards now carry a valid `SOURCE_DATE_EPOCH`
   expression.** The shard generator emitted the package-job env line from

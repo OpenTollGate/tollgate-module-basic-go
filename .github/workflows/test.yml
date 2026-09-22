@@ -60,6 +60,15 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      - name: Portal pin decode contract
+        run: |
+          # The shipped captive portal is built from .portal.commit; a pinned
+          # revision that validates tokens with a keyset-requiring decode
+          # (getDecodedToken without a MintKeyset list) rejects every v4
+          # cashuB token carrying a short keyset id - i.e. coinos/minibits -
+          # which the portal reports as #CU102.
+          bash tests/packaging/assert-portal-bundle-contract.sh
+
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).
