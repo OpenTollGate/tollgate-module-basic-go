@@ -1174,6 +1174,17 @@ and [Semantic Versioning](https://semver.org/).
   channel protocol exists (R4-R6)
   ([#572](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/572)).
 
+
+- **Rootfs-container tier for uci-defaults validation.** New
+  `tests/uci-defaults-rootfs_test.sh` runs the first-boot setup script
+  end-to-end inside real OpenWrt userspace (`openwrt/rootfs` images: BusyBox
+  ash and the real `uci` binary) against seven fixture wireless topologies —
+  normal, swapped-band, single-band, tri-band, legacy `hwmode`, misbound
+  upgrade, STA-preserved — on both the 24.10 (opkg) and 25.12-snapshot (apk)
+  images, including the same-version verify path. 134 assertions in ~2
+  minutes on a docker host; skips cleanly (exit 0) where no container runtime
+  exists. Complements the offline fake-uci tests, which stay the fast loop
+  but cannot catch real-uci or GNU-vs-BusyBox divergence (#521).
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
