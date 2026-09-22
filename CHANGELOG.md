@@ -20,7 +20,7 @@ and [Semantic Versioning](https://semver.org/).
   package job on the first ngit-lane release run. The line is now
   token-emitted like every other brace-bearing template, the shards are
   regenerated, and the pipeline test pins both the `${{ }}` form's
-  presence and the absence of the collapsed form.
+  presence and the absence of the collapsed form. ([#491](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/491))
 
 ### Fixed
 
