@@ -14,6 +14,7 @@ package tollwallet
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
@@ -116,6 +117,39 @@ func resolveKeysetID(id string, fees map[string]uint) string {
 	return ""
 }
 
+// keysetFeeFetchBudget bounds mintKeysetFees' network fetches. The lib's
+// HTTP client retries up to five times per endpoint and
+// GetMintActiveKeyset chains a second endpoint on failure, so a wedged
+// mint (accepts nothing, never answers — PRTA #95's mint class) parks
+// the payment's fee precheck for minutes before any deadline applies,
+// freezing the payment lane and defeating PurchaseSession's receive
+// timeout (#525). On expiry SwapFeeSats errors and callers fall through
+// to Receive's own classification, which the WalletPort contract
+// already allows for exactly this case.
+var keysetFeeFetchBudget = 3 * time.Second
+
+// mintKeysetFeesBounded is mintKeysetFees under keysetFeeFetchBudget.
+// The abandoned fetch goroutine terminates on its own schedule (bounded
+// by the lib's retry ladder) into a buffered channel — nothing waits on
+// it.
+func mintKeysetFeesBounded(mintURL string) (map[string]uint, error) {
+	type feeResult struct {
+		fees map[string]uint
+		err  error
+	}
+	ch := make(chan feeResult, 1)
+	go func() {
+		fees, err := mintKeysetFees(mintURL)
+		ch <- feeResult{fees, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.fees, r.err
+	case <-time.After(keysetFeeFetchBudget):
+		return nil, fmt.Errorf("keyset fee fetch exceeded %s (mint wedged or unreachable); falling through to Receive classification", keysetFeeFetchBudget)
+	}
+}
+
 // SwapFeeSats delegates to gonuts' fee semantics: sum each proof's keyset
 // InputFeePpk, then ceil(sum/1000). The token's proofs may carry short keyset
 // IDs (V4), which are resolved against the mint's keysets first.
@@ -125,7 +159,7 @@ func (w *GonutsWallet) SwapFeeSats(t Token) (uint64, error) {
 		return 0, fmt.Errorf("GonutsWallet.SwapFeeSats: expected *gonutsToken, got %T", t)
 	}
 
-	fees, err := mintKeysetFees(gt.inner.Mint())
+	fees, err := mintKeysetFeesBounded(gt.inner.Mint())
 	if err != nil {
 		return 0, err
 	}
