@@ -44,6 +44,16 @@ same-version short branch.
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
 
 ### Fixed
+- **A wedged mint no longer freezes the payment lane.** The fee
+  precheck's keyset fetch rode the wallet library's full retry ladder
+  (30 s per attempt, up to five attempts, two chained endpoints), so a
+  mint that accepted nothing parked payments for minutes before any
+  deadline applied. The fetch now runs under a 3-second budget and falls
+  through to Receive's own classification — the timeout notice reaches
+  the customer in ~33 s and the late-receive reconciliation can do its
+  job (#525).
+  ([#529](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/529))
+
 
 - **The captive portal no longer rejects v4 (`cashuB`) tokens that carry a
   short keyset id.** The shipped portal is built from the revision pinned in
