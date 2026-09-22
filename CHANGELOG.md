@@ -83,6 +83,13 @@ same-version short branch.
   or a version regression reds the suite.
 
 ### Fixed
+
+- **A late-completing payment now grants its session instead of
+  vanishing.** When `Receive` finished after the 30 s response deadline,
+  funds landed in the operator wallet with no session, no record, and a
+  "timed out, try again" that made the customer pay twice. The
+  completion is now reconciled: the session is granted through the same
+  path as an on-time payment, exactly once. ([#511](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/511))
 - **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
   same-version branch of `99-tollgate-setup` — the branch a reinstall or an
   apk upgrade takes while `/etc/tollgate-setup-done` still matches the
