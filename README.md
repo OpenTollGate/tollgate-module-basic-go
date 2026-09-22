@@ -122,11 +122,11 @@ OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.7`**. An abridged example:
+The current schema version is **`v0.0.8`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.7",
+  "config_version": "v0.0.8",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,

@@ -18,7 +18,7 @@ func GetConfigSchema() []FieldSchema {
 	return []FieldSchema{
 		{
 			Name: "ConfigVersion", JSONKey: "config_version", Type: "string",
-			Description: "Configuration file version", Default: "v0.0.7", Required: true, Editable: false,
+			Description: "Configuration file version", Default: "v0.0.8", Required: true, Editable: false,
 		},
 		{
 			Name: "LogLevel", JSONKey: "log_level", Type: "string",

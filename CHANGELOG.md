@@ -69,6 +69,19 @@ same-version short branch.
   package constants to per-tracker fields so tests can shorten them
   without shared mutable state (which itself raced under `-race`).
   Fixes [#429](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/429).
+
+- **The schema's config-version default caught up to `v0.0.8` — and a
+  test now keeps every schema default in lockstep with the shipped
+  defaults.** The schema table still declared `v0.0.7` while
+  `NewDefaultConfig` and the migration stamp ship `v0.0.8` (the README
+  said v0.0.7 too; aligned).
+  `TestSchemaDefaultsMatchNewDefaultConfig` walks the schema and fails
+  on any leaf default that disagrees with `NewDefaultConfig` — the two
+  tables must change together, as the lenient-defaults change (#478)
+  had to do by hand. Verified by mutation: a one-sided default change
+  or a version regression reds the suite.
+
+### Fixed
 - **uhttpd contract re-asserted on every reinstall/apk upgrade.** The
   same-version branch of `99-tollgate-setup` — the branch a reinstall or an
   apk upgrade takes while `/etc/tollgate-setup-done` still matches the
