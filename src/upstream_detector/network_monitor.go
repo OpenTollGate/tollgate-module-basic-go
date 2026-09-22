@@ -325,7 +325,46 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	return ""
 }
 
-// getGatewayFromRoutes checks for a default route on a specific interface.
+// isDefaultRoute reports whether a netlink route is a default route.
+// The kernel sends default routes with no RTA_DST, which netlink v1.3.x
+// can decode EITHER as a nil Dst OR as the parsed 0.0.0.0/0 (or ::/0)
+// IPNet depending on dump path — comparing only against nil made every
+// IPv4 default route invisible to Methods 1 and 2, so gateway selection
+// always fell through to x.x.x.1 IP inference (#454).
+func isDefaultRoute(route netlink.Route) bool {
+	if route.Dst == nil {
+		return true
+	}
+	if route.Dst.IP == nil || route.Dst.Mask == nil {
+		return false
+	}
+	if !route.Dst.IP.IsUnspecified() {
+		return false
+	}
+	ones, _ := route.Dst.Mask.Size()
+	return ones == 0
+}
+
+// bestDefaultGateway returns the gateway of the lowest-metric default
+// route in routes (kernel route-selection order), or "" when none is a
+// default route with a gateway.
+func bestDefaultGateway(routes []netlink.Route) (string, int) {
+	best := ""
+	bestMetric := -1
+	for _, route := range routes {
+		if isDefaultRoute(route) && route.Gw != nil {
+			if bestMetric == -1 || route.Priority < bestMetric {
+				bestMetric = route.Priority
+				best = route.Gw.String()
+			}
+		}
+	}
+	return best, bestMetric
+}
+
+// getGatewayFromRoutes checks for default route on a specific interface,
+// preferring the lowest-metric default when several exist (kernel
+// route-selection semantics).
 func (nm *networkMonitor) getGatewayFromRoutes(link netlink.Link) string {
 	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
 	if err != nil {
@@ -336,16 +375,15 @@ func (nm *networkMonitor) getGatewayFromRoutes(link netlink.Link) string {
 		return ""
 	}
 
-	for _, route := range routes {
-		if route.Dst == nil && route.Gw != nil {
-			logger.WithFields(logrus.Fields{
-				"gateway":   route.Gw.String(),
-				"interface": link.Attrs().Name,
-			}).Debug("Found default route gateway for interface")
-			return route.Gw.String()
-		}
+	best, bestMetric := bestDefaultGateway(routes)
+	if best != "" {
+		logger.WithFields(logrus.Fields{
+			"gateway":   best,
+			"metric":    bestMetric,
+			"interface": link.Attrs().Name,
+		}).Debug("Found default route gateway for interface")
 	}
-	return ""
+	return best
 }
 
 // getGatewayFromGlobalRoutes checks the global routing table for default routes that use this interface.
@@ -357,9 +395,10 @@ func (nm *networkMonitor) getGatewayFromGlobalRoutes(link netlink.Link) string {
 	}
 
 	for _, route := range allRoutes {
-		if route.Dst == nil && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
+		if isDefaultRoute(route) && route.Gw != nil && route.LinkIndex == link.Attrs().Index {
 			logger.WithFields(logrus.Fields{
 				"gateway":   route.Gw.String(),
+				"metric":    route.Priority,
 				"interface": link.Attrs().Name,
 			}).Debug("Found global default route gateway for interface")
 			return route.Gw.String()

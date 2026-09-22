@@ -54,6 +54,20 @@ and [Semantic Versioning](https://semver.org/).
   on the band-matching radio so a 5 GHz upstream is never hunted with a
   2.4 GHz radio
   ([#452](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/452)).
+- **Gateway detection sees explicit default routes again; inference is a
+  last resort.** `netlink.RouteList` decodes default routes with `Dst`
+  as the parsed `0.0.0.0/0` (or `::/0`) rather than nil on the pinned
+  library version, so the detector's `Dst == nil` comparisons matched
+  nothing: both route-based lookup methods were dead code for IPv4 and
+  gateway selection always fell through to x.x.x.1 IP inference — which
+  can point reseller mode at the wrong gateway whenever the real one is
+  not the subnet's .1 (observed live in the #430 lab: an explicit
+  `default via 172.29.0.10 metric 100` was ignored in favor of an
+  inferred 172.29.0.1). A family-safe default-route predicate now
+  accepts both encodings, and the lowest-metric default wins when
+  several exist (kernel route-selection order). Root-caused with a
+  netns probe reproducing both route-add forms against the exact pinned
+  `vishvananda/netlink v1.3.1`. Fixes [#454](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/454).
 
 ### Changed / Internal
 
