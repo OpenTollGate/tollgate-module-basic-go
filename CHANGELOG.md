@@ -48,6 +48,26 @@ and [Semantic Versioning](https://semver.org/).
   re-authorizes the client
   ([#545](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/545)).
 
+- **The captive portal shipped in the package can renew an expired session
+  without a reconnect, and follows the mint a pasted note came from.** The
+  portal pin advances from `51a1429` (portal #59, the CU110 swap-fee
+  pre-check) to `e6fe0e0` (portal main: #60 on top of #61). #60 gives the
+  expired view a primary "Buy more time" that returns to the purchase flow in
+  page — the old view's only action was `window.location.reload()`, which
+  cannot reach the purchase UI (it stays mounted in its `success` state), so
+  the only route back to buying time was to disconnect from and reconnect to
+  the Wi-Fi, which is what the copy told the customer to do — which completes
+  the module-side renewal fix from #541 in the bytes a customer's browser
+  actually loads. #61 selects the access option the pasted note advertises
+  (`normalizeMintUrl`, `mintUrlFromToken`, `findMintOption`), because the
+  allocation and the price are mint-dependent and a hand-picked mint quoted the
+  wrong price for the note in the field, and renders `unsupported_mint_notice`
+  for a note from an unaccepted mint. The committed bundle shell is regenerated
+  from that pin, and `tests/packaging/assert-portal-bundle-contract.sh` gains a
+  check that fails when a future pin stops renewing in page or drops the note's
+  mint
+  ([#543](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/543)).
+
 - **A session that ran out can be renewed again.** The payment pre-flight
   refused every purchase whose MAC NoDogSplash no longer lists — the state of a
   client we just deauthorised at expiry — so each renewal was answered with
