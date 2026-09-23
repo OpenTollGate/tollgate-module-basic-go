@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
+	"golang.org/x/time/rate"
 )
 
 var ErrQuoteNotFound = errors.New("lightning quote not found")
@@ -37,6 +41,29 @@ const (
 	lightningQuoteExpiryGracePeriod = 5 * time.Minute
 	lightningQuoteMaxAge            = 30 * time.Minute
 	lightningQuoteSettledRetention  = 10 * time.Minute
+
+	// Bounds on the in-flight quote table. A customer needs one quote per
+	// purchase; the per-client cap allows a couple of abandoned retries, and the
+	// global cap is ~128 KiB of RAM on a 256 MB router (records carry a bolt11).
+	// Without these, the table is a memory primitive an unauthenticated caller
+	// fills at will.
+	maxActiveQuotesPerMAC = 3
+	maxActiveQuotesGlobal = 128
+	// Eviction starts here, at 80% of the hard cap, so the table holds headroom
+	// for a real customer instead of filling to the cap first.
+	quoteTableEvictionWatermark = maxActiveQuotesGlobal * 8 / 10
+	// Only quotes older than this are ever evicted. Reaping a quote the customer
+	// may be paying right now would drop the record that recognises their
+	// payment (their bolt11 would no longer be found by any poll), so eviction
+	// stays strictly off recent records and a full table of fresh quotes is
+	// refused instead.
+	quoteEvictionMinAge = 5 * time.Minute
+
+	// The self-imposed outbound budget toward a mint, so our own quote traffic
+	// can never be what drives the mint into answering 429.
+	mintQuoteBudgetDefaultRPS   = 2
+	mintQuoteBudgetDefaultBurst = 5
+	mintQuoteBudgetMaxMints     = 64
 )
 
 type LightningInvoice struct {
@@ -99,7 +126,31 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 		return nil, err
 	}
 
-	m.cleanupStaleLightningQuotes(time.Now())
+	now := time.Now()
+	m.cleanupStaleLightningQuotes(now)
+
+	// Bound the table before spending a mint round trip on a record that would
+	// only make it bigger. Eviction (if it happened) is durable state, so it is
+	// persisted immediately.
+	m.lightningQuoteMu.Lock()
+	activeForClient := m.countActiveQuotesLocked(macAddress)
+	total := len(m.lightningQuotes)
+	evicted, admitted := m.admitLightningQuoteLocked(macAddress, now)
+	m.lightningQuoteMu.Unlock()
+	if evicted {
+		m.persistLightningQuotes()
+	}
+	if !admitted {
+		return nil, fmt.Errorf("%w: %s holds %d active quote(s) and the table holds %d record(s)",
+			ErrTooManyQuotes, macAddress, activeForClient, total)
+	}
+
+	// Our own outbound budget toward this mint. The refusal is local: the request
+	// never leaves the router, so it cannot contribute to the mint's rate limit
+	// (and so can never be the reason the mint answers 429).
+	if !m.mintQuoteBudget.allow(mintURL) {
+		return nil, fmt.Errorf("%w: %s", ErrMintBusyLocal, mintURL)
+	}
 
 	quote, err := m.tollwallet.RequestMintQuote(amount, mintURL)
 	if err != nil {
@@ -128,6 +179,162 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 		Expiry:  quote.Expiry,
 		State:   quote.State.String(),
 	}, nil
+}
+
+// countActiveQuotesLocked counts the quotes a client still has outstanding: a
+// record whose session was already granted has been served and does not represent
+// a pending purchase. The caller must hold lightningQuoteMu.
+func (m *Merchant) countActiveQuotesLocked(macAddress string) int {
+	count := 0
+	for _, record := range m.lightningQuotes {
+		if record == nil || record.SessionGranted {
+			continue
+		}
+		if NormalizeMACAddress(record.MacAddress) == macAddress {
+			count++
+		}
+	}
+	return count
+}
+
+// evictableLightningQuote reports whether a record may be dropped to make room for
+// a new one. A record being processed must never be dropped (its grant is in
+// flight), nor one that already granted access (its status is still being
+// polled), and neither must a record younger than quoteEvictionMinAge: the
+// customer may be paying that invoice right now, and its record is the only thing
+// that recognises the payment.
+func evictableLightningQuote(record *lightningQuoteRecord, now time.Time) bool {
+	if record == nil || record.Processing || record.SessionGranted {
+		return false
+	}
+	if record.CreatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(record.CreatedAt) >= quoteEvictionMinAge
+}
+
+// evictOldestEvictableQuoteLocked drops the oldest evictable record, restricted to
+// onlyMAC when it is not empty, and reports whether it found one. The caller must
+// hold lightningQuoteMu.
+func (m *Merchant) evictOldestEvictableQuoteLocked(now time.Time, onlyMAC string) bool {
+	var oldestID string
+	var oldest time.Time
+	for quoteID, record := range m.lightningQuotes {
+		if onlyMAC != "" && NormalizeMACAddress(record.MacAddress) != onlyMAC {
+			continue
+		}
+		if !evictableLightningQuote(record, now) {
+			continue
+		}
+		if oldestID == "" || record.CreatedAt.Before(oldest) {
+			oldestID, oldest = quoteID, record.CreatedAt
+		}
+	}
+	if oldestID == "" {
+		return false
+	}
+	delete(m.lightningQuotes, oldestID)
+	log.Printf("evictOldestEvictableQuoteLocked: reaped abandoned quote %s (client=%s)", oldestID, onlyMAC)
+	return true
+}
+
+// admitLightningQuoteLocked decides whether one more quote may be tracked, making
+// room by reaping abandoned records when it must. It returns whether it evicted
+// anything (so the caller can persist) and whether the request is admitted. The
+// caller must hold lightningQuoteMu.
+func (m *Merchant) admitLightningQuoteLocked(macAddress string, now time.Time) (evicted bool, admitted bool) {
+	if m.countActiveQuotesLocked(macAddress) >= maxActiveQuotesPerMAC {
+		if !m.evictOldestEvictableQuoteLocked(now, macAddress) {
+			return evicted, false
+		}
+		evicted = true
+	}
+
+	// Hold the table at the watermark so a real customer always finds room, then
+	// refuse at the hard cap rather than growing.
+	for len(m.lightningQuotes) >= quoteTableEvictionWatermark {
+		if !m.evictOldestEvictableQuoteLocked(now, "") {
+			break
+		}
+		evicted = true
+	}
+	if len(m.lightningQuotes) >= maxActiveQuotesGlobal {
+		return evicted, false
+	}
+
+	return evicted, true
+}
+
+// mintQuoteBucket is one mint's outbound budget entry.
+type mintQuoteBucket struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is the
+// only thing standing between a local flood and the mint's own rate limiter: with
+// it, the flood is refused at the router and the mint never sees it, so the
+// mint's answer stays an honest health signal instead of a report of our own
+// load. The zero value is usable, which keeps `&Merchant{}` literals in tests
+// working.
+type mintQuoteBudget struct {
+	mu      sync.Mutex
+	buckets map[string]*mintQuoteBucket
+	rps     float64
+	burst   int
+	loaded  bool
+}
+
+// allow consumes one token for mintURL, creating the mint's bucket on first use.
+// Mints are matched with tollwallet.MintURLMatches so two spellings of one mint
+// share one budget.
+func (b *mintQuoteBudget) allow(mintURL string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.loaded {
+		b.rps = float64(envIntOr("TOLLGATE_MINT_QUOTE_RPS", mintQuoteBudgetDefaultRPS))
+		b.burst = envIntOr("TOLLGATE_MINT_QUOTE_BURST", mintQuoteBudgetDefaultBurst)
+		b.buckets = make(map[string]*mintQuoteBucket, 4)
+		b.loaded = true
+	}
+
+	var entry *mintQuoteBucket
+	for known, bucket := range b.buckets {
+		if known == mintURL || tollwallet.MintURLMatches(known, mintURL) {
+			entry = bucket
+			break
+		}
+	}
+	if entry == nil {
+		if len(b.buckets) >= mintQuoteBudgetMaxMints {
+			var oldestKey string
+			var oldest time.Time
+			for key, bucket := range b.buckets {
+				if oldestKey == "" || bucket.lastSeen.Before(oldest) {
+					oldestKey, oldest = key, bucket.lastSeen
+				}
+			}
+			delete(b.buckets, oldestKey)
+		}
+		entry = &mintQuoteBucket{limiter: rate.NewLimiter(rate.Limit(b.rps), b.burst)}
+		b.buckets[mintURL] = entry
+	}
+	entry.lastSeen = time.Now()
+	return entry.limiter.Allow()
+}
+
+// envIntOr reads a positive integer override from the environment.
+func envIntOr(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func (m *Merchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error) {
