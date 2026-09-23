@@ -883,7 +883,12 @@ func TestSetOnReachableSetChanged_OverwriteCallback(t *testing.T) {
 	})
 
 	srv.Close()
-	tracker.RunProactiveCheck()
+	// The failure side now needs defaultFailureThreshold consecutive failures
+	// before the set changes (a single bad probe must not downgrade the
+	// merchant); see the /ln-invoice backpressure change.
+	for i := uint8(0); i < defaultFailureThreshold; i++ {
+		tracker.RunProactiveCheck()
+	}
 
 	select {
 	case <-secondCalled:
@@ -981,7 +986,11 @@ func TestArmAggressiveRetry_RecoversWithinSeconds(t *testing.T) {
 	// and the downgrade path re-registers the degraded trigger (this resets
 	// hadReachableMint, exactly as WireRecoveryTrigger does).
 	healthy.Store(false)
-	tracker.RunProactiveCheck()
+	// defaultFailureThreshold consecutive failures are now needed to leave the
+	// reachable set (a single bad probe must not downgrade the merchant).
+	for i := uint8(0); i < defaultFailureThreshold; i++ {
+		tracker.RunProactiveCheck()
+	}
 	if tracker.IsReachable(srv.URL) {
 		t.Fatal("setup: mint should be unreachable after the blip")
 	}
