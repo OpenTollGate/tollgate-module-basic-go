@@ -16,6 +16,15 @@ const (
 	probeTimeout                   = 30 * time.Second
 	probeInterval                  = 5 * time.Minute
 
+	// A mint leaves the reachable set only after this many consecutive failed
+	// probes, symmetric with recoveryThreshold on the other side. Recovery
+	// already required 3 successes; the failure side required 1, so a single
+	// bad probe removed the mint — and on a single-mint deployment that empties
+	// the set and stops sales. With the 5-minute cadence the trade is explicit:
+	// a genuinely dead mint means up to ~10 minutes of failed purchases, which
+	// is the price of never stopping sales because of one transient answer.
+	defaultFailureThreshold uint8 = 3
+
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
 	// not yet connected) OR after a runtime downgrade to degraded mode, probe
 	// every 15s with immediate recovery (threshold=1) for up to 5 minutes.
@@ -38,9 +47,11 @@ type MintHealthTracker struct {
 	mu                    sync.RWMutex
 	reachableMints        map[string]bool
 	consecutiveSuccesses  map[string]uint8
+	consecutiveFailures   map[string]uint8
 	httpClient            *http.Client
 	configProvider        mintConfigProvider
 	recoveryThreshold     uint8
+	failureThreshold      uint8
 	onFirstReachable      func()
 	hadReachableMint      bool
 	onReachableSetChanged func()
@@ -56,11 +67,13 @@ func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker 
 	return &MintHealthTracker{
 		reachableMints:       make(map[string]bool),
 		consecutiveSuccesses: make(map[string]uint8),
+		consecutiveFailures:  make(map[string]uint8),
 		httpClient: &http.Client{
 			Timeout: probeTimeout,
 		},
 		configProvider:    configProvider,
 		recoveryThreshold: defaultRecoveryThreshold,
+		failureThreshold:  defaultFailureThreshold,
 
 		aggressiveInterval: aggressiveProbeInterval,
 		aggressiveTimeout:  aggressiveProbeTimeout,
@@ -251,21 +264,23 @@ func (t *MintHealthTracker) RunInitialProbe() {
 	}
 
 	log.Printf("RunInitialProbe: probing %d mint(s)", len(config.AcceptedMints))
-	results := make(map[string]bool, len(config.AcceptedMints))
+	results := make(map[string]probeOutcome, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMint(mint.URL)
+		results[mint.URL] = t.probeMintOutcome(mint.URL, nil)
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	for url, ok := range results {
-		if ok {
+	for url, outcome := range results {
+		if outcome.reachable() {
 			t.reachableMints[url] = true
 			t.consecutiveSuccesses[url] = t.recoveryThreshold
+			t.consecutiveFailures[url] = 0
 		} else {
 			t.reachableMints[url] = false
 			t.consecutiveSuccesses[url] = 0
+			t.consecutiveFailures[url] = 1
 		}
 	}
 
@@ -289,23 +304,33 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	}
 
 	log.Printf("runProactiveCheck: probing %d mint(s)", len(config.AcceptedMints))
-	results := make(map[string]bool, len(config.AcceptedMints))
+	results := make(map[string]probeOutcome, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMint(mint.URL)
+		results[mint.URL] = t.probeMintOutcome(mint.URL, nil)
 	}
 
 	t.mu.Lock()
 
 	for _, mint := range config.AcceptedMints {
-		if results[mint.URL] {
+		// A throttled answer (HTTP 429) is not a failure: the mint is up and
+		// rate-limiting us, which is information about load, not availability.
+		// It counts as reachable evidence and never contributes to the
+		// consecutive-failure count, so a local flood that drives the mint to
+		// 429 cannot trip the merchant's self-downgrade.
+		if results[mint.URL].reachable() {
 			t.consecutiveSuccesses[mint.URL]++
+			t.consecutiveFailures[mint.URL] = 0
 
 			if !t.reachableMints[mint.URL] && t.consecutiveSuccesses[mint.URL] >= t.recoveryThreshold {
 				t.reachableMints[mint.URL] = true
 			}
 		} else {
 			t.consecutiveSuccesses[mint.URL] = 0
-			t.reachableMints[mint.URL] = false
+			failures := t.consecutiveFailures[mint.URL] + 1
+			t.consecutiveFailures[mint.URL] = failures
+			if failures >= t.failureThreshold {
+				t.reachableMints[mint.URL] = false
+			}
 		}
 	}
 
@@ -352,24 +377,29 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 	}
 
 	log.Printf("runAggressiveCheck: probing %d mint(s) with immediate recovery", len(config.AcceptedMints))
-	results := make(map[string]bool, len(config.AcceptedMints))
+	results := make(map[string]probeOutcome, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMintWith(mint.URL, aggressiveClient)
+		results[mint.URL] = t.probeMintOutcome(mint.URL, aggressiveClient)
 	}
 
 	t.mu.Lock()
 
 	recovered := false
 	for _, mint := range config.AcceptedMints {
-		if results[mint.URL] {
+		// Throttled (429) counts as reachable here too: this loop only runs
+		// while nothing is reachable, and a mint that answers 429 is up.
+		if results[mint.URL].reachable() {
 			t.consecutiveSuccesses[mint.URL]++
+			t.consecutiveFailures[mint.URL] = 0
 			if !t.reachableMints[mint.URL] {
 				t.reachableMints[mint.URL] = true
 				recovered = true
 			}
 		} else {
 			t.consecutiveSuccesses[mint.URL] = 0
-			t.reachableMints[mint.URL] = false
+			t.consecutiveFailures[mint.URL]++
+			// Nothing to downgrade: aggressive mode only runs when the
+			// reachable set is empty, so a failure here keeps the status quo.
 		}
 	}
 
@@ -409,8 +439,32 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 	return recovered
 }
 
+// probeOutcome classifies what a probe learned about a mint. The distinction
+// between "the mint is broken" and "the mint is busy" is the whole point: a
+// rate-limit answer proves the mint is UP, and treating it as an outage is what
+// turns our own flood into a sales outage on a single-mint deployment.
+type probeOutcome uint8
+
+const (
+	// probeOK: a 2xx answer carrying usable keysets.
+	probeOK probeOutcome = iota
+	// probeThrottled: HTTP 429 — reachable, but asking us to slow down.
+	probeThrottled
+	// probeFailed: no answer, a transport error, or a non-429 non-2xx status.
+	probeFailed
+)
+
+// reachable reports whether this outcome is evidence that the mint is up.
+func (o probeOutcome) reachable() bool { return o != probeFailed }
+
 func (t *MintHealthTracker) probeMint(mintURL string) bool {
-	return t.probeMintWith(mintURL, t.httpClient)
+	return t.probeMintOutcome(mintURL, nil).reachable()
+}
+
+// probeMintWith is the pre-existing boolean seam, kept as a wrapper for callers
+// that only need "is it usable".
+func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) bool {
+	return t.probeMintOutcome(mintURL, client).reachable()
 }
 
 // keysetsProbeResponse is the subset of the NUT-01 GET /v1/keysets response
@@ -419,7 +473,13 @@ type keysetsProbeResponse struct {
 	Keysets []json.RawMessage `json:"keysets"`
 }
 
-func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) bool {
+// probeMintOutcome probes the mint's keysets endpoint and classifies the answer.
+// A nil client means the tracker's own (see the constructor).
+func (t *MintHealthTracker) probeMintOutcome(mintURL string, client *http.Client) probeOutcome {
+	if client == nil {
+		client = t.httpClient
+	}
+
 	// Probe /v1/keysets, not /v1/info: a mint is only usable for payments if it
 	// serves its active keysets, and some fronts answer /v1/info with a 2xx HTML
 	// page (parked/hosted error pages), which a status-only check wrongly treats
@@ -431,21 +491,28 @@ func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) b
 	elapsed := time.Since(start)
 	if err != nil {
 		log.Printf("mint probe FAILED: url=%s elapsed=%s error=%v", url, elapsed, err)
-		return false
+		return probeFailed
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		// Busy, not broken: the mint answered, so it is up. It must not count
+		// as a failure, or a flood against us becomes an outage for us.
+		log.Printf("mint probe: url=%s status=%d elapsed=%s outcome=throttled (the mint is up and rate-limiting; not an outage)", url, resp.StatusCode, elapsed)
+		return probeThrottled
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("mint probe: url=%s status=%d elapsed=%s ok=false", url, resp.StatusCode, elapsed)
-		return false
+		return probeFailed
 	}
 
 	var body keysetsProbeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || len(body.Keysets) == 0 {
 		log.Printf("mint probe: url=%s status=%d elapsed=%s ok=false reason=invalid-or-empty-keysets err=%v", url, resp.StatusCode, elapsed, err)
-		return false
+		return probeFailed
 	}
 
 	log.Printf("mint probe: url=%s status=%d keysets=%d elapsed=%s ok=true", url, resp.StatusCode, len(body.Keysets), elapsed)
-	return true
+	return probeOK
 }
