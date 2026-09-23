@@ -53,6 +53,10 @@ func setUpGateTest(t *testing.T, deauthSuccessAfter int) *gateFailNdsctl {
 		for mac := range pendingUntil {
 			delete(pendingUntil, mac)
 		}
+		for mac, timer := range pendingCloseRetries {
+			timer.Stop()
+			delete(pendingCloseRetries, mac)
+		}
 		gatesMutex.Unlock()
 		runNdsctl = origRunNdsctl
 		AuthDelay = origAuthDelay
