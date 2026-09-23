@@ -377,8 +377,18 @@ func (w *TollWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverp
 
 // NUT #04: To request a mint quote, the wallet of `Alice` makes a `POST /v1/mint/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.
 func (w *TollWallet) RequestMintQuote(amount uint64, mintURL string) (*nut04.PostMintQuoteBolt11Response, error) {
-	w.ensureMintRegistered(mintURL)
-	return w.wallet.RequestMint(amount, mintURL)
+	// The underlying wallet resolves mints by exact string match against
+	// the canonical key registerMint passed to AddMint. Callers hand us
+	// whatever the client sent — the captive portal echoes the
+	// advertisement's mint URL verbatim, which may differ from the
+	// canonical spelling by a trailing slash or letter case — so
+	// canonicalize before delegating or a registered, healthy mint
+	// answers "mint does not exist" and every Lightning-lane quote POST
+	// fails with HTTP 400 (the happy-path suite's known issue; same
+	// identity semantics as MintURLMatches, issue #375).
+	canonical := normalizeMintURL(mintURL)
+	w.ensureMintRegistered(canonical)
+	return w.wallet.RequestMint(amount, canonical)
 }
 
 // NUT #04: To check the current accounting data of a mint quote, the wallet makes a `GET /v1/mint/quote/{method}/{quote_id}`.

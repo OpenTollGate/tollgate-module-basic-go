@@ -26,6 +26,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`POST /ln-invoice` no longer fails with "mint does not exist" when the
+  client's mint URL spelling differs from the configured one.** The captive
+  portal echoes the advertisement's mint URL verbatim, while the wallet
+  registers mints under a canonical spelling (trailing slash, letter case,
+  default ports) and the underlying wallet resolves mints by exact string
+  match — so a config like `http://mint:8085` advertised verbatim made every
+  Lightning-lane quote request fail with HTTP 400 even though the mint was
+  registered and healthy. `RequestMintQuote` now canonicalizes the client's
+  URL through the same `normalizeMintURL` used for registration (the identity
+  semantics of issue #375), and the same mint spelling in the portal, the
+  config and the wallet DB is no longer load-bearing for Lightning payments.
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the
