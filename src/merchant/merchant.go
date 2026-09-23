@@ -216,6 +216,8 @@ func (m *Merchant) GetMintHealthTracker() *MintHealthTracker {
 // Returns "-1" if no session exists
 // Returns error for actual errors (caller should return 500)
 func (m *Merchant) GetUsage(macAddress string) (string, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	// Get session for this MAC
 	session, err := m.GetSession(macAddress)
 	if err != nil {
@@ -467,6 +469,8 @@ type PurchaseSessionResult struct {
 // PurchaseSession processes a payment with cashu token and MAC address, returns either a session event or a notice event
 // Spec (NUT 00) verification quote lives above TollWallet.Receive — single source; duplicate quotes flag in speccheck.
 func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	// Validate MAC address
 	if !utils.ValidateMACAddress(macAddress) {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-mac-address",
@@ -1119,8 +1123,23 @@ func (m *Merchant) GetAllMintBalances() map[string]uint64 {
 	return m.tollwallet.GetAllMintBalances()
 }
 
+// NormalizeMACAddress returns the canonical form of a client MAC address:
+// trimmed and lowercased. Sessions (customerSessions) and lightning quotes
+// (lightningQuoteRecord.MacAddress) are keyed and compared as case-sensitive
+// strings, while every producer in the system — nodogsplash preauth, the
+// DHCP-lease and ARP lookups behind getMacAddress, /whoami — is lowercase.
+// Normalising on the way in and on the way out makes one address in any casing
+// resolve to the same session and the same quote, instead of reporting an
+// existing quote as "not found". This only trims and lowercases; MAC validity
+// stays the job of ValidateMACAddress.
+func NormalizeMACAddress(macAddress string) string {
+	return strings.ToLower(strings.TrimSpace(macAddress))
+}
+
 // GetSession retrieves a customer session by MAC address
 func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	m.sessionMu.RLock()
 	session, exists := m.customerSessions[macAddress]
 	m.sessionMu.RUnlock()
@@ -1162,6 +1181,8 @@ func cloneCustomerSession(session *CustomerSession) *CustomerSession {
 }
 
 func (m *Merchant) snapshotSession(macAddress string) (*CustomerSession, bool) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	m.sessionMu.RLock()
 	defer m.sessionMu.RUnlock()
 
@@ -1174,6 +1195,8 @@ func (m *Merchant) snapshotSession(macAddress string) (*CustomerSession, bool) {
 }
 
 func (m *Merchant) restoreSession(macAddress string, previousSession *CustomerSession, hadSession bool) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	m.sessionMu.Lock()
 	defer m.sessionMu.Unlock()
 
@@ -1212,6 +1235,8 @@ func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
 
 // AddAllotment adds allotment to a customer session, creating it if it doesn't exist
 func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	m.sessionMu.Lock()
 	defer m.sessionMu.Unlock()
 

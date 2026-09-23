@@ -416,7 +416,7 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	mac := strings.TrimSpace(r.URL.Query().Get("mac"))
+	mac := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
 	if mac != "" {
 		// Client MAC provided by splash page (from nodogsplash preauth)
 		mainLogger.WithField("mac", mac).Debug("Using client-provided MAC for /whoami")
@@ -481,7 +481,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	// Get MAC address from request — accept client-provided MAC from query
 	// param (splash page passes it from nodogsplash preauth), fall back to
 	// IP-based lookup.
-	macAddress := strings.TrimSpace(r.URL.Query().Get("mac"))
+	macAddress := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
 	if macAddress != "" {
 		mainLogger.WithField("mac", macAddress).Debug("Using client-provided MAC for payment")
 	} else {
@@ -762,7 +762,7 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	macAddress := ""
 	if req.Mac != "" {
 		// Client MAC provided by splash page (from nodogsplash preauth)
-		macAddress = strings.TrimSpace(req.Mac)
+		macAddress = merchant.NormalizeMACAddress(req.Mac)
 		mainLogger.WithField("mac", macAddress).Debug("Using client-provided MAC for lightning invoice")
 	} else {
 		// Fallback to IP-based lookup
@@ -810,7 +810,7 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	macAddress := strings.TrimSpace(r.URL.Query().Get("mac"))
+	macAddress := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
 	if macAddress == "" {
 		ip := getIP(r)
 		var err error

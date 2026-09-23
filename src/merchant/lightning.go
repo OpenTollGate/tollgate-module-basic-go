@@ -63,6 +63,8 @@ type lightningQuoteRecord struct {
 }
 
 func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	if !utils.ValidateMACAddress(macAddress) {
 		return nil, fmt.Errorf("invalid MAC address: %s", macAddress)
 	}
@@ -161,7 +163,7 @@ func (m *Merchant) getLightningQuoteRecordForMAC(quoteID, macAddress string) (*l
 	if err != nil {
 		return nil, err
 	}
-	if record.MacAddress != macAddress {
+	if NormalizeMACAddress(record.MacAddress) != NormalizeMACAddress(macAddress) {
 		return nil, fmt.Errorf("%w: %s", ErrQuoteNotFound, quoteID)
 	}
 
@@ -470,6 +472,8 @@ func (m *Merchant) grantAccessForAmount(macAddress string, amountSats uint64, mi
 }
 
 func (m *Merchant) grantSessionAccess(macAddress string, allotment uint64) (*CustomerSession, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+
 	previousSession, hadSession := m.snapshotSession(macAddress)
 
 	session, err := m.AddAllotment(macAddress, m.config.Metric, allotment)
