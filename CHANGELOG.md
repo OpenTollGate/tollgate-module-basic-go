@@ -26,6 +26,23 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The admin board's `:8090`/`:8443` are now dropped on the captive bridge,
+  not merely held out of the pre-auth allow list.** Taking the two entries out
+  of that list settles what an
+  *unauthenticated* guest can reach, but a guest who has paid is accepted by
+  mark in `20-nds-enforce.nft` — which hooks `forward` only — and nothing sat
+  in front of `:8090`/`:8443` on the input path, so `fw4`'s lan-zone policy
+  let the board's login answer on the same bridge the guests sit on. The new
+  `etc/nftables.d/31-admin-board-not-guest-reachable.nft` drops TCP 8090/8443
+  from `br-lan` (ipv4 and ipv6) in the same input-hook shape as the existing
+  `:2121` rule, which does not depend on the allow list being in the intended
+  state. The owner reaches the board over `br-private`, which nodogsplash does
+  not gate; `:2050`/`:2051`/`:2121`/`:8080` are deliberately untouched. An
+  operator who runs with the private network disabled and administers from a
+  `br-lan` client now loses board access and should use the module CLI or
+  LuCI — stated in the rule's own comment
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
+
 - **The `:8090` admin board is no longer allowed through the captive-portal
   gate before payment.** `users_to_router` is nodogsplash's
   *pre-authentication* allow list, and `99-tollgate-setup` wrote
@@ -136,6 +153,17 @@ and [Semantic Versioning](https://semver.org/).
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
 
 ### Changed / Internal
+
+- **The packaged nftables ruleset set is asserted, not assumed, and `FILES_`
+  is complete.** `packaging/Makefile`'s `FILES_` list registered
+  `20-nds-enforce.nft` but not `30-backend-firewall.nft`, which ships through
+  the same `*.nft` glob; both are registered now, alongside the new rule. The
+  new `tests/packaging/admin-board-not-guest-reachable_test.sh` checks the
+  packet-filter rule, the allow-list half, both install paths, and builds a
+  real `.ipk` from the recipe's own install lines so
+  `tests/packaging/assert-artifact-contents.sh` runs against an artifact
+  rather than against recipe text
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
 
 - **Two uci-defaults tests no longer assert the admin-board allowance as
   expected behaviour.** `tests/uci-defaults-same-version-allowlist_test.sh`
