@@ -182,6 +182,45 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The happy-path suite gates the release instead of waiting for someone to
+  run it by hand.** `tests/happy-path/` (#544) is offline and deterministic, but
+  nothing ran it automatically, so the customer-facing happy path broke three
+  times in ways only manual testing caught: a stale vendored portal bundle, a
+  renewal-after-expiry dead end, and a Lightning lane that could not buy time
+  (found by this suite, after the release had shipped). `build-package.yml` now
+  builds, runs the suite with `--strict` against the x86_64 `.apk` the same
+  workflow just built (`package-apk` hands it over as an artifact; it is
+  extracted with `apk-tools-static` in a container), and only then publishes:
+  `publish-metadata` needs the happy-path job with no `if: always()`, so a red
+  suite skips the release fail-closed, and `verify-publication` /
+  `trigger-build-os` inherit that. Both packaging matrices are now
+  `fail-fast: true`. `test.yml` runs the same suite on every push and pull
+  request against a package built from the commit under test, so a PR that
+  breaks the happy path is the PR that goes red. `--strict` is deliberate: the
+  tip carries upstream #541 (`/session-state`) and the pinned portal ships the
+  in-page renewal CTA (#60), so their absence must fail the release rather than
+  skip — both are measured PASSING on a package built from the tip. `--strict`
+  also promotes every `tests/happy-path/known-issues.txt` entry back to fatal, so
+  the gate wrapper (`.github/scripts/happy-path-gate.sh`) tolerates exactly the
+  check ids that file lists — today the one open Lightning-lane mint-URL defect,
+  which is the normalisation work and not this gate's — and fails on every other
+  failure, including a non-zero suite exit that reports no failed check. Delete
+  that line when the fix lands and the carve-out disappears by itself. The gate
+  also gives a bare runner the one identity fixture a router always has — a DHCP
+  lease for the harness's client — because the module resolves identity from the
+  lease/ARP table and (post-#548) refuses a client it cannot identify, so without
+  it the live-module checks fail with `device-unresolved` on CI and pass on a
+  router; every assertion is unchanged once the lease is present. The two
+  packaging tests no CI job ran are wired in as well
+  (`package-nodogsplash-dependency_test.sh`, and `assert-artifact-contents.sh`
+  against the package the new lane builds). Two workflow-only fixes the gate
+  needs: `package-apk` no longer apt-installs `curl`/`jq` (the pinned
+  `openwrt/sdk` image is Debian bullseye and its security pool now 404s, which
+  had been failing all three apk jobs and skipping the release), and the new
+  container steps request `shell: bash` because container jobs default to `sh`,
+  where `set -o pipefail` is illegal
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed

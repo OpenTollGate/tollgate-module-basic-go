@@ -416,7 +416,10 @@ jobs:
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      # Fail fast: the happy-path gate runs after packaging, so there is nothing
+      # to gain from finishing twelve more architectures once one has failed -
+      # publish-metadata is gated on the gate, not on the matrix completing.
+      fail-fast: true
       matrix: ${{ fromJson(needs.define-package-matrix.outputs.ipk_matrix) }}
     steps:
       - uses: actions/checkout@v6
@@ -609,7 +612,10 @@ jobs:
       image: openwrt/sdk:${{ matrix.sdk }}-25.12.0@${{ matrix.digest }}
       options: --user root
     strategy:
-      fail-fast: false
+      # Fail fast: the happy-path gate runs after packaging, so there is nothing
+      # to gain from finishing the remaining architectures once one has failed -
+      # publish-metadata is gated on the gate, not on the matrix completing.
+      fail-fast: true
       matrix: ${{ fromJson(needs.define-package-matrix.outputs.apk_matrix) }}
     steps:
       - uses: actions/checkout@v6
@@ -618,9 +624,31 @@ jobs:
           fetch-depth: 1
 
       - name: Install build tools
+        # Container jobs default to `sh`, where `set -o pipefail` is illegal and
+        # the step dies with "sh: 1: set: Illegal option -o pipefail". Ask for
+        # bash explicitly, as the other steps in this job already do.
+        shell: bash
         run: |
-          apt-get update
-          apt-get install -y curl jq
+          set -euo pipefail
+          # Do NOT apt-install these. The pinned openwrt/sdk image is Debian
+          # bullseye, whose security pool goes 404 once bullseye leaves LTS, so
+          # `apt-get install -y curl jq` dies inside the container
+          # ("E: Failed to fetch ... 404  Not Found", "Process completed with exit
+          # code 100") and takes every apk job with it - measured on the
+          # 2026-09-17 and 2026-09-12 fork runs, where all three package-apk jobs
+          # failed there and publish-metadata was skipped as a result. curl ships
+          # in the image; jq does not, so take jq from its pinned upstream release
+          # the same way the nak install below does.
+          if ! command -v curl >/dev/null 2>&1; then
+            apt-get update && apt-get install -y curl
+          fi
+          if ! command -v jq >/dev/null 2>&1; then
+            curl -fsSL -o /usr/local/bin/jq \
+              https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64
+            chmod +x /usr/local/bin/jq
+          fi
+          curl --version | head -1
+          jq --version
 
       - name: Install nak
         run: |
@@ -758,6 +786,35 @@ jobs:
           echo "APK_BIN=$APK_BIN"
           bash src-checkout/tests/packaging/assert-artifact-contents.sh "$PKG"
 
+      # Hand the one architecture the happy-path gate can execute to that gate.
+      # The suite boots the package's own binary, so the bytes it exercises are
+      # the bytes this run is about to publish; x86_64 is the only architecture
+      # whose binary runs natively on the ubuntu-latest runner. Staged under the
+      # published filename so the gate has no version string to reconstruct.
+      # (The apk matrix holds exactly one x86_64 entry - no compression variant -
+      # so the architecture test alone is the right filter.)
+      - name: Stage the x86_64 package for the happy-path gate
+        if: matrix.architecture == 'x86_64'
+        # Container jobs default to `sh`, where `set -o pipefail` is illegal.
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG=$(find "/builder/bin/packages/${{ matrix.architecture }}" -maxdepth 2 -type f \
+                  -name "${PACKAGE_NAME}-*.apk" | sort | head -1)
+          [ -n "$PKG" ] || { echo "ERROR: no ${PACKAGE_NAME}-*.apk to hand to the gate" >&2; exit 1; }
+          mkdir -p /github/workspace/happy-path-pkg
+          cp "$PKG" "/github/workspace/happy-path-pkg/${PACKAGE_FILENAME}"
+          ls -l /github/workspace/happy-path-pkg/
+
+      - name: Upload the x86_64 package for the happy-path gate
+        if: matrix.architecture == 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-apk
+          path: /github/workspace/happy-path-pkg/${{ env.PACKAGE_FILENAME }}
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Collect, upload to Blossom, and announce
         shell: bash
         env:
@@ -828,8 +885,99 @@ jobs:
 
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
+  # THE GATE. The happy path is exercised on the bytes this run is about to
+  # publish, and the release does not proceed if it is broken: publish-metadata
+  # needs this job, with no `if: always()`, so a red suite skips the release
+  # fail-closed. This is the operator's standing rule made mechanical - publish
+  # AFTER the tests.
+  #
+  # Why it exists: the happy path broke three times in ways only manual testing
+  # caught - a stale vendored portal bundle, a renewal-after-expiry dead end, and
+  # a Lightning lane that could not buy time (found by this suite, after the
+  # release had shipped). The suite that catches all three (tests/happy-path/,
+  # #544) existed but nothing ran it automatically.
+  #
+  # The suite is offline - no secret, no Cashu token, no payment, no real mint -
+  # so it is safe to run unattended and safe on a same-repo pull_request.
+  happy-path:
+    name: Happy path (suite on the built .apk, --strict)
+    needs: [package-apk]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download the x86_64 package this run just built
+        uses: actions/download-artifact@v4
+        with:
+          name: happy-path-apk
+          path: happy-path-pkg
+
+      # An OpenWrt .apk is a custom v3 format (NOT gzip/zstd), so it needs
+      # apk-tools. Extracting it inside a throwaway container is the recipe in
+      # tests/happy-path/README.md and avoids requiring OpenWrt's own apk on the
+      # runner. The extracted tree is exactly what the module sees on a router.
+      - name: Extract the package
+        run: |
+          set -euo pipefail
+          mkdir -p /var/tmp/hp-artifact
+          cp happy-path-pkg/*.apk /var/tmp/hp-artifact/
+          ls -l /var/tmp/hp-artifact/
+          docker run --rm -v /var/tmp/hp-artifact:/out alpine:edge sh -c \
+            'apk add --no-cache apk-tools-static >/dev/null &&
+             /sbin/apk.static extract --allow-untrusted --destination /out/extracted /out/*.apk'
+          du -sh /var/tmp/hp-artifact/extracted
+          ls -l /var/tmp/hp-artifact/extracted/usr/bin/
+          ls /var/tmp/hp-artifact/extracted/etc/tollgate/tollgate-captive-portal-site/ | head
+
+      - name: Install the runner-side dependencies of the suite
+        run: |
+          set -euo pipefail
+          # The artifact binary is musl x86_64: the suite runs it natively using
+          # /lib/ld-musl-x86_64.so.1 (the `musl` package) and extracts the
+          # matching libgcc_s.so.1 out of alpine:3.20 itself, so pre-pull that
+          # image. Playwright drives the portal half in a real browser.
+          sudo apt-get update
+          sudo apt-get install -y musl
+          docker pull alpine:3.20
+          python3 -m pip install --break-system-packages playwright
+          python3 -m playwright install --with-deps chromium
+
+      # --strict is deliberate, not decoration: this artifact is built from a tip
+      # that carries upstream #541 (/session-state) and a portal bundle that ships
+      # the in-page renewal CTA (#60), so those surfaces are EXPECTED here and
+      # their absence must fail the release rather than skip. That is precisely
+      # the renewal-after-expiry dead end this gate is for.
+      - name: Run the happy-path suite
+        env:
+          # How run.sh finds the interpreter that has playwright installed.
+          HP_PYTHON: python3
+        run: |
+          set -euo pipefail
+          # .github/scripts/happy-path-gate.sh runs the suite with --strict and
+          # tolerates ONLY the check ids listed in tests/happy-path/known-issues.txt
+          # (one documented, pre-existing defect: the Lightning lane's mint-URL
+          # mismatch). Every other failure fails the release. See its header.
+          bash .github/scripts/happy-path-gate.sh \
+            --artifact /var/tmp/hp-artifact/extracted \
+            --out "$RUNNER_TEMP/happy-path-evidence"
+
+      - name: Upload the suite evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-evidence
+          path: ${{ runner.temp }}/happy-path-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+
   publish-metadata:
-    needs: [determine-versioning, package-ipk, package-apk]
+    # `happy-path` is in the needs list on purpose and there is deliberately no
+    # `if: always()` on this job or the ones below it: a red happy path skips the
+    # release, fail-closed, instead of publishing a broken build to every feed
+    # consumer. verify-publication and trigger-build-os inherit this through
+    # their own `needs:`.
+    needs: [determine-versioning, package-ipk, package-apk, happy-path]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
