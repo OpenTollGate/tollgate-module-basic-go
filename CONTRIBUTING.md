@@ -324,16 +324,22 @@ they are a recurring source of confusion.
 - **`c08r4d0r` is a shared pseudonym for "a TollGate operator", not a personal
   identifier.** Everyone who runs a TollGate may go by the nym `c08r4d0r`. It
   deliberately names no real person. The codebase uses it as the representative
-  operator identity (e.g. the 0.07 profit-share example identity in
-  `README.md` and `docs/merchant.md`), and it appears as the default private
-  SSID prefix (`c08r4d0r-<suffix>`). Because it is a shared, anonymous nym, an
-  SSID like `c08r4d0r-AB12` leaks no operator identity — it only indicates a
-  private (operator-owned) AP. Do not report it or a guard test on it as an
-  "identity leak".
+  operator identity in documentation and examples (e.g. the 0.07 profit-share
+  identity in `README.md` and `docs/merchant.md`). A handle in prose or in an
+  example is fine — the reader is expected to replace it.
+- **A shipped default never carries an operator handle, and always names the
+  product.** Anything a device broadcasts reads to anyone in radio range, so
+  shipped defaults follow the `brand` value instead: the default private SSID
+  is `${BRAND_HOSTNAME}-Private-<suffix>` (it was `c08r4d0r-<suffix>`), and
+  `tests/contract/check-identity-leak.sh` fails if an operator-identity literal
+  reappears under `packaging/files/` or the default stops deriving from the
+  brand selector. That is a leak worth reporting: the nym being shared does not
+  make a router's beacon the right place for it.
 
 When you see `c08r4d0r`, `net4sats`, or `tollgate` in a diff and suspect a
 naming bug, confirm the intent against the `brand` value and this section
-before asserting a leak or a rebranding error.
+before asserting a leak or a rebranding error: a handle in a documented example
+is not a leak, a handle in a shipped default is.
 
 ## Further reading
 
