@@ -89,6 +89,9 @@ func (m *scriptedDrainMerchant) CreateNoticeEvent(level, code, message, customer
 func (m *scriptedDrainMerchant) GetSession(macAddress string) (*merchant.CustomerSession, error) {
 	return nil, nil
 }
+func (m *scriptedDrainMerchant) GetSessionState(macAddress string) (merchant.SessionState, error) {
+	return merchant.SessionStateNone, nil
+}
 func (m *scriptedDrainMerchant) AddAllotment(macAddress, metric string, amount uint64) (*merchant.CustomerSession, error) {
 	return nil, nil
 }

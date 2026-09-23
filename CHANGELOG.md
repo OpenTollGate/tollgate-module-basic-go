@@ -10,7 +10,34 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /session-state?mac=…` reports a machine-readable session state per
+  client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
+  device that has never paid *and* for one whose paid session just ran out, so a
+  portal could not tell a first-time visitor from a customer whose session
+  ended, and could not offer a renewal. The new read-only endpoint answers
+  `{"status":1,"mac":"<canonical mac>","state":"none|active|expired"}` (405 for
+  non-GET, `mac` normalised like every other endpoint, `none` when the client
+  cannot be identified). It is additive on purpose: `/usage` keeps answering
+  `used/total` and `-1/-1` and `/balance` keeps its keys, because the shipped
+  portal parses them
+  ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
+
 ### Fixed
+
+- **A session that ran out can be renewed again.** The payment pre-flight
+  refused every purchase whose MAC NoDogSplash no longer lists — the state of a
+  client we just deauthorised at expiry — so each renewal was answered with
+  `client-not-registered` ("No captive-portal session found for this device.
+  Reconnect to the TollGate Wi-Fi and try again.") before `Receive`, and the
+  portal could only tell the customer to reconnect. A MAC with a session, or one
+  whose session is known to have expired, is now treated as a returning customer:
+  the renewal proceeds and the valve re-authorises it, while a MAC without
+  session history is still refused before the money path. Renewing also creates a
+  fresh allotment instead of extending the spent record (two 600 s purchases used
+  to leave a 1200 s session, handing the consumed time back)
+  ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
 
 - **The captive portal's Cashu swap-fee pre-check works again on real v4
   tokens (#CU110).** The portal pin advances from `e67d646` (portal #56) to
