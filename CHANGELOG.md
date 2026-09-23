@@ -26,6 +26,32 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A mint answering 429 no longer stops sales, and a flood can no longer drive
+  it there.** `POST /ln-invoice` is unauthenticated and, before this change,
+  unbounded in body size, unbounded in amount and unrate-limited, while each
+  accepted call costs a mint round trip, a durable write and a monitor
+  goroutine — so a LAN client could loop it until the mint answered `429`. The
+  second half of the bug is that a `429` was classified as the mint being
+  *unreachable*, so on a single-mint deployment one rate-limited request emptied
+  the reachable set and downgraded the merchant to degraded mode: a single `429`
+  stopped every sale. The probe now classifies `429` as `throttled` (the mint is
+  up and asking us to slow down) instead of as a failure, a payment-level `429`
+  leaves the reachable set alone, and a mint leaves the set only after three
+  consecutive failed probes instead of one. Alongside it, the quote-creation
+  POST is bounded (8 KiB body, 1 000 000 sats) and quota'd per client
+  (6/min, burst 3), per source network (20/min) and globally (2/s, burst 5),
+  keyed from the socket's DHCP/ARP identity rather than the caller's asserted
+  `mac`, with both bucket maps capped at 4096 entries — while the GET status
+  poll a paying customer sits in front of stays unlimited, because a limiter
+  around the whole route throttles the customer mid-payment. The in-flight quote
+  table is bounded at 3 per client and 128 overall, evicting the oldest
+  abandoned quote (never one being processed, one that already granted access,
+  or one younger than 5 minutes), and our own outbound quote traffic toward each
+  mint is self-limited, so a local flood is refused at the router instead of
+  being reported to the mint. Refusals keep the `status`/`error` pair the
+  shipped portal parses and add `code`/`retry_after`
+  ([#547](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/547)).
+
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the
