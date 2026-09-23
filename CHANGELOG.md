@@ -26,6 +26,22 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
+  all-zero address is what dnsmasq and the ARP table write for "no address at
+  all"; five routes substituted it whenever the MAC lookup failed and continued,
+  so every client the router could not identify collapsed into ONE shared
+  identity — one session record, one byte meter, one lightning quote and one open
+  gate — and a customer whose lookup failed could pay for a session belonging to
+  a device that does not exist. `POST /` (the cashu money path) and
+  `POST /ln-invoice` now refuse before any value moves, and `GET /ln-invoice`
+  refuses before it authorises a quote read, answering `400` with
+  `{"status":0,"error":"We could not identify your device on the network.
+  Reconnect to the TollGate Wi-Fi and try again.","code":"device-unresolved"}`
+  (`status`/`error` are what the shipped portal reads; `code` is additive and
+  machine-readable). `/session-state` keeps answering `none` — with an empty
+  `mac` instead of the sentinel — and `/whoami` answers an empty `mac=` instead
+  of echoing it
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the

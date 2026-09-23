@@ -357,6 +357,35 @@ var (
 	arpTablePath  = "/proc/net/arp"
 )
 
+// sentinelMACAddress is the all-zero address dnsmasq and the kernel ARP table
+// use to mean "no address at all". Every route that could not resolve a client
+// used to substitute it and carry on, which collapsed all unidentifiable
+// clients into ONE shared identity — a shared session record, byte meter,
+// lightning quote and open gate — and, on POST / and POST /ln-invoice, charged
+// a customer for a device that does not exist. It is never an identity.
+const sentinelMACAddress = "00:00:00:00:00:00"
+
+// errDeviceUnresolvedCode is the machine-readable refusal code for a request
+// that needs an identity and cannot get one. It is additive next to the
+// `status`/`error` pair every portal already parses, so the pinned portal can
+// show the message and the operator can distinguish "we could not identify your
+// device" from "the mint is down" in the logs and in a bug report.
+const errDeviceUnresolvedCode = "device-unresolved"
+
+// deviceUnresolvedMessage is what a customer who cannot be identified is told.
+// It is actionable on the device the customer is holding, which is the only
+// place the problem can be fixed.
+const deviceUnresolvedMessage = "We could not identify your device on the network. Reconnect to the TollGate Wi-Fi and try again."
+
+// isUnknownMAC reports whether mac carries no usable client identity: the empty
+// string (the lookup failed) or the all-zero sentinel. Callers that need an
+// identity must refuse the request; callers that only echo an identity must
+// answer an empty one.
+func isUnknownMAC(mac string) bool {
+	normalized := merchant.NormalizeMACAddress(mac)
+	return normalized == "" || normalized == sentinelMACAddress
+}
+
 func getMacAddress(ipAddress string) (string, error) {
 	if net.ParseIP(ipAddress) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
@@ -437,11 +466,19 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		var err error
 		mac, err = getMacAddress(ip)
 		if err != nil {
-			// MAC lookup failure is non-fatal for /whoami. Use a fallback MAC
-			// so the endpoint still responds instead of returning 500.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for /whoami; using fallback")
-			mac = "00:00:00:00:00:00"
+			// MAC lookup failure is non-fatal for /whoami: this endpoint is an
+			// echo of the caller's own address, not a request that needs one
+			// (the money routes refuse an unidentified client). Answer an empty
+			// mac instead of returning 500 — and never the sentinel, which
+			// publishes 00:00:00:00:00:00 as if it were this client's identity.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for /whoami; answering an empty mac")
+			mac = ""
 		}
+	}
+	if isUnknownMAC(mac) {
+		// A caller that names the sentinel is naming "unknown", not itself.
+		mainLogger.WithField("mac", mac).Warn("/whoami: refusing to echo the unresolvable-device sentinel as an identity")
+		mac = ""
 	}
 
 	mainLogger.WithField("mac", mac).Debug("MAC address resolved")
@@ -501,11 +538,20 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		var err error
 		macAddress, err = getMacAddress(ip)
 		if err != nil {
-			// MAC lookup failure is non-fatal for payment processing. Use a
-			// fallback MAC so the request can proceed instead of returning 400.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for payment; using fallback")
-			macAddress = "00:00:00:00:00:00"
+			mainLogger.WithError(err).Warn("MAC address lookup failed for payment")
 		}
+	}
+
+	// The money path is where a wrong identity cannot be recovered: the token is
+	// received before the gate is opened, so a request that names
+	// 00:00:00:00:00:00 — or that cannot be resolved at all — would consume the
+	// customer's value and grant nothing (the rollback happens after Receive).
+	// Refuse BEFORE the token is read, with a distinct code the portal can show.
+	if isUnknownMAC(macAddress) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Payment refused: the client has no resolvable identity")
+		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", errDeviceUnresolvedCode,
+			deviceUnresolvedMessage, "")
+		return
 	}
 
 	// Read the request body (capped at 1MB to prevent resource exhaustion)
@@ -638,6 +684,10 @@ type lightningInvoiceResponse struct {
 	Allotment     uint64 `json:"allotment,omitempty"`
 	Metric        string `json:"metric,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// Code is the machine-readable refusal reason, additive to the
+	// `status`/`error` pair the shipped portal already parses. Today the only
+	// value is `device-unresolved` (errDeviceUnresolvedCode).
+	Code string `json:"code,omitempty"`
 }
 
 type balanceResponse struct {
@@ -681,19 +731,22 @@ func HandleSessionState(w http.ResponseWriter, r *http.Request) {
 		var err error
 		macAddress, err = getMacAddress(ip)
 		if err != nil {
-			// Same fallback as /whoami and /ln-invoice: an unidentifiable client
-			// has no session, and the portal must still be able to render.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for /session-state; using fallback")
-			macAddress = "00:00:00:00:00:00"
+			// An unidentifiable client has no session, and the portal must still
+			// be able to render — so this route answers "none" rather than
+			// erroring.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for /session-state")
 		}
 	}
 
-	// The fallback MAC is not a client: answer "none" rather than asking the
-	// merchant about a sentinel address.
-	if macAddress == "00:00:00:00:00:00" {
+	// The sentinel (and an empty lookup) is not a client: answer "none" rather
+	// than asking the merchant about an address that means "unknown". The mac
+	// field stays in the response shape but is empty — echoing the sentinel
+	// published it as if it were this client's identity, which is exactly the
+	// leak observed on the published pre15 artifact.
+	if isUnknownMAC(macAddress) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(sessionStateResponse{Status: 1, Mac: macAddress, State: string(merchant.SessionStateNone)})
+		json.NewEncoder(w).Encode(sessionStateResponse{Status: 1, Mac: "", State: string(merchant.SessionStateNone)})
 		return
 	}
 
@@ -842,12 +895,25 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		var err error
 		macAddress, err = getMacAddress(ip)
 		if err != nil {
-			// MAC lookup failure is non-fatal for lightning invoice creation.
-			// Use a fallback MAC so the request can proceed instead of
-			// returning 400. The quote is bound to this MAC at creation time.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning invoice; using fallback")
-			macAddress = "00:00:00:00:00:00"
+			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning invoice")
 		}
+	}
+
+	// A quote is only meaningful for a device that exists: the status poll and
+	// the eventual grant are both bound to this address, and the quote store is
+	// keyed by it. Creating one for 00:00:00:00:00:00 (or for an empty lookup)
+	// wrote a record every unidentified client shared. Refuse instead, with a
+	// code the portal can display.
+	if isUnknownMAC(macAddress) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Refusing lightning invoice: the client has no resolvable identity")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{
+			Status: 0,
+			Error:  deviceUnresolvedMessage,
+			Code:   errDeviceUnresolvedCode,
+		})
+		return
 	}
 
 	invoice, err := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)
@@ -888,14 +954,24 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		var err error
 		macAddress, err = getMacAddress(ip)
 		if err != nil {
-			// MAC lookup failure is non-fatal for status polling. The quote was
-			// already bound to the client's MAC at POST creation time, and
-			// GetLightningInvoiceStatus uses the quoteID as the primary key.
-			// A fallback MAC lets localhost and IPs missing from DHCP/ARP still
-			// poll their invoice status instead of receiving a 500.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning status; using fallback")
-			macAddress = "00:00:00:00:00:00"
+			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning status")
 		}
+	}
+
+	// The MAC is not a lookup key here, it is the authorisation check: a quote is
+	// only readable by the device that created it. A poll that cannot be
+	// attributed must be refused rather than attributed to 00:00:00:00:00:00,
+	// which every unidentified client would share.
+	if isUnknownMAC(macAddress) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Refusing lightning status poll: the client has no resolvable identity")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(lightningInvoiceResponse{
+			Status: 0,
+			Error:  deviceUnresolvedMessage,
+			Code:   errDeviceUnresolvedCode,
+		})
+		return
 	}
 
 	// Quotes are bound to the device MAC at invoice creation time. Polling only

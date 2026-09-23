@@ -144,6 +144,10 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 // A request without a `mac` parameter falls back to the request-derived client
 // (DHCP lease / ARP). Off the router that lookup fails, and the endpoint must
 // still answer "none" rather than 500 — the portal polls it while rendering.
+//
+// The `mac` field is empty in that answer: 00:00:00:00:00:00 means "no address
+// at all", and echoing it published the sentinel as the client's identity (the
+// leak observed on the pre15 artifact). The state contract is unchanged.
 func TestSessionStateEndpointWithoutMacIsNoneNotAnError(t *testing.T) {
 	fake := &sessionStateMerchant{state: "expired"}
 	useSessionStateMerchant(fake)
@@ -158,8 +162,8 @@ func TestSessionStateEndpointWithoutMacIsNoneNotAnError(t *testing.T) {
 		t.Fatalf("GET /session-state without mac returned %d, want 200 (body: %s)", w.Code, w.Body.String())
 	}
 	body := decodedBody(t, w)
-	if body["mac"] != "00:00:00:00:00:00" {
-		t.Fatalf("mac = %v, want the documented fallback 00:00:00:00:00:00", body["mac"])
+	if body["mac"] != "" {
+		t.Fatalf("mac = %v, want an empty mac for an unresolvable client (never the sentinel 00:00:00:00:00:00)", body["mac"])
 	}
 	if body["state"] != "none" {
 		t.Fatalf("state for an unidentifiable client = %v, want \"none\"", body["state"])

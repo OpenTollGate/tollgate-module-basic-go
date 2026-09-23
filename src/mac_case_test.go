@@ -177,11 +177,15 @@ func TestMacQueryParameterPercentEncodedUppercase(t *testing.T) {
 }
 
 // Invalid and absent mac handling must not change: an absent mac still falls
-// back to the request-derived client, and an invalid mac is still rejected by
-// the merchant (not by the normaliser).
+// back to the request-derived client — and off the router that lookup fails, so
+// /whoami answers an empty mac (never 00:00:00:00:00:00) — while an invalid mac
+// is still passed through untouched and rejected by the merchant, not by the
+// normaliser.
 func TestMacNormalisationPreservesAbsentAndInvalidHandling(t *testing.T) {
 	fake := &macCaptureMerchant{}
 	useMacCaptureMerchant(fake)
+	// Off-router: no lease names this IP, so there is no client to name.
+	unresolvedClient(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/whoami", nil)
 	req.RemoteAddr = "192.0.2.50:4321"
@@ -189,8 +193,8 @@ func TestMacNormalisationPreservesAbsentAndInvalidHandling(t *testing.T) {
 
 	handler(w, req)
 
-	if got, want := w.Body.String(), "mac=00:00:00:00:00:00"; got != want {
-		t.Fatalf("/whoami without mac returned %q, want the fallback %q", got, want)
+	if got, want := w.Body.String(), "mac="; got != want {
+		t.Fatalf("/whoami without mac returned %q, want %q (the sentinel is not an identity)", got, want)
 	}
 
 	useMacCaptureMerchant(fake)
