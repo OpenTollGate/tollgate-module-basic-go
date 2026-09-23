@@ -32,6 +32,7 @@ and [Semantic Versioning](https://semver.org/).
   a drain whose response was lost to a crash or partial failure.
   Protocol boundaries are annotated with verbatim NUT spec quotes
   checked by the greatspectations CI job.
+  ([#549](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/549))
 
 ### Fixed
 
