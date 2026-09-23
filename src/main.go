@@ -639,6 +639,66 @@ type balanceResponse struct {
 	Error         string `json:"error,omitempty"`
 }
 
+// sessionStateResponse is the body of GET /session-state. `state` is the
+// machine-readable session state for `mac`: "none" (never had a session),
+// "active" (allotment left) or "expired" (had a session that is used up).
+type sessionStateResponse struct {
+	Status int    `json:"status"`
+	Mac    string `json:"mac"`
+	State  string `json:"state"`
+	Error  string `json:"error,omitempty"`
+}
+
+// HandleSessionState serves GET /session-state?mac=… — the session state of one
+// client, which `/usage` cannot express: "-1/-1" is the same answer for a
+// first-time visitor and for a customer whose paid session just ran out, so a
+// portal could not tell them apart and could not offer a renewal.
+//
+// This endpoint is additive. `/usage` keeps answering `used/total` and `-1/-1`
+// byte for byte because the shipped portal parses exactly those bytes, and
+// `/balance` keeps its shape.
+func HandleSessionState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	macAddress := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
+	if macAddress == "" {
+		ip := getIP(r)
+		var err error
+		macAddress, err = getMacAddress(ip)
+		if err != nil {
+			// Same fallback as /whoami and /ln-invoice: an unidentifiable client
+			// has no session, and the portal must still be able to render.
+			mainLogger.WithError(err).Warn("MAC address lookup failed for /session-state; using fallback")
+			macAddress = "00:00:00:00:00:00"
+		}
+	}
+
+	// The fallback MAC is not a client: answer "none" rather than asking the
+	// merchant about a sentinel address.
+	if macAddress == "00:00:00:00:00:00" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(sessionStateResponse{Status: 1, Mac: macAddress, State: string(merchant.SessionStateNone)})
+		return
+	}
+
+	state, err := merchantProvider.inner.GetMerchant().GetSessionState(macAddress)
+	if err != nil {
+		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).Error("Error getting session state")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(sessionStateResponse{Status: 0, Mac: macAddress, Error: "failed to retrieve session state"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(sessionStateResponse{Status: 1, Mac: macAddress, State: string(state)})
+}
+
 func parseUsageString(usage string) (uint64, uint64, error) {
 	parts := strings.Split(strings.TrimSpace(usage), "/")
 	if len(parts) != 2 {
@@ -896,6 +956,11 @@ func main() {
 	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /usage endpoint")
 		CorsMiddleware(HandleUsage)(w, r)
+	})
+
+	http.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session-state endpoint")
+		CorsMiddleware(HandleSessionState)(w, r)
 	})
 
 	// --- Identity derivation (additive, optional) --------------------------

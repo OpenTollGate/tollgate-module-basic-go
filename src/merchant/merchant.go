@@ -29,6 +29,102 @@ type CustomerSession struct {
 	Allotment  uint64 // Total allotment for this session
 }
 
+// SessionState is the machine-readable lifecycle state of the session of one
+// client MAC. It exists because the usage contract cannot express it: `/usage`
+// answers "-1/-1" both for a device that has never paid and for one whose paid
+// session ran out, so a portal cannot tell a first-time visitor from a customer
+// whose session just ended — and cannot offer a renewal.
+type SessionState string
+
+const (
+	// SessionStateNone — no session, and none observed to expire while this
+	// process has been running.
+	SessionStateNone SessionState = "none"
+	// SessionStateActive — a session exists with allotment left.
+	SessionStateActive SessionState = "active"
+	// SessionStateExpired — the MAC had a session that is used up: the record
+	// was retired by the milliseconds lookup, by the usage monitor reaching the
+	// allotment, or by the renewal that superseded it.
+	SessionStateExpired SessionState = "expired"
+)
+
+// Sentinels for the two "no usable session" answers of GetSession, so callers
+// can tell them apart without matching messages. The wrapped text keeps the
+// original wording ("session expired for MAC address: %s").
+var (
+	ErrSessionNotFound = errors.New("session not found")
+	ErrSessionExpired  = errors.New("session expired")
+)
+
+// sessionHistoryTTL bounds how long an observed expiry is remembered. The
+// history exists so /session-state can keep answering "expired" after the record
+// itself is gone; a day covers the window in which a customer renews, and the
+// entry is a hint, not a ledger (it is process-memory, like the sessions).
+const sessionHistoryTTL = 24 * time.Hour
+
+// sessionHistoryMaxEntries caps the history so a busy router cannot grow it
+// without bound between TTL sweeps.
+const sessionHistoryMaxEntries = 4096
+
+// sessionHasExpired reports whether a session's allotment is used up. Only the
+// milliseconds metric can be judged from the record alone: byte allotments are
+// measured against NDS counters by checkDataUsage, which closes the gate and
+// retires the record when it sees the allotment reached.
+func sessionHasExpired(session *CustomerSession, now time.Time) bool {
+	if session == nil || session.Metric != "milliseconds" {
+		return false
+	}
+	elapsed := now.Sub(time.Unix(session.StartTime, 0))
+	if elapsed < 0 {
+		return false
+	}
+	return uint64(elapsed.Milliseconds()) >= session.Allotment
+}
+
+// expireSessionLocked retires the session record of macAddress and remembers
+// that this MAC has spent one, so /session-state keeps answering "expired" for
+// it afterwards. Caller must hold sessionMu for writing.
+func (m *Merchant) expireSessionLocked(macAddress string) {
+	delete(m.customerSessions, macAddress)
+	m.rememberExpiredSessionLocked(macAddress)
+}
+
+// rememberExpiredSessionLocked records an observed expiry. Caller must hold
+// sessionMu for writing.
+func (m *Merchant) rememberExpiredSessionLocked(macAddress string) {
+	now := time.Now()
+	if m.expiredSessions == nil {
+		m.expiredSessions = make(map[string]int64)
+	}
+	m.expiredSessions[macAddress] = now.Unix()
+
+	cutoff := now.Add(-sessionHistoryTTL).Unix()
+	oldestMAC := ""
+	oldest := now.Unix()
+	for mac, when := range m.expiredSessions {
+		if when < cutoff {
+			delete(m.expiredSessions, mac)
+			continue
+		}
+		if when < oldest {
+			oldest, oldestMAC = when, mac
+		}
+	}
+	if len(m.expiredSessions) > sessionHistoryMaxEntries && oldestMAC != "" && oldestMAC != macAddress {
+		delete(m.expiredSessions, oldestMAC)
+	}
+}
+
+// sessionKnownToHaveExpiredLocked reports whether macAddress is remembered as
+// having had a session that ran out. Caller must hold sessionMu for reading.
+func (m *Merchant) sessionKnownToHaveExpiredLocked(macAddress string) bool {
+	when, ok := m.expiredSessions[macAddress]
+	if !ok {
+		return false
+	}
+	return time.Since(time.Unix(when, 0)) <= sessionHistoryTTL
+}
+
 // ndsClientCheck is a seam over valve.CheckClientState so tests can stub the
 // read-only NDS probe without a router.
 var ndsClientCheck = valve.CheckClientState
@@ -58,6 +154,7 @@ type MerchantInterface interface {
 	StartDataUsageMonitoring()
 	CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error)
 	GetSession(macAddress string) (*CustomerSession, error)
+	GetSessionState(macAddress string) (SessionState, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	GetUsage(macAddress string) (string, error)
 	Fund(cashuToken string) (uint64, error)
@@ -71,6 +168,7 @@ type Merchant struct {
 	tollwallet        tollwallet.WalletPort
 	mintHealthTracker *MintHealthTracker
 	customerSessions  map[string]*CustomerSession
+	expiredSessions   map[string]int64
 	sessionMu         sync.RWMutex
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
@@ -175,6 +273,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		tollwallet:        tw,
 		mintHealthTracker: mintHealthTracker,
 		customerSessions:  make(map[string]*CustomerSession),
+		expiredSessions:   make(map[string]int64),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
 		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
 	}
@@ -299,9 +398,12 @@ func (m *Merchant) checkDataUsage() {
 				log.Printf("Successfully closed gate for %s", mac)
 			}
 
-			// Remove the session from the map so GetUsage returns -1/-1
+			// Retire the record: the allotment is spent, so GetUsage answers
+			// -1/-1 and /session-state answers "expired" — the record itself
+			// carries no expiry flag, so the removal is also what tells a
+			// portal (and the next purchase) that this session is over.
 			m.sessionMu.Lock()
-			delete(m.customerSessions, mac)
+			m.expireSessionLocked(mac)
 			m.sessionMu.Unlock()
 			log.Printf("Removed expired session for %s", mac)
 		} else {
@@ -509,7 +611,26 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		}
 	}
 
-	if !m.clientRegisteredForGate(macAddress) {
+	// Pre-flight of issue #403 L1: a payment whose MAC NDS does not know cannot
+	// have its gate opened, so accepting it would consume the customer's token
+	// with no session and no refund path.
+	//
+	// A returning customer is the exception, and the reason this pre-flight used
+	// to block every renewal: once the session ran out we deauthorised the MAC,
+	// and NDS then reports it as not listed — so the next purchase was refused
+	// before Receive with `client-not-registered` ("No captive-portal session
+	// found for this device. Reconnect to the TollGate Wi-Fi and try again."),
+	// the exact "disconnect and reconnect" the portal showed. But a MAC with an
+	// active session, or one that expired here, is a device we know: the client
+	// is demonstrably present (it just submitted a token through the captive
+	// portal) and the valve's bounded auth retry is what re-registers it. So the
+	// renewal proceeds and the gate-open decides.
+	//
+	// Residual risk, unchanged in kind from #403: if NDS genuinely cannot
+	// re-authorise the client after the valve's retries, the token has been
+	// received and grantSessionAccess rolls the session back. That exposure is
+	// deliberate — a hard refusal here guarantees no renewal can ever work.
+	if !m.sessionIsRenewal(macAddress) && !m.clientRegisteredForGate(macAddress) {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "client-not-registered",
 			"No captive-portal session found for this device. Reconnect to the TollGate Wi-Fi and try again.", macAddress)
 		if noticeErr != nil {
@@ -1136,7 +1257,10 @@ func NormalizeMACAddress(macAddress string) string {
 	return strings.ToLower(strings.TrimSpace(macAddress))
 }
 
-// GetSession retrieves a customer session by MAC address
+// GetSession retrieves a customer session by MAC address. It answers
+// ErrSessionNotFound when the MAC has no record and ErrSessionExpired when a
+// milliseconds session has spent its allotment (the spent record is retired on
+// the way out, as it always was).
 func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 	macAddress = NormalizeMACAddress(macAddress)
 
@@ -1144,31 +1268,64 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 	session, exists := m.customerSessions[macAddress]
 	m.sessionMu.RUnlock()
 	if !exists {
-		return nil, fmt.Errorf("session not found for MAC address: %s", macAddress)
+		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionNotFound, macAddress)
 	}
 
-	if session.Metric == "milliseconds" {
-		elapsedDuration := time.Since(time.Unix(session.StartTime, 0))
-		if elapsedDuration >= 0 {
-			elapsedMs := uint64(elapsedDuration.Milliseconds())
-			if elapsedMs >= session.Allotment {
-				m.sessionMu.Lock()
-				if currentSession, exists := m.customerSessions[macAddress]; exists {
-					currentElapsedDuration := time.Since(time.Unix(currentSession.StartTime, 0))
-					if currentElapsedDuration >= 0 {
-						currentElapsedMs := uint64(currentElapsedDuration.Milliseconds())
-						if currentSession.Metric == "milliseconds" && currentElapsedMs >= currentSession.Allotment {
-							delete(m.customerSessions, macAddress)
-						}
-					}
-				}
-				m.sessionMu.Unlock()
-				return nil, fmt.Errorf("session expired for MAC address: %s", macAddress)
-			}
+	if sessionHasExpired(session, time.Now()) {
+		m.sessionMu.Lock()
+		// Re-check under the write lock: a replacement session created in
+		// between (a renewal) must not be dropped by this lookup's conclusion
+		// about the record it read.
+		if currentSession, exists := m.customerSessions[macAddress]; exists && sessionHasExpired(currentSession, time.Now()) {
+			m.expireSessionLocked(macAddress)
 		}
+		m.sessionMu.Unlock()
+		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionExpired, macAddress)
 	}
 
 	return cloneCustomerSession(session), nil
+}
+
+// GetSessionState reports the machine-readable session state of a MAC, so a
+// portal can tell a first-time visitor (none) from a customer whose paid session
+// ran out (expired) — a distinction /usage's "-1/-1" cannot express.
+//
+// The lookup is read-only apart from retiring a spent milliseconds record, which
+// is exactly what any /usage poll already does; /usage, /balance and the money
+// path are unchanged by it.
+func (m *Merchant) GetSessionState(macAddress string) (SessionState, error) {
+	macAddress = NormalizeMACAddress(macAddress)
+	if macAddress == "" {
+		return SessionStateNone, nil
+	}
+
+	session, err := m.GetSession(macAddress)
+	if err == nil && session != nil {
+		return SessionStateActive, nil
+	}
+	if err != nil && !errors.Is(err, ErrSessionNotFound) && !errors.Is(err, ErrSessionExpired) {
+		return SessionStateNone, err
+	}
+
+	m.sessionMu.RLock()
+	observedExpiry := m.sessionKnownToHaveExpiredLocked(macAddress)
+	m.sessionMu.RUnlock()
+	if observedExpiry {
+		return SessionStateExpired, nil
+	}
+
+	return SessionStateNone, nil
+}
+
+// sessionIsRenewal reports whether this MAC is a returning customer: it has a
+// session now, or had one that expired. Used by the payment pre-flight, which
+// must not treat a returning customer as a device NDS has never seen.
+func (m *Merchant) sessionIsRenewal(macAddress string) bool {
+	state, err := m.GetSessionState(macAddress)
+	if err != nil {
+		return false
+	}
+	return state == SessionStateActive || state == SessionStateExpired
 }
 
 func cloneCustomerSession(session *CustomerSession) *CustomerSession {
@@ -1233,7 +1390,12 @@ func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
 	return false
 }
 
-// AddAllotment adds allotment to a customer session, creating it if it doesn't exist
+// AddAllotment adds allotment to a customer session, creating it if it doesn't
+// exist. A session whose allotment is already spent (a milliseconds record that
+// outlived its time because nothing looked it up) is retired first: extending it
+// would hand back the allotment that was consumed — two 600 s purchases left a
+// 1200 s session — and would keep reporting the spent session to /usage and
+// /session-state instead of the renewal's fresh one.
 func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
 	macAddress = NormalizeMACAddress(macAddress)
 
@@ -1241,6 +1403,10 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 	defer m.sessionMu.Unlock()
 
 	session, exists := m.customerSessions[macAddress]
+	if exists && sessionHasExpired(session, time.Now()) {
+		m.expireSessionLocked(macAddress)
+		exists = false
+	}
 	if !exists {
 		// Create new session
 		session = &CustomerSession{

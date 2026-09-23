@@ -10,7 +10,56 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /session-state?mac=…` reports a machine-readable session state per
+  client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
+  device that has never paid *and* for one whose paid session just ran out, so a
+  portal could not tell a first-time visitor from a customer whose session
+  ended, and could not offer a renewal. The new read-only endpoint answers
+  `{"status":1,"mac":"<canonical mac>","state":"none|active|expired"}` (405 for
+  non-GET, `mac` normalised like every other endpoint, `none` when the client
+  cannot be identified). It is additive on purpose: `/usage` keeps answering
+  `used/total` and `-1/-1` and `/balance` keeps its keys, because the shipped
+  portal parses them
+  ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
+
 ### Fixed
+
+- **A session that ran out can be renewed again.** The payment pre-flight
+  refused every purchase whose MAC NoDogSplash no longer lists — the state of a
+  client we just deauthorised at expiry — so each renewal was answered with
+  `client-not-registered` ("No captive-portal session found for this device.
+  Reconnect to the TollGate Wi-Fi and try again.") before `Receive`, and the
+  portal could only tell the customer to reconnect. A MAC with a session, or one
+  whose session is known to have expired, is now treated as a returning customer:
+  the renewal proceeds and the valve re-authorises it, while a MAC without
+  session history is still refused before the money path. Renewing also creates a
+  fresh allotment instead of extending the spent record (two 600 s purchases used
+  to leave a 1200 s session, handing the consumed time back)
+  ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
+
+- **The captive portal's Cashu swap-fee pre-check works again on real v4
+  tokens (#CU110).** The portal pin advances from `e67d646` (portal #56) to
+  `51a1429` (portal #59), which fixes `src/helpers/mint-fee.js`: the pre-check
+  handed `getDecodedToken()` a list of keyset **id strings** where cashu-ts
+  wants `MintKeyset` **objects**, so every real v4 short-keyset note
+  (coinos.io, minibits) threw `TypeError: Cannot read properties of undefined
+  (reading 'slice')`, the `catch` flattened that into `{ status: 0 }` = "no
+  pre-check", and the "token too small" gate never fired. The committed bundle
+  shell is regenerated from that pin, and
+  `tests/packaging/assert-portal-bundle-contract.sh` gains a check that fails
+  when a future pin stops passing keyset objects
+  ([#538](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/538)).
+
+- **The merchant API's `mac` parameter is case-insensitive.** Sessions and
+  Lightning quotes are keyed by a MAC string while every producer — nodogsplash
+  preauth, the DHCP-lease/ARP lookup behind `getMacAddress`, `/whoami` — is
+  lowercase, so a client that uppercased the parameter had its own quote reported
+  as `404 failed to fetch invoice status`. `merchant.NormalizeMACAddress` now
+  trims and lowercases at the HTTP boundary and at every session/quote entry
+  point
+  ([#537](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/537)).
 
 - **The captive portal shipped in the package now sends the client MAC on
   both Lightning invoice calls and defines the strings it renders.** The
