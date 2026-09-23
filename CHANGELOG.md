@@ -12,6 +12,19 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The captive portal's Cashu swap-fee pre-check works again on real v4
+  tokens (#CU110).** The portal pin advances from `e67d646` (portal #56) to
+  `51a1429` (portal #59), which fixes `src/helpers/mint-fee.js`: the pre-check
+  handed `getDecodedToken()` a list of keyset **id strings** where cashu-ts
+  wants `MintKeyset` **objects**, so every real v4 short-keyset note
+  (coinos.io, minibits) threw `TypeError: Cannot read properties of undefined
+  (reading 'slice')`, the `catch` flattened that into `{ status: 0 }` = "no
+  pre-check", and the "token too small" gate never fired. The committed bundle
+  shell is regenerated from that pin, and
+  `tests/packaging/assert-portal-bundle-contract.sh` gains a check that fails
+  when a future pin stops passing keyset objects
+  ([#538](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/538)).
+
 - **The captive portal shipped in the package now sends the client MAC on
   both Lightning invoice calls and defines the strings it renders.** The
   portal pin advances from `d699367` (portal #55, the keyset-agnostic v4
