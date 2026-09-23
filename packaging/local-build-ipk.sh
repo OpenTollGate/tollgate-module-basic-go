@@ -29,6 +29,30 @@ case "$ARCH" in
 esac
 GOARM="${GOARM:-}"; GOMIPS="${GOMIPS:-}"
 
+# The portal, admin SPA and rpcd plugin are build products staged by
+# `make portal-build` (packaging/portal-build.sh); a clean checkout does
+# not contain built portal bytes (#335). Packaging without them ships an
+# .ipk whose captive portal renders nothing — refuse early, before any
+# toolchain work.
+for staged in \
+    "tollgate-captive-portal-site/index.html" \
+    "tollgate-admin/index.html" \
+    "usr/libexec/rpcd/tollgate"
+do
+    if [ ! -e "packaging/files/$staged" ]; then
+        echo "ERROR: packaging/files/$staged is missing — run 'make portal-build' first." >&2
+        echo "       A clean checkout has no built portal/admin bundles (#335); without" >&2
+        echo "       this step the .ipk would ship a captive portal that renders nothing." >&2
+        exit 1
+    fi
+done
+if ! ls packaging/files/tollgate-captive-portal-site/assets/*.js >/dev/null 2>&1; then
+    echo "ERROR: no JS bundles under packaging/files/tollgate-captive-portal-site/assets/ —" >&2
+    echo "       run 'make portal-build' first (only the manifest is present; the portal" >&2
+    echo "       would render nothing)." >&2
+    exit 1
+fi
+
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
 if [ "$ACTIVE_GO" != "go$GO_VERSION" ]; then
