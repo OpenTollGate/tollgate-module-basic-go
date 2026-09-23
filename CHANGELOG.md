@@ -119,6 +119,21 @@ and [Semantic Versioning](https://semver.org/).
   when a future pin stops sending the MAC or drops those strings
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
 
+### Changed / Internal
+
+- **`getMacAddress`'s two lookup sources are package-level vars, so
+  `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
+  and ARP paths were string literals, so off-router every `/balance` test landed
+  on the early-return "no session" body and the live body — the one a paying
+  customer's portal renders, with `usage`/`allotment`/`remaining`/`start_time` —
+  was never executed by a test. The paths are now injectable (production values
+  unchanged, parsing untouched, no new dependency), and
+  `TestBalanceEndpointLiveSessionReportsUsage` resolves a client from a
+  `t.TempDir()` lease fixture and pins that live body, including the resolved
+  MAC crossing the merchant boundary and the absence of a `state` field. The
+  unresolvable-client assertions are kept
+  ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
+
 ## [v0.6.0-alpha4] - 2026-09-22
 
 Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
