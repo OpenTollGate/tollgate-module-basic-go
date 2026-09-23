@@ -5,7 +5,7 @@
 #
 # The module does not compile the portal: packaging/portal-build.sh builds it
 # from the revision pinned in packaging/build-inputs.json (.portal.commit) and
-# stages the result into packaging/files/. Four failure modes are guarded here.
+# stages the result into packaging/files/. Five failure modes are guarded here.
 #
 # CHECK A - pinned portal decodes Cashu tokens without a keyset list
 #   The token-validation path must be keyset-agnostic (cashu-ts
@@ -89,6 +89,38 @@
 #   Asserted against the pinned SOURCE; the staged-bundle counts for the two
 #   diagnostic strings the fix introduces are reported in the informational
 #   block below.
+#
+# CHECK E - the pinned portal renews an expired session IN PAGE and selects the
+#           mint the pasted note came from
+#   Two customer-visible defects shipped together and are guarded together,
+#   because one pin advance carries both and a later one can silently drop
+#   either:
+#
+#     E1 the expired view was a dead end (#60). Its only action was
+#        window.location.reload() ("Refresh Portal"), while the purchase UI
+#        lives in the parent Cashu/Lightning component, which stays mounted in
+#        its `success` state - so the customer's only route back to buying time
+#        was to disconnect from and reconnect to the Wi-Fi (the copy told them
+#        to). The fix wires the expired view to the payment method through an
+#        onRenew prop (handleBuyMoreTime): clearing the expired state re-renders
+#        the purchase flow with NO reload and NO navigation, and
+#        window.location.reload() is gone from the renewal path.
+#
+#     E2 the purchase page ignored the mint the note advertises (#61). One
+#        access option is advertised per mint and the allocation/price is
+#        mint-dependent (price, step_size and min_steps all come from the
+#        selected option), so a hand-picked mint showed the wrong price for the
+#        note the customer pasted. src/helpers/cashu.js now derives it from the
+#        note (normalizeMintUrl folds scheme/trailing slash/case/default port to
+#        one identity, mintUrlFromToken decodes just enough of the note to learn
+#        its mint and returns null for anything undecodable, findMintOption
+#        picks the advertised option for it) and the locale defines the
+#        unsupported_mint_notice it renders for an unaccepted mint.
+#
+#   Asserted against the pinned SOURCE (App.jsx, cashu.js, en.json); the
+#   staged-bundle counts for the new i18n keys are reported in the informational
+#   block below, where the old key's count shows whether the dead end is still
+#   in the shipped bytes.
 #
 # Usage:  bash tests/packaging/assert-portal-bundle-contract.sh [--portal-dir DIR]
 #         PORTAL_DIR=/path/to/tollgate-captive-portal-site (or --portal-dir)
@@ -186,14 +218,15 @@ cashu_js="$(pin_file src/helpers/cashu.js)"
 lightning_js="$(pin_file src/helpers/lightning.js)"
 locales_json="$(pin_file public/locales/en.json)"
 mint_fee_js="$(pin_file src/helpers/mint-fee.js)"
+app_js="$(pin_file src/App.jsx)"
 PIN_SOURCE_ORIGIN="$(cat "$pin_origin_file" 2>/dev/null)"
 
-if [ -z "$cashu_js" ] && [ -z "$lightning_js" ] && [ -z "$locales_json" ] && [ -z "$mint_fee_js" ]; then
+if [ -z "$cashu_js" ] && [ -z "$lightning_js" ] && [ -z "$locales_json" ] && [ -z "$mint_fee_js" ] && [ -z "$app_js" ]; then
   pin_unavailable "any pinned portal source"
   [ -n "$pin_tmp_dir" ] && rm -rf "$pin_tmp_dir"
   rm -f "$pin_origin_file"
   echo
-  echo "checks A, C and D: not verified"
+  echo "checks A, C, D and E: not verified"
   exit $(( failures > 0 ? 1 : 0 ))
 fi
 
@@ -330,6 +363,79 @@ fi
 [ -n "$pin_tmp_dir" ] && rm -rf "$pin_tmp_dir"
 rm -f "$pin_origin_file"
 
+# ---------------------------------------------------------------- CHECK E ---
+echo
+echo "--- check E: pinned portal renews in page (#60) and selects the note's mint (#61) ---"
+
+renewal_ok=1
+
+# E1 - an expired session must be renewable IN PAGE. The old expired view's only
+# action was window.location.reload(), a dead end: the purchase UI lives in the
+# parent Cashu/Lightning component, which stays mounted in its `success` state,
+# so a reload was the only way back and the copy told the customer to reconnect
+# to the Wi-Fi instead. The fix routes the expired view's CTA to the payment
+# method's onRenew prop, so renewing needs no reload and no navigation.
+if [ -z "$app_js" ]; then
+  pin_unavailable "src/App.jsx"
+else
+  echo "source: $PIN_SOURCE_ORIGIN"
+  for marker in 'handleBuyMoreTime' 'onRenew' 'session_expired_buy_more' 'usage_unreachable_notice'; do
+    n="$(printf '%s' "$app_js" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-46s' "new shape - $marker") $n"
+    [ "$n" -gt 0 ] || renewal_ok=0
+  done
+  n="$(printf '%s' "$app_js" | grep -o -F -- 'window.location.reload()' | wc -l | tr -d ' ')"
+  echo "  $(printf '%-46s' 'old shape - window.location.reload()') $n"
+  [ "$n" -eq 0 ] || renewal_ok=0
+fi
+
+# E2 - the purchase page must follow the mint the pasted note advertises. The
+# allocation and price are mint-dependent (price, step_size and min_steps all
+# come from the selected option), so a hand-picked mint quoted the wrong price
+# for the note in the field. The helpers live in the same cashu.js that check A
+# and check D read, so they are asserted against that same pinned revision.
+if [ -z "$cashu_js" ]; then
+  skip "src/helpers/cashu.js unreadable at the pin (reported in check A)"
+else
+  for marker in 'normalizeMintUrl' 'mintUrlFromToken' 'findMintOption'; do
+    n="$(printf '%s' "$cashu_js" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-46s' "mint from note - $marker") $n"
+    [ "$n" -gt 0 ] || renewal_ok=0
+  done
+fi
+
+# E1/E2 need their strings defined, and the dead-end label must stay dropped -
+# the portal renders the literal i18n key when the locale lacks it (check C2).
+if [ -z "$locales_json" ]; then
+  pin_unavailable "public/locales/en.json"
+else
+  for key in session_expired_buy_more usage_unreachable_notice unsupported_mint_notice; do
+    n="$(printf '%s' "$locales_json" | grep -o -F -- "\"$key\"" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-46s' "defined - $key") $n"
+    [ "$n" -gt 0 ] || renewal_ok=0
+  done
+  n="$(printf '%s' "$locales_json" | grep -o -F -- '"session_expired_reconnect"' | wc -l | tr -d ' ')"
+  echo "  $(printf '%-46s' 'dropped - session_expired_reconnect') $n"
+  [ "$n" -eq 0 ] || renewal_ok=0
+fi
+
+if [ "$renewal_ok" -eq 1 ]; then
+  echo "check E: PASS - the expired view renews in page and the page follows the note's mint"
+else
+  fail "check E: pinned $pin does not renew in page and/or ignores the mint the note came from"
+  echo "        #60: the expired view must hand the customer back to the purchase flow"
+  echo "        through onRenew/handleBuyMoreTime. A window.location.reload() in that"
+  echo "        path is the dead end the fix removed - the purchase UI stays mounted in"
+  echo "        its success state, so a reload cannot reach it and reconnecting to the"
+  echo "        Wi-Fi was the only way to buy more time."
+  echo "        #61: src/helpers/cashu.js must derive the mint from the pasted note"
+  echo "        (normalizeMintUrl + mintUrlFromToken + findMintOption) and the locale"
+  echo "        must define unsupported_mint_notice; otherwise the price shown is the"
+  echo "        one of a hand-picked mint, not the note's."
+  echo "        Fix the portal, bump .portal.commit to that revision and re-run"
+  echo "        'bash packaging/portal-build.sh'."
+fi
+
 # ---------------------------------------------------------------- CHECK B ---
 echo
 echo "--- check B: committed bundle matches the pin ---"
@@ -396,6 +502,16 @@ if [ -n "$found_asset" ]; then
   # minification. A 0 here means the staged bundle predates the fee pre-check fix
   # (asserted on the pin's source in check D, reported here).
   for marker in 'could not decode token proofs' 'token references unknown keyset'; do
+    n="$(grep -o -F -- "$marker" "$found_asset" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-40s' "$marker") $n"
+  done
+  # The #60/#61 i18n keys DO discriminate as well: App.jsx renders the renewal
+  # CTA through t('session_expired_buy_more') and Cashu.jsx renders
+  # t('unsupported_mint_notice'), so both key literals survive minification in a
+  # bundle built from the fixed pin, while session_expired_reconnect - the dead
+  # end's only label, dropped by #60 - is present in the old bundle instead
+  # (asserted on the pin's source in check E, reported here).
+  for marker in 'session_expired_buy_more' 'unsupported_mint_notice' 'session_expired_reconnect'; do
     n="$(grep -o -F -- "$marker" "$found_asset" | wc -l | tr -d ' ')"
     echo "  $(printf '%-40s' "$marker") $n"
   done
