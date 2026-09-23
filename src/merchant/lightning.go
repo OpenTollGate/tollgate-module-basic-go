@@ -16,6 +16,18 @@ import (
 
 var ErrQuoteNotFound = errors.New("lightning quote not found")
 
+// ErrTooManyQuotes is returned when the in-flight quote table is full and
+// nothing may be evicted to make room. It is a *local* refusal: the mint was
+// never contacted, so it is not evidence about the mint's health. The API maps
+// it to 429 with a distinct code so an operator can tell "we are being flooded"
+// from "the network is slow".
+var ErrTooManyQuotes = errors.New("too many active lightning quotes")
+
+// ErrMintBusyLocal is returned when our own outbound quote budget toward a mint
+// is exhausted. The request is refused at the edge instead of being sent, which
+// is what keeps our traffic from being the reason the mint answers 429.
+var ErrMintBusyLocal = errors.New("local mint quote budget exhausted")
+
 const (
 	lightningQuoteStateCacheTTL     = 2 * time.Second
 	lightningQuoteMonitorInterval   = 5 * time.Second

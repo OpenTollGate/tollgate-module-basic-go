@@ -638,6 +638,12 @@ type lightningInvoiceResponse struct {
 	Allotment     uint64 `json:"allotment,omitempty"`
 	Metric        string `json:"metric,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// Code is a stable machine-readable reason for a refusal, additive to the
+	// `status`/`error` pair the shipped portal already reads. RetryAfter mirrors
+	// the Retry-After header in the body so a portal can render a countdown
+	// without reaching for a header it may not be allowed to read.
+	Code       string `json:"code,omitempty"`
+	RetryAfter int    `json:"retry_after,omitempty"`
 }
 
 type balanceResponse struct {
@@ -811,6 +817,14 @@ func HandleLightningInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleLNInvoiceRoute is the `/ln-invoice` entry point registered by main. It
+// exists so the two halves of the endpoint are dispatched explicitly: the POST
+// (quote creation) and the GET (status poll) have different cost profiles and
+// must not share a middleware chain.
+func handleLNInvoiceRoute(w http.ResponseWriter, r *http.Request) {
+	HandleLightningInvoice(w, r)
+}
+
 func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	var req lightningInvoiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -957,7 +971,7 @@ func main() {
 
 	http.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /ln-invoice endpoint")
-		CorsMiddleware(HandleLightningInvoice)(w, r)
+		CorsMiddleware(handleLNInvoiceRoute)(w, r)
 	})
 
 	http.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
