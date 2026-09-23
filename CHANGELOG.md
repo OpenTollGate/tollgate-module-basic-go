@@ -26,6 +26,22 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The `:8090` admin board is no longer allowed through the captive-portal
+  gate before payment.** `users_to_router` is nodogsplash's
+  *pre-authentication* allow list, and `99-tollgate-setup` wrote
+  `allow tcp port 8090` and `allow tcp port 8443` into it on every install —
+  so an unauthenticated guest on the open public SSID could load the board's
+  login form over plain HTTP and POST credential-carrying JSON-RPC to its
+  `/ubus` endpoint on the same cleartext origin. The board is owner-facing
+  (reached over `br-private`, exactly like the whitelabel configUI in
+  `setup_uhttpd_configui`, which already refused this allowance on principle)
+  and is not part of the customer journey, so both ports are now kept out of
+  that list and actively removed from it (`uci del_list`) by the shared
+  allow-list writer — which runs on the same-version reinstall path as well as
+  full setup. Removing rather than merely omitting is what converges routers
+  that already carry the entries
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
+
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the
@@ -120,6 +136,17 @@ and [Semantic Versioning](https://semver.org/).
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
 
 ### Changed / Internal
+
+- **Two uci-defaults tests no longer assert the admin-board allowance as
+  expected behaviour.** `tests/uci-defaults-same-version-allowlist_test.sh`
+  and `tests/uci-defaults-nodogsplash-443_test.sh` both seeded
+  `allow tcp port 8090`/`8443` into `users_to_router` and required both
+  present after a run — the shipped exposure, written down as a requirement,
+  in the tier that decides what the pre-auth client can reach. Both now
+  require the two entries absent, and both `uci` shims implement `del_list`
+  (previously unhandled, so a removal call was silently swallowed and would
+  have passed against a static assertion)
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
