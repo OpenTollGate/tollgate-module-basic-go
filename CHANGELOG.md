@@ -25,6 +25,15 @@ and [Semantic Versioning](https://semver.org/).
   when a future pin stops passing keyset objects
   ([#538](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/538)).
 
+- **The merchant API's `mac` parameter is case-insensitive.** Sessions and
+  Lightning quotes are keyed by a MAC string while every producer — nodogsplash
+  preauth, the DHCP-lease/ARP lookup behind `getMacAddress`, `/whoami` — is
+  lowercase, so a client that uppercased the parameter had its own quote reported
+  as `404 failed to fetch invoice status`. `merchant.NormalizeMACAddress` now
+  trims and lowercases at the HTTP boundary and at every session/quote entry
+  point
+  ([#537](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/537)).
+
 - **The captive portal shipped in the package now sends the client MAC on
   both Lightning invoice calls and defines the strings it renders.** The
   portal pin advances from `d699367` (portal #55, the keyset-agnostic v4
