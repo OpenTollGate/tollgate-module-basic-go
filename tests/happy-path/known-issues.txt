@@ -1,0 +1,37 @@
+# Known issues: checks that are understood, reproducible, and NOT fixed by this
+# suite. Each line is "<check-id><TAB><reason>".
+#
+# A known issue is still printed as HPCHECK ... FAIL. It does not make the run
+# exit non-zero, because a suite that is permanently red on a pre-existing defect
+# stops being read. `run.sh --strict` promotes every entry here back to fatal, and
+# removing the line makes it fatal again -- so this file is the complete list of
+# what the suite currently tolerates, and it is meant to shrink.
+#
+# Format: <check-id> <whitespace> <reason>
+#
+# ---------------------------------------------------------------------------
+# 1. The captive portal's Lightning lane cannot buy time from the module as
+#    shipped. Observed on v0.6.0-alpha4-pre15 x86_64 (and the same code path is
+#    still present at upstream main, c4bec84f):
+#
+#      portal POSTs /ln-invoice?mac=00:00:00:00:00:00
+#        body {"amount":210,"mint_url":"http://…"}          <- no trailing slash
+#      module 400 {"error":"failed to create lightning invoice"}
+#      module log: error="mint does not exist"
+#
+#    The portal echoes the mint URL from the advertisement's price_per_step tag,
+#    which is the configured accepted_mints[].url verbatim (the shipped default
+#    config writes it without a trailing slash). The wallet, however, keys a
+#    registered mint as "<url>/", and the module passes the caller's mint_url
+#    through unchanged, so the lookup cannot match. Verified by a 2x2 matrix over
+#    {config with/without slash} x {request with/without slash}: only requests
+#    carrying the trailing slash succeed, regardless of the config form.
+#
+#    The Cashu lane is unaffected: it does not take a mint URL from the client.
+#    That is why the operator's manual pre15 pass on the MT3000 (token paste)
+#    still succeeds.
+#
+#    Fix direction (NOT done here -- this suite ships no production change):
+#    normalise the mint URL on both sides of the lookup (the repo already has
+#    tollwallet.MintURLMatches / normalizeMintURL for exactly this class of bug).
+portal:lightning-lane-against-live-module	the portal echoes the advertisement's mint URL verbatim (no trailing slash) while the wallet keys the mint as "<url>/"; POST /ln-invoice therefore answers 400 "mint does not exist"
