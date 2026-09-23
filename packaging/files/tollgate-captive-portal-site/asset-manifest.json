@@ -1,12 +1,12 @@
 {
   "assets": {
     "js": [
-      "assets/balance-CrQ4R-xL.js",
-      "assets/browser-ponyfill-DYD9eokg.js",
-      "assets/index-ldb-r6jB.js",
-      "assets/portal-mcSvEuD0.js",
+      "assets/balance-BIRYjkHz.js",
+      "assets/browser-ponyfill-C89IJYgT.js",
+      "assets/index-BDGoMmEt.js",
+      "assets/portal-vvGVzSiy.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js",
-      "assets/qr-scanner.min-CYY5W0a4.js"
+      "assets/qr-scanner.min-BDydjDes.js"
     ],
     "css": [
       "assets/balance-5KSP87Gz.css",
