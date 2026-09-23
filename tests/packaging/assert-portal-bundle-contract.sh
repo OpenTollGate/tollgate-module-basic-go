@@ -5,7 +5,7 @@
 #
 # The module does not compile the portal: packaging/portal-build.sh builds it
 # from the revision pinned in packaging/build-inputs.json (.portal.commit) and
-# stages the result into packaging/files/. Two failure modes are guarded here.
+# stages the result into packaging/files/. Three failure modes are guarded here.
 #
 # CHECK A - pinned portal decodes Cashu tokens without a keyset list
 #   The token-validation path must be keyset-agnostic (cashu-ts
@@ -38,6 +38,27 @@
 #   been staged in this tree (run `bash packaging/portal-build.sh` first), the
 #   staged bytes must come from the pinned commit and the tracked copy must
 #   still match them, i.e. `git status` must be clean inside those two dirs.
+#
+# CHECK C - the pinned portal sends the client MAC on the Lightning calls and
+#           defines the strings it renders (#LN004)
+#   Two defects shipped together and are guarded together, because advancing
+#   the pin to pick up one fix (check A) can silently drop the other:
+#
+#     C1 the /ln-invoice handler identifies the client by its "mac" query
+#        parameter and only falls back to an IP-derived lookup when that is
+#        empty, but the portal sent it on NEITHER the invoice CREATE (POST)
+#        nor the status POLL (GET). An invoice created without the MAC was
+#        billed against whatever address the request appeared to come from,
+#        and the poll could not match it back to the device the operator is
+#        on - the Lightning payment step of the happy path fails (#LN004).
+#
+#     C2 the portal renders `LN003_*` / `LN004_*` error strings but
+#        public/locales/en.json defined neither, so the user saw the literal
+#        i18n key instead of a message.
+#
+#   Both are asserted against the pinned SOURCE (and, when a build is staged
+#   here, reported against the staged bundle): the minified bundle keeps
+#   `mac=${encodeURIComponent(` and the defined keys verbatim.
 #
 # Usage:  bash tests/packaging/assert-portal-bundle-contract.sh [--portal-dir DIR]
 #         PORTAL_DIR=/path/to/tollgate-captive-portal-site (or --portal-dir)
@@ -85,69 +106,146 @@ echo "=== portal bundle contract ==="
 echo "pin  : $pin"
 echo "repo : $repo"
 
+# ------------------------------------------------------- pin source helper ---
+# Resolve a path inside the pinned portal tree: a local clone that already has
+# the pin first, then a single shallow fetch of that SHA. Every check below
+# reads the pin through this, so they cannot disagree about the revision.
+# The helper runs in a command substitution, so where the content came from is
+# recorded in a file rather than a variable.
+PIN_SOURCE_ORIGIN=""
+pin_tmp_dir=""
+pin_origin_file="$(mktemp)"
+
+pin_file() {  # $1 = path in the portal tree; prints the file (empty on failure)
+  _path="$1"
+  _content=""
+  _origin=""
+  if [ -n "$PORTAL_DIR" ] && git -C "$PORTAL_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    if git -C "$PORTAL_DIR" cat-file -e "${pin}^{commit}" 2>/dev/null; then
+      _content="$(git -C "$PORTAL_DIR" show "${pin}:${_path}" 2>/dev/null)"
+      [ -n "$_content" ] && _origin="$PORTAL_DIR (pin present locally)"
+    fi
+  fi
+  if [ -z "$_content" ] && [ -n "$repo" ]; then
+    if [ -z "$pin_tmp_dir" ]; then
+      pin_tmp_dir="$(mktemp -d)"
+      if git -C "$pin_tmp_dir" init -q 2>/dev/null &&
+         git -C "$pin_tmp_dir" remote add origin "$repo" 2>/dev/null &&
+         git -C "$pin_tmp_dir" fetch -q --depth 1 origin "$pin" 2>/dev/null; then
+        :
+      fi
+    fi
+    _content="$(git -C "$pin_tmp_dir" show "FETCH_HEAD:${_path}" 2>/dev/null)"
+    [ -n "$_content" ] && _origin="$repo@$pin (shallow fetch)"
+  fi
+  [ -n "$_origin" ] && printf '%s' "$_origin" > "$pin_origin_file"
+  printf '%s' "$_content"
+}
+
+# A pin whose tree is unreachable is unverifiable: strict in CI, a skip locally.
+pin_unavailable() {  # $1 = what could not be read
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    fail "$1 at $pin (no local clone, fetch failed) - cannot verify the pin"
+    return 1
+  fi
+  skip "$1 at $pin (offline and no local clone)"
+  return 0
+}
+
+cashu_js="$(pin_file src/helpers/cashu.js)"
+lightning_js="$(pin_file src/helpers/lightning.js)"
+locales_json="$(pin_file public/locales/en.json)"
+PIN_SOURCE_ORIGIN="$(cat "$pin_origin_file" 2>/dev/null)"
+
+if [ -z "$cashu_js" ] && [ -z "$lightning_js" ] && [ -z "$locales_json" ]; then
+  pin_unavailable "any pinned portal source"
+  [ -n "$pin_tmp_dir" ] && rm -rf "$pin_tmp_dir"
+  rm -f "$pin_origin_file"
+  echo
+  echo "checks A and C: not verified"
+  exit $(( failures > 0 ? 1 : 0 ))
+fi
+
 # ---------------------------------------------------------------- CHECK A ---
 echo
 echo "--- check A: pinned portal decode is keyset-agnostic ---"
 
-show_source() {  # $1 = git dir, $2 = path in tree
-  git -C "$1" show "$2:src/helpers/cashu.js" 2>/dev/null
-}
-
-cashu_js=""
-source_origin=""
-if [ -n "$PORTAL_DIR" ] && git -C "$PORTAL_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  if git -C "$PORTAL_DIR" cat-file -e "${pin}^{commit}" 2>/dev/null; then
-    cashu_js="$(show_source "$PORTAL_DIR" "$pin")"
-    source_origin="$PORTAL_DIR (pin present locally)"
-  fi
-fi
-
-tmp_dir=""
-if [ -z "$cashu_js" ] && [ -n "$repo" ]; then
-  tmp_dir="$(mktemp -d)"
-  if git -C "$tmp_dir" init -q 2>/dev/null &&
-     git -C "$tmp_dir" remote add origin "$repo" 2>/dev/null &&
-     git -C "$tmp_dir" fetch -q --depth 1 origin "$pin" 2>/dev/null; then
-    cashu_js="$(git -C "$tmp_dir" show "FETCH_HEAD:src/helpers/cashu.js" 2>/dev/null)"
-    source_origin="$repo@$pin (shallow fetch)"
-  fi
-fi
-
 if [ -z "$cashu_js" ]; then
-  if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    fail "could not obtain src/helpers/cashu.js at $pin (no local clone, fetch failed) - cannot verify the pin"
+  pin_unavailable "src/helpers/cashu.js"
+else
+  echo "source: $PIN_SOURCE_ORIGIN"
+  keyset_agnostic=0
+  if printf '%s' "$cashu_js" | grep -q 'getTokenMetadata'; then
+    keyset_agnostic=1
+    echo "  getTokenMetadata present (lines: $(printf '%s' "$cashu_js" | grep -n 'getTokenMetadata' | cut -d: -f1 | paste -sd, -))"
   else
-    skip "could not obtain src/helpers/cashu.js at $pin (offline and no local clone)"
+    echo "  getTokenMetadata absent"
   fi
-  [ -n "$tmp_dir" ] && rm -rf "$tmp_dir"
-  echo
-  echo "check A: not verified"
-  exit $(( failures > 0 ? 1 : 0 ))
-fi
-[ -n "$tmp_dir" ] && rm -rf "$tmp_dir"
+  if printf '%s' "$cashu_js" | grep -q 'getDecodedToken('; then
+    echo "  getDecodedToken call sites (lines: $(printf '%s' "$cashu_js" | grep -n 'getDecodedToken(' | cut -d: -f1 | paste -sd, -))"
+  fi
 
-echo "source: $source_origin"
-keyset_agnostic=0
-if printf '%s' "$cashu_js" | grep -q 'getTokenMetadata'; then
-  keyset_agnostic=1
-  echo "  getTokenMetadata present (lines: $(printf '%s' "$cashu_js" | grep -n 'getTokenMetadata' | cut -d: -f1 | paste -sd, -))"
-else
-  echo "  getTokenMetadata absent"
-fi
-if printf '%s' "$cashu_js" | grep -q 'getDecodedToken('; then
-  echo "  getDecodedToken call sites (lines: $(printf '%s' "$cashu_js" | grep -n 'getDecodedToken(' | cut -d: -f1 | paste -sd, -))"
+  if [ "$keyset_agnostic" -eq 1 ]; then
+    echo "check A: PASS - pinned portal decodes tokens without a keyset list"
+  else
+    fail "check A: pinned $pin validates tokens with a keyset-requiring decode (getTokenMetadata absent)"
+    echo "        Real v4 (cashuB) tokens carry short keyset ids; decoding them without"
+    echo "        a MintKeyset list raises \"A short keyset ID v2 was encountered, but"
+    echo "        got no keysets to map it to\", which the portal reports as #CU102."
+    echo "        Fix the decode in the portal, bump .portal.commit to that revision"
+    echo "        and re-run 'bash packaging/portal-build.sh'."
+  fi
 fi
 
-if [ "$keyset_agnostic" -eq 1 ]; then
-  echo "check A: PASS - pinned portal decodes tokens without a keyset list"
+# ---------------------------------------------------------------- CHECK C ---
+echo
+echo "--- check C: pinned portal sends the client MAC on the Lightning calls ---"
+echo "            (and defines the LN003/LN004 strings it renders)"
+
+if [ -z "$lightning_js" ]; then
+  pin_unavailable "src/helpers/lightning.js"
 else
-  fail "check A: pinned $pin validates tokens with a keyset-requiring decode (getTokenMetadata absent)"
-  echo "        Real v4 (cashuB) tokens carry short keyset ids; decoding them without"
-  echo "        a MintKeyset list raises \"A short keyset ID v2 was encountered, but"
-  echo "        got no keysets to map it to\", which the portal reports as #CU102."
-  echo "        Fix the decode in the portal, bump .portal.commit to that revision"
-  echo "        and re-run 'bash packaging/portal-build.sh'."
+  echo "source: $PIN_SOURCE_ORIGIN"
+  mac_sent=1
+  for marker in 'getClientMac' 'mac=${encodeURIComponent(' '?${mac}' '&${mac}'; do
+    n="$(printf '%s' "$lightning_js" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-30s' "$marker") $n"
+    [ "$n" -gt 0 ] || mac_sent=0
+  done
+  if [ "$mac_sent" -eq 1 ]; then
+    echo "check C1: PASS - create (POST) and status poll (GET) both carry 'mac='"
+  else
+    fail "check C1: pinned $pin does not send the client MAC on every /ln-invoice call"
+    echo "        The backend identifies the client by the 'mac' query parameter and"
+    echo "        only falls back to an IP-derived lookup when it is empty. Without it"
+    echo "        the invoice is billed against the address the request arrived from"
+    echo "        and the status poll cannot match it back to the device the operator"
+    echo "        is on, so the Lightning step of the happy path fails (#LN004)."
+  fi
 fi
+
+if [ -z "$locales_json" ]; then
+  pin_unavailable "public/locales/en.json"
+else
+  missing_keys=""
+  for key in LN003_label LN003_message LN004_label LN004_message; do
+    if printf '%s' "$locales_json" | grep -q "\"$key\""; then
+      echo "  $(printf '%-16s' "\"$key\"") defined"
+    else
+      echo "  $(printf '%-16s' "\"$key\"") MISSING"
+      missing_keys="$missing_keys $key"
+    fi
+  done
+  if [ -z "$missing_keys" ]; then
+    echo "check C2: PASS - the LN003/LN004 error strings exist"
+  else
+    fail "check C2: pinned $pin renders LN003/LN004 error codes but the locale does not define:$missing_keys"
+    echo "        The portal then shows the literal i18n key instead of a message."
+  fi
+fi
+
+[ -n "$pin_tmp_dir" ] && rm -rf "$pin_tmp_dir"
+rm -f "$pin_origin_file"
 
 # ---------------------------------------------------------------- CHECK B ---
 echo
@@ -203,6 +301,13 @@ if [ -n "$found_asset" ]; then
   done
   echo "  (the two keyset strings are cashu-ts internals and also appear in bundles"
   echo "   built from the fixed revisions - do not use them as a gate)"
+  # The LN004 markers DO discriminate: a bundle that never sends the MAC has no
+  # `mac=${encodeURIComponent(` at all, so the count is the minimum-diff signal
+  # for the #LN004 fix (asserted on the pin's source in check C, reported here).
+  for marker in 'mac=${encodeURIComponent(' 'LN003_label' 'LN004_label'; do
+    n="$(grep -o -F -- "$marker" "$found_asset" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-40s' "$marker") $n"
+  done
 else
   skip "no staged guest/admin JS asset carrying CU102 found"
 fi
