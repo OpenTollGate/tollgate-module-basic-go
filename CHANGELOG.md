@@ -73,6 +73,20 @@ and [Semantic Versioning](https://semver.org/).
   a log-reader could check a guess against. A source-level test fails if a logging
   call is ever handed a token-carrying value again
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **The late-`Receive` notice no longer tells the customer to spend the same
+  note twice.** When `Receive` outlived its deadline the notice said *"Payment
+  processing timed out after 30 seconds. Please try again."* — and acting on that
+  advice destroyed the customer's value: a `Receive` that completes just after
+  the deadline has already moved the proofs into the operator's wallet, so the
+  retry is refused as already-spent with no session and no refund. The notice now
+  states the truth (the outcome is **unknown**, not failed), tells the customer
+  not to resend the note, and carries a **reference** — the salted fingerprint of
+  the note (16 hex characters) — which the customer can quote and the operator
+  can find in the log next to the device, the mint and the time. The notice code
+  changes from `payment-processing-timeout` to `payment-outcome-unknown`; the
+  journal/janitor that would collect the late result and grant it is a separate
+  follow-up, and this change does not claim access arrives on its own
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the
