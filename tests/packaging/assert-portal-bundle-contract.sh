@@ -5,7 +5,7 @@
 #
 # The module does not compile the portal: packaging/portal-build.sh builds it
 # from the revision pinned in packaging/build-inputs.json (.portal.commit) and
-# stages the result into packaging/files/. Three failure modes are guarded here.
+# stages the result into packaging/files/. Four failure modes are guarded here.
 #
 # CHECK A - pinned portal decodes Cashu tokens without a keyset list
 #   The token-validation path must be keyset-agnostic (cashu-ts
@@ -59,6 +59,36 @@
 #   Both are asserted against the pinned SOURCE (and, when a build is staged
 #   here, reported against the staged bundle): the minified bundle keeps
 #   `mac=${encodeURIComponent(` and the defined keys verbatim.
+#
+# CHECK D - the pinned portal's swap-fee pre-check passes real keyset OBJECTS
+#           (the CU110 "token too small" gate)
+#   src/helpers/mint-fee.js pre-checks a submitted token against the mint's swap
+#   fee, so a token the fee consumes entirely gets a clear message instead of the
+#   mint's opaque "no outputs provided" error. getDecodedToken(token, keysets)
+#   wants MintKeyset OBJECTS as its second argument: cashu-ts maps a v2 SHORT
+#   keyset id by reading `id.slice(0, proof.id.length)` off each entry. Handing
+#   it a list of id STRINGS therefore made that read `undefined.slice` and throw
+#
+#     TypeError: Cannot read properties of undefined (reading 'slice')
+#
+#   on every real v4 short-keyset note (coinos.io, minibits). The helper's catch
+#   swallowed the throw into { status: 0 } = "no pre-check", so the CU110 "token
+#   too small" gate silently never fired and the under-funded token was
+#   submitted anyway. Advancing the pin for another fix can silently drop this
+#   one again - check A passes on the broken revision too - so the decode shape
+#   is asserted here:
+#
+#     D1 the regressed shape is GONE - no list of keyset id strings is handed to
+#        getDecodedToken;
+#     D2 the fixed shape is PRESENT - the keysets given to getDecodedToken are
+#        built as objects, which is what cashu-ts reads;
+#     D3 the decode cannot fail SILENTLY - the fixed helper logs why it gave up
+#        (`could not decode token proofs`), which is the string that made the
+#        CU110 regression diagnosable instead of invisible.
+#
+#   Asserted against the pinned SOURCE; the staged-bundle counts for the two
+#   diagnostic strings the fix introduces are reported in the informational
+#   block below.
 #
 # Usage:  bash tests/packaging/assert-portal-bundle-contract.sh [--portal-dir DIR]
 #         PORTAL_DIR=/path/to/tollgate-captive-portal-site (or --portal-dir)
@@ -155,14 +185,15 @@ pin_unavailable() {  # $1 = what could not be read
 cashu_js="$(pin_file src/helpers/cashu.js)"
 lightning_js="$(pin_file src/helpers/lightning.js)"
 locales_json="$(pin_file public/locales/en.json)"
+mint_fee_js="$(pin_file src/helpers/mint-fee.js)"
 PIN_SOURCE_ORIGIN="$(cat "$pin_origin_file" 2>/dev/null)"
 
-if [ -z "$cashu_js" ] && [ -z "$lightning_js" ] && [ -z "$locales_json" ]; then
+if [ -z "$cashu_js" ] && [ -z "$lightning_js" ] && [ -z "$locales_json" ] && [ -z "$mint_fee_js" ]; then
   pin_unavailable "any pinned portal source"
   [ -n "$pin_tmp_dir" ] && rm -rf "$pin_tmp_dir"
   rm -f "$pin_origin_file"
   echo
-  echo "checks A and C: not verified"
+  echo "checks A, C and D: not verified"
   exit $(( failures > 0 ? 1 : 0 ))
 fi
 
@@ -244,6 +275,58 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------- CHECK D ---
+echo
+echo "--- check D: pinned portal's fee pre-check passes real keyset objects ---"
+echo "            (the CU110 'token too small' swap-fee gate)"
+
+if [ -z "$mint_fee_js" ]; then
+  pin_unavailable "src/helpers/mint-fee.js"
+else
+  echo "source: $PIN_SOURCE_ORIGIN"
+  fee_precheck_ok=1
+
+  # D1 - the regressed shape must be GONE. cashu-ts resolves a v2 SHORT keyset id
+  # by reading `id.slice(0, proof.id.length)` off every entry of the list, so a
+  # list of id STRINGS throws
+  #   TypeError: Cannot read properties of undefined (reading 'slice').
+  for marker in 'keysetIds' 'keysets.map((keyset) => keyset.id)' 'getDecodedToken(trimmed, keysetIds)'; do
+    n="$(printf '%s' "$mint_fee_js" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-52s' "old shape - $marker") $n"
+    [ "$n" -eq 0 ] || fee_precheck_ok=0
+  done
+
+  # D2 - the fixed shape must be PRESENT: the keysets handed to the decoder are
+  # built as objects ({ id, unit, input_fee_ppk }), which is what cashu-ts reads.
+  for marker in 'mintKeysets.push({' 'getDecodedToken(token, keysets)'; do
+    n="$(printf '%s' "$mint_fee_js" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-52s' "fixed shape - $marker") $n"
+    [ "$n" -gt 0 ] || fee_precheck_ok=0
+  done
+
+  # D3 - the decode must not fail SILENTLY. The regression stayed invisible only
+  # because the catch turned the throw into { status: 0 } = "no pre-check"; the
+  # fixed helper logs the reason before giving up.
+  n="$(printf '%s' "$mint_fee_js" | grep -o -F -- 'could not decode token proofs' | wc -l | tr -d ' ')"
+  echo "  $(printf '%-52s' "fixed shape - could not decode token proofs") $n"
+  [ "$n" -gt 0 ] || fee_precheck_ok=0
+
+  if [ "$fee_precheck_ok" -eq 1 ]; then
+    echo "check D: PASS - the fee pre-check decodes with real keyset objects"
+  else
+    fail "check D: pinned $pin pre-checks the swap fee with a decode that cannot work"
+    echo "        src/helpers/mint-fee.js must hand getDecodedToken() a list of"
+    echo "        MintKeyset OBJECTS. Passing id STRINGS makes cashu-ts read"
+    echo "        'undefined.slice', which throws"
+    echo "          TypeError: Cannot read properties of undefined (reading 'slice')"
+    echo "        on every real v4 short-keyset note (coinos.io, minibits). The catch"
+    echo "        then reports { status: 0 } = \"no pre-check\", so the CU110 \"token"
+    echo "        too small\" gate never fires. Fix the fee pre-check in the portal,"
+    echo "        bump .portal.commit to that revision and re-run"
+    echo "        'bash packaging/portal-build.sh'."
+  fi
+fi
+
 [ -n "$pin_tmp_dir" ] && rm -rf "$pin_tmp_dir"
 rm -f "$pin_origin_file"
 
@@ -305,6 +388,14 @@ if [ -n "$found_asset" ]; then
   # `mac=${encodeURIComponent(` at all, so the count is the minimum-diff signal
   # for the #LN004 fix (asserted on the pin's source in check C, reported here).
   for marker in 'mac=${encodeURIComponent(' 'LN003_label' 'LN004_label'; do
+    n="$(grep -o -F -- "$marker" "$found_asset" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-40s' "$marker") $n"
+  done
+  # The CU110 markers DO discriminate too: the regressed mint-fee.js contains
+  # neither string, the fix introduces both, and string literals survive
+  # minification. A 0 here means the staged bundle predates the fee pre-check fix
+  # (asserted on the pin's source in check D, reported here).
+  for marker in 'could not decode token proofs' 'token references unknown keyset'; do
     n="$(grep -o -F -- "$marker" "$found_asset" | wc -l | tr -d ' ')"
     echo "  $(printf '%-40s' "$marker") $n"
   done
