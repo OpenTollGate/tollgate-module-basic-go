@@ -26,6 +26,28 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
+  is the only way the module takes a customer's access away, and three
+  independent paths treated a *failed* deauth as a completed one — leaving the
+  client `Authenticated` through an open gate while the module forgot it: the
+  timed gate's expiry callback (and the delayed-auth timers) logged the error and
+  then deleted the tracked gate, so nothing ever retried; the usage monitor
+  retired a bytes session even when `CloseGate` returned an error, destroying the
+  only record that the client had to be closed; and a bytes session with no
+  metering baseline was skipped on every sweep for ever (its allotment purely
+  decorative), which also happened to a client whose counters could not be read,
+  because unreadable usage was reported as 0. A failed close now keeps the gate
+  tracked and is retried (immediately and then on a 2 s→60 s backoff, for ever),
+  every unconfirmed close is escalated to an `ERROR` log naming the client and
+  counted in `valve.GateCloseFailures()`, the session is retired only once the
+  close is confirmed, a missing baseline is established rather than skipped, and
+  a session whose usage stays unreadable for a full grace window has its gate
+  closed rather than left open unmetered. The failure direction stays "the module
+  keeps ownership of the gate": a retry abandons itself when the gate it was
+  armed for has been extended or reopened, and a close that raced a renewal
+  re-authorizes the client
+  ([#545](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/545)).
+
 - **A session that ran out can be renewed again.** The payment pre-flight
   refused every purchase whose MAC NoDogSplash no longer lists — the state of a
   client we just deauthorised at expiry — so each renewal was answered with
