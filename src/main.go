@@ -386,6 +386,44 @@ func isUnknownMAC(mac string) bool {
 	return normalized == "" || normalized == sentinelMACAddress
 }
 
+// errDeviceUnresolved is returned when a request that needs to know which client
+// is asking cannot be attributed: the source IP is in neither the DHCP lease
+// file nor the kernel ARP table, or the address found there is "no address".
+var errDeviceUnresolved = errors.New(errDeviceUnresolvedCode)
+
+// clientMACFromSocket resolves the requesting client's MAC address from the
+// request's source IP — the one input a client cannot choose — through the
+// dnsmasq lease file and the kernel ARP table, and returns it canonicalised.
+//
+// It ignores every client-supplied value on purpose: the `mac` query parameter,
+// the `mac` field of the POST /ln-invoice body, and any other claim that is not
+// derived from the socket. A MAC is visible to anyone on the air and any client
+// can put any value in a query string, so honouring one let a client name
+// another device's identity — its session, its byte meter, its lightning quote —
+// and let the portal cache a stale value across a MAC rotation (the portal reads
+// its address once per page load from /whoami and then echoes it back on the
+// Lightning lane; that lane has been observed sending `?mac=00:00:00:00:00:00`,
+// which now has no effect at all).
+//
+// The client's claim is not logged, deliberately: it is attacker-controlled
+// text, and echoing it into the log would hand a flood a cheap log-amplification
+// primitive on a router whose log is read over a slow console.
+func clientMACFromSocket(r *http.Request) (string, error) {
+	ip := getIP(r)
+
+	mac, err := getMacAddress(ip)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errDeviceUnresolved, err)
+	}
+
+	mac = merchant.NormalizeMACAddress(mac)
+	if isUnknownMAC(mac) {
+		return "", fmt.Errorf("%w: %s resolved to %q", errDeviceUnresolved, ip, mac)
+	}
+
+	return mac, nil
+}
+
 func getMacAddress(ipAddress string) (string, error) {
 	if net.ParseIP(ipAddress) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
@@ -457,27 +495,16 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	mac := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
-	if mac != "" {
-		// Client MAC provided by splash page (from nodogsplash preauth)
-		mainLogger.WithField("mac", mac).Debug("Using client-provided MAC for /whoami")
-	} else {
-		ip := getIP(r)
-		var err error
-		mac, err = getMacAddress(ip)
-		if err != nil {
-			// MAC lookup failure is non-fatal for /whoami: this endpoint is an
-			// echo of the caller's own address, not a request that needs one
-			// (the money routes refuse an unidentified client). Answer an empty
-			// mac instead of returning 500 — and never the sentinel, which
-			// publishes 00:00:00:00:00:00 as if it were this client's identity.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for /whoami; answering an empty mac")
-			mac = ""
-		}
-	}
-	if isUnknownMAC(mac) {
-		// A caller that names the sentinel is naming "unknown", not itself.
-		mainLogger.WithField("mac", mac).Warn("/whoami: refusing to echo the unresolvable-device sentinel as an identity")
+	// The portal calls this once per page load to learn which device it is
+	// looking at. The answer comes from the socket, never from a `mac` parameter
+	// the caller supplied.
+	mac, err := clientMACFromSocket(r)
+	if err != nil {
+		// Not fatal here: /whoami is an echo of the caller's own address, not a
+		// request that needs one (the money routes refuse an unidentified
+		// client). Answer an empty mac instead of returning 500 — and never the
+		// sentinel, which publishes 00:00:00:00:00:00 as if it were an identity.
+		mainLogger.WithError(err).Warn("MAC address lookup failed for /whoami; answering an empty mac")
 		mac = ""
 	}
 
@@ -527,28 +554,19 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get MAC address from request — accept client-provided MAC from query
-	// param (splash page passes it from nodogsplash preauth), fall back to
-	// IP-based lookup.
-	macAddress := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
-	if macAddress != "" {
-		mainLogger.WithField("mac", macAddress).Debug("Using client-provided MAC for payment")
-	} else {
-		ip := getIP(r)
-		var err error
-		macAddress, err = getMacAddress(ip)
-		if err != nil {
-			mainLogger.WithError(err).Warn("MAC address lookup failed for payment")
-		}
-	}
-
-	// The money path is where a wrong identity cannot be recovered: the token is
-	// received before the gate is opened, so a request that names
+	// Get the client's identity from the socket. A `mac` query parameter is not
+	// consulted: its value is the caller's claim about itself, and on this route
+	// it decides which device the grant is applied to.
+	//
+	// This is the money path, where a wrong identity cannot be recovered: the
+	// token is received before the gate is opened, so a request that names
 	// 00:00:00:00:00:00 — or that cannot be resolved at all — would consume the
 	// customer's value and grant nothing (the rollback happens after Receive).
 	// Refuse BEFORE the token is read, with a distinct code the portal can show.
-	if isUnknownMAC(macAddress) {
-		mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Payment refused: the client has no resolvable identity")
+	macAddress, err := clientMACFromSocket(r)
+	if err != nil {
+		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
+			Warn("Payment refused: the client has no resolvable identity")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", errDeviceUnresolvedCode,
 			deviceUnresolvedMessage, "")
 		return
@@ -669,7 +687,12 @@ type lightningInvoiceRequest struct {
 	Amount  uint64 `json:"amount"`
 	MintURL string `json:"mint_url"`
 	Mint    string `json:"mint"`
-	Mac     string `json:"mac"`
+	// Mac is accepted for wire compatibility with the pinned portal, which sends
+	// the address it read from /whoami, and is deliberately ignored: identity is
+	// resolved from the socket (clientMACFromSocket). The field is kept so the
+	// request still decodes and so the intent is visible to the next reader —
+	// removing it would silently make the same behaviour look accidental.
+	Mac string `json:"mac"`
 }
 
 type lightningInvoiceResponse struct {
@@ -725,25 +748,18 @@ func HandleSessionState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	macAddress := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
-	if macAddress == "" {
-		ip := getIP(r)
-		var err error
-		macAddress, err = getMacAddress(ip)
-		if err != nil {
-			// An unidentifiable client has no session, and the portal must still
-			// be able to render — so this route answers "none" rather than
-			// erroring.
-			mainLogger.WithError(err).Warn("MAC address lookup failed for /session-state")
-		}
-	}
-
-	// The sentinel (and an empty lookup) is not a client: answer "none" rather
-	// than asking the merchant about an address that means "unknown". The mac
-	// field stays in the response shape but is empty — echoing the sentinel
-	// published it as if it were this client's identity, which is exactly the
-	// leak observed on the published pre15 artifact.
-	if isUnknownMAC(macAddress) {
+	// The state of the client at the other end of the socket — the `mac` query
+	// parameter this route used to accept is a claim by the caller about some
+	// other device, and answering it let one client read another's state.
+	macAddress, err := clientMACFromSocket(r)
+	if err != nil {
+		// An unidentifiable client has no session, and the portal polls this
+		// while rendering — so answer "none" rather than erroring. The sentinel
+		// (and an empty lookup) is not a client either: the mac field stays in
+		// the response shape but is empty, because echoing 00:00:00:00:00:00
+		// published "unknown" as if it were an address (the leak observed on the
+		// published pre15 artifact).
+		mainLogger.WithError(err).Warn("MAC address lookup failed for /session-state; answering none")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(sessionStateResponse{Status: 1, Mac: "", State: string(merchant.SessionStateNone)})
@@ -884,28 +900,18 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	macAddress := ""
-	if req.Mac != "" {
-		// Client MAC provided by splash page (from nodogsplash preauth)
-		macAddress = merchant.NormalizeMACAddress(req.Mac)
-		mainLogger.WithField("mac", macAddress).Debug("Using client-provided MAC for lightning invoice")
-	} else {
-		// Fallback to IP-based lookup
-		ip := getIP(r)
-		var err error
-		macAddress, err = getMacAddress(ip)
-		if err != nil {
-			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning invoice")
-		}
-	}
-
-	// A quote is only meaningful for a device that exists: the status poll and
-	// the eventual grant are both bound to this address, and the quote store is
-	// keyed by it. Creating one for 00:00:00:00:00:00 (or for an empty lookup)
-	// wrote a record every unidentified client shared. Refuse instead, with a
-	// code the portal can display.
-	if isUnknownMAC(macAddress) {
-		mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Refusing lightning invoice: the client has no resolvable identity")
+	// The quote is bound to the client at the other end of the socket. The `mac`
+	// field above is not read: a caller-named address would bind the quote — and
+	// the eventual grant — to a device that may not be the one paying.
+	macAddress, err := clientMACFromSocket(r)
+	if err != nil {
+		// A quote is only meaningful for a device that exists: the status poll
+		// and the eventual grant are both bound to this address, and the quote
+		// store is keyed by it. Creating one for 00:00:00:00:00:00 (or for an
+		// empty lookup) wrote a record every unidentified client shared. Refuse
+		// instead, with a code the portal can display.
+		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
+			Warn("Refusing lightning invoice: the client has no resolvable identity")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(lightningInvoiceResponse{
@@ -948,22 +954,16 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	macAddress := merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
-	if macAddress == "" {
-		ip := getIP(r)
-		var err error
-		macAddress, err = getMacAddress(ip)
-		if err != nil {
-			mainLogger.WithError(err).Warn("MAC address lookup failed for lightning status")
-		}
-	}
-
 	// The MAC is not a lookup key here, it is the authorisation check: a quote is
-	// only readable by the device that created it. A poll that cannot be
-	// attributed must be refused rather than attributed to 00:00:00:00:00:00,
-	// which every unidentified client would share.
-	if isUnknownMAC(macAddress) {
-		mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Refusing lightning status poll: the client has no resolvable identity")
+	// only readable by the device that created it. It comes from the socket — a
+	// `mac` query parameter would let any client name another device and read
+	// that device's quote state. A poll that cannot be attributed must be refused
+	// rather than attributed to 00:00:00:00:00:00, which every unidentified
+	// client would share.
+	macAddress, err := clientMACFromSocket(r)
+	if err != nil {
+		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
+			Warn("Refusing lightning status poll: the client has no resolvable identity")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(lightningInvoiceResponse{

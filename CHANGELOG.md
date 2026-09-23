@@ -42,6 +42,22 @@ and [Semantic Versioning](https://semver.org/).
   `mac` instead of the sentinel — and `/whoami` answers an empty `mac=` instead
   of echoing it
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **Identity is resolved from the socket, never from a client-asserted `mac`.**
+  `/whoami`, `GET /session-state`, `POST /`, `POST /ln-invoice` and
+  `GET /ln-invoice` took the caller's own claim — a `mac` query parameter, or the
+  `mac` field of the invoice-request body — as the identity that keys the
+  session, the byte-meter baseline, the lightning quote and the gate. Any client
+  on the LAN could therefore name another device's address (or name nothing, as
+  the shipped portal's Lightning lane does when it sends
+  `?mac=00:00:00:00:00:00`), and the value the portal cached at page load decided
+  which device a payment was applied to — so a MAC rotation between the page load
+  and the payment could take the customer's money and grant access to an address
+  their device no longer had. All five routes now resolve the address from the
+  request's source IP through the DHCP lease file and the kernel ARP table — the
+  one input the client cannot choose — and canonicalise it before use. A
+  client-supplied `mac` is still accepted on the wire (the pinned portal sends
+  it) and has no effect on the outcome
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the

@@ -7,91 +7,73 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
-	"github.com/nbd-wtf/go-nostr"
 )
 
-// macCaptureMerchant records the MAC address each HTTP handler hands to the
-// merchant, so a handler test can assert the API boundary normalises it before
-// it reaches a session or quote lookup.
-type macCaptureMerchant struct {
-	namedMerchant
-	purchaseMAC string
-	invoiceMAC  string
-	statusMAC   string
-}
+// MAC canonicalisation and the client's own claim.
+//
+// Sessions, byte-meter baselines and lightning quotes are all keyed by the MAC
+// string, so one device must resolve to ONE key whatever spelling the source
+// uses. Until this change the value that reached the merchant was the caller's
+// own claim — a `mac` query parameter, or the `mac` field of the POST
+// /ln-invoice JSON body — canonicalised on the way in. That made the string the
+// portal happened to send authoritative: a stale value cached before a MAC
+// rotation, a hand-crafted one, or (observed on the shipped portal's Lightning
+// lane) `00:00:00:00:00:00` decided which session, meter and quote the request
+// touched.
+//
+// The value now comes from the socket (see identity_socket_test.go for the
+// authority proof); this file pins the two properties that survive that change:
+// the socket-resolved address is canonicalised on every route, and a
+// client-asserted address is ignored in every shape a client can send it —
+// query parameter, JSON body field, invalid format, percent-encoded casing.
 
-func (m *macCaptureMerchant) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
-	m.purchaseMAC = macAddress
-	return &nostr.Event{Kind: 1022}, nil
-}
-
-func (m *macCaptureMerchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*merchant.LightningInvoice, error) {
-	m.invoiceMAC = macAddress
-	return &merchant.LightningInvoice{
-		QuoteID: "quote-1",
-		Invoice: "lnbc1",
-		MintURL: mintURL,
-		Amount:  amount,
-		State:   "unpaid",
-	}, nil
-}
-
-func (m *macCaptureMerchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*merchant.LightningQuoteStatus, error) {
-	m.statusMAC = macAddress
-	return &merchant.LightningQuoteStatus{QuoteID: quoteID, State: "unpaid"}, nil
-}
-
-func useMacCaptureMerchant(fake *macCaptureMerchant) {
-	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(fake)}
-}
-
-// Every endpoint that accepts a `mac` query parameter must resolve the three
-// spellings of one address to the same canonical (lowercase) value, because
-// sessions and lightning quotes are keyed by that string. Hardware measurement
-// on the beta router: GET /ln-invoice?quote=…&mac=<LOWERCASE> → 200, the same
-// request with mac=<UPPERCASE> → 404 {"error":"failed to fetch invoice status"}.
-func TestMacQueryParameterIsCaseInsensitive(t *testing.T) {
+// Hardware measurement on the beta router: GET /ln-invoice?quote=…&mac=<LOWERCASE>
+// → 200, the same request with mac=<UPPERCASE> → 404
+// {"error":"failed to fetch invoice status"}, because the quote was stored under
+// one key and looked up under another. The three spellings of one address must
+// resolve to the same key; the source of that address is now the lease file, and
+// dnsmasq's spelling of it is not something the module controls.
+func TestSocketMACIsCanonicalisedOnEveryRoute(t *testing.T) {
 	const wantMAC = "8c:16:45:0d:6f:c5"
 
 	cases := []struct {
 		name string
 		mac  string
 	}{
-		{"lowercase", "8c:16:45:0d:6f:c5"},
-		{"uppercase", "8C:16:45:0D:6F:C5"},
-		{"mixed-case", "8C:16:45:0d:6F:C5"},
+		{"lowercase lease", "8c:16:45:0d:6f:c5"},
+		{"uppercase lease", "8C:16:45:0D:6F:C5"},
+		{"mixed-case lease", "8C:16:45:0d:6F:C5"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			q := url.QueryEscape(tc.mac)
-
 			t.Run("GET /whoami answers the canonical mac", func(t *testing.T) {
-				useMacCaptureMerchant(&macCaptureMerchant{})
-				req := httptest.NewRequest(http.MethodGet, "/whoami?mac="+q, nil)
-				req.RemoteAddr = "192.0.2.50:4321"
+				useIdentityMerchant(&identityMerchant{})
+				resolvedClient(t, testClientIP, tc.mac)
+				req := httptest.NewRequest(http.MethodGet, "/whoami", nil)
+				req.RemoteAddr = testClientIP + ":4321"
 				w := httptest.NewRecorder()
 
 				handler(w, req)
 
 				if got, want := w.Body.String(), "mac="+wantMAC; got != want {
-					t.Fatalf("/whoami?mac=%s returned %q, want %q", tc.mac, got, want)
+					t.Fatalf("/whoami with a %s in the lease returned %q, want %q", tc.name, got, want)
 				}
 			})
 
 			t.Run("GET /ln-invoice uses the canonical mac", func(t *testing.T) {
-				fake := &macCaptureMerchant{}
-				useMacCaptureMerchant(fake)
-				req := httptest.NewRequest(http.MethodGet, "/ln-invoice?quote=quote-1&mac="+q, nil)
-				req.RemoteAddr = "192.0.2.50:4321"
+				fake := &identityMerchant{}
+				useIdentityMerchant(fake)
+				resolvedClient(t, testClientIP, tc.mac)
+				req := httptest.NewRequest(http.MethodGet, "/ln-invoice?quote=quote-1", nil)
+				req.RemoteAddr = testClientIP + ":4321"
 				w := httptest.NewRecorder()
 
 				handleLightningInvoiceGet(w, req)
 
 				if w.Code != http.StatusOK {
-					t.Fatalf("GET /ln-invoice?quote=quote-1&mac=%s returned %d, want 200 (body: %s)", tc.mac, w.Code, w.Body.String())
+					t.Fatalf("GET /ln-invoice with a %s in the lease returned %d, want 200 (body: %s)",
+						tc.name, w.Code, w.Body.String())
 				}
 				if fake.statusMAC != wantMAC {
 					t.Fatalf("GET /ln-invoice passed mac %q to the merchant, want %q", fake.statusMAC, wantMAC)
@@ -99,113 +81,170 @@ func TestMacQueryParameterIsCaseInsensitive(t *testing.T) {
 			})
 
 			t.Run("POST / uses the canonical mac", func(t *testing.T) {
-				fake := &macCaptureMerchant{}
-				useMacCaptureMerchant(fake)
-				req := httptest.NewRequest(http.MethodPost, "/?mac="+q, strings.NewReader("cashuAeyJ0b2tlbiI6W119"))
-				req.RemoteAddr = "192.0.2.50:4321"
+				fake := &identityMerchant{}
+				useIdentityMerchant(fake)
+				resolvedClient(t, testClientIP, tc.mac)
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("cashuA***"))
+				req.RemoteAddr = testClientIP + ":4321"
 				w := httptest.NewRecorder()
 
 				HandleRootPost(w, req)
 
 				if w.Code != http.StatusOK {
-					t.Fatalf("POST /?mac=%s returned %d, want 200 (body: %s)", tc.mac, w.Code, w.Body.String())
+					t.Fatalf("POST / with a %s in the lease returned %d, want 200 (body: %s)",
+						tc.name, w.Code, w.Body.String())
 				}
 				if fake.purchaseMAC != wantMAC {
 					t.Fatalf("POST / passed mac %q to the merchant, want %q", fake.purchaseMAC, wantMAC)
+				}
+			})
+
+			t.Run("GET /session-state uses the canonical mac", func(t *testing.T) {
+				fake := &identityMerchant{}
+				useIdentityMerchant(fake)
+				resolvedClient(t, testClientIP, tc.mac)
+				req := httptest.NewRequest(http.MethodGet, "/session-state", nil)
+				req.RemoteAddr = testClientIP + ":4321"
+				w := httptest.NewRecorder()
+
+				HandleSessionState(w, req)
+
+				if w.Code != http.StatusOK {
+					t.Fatalf("GET /session-state with a %s in the lease returned %d, want 200 (body: %s)",
+						tc.name, w.Code, w.Body.String())
+				}
+				if fake.sessionStateM != wantMAC {
+					t.Fatalf("GET /session-state passed mac %q to the merchant, want %q", fake.sessionStateM, wantMAC)
 				}
 			})
 		})
 	}
 }
 
-// The invoice-create endpoint takes its MAC from the JSON body rather than a
-// query parameter; it must normalise too, otherwise the quote is stored under a
-// different key than the status poll that follows it.
-func TestLnInvoicePostBodyMacIsCaseInsensitive(t *testing.T) {
+// The invoice-create endpoint takes a `mac` field in the JSON body. It is
+// accepted on the wire and ignored: the quote is bound to the socket-resolved
+// address, in any casing the client names.
+func TestLnInvoicePostBodyMacIsIgnored(t *testing.T) {
 	const wantMAC = "8c:16:45:0d:6f:c5"
 
 	cases := []struct {
 		name string
 		mac  string
 	}{
-		{"lowercase", "8c:16:45:0d:6f:c5"},
-		{"uppercase", "8C:16:45:0D:6F:C5"},
-		{"mixed-case", "8C:16:45:0d:6F:C5"},
+		{"lowercase", "aa:bb:cc:dd:ee:ff"},
+		{"uppercase", "AA:BB:CC:DD:EE:FF"},
+		{"mixed-case", "Aa:Bb:Cc:Dd:Ee:Ff"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fake := &macCaptureMerchant{}
-			useMacCaptureMerchant(fake)
+			fake := &identityMerchant{}
+			useIdentityMerchant(fake)
+			resolvedClient(t, testClientIP, wantMAC)
+
 			body := fmt.Sprintf(`{"amount":10,"mint_url":"https://mint.example.com","mac":%q}`, tc.mac)
 			req := httptest.NewRequest(http.MethodPost, "/ln-invoice", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-			req.RemoteAddr = "192.0.2.50:4321"
+			req.RemoteAddr = testClientIP + ":4321"
 			w := httptest.NewRecorder()
 
 			handleLightningInvoicePost(w, req)
 
 			if w.Code != http.StatusOK {
-				t.Fatalf("POST /ln-invoice with mac %q returned %d, want 200 (body: %s)", tc.mac, w.Code, w.Body.String())
+				t.Fatalf("POST /ln-invoice with a client-named mac %q returned %d, want 200 (body: %s)",
+					tc.mac, w.Code, w.Body.String())
 			}
 			if fake.invoiceMAC != wantMAC {
-				t.Fatalf("POST /ln-invoice passed mac %q to the merchant, want %q", fake.invoiceMAC, wantMAC)
+				t.Fatalf("POST /ln-invoice bound the quote to %q, want the socket-resolved %q",
+					fake.invoiceMAC, wantMAC)
 			}
 		})
 	}
 }
 
-// Percent-encoded uppercase is the exact shape that returned 404 on hardware
-// while the percent-encoded lowercase form returned 200.
-func TestMacQueryParameterPercentEncodedUppercase(t *testing.T) {
+// Percent-encoded uppercase in the query string is the exact shape that returned
+// 404 on hardware, i.e. the shape a caller-supplied value can reach the handler
+// in. It is ignored like every other client assertion.
+func TestMacQueryParameterPercentEncodedIsIgnored(t *testing.T) {
 	const wantMAC = "8c:16:45:0d:6f:c5"
 
-	fake := &macCaptureMerchant{}
-	useMacCaptureMerchant(fake)
+	fake := &identityMerchant{}
+	useIdentityMerchant(fake)
+	resolvedClient(t, testClientIP, wantMAC)
+
 	req := httptest.NewRequest(http.MethodGet, "/ln-invoice?quote=quote-1&mac=8C%3A16%3A45%3A0D%3A6F%3AC5", nil)
-	req.RemoteAddr = "192.0.2.50:4321"
+	req.RemoteAddr = testClientIP + ":4321"
 	w := httptest.NewRecorder()
 
 	handleLightningInvoiceGet(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET /ln-invoice with percent-encoded uppercase mac returned %d, want 200 (body: %s)", w.Code, w.Body.String())
+		t.Fatalf("GET /ln-invoice with a percent-encoded client mac returned %d, want 200 (body: %s)",
+			w.Code, w.Body.String())
 	}
 	if fake.statusMAC != wantMAC {
-		t.Fatalf("GET /ln-invoice passed mac %q to the merchant, want %q", fake.statusMAC, wantMAC)
+		t.Fatalf("GET /ln-invoice authorised against %q, want the socket-resolved %q", fake.statusMAC, wantMAC)
 	}
 }
 
-// Invalid and absent mac handling must not change: an absent mac still falls
-// back to the request-derived client — and off the router that lookup fails, so
-// /whoami answers an empty mac (never 00:00:00:00:00:00) — while an invalid mac
-// is still passed through untouched and rejected by the merchant, not by the
-// normaliser.
-func TestMacNormalisationPreservesAbsentAndInvalidHandling(t *testing.T) {
-	fake := &macCaptureMerchant{}
-	useMacCaptureMerchant(fake)
-	// Off-router: no lease names this IP, so there is no client to name.
-	unresolvedClient(t)
+// Absent and invalid claims must not change the outcome: identity comes from the
+// socket either way, and a value that is not an address is never handed to the
+// merchant.
+func TestIdentityResolutionPreservesAbsentAndInvalidHandling(t *testing.T) {
+	const socketMAC = "8c:16:45:0d:6f:c5"
 
-	req := httptest.NewRequest(http.MethodGet, "/whoami", nil)
-	req.RemoteAddr = "192.0.2.50:4321"
-	w := httptest.NewRecorder()
+	t.Run("absent claim still resolves the socket client", func(t *testing.T) {
+		fake := &identityMerchant{}
+		useIdentityMerchant(fake)
+		resolvedClient(t, testClientIP, socketMAC)
 
-	handler(w, req)
+		req := httptest.NewRequest(http.MethodGet, "/whoami", nil)
+		req.RemoteAddr = testClientIP + ":4321"
+		w := httptest.NewRecorder()
 
-	if got, want := w.Body.String(), "mac="; got != want {
-		t.Fatalf("/whoami without mac returned %q, want %q (the sentinel is not an identity)", got, want)
-	}
+		handler(w, req)
 
-	useMacCaptureMerchant(fake)
-	req = httptest.NewRequest(http.MethodPost, "/ln-invoice", strings.NewReader(`{"amount":10,"mint_url":"https://mint.example.com","mac":"not-a-mac"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.RemoteAddr = "192.0.2.50:4321"
-	w = httptest.NewRecorder()
+		if got, want := w.Body.String(), "mac="+socketMAC; got != want {
+			t.Fatalf("/whoami without a claim returned %q, want the socket-resolved %q", got, want)
+		}
+	})
 
-	handleLightningInvoicePost(w, req)
+	t.Run("invalid claim never reaches the merchant", func(t *testing.T) {
+		fake := &identityMerchant{}
+		useIdentityMerchant(fake)
+		resolvedClient(t, testClientIP, socketMAC)
 
-	if fake.invoiceMAC != "not-a-mac" {
-		t.Fatalf("invalid mac %q was rewritten to %q", "not-a-mac", fake.invoiceMAC)
-	}
+		req := httptest.NewRequest(http.MethodPost, "/ln-invoice", strings.NewReader(
+			`{"amount":10,"mint_url":"https://mint.example.com","mac":"not-a-mac"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = testClientIP + ":4321"
+		w := httptest.NewRecorder()
+
+		handleLightningInvoicePost(w, req)
+
+		if fake.invoiceMAC != socketMAC {
+			t.Fatalf("POST /ln-invoice passed %q to the merchant, want the socket-resolved %q",
+				fake.invoiceMAC, socketMAC)
+		}
+		if fake.invoiceMAC == "not-a-mac" {
+			t.Fatalf("the client's invalid claim became the identity")
+		}
+	})
+
+	t.Run("invalid claim is not echoed into the query-string path either", func(t *testing.T) {
+		fake := &identityMerchant{}
+		useIdentityMerchant(fake)
+		resolvedClient(t, testClientIP, socketMAC)
+
+		req := httptest.NewRequest(http.MethodGet, "/session-state?mac="+url.QueryEscape("not-a-mac"), nil)
+		req.RemoteAddr = testClientIP + ":4321"
+		w := httptest.NewRecorder()
+
+		HandleSessionState(w, req)
+
+		if fake.sessionStateM != socketMAC {
+			t.Fatalf("GET /session-state asked the merchant about %q, want the socket-resolved %q",
+				fake.sessionStateM, socketMAC)
+		}
+	})
 }
