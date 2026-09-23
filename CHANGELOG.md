@@ -10,6 +10,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The captive portal shipped in the package now sends the client MAC on
+  both Lightning invoice calls and defines the strings it renders.** The
+  portal pin advances from `d699367` (portal #55, the keyset-agnostic v4
+  `cashuB` decode) to `e67d646` (portal #56), which forwards the MAC the
+  portal already resolved from `/whoami` on the `/ln-invoice` create (POST)
+  and status poll (GET) — the backend identifies the client by that `mac`
+  parameter and only falls back to an IP-derived lookup when it is absent, so
+  without it the invoice was billed against whatever address the request
+  arrived from and the poll could not be matched back to the operator's
+  device — and defines the `LN003_*`/`LN004_*` error strings the Lightning
+  path renders instead of showing the literal key. The committed bundle shell
+  is regenerated from that pin, and
+  `tests/packaging/assert-portal-bundle-contract.sh` gains a check that fails
+  when a future pin stops sending the MAC or drops those strings
+  ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
+
 ## [v0.6.0-alpha4] - 2026-09-22
 
 Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
