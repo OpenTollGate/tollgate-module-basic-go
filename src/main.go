@@ -345,6 +345,18 @@ func initCLIServer() {
 	mainLogger.Info("CLI server initialized and listening on Unix socket")
 }
 
+// Lookup sources for getMacAddress, as package-level vars rather than string
+// literals so unit tests running off-router (no dnsmasq lease file, no kernel
+// ARP table) can point the resolver at a fixture and exercise the real
+// resolution path. Production never reassigns them; nothing else reads them.
+// Do not "simplify" these back to literals: /balance's session-bearing branch —
+// the body a paying customer gets — is only reachable in a unit test through
+// this seam (see TestBalanceEndpointLiveSessionReportsUsage).
+var (
+	dhcpLeasePath = "/tmp/dhcp.leases"
+	arpTablePath  = "/proc/net/arp"
+)
+
 func getMacAddress(ipAddress string) (string, error) {
 	if net.ParseIP(ipAddress) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
@@ -354,7 +366,7 @@ func getMacAddress(ipAddress string) (string, error) {
 	// Primary source: dnsmasq lease file — authoritative for DHCP clients.
 	// Format per line: <timestamp> <mac> <ip> <hostname> <clientid>
 	// Match case-insensitively so IPv6 hextets compare regardless of casing.
-	data, err := os.ReadFile("/tmp/dhcp.leases")
+	data, err := os.ReadFile(dhcpLeasePath)
 	if err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			fields := strings.Fields(line)
@@ -368,7 +380,7 @@ func getMacAddress(ipAddress string) (string, error) {
 	// dnsmasq restarts. In-memory entries expire after a few minutes of
 	// inactivity, so this is not a replacement for the lease file.
 	// Format per line: <ip> <hwtype> <flags> <mac> <mask> <device>
-	arpData, err := os.ReadFile("/proc/net/arp")
+	arpData, err := os.ReadFile(arpTablePath)
 	if err == nil {
 		for _, line := range strings.Split(string(arpData), "\n") {
 			fields := strings.Fields(line)
