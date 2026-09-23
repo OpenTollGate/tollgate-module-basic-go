@@ -863,7 +863,17 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
 
-		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) && !isExpiredKeysetError(err) {
+		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
+			!isExpiredKeysetError(err) &&
+			!isRateLimitError(err) {
+			// A rate-limit answer means the mint is UP and telling us to slow
+			// down, so it must not condemn the mint. On a single-mint
+			// deployment a single 429 used to empty the reachable set, fire the
+			// set-changed callback and downgrade the merchant to degraded mode —
+			// i.e. one rate-limited request stopped every sale on the router
+			// (a revenue DoS). The edge quota on POST /ln-invoice in main.go is
+			// the other half of this fix: it keeps our own flood from being
+			// what provokes the 429.
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
