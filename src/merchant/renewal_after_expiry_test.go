@@ -69,10 +69,14 @@ func (w *renewalWallet) received() int { return int(atomic.LoadInt32(&w.receives
 // seam's only observable effect) and answers `ndsctl json <mac>` either with a
 // client entry or with "{}" — the answer that means NDS does not list the client
 // at all (post-deauth, or after NDS dropped its record for an idle device).
+//
+// It can also be told to FAIL deauth (failDeauth), which is how the gate
+// close-failure contract is exercised: a deauth that fails is not a close.
 type renewalNdsctl struct {
 	logPath   string
 	statePath string
 	usagePath string
+	failPath  string
 }
 
 func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
@@ -83,12 +87,14 @@ func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
 		logPath:   filepath.Join(dir, "ndsctl.log"),
 		statePath: filepath.Join(dir, "ndsctl.state"),
 		usagePath: filepath.Join(dir, "ndsctl.usage"),
+		failPath:  filepath.Join(dir, "ndsctl.deauthfail"),
 	}
 
 	script := fmt.Sprintf(`#!/bin/sh
 LOG=%q
 STATE=%q
 USAGE=%q
+FAIL=%q
 mac="$2"
 case "$1" in
   auth)
@@ -98,6 +104,10 @@ case "$1" in
     ;;
   deauth)
     echo "DEAUTH $mac" >> "$LOG"
+    if [ -r "$FAIL" ]; then
+      echo "Failed to deauthenticate client"
+      exit 1
+    fi
     echo "Auth: $mac - Removed"
     exit 0
     ;;
@@ -118,7 +128,7 @@ case "$1" in
 esac
 echo OK
 exit 0
-`, n.logPath, n.statePath, n.usagePath)
+`, n.logPath, n.statePath, n.usagePath, n.failPath)
 
 	if err := os.WriteFile(filepath.Join(dir, "ndsctl"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ndsctl: %v", err)
@@ -150,6 +160,25 @@ func (n *renewalNdsctl) setClientKB(t *testing.T, downloadedKB, uploadedKB uint6
 
 	if err := os.WriteFile(n.usagePath, []byte(fmt.Sprintf("%d %d", downloadedKB, uploadedKB)), 0o644); err != nil {
 		t.Fatalf("write ndsctl usage: %v", err)
+	}
+}
+
+// failDeauth makes `ndsctl deauth` fail (exit 1, "Failed to deauthenticate
+// client") until it is called again with false. A failed deauth models
+// NoDogSplash hanging or refusing the operation, which is the condition the
+// gate-close contract has to survive: the client is still authenticated and the
+// gate is still open.
+func (n *renewalNdsctl) failDeauth(t *testing.T, fail bool) {
+	t.Helper()
+
+	if !fail {
+		if err := os.Remove(n.failPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("clear deauth failure: %v", err)
+		}
+		return
+	}
+	if err := os.WriteFile(n.failPath, []byte("fail\n"), 0o644); err != nil {
+		t.Fatalf("write deauth failure marker: %v", err)
 	}
 }
 

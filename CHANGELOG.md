@@ -26,6 +26,48 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
+  is the only way the module takes a customer's access away, and three
+  independent paths treated a *failed* deauth as a completed one — leaving the
+  client `Authenticated` through an open gate while the module forgot it: the
+  timed gate's expiry callback (and the delayed-auth timers) logged the error and
+  then deleted the tracked gate, so nothing ever retried; the usage monitor
+  retired a bytes session even when `CloseGate` returned an error, destroying the
+  only record that the client had to be closed; and a bytes session with no
+  metering baseline was skipped on every sweep for ever (its allotment purely
+  decorative), which also happened to a client whose counters could not be read,
+  because unreadable usage was reported as 0. A failed close now keeps the gate
+  tracked and is retried (immediately and then on a 2 s→60 s backoff, for ever),
+  every unconfirmed close is escalated to an `ERROR` log naming the client and
+  counted in `valve.GateCloseFailures()`, the session is retired only once the
+  close is confirmed, a missing baseline is established rather than skipped, and
+  a session whose usage stays unreadable for a full grace window has its gate
+  closed rather than left open unmetered. The failure direction stays "the module
+  keeps ownership of the gate": a retry abandons itself when the gate it was
+  armed for has been extended or reopened, and a close that raced a renewal
+  re-authorizes the client
+  ([#545](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/545)).
+
+- **The captive portal shipped in the package can renew an expired session
+  without a reconnect, and follows the mint a pasted note came from.** The
+  portal pin advances from `51a1429` (portal #59, the CU110 swap-fee
+  pre-check) to `e6fe0e0` (portal main: #60 on top of #61). #60 gives the
+  expired view a primary "Buy more time" that returns to the purchase flow in
+  page — the old view's only action was `window.location.reload()`, which
+  cannot reach the purchase UI (it stays mounted in its `success` state), so
+  the only route back to buying time was to disconnect from and reconnect to
+  the Wi-Fi, which is what the copy told the customer to do — which completes
+  the module-side renewal fix from #541 in the bytes a customer's browser
+  actually loads. #61 selects the access option the pasted note advertises
+  (`normalizeMintUrl`, `mintUrlFromToken`, `findMintOption`), because the
+  allocation and the price are mint-dependent and a hand-picked mint quoted the
+  wrong price for the note in the field, and renders `unsupported_mint_notice`
+  for a note from an unaccepted mint. The committed bundle shell is regenerated
+  from that pin, and `tests/packaging/assert-portal-bundle-contract.sh` gains a
+  check that fails when a future pin stops renewing in page or drops the note's
+  mint
+  ([#543](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/543)).
+
 - **A session that ran out can be renewed again.** The payment pre-flight
   refused every purchase whose MAC NoDogSplash no longer lists — the state of a
   client we just deauthorised at expiry — so each renewal was answered with
@@ -1788,3 +1830,8 @@ earlier work. Not documented in this changelog.
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
+
+## [Unreleased]
+
+### Added
+- \`tests/happy-path/\`: a happy-path regression suite that boots a published package and checks the customer-facing path (artifact identity, API contract, enforcement via the fake-ndsctl seam, and the portal in a real browser). Reports SKIP with a reason rather than a false pass, and tolerates a documented pre-existing defect via \`known-issues.txt\`.
