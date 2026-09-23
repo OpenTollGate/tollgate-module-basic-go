@@ -121,6 +121,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **`packaging/local-build-ipk.sh` refuses to build without staged portal
+  bundles.** The guest SPA, admin SPA and rpcd plugin are build products
+  staged by `make portal-build`; a clean checkout holds none of them
+  (#335), and the script used to copy whatever was present — silently
+  producing a local `.ipk` whose captive portal renders nothing. It now
+  exits with a `make portal-build` instruction before any toolchain work
+  when the staged files are missing (pinned by
+  `tests/packaging/local-build-ipk-guard_test.sh`).
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
