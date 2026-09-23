@@ -88,8 +88,11 @@ func keysOf(body map[string]any) []string {
 	return keys
 }
 
-// GET /session-state?mac=… answers the machine-readable state for that MAC, and
-// canonicalises the MAC spelling the same way every other endpoint does.
+// GET /session-state answers the machine-readable state of the client at the
+// other end of the socket, and canonicalises the MAC spelling the same way every
+// other endpoint does. The address comes from the request's source IP (the
+// injectable lease seam), never from the `mac` query parameter the caller
+// supplied — otherwise one client could read another device's state.
 func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 	const wantMAC = "8c:16:45:0d:6f:c5"
 
@@ -107,10 +110,13 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 			fake := &sessionStateMerchant{state: tc.state}
 			useSessionStateMerchant(fake)
 
-			// Uppercase on purpose: the portal may copy the MAC out of a
-			// preauth page that spells it in upper case.
-			req := httptest.NewRequest(http.MethodGet, "/session-state?mac="+url.QueryEscape("8C:16:45:0D:6F:C5"), nil)
-			req.RemoteAddr = "192.0.2.50:4321"
+			// Uppercase in the lease on purpose: dnsmasq's spelling of the
+			// address is not something the module controls, and the portal may
+			// copy it out of a preauth page in either case.
+			resolvedClient(t, testClientIP, "8C:16:45:0D:6F:C5")
+
+			req := httptest.NewRequest(http.MethodGet, "/session-state?mac="+url.QueryEscape("AA:BB:CC:DD:EE:FF"), nil)
+			req.RemoteAddr = testClientIP + ":4321"
 			w := httptest.NewRecorder()
 
 			HandleSessionState(w, req)
@@ -135,7 +141,7 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 				t.Fatalf("status = %v, want 1", body["status"])
 			}
 			if fake.stateMAC != wantMAC {
-				t.Fatalf("handler passed mac %q to the merchant, want the canonical %q", fake.stateMAC, wantMAC)
+				t.Fatalf("handler passed mac %q to the merchant, want the canonical socket-resolved %q", fake.stateMAC, wantMAC)
 			}
 		})
 	}
@@ -144,6 +150,10 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 // A request without a `mac` parameter falls back to the request-derived client
 // (DHCP lease / ARP). Off the router that lookup fails, and the endpoint must
 // still answer "none" rather than 500 — the portal polls it while rendering.
+//
+// The `mac` field is empty in that answer: 00:00:00:00:00:00 means "no address
+// at all", and echoing it published the sentinel as the client's identity (the
+// leak observed on the pre15 artifact). The state contract is unchanged.
 func TestSessionStateEndpointWithoutMacIsNoneNotAnError(t *testing.T) {
 	fake := &sessionStateMerchant{state: "expired"}
 	useSessionStateMerchant(fake)
@@ -158,8 +168,8 @@ func TestSessionStateEndpointWithoutMacIsNoneNotAnError(t *testing.T) {
 		t.Fatalf("GET /session-state without mac returned %d, want 200 (body: %s)", w.Code, w.Body.String())
 	}
 	body := decodedBody(t, w)
-	if body["mac"] != "00:00:00:00:00:00" {
-		t.Fatalf("mac = %v, want the documented fallback 00:00:00:00:00:00", body["mac"])
+	if body["mac"] != "" {
+		t.Fatalf("mac = %v, want an empty mac for an unresolvable client (never the sentinel 00:00:00:00:00:00)", body["mac"])
 	}
 	if body["state"] != "none" {
 		t.Fatalf("state for an unidentifiable client = %v, want \"none\"", body["state"])

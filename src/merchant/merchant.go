@@ -137,6 +137,32 @@ const preflightProbeAttempts = 5
 // preflightRetryDelay is a var so tests can shrink it.
 var preflightRetryDelay = 400 * time.Millisecond
 
+// receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
+// a money-moving `Receive` before it answers the customer with "outcome
+// unknown". It is a var, like preflightRetryDelay, so a test can shrink the
+// window instead of waiting it out; nothing in production reassigns it.
+var receiveTimeout = 30 * time.Second
+
+// receiveReference is the operator-facing handle for one money-moving attempt:
+// the salted fingerprint of the customer's note, which the customer can quote
+// and the operator can find in the log next to the MAC, the mint and the time.
+// It is never the note itself — the note is spendable by whoever reads it — and
+// it is deliberately opaque: the reference identifies one attempt without
+// telling a reader anything they could act on. An empty string means the note
+// could not be serialized, in which case the notice omits the reference rather
+// than inventing one.
+func receiveReference(token tollwallet.Token) string {
+	if token == nil {
+		return ""
+	}
+	serialized, err := token.Serialize()
+	if err != nil {
+		log.Printf("PurchaseSession: could not serialise the note for a reference: %v", err)
+		return ""
+	}
+	return utils.TokenFingerprint(serialized)
+}
+
 // MerchantInterface defines the interface for merchant payment operations
 type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
@@ -806,12 +832,31 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		amountAfterSwap = res.amount
 		err = res.err
 		log.Printf("PurchaseSession: Receive completed, amount=%d, err=%v", amountAfterSwap, err)
-	case <-time.After(30 * time.Second):
-		log.Printf("PurchaseSession: Receive TIMED OUT after 30s for mint=%s mac=%s", paymentCashuToken.Mint(), macAddress)
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-timeout",
-			fmt.Sprintf("Payment processing timed out after 30 seconds. Please try again."), macAddress)
+	case <-time.After(receiveTimeout):
+		// A money-moving request has been sent and its outcome is not known yet:
+		// the mint may already have taken the customer's proofs into the
+		// operator's wallet, or the request may still fail. The one thing that
+		// must not happen is the customer submitting the same note again — if the
+		// mint did receive it, the retry is refused as already-spent and the value
+		// is gone with no session (the repository's own rule: "decide refund vs
+		// late-grant explicitly; do not silently drop it"). The notice therefore
+		// says the outcome is unknown rather than "timed out, try again", and it
+		// carries a reference the customer can quote and the operator can find.
+		//
+		// The journal that will collect a late outcome and grant it is a separate
+		// piece of work; until it exists, this branch grants nothing and says so
+		// by not claiming that access will arrive on its own.
+		reference := receiveReference(paymentCashuToken)
+		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
+			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
+
+		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
+		if reference != "" {
+			message += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
+		}
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown", message, macAddress)
 		if noticeErr != nil {
-			return nil, fmt.Errorf("payment timeout and failed to create notice: %w", noticeErr)
+			return nil, fmt.Errorf("payment outcome unknown and failed to create notice: %w", noticeErr)
 		}
 		return noticeEvent, nil
 	}
@@ -1308,8 +1353,11 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 		return "", fmt.Errorf("token serialization returned empty string")
 	}
 
-	log.Printf("Successfully created payment token: length=%d, token_preview=%s...",
-		len(tokenString), tokenString[:min(50, len(tokenString))])
+	// Never log the token: it is spendable by whoever reads the line. The length
+	// and the salted fingerprint are what an operator can actually use — the
+	// fingerprint to match this note against a log line or a customer report.
+	log.Printf("Successfully created payment token: length=%d, token_fingerprint=%s",
+		len(tokenString), utils.TokenFingerprint(tokenString))
 
 	return tokenString, nil
 }
@@ -1575,12 +1623,11 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 		return 0, fmt.Errorf("invalid cashu token: token too short (expected cashu token format)")
 	}
 
-	// Parse the cashu token with error recovery
-	tokenPreview := cashuToken
-	if len(cashuToken) > 50 {
-		tokenPreview = cashuToken[:50] + "..."
-	}
-	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
+	// Parse the cashu token with error recovery. The token itself is never
+	// logged (it is spendable by whoever reads the line): length plus the salted
+	// fingerprint, which is stable for the same note and useless to a reader.
+	log.Printf("Attempting to decode token (length: %d, token_fingerprint: %s)",
+		len(cashuToken), utils.TokenFingerprint(cashuToken))
 
 	parsedToken, err := tollwallet.DecodeToken(cashuToken)
 	if err != nil {
