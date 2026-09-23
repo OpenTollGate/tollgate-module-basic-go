@@ -672,6 +672,7 @@ and [Semantic Versioning](https://semver.org/).
   a drain whose response was lost to a crash or partial failure.
   Protocol boundaries are annotated with verbatim NUT spec quotes
   checked by the greatspectations CI job.
+  ([#549](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/549))
 
 - **The happy-path harness now covers the SECOND purchase — the club's main
   loop.** `tests/router-happy-path` could only ever buy once, so nothing in it
