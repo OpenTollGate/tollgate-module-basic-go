@@ -68,6 +68,296 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// --- POST /ln-invoice backpressure -----------------------------------------
+//
+// POST /ln-invoice is unauthenticated, mutates durable state and makes a round
+// trip to a mint, so a caller can make the router work (and make the mint answer
+// 429) by looping it. GET /ln-invoice is the status poll a paying customer sits
+// in front of, so the quota below is applied to the POST only: a limiter around
+// the whole route would throttle a customer mid-payment on their own poll loop.
+
+const (
+	// The quote request struct is ~120 bytes on the wire; 8 KiB leaves room for
+	// additive fields without letting a caller stream an arbitrary body (and so
+	// an arbitrary allocation) into the router.
+	maxLightningInvoiceBodyBytes = 8 << 10
+
+	// Ceiling on a single invoice, in sats — roughly the largest plausible
+	// purchase. It also bounds what reaches calculateAllotment's arithmetic.
+	maxLightningInvoiceSats = 1_000_000
+
+	// Stable refusal codes, additive to the status/error pair the shipped portal
+	// already reads, so an operator can tell "we are being flooded" from "the
+	// network is slow" without reading logs.
+	codeQuoteRateLimited = "quote-rate-limited"
+	codeQuoteTableFull   = "quote-table-full"
+	codeMintBusyLocal    = "mint-busy-local"
+	codeRequestTooLarge  = "request-too-large"
+	codeAmountTooLarge   = "amount-too-large"
+
+	// The MAC every route falls back to when the client cannot be identified.
+	// It is not an identity and must never key a quota: two unresolvable clients
+	// would share one bucket.
+	sentinelMAC = "00:00:00:00:00:00"
+
+	// Hard cap on each quota map. The keys are derived from the socket (see
+	// clientLimiterKey), so an attacker cannot choose them freely, but a spoofed
+	// MAC or a /64 full of addresses still must not grow the map without bound.
+	quoteQuotaMaxKeys = 4096
+)
+
+// quoteQuotaLimits are the three POST layers: per client, per source network and
+// global. The starting values come from the pre-release design and are all
+// env-overridable, like the pre-existing TOLLGATE_RATE_LIMIT_RPM.
+type quoteQuotaLimits struct {
+	perClientRPM   int
+	perClientBurst int
+	perSourceRPM   int
+	perSourceBurst int
+	globalRPS      int
+	globalBurst    int
+}
+
+func defaultQuoteQuotaLimits() quoteQuotaLimits {
+	return quoteQuotaLimits{
+		// One quote per purchase; six a minute allows a few legitimate retries
+		// after an expired invoice.
+		perClientRPM:   envIntOr("TOLLGATE_QUOTE_LIMIT_RPM", 6),
+		perClientBurst: envIntOr("TOLLGATE_QUOTE_LIMIT_BURST", 3),
+		// A NAT'd group of customers behind one address still works; a flood
+		// from one address does not.
+		perSourceRPM:   envIntOr("TOLLGATE_QUOTE_SOURCE_LIMIT_RPM", 20),
+		perSourceBurst: envIntOr("TOLLGATE_QUOTE_SOURCE_BURST", 5),
+		// The business is a toll booth, not a quote exchange: cap what the whole
+		// router will do toward the mint, whatever the number of clients.
+		globalRPS:   envIntOr("TOLLGATE_QUOTE_GLOBAL_RPS", 2),
+		globalBurst: envIntOr("TOLLGATE_QUOTE_GLOBAL_BURST", 5),
+	}
+}
+
+func envIntOr(name string, fallback int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+// quoteQuotaEntry is one token bucket plus the last time its key was used, which
+// is what makes eviction possible.
+type quoteQuotaEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+// quoteQuotaState holds the bounded bucket maps.
+//
+// A mutex-guarded map is the deliberate choice over sync.Map: at these rates (a
+// handful of accepted POSTs per second, bounded by the global bucket) the
+// critical section is a map lookup plus a token-bucket check — tens of
+// nanoseconds — so contention is not measurable, while the single lock gives the
+// atomic get-or-create-plus-eviction bookkeeping that sync.Map cannot. Nothing
+// here is per-request allocation once a key is warm.
+type quoteQuotaState struct {
+	limits    quoteQuotaLimits
+	mu        sync.Mutex
+	perClient map[string]*quoteQuotaEntry
+	perSource map[string]*quoteQuotaEntry
+	global    *rate.Limiter
+}
+
+func newQuoteQuotaState(limits quoteQuotaLimits) *quoteQuotaState {
+	return &quoteQuotaState{
+		limits:    limits,
+		perClient: make(map[string]*quoteQuotaEntry),
+		perSource: make(map[string]*quoteQuotaEntry),
+		global:    rate.NewLimiter(rate.Limit(limits.globalRPS), limits.globalBurst),
+	}
+}
+
+// quoteQuotas is the process-wide quota state. It is a package variable so tests
+// can point it at their own instance, the same seam shape as dhcpLeasePath.
+var quoteQuotas = newQuoteQuotaState(defaultQuoteQuotaLimits())
+
+// allowFrom consumes one token for key from bucket map m, creating the bucket on
+// first use and evicting the least-recently-used key when the map is full.
+func (s *quoteQuotaState) allowFrom(m map[string]*quoteQuotaEntry, key string, limit rate.Limit, burst int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := m[key]
+	if !ok {
+		if len(m) >= quoteQuotaMaxKeys {
+			evictLeastRecentlyUsedQuotaEntry(m)
+		}
+		entry = &quoteQuotaEntry{limiter: rate.NewLimiter(limit, burst)}
+		m[key] = entry
+	}
+	entry.lastSeen = time.Now()
+	return entry.limiter.Allow()
+}
+
+func evictLeastRecentlyUsedQuotaEntry(m map[string]*quoteQuotaEntry) {
+	var oldestKey string
+	var oldest time.Time
+	for key, entry := range m {
+		if oldestKey == "" || entry.lastSeen.Before(oldest) {
+			oldestKey, oldest = key, entry.lastSeen
+		}
+	}
+	delete(m, oldestKey)
+}
+
+// allow decides whether a quote-creation request may proceed, returning the
+// Retry-After a refusal should advertise.
+//
+// The layers are consumed innermost first: a request that fails the per-client
+// bucket never touches the per-source or global bucket, so a flood from one
+// client cannot drain the capacity an honest customer draws on, while the global
+// bucket still bounds the total for a flood that arrives from many clients at
+// once. (The trade is that a request refused by a later layer has already spent
+// the earlier layers' tokens — negligible between a 6/min client bucket and a
+// 2/s global bucket, and reserving-then-cancelling tokens buys nothing here.)
+func (s *quoteQuotaState) allow(r *http.Request) (bool, int) {
+	if !s.allowFrom(s.perClient, clientLimiterKey(r),
+		rate.Every(time.Minute/time.Duration(s.limits.perClientRPM)), s.limits.perClientBurst) {
+		return false, ceilSecondsPerToken(s.limits.perClientRPM, time.Minute)
+	}
+
+	if !s.allowFrom(s.perSource, sourceNetworkKey(r),
+		rate.Every(time.Minute/time.Duration(s.limits.perSourceRPM)), s.limits.perSourceBurst) {
+		return false, ceilSecondsPerToken(s.limits.perSourceRPM, time.Minute)
+	}
+
+	s.mu.Lock()
+	globalAllowed := s.global.Allow()
+	s.mu.Unlock()
+	if !globalAllowed {
+		return false, ceilSecondsPerToken(s.limits.globalRPS, time.Second)
+	}
+
+	return true, 0
+}
+
+// ceilSecondsPerToken is the Retry-After for a bucket that admits `count` tokens
+// per `window`, rounded up so the advertised wait is never shorter than the wait.
+func ceilSecondsPerToken(count int, window time.Duration) int {
+	if count <= 0 {
+		return 1
+	}
+	perToken := window / time.Duration(count)
+	seconds := (perToken + time.Second - 1) / time.Second
+	if seconds < 1 {
+		seconds = 1
+	}
+	return int(seconds)
+}
+
+// clientLimiterKey derives the per-client quota key. It is resolved from the
+// socket — the DHCP lease, then the ARP table, for the request's source address —
+// and never from the request body or a query parameter, because the caller can
+// assert any value there. An unresolvable client falls back to the source
+// network, never to the sentinel MAC and never to an empty key (which every
+// unidentified client would share).
+func clientLimiterKey(r *http.Request) string {
+	ip := getIP(r)
+	if mac, err := getMacAddress(ip); err == nil {
+		if normalized := merchant.NormalizeMACAddress(mac); normalized != "" && normalized != sentinelMAC {
+			return "mac:" + normalized
+		}
+	}
+	return sourceNetworkKey(r)
+}
+
+// sourceNetworkKey is the per-source bucket key: the exact address for IPv4 and
+// the /64 prefix for IPv6, so a dual-stack LAN cannot mint a fresh bucket for
+// every SLAAC address it holds.
+func sourceNetworkKey(r *http.Request) string {
+	ip := net.ParseIP(getIP(r))
+	if ip == nil {
+		return "ip:unknown"
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return "ip:" + v4.String()
+	}
+	return "ip:" + ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// quoteRefusalLog keeps the refusal log line to one per client key per window. A
+// warning per refused request is a flood amplifier on the log path, and on a
+// router `logread` is the operator's only view during exactly the incident the
+// line is supposed to describe.
+type quoteRefusalLog struct {
+	mu     sync.Mutex
+	last   map[string]time.Time
+	window time.Duration
+	count  uint64
+}
+
+func (l *quoteRefusalLog) allow(key string) (bool, uint64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.count++
+	if l.last == nil {
+		l.last = make(map[string]time.Time)
+	}
+	if l.window == 0 {
+		l.window = 30 * time.Second
+	}
+	if len(l.last) > quoteQuotaMaxKeys {
+		l.last = make(map[string]time.Time)
+	}
+	if seen, ok := l.last[key]; ok && time.Since(seen) < l.window {
+		return false, l.count
+	}
+	l.last[key] = time.Now()
+	return true, l.count
+}
+
+var quoteRefusals quoteRefusalLog
+
+// quoteCreateQuotaMiddleware applies the POST-only quota for quote creation.
+func quoteCreateQuotaMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		allowed, retryAfter := quoteQuotas.allow(r)
+		if !allowed {
+			key := clientLimiterKey(r)
+			if shouldLog, total := quoteRefusals.allow(key); shouldLog {
+				mainLogger.WithFields(logrus.Fields{
+					"client": key,
+					"total":  total,
+				}).Warn("ln-invoice quote creation refused: client over quota")
+			}
+			writeLightningRefusal(w, http.StatusTooManyRequests, codeQuoteRateLimited,
+				"This TollGate is busy right now — please retry in a few seconds.", retryAfter)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// writeLightningRefusal answers a `/ln-invoice` request with a refusal the shipped
+// portal can still parse: the `status`/`error` pair it reads, as JSON, plus the
+// additive `code` and `retry_after`.
+func writeLightningRefusal(w http.ResponseWriter, status int, code, message string, retryAfter int) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(lightningInvoiceResponse{
+		Status:     0,
+		Error:      message,
+		Code:       code,
+		RetryAfter: retryAfter,
+	})
+}
+
 // Global configuration variable
 // Define configFile at a higher scope
 var (
@@ -895,12 +1185,29 @@ func HandleLightningInvoice(w http.ResponseWriter, r *http.Request) {
 // (quote creation) and the GET (status poll) have different cost profiles and
 // must not share a middleware chain.
 func handleLNInvoiceRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// Quote creation only. The GET below is the poll loop a customer sits in
+		// front of while paying: on any cadence the pinned portal SPA uses, it
+		// must never be throttled, or the quota breaks the flow it protects.
+		quoteCreateQuotaMiddleware(HandleLightningInvoice)(w, r)
+		return
+	}
 	HandleLightningInvoice(w, r)
 }
 
 func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
+	// Bound the body before parsing it. The request is ~120 bytes; MaxBytesReader
+	// makes an oversized one a 413 instead of an allocation.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLightningInvoiceBodyBytes))
+	if err != nil {
+		mainLogger.WithError(err).Warn("Rejected oversized /ln-invoice request body")
+		writeLightningRefusal(w, http.StatusRequestEntityTooLarge, codeRequestTooLarge,
+			"Request body too large.", 0)
+		return
+	}
+
 	var req lightningInvoiceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "invalid request body"})
@@ -915,6 +1222,12 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "amount and mint_url are required"})
+		return
+	}
+	if req.Amount > maxLightningInvoiceSats {
+		mainLogger.WithField("amount", req.Amount).Warn("Rejected /ln-invoice amount above the ceiling")
+		writeLightningRefusal(w, http.StatusBadRequest, codeAmountTooLarge,
+			fmt.Sprintf("Amount too large: this TollGate accepts at most %d sats per invoice.", maxLightningInvoiceSats), 0)
 		return
 	}
 
@@ -943,9 +1256,24 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	invoice, err := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)
 	if err != nil {
 		mainLogger.WithError(err).Warn("Failed to create lightning invoice")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to create lightning invoice"})
+		switch {
+		case errors.Is(err, merchant.ErrTooManyQuotes):
+			// A local refusal with a distinct code: the mint was never
+			// contacted, so this says "we are being flooded", not "the mint is
+			// down", and the client is asked to come back rather than to retry
+			// immediately against a full table.
+			writeLightningRefusal(w, http.StatusTooManyRequests, codeQuoteTableFull,
+				"This TollGate is holding as many unpaid invoices as it can — please retry in a few minutes.", 60)
+		case errors.Is(err, merchant.ErrMintBusyLocal):
+			// Our own outbound budget toward the mint is spent. Refusing here is
+			// what keeps our traffic from being the reason the mint answers 429.
+			writeLightningRefusal(w, http.StatusTooManyRequests, codeMintBusyLocal,
+				"The mint is receiving as many requests as it accepts right now — please retry in a few seconds.", 2)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to create lightning invoice"})
+		}
 		return
 	}
 

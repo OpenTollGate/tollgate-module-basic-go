@@ -226,3 +226,93 @@ func TestLnInvoiceRejectsAmountAboveBound(t *testing.T) {
 		t.Fatalf("oversized amount reached the merchant %d time(s), want 0", fake.invoices)
 	}
 }
+
+// --- the quota's own bounds and key derivation ------------------------------
+
+// The quota keys come from an attacker-influenced space (a spoofed MAC needs a
+// re-association, but a LAN's address space is wide), so the maps must evict
+// rather than grow. 5000 distinct keys against a 4096-entry cap must leave the
+// map at its cap.
+func TestQuoteQuotaMapsAreBounded(t *testing.T) {
+	state := newQuoteQuotaState(defaultQuoteQuotaLimits())
+
+	for i := 0; i < quoteQuotaMaxKeys+1000; i++ {
+		key := fmt.Sprintf("mac:aa:bb:cc:%02x:%02x:%02x", i>>16, (i>>8)&0xff, i&0xff)
+		state.allowFrom(state.perClient, key, 1, 1)
+		state.allowFrom(state.perSource, key, 1, 1)
+	}
+
+	state.mu.Lock()
+	clients, sources := len(state.perClient), len(state.perSource)
+	state.mu.Unlock()
+
+	if clients > quoteQuotaMaxKeys {
+		t.Fatalf("per-client bucket map holds %d entries, want <= %d", clients, quoteQuotaMaxKeys)
+	}
+	if sources > quoteQuotaMaxKeys {
+		t.Fatalf("per-source bucket map holds %d entries, want <= %d", sources, quoteQuotaMaxKeys)
+	}
+}
+
+// The quota key is the socket's MAC — resolved through the same DHCP/ARP seam
+// the rest of the API uses — and never the `mac` the caller asserts, in the body
+// or in the query. An unresolvable client keys on its source address instead of
+// on an empty string or the shared sentinel.
+func TestClientLimiterKeyIsSocketDerived(t *testing.T) {
+	const (
+		socketIP  = "192.168.7.20"
+		socketMAC = "aa:bb:cc:11:22:99"
+	)
+	useQuoteQuotaFixture(t, socketIP, socketMAC)
+
+	req := httptest.NewRequest(http.MethodPost, "/ln-invoice?mac=de:ad:be:ef:00:01", nil)
+	req.RemoteAddr = socketIP + ":41234"
+
+	if got, want := clientLimiterKey(req), "mac:"+socketMAC; got != want {
+		t.Errorf("clientLimiterKey = %q, want %q (the asserted mac must not be the identity)", got, want)
+	}
+
+	// No lease, no ARP entry: fall back to the source address, never to a key
+	// every unidentified client would share.
+	unknown := httptest.NewRequest(http.MethodPost, "/ln-invoice", nil)
+	unknown.RemoteAddr = "192.168.7.21:41234"
+	if got, want := clientLimiterKey(unknown), "ip:192.168.7.21"; got != want {
+		t.Errorf("clientLimiterKey for an unresolvable client = %q, want %q", got, want)
+	}
+}
+
+// A dual-stack LAN hands out many IPv6 addresses per client, so the per-source
+// bucket must be the /64 (and IPv4 stays per-address).
+func TestSourceNetworkKeyIsPerSlash64(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+		want string
+	}{
+		{"ipv6 first", "2001:db8:1:2::1", "ip:2001:db8:1:2::/64"},
+		{"ipv6 same /64", "2001:db8:1:2::abcd", "ip:2001:db8:1:2::/64"},
+		{"ipv6 other /64", "2001:db8:1:3::1", "ip:2001:db8:1:3::/64"},
+		{"ipv4", "192.168.7.30", "ip:192.168.7.30"},
+	}
+
+	keys := make([]string, 0, len(cases))
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/ln-invoice", nil)
+		req.RemoteAddr = "[" + tc.ip + "]:41234"
+		if !strings.Contains(tc.ip, ":") {
+			req.RemoteAddr = tc.ip + ":41234"
+		}
+		got := sourceNetworkKey(req)
+		keys = append(keys, got)
+		if got != tc.want {
+			t.Errorf("%s: sourceNetworkKey(%s) = %q, want %q", tc.name, tc.ip, got, tc.want)
+		}
+	}
+
+	if keys[0] != keys[1] {
+		t.Errorf("two addresses in one /64 keyed differently: %q vs %q", keys[0], keys[1])
+	}
+	if keys[0] == keys[2] {
+		t.Errorf("two different /64s share one source bucket: %q", keys[0])
+	}
+}
