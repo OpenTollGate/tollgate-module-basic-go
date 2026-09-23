@@ -175,6 +175,9 @@ type Merchant struct {
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
 	quoteStore        *quoteStore
+	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
+	// a value so `&Merchant{}` literals keep working; its zero value is usable.
+	mintQuoteBudget mintQuoteBudget
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
