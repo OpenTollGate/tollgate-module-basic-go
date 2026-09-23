@@ -58,6 +58,21 @@ and [Semantic Versioning](https://semver.org/).
   client-supplied `mac` is still accepted on the wire (the pinned portal sends
   it) and has no effect on the outcome
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **The spendable Cashu token is no longer written to the log.** `POST /` logged
+  its whole request body at debug — and on that route the body *is* the bearer
+  instrument, so whoever read the line could spend it, with debug being the level
+  an operator enables precisely when a payment fails and needs diagnosing. The
+  token paths that create and receive one (`CreatePaymentToken`, `Fund`) logged a
+  50-character preview of the same value. All three now log the length and a
+  **salted fingerprint** (16 hex characters of HMAC-SHA256 under a per-install
+  salt at `/etc/tollgate/token-fingerprint.salt`, 0600, created on first use and
+  never overwritten; an ephemeral salt is used if the file cannot be written, with
+  the consequence logged). The fingerprint is stable for the same note, so one
+  payment can be followed through the log and matched against what the customer
+  reports, and it is useless to anyone reading the log — unlike the bare SHA-256
+  a log-reader could check a guess against. A source-level test fails if a logging
+  call is ever handed a token-carrying value again
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the

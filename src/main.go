@@ -24,6 +24,7 @@ import (
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/nbd-wtf/go-nostr"
@@ -582,9 +583,17 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Print the request body to console
-	bodyStr := string(body)
-	mainLogger.WithField("body", bodyStr).Debug("Received POST request")
+	// The body IS the bearer instrument on this route: extractCashuToken returns
+	// it verbatim unless it is a kind-21000 event, so a log line carrying it is a
+	// spendable token — and debug is the level an operator turns on precisely when
+	// a payment needs diagnosing, i.e. when the log gets copied into a bug report.
+	// Log the length and a salted fingerprint instead: enough to follow one
+	// payment through the log and match it against what the customer reports,
+	// useless to anyone reading the log.
+	mainLogger.WithFields(logrus.Fields{
+		"body_len": len(body),
+		"body_sha": utils.TokenFingerprint(string(body)),
+	}).Debug("Received POST request")
 
 	cashuToken, nostrEvent := extractCashuToken(body)
 

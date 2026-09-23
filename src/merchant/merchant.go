@@ -1308,8 +1308,11 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 		return "", fmt.Errorf("token serialization returned empty string")
 	}
 
-	log.Printf("Successfully created payment token: length=%d, token_preview=%s...",
-		len(tokenString), tokenString[:min(50, len(tokenString))])
+	// Never log the token: it is spendable by whoever reads the line. The length
+	// and the salted fingerprint are what an operator can actually use — the
+	// fingerprint to match this note against a log line or a customer report.
+	log.Printf("Successfully created payment token: length=%d, token_fingerprint=%s",
+		len(tokenString), utils.TokenFingerprint(tokenString))
 
 	return tokenString, nil
 }
@@ -1575,12 +1578,11 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 		return 0, fmt.Errorf("invalid cashu token: token too short (expected cashu token format)")
 	}
 
-	// Parse the cashu token with error recovery
-	tokenPreview := cashuToken
-	if len(cashuToken) > 50 {
-		tokenPreview = cashuToken[:50] + "..."
-	}
-	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
+	// Parse the cashu token with error recovery. The token itself is never
+	// logged (it is spendable by whoever reads the line): length plus the salted
+	// fingerprint, which is stable for the same note and useless to a reader.
+	log.Printf("Attempting to decode token (length: %d, token_fingerprint: %s)",
+		len(cashuToken), utils.TokenFingerprint(cashuToken))
 
 	parsedToken, err := tollwallet.DecodeToken(cashuToken)
 	if err != nil {
