@@ -59,6 +59,67 @@ and [Semantic Versioning](https://semver.org/).
   that already carry the entries
   ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
 
+- **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
+  all-zero address is what dnsmasq and the ARP table write for "no address at
+  all"; five routes substituted it whenever the MAC lookup failed and continued,
+  so every client the router could not identify collapsed into ONE shared
+  identity — one session record, one byte meter, one lightning quote and one open
+  gate — and a customer whose lookup failed could pay for a session belonging to
+  a device that does not exist. `POST /` (the cashu money path) and
+  `POST /ln-invoice` now refuse before any value moves, and `GET /ln-invoice`
+  refuses before it authorises a quote read, answering `400` with
+  `{"status":0,"error":"We could not identify your device on the network.
+  Reconnect to the TollGate Wi-Fi and try again.","code":"device-unresolved"}`
+  (`status`/`error` are what the shipped portal reads; `code` is additive and
+  machine-readable). `/session-state` keeps answering `none` — with an empty
+  `mac` instead of the sentinel — and `/whoami` answers an empty `mac=` instead
+  of echoing it
+  ([#548](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/548)).
+- **Identity is resolved from the socket, never from a client-asserted `mac`.**
+  `/whoami`, `GET /session-state`, `POST /`, `POST /ln-invoice` and
+  `GET /ln-invoice` took the caller's own claim — a `mac` query parameter, or the
+  `mac` field of the invoice-request body — as the identity that keys the
+  session, the byte-meter baseline, the lightning quote and the gate. Any client
+  on the LAN could therefore name another device's address (or name nothing, as
+  the shipped portal's Lightning lane does when it sends
+  `?mac=00:00:00:00:00:00`), and the value the portal cached at page load decided
+  which device a payment was applied to — so a MAC rotation between the page load
+  and the payment could take the customer's money and grant access to an address
+  their device no longer had. All five routes now resolve the address from the
+  request's source IP through the DHCP lease file and the kernel ARP table — the
+  one input the client cannot choose — and canonicalise it before use. A
+  client-supplied `mac` is still accepted on the wire (the pinned portal sends
+  it) and has no effect on the outcome
+  ([#548](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/548)).
+- **The spendable Cashu token is no longer written to the log.** `POST /` logged
+  its whole request body at debug — and on that route the body *is* the bearer
+  instrument, so whoever read the line could spend it, with debug being the level
+  an operator enables precisely when a payment fails and needs diagnosing. The
+  token paths that create and receive one (`CreatePaymentToken`, `Fund`) logged a
+  50-character preview of the same value. All three now log the length and a
+  **salted fingerprint** (16 hex characters of HMAC-SHA256 under a per-install
+  salt at `/etc/tollgate/token-fingerprint.salt`, 0600, created on first use and
+  never overwritten; an ephemeral salt is used if the file cannot be written, with
+  the consequence logged). The fingerprint is stable for the same note, so one
+  payment can be followed through the log and matched against what the customer
+  reports, and it is useless to anyone reading the log — unlike the bare SHA-256
+  a log-reader could check a guess against. A source-level test fails if a logging
+  call is ever handed a token-carrying value again
+  ([#548](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/548)).
+- **The late-`Receive` notice no longer tells the customer to spend the same
+  note twice.** When `Receive` outlived its deadline the notice said *"Payment
+  processing timed out after 30 seconds. Please try again."* — and acting on that
+  advice destroyed the customer's value: a `Receive` that completes just after
+  the deadline has already moved the proofs into the operator's wallet, so the
+  retry is refused as already-spent with no session and no refund. The notice now
+  states the truth (the outcome is **unknown**, not failed), tells the customer
+  not to resend the note, and carries a **reference** — the salted fingerprint of
+  the note (16 hex characters) — which the customer can quote and the operator
+  can find in the log next to the device, the mint and the time. The notice code
+  changes from `payment-processing-timeout` to `payment-outcome-unknown`; the
+  journal/janitor that would collect the late result and grant it is a separate
+  follow-up, and this change does not claim access arrives on its own
+  ([#548](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/548)).
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the
