@@ -400,24 +400,37 @@ assert_nodogsplash_allow_entries() {
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
-    # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) must be
-    # reachable from the captive LAN unauthenticated, exactly like LuCI on
-    # :8080. Folded in here (not installer-side) so a plain apk/opkg install
-    # yields a working admin URL.
-    if ! uci_list_has_port 8090; then
-        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090'
-    fi
-    if ! uci_list_has_port 8443; then
-        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
-    fi
+    # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) is
+    # OWNER-facing, exactly like the whitelabel configUI in
+    # setup_uhttpd_configui above: the owner reaches it over the private
+    # network (br-private, which nodogsplash does not gate). A pre-auth guest
+    # on the open public SSID must not reach an admin UI, so :8090/:8443 are
+    # deliberately NOT part of the customer journey and are kept OUT of
+    # users_to_router — this list is nodogsplash's PRE-AUTHENTICATION allow
+    # list, and :8090 serves the board's root-capable login over plain HTTP
+    # with rpcd's /ubus session endpoint behind it, so an entry here exposes
+    # that login to sniffing and brute-force from the guest network while the
+    # credentials are still in the clear.
+    #
+    # Removed rather than merely omitted: an already-deployed router carries
+    # the two entries (an earlier build wrote them, and the feed's
+    # 92-tollgate-admin-setup still re-asserts them on every install/upgrade),
+    # so leaving them out of the writer would only fix a factory-fresh router.
+    # `del_list` here is what converges the fleet, and it is why the removal is
+    # re-asserted on both setup paths instead of living in the full-setup-only
+    # section. Kept in the shared writer so the same-version path performs it
+    # too. Failures are ignored: no entry to remove is the normal case.
+    uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090' 2>/dev/null
+    uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443' 2>/dev/null
     # :443 belongs with :8080 above: with a cert/key pair in place
     # uhttpd.main sets redirect_https=1 and answers the :8080 LuCI port with
     # `307 Location: https://<router>/`, so the pre-auth client that follows
     # the redirect needs a nodogsplash rule for :443 or it dead-ends on a port
     # the gateway still REJECTs — the operator lockout
     # docs/architecture/uhttpd-redirect-https-ownership-decision.md exists to
-    # prevent; the :8443 admin-board HTTPS rule above is allowed for the same
-    # reason. tollgate-cli's
+    # prevent. (The admin board's :8443 is deliberately NOT allowed — the
+    # board is owner-facing and reached over br-private, see above.)
+    # tollgate-cli's
     # `ssl enable` path already writes this rule for the routers that enable
     # TLS from the CLI (src/cmd/tollgate-cli/ssl.go); first boot was the only
     # path without it. Whole-field matching via uci_list_has_port (see #516).
