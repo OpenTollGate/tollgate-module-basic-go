@@ -90,8 +90,13 @@ docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
 # static IPs -- an earlier attach lets Docker hand a compose IP to a zoo
 # container and the lab then fails with "Address already in use".
 if [ "${CONNECT_ZOO:-0}" = "1" ]; then
+  # Explicit high IPs: compose static assignments occupy 172.28.0.2-.13;
+  # a default-IP attach can grab one of those and wedge the client run
+  # with "Address already in use" when depends_on pulls the full chain.
+  declare -A ZOO_IP=( [zoo-cdk-0-17]=172.28.0.50 [zoo-cdk-0-18]=172.28.0.51 [zoo-cdk-a056e0f]=172.28.0.52 [zoo-ns-1853902]=172.28.0.53 [zoo-ns-a974914]=172.28.0.54 )
   for c in zoo-cdk-0-17 zoo-cdk-0-18 zoo-cdk-a056e0f zoo-ns-1853902 zoo-ns-a974914; do
-    docker network connect "$LAB_NET" "$c" 2>/dev/null || true
+    docker network disconnect "$LAB_NET" "$c" 2>/dev/null || true
+    docker network connect --ip "${ZOO_IP[$c]}" "$LAB_NET" "$c" 2>/dev/null || true
   done
 fi
 
