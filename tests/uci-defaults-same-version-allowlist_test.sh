@@ -140,6 +140,16 @@ else
     bad "could not redirect SETUP_FLAG/LOGFILE in the copied setup script"
 fi
 
+# ------------------------------------------- admin credential fixtures
+# The same driver also runs the admin-credential gate, and that reads the live
+# /etc/shadow (and would invoke `passwd root` if the hash were empty). Pin both
+# files to fixtures — a router whose credential is already set, so the gate is
+# a no-op here and this test never touches the host's account state.
+export SHADOW_FILE="$TMP/shadow"
+export PASSWD_FILE="$TMP/passwd.db"
+printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
+: > "$PASSWD_FILE"
+
 KEY="nodogsplash.@nodogsplash[0].users_to_router"
 seed() { # seed <list entry>... — one argument per entry
     : > "$UCI_STATE"
