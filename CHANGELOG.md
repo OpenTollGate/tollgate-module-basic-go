@@ -1587,6 +1587,17 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
+- **The #497 crash-window harness runs at the TollGate layer.**
+  `tests/cloud-lab/run-crash-injection.sh` kills the tollgate
+  (SIGKILL) at the exact boundary — after the mint signed the swap,
+  before the wallet processed the response, with the wallet library's
+  retry ladder defeated by a release-gated killer proxy — and requires
+  the boot-time intent resume to recover the value and the wallet to
+  stay healthy. Needs a tollgate built with the gonuts swap-intent
+  machinery; against pre-intent binaries the recovery assertion fails
+  by design.
+  ([#562](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/562))
+
 - **The parent tests README is a map of the test estate again.** It
   documented only the hardware data-measurement harness; it now points
   at every environment (cloud-lab, hardware fleet, contract, packaging,
