@@ -243,7 +243,7 @@ and [Semantic Versioning](https://semver.org/).
   (exit 99) and skipped the release for a plumbing reason instead of a real
   regression — measured on the same 2026-09-24 run and reproduced locally against
   the .apk that run built
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+  ([#554](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/554)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
