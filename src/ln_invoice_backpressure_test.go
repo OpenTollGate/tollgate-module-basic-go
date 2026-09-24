@@ -316,3 +316,71 @@ func TestSourceNetworkKeyIsPerSlash64(t *testing.T) {
 		t.Errorf("two different /64s share one source bucket: %q", keys[0])
 	}
 }
+
+// --- one derivation per refused request -------------------------------------
+
+// countClientKeyDerivations swaps a counting wrapper around the client-key
+// derivation (the clientLimiterKeyFn seam in main.go) and returns a pointer to
+// the count. The wrapper delegates to the real derivation, so the request under
+// test stays the production request — only the observation is added.
+func countClientKeyDerivations(t *testing.T) *int {
+	t.Helper()
+
+	prev := clientLimiterKeyFn
+	derivations := new(int)
+	clientLimiterKeyFn = func(r *http.Request) string {
+		*derivations++
+		return prev(r)
+	}
+	t.Cleanup(func() { clientLimiterKeyFn = prev })
+	return derivations
+}
+
+// useQuoteQuotaState points the package-global quota state at a fresh instance
+// for the duration of the test (the seam `quoteQuotas` exists for this), so the
+// global layer — 2/s, burst 5 — is not left short by the POSTs a previous test
+// in the run already spent.
+func useQuoteQuotaState(t *testing.T) *quoteQuotaState {
+	t.Helper()
+
+	prev := quoteQuotas
+	state := newQuoteQuotaState(defaultQuoteQuotaLimits())
+	quoteQuotas = state
+	t.Cleanup(func() { quoteQuotas = prev })
+	return state
+}
+
+// A refused POST must derive the client quota key exactly once. The derivation
+// reads the DHCP lease file and then the ARP table, so deriving it inside allow()
+// *and* again in the refusal-logging path makes the router do that file I/O twice
+// per refused request — during exactly the flood the quota exists to absorb.
+func TestRefusedPostDerivesTheClientKeyOnce(t *testing.T) {
+	const (
+		ip  = "192.168.7.40"
+		mac = "aa:bb:cc:11:22:40"
+	)
+	useQuoteQuotaFixture(t, ip, mac)
+	useQuoteQuotaState(t)
+
+	fake := &backpressureMerchant{}
+	useBackpressureMerchant(fake)
+
+	derivations := countClientKeyDerivations(t)
+
+	// Spend the per-client burst (three), so the next POST is a refused one.
+	for i := 1; i <= 3; i++ {
+		if w := lnInvoicePost(ip, mac, "https://mint.example"); w.Code != http.StatusOK {
+			t.Fatalf("POST %d: status = %d, want 200 (body %s)", i, w.Code, w.Body.String())
+		}
+	}
+
+	*derivations = 0
+	w := lnInvoicePost(ip, mac, "https://mint.example")
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("refused POST: status = %d, want 429 (body %s)", w.Code, w.Body.String())
+	}
+	if got := *derivations; got != 1 {
+		t.Errorf("a refused POST derived the client quota key %d times, want 1 — each derivation reads %s and then %s",
+			got, dhcpLeasePath, arpTablePath)
+	}
+}
