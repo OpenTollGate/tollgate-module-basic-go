@@ -302,6 +302,34 @@ and [Semantic Versioning](https://semver.org/).
   when a future pin stops sending the MAC or drops those strings
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
 
+- **A mint whose front answers 429 to every probe is taken out of the
+  advertisement instead of being offered to customers for ever.** A 429 from a
+  mint no longer empties the reachable set (a busy mint is up), which left the
+  mirror image open: a mint that never stops answering 429 is *reachable*, so it
+  stayed in the kind-10021 advertisement, the customer's client kept picking it
+  out of `price_per_step` and every purchase failed — the invoice must come from
+  the mint that holds the customer's ecash, so the router cannot substitute
+  another one mid-purchase — and nothing self-healed, because the aggressive
+  15-second probe mode only arms when the reachable set is empty and a throttled
+  mint keeps it non-empty. A mint throttled on every probe for a ~30-minute
+  window (6 consecutive probes at the 5-minute cadence,
+  `TOLLGATE_PERSISTENT_THROTTLE_PROBES`) is now *persistently throttled*: it is
+  dropped from the advertisement and skipped by the payout routine while staying
+  in the reachable set, in the wallet and in the registered mints, and its
+  throttled probes are still never counted as failures. The first successful
+  probe re-admits it with no recovery threshold, and the advertisement is never
+  emptied — if dropping the throttled mints would leave nothing to advertise,
+  the reachable set is kept as it is, because a customer with no alternative is
+  better served by a busy mint than by an empty advertisement. A 429's
+  `Retry-After` is now honoured on the probe path (both the delta-seconds and the
+  HTTP-date form, clamped to `TOLLGATE_RETRY_AFTER_CAP_SECONDS`, 30 minutes by
+  default, so an untrusted value cannot silence a mint for ever) — but it is not
+  carried into the customer-facing refusal: the mint's 429 reaches the router as
+  a string-matched wallet error with no header attached to it, so a real
+  `retry_after` there would have to come from the wallet fork's error type or be
+  invented
+  ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
+
 ### Changed / Internal
 
 - **The packaged nftables ruleset set is asserted, not assumed, and `FILES_`

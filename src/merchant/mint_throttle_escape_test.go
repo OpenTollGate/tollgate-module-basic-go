@@ -134,12 +134,12 @@ func TestRetryAfterParsing(t *testing.T) {
 		{"zero", "0", 0},
 		{"negative", "-30", 0},
 		{"already past", now.Add(-time.Minute).Format(http.TimeFormat), 0},
-		{"absurd value is capped", "86400", retryAfterCap},
+		{"absurd value is capped", "86400", defaultRetryAfterCap},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := parseRetryAfter(tt.value, now); got != tt.want {
+			if got := parseRetryAfter(tt.value, now, defaultRetryAfterCap); got != tt.want {
 				t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
@@ -215,23 +215,26 @@ func TestRetryAfterIsCapped(t *testing.T) {
 
 	now := base
 	tracker := newClockTracker(t, mintConfigWithURLs(srv), &now)
+	if tracker.retryAfterCap != defaultRetryAfterCap {
+		t.Fatalf("precondition: an override left the cap at %v, want the default %v", tracker.retryAfterCap, defaultRetryAfterCap)
+	}
 
 	tracker.RunProactiveCheck()
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Fatalf("precondition: the first check must probe once, got %d", got)
 	}
 
-	now = base.Add(retryAfterCap - time.Minute)
+	now = base.Add(tracker.retryAfterCap - time.Minute)
 	tracker.RunProactiveCheck()
 	if got := atomic.LoadInt32(&hits); got != 1 {
-		t.Fatalf("Retry-After: 86400 was not honoured inside the %v cap", retryAfterCap)
+		t.Fatalf("Retry-After: 86400 was not honoured inside the %v cap", tracker.retryAfterCap)
 	}
 
-	now = base.Add(retryAfterCap + time.Minute)
+	now = base.Add(tracker.retryAfterCap + time.Minute)
 	tracker.RunProactiveCheck()
 	if got := atomic.LoadInt32(&hits); got != 2 {
 		t.Fatalf("Retry-After: 86400 silenced the mint past the %v cap: the mint would never be re-probed and the throttled state could never clear",
-			retryAfterCap)
+			tracker.retryAfterCap)
 	}
 }
 

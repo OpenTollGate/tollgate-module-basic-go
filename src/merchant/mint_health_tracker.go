@@ -3,6 +3,7 @@ package merchant
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -43,19 +44,23 @@ const (
 	// customer" is well past the point where an on-router reseller should keep
 	// offering it, and (c) it is short enough that a mint that comes back is
 	// re-admitted the moment it answers, so the cost of being wrong is bounded by
-	// the next probe. The streak resets on any OK probe, so it *is* the
-	// no-success window.
+	// next probe. The streak resets on any OK probe, so it *is* the
+	// no-success window. Overridable per router with
+	// TOLLGATE_PERSISTENT_THROTTLE_PROBES (this file's knobs are per-instance
+	// fields so tests can shorten them; the environment is read once, in the
+	// constructor).
 	defaultPersistentThrottleProbes uint8 = 6
 
-	// retryAfterCap bounds how long a mint's own Retry-After may hold our probes
-	// off. The header is untrusted input: a front answering "Retry-After: 86400"
-	// must not be able to stop us re-probing the mint for ever, or the
-	// persistently-throttled state it reports could never clear. The cap is a
-	// multiple of the proactive cadence (6 x 5 minutes) rather than a fraction of
-	// it, so an honest Retry-After is honoured in full at the default cadence
-	// while a bogus one still lets us re-learn the mint's state within half an
-	// hour.
-	retryAfterCap = 30 * time.Minute
+	// retryAfterCap is the default ceiling on how long a mint's own Retry-After
+	// may hold our probes off. The header is untrusted input: a front answering
+	// "Retry-After: 86400" must not be able to stop us re-probing the mint for
+	// ever, or the persistently-throttled state it reports could never clear. The
+	// cap is a multiple of the proactive cadence (6 x 5 minutes) rather than a
+	// fraction of it, so an honest Retry-After is honoured in full at the default
+	// cadence while a bogus one still lets us re-learn the mint's state within
+	// half an hour. Overridable per router with
+	// TOLLGATE_RETRY_AFTER_CAP_SECONDS.
+	defaultRetryAfterCap = 30 * time.Minute
 
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
 	// not yet connected) OR after a runtime downgrade to degraded mode, probe
@@ -109,12 +114,35 @@ type MintHealthTracker struct {
 	persistentlyThrottled    map[string]bool
 	persistentThrottleProbes uint8
 
+	// retryAfterCap is how long a mint's own Retry-After may hold our probes off
+	// (see defaultRetryAfterCap). A field rather than a constant read at the call
+	// site so a router can tune it and a test can shorten it — the same shape the
+	// aggressive-retry timings use.
+	retryAfterCap time.Duration
+
+	// nextProbeAfter holds the not-before time a mint's own Retry-After asked
+	// for, so a 429 that says "come back in ten minutes" is not answered with a
+	// probe every five. It is keyed by the configured mint URL, so it is bounded
+	// by the config.
+	nextProbeAfter map[string]time.Time
+
 	// clock is the tracker's notion of now. Production leaves it at time.Now; a
 	// test replaces it so a Retry-After window is driven without sleeping.
 	clock func() time.Time
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
+	// The two escape-hatch values are overridable per router (see the constants
+	// above). A nonsensical override degrades to the documented default rather
+	// than wrapping: envIntOr already refuses a non-positive one, and a probe
+	// count above the counter's range would otherwise cast to something small and
+	// demote a mint almost immediately.
+	probes := envIntOr("TOLLGATE_PERSISTENT_THROTTLE_PROBES", int(defaultPersistentThrottleProbes))
+	if probes > math.MaxUint8 {
+		probes = int(defaultPersistentThrottleProbes)
+	}
+	capSeconds := envIntOr("TOLLGATE_RETRY_AFTER_CAP_SECONDS", int(defaultRetryAfterCap/time.Second))
+
 	return &MintHealthTracker{
 		reachableMints:       make(map[string]bool),
 		consecutiveSuccesses: make(map[string]uint8),
@@ -130,7 +158,9 @@ func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker 
 		throttleStreakStart:      make(map[string]time.Time),
 		lastSuccess:              make(map[string]time.Time),
 		persistentlyThrottled:    make(map[string]bool),
-		persistentThrottleProbes: defaultPersistentThrottleProbes,
+		persistentThrottleProbes: uint8(probes),
+		nextProbeAfter:           make(map[string]time.Time),
+		retryAfterCap:            time.Duration(capSeconds) * time.Second,
 
 		clock: time.Now,
 
@@ -288,11 +318,9 @@ func (t *MintHealthTracker) GetAllConfiguredMintConfigs() []config_manager.MintC
 // of the advertisement and off the payout path, both of which are decided where
 // the customer's client picks a mint and where value leaves the wallet.
 func (t *MintHealthTracker) IsPersistentlyThrottled(mintURL string) bool {
-	// Scaffold: the state the escape-hatch tests drive exists and is wired
-	// through the production probe path; the decision it feeds lands with the
-	// fix. Deliberately inert so the tests fail (RED) against production wiring
-	// rather than a test-only copy of it.
-	return false
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.persistentlyThrottled[mintURL]
 }
 
 // GetAdvertisedMintConfigs returns the mints a customer may pay with: the
@@ -308,19 +336,41 @@ func (t *MintHealthTracker) IsPersistentlyThrottled(mintURL string) bool {
 // mid-purchase anyway, because the invoice must come from the mint that holds
 // the customer's ecash.
 func (t *MintHealthTracker) GetAdvertisedMintConfigs() []config_manager.MintConfig {
-	// Scaffold: the advertisement still offers every reachable mint.
-	return t.GetReachableMintConfigs()
+	config := t.configProvider.GetConfig()
+	if config == nil {
+		return nil
+	}
+
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	reachable := make([]config_manager.MintConfig, 0, len(config.AcceptedMints))
+	advertised := make([]config_manager.MintConfig, 0, len(config.AcceptedMints))
+	for _, mint := range config.AcceptedMints {
+		if !t.reachableMints[mint.URL] {
+			continue
+		}
+		reachable = append(reachable, mint)
+		if !t.persistentlyThrottled[mint.URL] {
+			advertised = append(advertised, mint)
+		}
+	}
+
+	if len(advertised) == 0 {
+		return reachable
+	}
+	return advertised
 }
 
 // probeDue reports whether a mint may be probed now, given the wait it asked for
 // with the last Retry-After it sent. A skipped probe learns nothing: the caller
 // must leave every counter for that mint untouched.
 func (t *MintHealthTracker) probeDue(mintURL string, now time.Time) bool {
-	// Scaffold: the wait a 429 asks for is not honoured yet — every cadence
-	// probes.
-	_ = mintURL
-	_ = now
-	return true
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	notBefore, ok := t.nextProbeAfter[mintURL]
+	return !ok || !now.Before(notBefore)
 }
 
 func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
@@ -644,25 +694,79 @@ func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) b
 // The returned flags are for logging only — the advertisement is computed from
 // this state on every read, so nothing has to be republished for a demotion to
 // take effect.
+//
+// The three outcomes are deliberately asymmetric. A throttled probe advances the
+// streak (the mint answered, but it served nobody); an OK probe clears the whole
+// throttle history and re-admits immediately, with no recovery threshold; a
+// failure is neither, so it leaves the streak alone rather than resetting it —
+// a front that alternates 429 with a refusal has still served nobody, and
+// letting a failure reset the streak would be a way to evade the escape hatch
+// for ever. A failure has its own, stronger handling: it leaves the reachable
+// set entirely after defaultFailureThreshold probes.
 func (t *MintHealthTracker) applyThrottleAnswerLocked(mintURL string, outcome probeOutcome, wait time.Duration, now time.Time) (demoted, readmitted bool) {
-	// Scaffold: the state the escape-hatch tests drive exists and is wired
-	// through the production probe path; the decision it feeds lands with the
-	// fix.
-	_ = mintURL
-	_ = outcome
-	_ = wait
-	_ = now
-	return false, false
+	if wait > 0 {
+		t.nextProbeAfter[mintURL] = now.Add(wait)
+	} else {
+		delete(t.nextProbeAfter, mintURL)
+	}
+
+	switch outcome {
+	case probeThrottled:
+		// Saturating at 255: the counter is a uint8 to mirror the reachability
+		// counters, and a wrap would make a streak that is hours old look like a
+		// fresh one.
+		if t.consecutiveThrottles[mintURL] < math.MaxUint8 {
+			t.consecutiveThrottles[mintURL]++
+		}
+		if t.throttleStreakStart[mintURL].IsZero() {
+			t.throttleStreakStart[mintURL] = now
+		}
+
+		if t.persistentlyThrottled[mintURL] || t.persistentThrottleProbes == 0 {
+			return false, false
+		}
+		if t.consecutiveThrottles[mintURL] < t.persistentThrottleProbes {
+			return false, false
+		}
+		if !t.noSuccessSince(mintURL, t.throttleStreakStart[mintURL]) {
+			return false, false
+		}
+		t.persistentlyThrottled[mintURL] = true
+		return true, false
+
+	case probeOK:
+		t.consecutiveThrottles[mintURL] = 0
+		t.throttleStreakStart[mintURL] = time.Time{}
+		t.lastSuccess[mintURL] = now
+		if t.persistentlyThrottled[mintURL] {
+			t.persistentlyThrottled[mintURL] = false
+			return false, true
+		}
+		return false, false
+
+	default: // probeFailed
+		return false, false
+	}
+}
+
+// noSuccessSince reports whether the mint has served no successful probe since
+// the given instant. The throttle streak is reset by every OK probe, so this
+// holds by construction while a streak runs; it is checked explicitly so a
+// future caller that records a success without resetting the streak cannot
+// demote a mint that has just served us.
+func (t *MintHealthTracker) noSuccessSince(mintURL string, since time.Time) bool {
+	last := t.lastSuccess[mintURL]
+	return last.IsZero() || last.Before(since)
 }
 
 // parseRetryAfter interprets a Retry-After header in either form RFC 7231
 // allows: delta-seconds ("120") or an HTTP-date ("Wed, 21 Oct 2015 07:28:00
 // GMT"), relative to now. A malformed, zero, negative or already-past value
 // means "no wait" — never a negative one, and never an unbounded one: the result
-// is clamped to retryAfterCap, because the header is untrusted input and a front
+// is clamped to the cap, because the header is untrusted input and a front
 // answering "Retry-After: 86400" must not be able to silence a mint's probes for
 // ever (the persistently-throttled state could then never clear).
-func parseRetryAfter(value string, now time.Time) time.Duration {
+func parseRetryAfter(value string, now time.Time, cap time.Duration) time.Duration {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0
@@ -683,8 +787,8 @@ func parseRetryAfter(value string, now time.Time) time.Duration {
 		return 0
 	}
 
-	if wait > retryAfterCap {
-		wait = retryAfterCap
+	if wait > cap {
+		wait = cap
 	}
 	return wait
 }
@@ -725,7 +829,7 @@ func (t *MintHealthTracker) probeMintOutcome(mintURL string, client *http.Client
 		// Retry-After is how the mint says how long it expects to be busy; it
 		// is honoured on the probe path (see probeDue), clamped by
 		// retryAfterCap so an untrusted value cannot silence the mint for ever.
-		wait := parseRetryAfter(resp.Header.Get("Retry-After"), t.now())
+		wait := parseRetryAfter(resp.Header.Get("Retry-After"), t.now(), t.retryAfterCap)
 		log.Printf("mint probe: url=%s status=%d elapsed=%s outcome=throttled retry_after=%s (the mint is up and rate-limiting; not an outage)", url, resp.StatusCode, elapsed, wait)
 		return probeThrottled, wait
 	}
