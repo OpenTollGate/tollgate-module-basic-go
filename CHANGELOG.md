@@ -36,7 +36,7 @@ and [Semantic Versioning](https://semver.org/).
   scan path now parses the config-file form (`config wifi-device 'radio0'` /
   `option band '2g'`) and inverts the map into the orientation the scanner looks
   up by
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+  ([#561](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/561)).
 - **A band is never bound to a radio whose frequency is unknown.** `radioForBand`
   fell back to the legacy section name (`radio1` = 5 GHz) whenever just ONE band
   was missing from the map, so on swapped hardware a band could be bound to an
@@ -46,7 +46,7 @@ and [Semantic Versioning](https://semver.org/).
   `0` — the driver's numeric spelling of `auto` — also no longer counts as
   2.4 GHz evidence; note the first-boot script's `radio_band` still reads a
   literal `0` as 2.4 GHz (packaging lane, deliberately unchanged here)
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+  ([#561](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/561)).
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**
   The portal echoes the mint URL from the advertisement's `price_per_step` tag,
