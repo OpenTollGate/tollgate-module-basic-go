@@ -60,7 +60,9 @@ def resolve(expr, host, search=""):
         if token == "location.hostname":
             out += host
         elif token == "location.port":
-            out += ""
+            return "", ("expression uses location.port, which this resolver does "
+                        "not model (an unmodelled token must fail loudly, not "
+                        "resolve to the default port)")
         elif token == "location.pathname":
             return "", "expression uses location.pathname, which this resolver does not model"
         elif token == "location.search.replace('?', '&')" or \

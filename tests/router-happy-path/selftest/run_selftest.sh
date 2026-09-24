@@ -11,7 +11,25 @@
 #
 # WHY THIS EXISTS: a check that has never been seen failing is decoration, not
 # evidence. A hardware-only suite rots precisely because nobody can see it go red
-# on demand. Every check id in run.sh that can go red has a scenario here.
+# on demand.
+#
+# COVERAGE, MEASURED (not asserted). A live run can emit 74 distinct check ids and
+# these cases drive 49 of them red at least once. The ones that DO NOT go red here
+# are the ones this rig cannot break -- named, so nobody has to guess:
+#   * paid:* (6)          the paid lane is opt-in behind RHP_CASHU_TOKEN; no case
+#                         redeems, spends, or touches ecash
+#   * ssh:* (4)           needs a real router; opt-in behind RHP_SSH
+#   * net:tcp-<port> (7)  a stub that stops listening is not a state one rig run
+#                         can hold; the port sweep is GREEN in every case
+#   * net:icmp-not-a-liveness-test  the source guard: it can only go red if
+#                         somebody reintroduces `ping`, which is the edit it forbids
+#   * api:whoami-shape, api:identity-shape (SKIPs on 404), artifact:package,
+#     captive:spa-noscript-fallback, identity:admin:refs-in-package,
+#     ln:no-quote-not-granted, surface:<luci>-luci-307
+#                         shape assertions whose red path is a variant the stub
+#                         does not produce yet -- a known, listed gap, not a claim
+# Re-derive the list with `--keep`: every per-case transcript is left on disk, and
+# the ids that never appear as FAIL across them are the uncovered set.
 #
 # Prints one line per case:
 #   SELFTEST <case> OK|BAD <expectation>
@@ -141,6 +159,7 @@ harness_run() {  # harness_run <outfile> [harness args...]
         RHP_ADMIN_PORT="$ADMIN_PORT" RHP_LUCI_PORT="$LUCI_PORT" RHP_CAPTIVE_PORT="$CAPTIVE_PORT" \
         RHP_SSH_PORT="$SSH_PORT" RHP_TLS_PORT="$TLS_PORT" \
         RHP_429_PACE="${RHP_429_PACE:-1}" \
+        RHP_API_HELPER="${RHP_API_HELPER:-}" \
         bash run.sh \
         --artifact-dir "$ART" --router-ip 127.0.0.1 --out "$WORK/evidence" "$@" ) \
         >"$out" 2>"$WORK/err"
@@ -255,6 +274,19 @@ mut_case http-429-always      FAIL api:root-kind10021 '{"api_429_always": true, 
 # the optional content-hash pin must be falsifiable too (no mutation needed)
 mut_case pin-mismatch         FAIL identity:expected-entry                 '{}' \
     --expect-entry index-deadbeef.js:999:0000000000000000000000000000000000000000000000000000000000000000
+
+# 8. the fold() reconciliation (run.sh). A helper that DIES, or that exits 0
+#    having emitted nothing, used to remove its own checks from the tally without
+#    a single FAIL -- a green run that never ran the phase. Both halves are
+#    exercised through the RHP_API_HELPER seam: the run must go red and name the
+#    phase in `helper:<label>`.
+RHP_API_HELPER=/bin/false
+export RHP_API_HELPER
+mut_case helper-dies          FAIL helper:api                               '{}'
+RHP_API_HELPER=/bin/true
+export RHP_API_HELPER
+mut_case helper-silent        FAIL helper:api                               '{}'
+unset RHP_API_HELPER
 
 printf '\nSELFTESTRESULT total=%d ok=%d bad=%d\n' "$TOTAL" "$OK" "$BAD"
 if [ "$BAD" -gt 0 ]; then

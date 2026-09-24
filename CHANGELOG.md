@@ -47,11 +47,30 @@ and [Semantic Versioning](https://semver.org/).
   full paid purchase is supported but gated behind an operator-supplied
   `RHP_CASHU_TOKEN` plus an explicit `RHP_SPEND_MAX_SATS` ceiling; the default
   run spends nothing. `selftest/run_selftest.sh` drives the whole harness against
-  a localhost stub with no hardware at all and proves that **each** check id
-  actually goes red when its surface breaks (a check that has never been seen
-  failing is decoration), and it runs in CI.
+  a localhost stub with no hardware at all and proves the check ids this rig can
+  break actually go red when their surface breaks (a check that has never been
+  seen failing is decoration), names in its header the ids it cannot break
+  offline, and runs in CI.
 
 ### Fixed
+
+- **The happy-path harness can no longer go green having never run a phase.**
+  `fold()` read each helper's output from a process substitution, which discards
+  the helper's exit status: a helper that died partway (bad interpreter, import
+  error, OOM) simply removed every check it never reached from the tally, and a
+  run whose surface checks passed could still print `RHPEXIT 0` with those
+  phases absent. Helpers now write to a file (preserving `$?`) and each phase is
+  reconciled afterwards — a helper that exits non-zero, or that exits 0 having
+  emitted nothing at all, is itself a FAIL (`helper:<phase>`). Two self-test
+  cases (`helper-dies`, `helper-silent`) drive both halves through the
+  `RHP_API_HELPER` seam. Also from the same review: `paid:spends-nothing-by-default`
+  was a hard-coded PASS that also printed on opt-in runs that DID send a token
+  (now PASS only without a token, SKIP with one); the anti-`ping` source guard
+  audited only `run.sh` (now `run.sh` + `lib/` + `selftest/`); `stub_chain.py`
+  resolved an unmodelled `location.port` to the default port instead of failing
+  loudly; and the self-test's own coverage claim is now measured rather than
+  asserted (31 cases, 49 of 74 live check ids driven red, the 25 that cannot be
+  are listed in the header and the README).
 
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**

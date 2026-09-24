@@ -111,8 +111,10 @@ jobs:
     # tests/router-happy-path/run.sh talks to REAL hardware (an MT3000 on the
     # bench) and cannot run here. What can run here is its self-test: a localhost
     # stub answers every surface the harness asserts, the harness is run clean
-    # (must be GREEN) and once per mutation (the matching check id must go RED
-    # and the run must exit non-zero).
+    # (must be GREEN) and once per mutation (the intended check id must go RED
+    # and the run must exit non-zero). Two of the cases target the harness's own
+    # tally reconciliation: a helper that dies, or that exits 0 having emitted
+    # nothing, must be a FAIL rather than a shorter green tally.
     #
     # This job is what keeps the hardware harness honest between bench sessions:
     # a check that has never been seen failing is decoration, not evidence, and a

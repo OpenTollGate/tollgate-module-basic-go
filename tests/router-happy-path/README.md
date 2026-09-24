@@ -135,11 +135,14 @@ that answers every surface the harness asserts, from a throwaway fixture package
 It then runs the harness clean — must be GREEN — and once per mutation, e.g. a
 flipped asset byte, a stub that stops redirecting, a captive port that stops
 enforcing, a degraded advertisement, a sentinel MAC, an accepted empty token, an
-`/ln-invoice` that answers 200 — and asserts that exactly the intended check id
-goes RED and the process exits 1.
+`/ln-invoice` that answers 200 — and asserts that the intended check id
+goes RED and the process exits 1. Two of the cases target the harness's own
+tally: a helper that dies, and a helper that exits 0 having emitted nothing, must
+each go red as `helper:<phase>` instead of quietly removing a whole phase's
+checks from the count.
 
 ```
-SELFTESTRESULT total=25 ok=25 bad=0
+SELFTESTRESULT total=31 ok=31 bad=0
 SELFTESTEXIT 0
 ```
 
@@ -147,6 +150,20 @@ It needs python3 (+ openssl for the TLS hop) and no network. It runs in CI. The
 rule it enforces: *a check that has never been seen failing is decoration, not
 evidence* — and a hardware-only suite rots precisely because nobody can see it go
 red on demand.
+
+Coverage is **measured, not claimed**. A live run can emit 74 distinct check ids;
+the 31 cases drive 49 of them red at least once. The 25 that never go red offline
+are exactly the ones this rig cannot break, and they are named here so nobody has
+to guess: the opt-in paid lane (`paid:*`, needs `RHP_CASHU_TOKEN`), the on-box lane
+(`ssh:*`, needs a router key), the per-port liveness ids (`net:tcp-*` — a stub that
+stops listening is not a state a single rig run can hold), the
+`net:icmp-not-a-liveness-test` source guard itself (it can only go red if someone
+reintroduces `ping`, which is the edit it forbids), and seven shape ids not yet
+mutated (`api:whoami-shape`, `api:identity-shape` — SKIP on 404,
+`artifact:package`, `captive:spa-noscript-fallback`,
+`identity:admin:refs-in-package`, `ln:no-quote-not-granted`,
+`surface:<luci>-luci-307`). `selftest/run_selftest.sh --keep` leaves every
+per-case transcript behind, so the list can be re-derived rather than trusted.
 
 ## Evidence: first runs on the bench (MT3000 @ 192.168.1.1, OpenWrt 25.12)
 

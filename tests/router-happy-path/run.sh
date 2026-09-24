@@ -37,9 +37,10 @@
 #     POST share that budget, so back-to-back runs collect a 429. A 429 here is a
 #     THROTTLE, not a regression: the harness honours Retry-After, retries, and
 #     then paces itself, rather than painting ten red lines from one limit.
-#   * Router SSH is password/key gated and the operator adds the key by hand (or
-#     types the password). All SSH checks are opt-in via RHP_SSH=1 and SKIP
-#     otherwise -- never silently "pass".
+#   * Router SSH is credential gated, and this harness has NO interactive password
+#     path: every on-box command runs with `-o BatchMode=yes`, so the operator must
+#     add a key to the router by hand first. All SSH checks are opt-in via
+#     RHP_SSH=1 and SKIP otherwise -- never silently "pass".
 #
 # Every check prints one line:
 #
@@ -162,16 +163,40 @@ chk() {  # chk <id> <PASS|FAIL|SKIP> <detail>
 
 note() { printf 'RHPNOTE %s\n' "$*"; }
 
-# fold a python helper's RHPCHECK/RHPNOTE lines into this run's counters
-fold() {  # fold <cmd...>
+# fold a python helper's RHPCHECK/RHPNOTE lines into this run's counters.
+#
+# A helper's EXIT STATUS is not optional information. Process substitution hides
+# it, so a helper that dies partway (bad interpreter, import error, OOM, a
+# traceback into a closed stdout) used to take every check it never reached out
+# of the tally WITHOUT a single FAIL -- a green run that never ran the phase, in
+# a harness whose whole purpose is to make a green run mean something. So the
+# helper writes to a file (which preserves $?) and each phase is reconciled
+# afterwards: a helper that exits non-zero, or that exits 0 having emitted nothing
+# at all, is a FAIL id of its own.
+#
+# Self-test seam: RHP_API_HELPER replaces the python helper so a case can prove
+# this reconciliation fails loudly when a helper dies (selftest: helper-dies,
+# helper-silent).
+API_HELPER=(python3 "$SELF_DIR/lib/api_check.py")
+[ -n "${RHP_API_HELPER:-}" ] && API_HELPER=("$RHP_API_HELPER")
+
+fold() {  # fold <label> <cmd...>
+    local label="$1"; shift
+    local out="$WORK/fold.$label.out" rc=0 n=0 line=""
+    "$@" > "$out" 2>&1 || rc=$?
     while IFS= read -r line; do
         case "$line" in
-            RHPCHECK\ *) chk $(printf '%s' "${line#RHPCHECK }") ;;
+            RHPCHECK\ *) chk $(printf '%s' "${line#RHPCHECK }"); n=$((n + 1)) ;;
             RHPNOTE\ *)  note "${line#RHPNOTE }" ;;
             '') ;;
             *) printf '%s\n' "$line" ;;
         esac
-    done < <("$@" 2>&1)
+    done < "$out"
+    if [ "$rc" != "0" ]; then
+        chk "helper:$label" FAIL "the $label helper exited $rc: the checks it never reached would otherwise vanish from the tally with no FAIL at all"
+    elif [ "$n" = "0" ]; then
+        chk "helper:$label" FAIL "the $label helper exited 0 but emitted no check and no note: this phase verified nothing"
+    fi
     return 0
 }
 
@@ -245,14 +270,19 @@ for port in "$SSH_PORT" "$STUB_PORT" "$PORTAL_PORT" "$API_PORT" "$LUCI_PORT" "$A
 done
 # Guard against a future edit reintroducing ping as a liveness test. The regex
 # only fires on a ping COMMAND (start of line / after a shell separator, followed
-# by a -flag), so the prose in this file's own comments does not trip it.
-if grep -nE '(^|[;&|(])[[:space:]]*(/[a-z/]*/)?ping[[:space:]]+-' "$SELF_DIR/run.sh" >/dev/null 2>&1; then
-    chk "net:icmp-not-a-liveness-test" FAIL "run.sh invokes ping: this firewall DROPS ICMP, so that can never be a liveness test here"
+# by a -flag), so the prose in these files' own comments and READMEs cannot trip
+# it -- and the sweep now covers every source that could run a probe (run.sh,
+# lib/, selftest/), not just this file. A guard that only audits the file it
+# lives in is not a guard.
+if grep -nE '(^|[;&|(])[[:space:]]*(/[a-z/]*/)?ping[[:space:]]+-' \
+        "$SELF_DIR/run.sh" "$SELF_DIR"/lib/*.sh "$SELF_DIR"/lib/*.py \
+        "$SELF_DIR"/selftest/*.sh "$SELF_DIR"/selftest/*.py >/dev/null 2>&1; then
+    chk "net:icmp-not-a-liveness-test" FAIL "a harness source (run.sh, lib/ or selftest/) invokes ping: this firewall DROPS ICMP, so that can never be a liveness test here"
 else
-    chk "net:icmp-not-a-liveness-test" PASS "no ping invocation in the harness source; every liveness decision above is a TCP connect"
+    chk "net:icmp-not-a-liveness-test" PASS "no ping invocation anywhere in run.sh, lib/ or selftest/; every liveness decision above is a TCP connect"
 fi
 
-fold python3 "$SELF_DIR/lib/api_check.py" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only pre
+fold pre "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only pre
 IDLE_OK=1
 grep -q '^pre:idle FAIL' "$TALLY" && IDLE_OK=0
 [ "$IDLE_OK" = "1" ] || note "preflight says the box is NOT idle: results below are not attributable to this run and the paid lane will refuse to spend"
@@ -287,12 +317,12 @@ else
 fi
 if [ -n "$ARTIFACT" ]; then
     if [ -n "$EXPECT_ENTRY" ]; then
-        fold python3 "$SELF_DIR/lib/identity_check.py" \
+        fold identity python3 "$SELF_DIR/lib/identity_check.py" \
             --router-ip "$ROUTER_IP" --artifact-dir "$ARTIFACT" \
             --portal-port "$PORTAL_PORT" --admin-port "$ADMIN_PORT" \
             --expect-entry "$EXPECT_ENTRY" --out "$EVIDENCE"
     else
-        fold python3 "$SELF_DIR/lib/identity_check.py" \
+        fold identity python3 "$SELF_DIR/lib/identity_check.py" \
             --router-ip "$ROUTER_IP" --artifact-dir "$ARTIFACT" \
             --portal-port "$PORTAL_PORT" --admin-port "$ADMIN_PORT" \
             --out "$EVIDENCE"
@@ -458,21 +488,25 @@ fi
 # 4/5. API shapes and the Lightning quote contract
 # --------------------------------------------------------------------------
 printf '\n===== 4. API shapes =====\n'
-fold python3 "$SELF_DIR/lib/api_check.py" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only api \
+fold api "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only api \
     $([ "$STRICT" = "1" ] && printf '%s' --strict)
 printf '\n===== 5. Lightning quote path =====\n'
-fold python3 "$SELF_DIR/lib/api_check.py" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only ln
+fold ln "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only ln
 
 printf '\n===== 6. money path (default: nothing of value is sent) =====\n'
 MONEY_ARGS=""
 [ "$SKIP_MONEY_PATH" = "1" ] && MONEY_ARGS="--skip-money-path"
-fold python3 "$SELF_DIR/lib/api_check.py" --router-ip "$ROUTER_IP" --api-port "$API_PORT" \
+fold money "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" \
     --only money $MONEY_ARGS
 if [ -z "${RHP_CASHU_TOKEN:-}" ]; then
     note "paid lane: RHP_CASHU_TOKEN not set -> no token is sent and no ecash is touched (by design)"
 fi
-fold python3 "$SELF_DIR/lib/api_check.py" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only paid
-chk "paid:spends-nothing-by-default" PASS "the default run sent no token; only an empty-body POST touched the payment lane"
+fold paid "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only paid
+if [ -z "${RHP_CASHU_TOKEN:-}" ]; then
+    chk "paid:spends-nothing-by-default" PASS "the default run sent no token; only an empty-body POST touched the payment lane"
+else
+    chk "paid:spends-nothing-by-default" SKIP "RHP_CASHU_TOKEN WAS supplied, so this run DID touch the payment lane: read the paid:* lines above, do not read this line as 'nothing was spent'"
+fi
 
 # --------------------------------------------------------------------------
 # 7. On-box checks -- OPT-IN (router SSH is credential gated)

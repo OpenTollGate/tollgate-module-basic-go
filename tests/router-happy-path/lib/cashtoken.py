@@ -69,6 +69,13 @@ def inspect(token):
             out["total_sats"] = total
         out["parseable"] = True
         out["proof_count"] = len(proofs)
+        # The units caveat the v4 branch states explicitly applies here too: a
+        # proof's `amount` is the MINT's unit amount (2^n splits, and a mint may
+        # denominate in msat), not a verified sat figure. total_sats is therefore
+        # the token's self-declared total, good enough to compare against
+        # RHP_SPEND_MAX_SATS as a sanity gate, NOT a settlement-grade amount.
+        out["note"] = ("v3/JSON: amount summed from the token's own proofs -- the mint's "
+                       "unit amounts, not independently verified sats")
         return out
 
     if version == "B":  # v4: base64url(CBOR)
