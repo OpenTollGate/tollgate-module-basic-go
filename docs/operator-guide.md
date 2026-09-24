@@ -271,9 +271,10 @@ spendable:
 - **live** — printed with mint, amount, and the full token string;
   secure or redeem it like any drain output.
 - **spent** — already redeemed; nothing to do.
-- **unknown** — the mint could not be reached; the command exits
+- **unknown** — the mint could not give a definitive answer (unreachable,
+  an unusable response, or a redemption in flight); the command exits
   non-zero so a partial answer is never mistaken for a clean sweep.
-  Re-run when connectivity returns.
+  Re-run later.
 
 The command is read-only: it never moves funds and never modifies the
 wallet or the journal. Treat the printed token strings as cash.

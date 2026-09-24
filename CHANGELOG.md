@@ -27,8 +27,8 @@ and [Semantic Versioning](https://semver.org/).
 - **`tollgate wallet recover`.** Checks every token in the drain journal
   against its mint via NUT-07 proof state and reports which drained
   tokens are still spendable (with full token strings), which are
-  already spent, and which could not be determined (mint unreachable —
-  exits non-zero). Read-only: the recovery path for tokens produced by
+  already spent, and which could not be determined (mint unreachable,
+  unusable response, or a redemption in flight — exits non-zero). Read-only: the recovery path for tokens produced by
   a drain whose response was lost to a crash or partial failure.
   Protocol boundaries are annotated with verbatim NUT spec quotes
   checked by the greatspectations CI job.

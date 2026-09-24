@@ -69,8 +69,15 @@ func CheckTokenSpendable(tokenStr string) (bool, error) {
 		return false, fmt.Errorf("check proof state at mint %s: %w", token.Mint(), err)
 	}
 
+	if len(response.States) != len(ys) {
+		return false, fmt.Errorf("mint %s answered for %d of %d proofs", token.Mint(), len(response.States), len(ys))
+	}
+
 	spendable := true
 	for _, proofState := range response.States {
+		if proofState.State == nut07.Pending {
+			return false, fmt.Errorf("proof state PENDING at mint %s — redemption in flight, re-check later", token.Mint())
+		}
 		if proofState.State != nut07.Unspent {
 			spendable = false
 		}
