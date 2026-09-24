@@ -66,6 +66,14 @@ func (m *mockMerchantForProvider) GetUsage(macAddress string) (string, error) {
 	return "", fmt.Errorf("mock: %s", m.name)
 }
 
+func (m *mockMerchantForProvider) IssueSessionTicket(macAddress string) (string, int64, error) {
+	return "", 0, fmt.Errorf("mock: %s", m.name)
+}
+
+func (m *mockMerchantForProvider) RebindSession(ticket, macAddress string) (*CustomerSession, error) {
+	return nil, fmt.Errorf("mock: %s", m.name)
+}
+
 func (m *mockMerchantForProvider) Fund(cashuToken string) (uint64, error) {
 	return 0, fmt.Errorf("mock: %s", m.name)
 }
