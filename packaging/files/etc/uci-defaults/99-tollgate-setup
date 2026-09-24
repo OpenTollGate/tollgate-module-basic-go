@@ -181,6 +181,139 @@ setup_uhttpd_configui() {
     log "Whitelabel configUI uhttpd section ensured on :8090 (home=/www/net4sats)"
 }
 
+# -- admin credential gate ---------------------------------------------------
+#
+# The owner-facing admin board is served by the portal-staged
+# 92-tollgate-admin-setup on :8090 (opt-in :8443) and its only login endpoint is
+# rpcd's session.login. The distribution's /etc/config/rpcd maps that login's
+# password to root's shadow hash (`password '$p$root'` ->
+# getspnam("root")->sp_pwdp) and rpcd's rpc_login_test_password() begins with
+# `if (!hash || !*hash) return true;` — an EMPTY hash authenticates ANY
+# password, including the empty string. A stock first-boot rootfs is exactly
+# that state, and the session it hands out reaches the board's ACL
+# (`file:["exec"]`, `system:["password_set"]`, `tollgate wallet_drain_cashu`):
+# root command execution, a root password change, or the operator's money, with
+# no credential at all. Reachability is a separate half (the pre-auth
+# allowance and the captive-bridge drop); this is the credential half.
+#
+# So the admin path FAILS CLOSED: a credential is established when there is
+# none (and shown to the operator exactly once), and when no credential can be
+# established or verified the admin listeners are dropped instead of being
+# served behind an empty hash.
+#
+# The two credential sources are absolute paths into the live system; the
+# offline tests redirect them in their copy of this script, exactly as they
+# redirect SETUP_FLAG and LOGFILE above.
+SHADOW_FILE="${SHADOW_FILE:-/etc/shadow}"
+PASSWD_FILE="${PASSWD_FILE:-/etc/passwd}"
+
+# rpcd's password hash for `root`. /etc/shadow wins whenever it exists: an
+# EMPTY field there is the stock first-boot state and the whole hazard, so
+# falling back to /etc/passwd's `x` placeholder would misread it as a set
+# credential.
+admin_root_hash() {
+    if [ -f "$SHADOW_FILE" ]; then
+        awk -F: '$1 == "root" { print $2; exit }' "$SHADOW_FILE" 2>/dev/null
+    elif [ -f "$PASSWD_FILE" ]; then
+        awk -F: '$1 == "root" { print $2; exit }' "$PASSWD_FILE" 2>/dev/null
+    fi
+}
+
+# Prints one of: set | empty | locked | unknown.
+# `locked` (`!`/`*`) is not a credential-less state: password login is refused
+# outright, so the board cannot be opened with any password, and re-enabling
+# password auth on a deliberately locked account would be the regression.
+admin_credential_state() {
+    if [ ! -f "$SHADOW_FILE" ] && [ ! -f "$PASSWD_FILE" ]; then
+        printf 'unknown'
+        return 0
+    fi
+    case "$(admin_root_hash)" in
+        "") printf 'empty' ;;
+        '!'*|'*'*) printf 'locked' ;;
+        *) printf 'set' ;;
+    esac
+}
+
+# 20 characters from a 32-character alphabet — no l/o/0/1 look-alikes and
+# nothing a shell or a password prompt would eat — read straight from the
+# kernel CSPRNG. 256 is an exact multiple of 32, so the byte->character
+# mapping is uniform.
+generate_admin_password() {
+    local alphabet="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
+    od -An -N 20 -tu1 /dev/urandom | awk -v a="$alphabet" \
+        '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
+}
+
+# BusyBox `passwd` reading the new password twice from stdin is the
+# dependency-free path OpenWrt always ships, and the value never reaches argv.
+set_admin_password() {
+    printf '%s\n%s\n' "$1" "$1" | passwd root >/dev/null 2>&1
+}
+
+# Drop every admin-board listener this package can own or repair. uhttpd.admin
+# is the portal-staged :8090/:8443 instance, uhttpd.net4sats this package's own
+# whitelabel configUI on the same port, and uhttpd.main is repaired because a
+# stray :8090 entry there has survived reinstalls before. Nothing else is
+# touched: LuCI (:80/:8080), the portal (:2050/:2051) and the backend (:2121)
+# are not admin surfaces.
+drop_admin_listeners() {
+    uci -q del_list uhttpd.admin.listen_http='0.0.0.0:8090'
+    uci -q del_list uhttpd.admin.listen_http='[::]:8090'
+    uci -q del_list uhttpd.admin.listen_https='0.0.0.0:8443'
+    uci -q del_list uhttpd.admin.listen_https='[::]:8443'
+    uci -q del_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
+    uci -q del_list uhttpd.net4sats.listen_http='[::]:8090'
+    sanitize_uhttpd_main_configui_port
+}
+
+# Runs in BOTH setup paths: the board is enabled by the install pass, and a
+# reinstall/upgrade must not leave an empty hash behind it either.
+#   set    -> nothing to do, the board is authenticatable
+#   locked -> nothing to do, password login is refused
+#   empty  -> generate a credential, apply it, and PROVE it by re-reading the
+#             hash; the value is shown once (install output + root-only log,
+#             the same channel as the generated private WiFi key)
+#   empty-but-unprovable / unknown -> refuse to serve the board at all
+enforce_admin_credential() {
+    local state password
+    state=$(admin_credential_state)
+    case "$state" in
+        set)
+            log "Admin credential verified (root password set) — :8090 admin board allowed"
+            return 0
+            ;;
+        locked)
+            log "Root account is locked — password login is refused, :8090 admin board allowed"
+            return 0
+            ;;
+    esac
+
+    if [ "$state" = "empty" ]; then
+        password=$(generate_admin_password)
+        if [ -n "$password" ]; then
+            set_admin_password "$password"
+        fi
+        if [ -n "$password" ] && [ "$(admin_credential_state)" = "set" ]; then
+            # Shown ONCE: the install output, plus the root-only log (600, and
+            # already the home of the generated private WiFi key). It is never
+            # written to UCI — /etc/config is world-readable — and never
+            # re-displayed; the operator changes it with `passwd root`.
+            printf 'TollGate: root had no password; generated one for the :8090 admin board — shown once: %s\n' "$password"
+            log "No root password was set: generated one for the admin board (shown once, change it with 'passwd root'): $password"
+            return 0
+        fi
+        log "ERROR: no credential could be established (passwd did not take, or no entropy to generate one) — refusing to serve the :8090 admin board (rpcd would accept ANY password against the empty hash); set one with 'passwd root' and re-run this script"
+    else
+        log "ERROR: no readable root credential state ($SHADOW_FILE / $PASSWD_FILE) — refusing to serve the :8090 admin board; set one with 'passwd root' and re-run this script"
+    fi
+
+    # An unauthenticatable board is worse than no board.
+    drop_admin_listeners
+    printf 'TollGate: root has no usable password — the :8090 admin board is NOT served. Set one with `passwd root` and re-run /etc/uci-defaults/99-tollgate-setup\n' >&2
+    return 1
+}
+
 setup_dns_dnsmasq() {
     # Only override DNS if it's unset or pointing at localhost.
     local current_dns
@@ -400,24 +533,50 @@ assert_nodogsplash_allow_entries() {
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
-    # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) must be
-    # reachable from the captive LAN unauthenticated, exactly like LuCI on
-    # :8080. Folded in here (not installer-side) so a plain apk/opkg install
-    # yields a working admin URL.
-    if ! uci_list_has_port 8090; then
-        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090'
-    fi
-    if ! uci_list_has_port 8443; then
-        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443'
-    fi
+    # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) is
+    # OWNER-facing, exactly like the whitelabel configUI in
+    # setup_uhttpd_configui above: the owner reaches it over the private
+    # network (br-private, which nodogsplash does not gate). A pre-auth guest
+    # on the open public SSID must not reach an admin UI, so :8090/:8443 are
+    # deliberately NOT part of the customer journey and are kept OUT of
+    # users_to_router — this list is nodogsplash's PRE-AUTHENTICATION allow
+    # list, and :8090 serves the board's root-capable login over plain HTTP
+    # with rpcd's /ubus session endpoint behind it, so an entry here exposes
+    # that login to sniffing and brute-force from the guest network while the
+    # credentials are still in the clear.
+    #
+    # Removed rather than merely omitted: an already-deployed router carries
+    # the two entries (an earlier build wrote them, and the feed's
+    # 92-tollgate-admin-setup still re-asserts them on every install/upgrade),
+    # so leaving them out of the writer would only fix a factory-fresh router.
+    # `del_list` here is what converges the fleet, and it is why the removal is
+    # re-asserted on both setup paths instead of living in the full-setup-only
+    # section. Kept in the shared writer so the same-version path performs it
+    # too. Failures are ignored: no entry to remove is the normal case.
+    #
+    # It converges at the NEXT BOOT, not at install time. The feed's
+    # 92-tollgate-admin-setup re-adds both entries on every install/upgrade,
+    # and postinst runs 90, 99, 92 in that order (packaging/Makefile), so on
+    # the postinst pass `92` runs AFTER this script and puts them straight
+    # back: the running config still carries `allow tcp port 8090`/`8443`
+    # until the reboot, when uci-defaults run numerically (`92` before `99`)
+    # and this `del_list` is the last writer. The effective control in the
+    # window between install and boot is the packet-filter rule in
+    # packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft,
+    # loaded by the `/etc/init.d/firewall reload` postinst performs after
+    # these scripts have run — it does not depend on this list being in the
+    # intended state.
+    uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090' 2>/dev/null
+    uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443' 2>/dev/null
     # :443 belongs with :8080 above: with a cert/key pair in place
     # uhttpd.main sets redirect_https=1 and answers the :8080 LuCI port with
     # `307 Location: https://<router>/`, so the pre-auth client that follows
     # the redirect needs a nodogsplash rule for :443 or it dead-ends on a port
     # the gateway still REJECTs — the operator lockout
     # docs/architecture/uhttpd-redirect-https-ownership-decision.md exists to
-    # prevent; the :8443 admin-board HTTPS rule above is allowed for the same
-    # reason. tollgate-cli's
+    # prevent. (The admin board's :8443 is deliberately NOT allowed — the
+    # board is owner-facing and reached over br-private, see above.)
+    # tollgate-cli's
     # `ssl enable` path already writes this rule for the routers that enable
     # TLS from the CLI (src/cmd/tollgate-cli/ssl.go); first boot was the only
     # path without it. Whole-field matching via uci_list_has_port (see #516).
@@ -860,6 +1019,11 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     # otherwise, and the configUI section is never re-ensured.
     sanitize_uhttpd_main_configui_port
     setup_uhttpd_configui
+    # The board's credential is re-asserted with the rest of the uhttpd
+    # contract: this path runs on every reinstall whose version string is
+    # unchanged, and a credential-less router must not keep serving an admin
+    # board that rpcd opens to ANY password.
+    enforce_admin_credential
     uhttpd_after=$(uci export uhttpd)
     if [ -z "$uhttpd_before" ] || [ "$uhttpd_before" != "$uhttpd_after" ]; then
         uci commit uhttpd
@@ -912,6 +1076,7 @@ setup_uhttpd
 setup_uhttpd_portal
 sanitize_uhttpd_main_configui_port
 setup_uhttpd_configui
+enforce_admin_credential
 setup_dns_dnsmasq
 setup_hostname
 detect_band_radios

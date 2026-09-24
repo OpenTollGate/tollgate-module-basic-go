@@ -9,13 +9,19 @@
 # users_to_router — so the redirect dead-ended on a blocked port and LuCI was
 # unreachable before authentication: exactly the operator lockout
 # docs/architecture/uhttpd-redirect-https-ownership-decision.md exists to
-# prevent. The same file already allows :8443 (the admin board's opt-in HTTPS
-# port) and the Go CLI adds :443 for its own SSL path
+# prevent. The Go CLI adds :443 for its own SSL path
 # (src/cmd/tollgate-cli/ssl.go: allowPort443), so the first-boot path is the
 # only one missing the rule.
 #
+# :443 belongs to LuCI's :8080 -> https:// hop only. The admin board's :8090
+# (plain HTTP, behind a root-capable rpcd login) and its opt-in :8443 are NOT
+# in this list: the board is owner-facing and a pre-auth guest must not reach
+# it. This file used to seed and assert :8443 as a kept rule; it now asserts
+# the opposite, so a re-added admin-board allowance fails here as well as in
+# tests/uci-defaults-same-version-allowlist_test.sh.
+#
 # The rule must be matched as a whole value, never as a substring of the
-# neighbouring :8443 rule: a state where only "allow tcp port 8443" exists has
+# neighbouring ports: a state where only "allow tcp port 8443" exists has
 # to end up with :443 added, not silently skipped.
 set -uo pipefail
 
@@ -80,6 +86,12 @@ case "$cmd" in
         grep -v -F -- "$1=" "$state" > "$state.tmp" 2>/dev/null
         mv "$state.tmp" "$state"
         ;;
+    del_list)
+        # `uci del_list cfg.sec.opt=value` drops every entry equal to value.
+        # Whole-line match: the entries under test contain spaces.
+        grep -v -F -x -- "$1" "$state" > "$state.tmp" 2>/dev/null
+        mv "$state.tmp" "$state"
+        ;;
     commit|revert|show|export) : ;;
     *) : ;;
 esac
@@ -116,14 +128,20 @@ seed_lines() {
 }
 count_entry() { grep -F -c "$KEY=$1" "$UCI_STATE" 2>/dev/null | tr -d ' '; }
 has_entry() { grep -F -q "$KEY=$1" "$UCI_STATE"; }
+has_no_entry() { ! grep -F -q "$KEY=$1" "$UCI_STATE"; }
 
-# The six rules the installer has always written.
+# The list an operator's router carries today: the captive-portal rules, the
+# admin board's :8090/:8443 allowance an earlier install wrote, and :443.
 LEGACY="allow tcp port 2121
 allow tcp port 8080
 allow tcp port 2050
 allow tcp port 2051
 allow tcp port 8090
 allow tcp port 8443"
+# Rules that must survive: the captive-portal ports and LuCI's :443 hop.
+KEPT_PORTS="2121 8080 2050 2051"
+# The admin board's ports, which must never be in this list.
+ADMIN_PORTS="8090 8443"
 
 echo "== fresh install adds the pre-auth :443 rule"
 seed
@@ -133,11 +151,18 @@ if has_entry 'allow tcp port 443'; then
 else
     bad "fresh install: no 'allow tcp port 443' rule (LuCI's :8080 -> https:// redirect dead-ends on :443)"
 fi
-for port in 2121 8080 2050 2051 8090 8443; do
+for port in $KEPT_PORTS; do
     if has_entry "allow tcp port $port"; then
         ok "fresh install: existing 'allow tcp port $port' rule kept"
     else
         bad "fresh install: 'allow tcp port $port' rule went missing"
+    fi
+done
+for port in $ADMIN_PORTS; do
+    if has_no_entry "allow tcp port $port"; then
+        ok "fresh install: 'allow tcp port $port' absent (admin board not pre-auth reachable)"
+    else
+        bad "fresh install: 'allow tcp port $port' is in users_to_router — a pre-auth guest can reach the :8090 admin login over plain HTTP"
     fi
 done
 
@@ -159,7 +184,7 @@ else
     bad "list ending in 'allow tcp port 8443' did not gain the :443 rule (:443 missing, or :8443 matched as a substring)"
 fi
 n=$(count_entry 'allow tcp port 8443')
-[ "$n" = 1 ] && ok ":8443 rule not duplicated" || bad ":8443 rule present $n times (want 1)"
+[ "$n" = 0 ] && ok ":8443 admin-board rule removed" || bad ":8443 admin-board rule present $n times (want 0)"
 
 echo "== idempotent with the legacy list already present"
 setup_nodogsplash >/dev/null 2>&1
@@ -173,10 +198,15 @@ setup_nodogsplash >/dev/null 2>&1
 n=$(count_entry 'allow tcp port 443')
 [ "$n" = 1 ] && ok "existing :443 rule left alone (no duplicate)" \
               || bad "existing :443 rule duplicated ($n copies)"
-for port in 2121 8080 2050 2051 8090 8443; do
+for port in $KEPT_PORTS; do
     n=$(count_entry "allow tcp port $port")
     [ "$n" = 1 ] && ok "'allow tcp port $port' still present exactly once" \
                  || bad "'allow tcp port $port' present $n times (want 1)"
+done
+for port in $ADMIN_PORTS; do
+    n=$(count_entry "allow tcp port $port")
+    [ "$n" = 0 ] && ok "'allow tcp port $port' absent" \
+                 || bad "'allow tcp port $port' present $n times (want 0)"
 done
 
 echo "== single-line (space separated) list form is handled too"
@@ -185,6 +215,11 @@ UCI_LIST_SEP=' ' setup_nodogsplash >/dev/null 2>&1
 n=$(count_entry 'allow tcp port 443')
 [ "$n" = 1 ] && ok "space separated list: :443 not duplicated when mid-line" \
               || bad "space separated list: :443 present $n times (want 1)"
+for port in $ADMIN_PORTS; do
+    n=$(count_entry "allow tcp port $port")
+    [ "$n" = 0 ] && ok "space separated list: 'allow tcp port $port' absent" \
+                 || bad "space separated list: 'allow tcp port $port' present $n times (want 0)"
+done
 
 echo
 echo "passed=$PASS failed=$FAIL"
