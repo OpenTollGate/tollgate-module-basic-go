@@ -36,6 +36,8 @@ tests/cloud-lab/.env
 # Host-specific cloud-lab port overrides (auto-loaded by docker compose;
 # see "Gotchas" in tests/cloud-lab/README.md)
 tests/cloud-lab/docker-compose.override.yml
+tests/cloud-lab/zoo-mint-config.json
+tests/cloud-lab/matrix-wallets/
 
 # Router credentials (copy from routers.env.example)
 routers.env
