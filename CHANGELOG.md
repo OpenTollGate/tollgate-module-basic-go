@@ -26,6 +26,19 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Token fingerprints no longer silently change after a restart on some
+  installs.** The fingerprint salt was persisted as raw random bytes but read
+  back with whitespace trimming — and random bytes legitimately begin or end
+  with whitespace-valued bytes (tab, space, CR/LF) about 5% of the time, so on
+  those installs every restart produced a new salt and the log/journal
+  correlation keyed on fingerprints silently broke, with no error anywhere.
+  The salt is now persisted hex-encoded (whitespace-trimmed on read so
+  hand-edited files keep working), with a raw-bytes fallback for salts written
+  by earlier builds. Found by the race-enabled go-battery going intermittent
+  on main; the regression test forces whitespace-valued edge bytes through
+  write→reload and pins the fingerprint.
+### Fixed
+
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**
   The portal echoes the mint URL from the advertisement's `price_per_step` tag,
