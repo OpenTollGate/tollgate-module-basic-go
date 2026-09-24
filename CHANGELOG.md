@@ -65,7 +65,7 @@ and [Semantic Versioning](https://semver.org/).
   instead of being served behind the empty hash (LuCI, the portal and the
   backend are untouched). This closes the credential half of the admin-board
   exposure — the reachability half is the guest-network fix in #546
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+  ([#551](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/551)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,
