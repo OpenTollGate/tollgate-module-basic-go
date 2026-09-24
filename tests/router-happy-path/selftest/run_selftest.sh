@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+#
+# Offline self-test for the router happy-path harness.
+#
+#   bash tests/router-happy-path/selftest/run_selftest.sh [--keep]
+#
+# No hardware, no router, no network: a stub stands up every surface the harness
+# asserts on localhost, and the harness is then run once clean (must be GREEN)
+# and once per mutation, with exactly one thing broken (the matching check id
+# must go RED and the run must exit 1).
+#
+# WHY THIS EXISTS: a check that has never been seen failing is decoration, not
+# evidence. A hardware-only suite rots precisely because nobody can see it go red
+# on demand. Every check id in run.sh that can go red has a scenario here.
+#
+# Prints one line per case:
+#   SELFTEST <case> OK|BAD <expectation>
+# Exit 0 = the harness detects every mutation (and stays green when clean).
+#
+set -u
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+HARNESS="$(cd "$SELF_DIR/.." && pwd)"
+TMP_PARENT="${RHP_TMPDIR:-/var/tmp}"
+WORK="$(mktemp -d "$TMP_PARENT/rhp-selftest.XXXXXX")" || exit 2
+KEEP=0
+[ "${1:-}" = "--keep" ] && KEEP=1
+
+STUB_PID=""
+cleanup() {
+    if [ -n "$STUB_PID" ]; then kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null; fi
+    if [ "$KEEP" = "1" ]; then echo "kept: $WORK"; else rm -rf "$WORK"; fi
+}
+trap cleanup EXIT INT TERM
+
+TOTAL=0; OK=0; BAD=0
+st() {  # st <case> <OK|BAD> <expectation>
+    TOTAL=$((TOTAL + 1))
+    case "$2" in OK) OK=$((OK + 1)) ;; *) BAD=$((BAD + 1)) ;; esac
+    printf 'SELFTEST %s %s %s\n' "$1" "$2" "$3"
+}
+
+# --------------------------------------------------------------------------
+# Ports: high, unprivileged and free
+# --------------------------------------------------------------------------
+tcp_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+free_port() { local p="$1"; while tcp_busy "$p"; do p=$((p + 1)); done; printf '%s\n' "$p"; }
+BASE=$((40000 + RANDOM % 1500))
+SSH_PORT="$(free_port "$BASE")"
+STUB_PORT="$(free_port $((SSH_PORT + 1)))"
+PORTAL_PORT="$(free_port $((STUB_PORT + 1)))"
+API_PORT="$(free_port $((PORTAL_PORT + 1)))"
+ADMIN_PORT="$(free_port $((API_PORT + 1)))"
+CAPTIVE_PORT="$(free_port $((ADMIN_PORT + 1)))"
+LUCI_PORT="$(free_port $((CAPTIVE_PORT + 1)))"
+TLS_PORT="$(free_port $((LUCI_PORT + 1)))"
+echo "selftest ports: ssh=$SSH_PORT stub=$STUB_PORT portal=$PORTAL_PORT api=$API_PORT" \
+     "admin=$ADMIN_PORT captive=$CAPTIVE_PORT luci=$LUCI_PORT tls=$TLS_PORT"
+
+# --------------------------------------------------------------------------
+# Fixtures: a fake extracted package whose docroots the stub serves verbatim
+# --------------------------------------------------------------------------
+ART="$WORK/artifact"
+PDOC="$ART/etc/tollgate/tollgate-captive-portal-site"
+ADOC="$ART/www/tollgate"
+mkdir -p "$PDOC/assets" "$PDOC/locales" "$ADOC/assets"
+
+cat > "$PDOC/splash.html" <<'HTML'
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" />
+<title>Tollgate Captive Portal</title>
+<link rel="manifest" href="/manifest.json" />
+<script type="module" crossorigin src="/assets/index-deadbeef.js"></script>
+<script type="module" crossorigin src="/assets/portal-cafe1234.js"></script>
+<link rel="stylesheet" crossorigin href="/assets/index-abcdef12.css">
+<link rel="icon" href="/favicon.ico" />
+</head><body><div id="root"></div>
+<noscript><p>JavaScript is required.</p></noscript>
+</body></html>
+HTML
+cp "$PDOC/splash.html" "$PDOC/balance.html"
+printf '%s\n' '{"name":"stub portal"}' > "$PDOC/manifest.json"
+printf '%s\n' 'locale-stub' > "$PDOC/locales/en.json"
+head -c 512 /dev/zero | tr '\0' 'F' > "$PDOC/favicon.ico"
+printf '%s\n' '/* css stub */'   > "$PDOC/assets/index-abcdef12.css"
+printf '%s\n' '/* entry stub */' > "$PDOC/assets/index-deadbeef.js"
+printf '%s\n' '/* chunk stub */' > "$PDOC/assets/portal-cafe1234.js"
+printf '%s\n' '/* qr stub */'    > "$PDOC/assets/qr-scanner.min-1234abcd.js"
+
+cat > "$ADOC/index.html" <<'HTML'
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" />
+<title>TollGate Admin</title>
+<script type="module" crossorigin src="/assets/index-abcdef01.js"></script>
+<link rel="stylesheet" crossorigin href="/assets/index-87654321.css">
+<link rel="manifest" href="manifest.json" />
+</head><body><div id="app"></div></body></html>
+HTML
+printf '%s\n' '{"name":"stub admin"}' > "$ADOC/manifest.json"
+printf '%s\n' '/* admin entry */' > "$ADOC/assets/index-abcdef01.js"
+printf '%s\n' '/* admin css */'   > "$ADOC/assets/index-87654321.css"
+
+CERT=""; KEY=""
+if command -v openssl >/dev/null 2>&1; then
+    if openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=rhp-stub \
+        -keyout "$WORK/key.pem" -out "$WORK/cert.pem" >/dev/null 2>&1; then
+        CERT="$WORK/cert.pem"; KEY="$WORK/key.pem"
+    fi
+fi
+[ -z "$CERT" ] && echo "selftest: no openssl -> the :$LUCI_PORT https target is served WITHOUT TLS (curl -k still reaches it)"
+
+# --------------------------------------------------------------------------
+# Stub lifecycle
+# --------------------------------------------------------------------------
+start_stub() {  # start_stub [scenario file]
+    if [ -n "$STUB_PID" ]; then kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null; STUB_PID=""; fi
+    local scenario_args=()
+    [ -n "${1:-}" ] && scenario_args=(--scenario "$1")
+    : > "$WORK/stub.log"
+    python3 "$SELF_DIR/stub_router.py" \
+        --host 127.0.0.1 \
+        --portal-docroot "$PDOC" --admin-docroot "$ADOC" \
+        --portal-port "$PORTAL_PORT" --stub-port "$STUB_PORT" --api-port "$API_PORT" \
+        --admin-port "$ADMIN_PORT" --luci-port "$LUCI_PORT" --captive-port "$CAPTIVE_PORT" \
+        --tls-port "$TLS_PORT" --ssh-port "$SSH_PORT" \
+        --cert "$CERT" --key "$KEY" "${scenario_args[@]}" \
+        > "$WORK/stub.log" 2>&1 &
+    STUB_PID=$!
+    for _ in $(seq 1 60); do
+        grep -q stub-ready "$WORK/stub.log" 2>/dev/null && return 0
+        sleep 0.25
+    done
+    echo "stub failed to start:"; cat "$WORK/stub.log"
+    return 1
+}
+
+harness_run() {  # harness_run <outfile> [harness args...]
+    local out="$1"; shift
+    ( cd "$HARNESS" && RHP_TMPDIR="$TMP_PARENT" \
+        RHP_PORTAL_PORT="$PORTAL_PORT" RHP_STUB_PORT="$STUB_PORT" RHP_API_PORT="$API_PORT" \
+        RHP_ADMIN_PORT="$ADMIN_PORT" RHP_LUCI_PORT="$LUCI_PORT" RHP_CAPTIVE_PORT="$CAPTIVE_PORT" \
+        RHP_SSH_PORT="$SSH_PORT" RHP_TLS_PORT="$TLS_PORT" \
+        bash run.sh \
+        --artifact-dir "$ART" --router-ip 127.0.0.1 --out "$WORK/evidence" "$@" ) \
+        >"$out" 2>"$WORK/err"
+}
+
+# check_case <case> <OK|BAD-expectation> ...
+check_case() {  # check_case <case> <expect PASS|FAIL> <check id> <outfile> <rc>
+    local name="$1" expect="$2" id="$3" out="$4" rc="$5"
+    local line
+    line="$(grep -E "^RHPCHECK $id " "$out" | head -1)"
+    if [ -z "$line" ]; then
+        st "$name" BAD "check id '$id' never ran"
+        return
+    fi
+    local got
+    got="$(printf '%s' "$line" | cut -d' ' -f3)"
+    if [ "$got" != "$expect" ]; then
+        st "$name" BAD "$id is '$got', expected $expect"
+        return
+    fi
+    if [ "$expect" = "FAIL" ] && [ "$rc" != "1" ]; then
+        st "$name" BAD "$id went red but the run exited $rc (want 1)"
+        return
+    fi
+    if [ "$expect" = "PASS" ] && [ "$rc" != "0" ]; then
+        st "$name" BAD "$id stayed green but the run exited $rc"
+        return
+    fi
+    st "$name" OK "$id $expect: $(printf '%s' "$line" | cut -c10-130)"
+}
+
+mut_case() {  # mut_case <case> <expect> <id> <scenario json> [harness args...]
+    local name="$1" expect="$2" id="$3" json="$4"; shift 4
+    printf '%s\n' "$json" > "$WORK/scenario.json"
+    start_stub "$WORK/scenario.json" || { st "$name" BAD "stub did not restart"; return; }
+    local out="$WORK/out.$name.txt"
+    harness_run "$out" "$@"
+    check_case "$name" "$expect" "$id" "$out" "$?"
+}
+
+# --------------------------------------------------------------------------
+# Baseline
+# --------------------------------------------------------------------------
+echo "--- baseline (clean rig must be GREEN)"
+start_stub "" || { st baseline BAD "stub did not start"; exit 1; }
+harness_run "$WORK/out.baseline.txt"
+rc=$?
+if [ "$rc" = "0" ]; then
+    st baseline OK "$(grep '^RHPRESULT' "$WORK/out.baseline.txt")"
+else
+    st baseline BAD "exit=$rc failing=$(grep '^RHPFAILED' "$WORK/out.baseline.txt")"
+    sed -n '1,200p' "$WORK/out.baseline.txt"
+fi
+
+echo "--- mutations (each must flip exactly the check it targets)"
+# 1. build identity
+mut_case identity-asset-byte  FAIL identity:portal:assets                 '{"portal_asset_byte": true}'
+mut_case entry-chunk-missing  FAIL identity:portal:assets                 '{"portal_entry_missing": true}'
+mut_case entry-not-hashed     FAIL identity:portal:content-hashed-entry   '{"portal_no_hash": true}'
+# 2. surfaces
+mut_case stub-no-redirect     FAIL "surface:$STUB_PORT-cache-bust-stub"            '{"stub_no_redirect": true}'
+mut_case stub-wrong-port      FAIL "surface:$STUB_PORT-redirects-to-$PORTAL_PORT" '{"stub_wrong_port": true}'
+mut_case luci-dead-target     FAIL "surface:$LUCI_PORT-target-200"                '{"luci_307_no_target": true}'
+mut_case admin-spa-missing    FAIL "surface:$ADMIN_PORT-admin-spa"                '{"admin_entry_missing": true}'
+# 3. captive chain
+mut_case captive-no-307       FAIL "surface:$CAPTIVE_PORT-captive-307"     '{"captive_200": true}'
+mut_case captive-no-redir     FAIL "surface:$CAPTIVE_PORT-redir-encodes-original" '{"captive_no_redir": true}'
+mut_case stub-no-noscript     FAIL captive:stub-noscript-fallback          '{"stub_no_noscript": true}'
+mut_case spa-on-stub-port     FAIL "captive:spa-not-on-$STUB_PORT"         '{"spa_on_stub_port": true}'
+mut_case spa-no-root-el       FAIL captive:chain-ends-200                  '{"portal_no_root_el": true}'
+# 4. API shapes
+mut_case root-wrong-kind      FAIL api:root-kind10021                      '{"root_kind": 9999}'
+mut_case root-degraded        FAIL api:root-full-mode                      '{"root_degraded": true}'
+mut_case whoami-sentinel      FAIL api:whoami-not-sentinel                 '{"whoami_sentinel": true}'
+mut_case balance-malformed    FAIL api:balance-shape                       '{"balance_malformed": true}'
+mut_case balance-active       FAIL pre:idle                               '{"balance_active": true}'
+mut_case usage-bad            FAIL api:usage-shape                         '{"usage_bad": true}'
+mut_case cors-no-methods      FAIL api:cors-preflight                      '{"no_cors_preflight": true}'
+mut_case session-state-shipped PASS api:session-state                      '{"session_state": true}'
+# 5. Lightning quote contract
+mut_case ln-200               FAIL ln:no-quote-status-poll                 '{"ln_200": true}'
+mut_case ln-wrong-error       FAIL ln:no-quote-status-poll                 '{"ln_wrong_error": true}'
+# 6. money path
+mut_case empty-token-accepted FAIL money:empty-token-rejected              '{"empty_token_ok": true}'
+# the optional content-hash pin must be falsifiable too (no mutation needed)
+mut_case pin-mismatch         FAIL identity:expected-entry                 '{}' \
+    --expect-entry index-deadbeef.js:999:0000000000000000000000000000000000000000000000000000000000000000
+
+printf '\nSELFTESTRESULT total=%d ok=%d bad=%d\n' "$TOTAL" "$OK" "$BAD"
+if [ "$BAD" -gt 0 ]; then
+    printf 'SELFTESTEXIT 1\n'
+    exit 1
+fi
+printf 'SELFTESTEXIT 0\n'
+exit 0

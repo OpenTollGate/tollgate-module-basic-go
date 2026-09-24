@@ -24,6 +24,33 @@ and [Semantic Versioning](https://semver.org/).
   portal parses them
   ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
 
+- **Router happy-path harness: the operator's manual pass over a flashed MT3000
+  is now a script that fails closed.** `tests/router-happy-path/run.sh` takes a
+  published `.apk` and asserts, in order, that (1) **every asset the router
+  serves is byte-identical to the same path inside that package** — sha256 by
+  leading path, plus the reverse direction (every reference the live entry
+  document makes must resolve inside the package) and an optional
+  `NAME:SIZE:SHA256` pin for the entry chunk, which is the check that catches "a
+  shipped bundle that did not contain the fix its pin claimed"; (2) the surfaces
+  `80 / 2050 / 2051 / 2121 / 8080 / 8090` answer what they should, where `:2050`
+  is a cache-bust **stub** whose own resolved redirect expression points at the
+  SPA on `:2051` (asserted, never assumed) and the app must **not** also be
+  served on `:2050`; (3) unauthenticated HTTP is `307`'d to
+  `/splash.html?redir=…` and the whole chain lands on the SPA; (4) the
+  `/whoami`, `/balance`, `/usage`, `/session-state` and `kind:10021` shapes (with
+  the box idle as a precondition, and degraded mode fatal); (5) the
+  `GET /ln-invoice` no-quote `400 {"error":"quote is required"}` status-poll
+  contract, so it is not mistaken for a regression. Read-only: the only write is
+  a POST with an empty body, which carries no proof. Liveness is TCP-only —
+  this firewall drops ICMP, so `ping` must never be a liveness test here — and
+  the on-box SSH checks are opt-in because router SSH is credential gated. A
+  full paid purchase is supported but gated behind an operator-supplied
+  `RHP_CASHU_TOKEN` plus an explicit `RHP_SPEND_MAX_SATS` ceiling; the default
+  run spends nothing. `selftest/run_selftest.sh` drives the whole harness against
+  a localhost stub with no hardware at all and proves that **each** check id
+  actually goes red when its surface breaks (a check that has never been seen
+  failing is decoration), and it runs in CI.
+
 ### Fixed
 
 - **The captive portal's Lightning lane can sell time again: the module
