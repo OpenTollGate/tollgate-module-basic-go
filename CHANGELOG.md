@@ -26,6 +26,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Guests on the open SSID can no longer reach each other: the setup writer
+  now arms client isolation on both guest APs.** Nothing in the writer, the
+  portal or the installer ever set it, so on the shipped config a guest on the
+  open SSID could ARP-scan its neighbours, answer their DHCP, advertise
+  mDNS/SSDP services to them, or relay through a paying client. The writer sets
+  `isolate=1` on each guest `wifi-iface` (2.4 and 5 GHz are separate BSSes, so
+  both need it), which hostapd renders as `ap_isolate=1`, and a packaging test
+  pins the option so it cannot drift out again. That is an intra-BSS forwarding
+  policy, not encryption: a monitor-mode neighbour still reads every frame in
+  the clear on `encryption=none`, and cross-radio discovery between the two
+  guest BSSes is unaffected. Guest-to-guest mDNS/Chromecast/AirPlay/printer
+  discovery and LAN games on one BSS stop working — accepted on purpose. The
+  owner's private SSID and the uplink are untouched. The wired ports are
+  deliberately **not** written: Linux bridge port isolation is bilateral, the
+  guest BSS's bridge port cannot be marked isolated from uci, and on the bench
+  the wired port's flag blocked nothing — shipping it would claim protection it
+  does not provide
+  ([#576](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/576)).
 - **A late `Receive` outcome is recorded, so the reference the customer was
   given leads somewhere.** When the mint did not answer within the 30-second
   deadline the customer was told the outcome was unknown — not failed — and
