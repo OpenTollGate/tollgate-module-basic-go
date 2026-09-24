@@ -47,6 +47,25 @@ and [Semantic Versioning](https://semver.org/).
   2.4 GHz evidence; note the first-boot script's `radio_band` still reads a
   literal `0` as 2.4 GHz (packaging lane, deliberately unchanged here)
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **The captive portal's Lightning lane can sell time again: the module
+  canonicalises the mint URL a client sends before using it as a lookup key.**
+  The portal echoes the mint URL from the advertisement's `price_per_step` tag,
+  which is `accepted_mints[].url` verbatim — and the shipped default config
+  writes that URL *without* a trailing slash — while the wallet registers and
+  keys a mint in canonical form (`"<url>/"`). `POST /ln-invoice` therefore handed
+  the caller's spelling straight to an exact-string mint lookup, missed, and
+  answered `400 {"error":"failed to create lightning invoice"}`
+  (`error="mint does not exist"`), so a default install could not sell over the
+  Lightning lane at all; the Cashu lane was unaffected (it never takes a mint URL
+  from the client), which is why a manual token-paste pass still worked and hid
+  it. `Merchant.RequestLightningInvoice` now canonicalises the URL at the
+  boundary where it enters, through the same mint identity the registry keys and
+  `MintURLMatches` derive from (`tollwallet.NormalizeMintURL`, newly exported),
+  so every spelling of one mint resolves to the single registered entry and the
+  quote record, the status poll and the allotment lookup all address it. The
+  happy-path suite's tolerated `portal:lightning-lane-against-live-module` known
+  issue is deleted with it
+  ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,

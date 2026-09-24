@@ -76,21 +76,36 @@ stops being read. `--strict` promotes every entry back to fatal, and deleting th
 line makes it fatal again, so that file is the complete list of what the suite
 tolerates and is meant to shrink.
 
-Current entry: **`portal:lightning-lane-against-live-module`**. The portal echoes
-the mint URL from the advertisement's `price_per_step` tag verbatim (the shipped
-default config writes it without a trailing slash) while the wallet keys a
-registered mint as `"<url>/"`, so `POST /ln-invoice` answers
+**The list is currently empty.** The one entry it carried,
+`portal:lightning-lane-against-live-module`, was fixed on 2026-09-23: the portal
+echoes the mint URL from the advertisement's `price_per_step` tag verbatim (the
+shipped default config writes it without a trailing slash) while the wallet keys
+a registered mint as `"<url>/"`, so `POST /ln-invoice` answered
 `400 {"error":"failed to create lightning invoice"}` (`error="mint does not
-exist"`). The Cashu lane is unaffected — it does not take a mint URL from the
-client — which is why the operator's manual pre15 pass (token paste) succeeds.
-Fix direction: normalise the mint URL on both sides of the lookup
-(`tollwallet.MintURLMatches` / `normalizeMintURL` already exist for this class).
+exist"`) and a default install could not sell via the Lightning lane at all. The
+module now canonicalises the client-supplied mint URL — through the same
+`tollwallet.NormalizeMintURL` / `MintURLMatches` mint identity the registry keys
+derive from — before the lookup. `known-issues.txt` keeps the write-up of the
+defect and the fix for the record.
 
-**Caveat on that entry:** in the live-module Lightning check the client MAC does
-not resolve inside the harness (`mac=00:00:00:00:00:00`), so that single failure
-is over-determined. The trailing-slash mechanism is the one demonstrated by the
-2x2 matrix recorded in `known-issues.txt` (config with/without slash x request
-with/without slash); a fix must re-verify with a resolvable MAC.
+### Precondition for the live-module Lightning lane: a resolvable client
+
+The lane POSTs `/ln-invoice` and the module resolves the client's identity from
+the **socket** (`clientMACFromSocket`, `src/main.go`), refusing the request when
+it cannot: a client-supplied `mac` is not an identity. Off-router the harness's
+browser talks to `127.0.0.2`, which appears in no lease and no ARP table — which
+is exactly how the old entry's failure became over-determined. To exercise the
+lane, seed the module's own lease source (`dhcpLeasePath`, default
+`/tmp/dhcp.leases`) with the client address first:
+
+```bash
+printf '1700000000 02:00:00:00:00:20 127.0.0.2 hp-client *\n' > /tmp/dhcp.leases
+```
+
+With that in place the lane reaches the mint, and the check asserts the real
+thing: the module answers 200 with a bolt11 for the un-slashed URL the portal
+sends. Without it, the lane fails on identity (`device-unresolved`) rather than
+on the mint URL — an honest failure, but not this suite's subject.
 
 ## Evidence from the first run (2026-09-23)
 
@@ -102,3 +117,25 @@ with/without slash); a fix must re-verify with a resolvable MAC.
   `:2121` but answers the wrong shapes: `total=15 pass=8 fail=6 skip=1`, **exit 1**
   — and `boot:module-listening` still PASSES, which is the point: a suite that
   only asserted "something is listening" would have gone green.
+
+## Evidence from the fix run (2026-09-23, pr/mint-url-normalisation)
+
+The defect the first run tolerated, and its fix, measured on the same harness with
+the client identity resolvable (the precondition above):
+
+* **RED** — the published `v0.6.0-alpha4-pre15` `x86_64` package re-extracted from
+  its `.ipk` (module sha256 `87dacb0ee7497e82f2ebe858ff4fdf0a700924cbe8597aa48a9e8309382f7add`):
+  `HPRESULT total=23 pass=20 fail=0 skip=2 known=1`, `HPEXIT 0` — the same
+  `portal:lightning-lane-against-live-module` FAIL, with the portal's own request
+  recorded in the evidence as
+  `POST …/ln-invoice?mac=00%3A00%3A00%3A00%3A00%3A00 -> 400 … [sent: {"amount":210,"mint_url":"http://127.0.0.1:<port>"}]`
+  (no trailing slash) and the module answering `error="mint does not exist"`.
+* **GREEN** — the branch built for the same `x86_64` target
+  (module sha256 `fb669fe772dc3bca1fe345fa834e6802991ba6c39628638ad45e3624f185b688`;
+  the portal half is the published bundle, unchanged) with the entry deleted from
+  `known-issues.txt`: `HPRESULT total=23 pass=22 fail=0 skip=1 known=0`,
+  `HPEXIT 0`, and the lane's own line reading
+  `portal:lightning-lane-against-live-module PASS granted=True; … -> 200 {… "invoice":"lnbcstub1qqqq…"}`.
+  The two checks that moved are that lane (FAIL → PASS) and `api:session-state`
+  (SKIP → PASS, because the branch also ships upstream #541's endpoint that pre15
+  predates).

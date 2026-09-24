@@ -71,6 +71,18 @@ func (m *Merchant) RequestLightningInvoice(macAddress, mintURL string, amount ui
 	if amount == 0 {
 		return nil, fmt.Errorf("amount must be greater than zero")
 	}
+
+	// The client does not choose the spelling of the mint it pays: the portal
+	// echoes the advertisement's price_per_step tag verbatim, and that tag is
+	// accepted_mints[].url as configured — which the shipped default writes
+	// WITHOUT a trailing slash. The wallet, meanwhile, registers and keys the
+	// mint in canonical form ("<url>/"), so passing the caller's string through
+	// unchanged missed the mint map and answered "mint does not exist" on every
+	// default install. Canonicalise it once, here at the boundary where the
+	// client-supplied value enters, so the allotment lookup, the mint quote and
+	// the quote record all address the one registered mint (issue #375).
+	mintURL = tollwallet.NormalizeMintURL(mintURL)
+
 	if _, err := m.calculateAllotment(amount, mintURL); err != nil {
 		return nil, err
 	}

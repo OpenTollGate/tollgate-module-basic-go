@@ -10,28 +10,33 @@
 # Format: <check-id> <whitespace> <reason>
 #
 # ---------------------------------------------------------------------------
-# 1. The captive portal's Lightning lane cannot buy time from the module as
-#    shipped. Observed on v0.6.0-alpha4-pre15 x86_64 (and the same code path is
-#    still present at upstream main, c4bec84f):
+# RESOLVED 2026-09-23 -- portal:lightning-lane-against-live-module
 #
-#      portal POSTs /ln-invoice?mac=00:00:00:00:00:00
-#        body {"amount":210,"mint_url":"http://…"}          <- no trailing slash
-#      module 400 {"error":"failed to create lightning invoice"}
-#      module log: error="mint does not exist"
+# The entry that used to be here recorded that the captive portal's Lightning
+# lane could not buy time from the module as shipped, observed on
+# v0.6.0-alpha4-pre15 x86_64:
 #
-#    The portal echoes the mint URL from the advertisement's price_per_step tag,
-#    which is the configured accepted_mints[].url verbatim (the shipped default
-#    config writes it without a trailing slash). The wallet, however, keys a
-#    registered mint as "<url>/", and the module passes the caller's mint_url
-#    through unchanged, so the lookup cannot match. Verified by a 2x2 matrix over
-#    {config with/without slash} x {request with/without slash}: only requests
-#    carrying the trailing slash succeed, regardless of the config form.
+#   portal POSTs /ln-invoice          body {"amount":210,"mint_url":"http://…"}
+#   module 400 {"error":"failed to create lightning invoice"}
+#   module log: error="mint does not exist"
 #
-#    The Cashu lane is unaffected: it does not take a mint URL from the client.
-#    That is why the operator's manual pre15 pass on the MT3000 (token paste)
-#    still succeeds.
+# The portal echoes the mint URL from the advertisement's price_per_step tag,
+# which is the configured accepted_mints[].url verbatim (the shipped default
+# config writes it without a trailing slash), while the wallet registers and keys
+# a mint in canonical form ("<url>/") and the module passed the caller's
+# mint_url through unchanged -- so the lookup could not match. The 2x2 matrix
+# over {config with/without slash} x {request with/without slash} showed only
+# requests carrying the slash succeeding, regardless of the config form: a
+# default install could not sell via the Lightning lane at all. The Cashu lane
+# was unaffected (it never takes a mint URL from the client), which is why a
+# manual token-paste pass on pre15 hid it.
 #
-#    Fix direction (NOT done here -- this suite ships no production change):
-#    normalise the mint URL on both sides of the lookup (the repo already has
-#    tollwallet.MintURLMatches / normalizeMintURL for exactly this class of bug).
-portal:lightning-lane-against-live-module	the portal echoes the advertisement's mint URL verbatim (no trailing slash) while the wallet keys the mint as "<url>/"; POST /ln-invoice therefore answers 400 "mint does not exist"
+# Fixed in pr/mint-url-normalisation: the module canonicalises the
+# client-supplied mint URL at the boundary where it enters
+# (tollwallet.NormalizeMintURL, the same function that produces the registry
+# keys), so both spellings of one mint resolve to the single registered entry.
+# The check now passes on a branch-built artifact with the client identity
+# resolvable; see README "Known issues" for the harness precondition that the
+# live-module lane needs and how it was verified.
+#
+# No entry below: this file currently tolerates nothing.
