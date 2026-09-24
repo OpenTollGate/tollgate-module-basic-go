@@ -521,6 +521,100 @@ carry a `"tokens"` array inside `data`: those tokens were produced
 irreversibly and belong to you — persist them before investigating the
 `errors` entries.
 
+## Client identity, MAC addresses, and what changing one does
+
+TollGate has no accounts and no user identifiers: a customer is identified
+by the MAC address their device uses on your Wi-Fi. Sessions, byte meters
+and open gates are all keyed by it, and it is the address `ndsctl` is
+asked to authorise. Nothing anywhere in the stack takes that identity from
+a value the client sends — a `?mac=` parameter or a request-body field is
+accepted and ignored; the module resolves the address from the request's
+source IP through the DHCP lease file and the kernel ARP table, and
+refuses the request (`device-unresolved`) rather than guessing when it
+cannot.
+
+### What a MAC address is not
+
+It is not an account, not stable, and **not something this router can
+change**. A MAC address is the source address of every frame the device
+transmits: it is chosen by the device's own operating system and network
+card, it is visible to anyone in range, and it can be typed into a query
+string by anyone. An access point can only *filter* addresses
+(`macfilter`/`maclist`) or force a re-association — and forcing one does
+not change the private address a device has saved for that network.
+
+So "TollGate rotates your MAC automatically" is false, and no release has
+ever implemented it. If you have repeated it, correct it: the honest claim
+is that TollGate does not require address stability, and never ties
+anything durable to it.
+
+### What a device does on its own
+
+On many platforms the device changes or randomises the address by itself,
+without the customer asking you:
+
+| Platform | Default | How a customer changes it |
+|---|---|---|
+| iOS / iPadOS 18+ | "Fixed" on a network with WPA2 or stronger, **"Rotating"** on a weak or open one — which is the usual captive-portal SSID, where it moves to a different private address about every two weeks with no user action | Settings → Wi-Fi → (i) next to the network → "Private Wi-Fi Address" → Off / Fixed / Rotating |
+| Android 10+ | One randomised address per network, stable while that network is saved | Settings → Network & internet → Internet → (gear) → "Privacy" |
+| Windows 10/11 | Randomisation off unless enabled per network | Settings → Network & internet → Wi-Fi → the network → "Random hardware addresses" |
+| Linux (NetworkManager) | `preserve` — the hardware address | `nmcli con mod <id> wifi.cloned-mac-address random` |
+
+A WPA2 password therefore has a side effect worth knowing: it keeps iOS on
+a fixed address. An open SSID (the classic captive-portal posture) is
+where rotation happens by itself.
+
+### What happens when the address changes mid-session
+
+The session belongs to the address it was bought on, so:
+
+* The device returns as a new client and the portal offers the buy flow
+  again.
+* The **abandoned** address is reconciled about a minute later — the
+  module asks NoDogSplash whether that client is still there, and after two
+  consecutive "gone" answers it deauthorises the address, drops its session
+  record, and clears its metering baseline. That is what stops an address
+  nobody holds from staying authorised for ever, which anyone who later
+  holds it (a hardware-address fallback, a spoof, a collision) would
+  otherwise inherit for free.
+* The leftover time or data the customer paid for does **not** travel to
+  the new address yet: entitlement still belongs to the address. Carrying
+  it across needs a session ticket and a portal change, and is scheduled as
+  its own change.
+
+Tell customers that plainly, rather than promising seamless roaming:
+*changing your device's Wi-Fi address ends your current session.*
+
+### What you will see in the log
+
+```
+WARNING: NoDogSplash no longer lists <mac> (1/2 passes) — its binding stays authorised for now
+Reconciled the stale binding of <mac>: its client is gone, the gate is deauthorised and the session is retired (12 MB of covered usage; ...)
+```
+
+Only a *confirmed* close retires anything. If `ndsctl deauth` fails you
+will see the escalation instead — `ERROR: could not close the gate of the
+stale binding of <mac> … (unconfirmed gate closes=N)` — and the module
+keeps the record and keeps retrying, because a gate that is still open must
+stay owned by something. The same rule applies to a customer who is merely
+idle: a client NoDogSplash still lists is never touched.
+
+That last rule is also the limit of this pass, and worth knowing: if
+NoDogSplash keeps listing an address whose device has left (rather than
+dropping the entry), the module cannot tell that address from a customer
+who is simply idle, and it leaves it alone on purpose — cutting off a
+paying customer is the worse failure. Closing that residue is the job of
+the session-ticket work, which re-binds entitlement explicitly instead of
+inferring it from an address.
+
+### Rule: never allow-list MAC addresses
+
+Because any client can present any address (and on an open SSID many
+devices change theirs by themselves), a MAC allow-list is not an access
+control — it hands internet to whoever names an allowed address. Keep the
+per-MAC controls you *do* have (session state, byte meters) as accounting,
+not as authorisation.
+
 ## Troubleshooting
 
 ### "failed to communicate with TollGate service"

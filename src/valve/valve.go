@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -719,6 +720,28 @@ func GetClientUsage(macAddress string) (totalBytes uint64, err error) {
 type ClientState struct {
 	Registered    bool
 	Authenticated bool
+}
+
+// TrackedGates returns the MAC addresses of the gates this module currently
+// believes it holds open, sorted so a report is stable.
+//
+// It answers a question about the module's OWN bookkeeping, not about the
+// router: a gate stays in this set while its close is unconfirmed (a failed
+// deauth is not a close, C1-2) and while it is simply still running. Callers use
+// it to find gates nothing else looks at — a gate whose client has left the
+// network and whose session record is gone — and must probe NoDogSplash
+// (CheckClientState) before acting on the answer. It is read-only: it never
+// changes gate state.
+func TrackedGates() []string {
+	gatesMutex.Lock()
+	macs := make([]string, 0, len(openGates))
+	for macAddress := range openGates {
+		macs = append(macs, macAddress)
+	}
+	gatesMutex.Unlock()
+
+	sort.Strings(macs)
+	return macs
 }
 
 // CheckClientState probes NoDogSplash for a client without changing any
