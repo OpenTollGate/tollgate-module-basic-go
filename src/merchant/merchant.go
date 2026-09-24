@@ -143,6 +143,31 @@ var preflightRetryDelay = 400 * time.Millisecond
 // window instead of waiting it out; nothing in production reassigns it.
 var receiveTimeout = 30 * time.Second
 
+// receiveResult is the answer of one money-moving `Receive` call.
+type receiveResult struct {
+	amount uint64
+	err    error
+}
+
+// recordLateReceiveOutcome waits for the answer of a `Receive` that outlived the
+// response deadline and writes it to the log beside the reference the notice gave
+// the customer. It is deliberately log-only: it grants no session and moves no
+// money, so it must not read as if the customer had been served — the journal
+// that credits or refunds a late outcome is separate work. Its whole job is to
+// make the reference the customer quotes answerable today, because the operator
+// cannot tell a late success (the mint took the note) from a late failure (it
+// did not) without it.
+func recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string) {
+	res := <-ch
+	if res.err != nil {
+		log.Printf("PurchaseSession: late Receive FAILED for mint=%s mac=%s reference=%s: %v — the mint did not take the note, no session was granted",
+			mintURL, macAddress, reference, res.err)
+		return
+	}
+	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — the mint took the note and no session was granted; credit or refund it",
+		mintURL, macAddress, reference, res.amount)
+}
+
 // receiveReference is the operator-facing handle for one money-moving attempt:
 // the salted fingerprint of the customer's note, which the customer can quote
 // and the operator can find in the log next to the MAC, the mint and the time.
@@ -808,10 +833,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
-	type receiveResult struct {
-		amount uint64
-		err    error
-	}
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -849,6 +870,14 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		reference := receiveReference(paymentCashuToken)
 		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
 			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
+
+		// The deadline does not cancel the money-moving call: it is still on the
+		// wire, and its answer is the one fact that makes the reference above
+		// worth quoting. Nothing else reads the channel once this branch
+		// returns, so without the recorder the outcome of a `Receive` that
+		// completed at t+1s was discarded in silence and the notice handed the
+		// customer a reference that led the operator nowhere.
+		go recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
 
 		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
 		if reference != "" {
