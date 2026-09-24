@@ -201,6 +201,7 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Conformance fast-subset lane for the shared fault-injection matrix.** A new cloud-lab lane (`tests/cloud-lab/conformance/`, driven by `run-conformance.sh`) runs the five `fast` scenarios of the Go/Rust conformance matrix (duplicate sequential/concurrent POSTs, swap timeout with a dropped response, kill at the post-receive/pre-session boundary, mint URL alias spellings) against the co-owned spec and fault proxy from PRTA (`tests/conformance/`, never forked), emitting a per-invariant verdict table. The proxy observes every blinded message the daemon exposes to the mint, so deterministic-output reuse — the #257/#266/#480 brick class — is measured, not asserted. Verdicts the payment-record store cannot yet back are recorded as `pending` against #502/#403 rather than skipped. The lane skips cleanly without docker or a PRTA checkout; the tollgate lab image gains `socat` for the host-side wallet-info call. ([#535](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/535))
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
