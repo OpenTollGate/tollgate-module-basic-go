@@ -1039,7 +1039,8 @@ type lightningInvoiceResponse struct {
 	// the Retry-After header in the body so a portal can render a countdown
 	// without reaching for a header it may not be allowed to read.
 	Code       string `json:"code,omitempty"`
-	RetryAfter int    `json:"retry_after,omitempty"`}
+	RetryAfter int    `json:"retry_after,omitempty"`
+}
 
 type balanceResponse struct {
 	Status        int    `json:"status"`
