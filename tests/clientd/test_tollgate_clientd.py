@@ -480,6 +480,82 @@ class TestMoneyPathGuards:
         assert d._load_pending_token() is None, (
             "a spent token must not be retried or advertised as recoverable")
 
+    def test_terminal_keyset_expired_stops_daemon(self, mock_gate, tmp_path):
+        # S5's rotation scenario class: the router retired the keyset the
+        # wallet's notes were minted under — retrying can never succeed.
+        gw, state = mock_gate
+        d, payments = self._blind_daemon(gw, state, tmp_path)
+        state["post_status"] = 400
+        state["post_body"] = json.dumps({
+            "kind": 21023,
+            "content": "The note cannot be recovered by retrying; "
+                       "obtain a new token",
+            "tags": [["code", "payment-error-keyset-expired"]]})
+        with pytest.raises(clientd.TerminalPaymentError) as exc:
+            d.top_up()
+        assert exc.value.code == "payment-error-keyset-expired"
+
+    def test_outcome_unknown_preserves_token_but_never_reuses(
+            self, mock_gate, tmp_path):
+        gw, state = mock_gate
+        d, payments = self._blind_daemon(gw, state, tmp_path)
+        state["post_status"] = 400
+        state["post_body"] = json.dumps({
+            "kind": 21023, "content": "Do not send this e-cash note again",
+            "tags": [["code", "payment-outcome-unknown"]]})
+        with pytest.raises(clientd.TerminalPaymentError) as exc:
+            d.top_up()
+        assert exc.value.code == "payment-outcome-unknown"
+        assert d._load_pending_token() is None, (
+            "an outcome-unknown token must never be re-POSTed")
+        preserved = list(tmp_path.rglob("*.token.outcome-unknown"))
+        assert preserved, ("the token must survive on disk for operator "
+                           "reconciliation, under a non-reuse name")
+
+    def test_fee_underbuy_warning_surfaces(self, mock_gate, tmp_path):
+        # A fee-charging mint credits fewer steps than paid for (S5 math:
+        # floor((amount - fee) / price)); the message must say so.
+        gw, state = mock_gate
+        args = Args()
+        args.gateway = gw
+        args.steps = 2
+        args.state_dir = str(tmp_path)
+        payments = []
+
+        def wallet(mint_url, amount_sats, wallet_dir):
+            payments.append(amount_sats)
+            return f"cashuB64MOCK{amount_sats}"
+
+        state["post_status"], state["post_body"] = 200, json.dumps(
+            {"kind": 1022, "tags": [["allotment", "60000"],
+                                    ["start-time", "42"]]})
+        d = clientd.ClientDaemon(args, "stub", wallet)
+        msg = d.top_up()
+        assert "warning" in msg and "1 of 2" in msg, msg
+
+    def test_post_expiry_renewal_does_not_trip_blind_cap(
+            self, mock_gate, tmp_path, monkeypatch):
+        # The #541 regression: a payment after the session expired opens a
+        # FRESH session whose allotment never exceeds the old high-water
+        # mark — the pre-fix counter never reset and the daemon stopped
+        # after 3 healthy payments. The reviewer's empirical repro.
+        gw, state = mock_gate
+        monkeypatch.setattr(clientd, "PAYMENT_THROTTLE", 0.01)
+        d, payments = self._blind_daemon(gw, state, tmp_path)
+        STEP = 22020096
+        for i in range(1, 6):  # five post-expiry cycles, cap is 3
+            d.last_payment = 0.0
+            state["post_body"] = json.dumps({"kind": 1022, "tags": [
+                ["allotment", str(STEP)], ["start-time", str(i)]]})
+            d.top_up()
+            # run() would observe the fresh session on the next poll
+            d.observe({"allotment": STEP, "remaining": STEP})
+            # session expires before the next renewal
+            d.observe({"allotment": None, "remaining": None})
+        assert len(payments) == 5, (
+            f"post-expiry renewals must survive past the cap (got "
+            f"{len(payments)}; the pre-fix high-water reset stopped at 3)")
+
     def test_payment_timeout_defaults_wide(self, mock_gate, tmp_path):
         gw, state = mock_gate
         d, _ = self._blind_daemon(gw, state, tmp_path)
