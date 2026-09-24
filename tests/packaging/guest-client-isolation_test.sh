@@ -261,8 +261,8 @@ run_same_version
 rc=$?
 [ "$rc" = 0 ] && ok "same-version run exits 0" \
               || bad "same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
-grep -q "Flag matches" "$LOGFILE" 2>/dev/null && ok "same-version branch was the path taken" \
-                                             || bad "same-version branch not taken"
+grep -q "^.*Setup branch VERIFY" "$LOGFILE" 2>/dev/null && ok "same-version branch was the path taken" \
+                                                       || bad "same-version branch not taken"
 check_guest_isolated "same-version install"
 check_never_isolated "same-version install"
 check_guest_isolation_shape "same-version install"

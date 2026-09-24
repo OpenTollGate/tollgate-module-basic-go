@@ -253,7 +253,7 @@ rc=$?
 [ "$rc" = "0" ] \
     && ok "the same-version run still exits 0 (the gate refuses the board, it does not break the install)" \
     || bad "the same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
-if grep -q 'Flag matches' "$LOGFILE" 2>/dev/null; then
+if grep -q '^.*Setup branch VERIFY' "$LOGFILE" 2>/dev/null; then
     ok "the same-version branch was the path taken"
 else
     bad "the same-version branch was not taken (log: $(head -n 2 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"

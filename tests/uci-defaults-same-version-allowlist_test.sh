@@ -223,7 +223,11 @@ run_same_version
 rc=$?
 [ "$rc" = 0 ] && ok "same-version run exits 0" \
               || bad "same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
-if grep -q "Flag matches" "$LOGFILE" 2>/dev/null; then
+# The branch the driver took, as the driver itself logged it. The marker here
+# is the apk-shaped version the resolution path produces
+# (`0.6.0_alpha4-r0`), which normalises to the same release as the shipped
+# `v0.6.0-alpha4`, so the verdict is SAME -> verify/repair.
+if grep -q "^.*Setup branch VERIFY" "$LOGFILE" 2>/dev/null; then
     ok "same-version branch was the path taken (flag = $FAKE_VERSION)"
 else
     bad "same-version branch not taken (log: $(head -n 2 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
