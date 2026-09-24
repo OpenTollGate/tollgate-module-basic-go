@@ -50,7 +50,7 @@ and [Semantic Versioning](https://semver.org/).
   purchased remainder does *not* travel to the address the customer moved to;
   carrying entitlement across an address change needs a session ticket and is
   its own change
-  ([#PRNUM](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/PRNUM)).
+  ([#560](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/560)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,
