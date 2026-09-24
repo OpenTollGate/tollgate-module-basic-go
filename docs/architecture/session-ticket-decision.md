@@ -1,9 +1,12 @@
 # Session Tickets and MAC Rotation — Architecture Decision
 
-> **Status: Proposed (2026-09-24).** Nothing in this document is in force yet:
-> the module, portal and bundle changes below are the PR sequence that would
-> make it true. Acceptance is a maintainer action — the drafting account may
-> not accept its own proposal, and no PR here claims it has been accepted.
+> **Status: Proposed (2026-09-24) — carry-over held.** The session-ticket
+> carry-over proposed in this record is **on hold pending maintainer
+> discussion**: see "Amendment - the address is session-scoped" at the end of
+> this document. Nothing in this document is in force yet: the module, portal
+> and bundle changes below are the PR sequence that would make it true.
+> Acceptance is a maintainer action — the drafting account may not accept its
+> own proposal, and no PR here claims it has been accepted.
 
 ## Context
 
@@ -73,6 +76,10 @@ the structural change it does not make.
 
 ## Decision
 
+> **Held (2026-09-24):** the carry-over decision below is on hold pending
+> maintainer discussion. The amendment at the end of this record (R1-R3)
+> governs; the rebind flow in this section is the design it supersedes.
+
 **Sessions are addressed by a server-signed, memory-only ticket that carries a
 session HANDLE and nothing else. The MAC stops being the identity and becomes
 the socket-resolved delivery address.**
@@ -140,6 +147,10 @@ A rotation is `POST /session/rebind` with the ticket, from the new address:
 
 These are the parts a plausible implementation omits. Each one is asserted by a
 test, not by prose.
+
+> **Held (2026-09-24):** Invariants 1 and 2 exist only to make a rebind safe,
+> and the amendment at the end of this record holds the rebind. A rebind that
+> is never issued has no meter to carry and no `StartTime` to preserve.
 
 **Invariant 1 — the byte meter carries.** A session record carries `Consumed`,
 the byte total of the attachments it has already left behind. It is
@@ -290,3 +301,64 @@ and nothing in PR 2 should be read as claiming otherwise.
 - The stale-binding reconciliation for clients that leave the network (already
   in review): a rotation is the same event seen from the new address, and both
   paths must agree that a session is delivered to exactly one address at a time.
+
+## Amendment - the address is session-scoped (2026-09-24)
+
+**Update 2026-09-24 (operator decision).** This amendment governs the record
+above. The session-ticket carry-over it proposes — the ticket, the rebind flow,
+and Invariants 1-2 which exist only to make a rebind safe — is **held, not
+withdrawn**. The governing principle is rotation *between* purchases, and the
+open question is whether any opt-in escape hatch is warranted. Where the body
+of this record conflicts with R1-R3, R1-R3 govern.
+
+**R1 - the address is session-scoped.** Entitlement belongs to one address for
+the lifetime of the purchase that paid for it. Nothing carries across
+addresses: no meter ledger, no `StartTime`, no session record, no credit.
+
+**R2 - no join, in state or in logs.** The router must never create or keep a
+record that names two customer addresses together. No log line or log field may
+pair an old and a new address: the carry-over design's
+`Session rebind: handle %s moved from %s to %s` info line, and its two WARNING
+lines that name the previous attachment, are exactly what R2 forbids. No
+durable (or long-lived in-memory) table keyed by address may outlive the
+session.
+
+**R3 - no automatic rotation handling.** The portal must never auto-issue a
+session handle or auto-rebind a session without an explicit customer action and
+plain disclosure. If an escape hatch is ever shipped, it is opt-in per
+purchase, short-lived (order of a minute, single use) and MAC-blind in its
+logging.
+
+The reasoning is short. MAC rotation between purchases is the product's privacy
+primitive; the router cannot command a device to rotate, because that is the
+customer's device setting, and a spoofable MAC makes any "one purchase per
+address" enforcement both unenforceable and a tax on honest users. The design
+rule is therefore *encourage rotation, never require it, and never link two
+addresses*.
+
+What makes the model work instead of carry-over:
+
+- small, granular purchases bound the loss from a rotation mid-purchase;
+- the customer's own remaining counter (`GET /usage`, shown in the portal) is
+  their detection surface;
+- client isolation of guest clients removes the cheap discovery path for
+  address takeover (tracked as follow-up work).
+
+### Refunds considered and not adopted (default path)
+
+The operator would consider ecash refunds for a session ended early. The
+product, though, wants to encourage small frequent granular payments rather
+than enable over-payment: a refund option makes "buy more than you need and
+reclaim the rest" free, and rewards *not* rotating, which is the opposite of
+the privacy property. Mechanically, a refund is an outbound payment — a swap or
+melt at the mint, a Lightning invoice and its routing, operator float — whose
+cost can exceed the granule. Decisively, paying a customer back requires a
+**durable per-address record of owed value**, which is the exact join R2
+forbids, and which would also have to survive a restart to be honoured. Refunds
+are therefore not part of the default path.
+
+The trade-offs, the constraints that any future refund must satisfy, and the
+open questions for maintainers are set out in a discussion note:
+https://njump.me/55a5ca8b0d6ed31b9566451fe513c2ed0a741eac4143b3223d0844b6c1b28fb0 .
+That note is the place to argue the decision; this ADR records only the current
+position.
