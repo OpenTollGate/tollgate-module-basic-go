@@ -570,13 +570,20 @@ The session belongs to the address it was bought on, so:
 
 * The device returns as a new client and the portal offers the buy flow
   again.
-* The **abandoned** address is reconciled about a minute later — the
-  module asks NoDogSplash whether that client is still there, and after two
-  consecutive "gone" answers it deauthorises the address, drops its session
-  record, and clears its metering baseline. That is what stops an address
-  nobody holds from staying authorised for ever, which anyone who later
-  holds it (a hardware-address fallback, a spoof, a collision) would
-  otherwise inherit for free.
+* The **abandoned** address is not reconciled a minute later: the address
+  itself keeps the access NoDogSplash already granted it for about an hour.
+  NoDogSplash only stops listing an authenticated client when its idle
+  timeout fires, and TollGate ships `authidletimeout='3600'`, so a departed
+  client stays listed — and NDS-authorised — for roughly that hour. From the
+  first sweep after the listing goes away the module asks NoDogSplash whether
+  that client is still there, and after two consecutive "gone" answers —
+  within ~30–90 s — it deauthorises the address, drops its session record,
+  and clears its metering baseline. The honest end-to-end bound is therefore
+  about an hour (NDS listing lifetime) plus a minute (module reconciliation),
+  not a minute. That is what stops an address nobody holds from staying
+  authorised indefinitely, which anyone who later holds it (a
+  hardware-address fallback, a spoof, a collision) would otherwise inherit
+  for free.
 * The leftover time or data the customer paid for does **not** travel to
   the new address yet: entitlement still belongs to the address. Carrying
   it across needs a session ticket and a portal change, and is scheduled as

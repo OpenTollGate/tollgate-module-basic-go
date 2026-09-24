@@ -27,7 +27,7 @@ and [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **A client that leaves the network no longer leaves the address it paid on
-  authorised for ever.** Entitlement is keyed to the MAC address, and on the
+  authorised indefinitely.** Entitlement is keyed to the MAC address, and on the
   default `bytes` metric the per-MAC meter of an address whose client has gone
   has nothing left to measure — its counters simply stop moving — so nothing
   that reads traffic could ever end that session. A mid-session Wi-Fi address
@@ -41,8 +41,14 @@ and [Semantic Versioning](https://semver.org/).
   still holds really has its client on the network, and after two consecutive
   "gone" answers it closes the gate and retires the record — under the existing
   rule that a failed close is not a close, so the record is kept and the close
-  retried until `ndsctl` confirms it. A client that is still listed is never
-  touched however idle it is, an unreadable probe never counts as an absence,
+  retried until `ndsctl` confirms it. How long the gap actually lasts is
+  bounded upstream of the module: NoDogSplash stops listing an authenticated
+  client only when its idle timeout fires, and TollGate ships
+  `authidletimeout='3600'`, so the departed client's address stays listed —
+  and NDS-authorised — for about an hour, and the reconciliation then retires
+  the record within ~30–90 s of the listing going away. A client that is
+  still listed is never touched however idle it is, an unreadable probe never
+  counts as an absence,
   `milliseconds` sessions are deliberately out of scope (their gate is bounded
   by its own expiry timer, so the leak is not indefinite), and only a confirmed
   close clears the metering baseline — the next holder of that address starts
