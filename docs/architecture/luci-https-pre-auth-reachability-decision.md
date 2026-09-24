@@ -30,11 +30,12 @@ it is `1` whenever the cert/key pair is readable, which means a captive-LAN
 client that hits the LuCI port on `:8080` is answered with
 `307 Location: https://<router>/`. The pre-auth allow list covered `:2121`,
 `:8080`, `:2050`, `:2051`, `:8090` and `:8443` — every port the setup script
-owns except the one the redirect targets. nodogsplash REJECTs `:443` for an
-unauthenticated client, so the redirect dead-ended on a blocked port and
-LuCI was unreachable before authentication: precisely the operator lockout the
-sibling decision above exists to prevent. Reproduced on hardware on the
-2026-09-22 pre15 build.
+owns except the one the redirect targets. (`:8090` and `:8443` have since been
+dropped from the pre-auth list; see Consequences below.) nodogsplash REJECTs
+`:443` for an unauthenticated client, so the redirect dead-ended on a blocked
+port and LuCI was unreachable before authentication: precisely the operator
+lockout the sibling decision above exists to prevent. Reproduced on hardware
+on the 2026-09-22 pre15 build.
 
 The rule was never a matter of disagreement — it was a matter of a missing
 writer:
@@ -61,9 +62,23 @@ either one entry per line or space separated, so the delimiters are
 ## Consequences
 
 - The pre-auth contract for an unauthenticated captive-LAN client is now the
-  full list: `:2121`, `:8080`, `:2050`, `:2051`, `:8090`, `:8443`, `:443`.
-  Any port added to `uhttpd.portal`/`uhttpd.admin`, or targeted by a redirect
-  any of them emits, has to be added here in the same change.
+  full list: `:2121`, `:8080`, `:2050`, `:2051`, `:443`. The admin board's
+  `:8090`/`:8443` are **not** on it: the board is owner-facing and is kept off
+  the captive bridge by two layers — `del_list` removing their entries from
+  nodogsplash's pre-auth list in `assert_nodogsplash_allow_entries`
+  (`packaging/files/etc/uci-defaults/99-tollgate-setup`), and the
+  unconditional packet-filter rule in
+  `packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft`,
+  which drops `:8090`/`:8443` on `br-lan` at fw4 input priority -1 for both
+  address families and therefore also covers an *authenticated* guest, which
+  the allow list cannot. A port added to `uhttpd.portal`/`uhttpd.admin`, or
+  targeted by a redirect either of them emits, still has to be reflected here
+  in the same change — but an admin-board port is a change to those two
+  layers, never an addition to the pre-auth allow list.
+  `tests/packaging/admin-board-not-guest-reachable_test.sh` is the drift
+  guard: it fails if any shipped writer re-adds `:8090`/`:8443` to
+  `users_to_router`, and pins the drop rule, its protocol coverage, and its
+  installation by both packaging paths.
 - Behaviour is unchanged for `redirect_https='0'` routers (no cert/key pair):
   the rule is an allow, not a listener, so it costs nothing when no TLS
   listener exists. It does not create one — a router with the redirect off
