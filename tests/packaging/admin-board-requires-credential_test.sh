@@ -472,8 +472,13 @@ assert_board_kept "locked account"
 # The full setup path is not executed here: it writes /etc/profile, the kernel
 # hostname and sysctls, which an offline test must not touch. The call site is
 # asserted instead (the same shape PR #546's test uses for its second writer).
+# The anchor is the `# Full setup` header PREFIX, not its full wording: the
+# driver's branch comments are prose that changes when the branch _selection_
+# changes (the order-aware marker comparison reworded this one), and an anchor
+# that breaks on a comment edit fails the suite for the wrong reason — while the
+# invariant under test (the gate is called on the full-setup path) is unchanged.
 echo "== the full-setup path runs the same gate"
-if awk '/^# Full setup \(first boot or version change\)$/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" | grep -q found; then
+if awk '/^# Full setup /{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" | grep -q found; then
     ok "the full-setup driver calls enforce_admin_credential right after setup_uhttpd_configui"
 else
     bad "the full-setup path does not call enforce_admin_credential — a first boot would leave an empty root hash behind the :8090 admin board"
