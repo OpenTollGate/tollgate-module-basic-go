@@ -26,6 +26,22 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A late `Receive` outcome is recorded, so the reference the customer was
+  given leads somewhere.** When the mint did not answer within the 30-second
+  deadline the customer was told the outcome was unknown — not failed — and
+  shown a **reference** (the salted fingerprint of the note) to quote. But
+  nothing read the money-moving call's answer once the deadline had fired: it
+  was discarded in silence, so a late **success** (the mint took the note, no
+  session was granted, the value is stranded in the operator wallet) and a late
+  **failure** (the note is untouched and safe to resubmit) were the same two
+  words in the log, and the reference was not actionable. The answer is now
+  logged beside that reference with the mint, the device and the amount, and the
+  operator procedure is documented in
+  [docs/operator-guide.md](docs/operator-guide.md). Log-only on purpose: no
+  session is granted and no value moves, so a successful late `Receive` is still
+  stranded value until the journal work lands — this change only makes it
+  visible and decidable
+  ([#558](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/558)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,
