@@ -73,16 +73,23 @@ LOG="$(mktemp "${TMPDIR:-/tmp}/hp-gate.XXXXXX.log")"
 #
 # This is environment setup, not a relaxed assertion: with the lease present,
 # every one of those checks is asserted exactly as before.
+#
+# The fixture is appended whenever the harness client is MISSING from the file,
+# not only when the file is empty: a dev box or a router always holds a
+# non-empty /tmp/dhcp.leases (dnsmasq keeps one line per live lease), and the
+# empty-file-only test silently skipped the fixture there, turning a healthy
+# artifact red for an environment reason. Idempotent: a file that already
+# leases the client is left byte-identical.
 # ---------------------------------------------------------------------------
 LEASE_FILE="${HP_LEASE_FILE:-/tmp/dhcp.leases}"
-if [ ! -s "$LEASE_FILE" ]; then
-    : > "$LEASE_FILE"
+CLIENT_MAC='02:00:00:00:00:20'
+if grep -q "[[:space:]]${CLIENT_MAC}[[:space:]]" "$LEASE_FILE" 2>/dev/null; then
+    echo "== happy-path gate: using the existing $LEASE_FILE (already leases $CLIENT_MAC)"
+    cat "$LEASE_FILE"
+else
     printf '1700000000 02:00:00:00:00:20 127.0.0.1 hp-client *\n' >> "$LEASE_FILE"
     printf '1700000000 02:00:00:00:00:20 127.0.0.2 hp-client *\n' >> "$LEASE_FILE"
     echo "== happy-path gate: wrote the client lease fixture $LEASE_FILE"
-    cat "$LEASE_FILE"
-else
-    echo "== happy-path gate: using the existing $LEASE_FILE"
     cat "$LEASE_FILE"
 fi
 
