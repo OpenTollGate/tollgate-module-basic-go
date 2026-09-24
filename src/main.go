@@ -213,7 +213,10 @@ func evictLeastRecentlyUsedQuotaEntry(m map[string]*quoteQuotaEntry) {
 }
 
 // allow decides whether a quote-creation request may proceed, returning the
-// Retry-After a refusal should advertise.
+// Retry-After a refusal should advertise. clientKey is the caller's client
+// identity, derived once by the middleware and passed in: the derivation reads
+// the DHCP lease file and then the ARP table, and a refused request must not pay
+// for that lookup twice.
 //
 // The layers are consumed innermost first: a request that fails the per-client
 // bucket never touches the per-source or global bucket, so a flood from one
@@ -222,8 +225,8 @@ func evictLeastRecentlyUsedQuotaEntry(m map[string]*quoteQuotaEntry) {
 // once. (The trade is that a request refused by a later layer has already spent
 // the earlier layers' tokens — negligible between a 6/min client bucket and a
 // 2/s global bucket, and reserving-then-cancelling tokens buys nothing here.)
-func (s *quoteQuotaState) allow(r *http.Request) (bool, int) {
-	if !s.allowFrom(s.perClient, clientLimiterKey(r),
+func (s *quoteQuotaState) allow(clientKey string, r *http.Request) (bool, int) {
+	if !s.allowFrom(s.perClient, clientKey,
 		rate.Every(time.Minute/time.Duration(s.limits.perClientRPM)), s.limits.perClientBurst) {
 		return false, ceilSecondsPerToken(s.limits.perClientRPM, time.Minute)
 	}
@@ -272,6 +275,13 @@ func clientLimiterKey(r *http.Request) string {
 	}
 	return sourceNetworkKey(r)
 }
+
+// clientLimiterKeyFn is the derivation the quota path calls. It is a variable
+// only so a test can watch how many times one request derives the client key:
+// the derivation reads the DHCP lease file and then the ARP table, and a refused
+// request must not pay for that lookup twice. Same seam shape as dhcpLeasePath
+// and quoteQuotas — production always leaves it at clientLimiterKey.
+var clientLimiterKeyFn = clientLimiterKey
 
 // sourceNetworkKey is the per-source bucket key: the exact address for IPv4 and
 // the /64 prefix for IPv6, so a dual-stack LAN cannot mint a fresh bucket for
@@ -324,9 +334,12 @@ var quoteRefusals quoteRefusalLog
 // quoteCreateQuotaMiddleware applies the POST-only quota for quote creation.
 func quoteCreateQuotaMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		allowed, retryAfter := quoteQuotas.allow(r)
+		// Derived once and reused for the refusal log line below. The key comes
+		// from the socket (DHCP lease, then ARP table), and a flood of refused
+		// requests is the last place to pay for that lookup twice.
+		key := clientLimiterKeyFn(r)
+		allowed, retryAfter := quoteQuotas.allow(key, r)
 		if !allowed {
-			key := clientLimiterKey(r)
 			if shouldLog, total := quoteRefusals.allow(key); shouldLog {
 				mainLogger.WithFields(logrus.Fields{
 					"client": key,
