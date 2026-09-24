@@ -45,7 +45,7 @@ and [Semantic Versioning](https://semver.org/).
   when — they differ and the service is already running, logging the resulting
   accept-rule count to `/tmp/tollgate-setup.log`. A fresh boot and a
   steady-state run are left alone, so no session is dropped for nothing
-  ([#578](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/578)).
+  ([#579](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/579)).
 - **Guests on the open SSID can no longer reach each other: the setup writer
   now arms client isolation on both guest APs.** Nothing in the writer, the
   portal or the installer ever set it, so on the shipped config a guest on the
