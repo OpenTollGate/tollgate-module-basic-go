@@ -26,6 +26,32 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A version roll-back no longer re-runs full setup and clobbers the
+  operator's state.** `99-tollgate-setup` compared the version in
+  `/etc/tollgate-setup-done` with the shipped version for **equality**, so every
+  different version counted as a new one — and a downgrade is a different
+  version. Reinstalling an older build over a newer one therefore re-ran full
+  setup, re-randomised the guest SSID and rewrote the nodogsplash state on a
+  router the operator had already configured (observed on the bench MT3000 on
+  2026-09-24, three times, mid-test). The marker is now compared **by order**:
+  no marker, or a marker older than the shipped version, runs full setup; a
+  marker equal to, **newer** than (a roll-back), or not orderable against the
+  shipped version takes the verify/repair branch — verify the APs, re-assert the
+  uhttpd contract and the nodogsplash allow list — and never touches the
+  operator's guest SSID, private credentials or hostname. Version strings are
+  the repository-root VERSION with an optional `-g<sha>` build suffix (the same
+  release, so a suffix no longer counts as a new version). A marker that records
+  no orderable version — `unsubstituted`, an empty file, a dev branch build — is
+  verified and then **re-stamped** with the shipped version rather than obeyed,
+  so a marker poisoned the way #459 could no longer wedge a router into never
+  running full setup again. The driver logs which branch it took and why
+  (recorded vs expected, comparison verdict). Offline,
+  `tests/uci-defaults-setup-marker-order_test.sh` pins the
+  absent/same/older/newer/malformed/suffixed cases and the
+  alpha4→alpha5→alpha4 round trip, with a failing negative control: the same
+  roll-back fixture run under the pre-change equality predicate re-runs full
+  setup and re-randomises the SSID
+  ([#578](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/578)).
 - **Guests on the open SSID can no longer reach each other: the setup writer
   now arms client isolation on both guest APs.** Nothing in the writer, the
   portal or the installer ever set it, so on the shipped config a guest on the
