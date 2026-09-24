@@ -248,12 +248,40 @@ chmod +x "$TMP/bin/apk"
 # MARKER_TEST_FAKE_HEXDUMP=1 forces the stand-in, so the fallback path itself is
 # exercised on machines that do have hexdump.
 if [ "${MARKER_TEST_FAKE_HEXDUMP:-0}" = "1" ] || ! command -v hexdump >/dev/null 2>&1; then
+    # The counter the shim below reads and bumps. It is NOT `$RANDOM`: this
+    # shim's shebang is /bin/sh, and POSIX sh has no RANDOM (dash, the /bin/sh
+    # on Debian/Ubuntu, leaves it unset), so a RANDOM-based stand-in returned
+    # `0000` on every single call there — the fallback was dead on exactly the
+    # machines it exists for, and the "full setup did not regenerate the SSID"
+    # assertion could never pass. A counter is dash/busybox-ash/bash-safe and
+    # still differs on every call, which is all the suite asks of it.
+    export HEXDUMP_SEQ_FILE="$TMP/hexdump.seq"
+    printf '0\n' > "$HEXDUMP_SEQ_FILE"
     cat > "$TMP/bin/hexdump" <<'SHIM'
 #!/bin/sh
-# fake hexdump: -n 3 -e '4/1 "%02X"' -> a fresh 4-hex string
-printf '%04X\n' "$(( (RANDOM * 32768 + RANDOM) % 65536 ))"
+# fake hexdump: -n 3 -e '4/1 "%02X"' -> a fresh 4-hex string.
+seq="${HEXDUMP_SEQ_FILE:?fake hexdump: HEXDUMP_SEQ_FILE is not set}"
+n=$(cat "$seq" 2>/dev/null || echo 0)
+n=$((n + 1))
+printf '%s\n' "$n" > "$seq"
+printf '%04X\n' "$n"
 SHIM
     chmod +x "$TMP/bin/hexdump"
+
+    # The stand-in is only useful if it VARIES, under the /bin/sh that will
+    # invoke it. Assert that here, at the shim, instead of letting a constant
+    # shim surface 400 assertions later as "full setup did not regenerate the
+    # SSID" — a message that points at the driver rather than at the harness.
+    # (The original RANDOM-based version of this shim is exactly that bug: POSIX
+    # sh has no RANDOM, so under dash — the /bin/sh here — it returned 0000
+    # every time.)
+    h1="$("$TMP/bin/hexdump" -n 3 -e '4/1 "%02X"' /dev/urandom)"
+    h2="$("$TMP/bin/hexdump" -n 3 -e '4/1 "%02X"' /dev/urandom)"
+    if [ -n "$h1" ] && [ "$h1" != "$h2" ]; then
+        ok "fake hexdump varies between calls under sh ($h1 != $h2)"
+    else
+        bad "fake hexdump is constant under sh (got '$h1' then '$h2') — the fallback cannot drive a re-randomisation assertion"
+    fi
 fi
 export PATH="$TMP/bin:$PATH"
 
