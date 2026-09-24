@@ -72,7 +72,7 @@ and [Semantic Versioning](https://semver.org/).
   before the command's own stderr redirection applies). Both brand
   reads now probe with `[ -r ]` instead of opening, so the
   default-brand path produces no shell noise.
-  ([#557](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/557))
+  ([#557](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/568))
 
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**
