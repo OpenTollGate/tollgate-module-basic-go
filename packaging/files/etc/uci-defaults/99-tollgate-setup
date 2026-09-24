@@ -721,41 +721,61 @@ setup_nodogsplash() {
 # the resulting accept-rule count so an install can be audited from
 # /tmp/tollgate-setup.log.
 
-# The pre-auth TCP ports the CONFIGURED allow list holds. Entries look like
-# 'allow tcp port 8090'; `uci get` renders a list either one entry per line or
-# as a quoted single-line list, so quotes become newlines before matching. Only
-# tcp entries are collected, and the running ruleset is filtered the same way:
-# an `allow udp port 67` entry is a udp rule in ndsRTR, and collecting it on one
-# side only would read as a permanent, phantom divergence.
-nodogsplash_configured_accept_ports() {
-    uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null \
+# The pre-auth entries the CONFIGURED allow list holds, as `proto/port` pairs.
+# Entries look like 'allow tcp port 8090' / 'allow udp port 67'; `uci get`
+# renders a list either one entry per line or as a quoted single-line list, so
+# quotes become newlines before matching. BOTH protocols are compared: a stale
+# udp permit is as much a policy divergence as a stale tcp one, and the running
+# ruleset is filtered the same way, so the two sides stay symmetric (comparing
+# raw port numbers would let an `allow udp port 67` entry read as a phantom
+# divergence, because it appears in ndsRTR as a udp rule and never as a tcp one).
+nodogsplash_users_to_router_raw() {
+    uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo ""
+}
+
+nodogsplash_configured_accept_entries() {
+    nodogsplash_users_to_router_raw \
         | tr "'" '\n' \
-        | sed -n 's/^ *allow tcp port \([0-9][0-9]*\) *$/\1/p' \
-        | sort -n -u
+        | sed -n 's/^ *allow \([a-z][a-z]*\) port \([0-9][0-9]*\) *$/\1\/\2/p' \
+        | sort -u \
+        | nodogsplash_drop_entry "tcp/$(nodogsplash_gateway_port)"
+}
+
+# Entries the configured list holds that this writer does NOT write and this step
+# cannot turn into a `proto/port` pair — a port range, a multiport entry,
+# anything else an operator may have hand-edited in. Non-empty means the
+# comparison below would cover only PART of the list, which reads as a
+# divergence this step can never repair (it would reload on every run), so it is
+# reported instead of acted on. `uci get` renders a list either one entry per
+# line or as a quoted single-line list, hence the quote splitting and trimming.
+nodogsplash_configured_unparsable_entries() {
+    nodogsplash_users_to_router_raw \
+        | tr "'" '\n' \
+        | sed 's/^ *//;s/ *$//;/^$/d' \
+        | grep -v -E '^allow [a-z]+ port [0-9]+$'
 }
 
 nodogsplash_gateway_port() {
     uci -q get nodogsplash.@nodogsplash[0].gatewayport 2>/dev/null || echo ""
 }
 
-nodogsplash_drop_port() { # filter one port out of a newline separated set
+nodogsplash_drop_entry() { # filter one entry out of a newline separated set
     if [ -n "$1" ]; then grep -v -x -e "$1"; else cat; fi
 }
 
-# The pre-auth TCP ports the RUNNING ruleset accepts, read from the chain
+# The pre-auth entries the RUNNING ruleset accepts, read from the chain
 # nodogsplash installs for the captive bridge. The gateway port is dropped from
-# both sides of the comparison: nodogsplash injects it itself, so it is present
-# even when the list does not carry it, and comparing it would reload on every
-# run instead of on a real divergence. Verified on the bench (2026-09-25) that
-# the two sets are EQUAL in steady state, so the step does not fire on an
-# unchanged router.
-nodogsplash_runtime_accept_ports() {
+# both sides of the comparison as `tcp/<gatewayport>`: nodogsplash injects that
+# rule itself, so it is present even when the list does not carry it, and
+# comparing it would reload on every run instead of on a real divergence.
+# Verified on the bench (2026-09-25) that the two sets are EQUAL in steady
+# state, so the step does not fire on an unchanged router.
+nodogsplash_runtime_accept_entries() {
     iptables -S ndsRTR 2>/dev/null \
         | grep -- '-j ACCEPT' \
-        | grep -F -- '-p tcp' \
-        | sed -n 's/.*--dport \([0-9][0-9]*\).*/\1/p' \
-        | sort -n -u \
-        | nodogsplash_drop_port "$(nodogsplash_gateway_port)"
+        | sed -n 's/.*-p \([a-z][a-z]*\) .*--dport \([0-9][0-9]*\).*/\1\/\2/p' \
+        | sort -u \
+        | nodogsplash_drop_entry "tcp/$(nodogsplash_gateway_port)"
 }
 
 # A missing chain makes `iptables -S` fail; that is not the same as an empty
@@ -776,12 +796,12 @@ nodogsplash_is_running() {
     fi
 }
 
-nodogsplash_ports_csv() { # [1,2,3] — render a newline separated set for the log
+nodogsplash_entries_csv() { # [tcp/1,udp/2] — render a newline separated set
     printf '%s' "$1" | tr '\n' ',' | sed 's/,$//'
 }
 
 converge_nodogsplash_runtime() {
-    local want have before_count after_count rc i
+    local want have before_count after_count rc i unparsable
 
     if ! nodogsplash_is_running; then
         log "nodogsplash policy convergence: service not running (first boot) — procd starts it once with the configured allow list, no reload here"
@@ -791,16 +811,30 @@ converge_nodogsplash_runtime() {
         log "nodogsplash policy convergence: iptables not available — cannot read the running ruleset, leaving the service alone"
         return 0
     fi
-
-    want=$(nodogsplash_configured_accept_ports \
-        | nodogsplash_drop_port "$(nodogsplash_gateway_port)")
-    have=$(nodogsplash_runtime_accept_ports)
-    if [ "$have" = "$want" ]; then
-        log "nodogsplash policy convergence: running ruleset already matches the configured allow list ([$(nodogsplash_ports_csv "$want")]) — no reload"
-        return 0
-    fi
+    # Before the comparison, not after: a missing chain means there is nothing to
+    # compare against, and reporting that is more honest than falling through to
+    # "already matches" when both sides happen to be empty.
     if ! nodogsplash_ruleset_present; then
         log "nodogsplash policy convergence: no ndsRTR chain to compare against — leaving the service alone"
+        return 0
+    fi
+
+    # Compare only when EVERY configured entry was understood: a list holding an
+    # entry this step cannot turn into a `proto/port` pair would compare only
+    # part of it, read as a divergence it can never repair, and reload the
+    # service on every run. Reported, not assumed-equal — "cannot read the list"
+    # is not "the list is fine".
+    unparsable=$(nodogsplash_configured_unparsable_entries)
+    if [ -n "$unparsable" ]; then
+        log "nodogsplash policy convergence: the configured allow list holds entries this step cannot compare ($(printf '%s' "$unparsable" | tr '\n' ' ')) — leaving the service alone"
+        return 0
+    fi
+
+    want=$(nodogsplash_configured_accept_entries)
+
+    have=$(nodogsplash_runtime_accept_entries)
+    if [ "$have" = "$want" ]; then
+        log "nodogsplash policy convergence: running ruleset already matches the configured allow list ([$(nodogsplash_entries_csv "$want")]) — no reload"
         return 0
     fi
 
@@ -822,7 +856,7 @@ converge_nodogsplash_runtime() {
     # `sleep 0.5` is rejected on this target (measured 2026-09-25).
     i=0
     while [ "$i" -lt 5 ]; do
-        have=$(nodogsplash_runtime_accept_ports)
+        have=$(nodogsplash_runtime_accept_entries)
         [ "$have" = "$want" ] && break
         sleep 1
         i=$((i + 1))
@@ -830,9 +864,9 @@ converge_nodogsplash_runtime() {
 
     after_count=$(nodogsplash_accept_rule_count)
     if [ "$rc" = 0 ]; then
-        log "nodogsplash policy convergence: reloaded after an allow-list change — pre-auth accept rules ${before_count} -> ${after_count}; runtime ports [$(nodogsplash_ports_csv "$have")] (configured [$(nodogsplash_ports_csv "$want")])"
+        log "nodogsplash policy convergence: reloaded after an allow-list change — pre-auth accept rules ${before_count} -> ${after_count}; runtime entries [$(nodogsplash_entries_csv "$have")] (configured [$(nodogsplash_entries_csv "$want")])"
     else
-        log "nodogsplash policy convergence: reload FAILED (rc=$rc) — the running ruleset may still be stale (pre-auth accept rules ${before_count} -> ${after_count}; runtime ports [$(nodogsplash_ports_csv "$have")], configured [$(nodogsplash_ports_csv "$want")])"
+        log "nodogsplash policy convergence: reload FAILED (rc=$rc) — the running ruleset may still be stale (pre-auth accept rules ${before_count} -> ${after_count}; runtime entries [$(nodogsplash_entries_csv "$have")], configured [$(nodogsplash_entries_csv "$want")])"
     fi
     return 0
 }

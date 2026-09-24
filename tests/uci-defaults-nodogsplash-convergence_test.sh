@@ -53,8 +53,9 @@ mkdir -p "$TMP/bin" "$TMP/init.d"
 # they are — it compares sets — but the fixtures use the real ones so a failure
 # reads like the incident.
 KEY="nodogsplash.@nodogsplash[0].users_to_router"
-CORE_PORTS="2121 8080 2050 2051 443"
-ADMIN_PORT=8090
+# Entries are `proto/port` pairs, the shape the convergence step compares.
+CORE_ENTRIES="tcp/2121 tcp/8080 tcp/2050 tcp/2051 tcp/443"
+STALE_ENTRY="tcp/8090"
 
 # ---------------------------------------------------------------- fake apk
 FAKE_VERSION="0.6.0_alpha4-r1"
@@ -181,9 +182,10 @@ case "${1:-}" in
         printf '%s\n' '-A ndsRTR -p tcp -m tcp --dport 2050 -j ACCEPT' >> "$IPTS_STATE"
         while IFS= read -r entry; do
             case "$entry" in
-                *"allow tcp port "*)
-                    printf -- '-A ndsRTR -p tcp -m tcp --dport %s -j ACCEPT\n' \
-                        "${entry##*allow tcp port }" >> "$IPTS_STATE"
+                *"allow tcp port "*|*"allow udp port "*)
+                    proto="${entry#*allow }"; proto="${proto%% *}"
+                    printf -- '-A ndsRTR -p %s -m %s --dport %s -j ACCEPT\n' \
+                        "$proto" "$proto" "${entry##* port }" >> "$IPTS_STATE"
                     ;;
             esac
         done < "${COMMITTED:?}"
@@ -228,36 +230,48 @@ printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
 
 # ------------------------------------------------------------- fixtures/helpers
-seed_uci() { # seed_uci <port>... — the CONFIGURED users_to_router list
+seed_uci() { # seed_uci <proto/port>... — the CONFIGURED users_to_router list
     : > "$UCI_STATE"
     printf '%s=nodogsplash\n' 'nodogsplash.@nodogsplash[0]' >> "$UCI_STATE"
-    local p
-    for p in "$@"; do printf '%s=%s\n' "$KEY" "allow tcp port $p" >> "$UCI_STATE"; done
+    local e
+    for e in "$@"; do
+        printf '%s=%s\n' "$KEY" "allow ${e%%/*} port ${e##*/}" >> "$UCI_STATE"
+    done
     # /etc/config/nodogsplash holds what was last committed; before this run that
     # is the pre-run list.
     cp "$UCI_STATE" "$TMP/uci.state.pre"
     uci commit nodogsplash 2>/dev/null
 }
-seed_runtime() { # seed_runtime <port>... — the rules the RUNNING process installed
+seed_uci_raw() { # seed_uci_raw <raw list entry>... — entries the step must NOT parse
+    : > "$UCI_STATE"
+    printf '%s=nodogsplash\n' 'nodogsplash.@nodogsplash[0]' >> "$UCI_STATE"
+    local e
+    for e in "$@"; do printf '%s=%s\n' "$KEY" "$e" >> "$UCI_STATE"; done
+    cp "$UCI_STATE" "$TMP/uci.state.pre"
+    uci commit nodogsplash 2>/dev/null
+}
+seed_runtime() { # seed_runtime <proto/port>... — the rules the RUNNING process installed
     : > "$IPTS_STATE"
     printf '%s\n' '-A ndsRTR -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT' >> "$IPTS_STATE"
     printf '%s\n' '-A ndsRTR -m mark --mark 0x20000/0x30000 -j ACCEPT' >> "$IPTS_STATE"
     printf '%s\n' '-A ndsRTR -p tcp -m tcp --dport 2050 -j ACCEPT' >> "$IPTS_STATE"
-    local p
-    for p in "$@"; do
-        printf -- '-A ndsRTR -p tcp -m tcp --dport %s -j ACCEPT\n' "$p" >> "$IPTS_STATE"
+    local e proto port
+    for e in "$@"; do
+        proto="${e%%/*}"; port="${e##*/}"
+        printf -- '-A ndsRTR -p %s -m %s --dport %s -j ACCEPT\n' \
+            "$proto" "$proto" "$port" >> "$IPTS_STATE"
     done
     printf '%s\n' '-A ndsRTR -j REJECT --reject-with icmp-port-unreachable' >> "$IPTS_STATE"
 }
-runtime_ports() { # sorted TCP ports the RUNNING ruleset accepts
+runtime_entries() { # sorted proto/port entries the RUNNING ruleset accepts
     grep -- '-j ACCEPT' "$IPTS_STATE" 2>/dev/null \
-        | sed -n 's/.*--dport \([0-9][0-9]*\).*/\1/p' | sort -n -u | tr '\n' ' ' \
-        | sed 's/ $//'
+        | sed -n 's/.*-p \([a-z][a-z]*\) .*--dport \([0-9][0-9]*\).*/\1\/\2/p' \
+        | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
-configured_ports() { # sorted TCP ports the CONFIGURED list holds
+configured_entries() { # sorted proto/port entries the CONFIGURED list holds
     grep -F "$KEY=" "$UCI_STATE" 2>/dev/null | cut -d= -f2- \
-        | tr "'" '\n' | sed -n 's/^ *allow tcp port \([0-9][0-9]*\) *$/\1/p' \
-        | sort -n -u | tr '\n' ' ' | sed 's/ $//'
+        | tr "'" '\n' | sed -n 's/^ *allow \([a-z][a-z]*\) port \([0-9][0-9]*\) *$/\1\/\2/p' \
+        | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 reloads() { grep -c -E '^(reload|restart)$' "$SERVICE_CALLS" 2>/dev/null | tr -d ' '; }
 reset_calls() { : > "$SERVICE_CALLS"; }
@@ -280,8 +294,8 @@ converged_log() { grep -c 'nodogsplash policy convergence' "$LOGFILE" 2>/dev/nul
 #    install (uci without :8090, ndsRTR still accepting it).
 # ----------------------------------------------------------------------------
 echo "== a stale RUNNING ruleset converges even when the configured list is already correct"
-seed_uci $CORE_PORTS
-seed_runtime $CORE_PORTS $ADMIN_PORT
+seed_uci $CORE_ENTRIES
+seed_runtime $CORE_ENTRIES $STALE_ENTRY
 running
 run_same_version
 rc=$?
@@ -289,12 +303,12 @@ rc=$?
               || bad "same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
 [ "$(reloads)" = 1 ] && ok "the service was reloaded exactly once" \
                      || bad "expected exactly 1 reload, saw $(reloads)"
-[ "$(runtime_ports)" = "$(configured_ports)" ] \
-    && ok "the running ruleset now matches the configured list [$CORE_PORTS]" \
-    || bad "running ruleset [$(runtime_ports)] still differs from the configured list [$(configured_ports)]"
-case " $(runtime_ports) " in
-    *" $ADMIN_PORT "*) bad "the removed :$ADMIN_PORT accept rule is still in the running ruleset" ;;
-    *) ok "the removed :$ADMIN_PORT accept rule is gone from the running ruleset" ;;
+[ "$(runtime_entries)" = "$(configured_entries)" ] \
+    && ok "the running ruleset now matches the configured list [$CORE_ENTRIES]" \
+    || bad "running ruleset [$(runtime_entries)] still differs from the configured list [$(configured_entries)]"
+case " $(runtime_entries) " in
+    *" $STALE_ENTRY "*) bad "the removed :$STALE_ENTRY accept rule is still in the running ruleset" ;;
+    *) ok "the removed :$STALE_ENTRY accept rule is gone from the running ruleset" ;;
 esac
 grep -q 'nodogsplash policy convergence: reloaded' "$LOGFILE" 2>/dev/null \
     && ok "the reload is logged as 'nodogsplash policy convergence: reloaded'" \
@@ -310,8 +324,8 @@ grep -qE 'accept rules [0-9]+ -> [0-9]+' "$LOGFILE" 2>/dev/null \
 #    wrong in the other direction).
 # ----------------------------------------------------------------------------
 echo "== a matching ruleset is left alone (no needless restart)"
-seed_uci $CORE_PORTS
-seed_runtime $CORE_PORTS
+seed_uci $CORE_ENTRIES
+seed_runtime $CORE_ENTRIES
 running
 run_same_version
 [ "$(reloads)" = 0 ] && ok "no reload when the running ruleset already matches" \
@@ -327,8 +341,8 @@ grep -q 'already matches' "$LOGFILE" 2>/dev/null \
 #    "no service restarts here" rule was protecting; it must survive the fix.)
 # ----------------------------------------------------------------------------
 echo "== first boot: nodogsplash is not running, so nothing is restarted"
-seed_uci $CORE_PORTS
-seed_runtime $CORE_PORTS $ADMIN_PORT
+seed_uci $CORE_ENTRIES
+seed_runtime $CORE_ENTRIES $STALE_ENTRY
 not_running
 run_same_version
 [ "$(reloads)" = 0 ] && ok "no reload while nodogsplash is not running (first boot)" \
@@ -343,7 +357,7 @@ grep -qi 'not running' "$LOGFILE" 2>/dev/null \
 #    step reports it and leaves the service alone.
 # ----------------------------------------------------------------------------
 echo "== an unreadable ruleset is reported, not restarted in a loop"
-seed_uci $CORE_PORTS
+seed_uci $CORE_ENTRIES
 rm -f "$IPTS_STATE"
 running
 run_same_version
@@ -360,8 +374,8 @@ grep -q 'nodogsplash policy convergence' "$LOGFILE" 2>/dev/null \
 # 5. A failing reload must be logged and must not fail the setup run.
 # ----------------------------------------------------------------------------
 echo "== a failing reload is logged and non-fatal"
-seed_uci $CORE_PORTS
-seed_runtime $CORE_PORTS $ADMIN_PORT
+seed_uci $CORE_ENTRIES
+seed_runtime $CORE_ENTRIES $STALE_ENTRY
 running
 FAKE_SERVICE_EXIT=1 run_same_version
 rc=$?
@@ -399,13 +413,17 @@ fi
 # ----------------------------------------------------------------------------
 echo "== the convergence step is idempotent on its own"
 TOLLGATE_SETUP_LIB_ONLY=1 . "$ROOT/$SCRIPT" >/dev/null 2>&1
-# Sourcing runs the script's top-level assignments, so NDS_INIT is back to the
-# absolute path the router uses; point it at the fixture the driver would use.
+# Sourcing runs the script's top-level assignments, so NDS_INIT, SETUP_FLAG and
+# LOGFILE are back to the absolute paths the router uses — and every assertion
+# BELOW this point that reads "$LOGFILE" would read the live path instead of
+# this run's log. Point all three back at the fixtures first.
 NDS_INIT="$FAKE_INIT"
+SETUP_FLAG="$FLAG"
+LOGFILE="$TMP/setup.log"
 if command -v converge_nodogsplash_runtime >/dev/null 2>&1; then
     ok "script exposes converge_nodogsplash_runtime()"
-    seed_uci $CORE_PORTS
-    seed_runtime $CORE_PORTS $ADMIN_PORT
+    seed_uci $CORE_ENTRIES
+    seed_runtime $CORE_ENTRIES $STALE_ENTRY
     running
     reset_calls
     converge_nodogsplash_runtime >/dev/null 2>&1
@@ -418,6 +436,53 @@ if command -v converge_nodogsplash_runtime >/dev/null 2>&1; then
 else
     bad "script does not expose converge_nodogsplash_runtime() — the allow list has no runtime convergence"
 fi
+
+echo
+echo "== a stale udp permit converges, and a matching udp permit does not churn"
+# The comparison is per (protocol, port), not per port: an `allow udp port 67`
+# that the config no longer carries is a real divergence, while the same entry
+# present on both sides is not — a bare port comparison would miss the first and
+# (because a udp rule has no tcp twin) fake the second.
+seed_uci $CORE_ENTRIES udp/53
+seed_runtime $CORE_ENTRIES udp/53 udp/67
+running
+run_same_version
+[ "$(reloads)" = 1 ] && ok "udp case: the stale udp permit triggers one reload" \
+                     || bad "udp case: expected 1 reload, saw $(reloads)"
+[ "$(runtime_entries)" = "$(configured_entries)" ] \
+    && ok "udp case: runtime entries match the configured list after the reload" \
+    || bad "udp case: runtime [$(runtime_entries)] != configured [$(configured_entries)]"
+case " $(runtime_entries) " in
+    *" udp/67 "*) bad "udp case: the removed udp/67 permit is still in the running ruleset" ;;
+    *) ok "udp case: the removed udp/67 permit is gone from the running ruleset" ;;
+esac
+seed_uci $CORE_ENTRIES udp/53 udp/67
+seed_runtime $CORE_ENTRIES udp/53 udp/67
+running
+run_same_version
+[ "$(reloads)" = 0 ] && ok "udp case: matching udp permits are not mistaken for a divergence" \
+                     || bad "udp case: reloaded $(reloads) time(s) with matching udp permits"
+
+echo "== an allow list this step cannot fully read is reported, not reloaded forever"
+# The shipped writer only ever emits 'allow <proto> port <N>'. An operator who
+# hand-edits a range in would make the comparison cover only part of the list —
+# a divergence this step can never repair, i.e. a reload on EVERY run. It must
+# be reported and skipped instead.
+seed_uci_raw 'allow tcp port 2121' 'allow tcp port 80-90'
+seed_runtime $CORE_ENTRIES
+running
+run_same_version
+rc=$?
+[ "$rc" = 0 ] && ok "unparsable list: run still exits 0" \
+              || bad "unparsable list: run exited $rc"
+[ "$(reloads)" = 0 ] && ok "unparsable list: not treated as a divergence to reload for" \
+                     || bad "unparsable list: reloaded $(reloads) time(s)"
+grep -q 'this step cannot compare' "$LOGFILE" 2>/dev/null \
+    && ok "unparsable list: the uncomparable entry is named in the log" \
+    || bad "unparsable list: the uncomparable entry is not reported (log: $(tail -n 2 "$LOGFILE" 2>/dev/null | tr '\n' '|'))"
+grep -q '80-90' "$LOGFILE" 2>/dev/null \
+    && ok "unparsable list: the log names the offending entry" \
+    || bad "unparsable list: the log does not name the offending entry"
 
 echo
 echo "passed=$PASS failed=$FAIL"

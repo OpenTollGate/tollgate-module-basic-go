@@ -40,11 +40,15 @@ and [Semantic Versioning](https://semver.org/).
   service (correct on a fresh boot, where procd starts nodogsplash once from the
   config just written), and the postinst that actually ships in the published
   apk runs the uci-defaults scripts and then restarts **only** `tollgate-wrt`.
-  `99-tollgate-setup` now compares the configured pre-auth TCP ports with the
-  ports the live `ndsRTR` chain accepts, and reloads nodogsplash when — and only
-  when — they differ and the service is already running, logging the resulting
-  accept-rule count to `/tmp/tollgate-setup.log`. A fresh boot and a
-  steady-state run are left alone, so no session is dropped for nothing
+  `99-tollgate-setup` now compares the configured pre-auth permits (protocol
+  **and** port: an `allow udp port N` is a real permit, and a udp rule has no
+  tcp twin in `ndsRTR`) with the permits the live `ndsRTR` chain accepts, and
+  reloads nodogsplash when — and only when — they differ and the service is
+  already running, logging the resulting accept-rule count to
+  `/tmp/tollgate-setup.log`. A fresh boot and a steady-state run are left alone,
+  so no session is dropped for nothing; so is a list holding an entry this step
+  cannot parse (a hand-edited port range), which is reported rather than
+  compared partially — a partial comparison can never be repaired by a reload
   ([#579](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/579)).
 - **Guests on the open SSID can no longer reach each other: the setup writer
   now arms client isolation on both guest APs.** Nothing in the writer, the
