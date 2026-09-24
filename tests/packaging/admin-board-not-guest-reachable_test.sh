@@ -33,7 +33,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 PASS=0
 FAIL=0
@@ -54,9 +54,12 @@ if [ ! -f "$ADMIN_NFT" ]; then
     bad "missing nftables rule: $ADMIN_NFT (nothing stops a captive client reaching the :8090 board)"
 else
     ok "nftables rule present: $ADMIN_NFT"
-    for proto in ipv4 ipv6; do
-        for port in $ADMIN_PORTS; do
-            if grep -qE "meta nfproto $proto iifname \"br-lan\" tcp dport \{ 8090, 8443 \}[[:space:]]+counter drop" "$ADMIN_NFT"; then
+    # Each port, not each rule: a rule that names only :8090 leaves the
+    # board's TLS listener reachable, so the port is checked for membership in
+    # the rule's own port set rather than only for the rule's presence.
+    for port in $ADMIN_PORTS; do
+        for proto in ipv4 ipv6; do
+            if grep -qE "meta nfproto $proto iifname \"br-lan\" tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter drop" "$ADMIN_NFT"; then
                 ok "rule drops :$port on br-lan ($proto)"
                 break
             fi
@@ -119,13 +122,11 @@ fi
 
 # And the writer must actively remove them, because an install that only omits
 # the entries leaves every already-deployed router carrying them.
-in_script=0
 for port in $ADMIN_PORTS; do
     if grep -qE "del_list nodogsplash\.@nodogsplash\[0\]\.users_to_router='allow tcp port $port'" \
         packaging/files/etc/uci-defaults/99-tollgate-setup; then
         ok "99-tollgate-setup removes 'allow tcp port $port' from users_to_router"
     else
-        in_script=1
         bad "99-tollgate-setup does not del_list 'allow tcp port $port' — a deployed router keeps the allowance"
     fi
 done
