@@ -75,10 +75,13 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 # compared lexicographically. Lexicographic comparison of fixed-arity integer
 # tuples is antisymmetric and transitive, and no field can be missing (a marker
 # that does not parse is rejected up front, never defaulted), so any two
-# release markers have exactly one of SAME / OLDER / NEWER. Markers that do not
-# both parse never enter the order at all: they take the verify verdict. The
-# DECISION is therefore total over every possible marker string, even though
-# the order itself is only defined on release markers.
+# release markers have exactly one of SAME / OLDER / NEWER. "Does not parse"
+# includes a numeric field too wide for the shell's integer comparison (see
+# MAX_VERSION_COMPONENT_DIGITS): such a field is refused rather than compared,
+# because a comparison that errors out would silently report SAME. Markers that
+# do not both parse never enter the order at all: they take the verify verdict.
+# The DECISION is therefore total over every possible marker string, even
+# though the order itself is only defined on release markers.
 
 # The shape this script can order:
 #   [v]MAJOR.MINOR.PATCH[-pre|alpha|beta|rc[N]][-g<short sha>]
@@ -101,6 +104,27 @@ normalize_version() {
 # nothing and exit 1 when the argument is not a release marker. RANK orders the
 # pre-release labels (pre < alpha < beta < rc); a plain release ranks above
 # every pre-release of its own core.
+#
+# A numeric component must be a plain decimal integer of at most 9 digits. The
+# bound is not cosmetic: version_relation compares the fields with the shell's
+# `[ … -gt … ]`, which is bounded by the platform's integer width, and an
+# operand that does not fit makes the comparison itself FAIL — dash prints
+# `integer expected`, busybox ash `out of range`, both return non-zero. Every
+# branch of the comparison is then skipped and the relation falls through to
+# SAME: the marker is ACCEPTED and ordered wrongly (a router wedged in the
+# verify path forever, the #459 shape this change exists to prevent), which is
+# strictly worse than refusing to order it. Nine digits (max 999999999) is far
+# beyond any real version component and safely inside intmax_t on every shell
+# this script runs under, including a 32-bit one where ten digits already
+# overflow.
+MAX_VERSION_COMPONENT_DIGITS=9
+is_numeric_component() {
+    case "${1:-}" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    [ "${#1}" -le "$MAX_VERSION_COMPONENT_DIGITS" ]
+}
+
 version_key() {
     local v major rest minor tail patch pre rank digits
     v="${1:-}"
@@ -121,9 +145,9 @@ version_key() {
         *-*) pre="${tail#*-}" ;;
     esac
     [ -n "$major" ] && [ -n "$minor" ] && [ -n "$patch" ] || return 1
-    case "$major$minor$patch" in
-        *[!0-9]*) return 1 ;;
-    esac
+    is_numeric_component "$major" || return 1
+    is_numeric_component "$minor" || return 1
+    is_numeric_component "$patch" || return 1
     rank=4
     digits=0
     if [ -n "$pre" ]; then
@@ -135,9 +159,7 @@ version_key() {
             *) return 1 ;;
         esac
         if [ -n "$digits" ]; then
-            case "$digits" in
-                *[!0-9]*) return 1 ;;
-            esac
+            is_numeric_component "$digits" || return 1
         else
             digits=0
         fi

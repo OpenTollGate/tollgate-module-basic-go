@@ -78,6 +78,9 @@ malformed marker: quoted|"v0.6.0-alpha4"|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERAB
 malformed marker: dev branch build|main.574.2796d96|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
 malformed marker: four-part version|v0.6.0.1|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
 malformed marker: trailing junk|v0.6.0-alpha4-extra|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
+malformed marker: core field too wide for the shell comparison|99999999999999999999.0.0|1|v2.0.0|VERIFY_REPAIR|UNORDERABLE
+malformed marker: ten-digit core field|1000000000.0.0|1|v2.0.0|VERIFY_REPAIR|UNORDERABLE
+widest orderable core field (nine digits)|999999999.0.0|1|v2.0.0|VERIFY|NEWER
 empty marker file|__EMPTY__|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
 '
 
@@ -165,6 +168,39 @@ echo "== stray whitespace and CR in a marker"
 [ "$(setup_marker_decision "$(printf '  v0.6.0-alpha4\n')" v0.6.0-alpha4 1)" != "FULL" ] \
     && ok "normalisation: padded marker does not force full setup" \
     || bad "normalisation: padded marker forced full setup"
+
+# A numeric field that does not fit the shell's integer comparison is the worst
+# of the malformed shapes: the comparison itself ERRORS (`[ 99999999999999999999
+# -gt 2 ]` prints "Illegal number" on dash and "out of range" on busybox ash,
+# both return non-zero), every branch is therefore skipped, and the relation
+# falls through to SAME — the marker is ACCEPTED and ordered wrongly, which
+# wedges the router in the verify path forever (the #459 shape this change
+# exists to prevent). The verdicts are pinned in the case table; this block
+# pins the MECHANISM: no arithmetic diagnostic on stderr, and never SAME.
+echo "== numeric fields too wide for the shell comparison are rejected, not compared"
+for wide in 99999999999999999999.0.0 1000000000.0.0 0.99999999999999999999.0 \
+            0.0.99999999999999999999 v0.6.0-alpha99999999999999999999; do
+    err=$(version_relation "$wide" v2.0.0 2>&1 >/dev/null)
+    rel=$(version_relation "$wide" v2.0.0 2>/dev/null)
+    [ "$rel" = "UNORDERABLE" ] \
+        && ok "too wide: $wide -> UNORDERABLE (verify, never SAME)" \
+        || bad "too wide: $wide -> $rel, want UNORDERABLE"
+    [ -z "$err" ] \
+        && ok "too wide: $wide compares without a shell arithmetic diagnostic" \
+        || bad "too wide: $wide produced a diagnostic: $err"
+    [ "$(setup_marker_decision "$wide" v2.0.0 1)" != "FULL" ] \
+        && ok "too wide: $wide does not force full setup" \
+        || bad "too wide: $wide forced full setup"
+done
+# The bound is a digit COUNT, so the boundary is exact: nine digits orders
+# normally (999999999 is far past any real component and still fits), ten is
+# refused rather than compared.
+[ "$(version_relation 999999999.0.0 999999998.0.0)" = "NEWER" ] \
+    && ok "boundary: nine-digit component orders by value (999999999 > 999999998)" \
+    || bad "boundary: nine-digit component -> $(version_relation 999999999.0.0 999999998.0.0)"
+[ "$(version_relation 999999999.0.0 1000000000.0.0)" = "UNORDERABLE" ] \
+    && ok "boundary: nine-digit vs ten-digit is refused, not compared" \
+    || bad "boundary: nine vs ten digits -> $(version_relation 999999999.0.0 1000000000.0.0)"
 
 # ------------------------------------------------- 2. the end-to-end harness
 # A fake system: flat-file uci, a fake apk, a pinned shadow fixture. The state
