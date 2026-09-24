@@ -44,7 +44,7 @@ and [Semantic Versioning](https://semver.org/).
   quote record, the status poll and the allotment lookup all address it. The
   happy-path suite's tolerated `portal:lightning-lane-against-live-module` known
   issue is deleted with it
-  ([#4](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/4)).
+  ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,
