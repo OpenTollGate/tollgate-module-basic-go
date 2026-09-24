@@ -406,6 +406,20 @@ func MintURLMatches(a, b string) bool {
 	return normalizeMintURL(a) == normalizeMintURL(b)
 }
 
+// NormalizeMintURL returns the canonical form of a mint URL: the identity this
+// wallet registers, keys its mint map by, and compares with (normalizeMintURL
+// and MintURLMatches are the same function's two other faces). Any mint URL
+// arriving from outside the module — a client, a config file, a wire message —
+// must pass through here before it is used as a lookup key. The wallet keys a
+// registered mint in canonical form ("<url>/"), so a verbatim pass-through of a
+// spelling that differs only in its trailing slash missed the map entirely and
+// answered "mint does not exist": that is how the captive portal's Lightning
+// lane stopped selling time on a default install, whose accepted_mints[].url is
+// written without the slash.
+func NormalizeMintURL(raw string) string {
+	return normalizeMintURL(raw)
+}
+
 // isAlreadySpentError reports whether err is a mint rejection for reusing
 // spent secrets. Mint families phrase it differently — Nutshell-style
 // "Token already spent", CDK-style "inputs have already been spent" — and
