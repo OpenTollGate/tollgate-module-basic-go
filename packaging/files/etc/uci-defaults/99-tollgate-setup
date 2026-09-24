@@ -414,6 +414,46 @@ first_ap_iface_on() {
     return 1
 }
 
+# -- guest client isolation --------------------------------------------------
+#
+# The open guest SSID is the one layer-2 domain on the router that strangers
+# share: nothing in this writer, the portal or the installer ever set client
+# isolation, so on the shipped config one guest could ARP-scan its neighbours,
+# answer their DHCP, advertise mDNS/SSDP services to them, or relay through
+# one of them. Both guest APs (2.4 and 5 GHz) are separate BSSes, so both need
+# it — one is not enough.
+#
+# What is set: `isolate` on each guest wifi-iface (below), which hostapd turns
+# into ap_isolate=1 (lib/netifd/hostapd.sh, "if [ \"$isolate\" -gt 0 ]").
+# It is an INTRA-BSS forwarding policy, not encryption: a monitor-mode
+# neighbour still sees every frame in the clear, an authorised MAC is still
+# harvestable from 802.11 headers, and cross-BSS traffic (2.4 GHz guest to
+# 5 GHz guest) is still bridged.
+#
+# What is deliberately NOT set, and why — the wired ports that share br-lan.
+# Checked rather than guessed, on the actual target (GL-MT3000, MT7981,
+# OpenWrt 25.12.5, 2026-09-24):
+#   * The netifd syntax exists: `config device` + `option isolate '1'` is
+#     defined (netifd device.c DEV_ATTR_ISOLATE -> system-linux.c
+#     system_bridge_set_isolated() -> sysfs brport/isolated).
+#   * But Linux bridge port isolation is BILATERAL: net/bridge/br_private.h
+#     br_skb_isolated() is `src_port_isolated && (to->flags & BR_ISOLATED)`,
+#     so isolating the wired port alone blocks nothing, and the guest BSS's
+#     own bridge port (phyN-apM) cannot be marked isolated from uci at all —
+#     netifd's `wireless_isolate` only clears hairpin_mode (system-linux.c
+#     system_bridge_set_wireless()).
+#   * Measured on the bench: with brport/isolated=1 on the LAN port, alone and
+#     together with the guest VAP's port, a guest still reached a wired host —
+#     ping, ARP and TCP all passed, and the frames were captured on the wired
+#     NIC. Writing the option would therefore be a control that reports
+#     protection it does not provide, so it is left out on purpose. The wired
+#     and cross-BSS halves need a different mechanism (a dedicated br-guest
+#     with its own reject-by-default zone, or a bridge-family nft rule keyed on
+#     the VAP ports); see the PR body for the measurements.
+#
+# Never isolated here: the uplink (an STA wifi-iface, and the WAN port is not a
+# member of the guest bridge) and the owner's private SSID/bridge — the
+# operator's own devices must keep seeing each other (casting, printing).
 configure_radio_ap() {
     local iface="$1" label="$2" radio="$3"
     if ! uci -q get "wireless.$iface" >/dev/null; then
@@ -433,6 +473,10 @@ configure_radio_ap() {
     uci set "wireless.$iface.network=lan"
     uci set "wireless.$iface.ssid=$GATEWAY_NAME"
     uci set "wireless.$iface.encryption=none"
+    # Guest client isolation (ap_isolate=1): armed here so it lands on BOTH
+    # setup paths — this function is the single writer of the public APs, and
+    # the same-version reinstall path reaches it through setup_band_ap() too.
+    uci set "wireless.$iface.isolate=1"
     uci set "wireless.$iface.disabled=0"
 }
 
