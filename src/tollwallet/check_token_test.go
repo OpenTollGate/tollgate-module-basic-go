@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
@@ -121,12 +122,54 @@ func TestCheckTokenSpendable_PendingProofIsNotSpendable(t *testing.T) {
 	})
 	token := buildTestToken(t, server.URL, []string{pendingSecret})
 
-	spendable, err := CheckTokenSpendable(token)
-	if err != nil {
-		t.Fatalf("CheckTokenSpendable: %v", err)
+	// PENDING means a redemption is in flight and its outcome is not yet
+	// determined: the only honest verdict is an error (unknown) so callers
+	// re-check later — never a definitive "not spendable"/"spent".
+	_, err := CheckTokenSpendable(token)
+	if err == nil {
+		t.Fatal("PENDING proof must yield an error (unknown), not a definitive not-spendable verdict")
 	}
-	if spendable {
-		t.Fatal("PENDING proof (redemption in flight) must not be reported spendable")
+	if !strings.Contains(err.Error(), "PENDING") {
+		t.Fatalf("error should name the PENDING state, got: %v", err)
+	}
+}
+
+func TestCheckTokenSpendable_ShortStateResponseIsAnError(t *testing.T) {
+	// A mint answering 200 but covering fewer Ys than asked must not be
+	// treated as all-UNSPENT: partial attestation is not attestation.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/checkstate", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Ys []string `json:"Ys"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		type proofStateJSON struct {
+			Y     string `json:"Y"`
+			State string `json:"state"`
+		}
+		resp := struct {
+			States []proofStateJSON `json:"states"`
+		}{}
+		for _, y := range req.Ys[:len(req.Ys)-1] { // drop the last Y
+			resp.States = append(resp.States, proofStateJSON{Y: y, State: "UNSPENT"})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	token := buildTestToken(t, server.URL, []string{"short-state-secret-1", "short-state-secret-2"})
+
+	_, err := CheckTokenSpendable(token)
+	if err == nil {
+		t.Fatal("short states response must yield an error, not a spendable verdict")
+	}
+	if !strings.Contains(err.Error(), "of") || !strings.Contains(err.Error(), "2") {
+		t.Fatalf("error should report the coverage gap, got: %v", err)
 	}
 }
 
