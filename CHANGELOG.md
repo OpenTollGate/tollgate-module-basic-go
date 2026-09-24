@@ -1048,6 +1048,13 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
+- **The parent tests README is a map of the test estate again.** It
+  documented only the hardware data-measurement harness; it now points
+  at every environment (cloud-lab, hardware fleet, contract, packaging,
+  sim, happy-path) and names the cloud-lab as the default for
+  logic-level work.
+  ([#570](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/570))
+
 
 - **The module can report the gates it believes it holds, so the ones nothing
   else examines are reachable.** `valve.TrackedGates()` returns a sorted,
