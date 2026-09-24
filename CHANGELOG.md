@@ -26,6 +26,109 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
+  all-zero address is what dnsmasq and the ARP table write for "no address at
+  all"; five routes substituted it whenever the MAC lookup failed and continued,
+  so every client the router could not identify collapsed into ONE shared
+  identity — one session record, one byte meter, one lightning quote and one open
+  gate — and a customer whose lookup failed could pay for a session belonging to
+  a device that does not exist. `POST /` (the cashu money path) and
+  `POST /ln-invoice` now refuse before any value moves, and `GET /ln-invoice`
+  refuses before it authorises a quote read, answering `400` with
+  `{"status":0,"error":"We could not identify your device on the network.
+  Reconnect to the TollGate Wi-Fi and try again.","code":"device-unresolved"}`
+  (`status`/`error` are what the shipped portal reads; `code` is additive and
+  machine-readable). `/session-state` keeps answering `none` — with an empty
+  `mac` instead of the sentinel — and `/whoami` answers an empty `mac=` instead
+  of echoing it
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **Identity is resolved from the socket, never from a client-asserted `mac`.**
+  `/whoami`, `GET /session-state`, `POST /`, `POST /ln-invoice` and
+  `GET /ln-invoice` took the caller's own claim — a `mac` query parameter, or the
+  `mac` field of the invoice-request body — as the identity that keys the
+  session, the byte-meter baseline, the lightning quote and the gate. Any client
+  on the LAN could therefore name another device's address (or name nothing, as
+  the shipped portal's Lightning lane does when it sends
+  `?mac=00:00:00:00:00:00`), and the value the portal cached at page load decided
+  which device a payment was applied to — so a MAC rotation between the page load
+  and the payment could take the customer's money and grant access to an address
+  their device no longer had. All five routes now resolve the address from the
+  request's source IP through the DHCP lease file and the kernel ARP table — the
+  one input the client cannot choose — and canonicalise it before use. A
+  client-supplied `mac` is still accepted on the wire (the pinned portal sends
+  it) and has no effect on the outcome
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **The spendable Cashu token is no longer written to the log.** `POST /` logged
+  its whole request body at debug — and on that route the body *is* the bearer
+  instrument, so whoever read the line could spend it, with debug being the level
+  an operator enables precisely when a payment fails and needs diagnosing. The
+  token paths that create and receive one (`CreatePaymentToken`, `Fund`) logged a
+  50-character preview of the same value. All three now log the length and a
+  **salted fingerprint** (16 hex characters of HMAC-SHA256 under a per-install
+  salt at `/etc/tollgate/token-fingerprint.salt`, 0600, created on first use and
+  never overwritten; an ephemeral salt is used if the file cannot be written, with
+  the consequence logged). The fingerprint is stable for the same note, so one
+  payment can be followed through the log and matched against what the customer
+  reports, and it is useless to anyone reading the log — unlike the bare SHA-256
+  a log-reader could check a guess against. A source-level test fails if a logging
+  call is ever handed a token-carrying value again
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **The late-`Receive` notice no longer tells the customer to spend the same
+  note twice.** When `Receive` outlived its deadline the notice said *"Payment
+  processing timed out after 30 seconds. Please try again."* — and acting on that
+  advice destroyed the customer's value: a `Receive` that completes just after
+  the deadline has already moved the proofs into the operator's wallet, so the
+  retry is refused as already-spent with no session and no refund. The notice now
+  states the truth (the outcome is **unknown**, not failed), tells the customer
+  not to resend the note, and carries a **reference** — the salted fingerprint of
+  the note (16 hex characters) — which the customer can quote and the operator
+  can find in the log next to the device, the mint and the time. The notice code
+  changes from `payment-processing-timeout` to `payment-outcome-unknown`; the
+  journal/janitor that would collect the late result and grant it is a separate
+  follow-up, and this change does not claim access arrives on its own
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
+  is the only way the module takes a customer's access away, and three
+  independent paths treated a *failed* deauth as a completed one — leaving the
+  client `Authenticated` through an open gate while the module forgot it: the
+  timed gate's expiry callback (and the delayed-auth timers) logged the error and
+  then deleted the tracked gate, so nothing ever retried; the usage monitor
+  retired a bytes session even when `CloseGate` returned an error, destroying the
+  only record that the client had to be closed; and a bytes session with no
+  metering baseline was skipped on every sweep for ever (its allotment purely
+  decorative), which also happened to a client whose counters could not be read,
+  because unreadable usage was reported as 0. A failed close now keeps the gate
+  tracked and is retried (immediately and then on a 2 s→60 s backoff, for ever),
+  every unconfirmed close is escalated to an `ERROR` log naming the client and
+  counted in `valve.GateCloseFailures()`, the session is retired only once the
+  close is confirmed, a missing baseline is established rather than skipped, and
+  a session whose usage stays unreadable for a full grace window has its gate
+  closed rather than left open unmetered. The failure direction stays "the module
+  keeps ownership of the gate": a retry abandons itself when the gate it was
+  armed for has been extended or reopened, and a close that raced a renewal
+  re-authorizes the client
+  ([#545](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/545)).
+
+- **The captive portal shipped in the package can renew an expired session
+  without a reconnect, and follows the mint a pasted note came from.** The
+  portal pin advances from `51a1429` (portal #59, the CU110 swap-fee
+  pre-check) to `e6fe0e0` (portal main: #60 on top of #61). #60 gives the
+  expired view a primary "Buy more time" that returns to the purchase flow in
+  page — the old view's only action was `window.location.reload()`, which
+  cannot reach the purchase UI (it stays mounted in its `success` state), so
+  the only route back to buying time was to disconnect from and reconnect to
+  the Wi-Fi, which is what the copy told the customer to do — which completes
+  the module-side renewal fix from #541 in the bytes a customer's browser
+  actually loads. #61 selects the access option the pasted note advertises
+  (`normalizeMintUrl`, `mintUrlFromToken`, `findMintOption`), because the
+  allocation and the price are mint-dependent and a hand-picked mint quoted the
+  wrong price for the note in the field, and renders `unsupported_mint_notice`
+  for a note from an unaccepted mint. The committed bundle shell is regenerated
+  from that pin, and `tests/packaging/assert-portal-bundle-contract.sh` gains a
+  check that fails when a future pin stops renewing in page or drops the note's
+  mint
+  ([#543](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/543)).
+
 - **A session that ran out can be renewed again.** The payment pre-flight
   refused every purchase whose MAC NoDogSplash no longer lists — the state of a
   client we just deauthorised at expiry — so each renewal was answered with
@@ -78,6 +181,19 @@ and [Semantic Versioning](https://semver.org/).
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
 
 ### Changed / Internal
+
+- **`getMacAddress`'s two lookup sources are package-level vars, so
+  `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
+  and ARP paths were string literals, so off-router every `/balance` test landed
+  on the early-return "no session" body and the live body — the one a paying
+  customer's portal renders, with `usage`/`allotment`/`remaining`/`start_time` —
+  was never executed by a test. The paths are now injectable (production values
+  unchanged, parsing untouched, no new dependency), and
+  `TestBalanceEndpointLiveSessionReportsUsage` resolves a client from a
+  `t.TempDir()` lease fixture and pins that live body, including the resolved
+  MAC crossing the merchant boundary and the absence of a `state` field. The
+  unresolvable-client assertions are kept
+  ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
 
 - **CI builds only the shipped OpenWrt SDK targets.** The package matrix drops
   the Raspberry Pi (`bcm27xx-bcm2711`, `bcm27xx-bcm2709`) and generic `x86-64`
@@ -1782,3 +1898,8 @@ earlier work. Not documented in this changelog.
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
+
+## [Unreleased]
+
+### Added
+- \`tests/happy-path/\`: a happy-path regression suite that boots a published package and checks the customer-facing path (artifact identity, API contract, enforcement via the fake-ndsctl seam, and the portal in a real browser). Reports SKIP with a reason rather than a false pass, and tolerates a documented pre-existing defect via \`known-issues.txt\`.

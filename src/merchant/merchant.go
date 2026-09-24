@@ -137,6 +137,32 @@ const preflightProbeAttempts = 5
 // preflightRetryDelay is a var so tests can shrink it.
 var preflightRetryDelay = 400 * time.Millisecond
 
+// receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
+// a money-moving `Receive` before it answers the customer with "outcome
+// unknown". It is a var, like preflightRetryDelay, so a test can shrink the
+// window instead of waiting it out; nothing in production reassigns it.
+var receiveTimeout = 30 * time.Second
+
+// receiveReference is the operator-facing handle for one money-moving attempt:
+// the salted fingerprint of the customer's note, which the customer can quote
+// and the operator can find in the log next to the MAC, the mint and the time.
+// It is never the note itself — the note is spendable by whoever reads it — and
+// it is deliberately opaque: the reference identifies one attempt without
+// telling a reader anything they could act on. An empty string means the note
+// could not be serialized, in which case the notice omits the reference rather
+// than inventing one.
+func receiveReference(token tollwallet.Token) string {
+	if token == nil {
+		return ""
+	}
+	serialized, err := token.Serialize()
+	if err != nil {
+		log.Printf("PurchaseSession: could not serialise the note for a reference: %v", err)
+		return ""
+	}
+	return utils.TokenFingerprint(serialized)
+}
+
 // MerchantInterface defines the interface for merchant payment operations
 type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
@@ -170,6 +196,8 @@ type Merchant struct {
 	customerSessions  map[string]*CustomerSession
 	expiredSessions   map[string]int64
 	sessionMu         sync.RWMutex
+	unmeteredMu       sync.Mutex
+	unmeteredSessions map[string]*unmeteredSession
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
 	quoteStore        *quoteStore
@@ -371,52 +399,191 @@ func (m *Merchant) checkDataUsage() {
 	m.sessionMu.RUnlock()
 
 	for mac, session := range sessions {
-		// Check if baseline exists (gate is open)
-		if !valve.HasDataBaseline(mac) {
-			continue
-		}
-
-		// Get current usage
-		usage, err := valve.GetDataUsageSinceBaseline(mac)
-		if err != nil {
-			log.Printf("Error getting data usage for %s: %v", mac, err)
-			continue
-		}
-
-		// Check if allotment is reached
-		if usage >= session.Allotment {
-			log.Printf("Data allotment reached for %s: %s / %s",
-				mac,
-				utils.BytesToHumanReadable(usage),
-				utils.BytesToHumanReadable(session.Allotment))
-
-			// Close the gate
-			err = valve.CloseGate(mac)
-			if err != nil {
-				log.Printf("Error closing gate for %s: %v", mac, err)
-			} else {
-				log.Printf("Successfully closed gate for %s", mac)
-			}
-
-			// Retire the record: the allotment is spent, so GetUsage answers
-			// -1/-1 and /session-state answers "expired" — the record itself
-			// carries no expiry flag, so the removal is also what tells a
-			// portal (and the next purchase) that this session is over.
-			m.sessionMu.Lock()
-			m.expireSessionLocked(mac)
-			m.sessionMu.Unlock()
-			log.Printf("Removed expired session for %s", mac)
-		} else {
-			// Log progress periodically (every ~10 checks = 20 seconds)
-			if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB
-				log.Printf("Data usage for %s: %s / %s (%.1f%%)",
-					mac,
-					utils.BytesToHumanReadable(usage),
-					utils.BytesToHumanReadable(session.Allotment),
-					float64(usage)/float64(session.Allotment)*100)
-			}
-		}
+		m.enforceBytesSession(mac, session)
 	}
+}
+
+// usageMonitorGraceSweeps bounds how many consecutive sweeps a bytes session may
+// stay unenforceable — a baseline that cannot be established, or counters the
+// module cannot read — before the monitor closes its gate. At the 2s sweep
+// interval that is a minute of grace: long enough for a NoDogSplash restart or a
+// transient ndsctl failure to clear, short enough that a session the module
+// cannot meter is never an unlimited free ride. A var so tests can shrink it.
+var usageMonitorGraceSweeps = 30
+
+// usageMonitorBaselineRetryDelay is the minimum time between two attempts to
+// establish a missing metering baseline for the same session. A var so tests can
+// shrink it.
+var usageMonitorBaselineRetryDelay = 2 * time.Second
+
+// unmeteredSession is the monitor's bookkeeping for one bytes session it cannot
+// currently enforce. It exists so the monitor can tell "just became unmeterable"
+// from "has been unmeterable for a minute", which is what decides between
+// waiting and closing the gate.
+type unmeteredSession struct {
+	sweeps              int
+	lastBaselineAttempt time.Time
+}
+
+// unmeteredStateLocked returns the bookkeeping of mac, creating it on first use.
+// Caller must hold unmeteredMu.
+func (m *Merchant) unmeteredStateLocked(macAddress string) *unmeteredSession {
+	if m.unmeteredSessions == nil {
+		m.unmeteredSessions = make(map[string]*unmeteredSession)
+	}
+	state, exists := m.unmeteredSessions[macAddress]
+	if !exists {
+		state = &unmeteredSession{}
+		m.unmeteredSessions[macAddress] = state
+	}
+	return state
+}
+
+// baselineAttemptDue reports whether enough time has passed to try establishing
+// the metering baseline of macAddress again, and marks the attempt.
+func (m *Merchant) baselineAttemptDue(macAddress string) bool {
+	m.unmeteredMu.Lock()
+	defer m.unmeteredMu.Unlock()
+
+	state := m.unmeteredStateLocked(macAddress)
+	if time.Since(state.lastBaselineAttempt) < usageMonitorBaselineRetryDelay {
+		return false
+	}
+	state.lastBaselineAttempt = time.Now()
+	return true
+}
+
+// noteUnmeterableSweep records one sweep on which the usage of macAddress could
+// not be read, and returns how many sweeps in a row that has now been true.
+func (m *Merchant) noteUnmeterableSweep(macAddress string) int {
+	m.unmeteredMu.Lock()
+	defer m.unmeteredMu.Unlock()
+
+	state := m.unmeteredStateLocked(macAddress)
+	state.sweeps++
+	return state.sweeps
+}
+
+// clearUnmetered forgets the bookkeeping of a session that is enforceable again.
+func (m *Merchant) clearUnmetered(macAddress string) {
+	m.unmeteredMu.Lock()
+	defer m.unmeteredMu.Unlock()
+
+	delete(m.unmeteredSessions, macAddress)
+}
+
+// enforceBytesSession is the usage monitor's per-session step. Every sweep takes
+// the session one step closer to enforcement — meter it against its allotment,
+// re-establish the baseline it is missing, or close a gate that cannot be
+// metered at all. The one thing it must never do is skip the session: a bytes
+// session the monitor stops looking at keeps an open gate for as long as the
+// process lives, which is exactly the free, unmetered internet this module
+// exists to prevent (C1-2b, C1-2c).
+func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSession) {
+	// A session whose baseline was never established cannot be metered. The old
+	// code answered this with `continue` on every sweep, for ever.
+	if !valve.HasDataBaseline(macAddress) {
+		m.establishBaseline(macAddress)
+		return
+	}
+
+	usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+	if err != nil {
+		if errors.Is(err, valve.ErrDataBaselineMissing) {
+			m.establishBaseline(macAddress)
+			return
+		}
+		m.closeUnmeterableSession(macAddress, err)
+		return
+	}
+	m.clearUnmetered(macAddress)
+
+	// Check if allotment is reached
+	if usage < session.Allotment {
+		// Log progress periodically (every ~10 checks = 20 seconds)
+		if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB
+			log.Printf("Data usage for %s: %s / %s (%.1f%%)",
+				macAddress,
+				utils.BytesToHumanReadable(usage),
+				utils.BytesToHumanReadable(session.Allotment),
+				float64(usage)/float64(session.Allotment)*100)
+		}
+		return
+	}
+
+	log.Printf("Data allotment reached for %s: %s / %s",
+		macAddress,
+		utils.BytesToHumanReadable(usage),
+		utils.BytesToHumanReadable(session.Allotment))
+
+	// Close the gate, and retire the session only once that close is CONFIRMED.
+	// A failed close leaves the client Authenticated through an open gate, and
+	// the record this branch would otherwise delete is the only thing that says
+	// the client must be closed — retiring it is how the customer kept free,
+	// unmetered internet with nothing left to retry (C1-2b).
+	if err := valve.CloseGate(macAddress); err != nil {
+		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and the close is retried; the client may still hold open, unmetered access (unconfirmed gate closes=%d)",
+			macAddress, err, valve.GateCloseFailures())
+		return
+	}
+	log.Printf("Successfully closed gate for %s", macAddress)
+
+	// Retire the record: the allotment is spent, so GetUsage answers
+	// -1/-1 and /session-state answers "expired" — the record itself
+	// carries no expiry flag, so the removal is also what tells a
+	// portal (and the next purchase) that this session is over.
+	m.sessionMu.Lock()
+	m.expireSessionLocked(macAddress)
+	m.sessionMu.Unlock()
+	log.Printf("Removed expired session for %s", macAddress)
+}
+
+// establishBaseline gives a bytes session the metering baseline it needs, so the
+// session is metered instead of being skipped for ever. The baseline is recorded
+// even when ndsctl cannot report the client's counters yet (from zero, which
+// under-counts the customer's pre-baseline usage rather than over-granting), and
+// the gap is escalated.
+func (m *Merchant) establishBaseline(macAddress string) {
+	if !m.baselineAttemptDue(macAddress) {
+		return
+	}
+
+	log.Printf("WARNING: the bytes session of %s has no metering baseline — establishing one so its allotment is actually enforced", macAddress)
+
+	if err := valve.SetDataBaseline(macAddress); err != nil {
+		log.Printf("ERROR: metering baseline for %s had to be recorded from zero (%v): usage before the baseline is not counted, and the baseline is re-established while the session runs", macAddress, err)
+		return
+	}
+	m.clearUnmetered(macAddress)
+}
+
+// closeUnmeterableSession handles a session whose usage the module cannot read:
+// it is given usageMonitorGraceSweeps of grace and then its gate is closed, since
+// an unmeasurable session left open is unmetered internet. The close is subject
+// to the same contract as every other close — the session is retired only when
+// the close is confirmed, and the gate stays tracked and is retried otherwise.
+func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
+	sweeps := m.noteUnmeterableSweep(macAddress)
+
+	if sweeps <= usageMonitorGraceSweeps {
+		log.Printf("WARNING: cannot read the usage of the bytes session of %s (%v), sweep %d/%d — the session stays tracked",
+			macAddress, usageErr, sweeps, usageMonitorGraceSweeps)
+		return
+	}
+
+	log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered",
+		macAddress, sweeps, usageErr)
+
+	if err := valve.CloseGate(macAddress); err != nil {
+		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and the close is retried (unconfirmed gate closes=%d)",
+			macAddress, err, valve.GateCloseFailures())
+		return
+	}
+
+	m.sessionMu.Lock()
+	m.expireSessionLocked(macAddress)
+	m.sessionMu.Unlock()
+	log.Printf("Removed unmeterable session for %s", macAddress)
 }
 
 func (m *Merchant) StartPayoutRoutine() {
@@ -665,12 +832,31 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		amountAfterSwap = res.amount
 		err = res.err
 		log.Printf("PurchaseSession: Receive completed, amount=%d, err=%v", amountAfterSwap, err)
-	case <-time.After(30 * time.Second):
-		log.Printf("PurchaseSession: Receive TIMED OUT after 30s for mint=%s mac=%s", paymentCashuToken.Mint(), macAddress)
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-timeout",
-			fmt.Sprintf("Payment processing timed out after 30 seconds. Please try again."), macAddress)
+	case <-time.After(receiveTimeout):
+		// A money-moving request has been sent and its outcome is not known yet:
+		// the mint may already have taken the customer's proofs into the
+		// operator's wallet, or the request may still fail. The one thing that
+		// must not happen is the customer submitting the same note again — if the
+		// mint did receive it, the retry is refused as already-spent and the value
+		// is gone with no session (the repository's own rule: "decide refund vs
+		// late-grant explicitly; do not silently drop it"). The notice therefore
+		// says the outcome is unknown rather than "timed out, try again", and it
+		// carries a reference the customer can quote and the operator can find.
+		//
+		// The journal that will collect a late outcome and grant it is a separate
+		// piece of work; until it exists, this branch grants nothing and says so
+		// by not claiming that access will arrive on its own.
+		reference := receiveReference(paymentCashuToken)
+		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
+			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
+
+		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
+		if reference != "" {
+			message += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
+		}
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown", message, macAddress)
 		if noticeErr != nil {
-			return nil, fmt.Errorf("payment timeout and failed to create notice: %w", noticeErr)
+			return nil, fmt.Errorf("payment outcome unknown and failed to create notice: %w", noticeErr)
 		}
 		return noticeEvent, nil
 	}
@@ -1167,8 +1353,11 @@ func (m *Merchant) CreatePaymentToken(mintURL string, amount uint64) (string, er
 		return "", fmt.Errorf("token serialization returned empty string")
 	}
 
-	log.Printf("Successfully created payment token: length=%d, token_preview=%s...",
-		len(tokenString), tokenString[:min(50, len(tokenString))])
+	// Never log the token: it is spendable by whoever reads the line. The length
+	// and the salted fingerprint are what an operator can actually use — the
+	// fingerprint to match this note against a log line or a customer report.
+	log.Printf("Successfully created payment token: length=%d, token_fingerprint=%s",
+		len(tokenString), utils.TokenFingerprint(tokenString))
 
 	return tokenString, nil
 }
@@ -1434,12 +1623,11 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 		return 0, fmt.Errorf("invalid cashu token: token too short (expected cashu token format)")
 	}
 
-	// Parse the cashu token with error recovery
-	tokenPreview := cashuToken
-	if len(cashuToken) > 50 {
-		tokenPreview = cashuToken[:50] + "..."
-	}
-	log.Printf("Attempting to decode token (length: %d, preview: %s)", len(cashuToken), tokenPreview)
+	// Parse the cashu token with error recovery. The token itself is never
+	// logged (it is spendable by whoever reads the line): length plus the salted
+	// fingerprint, which is stable for the same note and useless to a reader.
+	log.Printf("Attempting to decode token (length: %d, token_fingerprint: %s)",
+		len(cashuToken), utils.TokenFingerprint(cashuToken))
 
 	parsedToken, err := tollwallet.DecodeToken(cashuToken)
 	if err != nil {

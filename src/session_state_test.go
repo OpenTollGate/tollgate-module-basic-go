@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -27,17 +29,21 @@ import (
 // boundary canonicalises it (#537).
 type sessionStateMerchant struct {
 	namedMerchant
-	state    string
-	usage    string
-	session  *merchant.CustomerSession
-	stateMAC string
+	state      string
+	usage      string
+	session    *merchant.CustomerSession
+	stateMAC   string
+	usageMAC   string
+	sessionMAC string
 }
 
 func (m *sessionStateMerchant) GetUsage(macAddress string) (string, error) {
+	m.usageMAC = macAddress
 	return m.usage, nil
 }
 
 func (m *sessionStateMerchant) GetSession(macAddress string) (*merchant.CustomerSession, error) {
+	m.sessionMAC = macAddress
 	return m.session, nil
 }
 
@@ -48,6 +54,19 @@ func (m *sessionStateMerchant) GetSessionState(macAddress string) (merchant.Sess
 
 func useSessionStateMerchant(fake *sessionStateMerchant) {
 	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(fake)}
+}
+
+// useResolverPaths points getMacAddress's two lookup sources at the given paths
+// (see the dhcpLeasePath / arpTablePath seam in main.go) and restores the
+// production values when the test finishes.
+func useResolverPaths(t *testing.T, leases, arp string) {
+	t.Helper()
+
+	prevLeases, prevARP := dhcpLeasePath, arpTablePath
+	dhcpLeasePath, arpTablePath = leases, arp
+	t.Cleanup(func() {
+		dhcpLeasePath, arpTablePath = prevLeases, prevARP
+	})
 }
 
 func decodedBody(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
@@ -69,8 +88,11 @@ func keysOf(body map[string]any) []string {
 	return keys
 }
 
-// GET /session-state?mac=… answers the machine-readable state for that MAC, and
-// canonicalises the MAC spelling the same way every other endpoint does.
+// GET /session-state answers the machine-readable state of the client at the
+// other end of the socket, and canonicalises the MAC spelling the same way every
+// other endpoint does. The address comes from the request's source IP (the
+// injectable lease seam), never from the `mac` query parameter the caller
+// supplied — otherwise one client could read another device's state.
 func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 	const wantMAC = "8c:16:45:0d:6f:c5"
 
@@ -88,10 +110,13 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 			fake := &sessionStateMerchant{state: tc.state}
 			useSessionStateMerchant(fake)
 
-			// Uppercase on purpose: the portal may copy the MAC out of a
-			// preauth page that spells it in upper case.
-			req := httptest.NewRequest(http.MethodGet, "/session-state?mac="+url.QueryEscape("8C:16:45:0D:6F:C5"), nil)
-			req.RemoteAddr = "192.0.2.50:4321"
+			// Uppercase in the lease on purpose: dnsmasq's spelling of the
+			// address is not something the module controls, and the portal may
+			// copy it out of a preauth page in either case.
+			resolvedClient(t, testClientIP, "8C:16:45:0D:6F:C5")
+
+			req := httptest.NewRequest(http.MethodGet, "/session-state?mac="+url.QueryEscape("AA:BB:CC:DD:EE:FF"), nil)
+			req.RemoteAddr = testClientIP + ":4321"
 			w := httptest.NewRecorder()
 
 			HandleSessionState(w, req)
@@ -116,7 +141,7 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 				t.Fatalf("status = %v, want 1", body["status"])
 			}
 			if fake.stateMAC != wantMAC {
-				t.Fatalf("handler passed mac %q to the merchant, want the canonical %q", fake.stateMAC, wantMAC)
+				t.Fatalf("handler passed mac %q to the merchant, want the canonical socket-resolved %q", fake.stateMAC, wantMAC)
 			}
 		})
 	}
@@ -125,6 +150,10 @@ func TestSessionStateEndpointReportsTheThreeStates(t *testing.T) {
 // A request without a `mac` parameter falls back to the request-derived client
 // (DHCP lease / ARP). Off the router that lookup fails, and the endpoint must
 // still answer "none" rather than 500 — the portal polls it while rendering.
+//
+// The `mac` field is empty in that answer: 00:00:00:00:00:00 means "no address
+// at all", and echoing it published the sentinel as the client's identity (the
+// leak observed on the pre15 artifact). The state contract is unchanged.
 func TestSessionStateEndpointWithoutMacIsNoneNotAnError(t *testing.T) {
 	fake := &sessionStateMerchant{state: "expired"}
 	useSessionStateMerchant(fake)
@@ -139,8 +168,8 @@ func TestSessionStateEndpointWithoutMacIsNoneNotAnError(t *testing.T) {
 		t.Fatalf("GET /session-state without mac returned %d, want 200 (body: %s)", w.Code, w.Body.String())
 	}
 	body := decodedBody(t, w)
-	if body["mac"] != "00:00:00:00:00:00" {
-		t.Fatalf("mac = %v, want the documented fallback 00:00:00:00:00:00", body["mac"])
+	if body["mac"] != "" {
+		t.Fatalf("mac = %v, want an empty mac for an unresolvable client (never the sentinel 00:00:00:00:00:00)", body["mac"])
 	}
 	if body["state"] != "none" {
 		t.Fatalf("state for an unidentifiable client = %v, want \"none\"", body["state"])
@@ -194,10 +223,10 @@ func TestUsageEndpointBytesAreUnchanged(t *testing.T) {
 //
 // Like /usage, /balance resolves its client from the request IP (no `mac`
 // parameter), so off the router the MAC lookup fails and the handler answers the
-// documented "no session" body. That is the branch a portal renders most often
-// (expired lease, dnsmasq restart) and the one pinned here; the session-bearing
-// branch needs a real DHCP lease or ARP entry, which a unit test must not fake
-// by writing the router's lease file.
+// documented "no session" body. That branch is pinned below, and the
+// session-bearing branch (the body a paying customer actually gets) is pinned in
+// TestBalanceEndpointLiveSessionReportsUsage, which resolves a live client
+// through the injectable lease-path seam in main.go.
 func TestBalanceEndpointShapeIsUnchanged(t *testing.T) {
 	useSessionStateMerchant(&sessionStateMerchant{usage: "123456/600000"})
 
@@ -221,6 +250,92 @@ func TestBalanceEndpointShapeIsUnchanged(t *testing.T) {
 		if body[key] != float64(0) {
 			t.Fatalf("%s = %v, want 0 in the no-session body", key, body[key])
 		}
+	}
+	if _, present := body["state"]; present {
+		t.Fatalf("/balance grew a state field: %s — the state contract belongs to /session-state", w.Body.String())
+	}
+}
+
+// /balance's session-bearing branch — the body a paying customer's portal
+// actually renders — needs a resolvable client: a DHCP lease (or ARP entry)
+// naming the request IP. Off-router neither exists, so the handler used to be
+// reachable only through its early-return "no session" branch and the live body
+// had no unit coverage at all.
+//
+// The lease source is injectable for exactly this reason (see dhcpLeasePath /
+// arpTablePath in main.go): the test writes a dnsmasq-format lease for the
+// request IP into a t.TempDir() and points the resolver at it, so the handler
+// runs its real lookup and parsing code over a fixture instead of the router's
+// file. The ARP fallback is pointed at a path that does not exist so a
+// regression in the lease lookup fails here instead of silently resolving a MAC
+// from whatever the host's ARP table happens to hold.
+func TestBalanceEndpointLiveSessionReportsUsage(t *testing.T) {
+	const (
+		testIP        = "192.0.2.50"
+		testMAC       = "8c:16:45:0d:6f:c5"
+		wantUsed      = 123456
+		wantAllotment = 600000
+		wantRemaining = wantAllotment - wantUsed
+	)
+
+	dir := t.TempDir()
+	leases := filepath.Join(dir, "dhcp.leases")
+	// dnsmasq lease format: <expiry> <mac> <ip> <hostname> <clientid>
+	leaseLine := "1750000000 " + testMAC + " " + testIP + " testclient 01:" + testMAC + "\n"
+	if err := os.WriteFile(leases, []byte(leaseLine), 0o600); err != nil {
+		t.Fatalf("writing the lease fixture: %v", err)
+	}
+
+	useResolverPaths(t, leases, filepath.Join(dir, "arp-absent"))
+
+	fake := &sessionStateMerchant{
+		usage: "123456/600000",
+		session: &merchant.CustomerSession{
+			MacAddress: testMAC,
+			StartTime:  1750000000,
+			Metric:     "bytes",
+			Allotment:  wantAllotment,
+		},
+	}
+	useSessionStateMerchant(fake)
+
+	req := httptest.NewRequest(http.MethodGet, "/balance", nil)
+	req.RemoteAddr = testIP + ":4321"
+	w := httptest.NewRecorder()
+
+	HandleBalance(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /balance returned %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+	body := decodedBody(t, w)
+
+	if body["status"] != float64(1) {
+		t.Fatalf("status = %v, want 1 (body: %s)", body["status"], w.Body.String())
+	}
+	if body["session_active"] != true {
+		t.Fatalf("session_active = %v, want true for a client resolvable from the DHCP lease (body: %s)", body["session_active"], w.Body.String())
+	}
+	if fake.usageMAC != testMAC {
+		t.Fatalf("GetUsage was called with mac %q, want %q resolved from the lease fixture", fake.usageMAC, testMAC)
+	}
+	if fake.sessionMAC != testMAC {
+		t.Fatalf("GetSession was called with mac %q, want %q resolved from the lease fixture", fake.sessionMAC, testMAC)
+	}
+	if body["usage"] != float64(wantUsed) {
+		t.Fatalf("usage = %v, want %d (body: %s)", body["usage"], wantUsed, w.Body.String())
+	}
+	if body["allotment"] != float64(wantAllotment) {
+		t.Fatalf("allotment = %v, want %d (body: %s)", body["allotment"], wantAllotment, w.Body.String())
+	}
+	if body["remaining"] != float64(wantRemaining) {
+		t.Fatalf("remaining = %v, want %d (= %d - %d) (body: %s)", body["remaining"], wantRemaining, wantAllotment, wantUsed, w.Body.String())
+	}
+	if body["metric"] != "bytes" {
+		t.Fatalf("metric = %v, want %q (body: %s)", body["metric"], "bytes", w.Body.String())
+	}
+	if body["start_time"] != float64(1750000000) {
+		t.Fatalf("start_time = %v, want 1750000000 (body: %s)", body["start_time"], w.Body.String())
 	}
 	if _, present := body["state"]; present {
 		t.Fatalf("/balance grew a state field: %s — the state contract belongs to /session-state", w.Body.String())
