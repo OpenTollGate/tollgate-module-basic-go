@@ -28,7 +28,8 @@ src/cmd/tollgate-cli/tollgate-cli
 # Test artifacts
 **/tollwallet_db/*
 tests/*.bin
-tests/__pycache__/
+tests/**/__pycache__/
+__pycache__/
 tests/.env
 # Per-checkout cloud-lab compose project isolation (.env.example is the template)
 tests/cloud-lab/.env
@@ -85,3 +86,7 @@ scripts/token-recovery/token-recovery
 
 # pytest bytecode from local (possibly root-owned) cloud-lab runs
 tests/cloud-lab/__pycache__/
+
+# Conformance lane runtime state (tokens stashed between phases, generated
+# config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
+tests/cloud-lab/.conformance/
