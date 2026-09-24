@@ -270,6 +270,15 @@ and [Semantic Versioning](https://semver.org/).
   unresolvable-client assertions are kept
   ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
 
+- **The log-hygiene source guard also covers proof secrets.** #548 removed the
+  spendable token from every log level and added a test that fails when a logging
+  call receives a token-carrying identifier. A Cashu proof's `Secret` is the same
+  kind of value — it *is* the spending condition (NUT-10) — and nothing asserted
+  it: `proofs`/`secret` were not in the guard's name list, and a `.Secret` read is
+  invisible to its bare-argument matcher. Both are covered now, with the scanning
+  shared by the two tests
+  ([#559](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/559)).
+
 ## [v0.6.0-alpha4] - 2026-09-22
 
 Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
