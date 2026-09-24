@@ -521,6 +521,107 @@ carry a `"tokens"` array inside `data`: those tokens were produced
 irreversibly and belong to you — persist them before investigating the
 `errors` entries.
 
+## Client identity, MAC addresses, and what changing one does
+
+TollGate has no accounts and no user identifiers: a customer is identified
+by the MAC address their device uses on your Wi-Fi. Sessions, byte meters
+and open gates are all keyed by it, and it is the address `ndsctl` is
+asked to authorise. Nothing anywhere in the stack takes that identity from
+a value the client sends — a `?mac=` parameter or a request-body field is
+accepted and ignored; the module resolves the address from the request's
+source IP through the DHCP lease file and the kernel ARP table, and
+refuses the request (`device-unresolved`) rather than guessing when it
+cannot.
+
+### What a MAC address is not
+
+It is not an account, not stable, and **not something this router can
+change**. A MAC address is the source address of every frame the device
+transmits: it is chosen by the device's own operating system and network
+card, it is visible to anyone in range, and it can be typed into a query
+string by anyone. An access point can only *filter* addresses
+(`macfilter`/`maclist`) or force a re-association — and forcing one does
+not change the private address a device has saved for that network.
+
+So "TollGate rotates your MAC automatically" is false, and no release has
+ever implemented it. If you have repeated it, correct it: the honest claim
+is that TollGate does not require address stability, and never ties
+anything durable to it.
+
+### What a device does on its own
+
+On many platforms the device changes or randomises the address by itself,
+without the customer asking you:
+
+| Platform | Default | How a customer changes it |
+|---|---|---|
+| iOS / iPadOS 18+ | "Fixed" on a network with WPA2 or stronger, **"Rotating"** on a weak or open one — which is the usual captive-portal SSID, where it moves to a different private address about every two weeks with no user action | Settings → Wi-Fi → (i) next to the network → "Private Wi-Fi Address" → Off / Fixed / Rotating |
+| Android 10+ | One randomised address per network, stable while that network is saved | Settings → Network & internet → Internet → (gear) → "Privacy" |
+| Windows 10/11 | Randomisation off unless enabled per network | Settings → Network & internet → Wi-Fi → the network → "Random hardware addresses" |
+| Linux (NetworkManager) | `preserve` — the hardware address | `nmcli con mod <id> wifi.cloned-mac-address random` |
+
+A WPA2 password therefore has a side effect worth knowing: it keeps iOS on
+a fixed address. An open SSID (the classic captive-portal posture) is
+where rotation happens by itself.
+
+### What happens when the address changes mid-session
+
+The session belongs to the address it was bought on, so:
+
+* The device returns as a new client and the portal offers the buy flow
+  again.
+* The **abandoned** address is not reconciled a minute later: the address
+  itself keeps the access NoDogSplash already granted it for about an hour.
+  NoDogSplash only stops listing an authenticated client when its idle
+  timeout fires, and TollGate ships `authidletimeout='3600'`, so a departed
+  client stays listed — and NDS-authorised — for roughly that hour. From the
+  first sweep after the listing goes away the module asks NoDogSplash whether
+  that client is still there, and after two consecutive "gone" answers —
+  within ~30–90 s — it deauthorises the address, drops its session record,
+  and clears its metering baseline. The honest end-to-end bound is therefore
+  about an hour (NDS listing lifetime) plus a minute (module reconciliation),
+  not a minute. That is what stops an address nobody holds from staying
+  authorised indefinitely, which anyone who later holds it (a
+  hardware-address fallback, a spoof, a collision) would otherwise inherit
+  for free.
+* The leftover time or data the customer paid for does **not** travel to
+  the new address yet: entitlement still belongs to the address. Carrying
+  it across needs a session ticket and a portal change, and is scheduled as
+  its own change.
+
+Tell customers that plainly, rather than promising seamless roaming:
+*changing your device's Wi-Fi address ends your current session.*
+
+### What you will see in the log
+
+```
+WARNING: NoDogSplash no longer lists <mac> (1/2 passes) — its binding stays authorised for now
+Reconciled the stale binding of <mac>: its client is gone, the gate is deauthorised and the session is retired (12 MB of covered usage; ...)
+```
+
+Only a *confirmed* close retires anything. If `ndsctl deauth` fails you
+will see the escalation instead — `ERROR: could not close the gate of the
+stale binding of <mac> … (unconfirmed gate closes=N)` — and the module
+keeps the record and keeps retrying, because a gate that is still open must
+stay owned by something. The same rule applies to a customer who is merely
+idle: a client NoDogSplash still lists is never touched.
+
+That last rule is also the limit of this pass, and worth knowing: if
+NoDogSplash keeps listing an address whose device has left (rather than
+dropping the entry), the module cannot tell that address from a customer
+who is simply idle, and it leaves it alone on purpose — cutting off a
+paying customer is the worse failure. Closing that residue is the job of
+the session-ticket work, which re-binds entitlement explicitly instead of
+inferring it from an address.
+
+### Rule: never allow-list MAC addresses
+
+Because any client can present any address (and on an open SSID many
+devices change theirs by themselves), a MAC allow-list is not an access
+control — it hands internet to whoever names an allowed address. Keep the
+per-MAC controls you *do* have (session state, byte meters) as accounting,
+not as authorisation.
+
 ## Troubleshooting
 
 ### "failed to communicate with TollGate service"
@@ -595,6 +696,56 @@ logread -e odhcp                                  # DHCP client logs
 
 Try moving closer to the access point, verifying the password, or
 checking that the upstream router is not out of DHCP leases.
+
+### A customer paid but has no access, and was shown a reference
+
+When the mint does not answer a payment within its 30-second deadline the
+module does not claim the payment failed. It says the outcome is
+**unknown** and shows the customer a **reference**: 16 hex characters,
+the salted fingerprint of the note they sent. (The note itself is never
+written to a log — anyone holding it can spend it — so the reference is
+the only handle that ties the customer to the attempt.)
+
+Search the log for it:
+
+```sh
+logread -e tollgate | grep '<reference the customer showed you>'
+```
+
+The reference appears on the deadline line and again on the line that
+answers the question you actually have — what the mint did with the note:
+
+- `late Receive COMPLETED … amount=N — the mint took the note and no
+  session was granted; credit or refund it` — the customer's value is in
+  the operator wallet and they received nothing. **Nothing credits or
+  refunds this automatically today**, so settle it by hand, explicitly
+  (grant the device access, or return the value to an address the
+  customer controls) and note what you did.
+- `late Receive FAILED (outcome still ambiguous) …: <error> — the mint may
+  have taken the note; check the wallet balance for the mint before
+  resubmitting anything, no session was granted` — the late answer was not
+  the mint saying "no". This is what a timeout or another unreachable-class
+  error looks like, and it is the **common** case rather than the odd one:
+  the module's deadline and the wallet's own HTTP client both run on 30
+  seconds, so the first answer to arrive late is normally a client-side one
+  that says nothing about what the mint did with the note. **Do not tell the
+  customer to send it again.** Check the mint's balance for the amount first;
+  if the note was credited, settle it by hand as in the `COMPLETED` case
+  above; invite a resubmission only once you have established the mint did
+  not take it.
+- `late Receive FAILED …: <mint error> — the mint did not take the note, no
+  session was granted` — the mint itself refused the note, and a refusal is
+  the one answer only the mint can give: the proofs were already spent
+  elsewhere, they sit on a retired keyset, they cannot cover the swap fee, or
+  the request was rejected outright. The note was never spent. The customer
+  can safely submit it again.
+
+If you see only the `Receive outcome unknown` line, the money-moving
+request had not finished when you looked — or the process was restarted
+while it was in flight, in which case no outcome line will ever be
+written. Re-check the log before telling the customer anything. The
+durable journal that would settle a late outcome automatically is not
+implemented; the reference plus these lines are the whole procedure.
 
 ## `TOLLGATE_TEST_CONFIG_DIR` — test-only, and loud if set
 

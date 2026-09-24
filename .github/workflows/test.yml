@@ -10,7 +10,13 @@ jobs:
   go-test:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      # Fail fast: one red module lane stops the run instead of burning the
+      # remaining lanes. The PR-gate happy path (`happy-path` job below) is a
+      # separate job, NOT a member of this matrix, so it is never cancelled by a
+      # red module lane - a PR that breaks the happy path still goes red on the
+      # happy path itself. Cost of the flip: a PR that breaks two modules reports
+      # the first one and cancels the other; the author re-runs after fixing it.
+      fail-fast: true
       matrix:
         module:
           - src/config_manager
@@ -69,6 +75,17 @@ jobs:
           # which the portal reports as #CU102.
           bash tests/packaging/assert-portal-bundle-contract.sh
 
+      - name: Packaging recipe dependency contract
+        run: |
+          # Offline (no SDK, no router, no network): every in-tree packaging
+          # recipe - packaging/Makefile, packaging/local-build-ipk.sh,
+          # .github/workflows/build-package.yml's own DEPENDS line and the
+          # generated .ngit/act/workflows shards - must declare the daemon the
+          # module gates the network with and must not claim to replace it.
+          # This test has existed since the nodogsplash dependency incident but
+          # was never wired into CI, so nothing ran it automatically.
+          bash tests/packaging/package-nodogsplash-dependency_test.sh
+
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).
@@ -106,6 +123,132 @@ jobs:
         run: python3 tests/contract/check-deps-sync.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
+
+  # The customer-facing happy path is gated HERE, on every push and every pull
+  # request, because this is the workflow that runs on a branch BEFORE anyone
+  # reviews it: a PR that breaks the happy path is the PR that goes red.
+  #
+  # What runs is tests/happy-path/ (merged in #544) against a package built from
+  # THIS commit by the repo's own packaging scripts, so the bytes booted are the
+  # bytes this commit would ship - not a fixture. It is offline: no mint, no
+  # payment, no secret, so it is safe to run for fork PRs.
+  #
+  # --strict is deliberate. The tip carries upstream #541 (/session-state) and
+  # the pinned portal ships the in-page renewal CTA (#60), so those surfaces MUST
+  # be there; --strict turns "an expected surface is absent" from SKIP into FAIL.
+  # That is exactly the class this gate exists to stop: the renewal-after-expiry
+  # dead end, the stale vendored portal bundle, and (once the mint-URL
+  # normalisation lands) the Lightning lane that cannot buy time.
+  happy-path:
+    name: Happy path (suite on a package built from this commit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      # Same manifest the release lane reads, so this job cannot drift from the
+      # pinned toolchain. packaging/local-build-ipk.sh enforces the Go pin and
+      # packaging/portal-build.sh enforces the node/npm pins, both from
+      # packaging/build-inputs.json.
+      - name: Resolve the pinned toolchain from the manifest
+        id: pins
+        run: |
+          set -euo pipefail
+          {
+            echo "go=$(jq -r '.go.version' packaging/build-inputs.json)"
+            echo "node=$(jq -r '.node.version' packaging/build-inputs.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ steps.pins.outputs.go }}
+          cache: true
+          cache-dependency-path: src/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.pins.outputs.node }}
+
+      # packaging/files/tollgate-captive-portal-site/assets/ is a GITIGNORED
+      # build product: a fresh checkout has no portal JS at all, so the bundle
+      # must be rebuilt from the SHA pinned in packaging/build-inputs.json. A
+      # checkout that used the committed tree as-is would boot an artifact with
+      # no portal and test nothing.
+      - name: Build the captive-portal bundle from the pinned revision
+        run: bash packaging/portal-build.sh
+
+      - name: Assert the portal bundle contract
+        run: bash tests/packaging/assert-portal-bundle-contract.sh
+
+      # The .ipk and the SDK-built .apk carry the same runtime payload the suite
+      # consumes (usr/bin/tollgate-wrt + the portal bundle under
+      # etc/tollgate/tollgate-captive-portal-site). Building the x86_64 .ipk with
+      # the in-tree packaging scripts keeps this a PR-speed job - no OpenWrt SDK
+      # download - and still tests a package assembled from this commit. The
+      # release lane (build-package.yml) runs the same suite against the
+      # SDK-built .apk it is about to publish.
+      - name: Build an x86_64 package from this commit
+        run: ARCH=x86_64 bash packaging/local-build-ipk.sh
+
+      - name: Assert the packaged runtime files
+        run: |
+          set -euo pipefail
+          PKG=$(ls -1 packaging/tollgate-wrt_*_x86_64.ipk | head -1)
+          echo "package: $PKG"
+          bash tests/packaging/assert-artifact-contents.sh "$PKG"
+
+      # packaging/build-ipk.sh wraps the .ipk as a GZIPPED TAR holding
+      # debian-binary + data.tar.gz + control.tar.gz (the OpenWrt opkg-build
+      # layout opkg itself and `tar -xzOf foo.ipk ./control.tar.gz` expect), NOT
+      # the Debian `ar` layout - so tar, not ar, is the tool that reads it.
+      - name: Extract the package
+        run: |
+          set -euo pipefail
+          PKG=$(ls -1 "$GITHUB_WORKSPACE"/packaging/tollgate-wrt_*_x86_64.ipk | head -1)
+          echo "package: $PKG"
+          mkdir -p /var/tmp/hp-artifact
+          cd /var/tmp/hp-artifact
+          tar xzf "$PKG"
+          tar xzf data.tar.gz
+          rm -f debian-binary data.tar.gz control.tar.gz
+          ls -l usr/bin/
+          ls etc/tollgate/tollgate-captive-portal-site/ | head -20
+
+      - name: Install the runner-side dependencies of the suite
+        run: |
+          set -euo pipefail
+          # The artifact binary is musl x86_64. The suite runs it natively using
+          # /lib/ld-musl-x86_64.so.1 (the `musl` package) and extracts the
+          # matching libgcc_s.so.1 out of alpine:3.20 itself, so pre-pull that
+          # image. Playwright drives the portal half in a real browser.
+          sudo apt-get update
+          sudo apt-get install -y musl
+          docker pull alpine:3.20
+          python3 -m pip install --break-system-packages playwright
+          python3 -m playwright install --with-deps chromium
+
+      - name: Run the happy-path suite
+        env:
+          # How run.sh finds the interpreter that has playwright installed.
+          HP_PYTHON: python3
+        run: |
+          set -euo pipefail
+          # .github/scripts/happy-path-gate.sh runs the suite with --strict and
+          # tolerates ONLY the check ids listed in tests/happy-path/known-issues.txt
+          # (one documented, pre-existing defect: the Lightning lane's mint-URL
+          # mismatch). Every other failure fails the release. See its header.
+          bash .github/scripts/happy-path-gate.sh \
+            --artifact /var/tmp/hp-artifact \
+            --out "$RUNNER_TEMP/happy-path-evidence"
+
+      - name: Upload the suite evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-evidence
+          path: ${{ runner.temp }}/happy-path-evidence
+          if-no-files-found: ignore
+          retention-days: 7
 
   router-happy-path-selftest:
     # tests/router-happy-path/run.sh talks to REAL hardware (an MT3000 on the

@@ -411,12 +411,56 @@ jobs:
           path: packaging/files/tollgate-captive-portal-site/
           retention-days: 7
 
+      # portal-build.sh owns FIVE gitignored build products (guest SPA, admin
+      # SPA, rpcd plugin, rpcd ACL, admin uci-default) and packaging/Makefile -
+      # the recipe the SDK apk lane compiles - installs all five. The artifact
+      # above carries only the guest SPA, so the apk job's tree was missing the
+      # other four and its compile died at
+      #   install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'
+      # (measured on the 2026-09-24 run). Hand the apk lane the whole set as one
+      # tarball of repository-relative paths, so what it unpacks is exactly the
+      # tree portal-build.sh produced - no per-file list to drift, and no
+      # dependency on how an artifact root maps onto a checkout.
+      - name: Stage the generated portal files for the apk lane
+        run: |
+          set -euo pipefail
+          STAGE=/var/tmp/portal-generated
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          for p in \
+              packaging/files/tollgate-captive-portal-site \
+              packaging/files/tollgate-admin \
+              packaging/files/usr/libexec/rpcd/tollgate \
+              packaging/files/usr/share/rpcd/acl.d/tollgate.json \
+              packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+            if [ ! -e "$p" ]; then
+              echo "ERROR: portal-build.sh produced no $p - refusing to hand the apk lane a partial bundle" >&2
+              exit 1
+            fi
+            mkdir -p "$STAGE/$(dirname "$p")"
+            cp -a "$p" "$STAGE/$(dirname "$p")/"
+          done
+          tar czf /var/tmp/portal-generated.tar.gz -C "$STAGE" .
+          echo "tarball: $(stat -c%s /var/tmp/portal-generated.tar.gz) bytes"
+          tar tzf /var/tmp/portal-generated.tar.gz | sed -n '1,12p'
+          tar tzf /var/tmp/portal-generated.tar.gz | wc -l
+
+      - name: Upload the generated portal files for the apk lane
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-generated-tar
+          path: /var/tmp/portal-generated.tar.gz
+          retention-days: 7
+
   package-ipk:
     timeout-minutes: 30
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      # Fail fast: the happy-path gate runs after packaging, so there is nothing
+      # to gain from finishing twelve more architectures once one has failed -
+      # publish-metadata is gated on the gate, not on the matrix completing.
+      fail-fast: true
       matrix: ${{ fromJson(needs.define-package-matrix.outputs.ipk_matrix) }}
     steps:
       - uses: actions/checkout@v6
@@ -609,7 +653,10 @@ jobs:
       image: openwrt/sdk:${{ matrix.sdk }}-25.12.0@${{ matrix.digest }}
       options: --user root
     strategy:
-      fail-fast: false
+      # Fail fast: the happy-path gate runs after packaging, so there is nothing
+      # to gain from finishing the remaining architectures once one has failed -
+      # publish-metadata is gated on the gate, not on the matrix completing.
+      fail-fast: true
       matrix: ${{ fromJson(needs.define-package-matrix.outputs.apk_matrix) }}
     steps:
       - uses: actions/checkout@v6
@@ -618,9 +665,31 @@ jobs:
           fetch-depth: 1
 
       - name: Install build tools
+        # Container jobs default to `sh`, where `set -o pipefail` is illegal and
+        # the step dies with "sh: 1: set: Illegal option -o pipefail". Ask for
+        # bash explicitly, as the other steps in this job already do.
+        shell: bash
         run: |
-          apt-get update
-          apt-get install -y curl jq
+          set -euo pipefail
+          # Do NOT apt-install these. The pinned openwrt/sdk image is Debian
+          # bullseye, whose security pool goes 404 once bullseye leaves LTS, so
+          # `apt-get install -y curl jq` dies inside the container
+          # ("E: Failed to fetch ... 404  Not Found", "Process completed with exit
+          # code 100") and takes every apk job with it - measured on the
+          # 2026-09-17 and 2026-09-12 fork runs, where all three package-apk jobs
+          # failed there and publish-metadata was skipped as a result. curl ships
+          # in the image; jq does not, so take jq from its pinned upstream release
+          # the same way the nak install below does.
+          if ! command -v curl >/dev/null 2>&1; then
+            apt-get update && apt-get install -y curl
+          fi
+          if ! command -v jq >/dev/null 2>&1; then
+            curl -fsSL -o /usr/local/bin/jq \
+              https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64
+            chmod +x /usr/local/bin/jq
+          fi
+          curl --version | head -1
+          jq --version
 
       - name: Install nak
         run: |
@@ -657,6 +726,13 @@ jobs:
 
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
+        # Container jobs default to `sh`, where `set -o pipefail` is illegal and
+        # the step dies with "sh: 1: set: Illegal option -o pipefail". This step
+        # was the first red in the apk lane once the apt-404 below was fixed, and
+        # with `fail-fast: true` it cancels the x86_64 apk job - the one the
+        # happy-path gate consumes - so a broken upx row would leave the gate
+        # unreachable. Ask for bash explicitly, as the other steps here do.
+        shell: bash
         run: |
           set -euo pipefail
           # Pinned UPX (version + sha256 in packaging/build-inputs.json);
@@ -664,11 +740,38 @@ jobs:
           bash src-checkout/scripts/fetch-upx.sh
           echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' src-checkout/packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
-      - name: Download portal assets
+      - name: Download the generated portal file tarball
         uses: actions/download-artifact@v4
         with:
-          name: portal-assets
-          path: src-checkout/packaging/files/tollgate-captive-portal-site/
+          name: portal-generated-tar
+          path: /var/tmp
+
+      - name: Unpack the generated portal files into the source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tree portal-build.sh produced, at repository-relative paths:
+          # the guest SPA, the admin SPA, the rpcd plugin and its ACL, and the
+          # admin uci-default. packaging/Makefile installs all five, so a
+          # guest-SPA-only artifact leaves the compile red
+          # ("install: cannot stat '.../92-tollgate-admin-setup'", 2026-09-24).
+          tar xzf /var/tmp/portal-generated.tar.gz -C src-checkout
+          # The guest SPA's entry file is splash.html (the bundle has no
+          # index.html - the admin webroot is the one with index.html), so this
+          # asserts each product is present rather than guessing an entry name:
+          # a non-empty guest SPA plus the four named products.
+          [ -n "$(ls -A src-checkout/packaging/files/tollgate-captive-portal-site)" ] \
+            || { echo "ERROR: the guest SPA bundle is empty" >&2; exit 1; }
+          for p in \
+              src-checkout/packaging/files/tollgate-captive-portal-site/splash.html \
+              src-checkout/packaging/files/tollgate-admin/index.html \
+              src-checkout/packaging/files/usr/libexec/rpcd/tollgate \
+              src-checkout/packaging/files/usr/share/rpcd/acl.d/tollgate.json \
+              src-checkout/packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+            [ -e "$p" ] || { echo "ERROR: missing generated portal file $p" >&2; exit 1; }
+          done
+          ls -l src-checkout/packaging/files/etc/uci-defaults/ \
+                src-checkout/packaging/files/tollgate-captive-portal-site/ | head -20
 
       - name: Restore SDK build cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -736,6 +839,12 @@ jobs:
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
 
       - name: Verify packaged runtime files
+        # Same container/shell trap as "Install UPX" above: this step runs in the
+        # openwrt/sdk image, whose /bin/sh is dash, where `set -o pipefail` is
+        # illegal. Without this line every apk row dies here ("sh: 1: set:
+        # Illegal option -o pipefail") before the artifact is ever built, so the
+        # x86_64 .apk the happy-path gate consumes never exists.
+        shell: bash
         run: |
           set -euo pipefail
           # Select THIS package's artifact, not the first *.apk anywhere under
@@ -757,6 +866,35 @@ jobs:
           export APK_BIN
           echo "APK_BIN=$APK_BIN"
           bash src-checkout/tests/packaging/assert-artifact-contents.sh "$PKG"
+
+      # Hand the one architecture the happy-path gate can execute to that gate.
+      # The suite boots the package's own binary, so the bytes it exercises are
+      # the bytes this run is about to publish; x86_64 is the only architecture
+      # whose binary runs natively on the ubuntu-latest runner. Staged under the
+      # published filename so the gate has no version string to reconstruct.
+      # (The apk matrix holds exactly one x86_64 entry - no compression variant -
+      # so the architecture test alone is the right filter.)
+      - name: Stage the x86_64 package for the happy-path gate
+        if: matrix.architecture == 'x86_64'
+        # Container jobs default to `sh`, where `set -o pipefail` is illegal.
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG=$(find "/builder/bin/packages/${{ matrix.architecture }}" -maxdepth 2 -type f \
+                  -name "${PACKAGE_NAME}-*.apk" | sort | head -1)
+          [ -n "$PKG" ] || { echo "ERROR: no ${PACKAGE_NAME}-*.apk to hand to the gate" >&2; exit 1; }
+          mkdir -p /github/workspace/happy-path-pkg
+          cp "$PKG" "/github/workspace/happy-path-pkg/${PACKAGE_FILENAME}"
+          ls -l /github/workspace/happy-path-pkg/
+
+      - name: Upload the x86_64 package for the happy-path gate
+        if: matrix.architecture == 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-apk
+          path: /github/workspace/happy-path-pkg/${{ env.PACKAGE_FILENAME }}
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Collect, upload to Blossom, and announce
         shell: bash
@@ -828,8 +966,105 @@ jobs:
 
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
+  # THE GATE. The happy path is exercised on the bytes this run is about to
+  # publish, and the release does not proceed if it is broken: publish-metadata
+  # needs this job, with no `if: always()`, so a red suite skips the release
+  # fail-closed. This is the operator's standing rule made mechanical - publish
+  # AFTER the tests.
+  #
+  # Why it exists: the happy path broke three times in ways only manual testing
+  # caught - a stale vendored portal bundle, a renewal-after-expiry dead end, and
+  # a Lightning lane that could not buy time (found by this suite, after the
+  # release had shipped). The suite that catches all three (tests/happy-path/,
+  # #544) existed but nothing ran it automatically.
+  #
+  # The suite is offline - no secret, no Cashu token, no payment, no real mint -
+  # so it is safe to run unattended and safe on a same-repo pull_request.
+  happy-path:
+    name: Happy path (suite on the built .apk, --strict)
+    needs: [package-apk]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download the x86_64 package this run just built
+        uses: actions/download-artifact@v4
+        with:
+          name: happy-path-apk
+          path: happy-path-pkg
+
+      # An OpenWrt .apk is a custom v3 format (NOT gzip/zstd), so it needs
+      # apk-tools. Extracting it inside a throwaway container is the recipe in
+      # tests/happy-path/README.md and avoids requiring OpenWrt's own apk on the
+      # runner. The extracted tree is exactly what the module sees on a router.
+      - name: Extract the package
+        run: |
+          set -euo pipefail
+          mkdir -p /var/tmp/hp-artifact
+          cp happy-path-pkg/*.apk /var/tmp/hp-artifact/
+          ls -l /var/tmp/hp-artifact/
+          # `apk.static extract --destination <dir>` does NOT create <dir>: it
+          # answers "ERROR: Error opening destination '/out/extracted': No such
+          # file or directory" and exits 99 (measured, fork run 35944626755 job
+          # 107462074261 - the gate's first execution). Create it on the HOST so
+          # it is already there under the bind mount.
+          mkdir -p /var/tmp/hp-artifact/extracted
+          docker run --rm -v /var/tmp/hp-artifact:/out alpine:edge sh -c \
+            'apk add --no-cache apk-tools-static >/dev/null &&
+             /sbin/apk.static extract --allow-untrusted --destination /out/extracted /out/*.apk'
+          du -sh /var/tmp/hp-artifact/extracted
+          ls -l /var/tmp/hp-artifact/extracted/usr/bin/
+          ls /var/tmp/hp-artifact/extracted/etc/tollgate/tollgate-captive-portal-site/ | head
+
+      - name: Install the runner-side dependencies of the suite
+        run: |
+          set -euo pipefail
+          # The artifact binary is musl x86_64: the suite runs it natively using
+          # /lib/ld-musl-x86_64.so.1 (the `musl` package) and extracts the
+          # matching libgcc_s.so.1 out of alpine:3.20 itself, so pre-pull that
+          # image. Playwright drives the portal half in a real browser.
+          sudo apt-get update
+          sudo apt-get install -y musl
+          docker pull alpine:3.20
+          python3 -m pip install --break-system-packages playwright
+          python3 -m playwright install --with-deps chromium
+
+      # --strict is deliberate, not decoration: this artifact is built from a tip
+      # that carries upstream #541 (/session-state) and a portal bundle that ships
+      # the in-page renewal CTA (#60), so those surfaces are EXPECTED here and
+      # their absence must fail the release rather than skip. That is precisely
+      # the renewal-after-expiry dead end this gate is for.
+      - name: Run the happy-path suite
+        env:
+          # How run.sh finds the interpreter that has playwright installed.
+          HP_PYTHON: python3
+        run: |
+          set -euo pipefail
+          # .github/scripts/happy-path-gate.sh runs the suite with --strict and
+          # tolerates ONLY the check ids listed in tests/happy-path/known-issues.txt
+          # (one documented, pre-existing defect: the Lightning lane's mint-URL
+          # mismatch). Every other failure fails the release. See its header.
+          bash .github/scripts/happy-path-gate.sh \
+            --artifact /var/tmp/hp-artifact/extracted \
+            --out "$RUNNER_TEMP/happy-path-evidence"
+
+      - name: Upload the suite evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-evidence
+          path: ${{ runner.temp }}/happy-path-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+
   publish-metadata:
-    needs: [determine-versioning, package-ipk, package-apk]
+    # `happy-path` is in the needs list on purpose and there is deliberately no
+    # `if: always()` on this job or the ones below it: a red happy path skips the
+    # release, fail-closed, instead of publishing a broken build to every feed
+    # consumer. verify-publication and trigger-build-os inherit this through
+    # their own `needs:`.
+    needs: [determine-versioning, package-ipk, package-apk, happy-path]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
