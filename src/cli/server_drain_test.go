@@ -95,6 +95,12 @@ func (m *scriptedDrainMerchant) GetSessionState(macAddress string) (merchant.Ses
 func (m *scriptedDrainMerchant) AddAllotment(macAddress, metric string, amount uint64) (*merchant.CustomerSession, error) {
 	return nil, nil
 }
+func (m *scriptedDrainMerchant) IssueSessionTicket(macAddress string) (string, int64, error) {
+	return "", 0, nil
+}
+func (m *scriptedDrainMerchant) RebindSession(ticket, macAddress string) (*merchant.CustomerSession, error) {
+	return nil, nil
+}
 func (m *scriptedDrainMerchant) GetUsage(macAddress string) (string, error) { return "", nil }
 func (m *scriptedDrainMerchant) Fund(cashuToken string) (uint64, error)     { return 0, nil }
 func (m *scriptedDrainMerchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*merchant.LightningInvoice, error) {
