@@ -158,3 +158,30 @@ func TestTokenFingerprintCreatesNothingUntilUsed(t *testing.T) {
 		t.Fatalf("an empty token created the salt file: %v", err)
 	}
 }
+
+// Regression: a random salt can begin or end with a byte whose value is
+// whitespace (tab here: 0x09). The salt file is hex-encoded, so the
+// whitespace-trimming reader cannot corrupt it — write, reload, fingerprint
+// again: all three must agree.
+func TestTokenFingerprintSaltWithWhitespaceValuedBytesSurvivesReload(t *testing.T) {
+	useSalt(t, "")
+
+	salt := make([]byte, 32)
+	salt[0] = 0x09  // tab: would be trimmed as a raw byte
+	salt[31] = 0x20 // space: same at the tail
+	for i := 1; i < 31; i++ {
+		salt[i] = byte('a')
+	}
+	if err := writeTokenFingerprintSalt(salt); err != nil {
+		t.Fatalf("writing the salt fixture: %v", err)
+	}
+
+	first := TokenFingerprint("cashuA-test-note-0001")
+	if first == "" {
+		t.Fatal("no fingerprint")
+	}
+	resetTokenFingerprintSaltForTest()
+	if second := TokenFingerprint("cashuA-test-note-0001"); second != first {
+		t.Fatalf("fingerprint changed after reloading a salt with whitespace-valued edge bytes: %q then %q", first, second)
+	}
+}
