@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 )
@@ -382,5 +383,54 @@ func TestRefusedPostDerivesTheClientKeyOnce(t *testing.T) {
 	if got := *derivations; got != 1 {
 		t.Errorf("a refused POST derived the client quota key %d times, want 1 — each derivation reads %s and then %s",
 			got, dhcpLeasePath, arpTablePath)
+	}
+}
+
+// --- the refusal log's own bound --------------------------------------------
+
+// The refusal log suppresses a repeat line per identity for one window. Its map
+// is capped like the quota maps, but a map that is *cleared* past the cap resets
+// every other identity's window: a flood from more than quoteQuotaMaxKeys
+// distinct identities re-enabled a log line per refused request for all of them,
+// which is the log amplification the limiter exists to prevent. Eviction must
+// take the least recently seen identity, and only that one.
+func TestQuoteRefusalLogEvictsOldestIdentityInsteadOfClearingTheMap(t *testing.T) {
+	var log quoteRefusalLog
+	log.window = 30 * time.Second
+
+	key := func(i int) string {
+		return fmt.Sprintf("mac:aa:bb:cc:%02x:%02x:%02x", i>>16, (i>>8)&0xff, i&0xff)
+	}
+
+	// The oldest identity logs once; from here on its line is suppressed.
+	oldest := key(0)
+	if shouldLog, _ := log.allow(oldest); !shouldLog {
+		t.Fatalf("first refusal from %s was suppressed, want logged", oldest)
+	}
+
+	// A wide flood: enough distinct identities to take the map past its cap.
+	for i := 0; i < quoteQuotaMaxKeys+2; i++ {
+		log.allow(key(i))
+	}
+
+	// An identity seen a moment ago is still inside its window, even though the
+	// flood crossed the cap after it. (Under a wholesale clear it is gone, and
+	// this refusal logs a second line although nothing about it changed.)
+	recent := key(quoteQuotaMaxKeys)
+	if shouldLog, _ := log.allow(recent); shouldLog {
+		t.Errorf("%s was re-logged although it was seen a moment ago: the map past the cap was cleared instead of evicting the least recently seen identity", recent)
+	}
+
+	// Eviction still happens — the cap must bound the map, and the identity that
+	// has not been seen for the whole flood is the one that goes.
+	if shouldLog, _ := log.allow(oldest); !shouldLog {
+		t.Errorf("%s was still suppressed after %d newer identities: the map is not evicting at all", oldest, quoteQuotaMaxKeys)
+	}
+
+	log.mu.Lock()
+	size := len(log.last)
+	log.mu.Unlock()
+	if size > quoteQuotaMaxKeys {
+		t.Errorf("refusal log holds %d identities, want <= %d", size, quoteQuotaMaxKeys)
 	}
 }
