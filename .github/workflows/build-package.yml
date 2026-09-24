@@ -756,15 +756,22 @@ jobs:
           # guest-SPA-only artifact leaves the compile red
           # ("install: cannot stat '.../92-tollgate-admin-setup'", 2026-09-24).
           tar xzf /var/tmp/portal-generated.tar.gz -C src-checkout
+          # The guest SPA's entry file is splash.html (the bundle has no
+          # index.html - the admin webroot is the one with index.html), so this
+          # asserts each product is present rather than guessing an entry name:
+          # a non-empty guest SPA plus the four named products.
+          [ -n "$(ls -A src-checkout/packaging/files/tollgate-captive-portal-site)" ] \
+            || { echo "ERROR: the guest SPA bundle is empty" >&2; exit 1; }
           for p in \
-              src-checkout/packaging/files/tollgate-captive-portal-site/index.html \
+              src-checkout/packaging/files/tollgate-captive-portal-site/splash.html \
               src-checkout/packaging/files/tollgate-admin/index.html \
               src-checkout/packaging/files/usr/libexec/rpcd/tollgate \
               src-checkout/packaging/files/usr/share/rpcd/acl.d/tollgate.json \
               src-checkout/packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
             [ -e "$p" ] || { echo "ERROR: missing generated portal file $p" >&2; exit 1; }
           done
-          ls -l src-checkout/packaging/files/etc/uci-defaults/
+          ls -l src-checkout/packaging/files/etc/uci-defaults/ \
+                src-checkout/packaging/files/tollgate-captive-portal-site/ | head -20
 
       - name: Restore SDK build cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
