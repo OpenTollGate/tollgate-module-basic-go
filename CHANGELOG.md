@@ -45,6 +45,27 @@ and [Semantic Versioning](https://semver.org/).
   happy-path suite's tolerated `portal:lightning-lane-against-live-module` known
   issue is deleted with it
   ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
+
+- **The packaged `:8090` admin board is not served on a router with no root
+  credential — the packaging fails closed.** rpcd's `rpc_login_test_password()`
+  begins with `if (!hash || !*hash) return true;`, and the distribution's
+  `/etc/config/rpcd` maps the login password to root's shadow hash
+  (`password '$p$root'` → `getspnam("root")->sp_pwdp`), so on a first-boot rootfs
+  — whose root hash is EMPTY — the board's only login endpoint accepted ANY
+  password, including the empty one, and the session it opened reached the
+  board's ACL (`file:["exec"]`, `system:["password_set"]`,
+  `tollgate wallet_drain_cashu`): root command execution, a root password
+  change, or the operator's money, with no credential at all.
+  `99-tollgate-setup` now runs an admin-credential gate on BOTH setup paths:
+  an unset credential is established with a generated 20-character value shown
+  once (install output plus the root-only setup log — the channel the generated
+  private WiFi key already uses), an existing credential and a deliberately
+  locked account (`!`/`*`) are left byte-identical, and when no credential can
+  be established or verified the `:8090`/`:8443` admin listeners are dropped
+  instead of being served behind the empty hash (LuCI, the portal and the
+  backend are untouched). This closes the credential half of the admin-board
+  exposure — the reachability half is the guest-network fix in #546
+  ([#551](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/551)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,
