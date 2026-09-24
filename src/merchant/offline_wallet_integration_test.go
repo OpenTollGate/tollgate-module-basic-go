@@ -859,7 +859,12 @@ func TestIntegration_FullMerchantDowngradeOnAllMintsDown(t *testing.T) {
 	proxy.Close()
 	confirmProxyDead(t, proxyURL)
 
-	tracker.RunProactiveCheck()
+	// A mint leaves the reachable set only after defaultFailureThreshold
+	// consecutive failed probes (the /ln-invoice backpressure change), so drive
+	// that many before expecting the downgrade.
+	for i := uint8(0); i < defaultFailureThreshold; i++ {
+		tracker.RunProactiveCheck()
+	}
 
 	select {
 	case <-setChangedCh:
