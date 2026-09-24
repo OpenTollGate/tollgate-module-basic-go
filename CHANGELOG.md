@@ -300,6 +300,69 @@ and [Semantic Versioning](https://semver.org/).
   have passed against a static assertion)
   ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
 
+- **The happy-path suite gates the release instead of waiting for someone to
+  run it by hand.** `tests/happy-path/` (#544) is offline and deterministic, but
+  nothing ran it automatically, so the customer-facing happy path broke three
+  times in ways only manual testing caught: a stale vendored portal bundle, a
+  renewal-after-expiry dead end, and a Lightning lane that could not buy time
+  (found by this suite, after the release had shipped). `build-package.yml` now
+  builds, runs the suite with `--strict` against the x86_64 `.apk` the same
+  workflow just built (`package-apk` hands it over as an artifact; it is
+  extracted with `apk-tools-static` in a container), and only then publishes:
+  `publish-metadata` needs the happy-path job with no `if: always()`, so a red
+  suite skips the release fail-closed, and `verify-publication` /
+  `trigger-build-os` inherit that. Every matrix is now `fail-fast: true`: both
+  packaging matrices, where a red row used to burn the remaining architectures,
+  and `test.yml`'s per-module `go-test` matrix (the happy path is a separate job,
+  never a member of that matrix, so a red module lane cannot cancel it).
+  `test.yml` runs the same suite on every push and pull
+  request against a package built from the commit under test, so a PR that
+  breaks the happy path is the PR that goes red. `--strict` is deliberate: the
+  tip carries upstream #541 (`/session-state`) and the pinned portal ships the
+  in-page renewal CTA (#60), so their absence must fail the release rather than
+  skip — both are measured PASSING on a package built from the tip. `--strict`
+  also promotes every `tests/happy-path/known-issues.txt` entry back to fatal, so
+  the gate wrapper (`.github/scripts/happy-path-gate.sh`) tolerates exactly the
+  check ids that file lists — today the one open Lightning-lane mint-URL defect,
+  which is the normalisation work and not this gate's — and fails on every other
+  failure, including a non-zero suite exit that reports no failed check. Delete
+  that line when the fix lands and the carve-out disappears by itself. The gate
+  also gives a bare runner the one identity fixture a router always has — a DHCP
+  lease for the harness's client — because the module resolves identity from the
+  lease/ARP table and (post-#548) refuses a client it cannot identify, so without
+  it the live-module checks fail with `device-unresolved` on CI and pass on a
+  router; every assertion is unchanged once the lease is present. The two
+  packaging tests no CI job ran are wired in as well
+  (`package-nodogsplash-dependency_test.sh`, and `assert-artifact-contents.sh`
+  against the package the new lane builds). Workflow-only fixes the gate needs,
+  all in the `package-apk` job that produces the artifact the gate consumes:
+  it no longer apt-installs `curl`/`jq` (the pinned `openwrt/sdk` image is
+  Debian bullseye and its security pool now 404s, which had been failing all
+  three apk jobs and skipping the release), and every step of that container job
+  now requests `shell: bash` — container jobs default to `sh`, where
+  `set -o pipefail` is illegal. That second fix had to cover two steps nobody had
+  reached yet: with the apt-404 gone, `Install UPX` was the next red, and with
+  `fail-fast: true` it cancelled the x86_64 apk row, leaving the gate skipped and
+  the release ungated — measured on this branch's own fork runs (2026-09-24,
+  `Happy path ... skipped`). `Verify packaged runtime files` sat behind it with
+  the same trap and would have killed every apk row, so both are fixed here.
+  Behind them lay a third and larger one: the apk lane's checkout never received
+  the generated portal build products that `packaging/Makefile` installs. Only
+  the guest SPA was handed over, so the compile died at
+  `install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'`
+  (measured on the 2026-09-24 run, after the shell fix let the leg reach the
+  compile step). The portal job now hands the apk lane all five build products —
+  guest SPA, admin SPA, rpcd plugin, rpcd ACL, admin uci-default — as a tarball of
+  repository-relative paths, and the job unpacks and asserts them before staging
+  the package tree; the guest-SPA-only artifact stays in place for the .ipk lane.
+  Last, the gate's own `Extract the package` step needed one more line:
+  `apk.static extract --destination <dir>` does not create `<dir>`, so the job's
+  first execution died on `ERROR: Error opening destination '/out/extracted'`
+  (exit 99) and skipped the release for a plumbing reason instead of a real
+  regression — measured on the same 2026-09-24 run and reproduced locally against
+  the .apk that run built
+  ([#554](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/554)).
+
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
