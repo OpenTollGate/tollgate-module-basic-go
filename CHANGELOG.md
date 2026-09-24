@@ -233,7 +233,13 @@ and [Semantic Versioning](https://semver.org/).
   compile step). The portal job now hands the apk lane all five build products —
   guest SPA, admin SPA, rpcd plugin, rpcd ACL, admin uci-default — as a tarball of
   repository-relative paths, and the job unpacks and asserts them before staging
-  the package tree; the guest-SPA-only artifact stays in place for the .ipk lane
+  the package tree; the guest-SPA-only artifact stays in place for the .ipk lane.
+  Last, the gate's own `Extract the package` step needed one more line:
+  `apk.static extract --destination <dir>` does not create `<dir>`, so the job's
+  first execution died on `ERROR: Error opening destination '/out/extracted'`
+  (exit 99) and skipped the release for a plumbing reason instead of a real
+  regression — measured on the same 2026-09-24 run and reproduced locally against
+  the .apk that run built
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so

@@ -1004,6 +1004,12 @@ jobs:
           mkdir -p /var/tmp/hp-artifact
           cp happy-path-pkg/*.apk /var/tmp/hp-artifact/
           ls -l /var/tmp/hp-artifact/
+          # `apk.static extract --destination <dir>` does NOT create <dir>: it
+          # answers "ERROR: Error opening destination '/out/extracted': No such
+          # file or directory" and exits 99 (measured, fork run 35944626755 job
+          # 107462074261 - the gate's first execution). Create it on the HOST so
+          # it is already there under the bind mount.
+          mkdir -p /var/tmp/hp-artifact/extracted
           docker run --rm -v /var/tmp/hp-artifact:/out alpine:edge sh -c \
             'apk add --no-cache apk-tools-static >/dev/null &&
              /sbin/apk.static extract --allow-untrusted --destination /out/extracted /out/*.apk'
