@@ -1,12 +1,21 @@
 #!/bin/sh
 # TollGate first-boot configuration. Runs once from /etc/init.d/boot before
-# services start. All UCI changes are committed in a single pass at the end;
-# no service restarts here (uci-defaults runs before procd brings services up).
+# services start, and from the package postinst on every install/upgrade. All
+# UCI changes are committed in a single pass at the end.
+#
+# No service is restarted on the first-boot path (uci-defaults runs before procd
+# brings services up, and procd then starts them once from the config written
+# here). The ONE exception is converge_nodogsplash_runtime: when this script runs
+# on an ALREADY-RUNNING system and the nodogsplash pre-auth allow list no longer
+# matches the ruleset the live process installed, that process is reloaded — a
+# config change is otherwise not delivered until something restarts it, which is
+# right on a fresh boot and wrong on an upgrade of a running router.
 #
 # The flag file stores the setup version. On reinstall/upgrade:
 # - Same version → verify wireless APs, re-assert the uhttpd contract and the
 #   nodogsplash pre-auth allow list (uhttpd.main/uhttpd.portal drift and a
-#   stale users_to_router list are repaired; the rest is not re-run)
+#   stale users_to_router list are repaired; the rest is not re-run), then
+#   converge the running ruleset on the repaired list
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
@@ -38,6 +47,10 @@ case "$SETUP_VERSION" in
 esac
 
 LOGFILE=/tmp/tollgate-setup.log
+# The nodogsplash init script, as an absolute path next to SETUP_FLAG and
+# LOGFILE so the offline tests can redirect all three the same way
+# (tests/uci-defaults-*_test.sh).
+NDS_INIT="/etc/init.d/nodogsplash"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup steps ------------------------------------------------------------
@@ -679,6 +692,151 @@ setup_nodogsplash() {
     fi
 }
 
+# --- nodogsplash runtime convergence ----------------------------------------
+#
+# users_to_router is nodogsplash's pre-authentication allow list, and
+# nodogsplash turns it into a ruleset ONCE, when the process starts: the
+# pre-auth accepts are the `ndsRTR` iptables chain it installs for the captive
+# bridge (br-lan). A change to the list therefore reaches a RUNNING router only
+# if something reloads the service.
+#
+# Nothing in the packaging path does. This script deliberately restarts no
+# service (on a FRESH BOOT it runs from /etc/init.d/boot before procd starts
+# them, and procd then starts nodogsplash once, from the config written here),
+# and the postinst that actually ships in the published package restarts only
+# tollgate-wrt (measured 2026-09-25: extracted from /lib/apk/db/scripts.tar.gz
+# on the bench). Measured consequence after the pre16 install: `uci show
+# nodogsplash` no longer listed :8090 while the RUNNING ruleset still carried
+#   -A ndsRTR -p tcp -m tcp --dport 8090 -j ACCEPT
+# so the owner-facing admin board answered HTTP 200 to a client on br-lan that
+# had paid nothing, until an operator ran `/etc/init.d/nodogsplash restart` by
+# hand (which dropped it to 000 with the portal unaffected).
+#
+# The step below makes the effective policy equal the configured one: it
+# compares the pre-auth TCP ports the config lists with the ports the RUNNING
+# ruleset actually accepts, and reloads the service when — and only when — the
+# two differ and the service is already up. A fresh boot is left alone (procd
+# starts the service once, with the new config), a steady-state run is left
+# alone (no reload storm, no dropped sessions), and the reload is logged with
+# the resulting accept-rule count so an install can be audited from
+# /tmp/tollgate-setup.log.
+
+# The pre-auth TCP ports the CONFIGURED allow list holds. Entries look like
+# 'allow tcp port 8090'; `uci get` renders a list either one entry per line or
+# as a quoted single-line list, so quotes become newlines before matching. Only
+# tcp entries are collected, and the running ruleset is filtered the same way:
+# an `allow udp port 67` entry is a udp rule in ndsRTR, and collecting it on one
+# side only would read as a permanent, phantom divergence.
+nodogsplash_configured_accept_ports() {
+    uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null \
+        | tr "'" '\n' \
+        | sed -n 's/^ *allow tcp port \([0-9][0-9]*\) *$/\1/p' \
+        | sort -n -u
+}
+
+nodogsplash_gateway_port() {
+    uci -q get nodogsplash.@nodogsplash[0].gatewayport 2>/dev/null || echo ""
+}
+
+nodogsplash_drop_port() { # filter one port out of a newline separated set
+    if [ -n "$1" ]; then grep -v -x -e "$1"; else cat; fi
+}
+
+# The pre-auth TCP ports the RUNNING ruleset accepts, read from the chain
+# nodogsplash installs for the captive bridge. The gateway port is dropped from
+# both sides of the comparison: nodogsplash injects it itself, so it is present
+# even when the list does not carry it, and comparing it would reload on every
+# run instead of on a real divergence. Verified on the bench (2026-09-25) that
+# the two sets are EQUAL in steady state, so the step does not fire on an
+# unchanged router.
+nodogsplash_runtime_accept_ports() {
+    iptables -S ndsRTR 2>/dev/null \
+        | grep -- '-j ACCEPT' \
+        | grep -F -- '-p tcp' \
+        | sed -n 's/.*--dport \([0-9][0-9]*\).*/\1/p' \
+        | sort -n -u \
+        | nodogsplash_drop_port "$(nodogsplash_gateway_port)"
+}
+
+# A missing chain makes `iptables -S` fail; that is not the same as an empty
+# one, and the caller must not read "cannot measure" as "converge me".
+nodogsplash_ruleset_present() {
+    iptables -S ndsRTR >/dev/null 2>&1
+}
+
+nodogsplash_accept_rule_count() {
+    iptables -S ndsRTR 2>/dev/null | grep -c -- '-j ACCEPT' || true
+}
+
+nodogsplash_is_running() {
+    if command -v pidof >/dev/null 2>&1; then
+        pidof nodogsplash >/dev/null 2>&1
+    else
+        "$NDS_INIT" status >/dev/null 2>&1
+    fi
+}
+
+nodogsplash_ports_csv() { # [1,2,3] — render a newline separated set for the log
+    printf '%s' "$1" | tr '\n' ',' | sed 's/,$//'
+}
+
+converge_nodogsplash_runtime() {
+    local want have before_count after_count rc i
+
+    if ! nodogsplash_is_running; then
+        log "nodogsplash policy convergence: service not running (first boot) — procd starts it once with the configured allow list, no reload here"
+        return 0
+    fi
+    if ! command -v iptables >/dev/null 2>&1; then
+        log "nodogsplash policy convergence: iptables not available — cannot read the running ruleset, leaving the service alone"
+        return 0
+    fi
+
+    want=$(nodogsplash_configured_accept_ports \
+        | nodogsplash_drop_port "$(nodogsplash_gateway_port)")
+    have=$(nodogsplash_runtime_accept_ports)
+    if [ "$have" = "$want" ]; then
+        log "nodogsplash policy convergence: running ruleset already matches the configured allow list ([$(nodogsplash_ports_csv "$want")]) — no reload"
+        return 0
+    fi
+    if ! nodogsplash_ruleset_present; then
+        log "nodogsplash policy convergence: no ndsRTR chain to compare against — leaving the service alone"
+        return 0
+    fi
+
+    before_count=$(nodogsplash_accept_rule_count)
+    # reload is the intent-revealing verb; for a procd service that defines no
+    # reload of its own (nodogsplash 5.0.2 does not) rc.common's reload calls
+    # restart, so restart is only the fallback for an init script whose reload
+    # fails outright.
+    "$NDS_INIT" reload >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" != 0 ]; then
+        "$NDS_INIT" restart >/dev/null 2>&1
+        rc=$?
+    fi
+
+    # procd starts the service asynchronously, so wait — bounded — for the
+    # regenerated ruleset to match the configured list before logging the result
+    # rather than guessing with a fixed sleep. Integer seconds only: BusyBox
+    # `sleep 0.5` is rejected on this target (measured 2026-09-25).
+    i=0
+    while [ "$i" -lt 5 ]; do
+        have=$(nodogsplash_runtime_accept_ports)
+        [ "$have" = "$want" ] && break
+        sleep 1
+        i=$((i + 1))
+    done
+
+    after_count=$(nodogsplash_accept_rule_count)
+    if [ "$rc" = 0 ]; then
+        log "nodogsplash policy convergence: reloaded after an allow-list change — pre-auth accept rules ${before_count} -> ${after_count}; runtime ports [$(nodogsplash_ports_csv "$have")] (configured [$(nodogsplash_ports_csv "$want")])"
+    else
+        log "nodogsplash policy convergence: reload FAILED (rc=$rc) — the running ruleset may still be stale (pre-auth accept rules ${before_count} -> ${after_count}; runtime ports [$(nodogsplash_ports_csv "$have")], configured [$(nodogsplash_ports_csv "$want")])"
+    fi
+    return 0
+}
+
 setup_tollgate_firewall_rules() {
     uci -q get firewall.tollgate_protocol >/dev/null 2>&1 || {
         uci set firewall.tollgate_protocol='rule'
@@ -1105,6 +1263,12 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
         uci commit nodogsplash
         log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
     fi
+    # A repaired allow list is not a delivered policy: the running nodogsplash
+    # holds the ruleset it generated from the list it saw at start-up. Converge
+    # it here, after the commit above, so an upgrade or a repair on a RUNNING
+    # router takes effect without an operator restart (and so a fresh boot,
+    # where procd has not started the service yet, is left untouched).
+    converge_nodogsplash_runtime
     log "Wireless AP verification completed"
     exit 0
 fi
@@ -1132,6 +1296,13 @@ setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
 commit_all
+
+# After the commit: on a version-changing upgrade of an ALREADY-RUNNING router
+# the nodogsplash that is serving right now holds the ruleset generated from the
+# previous allow list, and nothing in the packaging path reloads it. On a fresh
+# boot this is a no-op (the service is not up yet; procd starts it once, with
+# the config committed above).
+converge_nodogsplash_runtime
 
 log "TollGate setup completed (version $SETUP_VERSION)"
 echo "$SETUP_VERSION" > "$SETUP_FLAG"
