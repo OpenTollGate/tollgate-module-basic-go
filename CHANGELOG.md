@@ -224,8 +224,16 @@ and [Semantic Versioning](https://semver.org/).
   `fail-fast: true` it cancelled the x86_64 apk row, leaving the gate skipped and
   the release ungated — measured on this branch's own fork runs (2026-09-24,
   `Happy path ... skipped`). `Verify packaged runtime files` sat behind it with
-  the same trap and would have killed every apk row, so both are fixed here; the
-  apk lane works end to end afterwards
+  the same trap and would have killed every apk row, so both are fixed here.
+  Behind them lay a third and larger one: the apk lane's checkout never received
+  the generated portal build products that `packaging/Makefile` installs. Only
+  the guest SPA was handed over, so the compile died at
+  `install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'`
+  (measured on the 2026-09-24 run, after the shell fix let the leg reach the
+  compile step). The portal job now hands the apk lane all five build products —
+  guest SPA, admin SPA, rpcd plugin, rpcd ACL, admin uci-default — as a tarball of
+  repository-relative paths, and the job unpacks and asserts them before staging
+  the package tree; the guest-SPA-only artifact stays in place for the .ipk lane
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so

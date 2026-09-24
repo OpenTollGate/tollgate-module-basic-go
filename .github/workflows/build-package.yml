@@ -411,6 +411,47 @@ jobs:
           path: packaging/files/tollgate-captive-portal-site/
           retention-days: 7
 
+      # portal-build.sh owns FIVE gitignored build products (guest SPA, admin
+      # SPA, rpcd plugin, rpcd ACL, admin uci-default) and packaging/Makefile -
+      # the recipe the SDK apk lane compiles - installs all five. The artifact
+      # above carries only the guest SPA, so the apk job's tree was missing the
+      # other four and its compile died at
+      #   install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'
+      # (measured on the 2026-09-24 run). Hand the apk lane the whole set as one
+      # tarball of repository-relative paths, so what it unpacks is exactly the
+      # tree portal-build.sh produced - no per-file list to drift, and no
+      # dependency on how an artifact root maps onto a checkout.
+      - name: Stage the generated portal files for the apk lane
+        run: |
+          set -euo pipefail
+          STAGE=/var/tmp/portal-generated
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          for p in \
+              packaging/files/tollgate-captive-portal-site \
+              packaging/files/tollgate-admin \
+              packaging/files/usr/libexec/rpcd/tollgate \
+              packaging/files/usr/share/rpcd/acl.d/tollgate.json \
+              packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+            if [ ! -e "$p" ]; then
+              echo "ERROR: portal-build.sh produced no $p - refusing to hand the apk lane a partial bundle" >&2
+              exit 1
+            fi
+            mkdir -p "$STAGE/$(dirname "$p")"
+            cp -a "$p" "$STAGE/$(dirname "$p")/"
+          done
+          tar czf /var/tmp/portal-generated.tar.gz -C "$STAGE" .
+          echo "tarball: $(stat -c%s /var/tmp/portal-generated.tar.gz) bytes"
+          tar tzf /var/tmp/portal-generated.tar.gz | sed -n '1,12p'
+          tar tzf /var/tmp/portal-generated.tar.gz | wc -l
+
+      - name: Upload the generated portal files for the apk lane
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-generated-tar
+          path: /var/tmp/portal-generated.tar.gz
+          retention-days: 7
+
   package-ipk:
     timeout-minutes: 30
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
@@ -699,11 +740,31 @@ jobs:
           bash src-checkout/scripts/fetch-upx.sh
           echo "$HOME/.cache/tollgate-tools/upx/$(jq -r '.upx.version' src-checkout/packaging/build-inputs.json)" >> "$GITHUB_PATH"
 
-      - name: Download portal assets
+      - name: Download the generated portal file tarball
         uses: actions/download-artifact@v4
         with:
-          name: portal-assets
-          path: src-checkout/packaging/files/tollgate-captive-portal-site/
+          name: portal-generated-tar
+          path: /var/tmp
+
+      - name: Unpack the generated portal files into the source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tree portal-build.sh produced, at repository-relative paths:
+          # the guest SPA, the admin SPA, the rpcd plugin and its ACL, and the
+          # admin uci-default. packaging/Makefile installs all five, so a
+          # guest-SPA-only artifact leaves the compile red
+          # ("install: cannot stat '.../92-tollgate-admin-setup'", 2026-09-24).
+          tar xzf /var/tmp/portal-generated.tar.gz -C src-checkout
+          for p in \
+              src-checkout/packaging/files/tollgate-captive-portal-site/index.html \
+              src-checkout/packaging/files/tollgate-admin/index.html \
+              src-checkout/packaging/files/usr/libexec/rpcd/tollgate \
+              src-checkout/packaging/files/usr/share/rpcd/acl.d/tollgate.json \
+              src-checkout/packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+            [ -e "$p" ] || { echo "ERROR: missing generated portal file $p" >&2; exit 1; }
+          done
+          ls -l src-checkout/packaging/files/etc/uci-defaults/
 
       - name: Restore SDK build cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
