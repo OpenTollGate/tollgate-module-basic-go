@@ -46,6 +46,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SCENARIO = {}
 PORTS = {}
+RATE_STATE = {}
 
 
 def mut(name, default=False):
@@ -169,8 +170,30 @@ class ApiHandler(Base):
             extra["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return self._send(200, "", "text/plain", extra)
 
+    def _throttle(self):
+        """The module rate-limits its ROOT handler per client IP -- and
+        /session-state falls through to that handler on a build that does not
+        ship the endpoint, so it shares the same budget.
+
+        Scenarios:
+          {"api_429_first": N}       429 the first N root hits, then serve
+          {"api_429_always": true}  429 every root hit
+          {"api_429_retry_after": S}  Retry-After to advertise (default 1s)
+        """
+        first = SCENARIO.get("api_429_first")
+        if not mut("api_429_always") and not first:
+            return False
+        RATE_STATE["root_hits"] = RATE_STATE.get("root_hits", 0) + 1
+        if not mut("api_429_always") and RATE_STATE["root_hits"] > int(first or 0):
+            return False
+        self._send(429, '{"error":"rate limit exceeded"}', "application/json",
+                   {"Retry-After": str(SCENARIO.get("api_429_retry_after", 1))})
+        return True
+
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path in ("/", "/session-state") and self._throttle():
+            return
         if path == "/":
             return self._root_doc()
         if path == "/whoami":
@@ -202,6 +225,8 @@ class ApiHandler(Base):
         return self._send(404, "<h1>Error 404 - Not Found</h1>")
 
     def do_POST(self):
+        if self._throttle():
+            return
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         if mut("empty_token_ok"):

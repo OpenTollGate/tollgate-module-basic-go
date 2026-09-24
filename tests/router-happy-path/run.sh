@@ -27,11 +27,16 @@
 # no proof, so it cannot redeem anything) and it exists to prove the payment lane
 # rejects a tokenless request.
 #
-# TWO TRAPS THIS HARNESS ENCODES:
+# THREE TRAPS THIS HARNESS ENCODES:
 #   * This firewall DROPS ICMP. Never use ping as a liveness test -- a live router
 #     was once reported down by exactly that mistake. Every liveness decision here
 #     is a TCP connect; net:icmp-not-a-liveness-test guards the source against a
 #     future edit reintroducing it.
+#   * The module RATE-LIMITS its root handler per client IP (10 rpm by default;
+#     TOLLGATE_RATE_LIMIT_RPM on the box). GET /, /session-state and the payment
+#     POST share that budget, so back-to-back runs collect a 429. A 429 here is a
+#     THROTTLE, not a regression: the harness honours Retry-After, retries, and
+#     then paces itself, rather than painting ten red lines from one limit.
 #   * Router SSH is password/key gated and the operator adds the key by hand (or
 #     types the password). All SSH checks are opt-in via RHP_SSH=1 and SKIP
 #     otherwise -- never silently "pass".
@@ -194,6 +199,24 @@ fetch() {  # fetch <url> [extra curl flags...] -> FETCH_CODE FETCH_LOC FETCH_BOD
     FETCH_CODE="${out%% *}"
     FETCH_LOC="${out#* }"
     [ -n "$FETCH_CODE" ] || FETCH_CODE="000"
+    # The module rate-limits its ROOT handler per client IP (10 rpm by default),
+    # so a 429 here is a THROTTLE and not the thing under test. Honour the
+    # server's Retry-After and retry -- reporting a throttle as a red line is
+    # exactly the confusion this harness exists to remove.
+    local tries=0 ra
+    while [ "$FETCH_CODE" = "429" ] && [ "$tries" -lt 3 ]; do
+        tries=$((tries + 1))
+        ra="$(hdr Retry-After)"
+        case "$ra" in ''|*[!0-9]*) ra=6 ;; esac
+        [ "$ra" -gt 20 ] && ra=20
+        note "http: HTTP 429 from $url (Retry-After ${ra}s) -- retrying; a throttle is not a regression"
+        sleep "$ra"
+        out="$(curl -s -m 15 "$@" -o "$FETCH_BODY" -D "$FETCH_HDRS" \
+               -w '%{http_code} %{redirect_url}' "$url" 2>/dev/null)" || out="000 "
+        FETCH_CODE="${out%% *}"
+        FETCH_LOC="${out#* }"
+        [ -n "$FETCH_CODE" ] || FETCH_CODE="000"
+    done
     return 0
 }
 

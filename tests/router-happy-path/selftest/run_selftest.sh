@@ -140,6 +140,7 @@ harness_run() {  # harness_run <outfile> [harness args...]
         RHP_PORTAL_PORT="$PORTAL_PORT" RHP_STUB_PORT="$STUB_PORT" RHP_API_PORT="$API_PORT" \
         RHP_ADMIN_PORT="$ADMIN_PORT" RHP_LUCI_PORT="$LUCI_PORT" RHP_CAPTIVE_PORT="$CAPTIVE_PORT" \
         RHP_SSH_PORT="$SSH_PORT" RHP_TLS_PORT="$TLS_PORT" \
+        RHP_429_PACE="${RHP_429_PACE:-1}" \
         bash run.sh \
         --artifact-dir "$ART" --router-ip 127.0.0.1 --out "$WORK/evidence" "$@" ) \
         >"$out" 2>"$WORK/err"
@@ -224,6 +225,33 @@ mut_case ln-200               FAIL ln:no-quote-status-poll                 '{"ln
 mut_case ln-wrong-error       FAIL ln:no-quote-status-poll                 '{"ln_wrong_error": true}'
 # 6. money path
 mut_case empty-token-accepted FAIL money:empty-token-rejected              '{"empty_token_ok": true}'
+# 7. the module's rate limiter (root handler, per client IP). A throttle must not
+#    read as a regression: a 429 that is retried away leaves the run GREEN, only a
+#    429 that survives every attempt is red, and the transcript has to say which.
+#    Three cases, because the harness retries in TWO places -- run.sh's fetch()
+#    and request() in lib/api_check.py.
+mut_case http-429-recovered   PASS api:root-kind10021 '{"api_429_first": 3}'
+if grep -q 'RHPNOTE http: HTTP 429 from' "$WORK/out.http-429-recovered.txt"; then
+    st http-429-recovered-note OK "the transcript names the throttle and the retry instead of failing it"
+else
+    st http-429-recovered-note BAD "no Retry-After retry note in the transcript"
+fi
+# deeper throttle: run.sh's bounded fetch() uses up its three retries on the
+# surface check, but request() must still retry its own 429 and answer PASS --
+# proving the python path is not relying on the shell one.
+printf '%s\n' '{"api_429_first": 5}' > "$WORK/scenario.json"
+start_stub "$WORK/scenario.json" || st http-429-api-retry BAD "stub did not restart"
+harness_run "$WORK/out.http-429-api-retry.txt"
+rc=$?
+rootline="$(grep -E '^RHPCHECK api:root-kind10021 ' "$WORK/out.http-429-api-retry.txt" | head -1 | cut -d' ' -f3)"
+surfline="$(grep -E "^RHPCHECK surface:$API_PORT-api " "$WORK/out.http-429-api-retry.txt" | head -1 | cut -d' ' -f3)"
+if [ "$rootline" = "PASS" ] && [ "$surfline" = "FAIL" ] && [ "$rc" = "1" ]; then
+    st http-429-api-retry OK "lib/api_check.py retried its own 429 to PASS while run.sh's bounded fetch() exhausted its tries (surface FAIL, exit 1)"
+else
+    st http-429-api-retry BAD "root=$rootline surface=$surfline rc=$rc (want root PASS, surface FAIL, rc 1)"
+fi
+mut_case http-429-always      FAIL api:root-kind10021 '{"api_429_always": true, "api_429_retry_after": 0}'
+
 # the optional content-hash pin must be falsifiable too (no mutation needed)
 mut_case pin-mismatch         FAIL identity:expected-entry                 '{}' \
     --expect-entry index-deadbeef.js:999:0000000000000000000000000000000000000000000000000000000000000000

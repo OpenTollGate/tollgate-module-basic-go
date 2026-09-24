@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -37,8 +38,46 @@ def note(text):
     print("RHPNOTE %s" % text, flush=True)
 
 
-def request(url, method="GET", body=None, content_type="", timeout=12):
-    """-> (status, body_bytes, headers_dict). status None on transport failure."""
+# --------------------------------------------------------------------------
+# HTTP transport -- and the module's rate limiter.
+#
+# The module wraps its ROOT handler (GET/POST "/", and /session-state, which
+# falls through to it) in a per-client-IP limiter: 10 requests/minute by default,
+# TOLLGATE_RATE_LIMIT_RPM overrides it on the box. One hardware run makes a
+# handful of root requests and consecutive runs make more, so a 429 on this box
+# is a THROTTLE, not a regression -- and reporting one as the other is exactly
+# the failure mode this harness exists to prevent. So: honour the server's own
+# Retry-After, retry, then pace every later request, so a burst that tripped the
+# limiter cannot cascade into a page of red lines.
+# --------------------------------------------------------------------------
+RETRY_ATTEMPTS = max(1, int(os.environ.get("RHP_429_ATTEMPTS", "5")))
+RETRY_MAX_WAIT = float(os.environ.get("RHP_429_MAX_WAIT", "30"))
+PACE_AFTER_429 = float(os.environ.get("RHP_429_PACE", "6.2"))
+THROTTLE = {"recovered": 0, "gaveup": [], "interval": 0.0, "next": 0.0}
+
+
+def _pace():
+    """Keep at least THROTTLE['interval'] between requests, once we know the box
+    is limiting us. No-op until the first 429 (a clean run is never slowed)."""
+    if THROTTLE["interval"] <= 0:
+        return
+    delta = THROTTLE["next"] - time.time()
+    if delta > 0:
+        time.sleep(delta)
+    THROTTLE["next"] = time.time() + THROTTLE["interval"]
+
+
+def _retry_after(hdrs, default=6.0):
+    for k, v in (hdrs or {}).items():
+        if str(k).lower() == "retry-after":
+            try:
+                return max(0.0, float(str(v).strip()))
+            except (TypeError, ValueError):
+                return default
+    return default
+
+
+def _once(url, method="GET", body=None, content_type="", timeout=12):
     data = body
     headers = {"User-Agent": UA}
     if data is not None:
@@ -51,6 +90,37 @@ def request(url, method="GET", body=None, content_type="", timeout=12):
         return exc.code, exc.read(), dict(exc.headers or {})
     except Exception as exc:
         return None, ("%r" % (exc,)).encode(), {}
+
+
+def request(url, method="GET", body=None, content_type="", timeout=12):
+    """-> (status, body_bytes, headers_dict). status None on transport failure.
+
+    A 429 is retried with the server's own Retry-After; after the first throttle
+    the rest of the run is paced. Only a 429 that survives every attempt is
+    handed back to the caller, and the note says out loud that it is a throttle.
+    """
+    waited = 0.0
+    st, raw, hdrs = None, b"", {}
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        _pace()
+        st, raw, hdrs = _once(url, method=method, body=body,
+                              content_type=content_type, timeout=timeout)
+        if st != 429:
+            return st, raw, hdrs
+        nap = min(_retry_after(hdrs), RETRY_MAX_WAIT)
+        if attempt >= RETRY_ATTEMPTS or waited + nap > RETRY_MAX_WAIT * 2:
+            THROTTLE["gaveup"].append(url)
+            note("http: HTTP 429 on %s survived %d attempt(s) -- the module rate-limits its root "
+                 "handler per client IP, so this is a throttle and not a regression; wait a minute "
+                 "and re-run before reading anything below as a defect" % (url, attempt))
+            return st, raw, hdrs
+        note("http: HTTP 429 from the module rate limiter on %s (Retry-After %.0fs) -- retrying; "
+             "a throttle is not a regression" % (url, nap))
+        time.sleep(nap)
+        waited += nap
+        THROTTLE["recovered"] += 1
+        THROTTLE["interval"] = max(THROTTLE["interval"], PACE_AFTER_429)
+    return st, raw, hdrs
 
 
 def jload(raw):
@@ -422,6 +492,10 @@ def main():
         check_empty_token(args)
     if not args.only or args.only == "paid":
         paid_lane(args)
+    if THROTTLE["recovered"]:
+        note("http: recovered from %d throttle response(s) (HTTP 429, the module's root-handler "
+             "rate limit) by honouring Retry-After -- no check above is red because of the limiter"
+             % THROTTLE["recovered"])
     return 0
 
 

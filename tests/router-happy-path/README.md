@@ -78,12 +78,23 @@ hardware by this PR** — doing so spends real sats. It is code-reviewed, not
 proven. Treat the first operator run with a real 1-sat token as its acceptance
 test.
 
-## Two traps this harness encodes on purpose
+## Three traps this harness encodes on purpose
 
 * **This firewall DROPS ICMP.** `ping` is not a liveness test here; a live router
   was once reported down by exactly that mistake. Every liveness decision in
   `run.sh` is a TCP connect, and `net:icmp-not-a-liveness-test` greps the
   harness source so a future edit cannot quietly reintroduce `ping`.
+* **The module rate-limits its root handler, per client IP** — 10 requests/minute
+  by default, `TOLLGATE_RATE_LIMIT_RPM` on the box. `GET /`, `/session-state`
+  (which falls through to the root handler) and the payment `POST` all share that
+  budget, so a **back-to-back** hardware run collects a `429`. A `429` here is a
+  THROTTLE, not a regression, and painting ten red lines from one limit is
+  precisely the confusion this harness exists to remove: `lib/api_check.py` and
+  `run.sh` honour the server's `Retry-After`, retry, and then pace the rest of
+  the run, and the transcript carries an `RHPNOTE` that says so. Two self-test
+  cases cover both halves (`http-429-recovered`, `http-429-always`). If you do
+  see a `429` survive the retries, wait a minute and re-run before reading it as
+  a defect.
 * **Router SSH is password/key gated.** The operator adds a key by hand (or types
   the password). All on-box checks are therefore behind `--ssh` / `RHP_SSH=1` and
   report SKIP otherwise — never a silent "pass".
