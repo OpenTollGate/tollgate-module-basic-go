@@ -596,6 +596,56 @@ logread -e odhcp                                  # DHCP client logs
 Try moving closer to the access point, verifying the password, or
 checking that the upstream router is not out of DHCP leases.
 
+### A customer paid but has no access, and was shown a reference
+
+When the mint does not answer a payment within its 30-second deadline the
+module does not claim the payment failed. It says the outcome is
+**unknown** and shows the customer a **reference**: 16 hex characters,
+the salted fingerprint of the note they sent. (The note itself is never
+written to a log — anyone holding it can spend it — so the reference is
+the only handle that ties the customer to the attempt.)
+
+Search the log for it:
+
+```sh
+logread -e tollgate | grep '<reference the customer showed you>'
+```
+
+The reference appears on the deadline line and again on the line that
+answers the question you actually have — what the mint did with the note:
+
+- `late Receive COMPLETED … amount=N — the mint took the note and no
+  session was granted; credit or refund it` — the customer's value is in
+  the operator wallet and they received nothing. **Nothing credits or
+  refunds this automatically today**, so settle it by hand, explicitly
+  (grant the device access, or return the value to an address the
+  customer controls) and note what you did.
+- `late Receive FAILED (outcome still ambiguous) …: <error> — the mint may
+  have taken the note; check the wallet balance for the mint before
+  resubmitting anything, no session was granted` — the late answer was not
+  the mint saying "no". This is what a timeout or another unreachable-class
+  error looks like, and it is the **common** case rather than the odd one:
+  the module's deadline and the wallet's own HTTP client both run on 30
+  seconds, so the first answer to arrive late is normally a client-side one
+  that says nothing about what the mint did with the note. **Do not tell the
+  customer to send it again.** Check the mint's balance for the amount first;
+  if the note was credited, settle it by hand as in the `COMPLETED` case
+  above; invite a resubmission only once you have established the mint did
+  not take it.
+- `late Receive FAILED …: <mint error> — the mint did not take the note, no
+  session was granted` — the mint itself refused the note, and a refusal is
+  the one answer only the mint can give: the proofs were already spent
+  elsewhere, they sit on a retired keyset, they cannot cover the swap fee, or
+  the request was rejected outright. The note was never spent. The customer
+  can safely submit it again.
+
+If you see only the `Receive outcome unknown` line, the money-moving
+request had not finished when you looked — or the process was restarted
+while it was in flight, in which case no outcome line will ever be
+written. Re-check the log before telling the customer anything. The
+durable journal that would settle a late outcome automatically is not
+implemented; the reference plus these lines are the whole procedure.
+
 ## `TOLLGATE_TEST_CONFIG_DIR` — test-only, and loud if set
 
 The `TOLLGATE_TEST_CONFIG_DIR` environment variable exists for the test
