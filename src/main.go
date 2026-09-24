@@ -197,11 +197,20 @@ func (s *quoteQuotaState) allowFrom(m map[string]*quoteQuotaEntry, key string, l
 }
 
 func evictLeastRecentlyUsedQuotaEntry(m map[string]*quoteQuotaEntry) {
+	evictOldestKey(m, func(entry *quoteQuotaEntry) time.Time { return entry.lastSeen })
+}
+
+// evictOldestKey drops the entry whose timestamp is the oldest, which is the LRU
+// ordering both bounded maps in this file use: the quota buckets (last seen when
+// the key last spent a token) and the refusal log (last seen when the key last
+// logged a line). The scan is O(n) and only runs on an insert once the map is at
+// its cap.
+func evictOldestKey[V any](m map[string]V, lastSeen func(V) time.Time) {
 	var oldestKey string
 	var oldest time.Time
 	for key, entry := range m {
-		if oldestKey == "" || entry.lastSeen.Before(oldest) {
-			oldestKey, oldest = key, entry.lastSeen
+		if seen := lastSeen(entry); oldestKey == "" || seen.Before(oldest) {
+			oldestKey, oldest = key, seen
 		}
 	}
 	delete(m, oldestKey)
@@ -295,7 +304,9 @@ func sourceNetworkKey(r *http.Request) string {
 // quoteRefusalLog keeps the refusal log line to one per client key per window. A
 // warning per refused request is a flood amplifier on the log path, and on a
 // router `logread` is the operator's only view during exactly the incident the
-// line is supposed to describe.
+// line is supposed to describe. Its map is bounded and LRU-evicted like the
+// quota buckets above, so neither the map nor the suppression breaks under a
+// flood that arrives from more identities than the cap.
 type quoteRefusalLog struct {
 	mu     sync.Mutex
 	last   map[string]time.Time
@@ -314,8 +325,12 @@ func (l *quoteRefusalLog) allow(key string) (bool, uint64) {
 	if l.window == 0 {
 		l.window = 30 * time.Second
 	}
-	if len(l.last) > quoteQuotaMaxKeys {
-		l.last = make(map[string]time.Time)
+	if _, ok := l.last[key]; !ok && len(l.last) >= quoteQuotaMaxKeys {
+		// Evict the least recently seen identity, never the whole map: dropping
+		// every key reset each other client's window, so a flood from more than
+		// quoteQuotaMaxKeys identities re-enabled a log line per refused request
+		// for all of them — the log amplification this limiter exists to stop.
+		evictOldestKey(l.last, func(seen time.Time) time.Time { return seen })
 	}
 	if seen, ok := l.last[key]; ok && time.Since(seen) < l.window {
 		return false, l.count
