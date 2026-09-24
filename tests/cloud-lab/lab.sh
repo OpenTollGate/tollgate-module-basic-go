@@ -180,7 +180,7 @@ tap)
     svc="${target%%:*}"; port="${target##*:}"
     ip="$(compose ps -q "$svc" | head -1 | xargs -r docker inspect --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}")"
     [ -n "$ip" ] || die "service $svc not running"
-    setsid socat -v "TCP-LISTEN:$local_port,reuseaddr" "TCP:$ip:$port" \
+    setsid socat -v "TCP-LISTEN:$local_port,fork,reuseaddr" "TCP:$ip:$port" \
         < /dev/null > "$log" 2>&1 &
     echo $! > "$STATE/tap-$local_port.pid"
     echo "tap: localhost:$local_port -> $ip:$port (pid $(cat "$STATE/tap-$local_port.pid"), log $log)"
