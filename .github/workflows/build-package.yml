@@ -685,6 +685,13 @@ jobs:
 
       - name: Install UPX
         if: contains(matrix.compression, 'upx')
+        # Container jobs default to `sh`, where `set -o pipefail` is illegal and
+        # the step dies with "sh: 1: set: Illegal option -o pipefail". This step
+        # was the first red in the apk lane once the apt-404 below was fixed, and
+        # with `fail-fast: true` it cancels the x86_64 apk job - the one the
+        # happy-path gate consumes - so a broken upx row would leave the gate
+        # unreachable. Ask for bash explicitly, as the other steps here do.
+        shell: bash
         run: |
           set -euo pipefail
           # Pinned UPX (version + sha256 in packaging/build-inputs.json);
@@ -764,6 +771,12 @@ jobs:
             make -j$(nproc) ${{ env.DEBUG == 'true' && 'V=sc' || '' }} package/${PACKAGE_NAME}/compile
 
       - name: Verify packaged runtime files
+        # Same container/shell trap as "Install UPX" above: this step runs in the
+        # openwrt/sdk image, whose /bin/sh is dash, where `set -o pipefail` is
+        # illegal. Without this line every apk row dies here ("sh: 1: set:
+        # Illegal option -o pipefail") before the artifact is ever built, so the
+        # x86_64 .apk the happy-path gate consumes never exists.
+        shell: bash
         run: |
           set -euo pipefail
           # Select THIS package's artifact, not the first *.apk anywhere under

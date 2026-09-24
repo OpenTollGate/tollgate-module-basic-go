@@ -213,12 +213,19 @@ and [Semantic Versioning](https://semver.org/).
   router; every assertion is unchanged once the lease is present. The two
   packaging tests no CI job ran are wired in as well
   (`package-nodogsplash-dependency_test.sh`, and `assert-artifact-contents.sh`
-  against the package the new lane builds). Two workflow-only fixes the gate
-  needs: `package-apk` no longer apt-installs `curl`/`jq` (the pinned
-  `openwrt/sdk` image is Debian bullseye and its security pool now 404s, which
-  had been failing all three apk jobs and skipping the release), and the new
-  container steps request `shell: bash` because container jobs default to `sh`,
-  where `set -o pipefail` is illegal
+  against the package the new lane builds). Workflow-only fixes the gate needs,
+  all in the `package-apk` job that produces the artifact the gate consumes:
+  it no longer apt-installs `curl`/`jq` (the pinned `openwrt/sdk` image is
+  Debian bullseye and its security pool now 404s, which had been failing all
+  three apk jobs and skipping the release), and every step of that container job
+  now requests `shell: bash` — container jobs default to `sh`, where
+  `set -o pipefail` is illegal. That second fix had to cover two steps nobody had
+  reached yet: with the apt-404 gone, `Install UPX` was the next red, and with
+  `fail-fast: true` it cancelled the x86_64 apk row, leaving the gate skipped and
+  the release ungated — measured on this branch's own fork runs (2026-09-24,
+  `Happy path ... skipped`). `Verify packaged runtime files` sat behind it with
+  the same trap and would have killed every apk row, so both are fixed here; the
+  apk lane works end to end afterwards
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so
