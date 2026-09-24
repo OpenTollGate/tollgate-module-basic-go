@@ -37,6 +37,16 @@ and [Semantic Versioning](https://semver.org/).
   `option band '2g'`) and inverts the map into the orientation the scanner looks
   up by
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+- **A band is never bound to a radio whose frequency is unknown.** `radioForBand`
+  fell back to the legacy section name (`radio1` = 5 GHz) whenever just ONE band
+  was missing from the map, so on swapped hardware a band could be bound to an
+  unclassified radio — the #452 defect reintroduced by the fallback. The legacy
+  name is now used only when no radio reports a band at all, which is what the
+  first-boot setup's `detect_band_radios` already did. A radio whose channel is
+  `0` — the driver's numeric spelling of `auto` — also no longer counts as
+  2.4 GHz evidence; note the first-boot script's `radio_band` still reads a
+  literal `0` as 2.4 GHz (packaging lane, deliberately unchanged here)
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,

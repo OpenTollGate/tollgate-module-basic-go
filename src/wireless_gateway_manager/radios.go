@@ -23,7 +23,7 @@ type uciRadio struct {
 // and the legacy wifi_fixup_hwmode): the band option on 21.02+, the legacy
 // hwmode on older releases, and finally the channel number (channels above 14
 // are 5 GHz). Returns "" when nothing identifies the band, e.g. channel
-// "auto" without band or hwmode.
+// "auto" (or its numeric spelling, 0) without band or hwmode.
 func classifyRadioBand(band, hwmode, channel string) string {
 	switch strings.ToLower(strings.TrimSpace(band)) {
 	case "2g", "5g", "6g", "60g":
@@ -38,7 +38,9 @@ func classifyRadioBand(band, hwmode, channel string) string {
 		return "2g"
 	}
 	ch, err := strconv.Atoi(strings.TrimSpace(channel))
-	if err != nil {
+	if err != nil || ch <= 0 {
+		// "auto" (and the driver's numeric spelling of it, 0) says nothing
+		// about the frequency: never guess 2.4 GHz from it.
 		return ""
 	}
 	if ch > 14 {
@@ -232,11 +234,18 @@ func assignNetworkBands(networks []NetworkInfo, bandByRadio map[string]string) [
 
 // radioForBand picks the wifi-device section for a band. When the config
 // carries no band information at all, the legacy section name is used if it
-// exists; otherwise "" tells the caller to skip creating an interface for
-// that band.
+// exists; when the config is only PARTIALLY classified, "" tells the caller to
+// skip that band rather than bind it to a radio whose frequency is unknown.
 func radioForBand(bandRadios map[string]string, deviceSections []string, band, legacyName string) string {
 	if section := bandRadios[band]; section != "" {
 		return section
+	}
+	// Some radio DOES report a band, so the config is only partially
+	// classified and the legacy section name is no evidence at all: on
+	// swapped hardware "radio1" is the 2.4 GHz radio (#452). Skip the band
+	// instead of guessing — the same rule the first-boot shell setup applies.
+	if len(bandRadios) != 0 {
+		return ""
 	}
 	for _, section := range deviceSections {
 		if section == legacyName {

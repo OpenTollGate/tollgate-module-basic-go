@@ -367,8 +367,11 @@ OpenGuest                        -67 dBm   11     none                radio0 2g
 
 The band comes from the `wifi-device` sections of `/etc/config/wireless`: the
 `band` option (OpenWrt 21.02+), falling back to the legacy `hwmode`, then to
-the channel number (above 14 is 5 GHz). A radio the config does not identify
-reports `unknown` instead of guessing.
+the channel number (above 14 is 5 GHz; `auto` and its numeric spelling `0` say
+nothing). A radio the config does not identify reports `unknown` instead of
+guessing, and a band is never bound to a radio whose frequency is unknown while
+other radios *are* identified — those bands are skipped, exactly as the
+first-boot setup skips them.
 
 ### Connect
 

@@ -34,6 +34,8 @@ func TestClassifyRadioBand(t *testing.T) {
 		{"", "", "13", "2g"},
 		// nothing identifies the band
 		{"", "", "auto", ""},
+		{"", "", "0", ""}, // channel 0 means "auto" to the driver, not 2.4 GHz
+		{"", "", "-1", ""},
 		{"", "", "", ""},
 		{"nonsense", "", "auto", ""},
 	}
@@ -182,6 +184,25 @@ func TestAssignNetworkBands(t *testing.T) {
 	assert.Equal(t, "2g", out[0].Band, "radio1 is the 2.4 GHz radio")
 	assert.Equal(t, "5g", out[1].Band, "radio0 is the 5 GHz radio")
 	assert.Equal(t, "unknown", out[2].Band, "band unknown on a radio without band info")
+}
+
+func TestRadioForBand_NeverBindsAnUnclassifiedRadio(t *testing.T) {
+	sections := []string{"radio0", "radio1"}
+
+	// Partially classified config: radio0 reports 2g, radio1 reports nothing.
+	// Falling back to the literal "radio1" for the 5 GHz interface would
+	// re-introduce the #452 defect (on swapped hardware the unclassified radio
+	// is the 2.4 GHz one), so the caller must skip that band instead.
+	partial := map[string]string{"2g": "radio0"}
+	assert.Equal(t, "", radioForBand(partial, sections, "5g", "radio1"))
+
+	// Fully classified config: the band map still wins.
+	complete := map[string]string{"2g": "radio0", "5g": "radio1"}
+	assert.Equal(t, "radio1", radioForBand(complete, sections, "5g", "radio1"))
+
+	// Single-band device: the band nobody reports is skipped, never guessed.
+	single := map[string]string{"2g": "radio0"}
+	assert.Equal(t, "", radioForBand(single, []string{"radio0"}, "5g", "radio1"))
 }
 
 // ---------------------------------------------------------------------------
