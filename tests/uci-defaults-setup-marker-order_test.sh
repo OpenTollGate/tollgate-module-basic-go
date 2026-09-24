@@ -81,6 +81,11 @@ malformed marker: trailing junk|v0.6.0-alpha4-extra|1|v0.6.0-alpha4|VERIFY_REPAI
 malformed marker: core field too wide for the shell comparison|99999999999999999999.0.0|1|v2.0.0|VERIFY_REPAIR|UNORDERABLE
 malformed marker: ten-digit core field|1000000000.0.0|1|v2.0.0|VERIFY_REPAIR|UNORDERABLE
 widest orderable core field (nine digits)|999999999.0.0|1|v2.0.0|VERIFY|NEWER
+same version, one-char sha suffix|v0.6.0-alpha4-g1|1|v0.6.0-alpha4|VERIFY|SAME
+same version, short sha suffix|v0.6.0-alpha4-gabc123|1|v0.6.0-alpha4|VERIFY|SAME
+same version, short sha suffix on a plain release|v0.6.0-gabc123|1|v0.6.0|VERIFY|SAME
+malformed marker: describe suffix with a non-hex payload|v0.6.0-alpha4-gXYZ|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
+malformed marker: describe suffix with an empty payload|v0.6.0-alpha4-g|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
 empty marker file|__EMPTY__|1|v0.6.0-alpha4|VERIFY_REPAIR|UNORDERABLE
 '
 
@@ -148,11 +153,47 @@ EOF
 # string). If normalisation regressed, these rows would report UNORDERABLE.
 echo "== suffixed markers normalise to their release"
 for pair in "v0.6.0-alpha4-g2796d96:v0.6.0-alpha4" "0.6.0_alpha4-r0:v0.6.0-alpha4" \
-            "v0.6.0-alpha4:v0.6.0-alpha4-g2796d96"; do
+            "v0.6.0-alpha4:v0.6.0-alpha4-g2796d96" "v0.6.0-alpha4-gabc123:v0.6.0-alpha4" \
+            "v0.6.0-alpha4-g1:v0.6.0-alpha4-g2796d96"; do
     a="${pair%%:*}"; b="${pair#*:}"
     [ "$(version_relation "$a" "$b")" = "SAME" ] \
         && ok "normalisation: $a == $b" \
         || bad "normalisation: $a vs $b -> $(version_relation "$a" "$b"), want SAME"
+done
+
+# The `-g<sha>` describe suffix is stripped for ANY hex length. git abbreviates
+# to >=7 by default but the length is not part of the shape, and a short-sha
+# suffix that survived normalisation was rejected as a pre-release — taking
+# VERIFY_REPAIR and RE-STAMPING the marker with the shipped version over a
+# marker that denoted a different build of the same release. That is precisely
+# the marker rewrite the roll-back protection exists to prevent, so both
+# spellings must land on the same branch.
+echo "== a -g<hex> describe suffix of any length is a build suffix of the same release"
+for suffix in -g1 -gabc -gabc123 -g123456 -gabc1234 -g1234567; do
+    suf_marker="v0.6.0-alpha4$suffix"
+    suf_verdict="$(setup_marker_decision "$suf_marker" v0.6.0-alpha4 1)"
+    suf_verdict="${suf_verdict%% *}"
+    [ "$suf_verdict" = "VERIFY" ] \
+        && ok "short suffix: $suf_marker -> VERIFY (same release)" \
+        || bad "short suffix: $suf_marker -> $suf_verdict, want VERIFY"
+    [ "$(version_relation "$suf_marker" v0.6.0-alpha4)" = \
+      "$(version_relation "v0.6.0-alpha4-g2796d96" v0.6.0-alpha4)" ] \
+        && ok "short suffix: $suf_marker is classified exactly like -g2796d96" \
+        || bad "short suffix: $suf_marker -> $(version_relation "$suf_marker" v0.6.0-alpha4), but -g2796d96 -> $(version_relation "v0.6.0-alpha4-g2796d96" v0.6.0-alpha4)"
+done
+
+# A `-g` suffix whose payload is empty or not hex is NOT a describe suffix, and
+# that is a deliberate classification rather than the accident it used to be:
+# it is unorderable -> verify + re-stamp, the same fail-safe landing as every
+# other marker that records no orderable version. Neither spelling may reach
+# FULL setup, and neither is silently treated as the release it is attached to.
+echo "== a -g suffix with an empty or non-hex payload is classified, not guessed"
+for junk in "v0.6.0-alpha4-g" "v0.6.0-alpha4-gxyz" "v0.6.0-alpha4-g12g"; do
+    junk_verdict="$(setup_marker_decision "$junk" v0.6.0-alpha4 1)"
+    junk_verdict="${junk_verdict%% *}"
+    [ "$junk_verdict" = "VERIFY_REPAIR" ] \
+        && ok "junk suffix: $junk -> VERIFY_REPAIR (no orderable version recorded)" \
+        || bad "junk suffix: $junk -> $junk_verdict, want VERIFY_REPAIR"
 done
 
 # Whitespace cannot be written inside the pipe-delimited table, so it gets its

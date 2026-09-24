@@ -92,10 +92,21 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 # to `apk list --installed` (which prints `tollgate-wrt-0.6.0_alpha4-r0`), and
 # whatever that resolution writes into the marker must compare equal to the
 # same release substituted by the packaging paths.
+#
+# The `-g` suffix is stripped for ANY hex length, not just git's >=7: the length
+# is not part of the shape, and a short-sha marker that failed to normalise was
+# classified as an unorderable pre-release and RE-STAMPED with the shipped
+# version — a marker rewrite over a build of the same release, which is the
+# very thing the roll-back protection must never do. A `-g` suffix with an EMPTY
+# or NON-HEX payload is not a describe suffix at all and is deliberately left in
+# place: it then fails to parse (as a pre-release, or on the charset check) and
+# lands on the verify verdict, the fail-safe direction — see the "any -g<hex>
+# suffix" and "empty or non-hex payload" cases in
+# tests/uci-defaults-setup-marker-order_test.sh.
 normalize_version() {
     printf '%s\n' "${1:-}" | sed -n '1p' | tr -d '\r' |
         sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^[vV]//' \
-            -e 's/-g[0-9a-fA-F]\{7,40\}$//' -e 's/-r[0-9]\{1,\}$//' \
+            -e 's/-g[0-9a-fA-F]\{1,\}$//' -e 's/-r[0-9]\{1,\}$//' \
             -e 's/_alpha/-alpha/' -e 's/_beta/-beta/' \
             -e 's/_rc/-rc/' -e 's/_pre/-pre/'
 }
