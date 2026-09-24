@@ -144,6 +144,45 @@ var preflightRetryDelay = 400 * time.Millisecond
 // window instead of waiting it out; nothing in production reassigns it.
 var receiveTimeout = 30 * time.Second
 
+// receiveResult is the answer of one money-moving `Receive` call.
+type receiveResult struct {
+	amount uint64
+	err    error
+}
+
+// recordLateReceiveOutcome waits for the answer of a `Receive` that outlived the
+// response deadline and writes it to the log beside the reference the notice gave
+// the customer. It is deliberately log-only: it grants no session and moves no
+// money, so it must not read as if the customer had been served — the journal
+// that credits or refunds a late outcome is separate work. Its whole job is to
+// make the reference the customer quotes answerable today, because the operator
+// cannot tell a late success (the mint took the note) from a late failure (it
+// did not) without it.
+func recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string) {
+	res := <-ch
+	if res.err != nil {
+		// An error is not a refusal. A `Receive` that answers after the deadline
+		// most often answers with a transport error, because the wallet's own
+		// HTTP client spends the same 30-second budget as receiveTimeout: a swap
+		// POST that starts a beat later times out a beat after this module's
+		// deadline, and a mint 5xx answered after it processed the swap is
+		// ambiguous the same way. Only a refusal the mint itself returned proves
+		// the note was not taken, and the record must not decide the ambiguous
+		// case on the operator's behalf: its whole job is to say which of the
+		// two happened, and the confident label is the one that loses the money.
+		if isAmbiguousMintOutcomeError(res.err) {
+			log.Printf("PurchaseSession: late Receive FAILED (outcome still ambiguous) for mint=%s mac=%s reference=%s: %v — the mint may have taken the note; check the wallet balance for the mint before resubmitting anything, no session was granted",
+				mintURL, macAddress, reference, res.err)
+			return
+		}
+		log.Printf("PurchaseSession: late Receive FAILED for mint=%s mac=%s reference=%s: %v — the mint did not take the note, no session was granted",
+			mintURL, macAddress, reference, res.err)
+		return
+	}
+	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — the mint took the note and no session was granted; credit or refund it",
+		mintURL, macAddress, reference, res.amount)
+}
+
 // receiveReference is the operator-facing handle for one money-moving attempt:
 // the salted fingerprint of the customer's note, which the customer can quote
 // and the operator can find in the log next to the MAC, the mint and the time.
@@ -1073,10 +1112,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
-	type receiveResult struct {
-		amount uint64
-		err    error
-	}
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -1114,6 +1149,14 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		reference := receiveReference(paymentCashuToken)
 		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
 			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
+
+		// The deadline does not cancel the money-moving call: it is still on the
+		// wire, and its answer is the one fact that makes the reference above
+		// worth quoting. Nothing else reads the channel once this branch
+		// returns, so without the recorder the outcome of a `Receive` that
+		// completed at t+1s was discarded in silence and the notice handed the
+		// customer a reference that led the operator nowhere.
+		go recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
 
 		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
 		if reference != "" {
@@ -1256,6 +1299,57 @@ func isMintUnreachableError(err error) bool {
 			strings.Contains(msg, "error getting") ||
 			strings.Contains(msg, "resolve")) {
 		return !isExpiredKeysetError(err)
+	}
+	return false
+}
+
+// isAmbiguousMintOutcomeError reports whether a `Receive` error leaves the fate
+// of the note undecided, so the operator may not be told the value is safe to
+// resubmit. It is deliberately the inverse of the explicit-refusal list rather
+// than a list of ambiguous shapes: only the mint can establish that it did not
+// take the note, and an error return cannot. The wallet's HTTP client is built
+// with the same 30-second timeout as this module's `receiveTimeout`, so the
+// answer that arrives late on a slow mint is normally a client-side `context
+// deadline exceeded` — which says nothing about what the mint did with the
+// proofs — and a 5xx answered after the mint processed the swap is ambiguous the
+// same way. It composes `isMintUnreachableError` (transport- and keyset-
+// resolution failures are the same kind of non-answer), and it treats anything
+// unrecognised as ambiguous too: the hedged record costs the operator one
+// balance check, while the confident one costs the customer their note, which
+// the mint then refuses as already spent (#498).
+func isAmbiguousMintOutcomeError(err error) bool {
+	return err != nil && !isDefinitiveMintRefusal(err)
+}
+
+// isDefinitiveMintRefusal reports whether err is a refusal the mint itself
+// returned — the only class of late error that establishes the note was not
+// taken: the token is already spent, its keyset is retired, it cannot cover the
+// swap fee, the mint is rate-limiting the request (429, refused before it was
+// processed), or the mint answered with an explicit 4xx. Unreachable-class
+// errors, timeouts and unrecognised errors are deliberately NOT refusals.
+func isDefinitiveMintRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, tollwallet.ErrTokenAlreadySpent) ||
+		isExpiredKeysetError(err) ||
+		isBelowSwapFeeError(err) ||
+		isRateLimitError(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	// The mint's own wording for a proof it has already seen (NUT-03/NUT-07),
+	// relayed by gonuts as plain text.
+	if strings.Contains(msg, "already spent") || strings.Contains(msg, "already signed") {
+		return true
+	}
+	// An explicit HTTP rejection: the mint answered, and the answer is "no".
+	for _, code := range []string{
+		"status 400", "status 401", "status 403", "status 404", "status 409", "status 422",
+	} {
+		if strings.Contains(msg, code) {
+			return true
+		}
 	}
 	return false
 }
