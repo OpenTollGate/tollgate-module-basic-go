@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,37 @@ const (
 	// a genuinely dead mint means up to ~10 minutes of failed purchases, which
 	// is the price of never stopping sales because of one transient answer.
 	defaultFailureThreshold uint8 = 3
+
+	// persistentThrottleProbes is the number of consecutive throttled probes
+	// (HTTP 429 on /v1/keysets) after which a mint is treated as *persistently*
+	// throttled and taken out of the advertisement. This is the escape hatch for
+	// the gap the "a mint that answers 429 is busy, not broken" fix left open: a
+	// front that answers 429 to everything makes the mint reachable for ever, so
+	// it stays advertised, the customer's client keeps picking it out of
+	// price_per_step, every purchase fails, and nothing self-heals — the
+	// aggressive 15-second probe mode only arms when the reachable set is EMPTY.
+	//
+	// 6 probes at the 5-minute proactive cadence is a ~30-minute window with no
+	// successful probe. That is the bottom of the 30-60 minute range the escape
+	// hatch was specified with, chosen so: (a) a burst of 429 — the thing the
+	// merchant's own outbound budget, mintQuoteBudget, exists to absorb — is over
+	// long before it, (b) half an hour of "this mint cannot serve a single
+	// customer" is well past the point where an on-router reseller should keep
+	// offering it, and (c) it is short enough that a mint that comes back is
+	// re-admitted the moment it answers, so the cost of being wrong is bounded by
+	// the next probe. The streak resets on any OK probe, so it *is* the
+	// no-success window.
+	defaultPersistentThrottleProbes uint8 = 6
+
+	// retryAfterCap bounds how long a mint's own Retry-After may hold our probes
+	// off. The header is untrusted input: a front answering "Retry-After: 86400"
+	// must not be able to stop us re-probing the mint for ever, or the
+	// persistently-throttled state it reports could never clear. The cap is a
+	// multiple of the proactive cadence (6 x 5 minutes) rather than a fraction of
+	// it, so an honest Retry-After is honoured in full at the default cadence
+	// while a bogus one still lets us re-learn the mint's state within half an
+	// hour.
+	retryAfterCap = 30 * time.Minute
 
 	// Aggressive retry: when no mints are reachable at startup (e.g. WiFi STA
 	// not yet connected) OR after a runtime downgrade to degraded mode, probe
@@ -61,6 +93,25 @@ type MintHealthTracker struct {
 	aggressiveInterval    time.Duration
 	aggressiveTimeout     time.Duration
 	aggressiveWindow      time.Duration
+
+	// The throttle side of the same question. A 429 is reachable evidence, so it
+	// never counts as a failure; these fields record what it *does* mean — that
+	// the mint is serving nobody — so a front that answers 429 for ever can be
+	// taken out of the advertisement without pretending the mint is down.
+	//
+	// consecutiveThrottles is reset by any OK probe, which makes a running streak
+	// a "throttled on every probe" window by construction. throttleStreakStart is
+	// when that window opened and lastSuccess is the last probe the mint served,
+	// so the demotion can be logged with the window it is based on.
+	consecutiveThrottles     map[string]uint8
+	throttleStreakStart      map[string]time.Time
+	lastSuccess              map[string]time.Time
+	persistentlyThrottled    map[string]bool
+	persistentThrottleProbes uint8
+
+	// clock is the tracker's notion of now. Production leaves it at time.Now; a
+	// test replaces it so a Retry-After window is driven without sleeping.
+	clock func() time.Time
 }
 
 func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker {
@@ -75,10 +126,27 @@ func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker 
 		recoveryThreshold: defaultRecoveryThreshold,
 		failureThreshold:  defaultFailureThreshold,
 
+		consecutiveThrottles:     make(map[string]uint8),
+		throttleStreakStart:      make(map[string]time.Time),
+		lastSuccess:              make(map[string]time.Time),
+		persistentlyThrottled:    make(map[string]bool),
+		persistentThrottleProbes: defaultPersistentThrottleProbes,
+
+		clock: time.Now,
+
 		aggressiveInterval: aggressiveProbeInterval,
 		aggressiveTimeout:  aggressiveProbeTimeout,
 		aggressiveWindow:   aggressiveDuration,
 	}
+}
+
+// now is the tracker's clock, with a nil guard so a zero-value tracker built in
+// a test still works.
+func (t *MintHealthTracker) now() time.Time {
+	if t.clock == nil {
+		return time.Now()
+	}
+	return t.clock()
 }
 
 func (t *MintHealthTracker) StartProactiveChecks() {
@@ -213,6 +281,48 @@ func (t *MintHealthTracker) GetAllConfiguredMintConfigs() []config_manager.MintC
 	return config.AcceptedMints
 }
 
+// IsPersistentlyThrottled reports whether mintURL is reachable but has answered
+// 429 to every probe for the persistent window (see
+// defaultPersistentThrottleProbes). Such a mint is up and must stay in the
+// reachable set, in the wallet and in the registered mints — it is only kept out
+// of the advertisement and off the payout path, both of which are decided where
+// the customer's client picks a mint and where value leaves the wallet.
+func (t *MintHealthTracker) IsPersistentlyThrottled(mintURL string) bool {
+	// Scaffold: the state the escape-hatch tests drive exists and is wired
+	// through the production probe path; the decision it feeds lands with the
+	// fix. Deliberately inert so the tests fail (RED) against production wiring
+	// rather than a test-only copy of it.
+	return false
+}
+
+// GetAdvertisedMintConfigs returns the mints a customer may pay with: the
+// reachable set minus the persistently throttled mints, so a reseller router
+// stops offering a mint whose front answers 429 to everything. The wallet and
+// the reachable set are untouched — the mint is still up, and the customer's
+// e-cash is still held there.
+//
+// The advertisement is never emptied: if dropping the persistently throttled
+// mints would leave nothing to advertise, the reachable set is returned
+// unchanged. A customer with no alternative is better served by a busy mint than
+// by an empty advertisement — and the router cannot substitute a mint
+// mid-purchase anyway, because the invoice must come from the mint that holds
+// the customer's ecash.
+func (t *MintHealthTracker) GetAdvertisedMintConfigs() []config_manager.MintConfig {
+	// Scaffold: the advertisement still offers every reachable mint.
+	return t.GetReachableMintConfigs()
+}
+
+// probeDue reports whether a mint may be probed now, given the wait it asked for
+// with the last Retry-After it sent. A skipped probe learns nothing: the caller
+// must leave every counter for that mint untouched.
+func (t *MintHealthTracker) probeDue(mintURL string, now time.Time) bool {
+	// Scaffold: the wait a 429 asks for is not honoured yet — every cadence
+	// probes.
+	_ = mintURL
+	_ = now
+	return true
+}
+
 func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	t.mu.Lock()
 
@@ -263,10 +373,12 @@ func (t *MintHealthTracker) RunInitialProbe() {
 		return
 	}
 
+	now := t.now()
 	log.Printf("RunInitialProbe: probing %d mint(s)", len(config.AcceptedMints))
 	results := make(map[string]probeOutcome, len(config.AcceptedMints))
+	waits := make(map[string]time.Duration, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMintOutcome(mint.URL, nil)
+		results[mint.URL], waits[mint.URL] = t.probeMintOutcome(mint.URL, nil)
 	}
 
 	t.mu.Lock()
@@ -282,6 +394,10 @@ func (t *MintHealthTracker) RunInitialProbe() {
 			t.consecutiveSuccesses[url] = 0
 			t.consecutiveFailures[url] = 1
 		}
+		// Only the throttle bookkeeping: the reachability counters above are
+		// seeded by this probe itself, so folding the same answer into them a
+		// second time would shift both thresholds by one.
+		t.applyThrottleAnswerLocked(url, outcome, waits[url], now)
 	}
 
 	t.reachableCount = 0
@@ -303,15 +419,41 @@ func (t *MintHealthTracker) runProactiveCheck() {
 		return
 	}
 
+	now := t.now()
 	log.Printf("runProactiveCheck: probing %d mint(s)", len(config.AcceptedMints))
 	results := make(map[string]probeOutcome, len(config.AcceptedMints))
+	waits := make(map[string]time.Duration, len(config.AcceptedMints))
+	// skipped holds the mints whose front told us to wait: they are not probed
+	// and therefore learn nothing, so every counter for them must stay put
+	// rather than being advanced on a probe that never happened.
+	skipped := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMintOutcome(mint.URL, nil)
+		if !t.probeDue(mint.URL, now) {
+			log.Printf("runProactiveCheck: mint=%s is inside the wait its last Retry-After asked for — not probed", mint.URL)
+			skipped[mint.URL] = true
+			continue
+		}
+		results[mint.URL], waits[mint.URL] = t.probeMintOutcome(mint.URL, nil)
 	}
 
 	t.mu.Lock()
 
+	var demoted []string
+	var readmitted []string
+
 	for _, mint := range config.AcceptedMints {
+		if skipped[mint.URL] {
+			continue
+		}
+
+		demotedNow, readmittedNow := t.applyThrottleAnswerLocked(mint.URL, results[mint.URL], waits[mint.URL], now)
+		if demotedNow {
+			demoted = append(demoted, mint.URL)
+		}
+		if readmittedNow {
+			readmitted = append(readmitted, mint.URL)
+		}
+
 		// A throttled answer (HTTP 429) is not a failure: the mint is up and
 		// rate-limiting us, which is information about load, not availability.
 		// It counts as reachable evidence and never contributes to the
@@ -366,6 +508,14 @@ func (t *MintHealthTracker) runProactiveCheck() {
 		log.Printf("runProactiveCheck: firing callback (hadReachable=%v, setChanged=%v)", t.hadReachableMint, setChanged)
 		go cb()
 	}
+
+	for _, mintURL := range demoted {
+		log.Printf("runProactiveCheck: mint=%s answered 429 to %d consecutive probes with no successful probe in that window — removing it from the advertisement; it stays reachable, registered and in the wallet, and the first successful probe re-admits it",
+			mintURL, t.persistentThrottleProbes)
+	}
+	for _, mintURL := range readmitted {
+		log.Printf("runProactiveCheck: mint=%s answered a probe again — re-admitted to the advertisement", mintURL)
+	}
 }
 
 // runAggressiveCheck probes mints with immediate recovery (threshold=1).
@@ -376,16 +526,32 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 		return false
 	}
 
+	now := t.now()
 	log.Printf("runAggressiveCheck: probing %d mint(s) with immediate recovery", len(config.AcceptedMints))
 	results := make(map[string]probeOutcome, len(config.AcceptedMints))
+	waits := make(map[string]time.Duration, len(config.AcceptedMints))
+	skipped := make(map[string]bool, len(config.AcceptedMints))
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL] = t.probeMintOutcome(mint.URL, aggressiveClient)
+		// The wait a mint asked for is honoured here too: this loop exists to
+		// recover from an empty reachable set, not to defeat a mint's own
+		// backpressure. A skipped mint is not probed, so it cannot be the one
+		// that reports recovery.
+		if !t.probeDue(mint.URL, now) {
+			log.Printf("runAggressiveCheck: mint=%s is inside the wait its last Retry-After asked for — not probed", mint.URL)
+			skipped[mint.URL] = true
+			continue
+		}
+		results[mint.URL], waits[mint.URL] = t.probeMintOutcome(mint.URL, aggressiveClient)
 	}
 
 	t.mu.Lock()
 
 	recovered := false
 	for _, mint := range config.AcceptedMints {
+		if skipped[mint.URL] {
+			continue
+		}
+		t.applyThrottleAnswerLocked(mint.URL, results[mint.URL], waits[mint.URL], now)
 		// Throttled (429) counts as reachable here too: this loop only runs
 		// while nothing is reachable, and a mint that answers 429 is up.
 		if results[mint.URL].reachable() {
@@ -458,13 +624,69 @@ const (
 func (o probeOutcome) reachable() bool { return o != probeFailed }
 
 func (t *MintHealthTracker) probeMint(mintURL string) bool {
-	return t.probeMintOutcome(mintURL, nil).reachable()
+	outcome, _ := t.probeMintOutcome(mintURL, nil)
+	return outcome.reachable()
 }
 
 // probeMintWith is the pre-existing boolean seam, kept as a wrapper for callers
 // that only need "is it usable".
 func (t *MintHealthTracker) probeMintWith(mintURL string, client *http.Client) bool {
-	return t.probeMintOutcome(mintURL, client).reachable()
+	outcome, _ := t.probeMintOutcome(mintURL, client)
+	return outcome.reachable()
+}
+
+// applyThrottleAnswerLocked folds the throttle half of one probe answer into the
+// tracker state and reports whether this answer moved the mint out of, or back
+// into, the advertisement. The caller holds t.mu. The reachability counters are
+// deliberately not touched here: they are advanced by the caller, on the same
+// answer, and a boot probe seeds them itself.
+//
+// The returned flags are for logging only — the advertisement is computed from
+// this state on every read, so nothing has to be republished for a demotion to
+// take effect.
+func (t *MintHealthTracker) applyThrottleAnswerLocked(mintURL string, outcome probeOutcome, wait time.Duration, now time.Time) (demoted, readmitted bool) {
+	// Scaffold: the state the escape-hatch tests drive exists and is wired
+	// through the production probe path; the decision it feeds lands with the
+	// fix.
+	_ = mintURL
+	_ = outcome
+	_ = wait
+	_ = now
+	return false, false
+}
+
+// parseRetryAfter interprets a Retry-After header in either form RFC 7231
+// allows: delta-seconds ("120") or an HTTP-date ("Wed, 21 Oct 2015 07:28:00
+// GMT"), relative to now. A malformed, zero, negative or already-past value
+// means "no wait" — never a negative one, and never an unbounded one: the result
+// is clamped to retryAfterCap, because the header is untrusted input and a front
+// answering "Retry-After: 86400" must not be able to silence a mint's probes for
+// ever (the persistently-throttled state could then never clear).
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	var wait time.Duration
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		wait = time.Duration(seconds) * time.Second
+	} else if when, err := http.ParseTime(value); err == nil {
+		wait = when.Sub(now)
+		if wait <= 0 {
+			return 0
+		}
+	} else {
+		return 0
+	}
+
+	if wait > retryAfterCap {
+		wait = retryAfterCap
+	}
+	return wait
 }
 
 // keysetsProbeResponse is the subset of the NUT-01 GET /v1/keysets response
@@ -473,9 +695,11 @@ type keysetsProbeResponse struct {
 	Keysets []json.RawMessage `json:"keysets"`
 }
 
-// probeMintOutcome probes the mint's keysets endpoint and classifies the answer.
-// A nil client means the tracker's own (see the constructor).
-func (t *MintHealthTracker) probeMintOutcome(mintURL string, client *http.Client) probeOutcome {
+// probeMintOutcome probes the mint's keysets endpoint and classifies the answer,
+// returning alongside it the wait the mint asked for when it answered 429 with a
+// Retry-After (zero when it did not). A nil client means the tracker's own (see
+// the constructor).
+func (t *MintHealthTracker) probeMintOutcome(mintURL string, client *http.Client) (probeOutcome, time.Duration) {
 	if client == nil {
 		client = t.httpClient
 	}
@@ -491,28 +715,32 @@ func (t *MintHealthTracker) probeMintOutcome(mintURL string, client *http.Client
 	elapsed := time.Since(start)
 	if err != nil {
 		log.Printf("mint probe FAILED: url=%s elapsed=%s error=%v", url, elapsed, err)
-		return probeFailed
+		return probeFailed, 0
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		// Busy, not broken: the mint answered, so it is up. It must not count
-		// as a failure, or a flood against us becomes an outage for us.
-		log.Printf("mint probe: url=%s status=%d elapsed=%s outcome=throttled (the mint is up and rate-limiting; not an outage)", url, resp.StatusCode, elapsed)
-		return probeThrottled
+		// as a failure, or a flood against us becomes an outage for us. The
+		// Retry-After is how the mint says how long it expects to be busy; it
+		// is honoured on the probe path (see probeDue), clamped by
+		// retryAfterCap so an untrusted value cannot silence the mint for ever.
+		wait := parseRetryAfter(resp.Header.Get("Retry-After"), t.now())
+		log.Printf("mint probe: url=%s status=%d elapsed=%s outcome=throttled retry_after=%s (the mint is up and rate-limiting; not an outage)", url, resp.StatusCode, elapsed, wait)
+		return probeThrottled, wait
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("mint probe: url=%s status=%d elapsed=%s ok=false", url, resp.StatusCode, elapsed)
-		return probeFailed
+		return probeFailed, 0
 	}
 
 	var body keysetsProbeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || len(body.Keysets) == 0 {
 		log.Printf("mint probe: url=%s status=%d elapsed=%s ok=false reason=invalid-or-empty-keysets err=%v", url, resp.StatusCode, elapsed, err)
-		return probeFailed
+		return probeFailed, 0
 	}
 
 	log.Printf("mint probe: url=%s status=%d keysets=%d elapsed=%s ok=true", url, resp.StatusCode, len(body.Keysets), elapsed)
-	return probeOK
+	return probeOK, 0
 }
