@@ -94,6 +94,8 @@ jobs:
           go-version-file: src/go.mod
       - name: Build purity check
         run: bash tests/contract/build-purity.sh
+      - name: Shipped AP SSID format check
+        run: bash tests/contract/check-ssid-format.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
