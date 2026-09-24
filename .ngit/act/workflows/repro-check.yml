@@ -94,20 +94,14 @@ jobs:
       - name: Resolve SOURCE_DATE_EPOCH from the commit
         # The audit step below sources packaging/build-env.sh, which requires
         # SOURCE_DATE_EPOCH and cannot derive it from git history in an act
-        # checkout (no usable .git). Without this step the audit — and with
-        # it the whole lane — fails on every run.
+        # checkout (no usable .git). Resolve it the way this repo
+        # standardized in stage 1: the fail-closed commit-epoch resolver.
         run: |
           set -euo pipefail
-          SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$GITHUB_WORKSPACE" log -1 --format=%ct HEAD 2>/dev/null || true)}"
-          if [ -z "$SOURCE_DATE_EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
-            SOURCE_DATE_EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
-          fi
-          if [ -z "$SOURCE_DATE_EPOCH" ]; then
-            echo "NOTE: no commit timestamp available in this environment; pinning the epoch to job start (within-run determinism only)." >&2
-            SOURCE_DATE_EPOCH="$(date +%s)"
-          fi
-          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "${GITHUB_ENV}"
-          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+          EPOCH=$(bash scripts/ngit-commit-epoch.sh "$GITHUB_SHA")
+          case "$EPOCH" in ''|*[!0-9]*) echo "ERROR: not an epoch: '$EPOCH'" >&2; exit 1 ;; esac
+          echo "SOURCE_DATE_EPOCH=$EPOCH" >> "${GITHUB_ENV}"
+          echo "SOURCE_DATE_EPOCH=$EPOCH ($(date -u -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S UTC'))"
       - name: Audit the SDK Go pins against the live OpenWrt feeds
         # The pin's authority is the SDK's own packages feed: this fails when
         # .go.version stops matching the pinned release's feed, or when the

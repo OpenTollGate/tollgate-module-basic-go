@@ -10,6 +10,16 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed / Internal
+
+- **The repro lane's SDK Go audit runs again.** Since #448 landed the
+  audit, `repro-check` failed on every push: the audit sources
+  `packaging/build-env.sh`, which needs a `SOURCE_DATE_EPOCH` that an act
+  checkout cannot derive. The lane now resolves the epoch through the
+  repo-standard fail-closed resolver (`scripts/ngit-commit-epoch.sh`)
+  before the audit.
+  ([#519](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/519))
+
 ### Added
 
 - **`GET /session-state?mac=…` reports a machine-readable session state per
