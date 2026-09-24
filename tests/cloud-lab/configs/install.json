@@ -2,7 +2,7 @@
   "config_version": "v0.0.2",
   "package_path": "false",
   "ip_address_randomized": false,
-  "install_time": 1790094108,
+  "install_time": 0,
   "download_time": 0,
   "release_channel": "stable",
   "ensure_default_timestamp": 1719000000,

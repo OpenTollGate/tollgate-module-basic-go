@@ -44,6 +44,25 @@ case "$ZOO_VIA" in
     echo "ZOO_VIA must be 'public' or 'local'" >&2; exit 2 ;;
 esac
 
+# Cleanup is installed BEFORE anything can fail: the funding loop, the
+# compose bring-up and the matrix run can all exit early, and a lab left
+# half-up holds the pinned 172.28.0.0/16 network that wedges every other
+# lab on a shared host. In local mode the attached zoo containers are
+# foreign endpoints -- compose down cannot remove the network while they
+# are connected, so disconnect them first.
+ZOO_CONTAINERS="zoo-cdk-0-17 zoo-cdk-0-18 zoo-cdk-a056e0f zoo-ns-1853902 zoo-ns-a974914"
+cleanup() {
+    if [ "${CONNECT_ZOO:-0}" = "1" ]; then
+        for c in $ZOO_CONTAINERS; do
+            docker network disconnect "$LAB_NET" "$c" 2>/dev/null || true
+        done
+    fi
+    docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
+        --profile external-mints down -v >/dev/null 2>&1 || true
+    rm -f zoo-mint-config.json
+}
+trap cleanup EXIT
+
 # Router config for this run: the base accepted mints plus every matrix
 # mint, generated fresh (gitignored — it is a per-run artifact).
 python3 - "$MINTS" <<'PYEOF'
@@ -82,6 +101,11 @@ for pair in ${MINTS//,/ }; do
   OK_MINTS+=("$name=$url")
 done
 
+RUN_MATRIX="$(IFS=,; echo "${OK_MINTS[*]:-}")"
+if [ -z "$RUN_MATRIX" ]; then
+  echo "ERROR: no mint funded successfully — nothing to test" >&2
+  exit 1
+fi
 echo "== matrix via $ZOO_VIA: funded=[${OK_MINTS[*]:-none}] failed-funding=[${FAIL_MINTS[*]:-none}]"
 docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
     --profile external-mints up -d --build mint upstream-matrix >/dev/null
@@ -101,10 +125,6 @@ if [ "${CONNECT_ZOO:-0}" = "1" ]; then
 fi
 
 RUN_MATRIX="$(IFS=,; echo "${OK_MINTS[*]:-}")"
-if [ -z "$RUN_MATRIX" ]; then
-  echo "ERROR: no mint funded successfully — nothing to test" >&2
-  exit 1
-fi
 MINT_MATRIX="$RUN_MATRIX" \
     UPSTREAM_URL=http://upstream-matrix:2121 \
     docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
@@ -113,10 +133,4 @@ MINT_MATRIX="$RUN_MATRIX" \
     --entrypoint sh client \
     -c 'cd /tests && rm -rf __pycache__ && python3 -m pytest -sv test_mint_matrix.py'
 
-cleanup() {
-    docker compose -f docker-compose.yml -f docker-compose.zoo.yml \
-        --profile external-mints down -v >/dev/null 2>&1 || true
-    rm -f zoo-mint-config.json
-}
-trap cleanup EXIT
 echo "== mint matrix run complete"
