@@ -68,6 +68,38 @@ and [Semantic Versioning](https://semver.org/).
   issue is deleted with it
   ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
 
+- **A client that leaves the network no longer leaves the address it paid on
+  authorised indefinitely.** Entitlement is keyed to the MAC address, and on the
+  default `bytes` metric the per-MAC meter of an address whose client has gone
+  has nothing left to measure — its counters simply stop moving — so nothing
+  that reads traffic could ever end that session. A mid-session Wi-Fi address
+  change (iOS rotates its private address by itself on a weak or open SSID,
+  which is the usual captive-portal posture) therefore left a free, metered,
+  already-authorised address behind, inheritable by whoever held it next (a
+  hardware-address fallback, a spoof, a collision), and a gate the module held
+  for an address it had no session record for was examined by nothing at all.
+  The usage monitor now also runs a stale-binding reconciliation: about every
+  30 s it asks NoDogSplash whether each bytes session and each gate the module
+  still holds really has its client on the network, and after two consecutive
+  "gone" answers it closes the gate and retires the record — under the existing
+  rule that a failed close is not a close, so the record is kept and the close
+  retried until `ndsctl` confirms it. How long the gap actually lasts is
+  bounded upstream of the module: NoDogSplash stops listing an authenticated
+  client only when its idle timeout fires, and TollGate ships
+  `authidletimeout='3600'`, so the departed client's address stays listed —
+  and NDS-authorised — for about an hour, and the reconciliation then retires
+  the record within ~30–90 s of the listing going away. A client that is
+  still listed is never touched however idle it is, an unreadable probe never
+  counts as an absence,
+  `milliseconds` sessions are deliberately out of scope (their gate is bounded
+  by its own expiry timer, so the leak is not indefinite), and only a confirmed
+  close clears the metering baseline — the next holder of that address starts
+  from nothing instead of inheriting the departed customer's accounting. The
+  purchased remainder does *not* travel to the address the customer moved to;
+  carrying entitlement across an address change needs a session ticket and is
+  its own change
+  ([#560](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/560)).
+
 - **The packaged `:8090` admin board is not served on a router with no root
   credential — the packaging fails closed.** rpcd's `rpc_login_test_password()`
   begins with `if (!hash || !*hash) return true;`, and the distribution's
@@ -331,6 +363,29 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
+
+- **The module can report the gates it believes it holds, so the ones nothing
+  else examines are reachable.** `valve.TrackedGates()` returns a sorted,
+  read-only view of the gate bookkeeping — a gate whose close is unconfirmed is
+  still in it (C1-2), which is the point: those are the gates that stay
+  authorised. It answers a question about the module's OWN state, not about the
+  router, and changes no gate path; callers probe `ndsctl` before acting on it.
+- **The stale-binding reconciliation's policy is per merchant, not package
+  global.** Its cadence, grace window and NoDogSplash probe are fields on the
+  merchant rather than package variables: the reconciliation runs on the usage
+  monitor's own goroutine, so a test writing a package-level policy while that
+  goroutine read it was a data race a full-suite `-race` run caught. The
+  production values are unchanged (one pass per 15 sweeps, two consecutive
+  absences).
+- **The operator guide says what a MAC address is and is not.** A new section
+  ([client identity, MAC addresses, and what changing one
+  does](docs/operator-guide.md#client-identity-mac-addresses-and-what-changing-one-does),
+  linked from the README) documents that identity is taken from the socket and
+  never from a client-supplied value, the per-platform defaults that change a
+  device's address on their own, what a customer sees and loses when that
+  happens, the exact log lines of the reconciliation, and the rule that a MAC
+  allow-list is not an access control. It also corrects the claim that TollGate
+  rotates a visitor's MAC — it cannot, no release implemented it.
 
 - **The packaged nftables ruleset set is asserted, not assumed, and `FILES_`
   is complete.** `packaging/Makefile`'s `FILES_` list registered
