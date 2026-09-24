@@ -27,6 +27,27 @@ type CustomerSession struct {
 	StartTime  int64  // Unix timestamp
 	Metric     string // "milliseconds" or "bytes"
 	Allotment  uint64 // Total allotment for this session
+
+	// Consumed is the byte total this session carries in from attachments it has
+	// already left behind: a MAC rotation (a rebind) carries it forward, so N
+	// rotations can never restart the meter. The session's effective usage is
+	// Consumed plus what the CURRENT attachment has used since its own baseline
+	// (sessionBytesUsage), which is why the per-MAC baseline stays a measurement
+	// detail rather than the ledger.
+	Consumed uint64
+
+	// attachmentUsage is the highest usage seen for the CURRENT attachment since
+	// its own baseline. It is what a rebind carries when the attachment's counters
+	// are already gone from NoDogSplash, so the last interval before a rotation
+	// cannot vanish. Unexported: it is the merchant's own bookkeeping, not part of
+	// the session's API.
+	attachmentUsage uint64
+
+	// ticketHandle is the session-ticket handle this record was issued for. A
+	// ticket names one session, and only the one it was issued for: a rebind
+	// through an older ticket cannot move a session this record never issued one
+	// for. Unexported, and never on the wire.
+	ticketHandle string
 }
 
 // SessionState is the machine-readable lifecycle state of the session of one
@@ -224,6 +245,8 @@ type MerchantInterface interface {
 	GetUsage(macAddress string) (string, error)
 	Fund(cashuToken string) (uint64, error)
 	SetOnReachableSetChanged(callback func())
+	IssueSessionTicket(macAddress string) (string, int64, error)
+	RebindSession(ticket, macAddress string) (*CustomerSession, error)
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -240,6 +263,11 @@ type Merchant struct {
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
 	quoteStore        *quoteStore
+
+	// Session tickets (see session_ticket.go): a per-process signing key and the
+	// handle -> attachment store. Both are memory-only on purpose.
+	ticketMu sync.Mutex
+	tickets  *ticketState
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -393,8 +421,11 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 	var usageStr string
 	switch session.Metric {
 	case "bytes":
-		// Get data usage since baseline
-		usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+		// The usage reported is the session's whole ledger: what it carried in
+		// from attachments it has already left behind, plus what the current
+		// attachment has used since its own baseline. A MAC rotation therefore
+		// answers `consumed/allotment` instead of starting over at zero.
+		usage, _, err := m.sessionBytesUsage(macAddress, session)
 		if err != nil {
 			return "", fmt.Errorf("error getting data usage: %w", err)
 		}
@@ -526,7 +557,7 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 		return
 	}
 
-	usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+	usage, attachmentUsage, err := m.sessionBytesUsage(macAddress, session)
 	if err != nil {
 		if errors.Is(err, valve.ErrDataBaselineMissing) {
 			m.establishBaseline(macAddress)
@@ -536,6 +567,9 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 		return
 	}
 	m.clearUnmetered(macAddress)
+	// Remember this attachment's highest reading: it is what a rebind carries
+	// when the attachment's counters are already gone by the time it happens.
+	m.noteAttachmentUsage(macAddress, attachmentUsage)
 
 	// Check if allotment is reached
 	if usage < session.Allotment {
@@ -575,6 +609,46 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	m.expireSessionLocked(macAddress)
 	m.sessionMu.Unlock()
 	log.Printf("Removed expired session for %s", macAddress)
+}
+
+// sessionBytesUsage returns the bytes consumed by the bytes session of
+// macAddress: the total the session carried in from attachments it has already
+// left behind (`session.Consumed`), plus the usage of the CURRENT attachment
+// since its own baseline. The second return value is that attachment-local
+// figure, which the caller records as the highest observed
+// (noteAttachmentUsage).
+//
+// The attachment-local figure is the HIGHER of the live counter reading and the
+// highest reading already recorded. NoDogSplash's counters live in its own
+// process: a restart, or a client record that is dropped and re-created, walks
+// them back to zero, and a meter that followed them down would hand the customer
+// a fresh allotment without a rebind ever happening.
+func (m *Merchant) sessionBytesUsage(macAddress string, session *CustomerSession) (uint64, uint64, error) {
+	since, err := valve.GetDataUsageSinceBaseline(macAddress)
+	if err != nil {
+		return 0, 0, err
+	}
+	if since < session.attachmentUsage {
+		since = session.attachmentUsage
+	}
+	return session.Consumed + since, since, nil
+}
+
+// noteAttachmentUsage records the highest usage observed for the current
+// attachment of macAddress's session, so a rebind can carry it forward when the
+// counters are already gone by the time the rebind happens. A session that is no
+// longer tracked is skipped: there is nothing left to carry.
+func (m *Merchant) noteAttachmentUsage(macAddress string, since uint64) {
+	m.sessionMu.Lock()
+	defer m.sessionMu.Unlock()
+
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return
+	}
+	if since > session.attachmentUsage {
+		session.attachmentUsage = since
+	}
 }
 
 // establishBaseline gives a bytes session the metering baseline it needs, so the

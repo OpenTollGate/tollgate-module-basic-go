@@ -208,3 +208,9 @@ func (m *namedMerchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*
 }
 func (m *namedMerchant) SetOnReachableSetChanged(func()) {}
 func (m *namedMerchant) Shutdown() error                 { return nil }
+func (m *namedMerchant) IssueSessionTicket(macAddress string) (string, int64, error) {
+	return "", 0, nil
+}
+func (m *namedMerchant) RebindSession(ticket, macAddress string) (*merchant.CustomerSession, error) {
+	return nil, nil
+}

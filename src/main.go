@@ -789,6 +789,168 @@ func HandleSessionState(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(sessionStateResponse{Status: 1, Mac: macAddress, State: string(state)})
 }
 
+// sessionTicketResponse is the body of POST /session/ticket: the ticket the
+// client presents later, and when it stops being accepted. The ticket is opaque
+// to the client and carries no entitlement (see
+// docs/architecture/session-ticket-decision.md).
+type sessionTicketResponse struct {
+	Status    int    `json:"status"`
+	Error     string `json:"error,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Ticket    string `json:"ticket,omitempty"`
+	ExpiresAt int64  `json:"expires_at,omitempty"`
+}
+
+// sessionRebindRequest is the body of POST /session/rebind. The ticket is the
+// only field on purpose: the address a session moves to is never a client's
+// claim — it is the socket's own source address, the same rule every other
+// identity-bearing route follows.
+type sessionRebindRequest struct {
+	Ticket string `json:"ticket"`
+}
+
+// sessionRebindResponse answers a rebind with the session's state after the
+// move, in the same `consumed/allotment` shape `/usage` uses, so a portal can
+// show the customer what they have left without a second round trip.
+type sessionRebindResponse struct {
+	Status int    `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Code   string `json:"code,omitempty"`
+	Mac    string `json:"mac,omitempty"`
+	Usage  string `json:"usage,omitempty"`
+}
+
+// writeJSONResponse keeps the two session-ticket routes' answers uniform: one
+// place that sets the content type, the status and the body.
+func writeJSONResponse(w http.ResponseWriter, status int, body interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(body)
+}
+
+// HandleSessionTicket serves POST /session/ticket — the caller's own session
+// ticket. The client is resolved from the socket, so a ticket can only ever be
+// issued for the session of the device asking; and a client with no session gets
+// no ticket, because a ticket names a session and never grants one.
+func HandleSessionTicket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	macAddress, err := clientMACFromSocket(r)
+	if err != nil {
+		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
+			Warn("Session ticket refused: the client has no resolvable identity")
+		writeJSONResponse(w, http.StatusBadRequest, sessionTicketResponse{
+			Status: 0, Code: errDeviceUnresolvedCode, Error: deviceUnresolvedMessage,
+		})
+		return
+	}
+
+	ticket, expiresAt, err := merchantProvider.inner.GetMerchant().IssueSessionTicket(macAddress)
+	if err != nil {
+		if errors.Is(err, merchant.ErrTicketNoSession) {
+			// Nothing to name. /session-state already tells a portal whether this
+			// is a first-time visitor or a spent session, so the honest answer here
+			// is a distinct code rather than an empty ticket.
+			mainLogger.WithField("mac", macAddress).
+				Info("Session ticket refused: the client has no session to bind a ticket to")
+			writeJSONResponse(w, http.StatusNotFound, sessionTicketResponse{
+				Status: 0, Code: "no-session", Error: "no session to issue a ticket for",
+			})
+			return
+		}
+		mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).
+			Error("Could not issue a session ticket")
+		writeJSONResponse(w, http.StatusInternalServerError, sessionTicketResponse{
+			Status: 0, Code: "ticket-unavailable", Error: "could not issue a session ticket",
+		})
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, sessionTicketResponse{
+		Status: 1, Ticket: ticket, ExpiresAt: expiresAt,
+	})
+}
+
+// HandleSessionRebind serves POST /session/rebind — the MAC-rotation path. The
+// ticket says which session is asking; the socket says which address that
+// session would be delivered to; the module decides, carrying the meter and the
+// paid time across (see the merchant's RebindSession).
+//
+// The refusals are distinct on purpose, because a portal reacts differently to
+// each: an unknown or invalid ticket means "ask for a fresh one", while a still
+// authenticated attachment means "your old address is still online — try again
+// once it is gone", and neither is "you have no session".
+func HandleSessionRebind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	macAddress, err := clientMACFromSocket(r)
+	if err != nil {
+		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
+			Warn("Session rebind refused: the client has no resolvable identity")
+		writeJSONResponse(w, http.StatusBadRequest, sessionRebindResponse{
+			Status: 0, Code: errDeviceUnresolvedCode, Error: deviceUnresolvedMessage,
+		})
+		return
+	}
+
+	defer r.Body.Close()
+	var request sessionRebindRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&request); err != nil || strings.TrimSpace(request.Ticket) == "" {
+		writeJSONResponse(w, http.StatusBadRequest, sessionRebindResponse{
+			Status: 0, Code: "invalid-request", Error: "a session ticket is required",
+		})
+		return
+	}
+
+	merchantImpl := merchantProvider.inner.GetMerchant()
+	if _, err := merchantImpl.RebindSession(request.Ticket, macAddress); err != nil {
+		switch {
+		case errors.Is(err, merchant.ErrAttachmentActive):
+			// Invariant 3: one session is delivered to one live address. Retrying
+			// is the right portal behaviour once the old attachment is reaped, so
+			// this is a conflict, not an error the customer caused.
+			mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).
+				Info("Session rebind refused: the previous attachment is still authenticated")
+			writeJSONResponse(w, http.StatusConflict, sessionRebindResponse{
+				Status: 0, Code: "attachment-active",
+				Error: "this session is still in use at its previous address; reconnect and try again once that device has left the network",
+			})
+		case errors.Is(err, merchant.ErrTicketMalformed), errors.Is(err, merchant.ErrTicketSignature),
+			errors.Is(err, merchant.ErrTicketUnknown), errors.Is(err, merchant.ErrTicketExpired):
+			// All four mean the same thing to a client: this ticket cannot be used,
+			// ask for another one. The module restart that invalidates every ticket
+			// (the memory-only key) lands here too.
+			mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).
+				Warn("Session rebind refused: the ticket is not usable")
+			writeJSONResponse(w, http.StatusForbidden, sessionRebindResponse{
+				Status: 0, Code: "ticket-invalid", Error: "this session ticket is not valid; request a new one",
+			})
+		default:
+			mainLogger.WithFields(logrus.Fields{"mac": macAddress, "error": err}).
+				Error("Session rebind failed")
+			writeJSONResponse(w, http.StatusInternalServerError, sessionRebindResponse{
+				Status: 0, Code: "rebind-failed", Error: "could not rebind the session",
+			})
+		}
+		return
+	}
+
+	usage, err := merchantImpl.GetUsage(macAddress)
+	if err != nil {
+		usage = ""
+	}
+
+	mainLogger.WithFields(logrus.Fields{"mac": macAddress, "usage": usage}).
+		Info("Session rebind completed")
+	writeJSONResponse(w, http.StatusOK, sessionRebindResponse{Status: 1, Mac: macAddress, Usage: usage})
+}
+
 func parseUsageString(usage string) (uint64, uint64, error) {
 	parts := strings.Split(strings.TrimSpace(usage), "/")
 	if len(parts) != 2 {
@@ -1058,6 +1220,23 @@ func main() {
 	http.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session-state endpoint")
 		CorsMiddleware(HandleSessionState)(w, r)
+	})
+
+	// --- Session tickets (additive) ----------------------------------------
+	// POST /session/ticket issues a memory-only handle for the caller's OWN
+	// session (see docs/architecture/session-ticket-decision.md); POST
+	// /session/rebind moves that session to the caller's current address after a
+	// MAC rotation, carrying the byte meter and the paid time with it. Both
+	// resolve the client from the socket, like every other identity-bearing
+	// route; the ticket itself never carries an entitlement.
+	http.HandleFunc("/session/ticket", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session/ticket endpoint")
+		CorsMiddleware(HandleSessionTicket)(w, r)
+	})
+
+	http.HandleFunc("/session/rebind", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session/rebind endpoint")
+		CorsMiddleware(HandleSessionRebind)(w, r)
 	})
 
 	// --- Identity derivation (additive, optional) --------------------------
