@@ -14,9 +14,10 @@ import (
 // Token liveness checking (NUT-07). This is the reconciliation primitive
 // drain recovery is built on: the drain journal records tokens that were
 // irreversibly produced, and only the mint can say whether a journaled
-// token is still spendable. A PENDING proof is deliberately reported as
-// not spendable: redemption is in flight, so treating the token as
-// recoverable funds would be wrong.
+// token is still spendable. A PENDING proof surfaces as an error: its
+// state is unknown, not spent — an in-flight redemption that later
+// fails returns the proofs to UNSPENT, so a definitive not-spendable
+// verdict here would misreport recoverable funds as gone.
 
 // checkStateBudget bounds one mint checkstate round-trip. The gonuts
 // client takes no context, so a wedged mint (accepts the connection,
@@ -69,8 +70,15 @@ func CheckTokenSpendable(tokenStr string) (bool, error) {
 		return false, fmt.Errorf("check proof state at mint %s: %w", token.Mint(), err)
 	}
 
+	if len(response.States) != len(ys) {
+		return false, fmt.Errorf("mint %s answered for %d of %d proofs", token.Mint(), len(response.States), len(ys))
+	}
+
 	spendable := true
 	for _, proofState := range response.States {
+		if proofState.State == nut07.Pending {
+			return false, fmt.Errorf("proof state PENDING at mint %s — redemption in flight, re-check later", token.Mint())
+		}
 		if proofState.State != nut07.Unspent {
 			spendable = false
 		}
