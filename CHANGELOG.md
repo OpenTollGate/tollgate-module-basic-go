@@ -47,6 +47,28 @@ and [Semantic Versioning](https://semver.org/).
   2.4 GHz evidence; note the first-boot script's `radio_band` still reads a
   literal `0` as 2.4 GHz (packaging lane, deliberately unchanged here)
   ([#561](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/561)).
+- **A late `Receive` outcome is recorded, so the reference the customer was
+  given leads somewhere.** When the mint did not answer within the 30-second
+  deadline the customer was told the outcome was unknown — not failed — and
+  shown a **reference** (the salted fingerprint of the note) to quote. But
+  nothing read the money-moving call's answer once the deadline had fired: it
+  was discarded in silence, so a late **success** (the mint took the note, no
+  session was granted, the value is stranded in the operator wallet) and a late
+  **failure** (the note is untouched) were the same two words in the log, and
+  the reference was not actionable. The answer is now logged beside that
+  reference with the mint, the device and the amount, and a late failure is
+  labelled **(outcome still ambiguous)** unless the mint itself refused the
+  note: a timeout or other unreachable-class error is the *common* late answer —
+  the wallet's own HTTP client runs on the same 30-second budget as the module's
+  deadline — and it does not establish that the note went unspent, so the record
+  no longer tells the operator "the mint did not take the note" on the one case
+  the reference exists to settle. The operator procedure, including the balance
+  check for the ambiguous class, is documented in
+  [docs/operator-guide.md](docs/operator-guide.md). Log-only on purpose: no
+  session is granted and no value moves, so a successful late `Receive` is still
+  stranded value until the journal work lands — this change only makes it
+  visible and decidable
+  ([#558](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/558)).
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**
   The portal echoes the mint URL from the advertisement's `price_per_step` tag,
@@ -66,6 +88,27 @@ and [Semantic Versioning](https://semver.org/).
   happy-path suite's tolerated `portal:lightning-lane-against-live-module` known
   issue is deleted with it
   ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
+
+- **The packaged `:8090` admin board is not served on a router with no root
+  credential — the packaging fails closed.** rpcd's `rpc_login_test_password()`
+  begins with `if (!hash || !*hash) return true;`, and the distribution's
+  `/etc/config/rpcd` maps the login password to root's shadow hash
+  (`password '$p$root'` → `getspnam("root")->sp_pwdp`), so on a first-boot rootfs
+  — whose root hash is EMPTY — the board's only login endpoint accepted ANY
+  password, including the empty one, and the session it opened reached the
+  board's ACL (`file:["exec"]`, `system:["password_set"]`,
+  `tollgate wallet_drain_cashu`): root command execution, a root password
+  change, or the operator's money, with no credential at all.
+  `99-tollgate-setup` now runs an admin-credential gate on BOTH setup paths:
+  an unset credential is established with a generated 20-character value shown
+  once (install output plus the root-only setup log — the channel the generated
+  private WiFi key already uses), an existing credential and a deliberately
+  locked account (`!`/`*`) are left byte-identical, and when no credential can
+  be established or verified the `:8090`/`:8443` admin listeners are dropped
+  instead of being served behind the empty hash (LuCI, the portal and the
+  backend are untouched). This closes the credential half of the admin-board
+  exposure — the reachability half is the guest-network fix in #546
+  ([#551](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/551)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,
@@ -127,6 +170,40 @@ and [Semantic Versioning](https://semver.org/).
   journal/janitor that would collect the late result and grant it is a separate
   follow-up, and this change does not claim access arrives on its own
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+
+- **The admin board's `:8090`/`:8443` are now dropped on the captive bridge,
+  not merely held out of the pre-auth allow list.** Taking the two entries out
+  of that list settles what an
+  *unauthenticated* guest can reach, but a guest who has paid is accepted by
+  mark in `20-nds-enforce.nft` — which hooks `forward` only — and nothing sat
+  in front of `:8090`/`:8443` on the input path, so `fw4`'s lan-zone policy
+  let the board's login answer on the same bridge the guests sit on. The new
+  `etc/nftables.d/31-admin-board-not-guest-reachable.nft` drops TCP 8090/8443
+  from `br-lan` (ipv4 and ipv6) in the same input-hook shape as the existing
+  `:2121` rule, which does not depend on the allow list being in the intended
+  state. The owner reaches the board over `br-private`, which nodogsplash does
+  not gate; `:2050`/`:2051`/`:2121`/`:8080` are deliberately untouched. An
+  operator who runs with the private network disabled and administers from a
+  `br-lan` client now loses board access and should use the module CLI or
+  LuCI — stated in the rule's own comment
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
+
+- **The `:8090` admin board is no longer allowed through the captive-portal
+  gate before payment.** `users_to_router` is nodogsplash's
+  *pre-authentication* allow list, and `99-tollgate-setup` wrote
+  `allow tcp port 8090` and `allow tcp port 8443` into it on every install —
+  so an unauthenticated guest on the open public SSID could load the board's
+  login form over plain HTTP and POST credential-carrying JSON-RPC to its
+  `/ubus` endpoint on the same cleartext origin. The board is owner-facing
+  (reached over `br-private`, exactly like the whitelabel configUI in
+  `setup_uhttpd_configui`, which already refused this allowance on principle)
+  and is not part of the customer journey, so both ports are now kept out of
+  that list and actively removed from it (`uci del_list`) by the shared
+  allow-list writer — which runs on the same-version reinstall path as well as
+  full setup. Removing rather than merely omitting is what converges routers
+  that already carry the entries
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
+
 - **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
   is the only way the module takes a customer's access away, and three
   independent paths treated a *failed* deauth as a completed one — leaving the
@@ -222,6 +299,91 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The packaged nftables ruleset set is asserted, not assumed, and `FILES_`
+  is complete.** `packaging/Makefile`'s `FILES_` list registered
+  `20-nds-enforce.nft` but not `30-backend-firewall.nft`, which ships through
+  the same `*.nft` glob; both are registered now, alongside the new rule. The
+  new `tests/packaging/admin-board-not-guest-reachable_test.sh` checks the
+  packet-filter rule, the allow-list half, both install paths, and builds a
+  real `.ipk` from the recipe's own install lines so
+  `tests/packaging/assert-artifact-contents.sh` runs against an artifact
+  rather than against recipe text
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
+
+- **Two uci-defaults tests no longer assert the admin-board allowance as
+  expected behaviour.** `tests/uci-defaults-same-version-allowlist_test.sh`
+  and `tests/uci-defaults-nodogsplash-443_test.sh` both seeded
+  `allow tcp port 8090`/`8443` into `users_to_router` and required both
+  present after a run — the shipped exposure, written down as a requirement,
+  in the tier that decides what the pre-auth client can reach. Both now
+  require the two entries absent, and both `uci` shims implement `del_list`
+  (previously unhandled, so a removal call was silently swallowed and would
+  have passed against a static assertion)
+  ([#546](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/546)).
+
+- **The happy-path suite gates the release instead of waiting for someone to
+  run it by hand.** `tests/happy-path/` (#544) is offline and deterministic, but
+  nothing ran it automatically, so the customer-facing happy path broke three
+  times in ways only manual testing caught: a stale vendored portal bundle, a
+  renewal-after-expiry dead end, and a Lightning lane that could not buy time
+  (found by this suite, after the release had shipped). `build-package.yml` now
+  builds, runs the suite with `--strict` against the x86_64 `.apk` the same
+  workflow just built (`package-apk` hands it over as an artifact; it is
+  extracted with `apk-tools-static` in a container), and only then publishes:
+  `publish-metadata` needs the happy-path job with no `if: always()`, so a red
+  suite skips the release fail-closed, and `verify-publication` /
+  `trigger-build-os` inherit that. Every matrix is now `fail-fast: true`: both
+  packaging matrices, where a red row used to burn the remaining architectures,
+  and `test.yml`'s per-module `go-test` matrix (the happy path is a separate job,
+  never a member of that matrix, so a red module lane cannot cancel it).
+  `test.yml` runs the same suite on every push and pull
+  request against a package built from the commit under test, so a PR that
+  breaks the happy path is the PR that goes red. `--strict` is deliberate: the
+  tip carries upstream #541 (`/session-state`) and the pinned portal ships the
+  in-page renewal CTA (#60), so their absence must fail the release rather than
+  skip — both are measured PASSING on a package built from the tip. `--strict`
+  also promotes every `tests/happy-path/known-issues.txt` entry back to fatal, so
+  the gate wrapper (`.github/scripts/happy-path-gate.sh`) tolerates exactly the
+  check ids that file lists — today the one open Lightning-lane mint-URL defect,
+  which is the normalisation work and not this gate's — and fails on every other
+  failure, including a non-zero suite exit that reports no failed check. Delete
+  that line when the fix lands and the carve-out disappears by itself. The gate
+  also gives a bare runner the one identity fixture a router always has — a DHCP
+  lease for the harness's client — because the module resolves identity from the
+  lease/ARP table and (post-#548) refuses a client it cannot identify, so without
+  it the live-module checks fail with `device-unresolved` on CI and pass on a
+  router; every assertion is unchanged once the lease is present. The two
+  packaging tests no CI job ran are wired in as well
+  (`package-nodogsplash-dependency_test.sh`, and `assert-artifact-contents.sh`
+  against the package the new lane builds). Workflow-only fixes the gate needs,
+  all in the `package-apk` job that produces the artifact the gate consumes:
+  it no longer apt-installs `curl`/`jq` (the pinned `openwrt/sdk` image is
+  Debian bullseye and its security pool now 404s, which had been failing all
+  three apk jobs and skipping the release), and every step of that container job
+  now requests `shell: bash` — container jobs default to `sh`, where
+  `set -o pipefail` is illegal. That second fix had to cover two steps nobody had
+  reached yet: with the apt-404 gone, `Install UPX` was the next red, and with
+  `fail-fast: true` it cancelled the x86_64 apk row, leaving the gate skipped and
+  the release ungated — measured on this branch's own fork runs (2026-09-24,
+  `Happy path ... skipped`). `Verify packaged runtime files` sat behind it with
+  the same trap and would have killed every apk row, so both are fixed here.
+  Behind them lay a third and larger one: the apk lane's checkout never received
+  the generated portal build products that `packaging/Makefile` installs. Only
+  the guest SPA was handed over, so the compile died at
+  `install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'`
+  (measured on the 2026-09-24 run, after the shell fix let the leg reach the
+  compile step). The portal job now hands the apk lane all five build products —
+  guest SPA, admin SPA, rpcd plugin, rpcd ACL, admin uci-default — as a tarball of
+  repository-relative paths, and the job unpacks and asserts them before staging
+  the package tree; the guest-SPA-only artifact stays in place for the .ipk lane.
+  Last, the gate's own `Extract the package` step needed one more line:
+  `apk.static extract --destination <dir>` does not create `<dir>`, so the job's
+  first execution died on `ERROR: Error opening destination '/out/extracted'`
+  (exit 99) and skipped the release for a plumbing reason instead of a real
+  regression — measured on the same 2026-09-24 run and reproduced locally against
+  the .apk that run built
+  ([#554](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/554)).
+
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
@@ -234,6 +396,15 @@ and [Semantic Versioning](https://semver.org/).
   MAC crossing the merchant boundary and the absence of a `state` field. The
   unresolvable-client assertions are kept
   ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
+
+- **The log-hygiene source guard also covers proof secrets.** #548 removed the
+  spendable token from every log level and added a test that fails when a logging
+  call receives a token-carrying identifier. A Cashu proof's `Secret` is the same
+  kind of value — it *is* the spending condition (NUT-10) — and nothing asserted
+  it: `proofs`/`secret` were not in the guard's name list, and a `.Secret` read is
+  invisible to its bare-argument matcher. Both are covered now, with the scanning
+  shared by the two tests
+  ([#559](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/559)).
 
 ## [v0.6.0-alpha4] - 2026-09-22
 

@@ -182,6 +182,137 @@ func TestTokenFingerprintIsStableAndDistinctInTheLog(t *testing.T) {
 	}
 }
 
+// Identifiers whose value is (or contains) the serialized token.
+var tokenCarryingIdentifiers = map[string]bool{
+	"body":         true,
+	"bodyStr":      true,
+	"cashuToken":   true,
+	"tokenStr":     true,
+	"tokenString":  true,
+	"tokenPreview": true,
+	"paymentToken": true,
+	"rawToken":     true,
+	"token":        true,
+}
+
+// Identifiers whose value carries a proof's secret. A Cashu proof's `Secret` IS
+// its spending condition (NUT-10): for an anyone-can-spend note it is the
+// mint-accepted random string, for a P2PK/HTLC note the preimage or the
+// signature that satisfies the lock — so a log line holding one hands the reader
+// the note exactly as a logged token does. `proof:`/`proofs:` dumps are the
+// shape a debugging edit reaches for first, which is why the set holds the names
+// rather than only the field access. The list is deliberately short — the names
+// this codebase uses, and adding a new one is a one-line change — while
+// proofSecretAccessor below covers every `x.Secret` whatever the receiver is
+// called.
+//
+// `secret` is a name this guard looks *for*, not a credential, and it trips
+// detect-secrets' "Secret Keyword" heuristic on the `"name": true` shape of a
+// map literal: hence the hook's own inline allowlist pragma rather than a
+// baseline entry (the local CLI is 1.5.0 and does not flag the line, the pinned
+// hook is 1.4.0 and does, so a baseline entry could not be generated to match).
+var proofCarryingIdentifiers = map[string]bool{
+	"proof":  true,
+	"proofs": true,
+	"secret": true, // pragma: allowlist secret
+}
+
+// proofSecretAccessor matches a secret (or a proof set) read off any receiver:
+// `proof.Secret`, `p.Secret`, `wallet.Proofs()`. The bare-argument matcher below
+// cannot see these — the value is not a bare identifier — and this is the shape
+// the codebase's own resolver uses (`nut10.DeserializeSecret(proof.Secret)`).
+var proofSecretAccessor = regexp.MustCompile(`\.\s*(?:Secret|Proofs)\b`)
+
+// A logging call, whatever the logger. `fmt.Errorf`/`errors.New` are not
+// logging: they match the `.Errorf(`/`.New(` shape but write nothing.
+var logCallShape = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.(?:Debug|Info|Warn|Error|Trace|Debugf|Infof|Warnf|Errorf|Print|Printf|Println)\(`)
+
+func isLoggingCall(line string) bool {
+	if strings.Contains(line, "log.Print") || strings.Contains(line, "mainLogger.") {
+		return true
+	}
+	for _, m := range logCallShape.FindAllStringSubmatch(line, -1) {
+		if m[1] != "fmt" && m[1] != "errors" {
+			return true
+		}
+	}
+	return false
+}
+
+// A bare identifier in argument position: after a comma, terminated by a
+// comma or the closing parenthesis. Receiver/method forms (`x.Mint()`) and
+// wrapped forms (`len(cashuToken)`) do not match — a length and a mint URL are
+// exactly what may be logged. Accessor forms are covered by the caller's
+// accessor regex instead.
+var bareLogArgument = regexp.MustCompile(`,\s*([A-Za-z_][A-Za-z0-9_]*)\s*[,)]`)
+
+// spendableFinding is one logging call that carries spendable material.
+type spendableFinding struct {
+	path string
+	line int
+	text string
+	what string
+}
+
+// scanLogCalls walks the module's production (non-test) Go files — the nested
+// modules under src/ included, because the log calls that matter live in
+// merchant/, cli/, tollwallet/ and valve/ as well as in main.go — and reports
+// every logging call that passes one of `carried` as a bare argument, or reads
+// an identifier matching `accessor` (nil to skip). Findings are reported per
+// line, with every flagged value on it, so one bad edit produces one message.
+//
+// The guard catches the shapes this codebase writes: a value passed straight to
+// a logger, and a `.Secret`/`.Proofs` read. A dump of a proof held in an opaque
+// variable (`log.Printf("p=%v", p)`) is NOT caught, and no name list can catch
+// it — that stays a review responsibility.
+func scanLogCalls(t *testing.T, carried map[string]bool, accessor *regexp.Regexp) []spendableFinding {
+	t.Helper()
+
+	files := productionGoFiles(t)
+	if len(files) < 10 {
+		t.Fatalf("expected to scan the module's production files, found %d — the guard is not looking where it thinks", len(files))
+	}
+
+	var findings []spendableFinding
+	for _, path := range files {
+		for i, line := range strings.Split(readFileString(t, path), "\n") {
+			if !isLoggingCall(line) {
+				continue
+			}
+
+			var hits []string
+			seen := map[string]bool{}
+			add := func(what string) {
+				if !seen[what] {
+					seen[what] = true
+					hits = append(hits, what)
+				}
+			}
+
+			for _, m := range bareLogArgument.FindAllStringSubmatch(line, -1) {
+				if carried[m[1]] {
+					add(m[1])
+				}
+			}
+			if accessor != nil {
+				for _, m := range accessor.FindAllString(line, -1) {
+					add(strings.TrimSpace(m))
+				}
+			}
+
+			if len(hits) > 0 {
+				findings = append(findings, spendableFinding{
+					path: path,
+					line: i + 1,
+					text: strings.TrimSpace(line),
+					what: strings.Join(hits, ", "),
+				})
+			}
+		}
+	}
+	return findings
+}
+
 // TestNoLogCallCanReceiveTheToken is a source guard rather than a behaviour test.
 // The capture tests above prove today's paths are clean; this one catches the
 // next edit that puts the instrument back into a log line, which is the shape the
@@ -194,54 +325,22 @@ func TestTokenFingerprintIsStableAndDistinctInTheLog(t *testing.T) {
 // what may be logged. A false positive is escaped by naming the argument
 // differently or by logging a derived value, not by weakening this test.
 func TestNoLogCallCanReceiveTheToken(t *testing.T) {
-	// Identifiers whose value is (or contains) the serialized token.
-	tokenish := map[string]bool{
-		"body":         true,
-		"bodyStr":      true,
-		"cashuToken":   true,
-		"tokenStr":     true,
-		"tokenString":  true,
-		"tokenPreview": true,
-		"paymentToken": true,
-		"rawToken":     true,
-		"token":        true,
+	for _, f := range scanLogCalls(t, tokenCarryingIdentifiers, nil) {
+		t.Errorf("%s:%d: a logging call receives the token-carrying value %q:\n	%s",
+			f.path, f.line, f.what, f.text)
 	}
+}
 
-	// A logging call, whatever the logger. `fmt.Errorf`/`errors.New` are not
-	// logging: they match the `.Errorf(`/`.New(` shape but write nothing.
-	logCall := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.(?:Debug|Info|Warn|Error|Trace|Debugf|Infof|Warnf|Errorf|Print|Printf|Println)\(`)
-	isLogCall := func(line string) bool {
-		if strings.Contains(line, "log.Print") || strings.Contains(line, "mainLogger.") {
-			return true
-		}
-		for _, m := range logCall.FindAllStringSubmatch(line, -1) {
-			if m[1] != "fmt" && m[1] != "errors" {
-				return true
-			}
-		}
-		return false
-	}
-	// A bare identifier in argument position: after a comma, terminated by a
-	// comma or the closing parenthesis. Receiver/method forms (`x.Mint()`) and
-	// wrapped forms (`len(x)`) do not match.
-	bareArg := regexp.MustCompile(`,\s*([A-Za-z_][A-Za-z0-9_]*)\s*[,)]`)
-
-	files := productionGoFiles(t)
-	if len(files) < 10 {
-		t.Fatalf("expected to scan the module's production files, found %d — the guard is not looking where it thinks", len(files))
-	}
-
-	for _, path := range files {
-		for i, line := range strings.Split(readFileString(t, path), "\n") {
-			if !isLogCall(line) {
-				continue
-			}
-			for _, m := range bareArg.FindAllStringSubmatch(line, -1) {
-				if tokenish[m[1]] {
-					t.Errorf("%s:%d: a logging call receives the token-carrying value %q:\n\t%s",
-						path, i+1, m[1], strings.TrimSpace(line))
-				}
-			}
-		}
+// TestNoLogCallCanReceiveAProofSecret is the other half of the same guard: the
+// token is one spendable representation of a note and a proof secret is another,
+// and the audit behind this file asked for both to be asserted, not just the
+// token ("verify no level, debug included, prints the token or a proof secret").
+// A log line holding `proofs=` or `proof.Secret` is worth exactly as much to a
+// reader of the log as the serialized token, and today no production path writes
+// one — the assertion exists so the next debug line does not become the first.
+func TestNoLogCallCanReceiveAProofSecret(t *testing.T) {
+	for _, f := range scanLogCalls(t, proofCarryingIdentifiers, proofSecretAccessor) {
+		t.Errorf("%s:%d: a logging call receives a proof-carried value %q:\n	%s",
+			f.path, f.line, f.what, f.text)
 	}
 }
