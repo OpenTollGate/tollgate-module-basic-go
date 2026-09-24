@@ -57,12 +57,18 @@ DEFAULT_RENEW_BELOW_BYTES = 20 * 1024 * 1024   # 20 MiB
 DEFAULT_RENEW_BELOW_MS = 30_000                # 30 s
 
 # Router notice codes that retrying can never fix. Paying again with the
-# same amount is futile (below-swap-fee) or the token is already gone
-# (spent/invalid): the daemon must stop, not back off and re-mint.
+# same amount is futile (below-swap-fee), the token is already gone
+# (spent/invalid), the keyset it was minted under is retired
+# (keyset-expired: rotation makes re-POSTing the same note pointless
+# forever), or the router itself could not decide the outcome
+# (outcome-unknown: the POST may have been credited, and re-sending it
+# is exactly the double-spend the router's message forbids).
 TERMINAL_PAYMENT_CODES = {
     "payment-error-below-swap-fee",
     "payment-error-invalid-token",
     "payment-error-token-spent",
+    "payment-error-keyset-expired",
+    "payment-outcome-unknown",
 }
 
 RECV_BUF = 1 << 20
@@ -445,7 +451,12 @@ class ClientDaemon:
         # cannot be distinguished from one that vanished — count those and
         # stop after --max-blind-payments instead of re-paying forever (#422).
         self.blind_payments = 0
+        # Allotment of the CURRENT session only (None between sessions):
+        # the server creates a fresh session after expiry (#541), so an
+        # all-time high-water mark would never be exceeded again and
+        # healthy post-expiry renewals would trip the blind cap.
         self.last_allotment: int | None = None
+        self._session_start: str | None = None
 
     def amount_sats(self) -> int:
         return self.steps * self.offer.price
@@ -497,13 +508,31 @@ class ClientDaemon:
         except TerminalPaymentError as e:
             if e.code == "payment-error-token-spent":
                 self._clear_pending_token()
+            elif e.code == "payment-outcome-unknown":
+                # The POST may have been credited: keep the token on disk
+                # for reconciliation with the operator, but under a name
+                # the reuse path will never pick up again.
+                path = self._pending_path()
+                try:
+                    os.rename(path, path + ".outcome-unknown")
+                except OSError:
+                    pass
             raise
         self._clear_pending_token()
         self.backoff = PAYMENT_THROTTLE
         allotment = ""
+        start_time = ""
         for tag in ev.get("tags", []):
             if tag[0] == "allotment" and len(tag) > 1:
                 allotment = tag[1]
+            elif tag[0] == "start-time" and len(tag) > 1:
+                start_time = tag[1]
+        # A new start-time means the server opened a fresh session (#541):
+        # re-arm the per-session comparison so the next /usage observation
+        # of this session counts as proof of credit again.
+        if start_time and start_time != self._session_start:
+            self._session_start = start_time
+            self.last_allotment = None
         # The router's 1022 event is NOT proof of credit for this client:
         # in the #422 failure mode payments are accepted while /usage
         # stays -1/-1 forever. Only run()'s /usage observations reset the
@@ -520,8 +549,15 @@ class ClientDaemon:
                 f"files. (Only a rejected attempt leaves a recoverable "
                 f"token under {self.state_dir}.)")
         origin = "reused pending" if reused else "minted"
-        return (f"paid {self.amount_sats()} sats ({origin} token, "
-                f"allotment now {allotment or '?'})")
+        msg = (f"paid {self.amount_sats()} sats ({origin} token, "
+               f"allotment now {allotment or '?'})")
+        if allotment.isdigit():
+            credited_steps = int(allotment) // self.ad.step_size
+            if credited_steps < self.steps:
+                msg += (f"  [warning: {credited_steps} of {self.steps} "
+                        f"paid-for step(s) credited — the mint's swap fee "
+                        f"reduced the purchase; buy more per top-up]")
+        return msg
 
     def status(self) -> dict:
         usage = get_usage(self.gateway)
@@ -548,6 +584,23 @@ class ClientDaemon:
                          else DEFAULT_RENEW_BELOW_BYTES)
         return remaining is None or remaining <= threshold
 
+    def observe(self, st: dict) -> None:
+        """Feed one /usage observation into the blind-payment tracker.
+
+        Growth within the current session proves the gateway credits
+        this client — clear the blind counter. A missing last_allotment
+        means a session not yet observed (fresh after expiry, #541): the
+        first observation counts as proof the same way. Observing no
+        session arms the reset for whatever session the server opens
+        next."""
+        if st["allotment"] is not None:
+            if (self.last_allotment is None
+                    or st["allotment"] > self.last_allotment):
+                self.blind_payments = 0
+            self.last_allotment = st["allotment"]
+        else:
+            self.last_allotment = None
+
     def run(self) -> None:
         intro = (f"TollGate {self.gateway} | {self.ad.metric} | "
                  f"{self.steps} step(s) = {self.amount_sats()} sats via "
@@ -557,14 +610,7 @@ class ClientDaemon:
         while True:
             try:
                 st = self.status()
-                # Any allotment growth observed through /usage proves the
-                # gateway credits this client — clear the blind counter.
-                if st["allotment"] is not None:
-                    if (self.last_allotment is None
-                            or st["allotment"] > self.last_allotment):
-                        self.blind_payments = 0
-                    self.last_allotment = max(st["allotment"],
-                                              self.last_allotment or 0)
+                self.observe(st)
                 if st["remaining"] is None:
                     line = f"[TollGate {self.gateway}] no session — needs payment"
                 else:
@@ -669,7 +715,8 @@ def selftest() -> int:
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    state = {"usage": 0, "allotment": 0, "payments": [], "polls": 0}
+    state = {"usage": 0, "allotment": 0, "payments": [], "polls": 0,
+             "session_open": False, "start_time": 0}
     STEP = 21 * 1024 * 1024   # 21 MiB per step, matching e2e defaults
     PRICE = 1
 
@@ -691,6 +738,7 @@ def selftest() -> int:
                     state["usage"] += 8 * 1024 * 1024  # burn 8 MiB per poll
                 if state["usage"] >= state["allotment"] and state["payments"]:
                     body = b"-1/-1"   # session exhausted
+                    state["session_open"] = False
                 else:
                     body = f"{state['usage']}/{state['allotment']}".encode()
             else:
@@ -709,11 +757,20 @@ def selftest() -> int:
             assert re.fullmatch(r"[0-9a-f:]{17}", mac), f"bad mac: {mac!r}"
             state["payments"].append({"token": token, "mac": mac})
             amount_sats = int(token.split("MOCK")[-1])
-            state["allotment"] += (amount_sats // PRICE) * STEP
+            if state["session_open"]:
+                state["allotment"] += (amount_sats // PRICE) * STEP
+            else:
+                # Mirrors the server's #541 semantics: a payment with no
+                # live session opens a fresh one at the paid amount.
+                state["allotment"] = (amount_sats // PRICE) * STEP
+                state["usage"] = 0
+                state["session_open"] = True
+                state["start_time"] += 1
             state["usage"] = 0
             ev = json.dumps({"kind": 1022, "tags": [
-                ["allotment", str(state["allotment"])], ["metric", "bytes"]],
-                "content": ""}).encode()
+                ["allotment", str(state["allotment"])],
+                ["start-time", str(state["start_time"])],
+                ["metric", "bytes"]], "content": ""}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -757,6 +814,7 @@ def selftest() -> int:
         deadline = time.monotonic() + 30
         while len(state["payments"]) < 2 and time.monotonic() < deadline:
             st = d.status()
+            d.observe(st)  # run()'s loop feeds every poll through observe()
             if d.needs_top_up(st["remaining"]):
                 d.top_up()
             time.sleep(0.05)
@@ -764,6 +822,24 @@ def selftest() -> int:
             failures.append(f"renewal never fired (payments={len(state['payments'])})")
         if state["payments"][0]["mac"] != "02:00:00:00:00:02":
             failures.append("payment did not carry the client MAC")
+        # burn past exhaustion so the session ends, then pay again: under
+        # the server's fresh-session semantics (#541) the re-payment must
+        # NOT trip the blind cap — the new session's first /usage
+        # observation resets it (the pre-fix high-water mark broke here).
+        deadline = time.monotonic() + 30
+        while True:
+            st = d.status()
+            d.observe(st)
+            if st["allotment"] is None or time.monotonic() > deadline:
+                break
+        try:
+            d.last_payment = 0.0  # skip the inter-payment throttle
+            d.top_up()
+            st = d.status()
+            assert st["allotment"] is not None and st["allotment"] > 0, \
+                f"post-expiry payment did not open a session: {st}"
+        except BlindPaymentCapExceeded as e:
+            failures.append(f"post-expiry re-payment tripped the blind cap: {e}")
         # display formatting sanity
         assert "MB left" in format_remaining("bytes", 5 * 1024 * 1024)
         assert "1:30" == human_ms(90_000)
@@ -793,7 +869,11 @@ def main() -> int:
                     "auto-tops-up with ecash (cdk-cli or nutshell).")
     ap.add_argument("--gateway", help="TollGate IP (default: default-route gateway)")
     ap.add_argument("--iface", help="network interface toward the gateway")
-    ap.add_argument("--mac", help="MAC to authorize (default: auto-detect)")
+    ap.add_argument("--mac",
+                    help="MAC to send with the payment (default: auto-detect). "
+                         "Informational since the router resolves clients "
+                         "from the socket (#548); kept for lab fixtures "
+                         "that key sessions by MAC.")
     ap.add_argument("--wallet", choices=["auto", "cdk-cli", "nutshell"],
                     default="auto", help="wallet to create tokens with")
     ap.add_argument("--wallet-dir",
