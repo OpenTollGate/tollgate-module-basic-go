@@ -201,6 +201,19 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Session-ticket architecture decision (ADR).**
+  `docs/architecture/session-ticket-decision.md` proposes removing
+  MAC-as-authorization in favour of a server-signed, memory-only session ticket
+  carrying only a session handle, with the MAC demoted to the socket-resolved
+  delivery address; it fixes the three invariants a MAC-rotation rebind must
+  honour (the byte meter's `consumed` total carries across the rebind and is
+  never re-based, `StartTime` is preserved so a rebind cannot extend paid time,
+  and the rebind is refused while the old attachment is still authenticated) and
+  the headline acceptance test — after a rotation,
+  `remaining == allotment - consumed`, not `allotment`. Status: Proposed;
+  the module, portal and bundle steps follow as their own PRs
+  ([#572](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/572)).
+
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
