@@ -365,6 +365,11 @@ TollGate-Cafe                    -55 dBm   6      WPA2                radio0 2g
 OpenGuest                        -67 dBm   11     none                radio0 2g
 ```
 
+The band comes from the `wifi-device` sections of `/etc/config/wireless`: the
+`band` option (OpenWrt 21.02+), falling back to the legacy `hwmode`, then to
+the channel number (above 14 is 5 GHz). A radio the config does not identify
+reports `unknown` instead of guessing.
+
 ### Connect
 
 ```sh

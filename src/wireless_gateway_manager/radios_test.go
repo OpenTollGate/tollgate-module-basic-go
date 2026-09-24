@@ -183,3 +183,164 @@ func TestAssignNetworkBands(t *testing.T) {
 	assert.Equal(t, "5g", out[1].Band, "radio0 is the 5 GHz radio")
 	assert.Equal(t, "unknown", out[2].Band, "band unknown on a radio without band info")
 }
+
+// ---------------------------------------------------------------------------
+// The scan path reads /etc/config/wireless itself (scanner.go: GetRadios and
+// radioBandMapFromConfig), so the band resolution must understand the CONFIG
+// FILE format, not only `uci show` output. `uci show` renders a section as
+// "wireless.radio0=wifi-device" while the file on disk holds
+// "config wifi-device 'radio0'" plus "option band '2g'" — feeding the file to
+// the `uci show` parser produced an empty map, so the scan path stamped
+// band="unknown" on every network on real hardware (#490 follow-up).
+// ---------------------------------------------------------------------------
+
+// Fixture: /etc/config/wireless on the swapped dual-band hardware this card is
+// about (radio0 is the 5 GHz radio, radio1 the 2.4 GHz one).
+const wirelessConfigSwapped = `config wifi-device 'radio0'
+	option type 'mac80211'
+	option path 'pci0000:00/0000:00:00.0'
+	option channel '36'
+	option band '5g'
+	option htmode 'HE80'
+	option disabled '0'
+
+config wifi-iface 'default_radio0'
+	option device 'radio0'
+	option network 'lan'
+	option mode 'ap'
+	option ssid 'OpenWrt'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option path 'platform/soc/a000000.wifi'
+	option channel '1'
+	option band '2g'
+	option htmode 'HT20'
+	option disabled '0'
+
+config wifi-iface 'default_radio1'
+	option device 'radio1'
+	option network 'lan'
+	option mode 'ap'
+	option ssid 'OpenWrt'
+`
+
+// Fixture: the same file on a router where radio section order matches the
+// band order (radio0 = 2.4 GHz).
+const wirelessConfigModern = `config wifi-device 'radio0'
+	option type 'mac80211'
+	option channel '1'
+	option band '2g'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option channel '36'
+	option band '5g'
+`
+
+// Fixture: legacy pre-21.02 file carrying hwmode instead of band.
+const wirelessConfigLegacyHwmode = `config wifi-device 'radio0'
+	option type 'mac80211'
+	option hwmode '11g'
+	option channel '3'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option hwmode '11a'
+	option channel '36'
+`
+
+// Fixture: ancient file with neither band nor hwmode — only auto channels.
+const wirelessConfigNoBand = `config wifi-device 'radio0'
+	option type 'mac80211'
+	option channel 'auto'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option channel 'auto'
+`
+
+// Fixture: single-band 2.4 GHz router.
+const wirelessConfigSingleBand = `config wifi-device 'radio0'
+	option type 'mac80211'
+	option band '2g'
+	option channel '6'
+`
+
+func TestParseUciConfigWireless(t *testing.T) {
+	radios := parseUciConfigWireless(wirelessConfigSwapped)
+	assert.Len(t, radios, 2, "only wifi-device sections are radios")
+	assert.Equal(t, "radio0", radios[0].Section)
+	assert.Equal(t, "5g", radios[0].Band)
+	assert.Equal(t, "36", radios[0].Channel)
+	assert.Equal(t, "radio1", radios[1].Section)
+	assert.Equal(t, "2g", radios[1].Band)
+	assert.Equal(t, "1", radios[1].Channel)
+
+	assert.Empty(t, parseUciConfigWireless(""), "a missing config file is an empty device list")
+	assert.Empty(t, parseUciConfigWireless("config wifi-iface 'default_radio0'\n	option device 'radio0'\n"),
+		"wifi-iface sections are not radios")
+}
+
+func TestRadioBandMapFromConfigText_Swapped(t *testing.T) {
+	// The radioN names say nothing about the band; classification must follow
+	// the band option, not the section index.
+	bands := radioBandMapFromConfigText(wirelessConfigSwapped)
+	assert.Equal(t, "radio1", bands["2g"])
+	assert.Equal(t, "radio0", bands["5g"])
+}
+
+func TestRadioBandMapFromConfigText_Modern(t *testing.T) {
+	bands := radioBandMapFromConfigText(wirelessConfigModern)
+	assert.Equal(t, "radio0", bands["2g"])
+	assert.Equal(t, "radio1", bands["5g"])
+}
+
+func TestRadioBandMapFromConfigText_LegacyHwmode(t *testing.T) {
+	bands := radioBandMapFromConfigText(wirelessConfigLegacyHwmode)
+	assert.Equal(t, "radio0", bands["2g"])
+	assert.Equal(t, "radio1", bands["5g"])
+}
+
+func TestRadioBandMapFromConfigText_NoBandInfo(t *testing.T) {
+	assert.Empty(t, radioBandMapFromConfigText(wirelessConfigNoBand))
+}
+
+func TestRadioBandMapFromConfigText_SingleBand(t *testing.T) {
+	bands := radioBandMapFromConfigText(wirelessConfigSingleBand)
+	assert.Equal(t, "radio0", bands["2g"])
+	assert.NotContains(t, bands, "5g")
+}
+
+// TestRadioBandBySection pins the orientation the scan path needs:
+// assignNetworkBands looks its map up BY RADIO SECTION, while the parsers
+// return a band->radio map. Feeding the band->radio map straight in (the
+// shipped #490 wiring) matched no key and stamped every network "unknown".
+func TestRadioBandBySection(t *testing.T) {
+	bandRadios := map[string]string{"2g": "radio1", "5g": "radio0"}
+	bySection := radioBandBySection(bandRadios)
+	assert.Equal(t, map[string]string{"radio0": "5g", "radio1": "2g"}, bySection)
+	// Empty and partially filled maps invert without inventing entries.
+	assert.Empty(t, radioBandBySection(map[string]string{}))
+	assert.Empty(t, radioBandBySection(nil))
+	assert.Equal(t, map[string]string{"radio0": "2g"}, radioBandBySection(map[string]string{"2g": "radio0"}))
+}
+
+// TestScanPathBandResolution_FromWirelessConfig is the regression guard for the
+// scan path itself: it mirrors the composition scanner.go uses
+// (`assignNetworkBands(allNetworks, bandByRadioFromConfig())`) over a captured
+// config file, so `tollgate upstream scan` reports real bands instead of
+// "unknown" for every network.
+func TestScanPathBandResolution_FromWirelessConfig(t *testing.T) {
+	networks := []NetworkInfo{
+		{SSID: "Home24", Radio: "radio1"},
+		{SSID: "Home50", Radio: "radio0"},
+		{SSID: "Unseated", Radio: "radio9"},
+	}
+	// Exactly the scanner's composition, over the file text instead of the file.
+	bandByRadio := radioBandBySection(radioBandMapFromConfigText(wirelessConfigSwapped))
+	out := assignNetworkBands(networks, bandByRadio)
+	assert.Equal(t, "2g", out[0].Band, "radio1 is the 2.4 GHz radio on this hardware")
+	assert.Equal(t, "5g", out[1].Band, "radio0 is the 5 GHz radio on this hardware")
+	assert.Equal(t, "unknown", out[2].Band, "a radio the config does not mention stays unknown")
+}

@@ -26,6 +26,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`tollgate upstream scan` reports the real band of every network again.**
+  The band column added for #452 was inert on real hardware: the scan path reads
+  `/etc/config/wireless` itself, but classified that file with the parser for
+  `uci show wireless` output (which renders a section as
+  `wireless.radio0=wifi-device`), so no radio was ever recognised; the resulting
+  band→radio map was then handed to a lookup keyed by radio section, so no key
+  ever matched either. Every scanned network came back `band: "unknown"`. The
+  scan path now parses the config-file form (`config wifi-device 'radio0'` /
+  `option band '2g'`) and inverts the map into the orientation the scanner looks
+  up by
+  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 - **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
   all-zero address is what dnsmasq and the ARP table write for "no address at
   all"; five routes substituted it whenever the MAC lookup failed and continued,

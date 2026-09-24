@@ -105,8 +105,14 @@ func wifiDeviceSections(showOutput string) []string {
 // radioBandMap maps each band to the first wifi-device section reporting that
 // band, in `uci show wireless` order. Bands nobody claims are absent.
 func radioBandMap(showOutput string) map[string]string {
+	return bandMap(parseUciShowWireless(showOutput))
+}
+
+// bandMap maps each band to the first radio reporting that band, in config
+// order. Bands nobody claims are absent.
+func bandMap(radios []uciRadio) map[string]string {
 	bands := make(map[string]string)
-	for _, radio := range parseUciShowWireless(showOutput) {
+	for _, radio := range radios {
 		band := classifyRadioBand(radio.Band, radio.Hwmode, radio.Channel)
 		if band == "" {
 			continue
@@ -118,15 +124,92 @@ func radioBandMap(showOutput string) map[string]string {
 	return bands
 }
 
+// parseUciConfigWireless extracts the wifi-device sections and their
+// band/hwmode/channel options from a RAW /etc/config/wireless file, in the
+// order the sections appear. That is the format GetRadios() already reads
+// ("config wifi-device 'radio0'" plus "option band '2g'"), NOT the
+// "wireless.radio0=wifi-device" rendering of `uci show wireless` that
+// parseUciShowWireless handles. Pure, so it is unit-tested against fixtures.
+func parseUciConfigWireless(config string) []uciRadio {
+	var radios []uciRadio
+	index := -1
+	scanner := bufio.NewScanner(strings.NewReader(config))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "config":
+			if fields[1] != "wifi-device" || len(fields) < 3 {
+				index = -1
+				continue
+			}
+			name := strings.Trim(fields[2], "'\"")
+			if name == "" {
+				index = -1
+				continue
+			}
+			radios = append(radios, uciRadio{Section: name})
+			index = len(radios) - 1
+		case "option":
+			if index < 0 || len(fields) < 3 {
+				continue
+			}
+			value := strings.Trim(fields[2], "'\"")
+			switch fields[1] {
+			case "band":
+				radios[index].Band = value
+			case "hwmode":
+				radios[index].Hwmode = value
+			case "channel":
+				radios[index].Channel = value
+			}
+		}
+	}
+	return radios
+}
+
+// radioBandMapFromConfigText is the pure core of radioBandMapFromConfig: the
+// band->radio map of a RAW /etc/config/wireless, in section order. Keeping the
+// file format and the `uci show` format apart is the point — the scan path
+// reads the FILE, so handing it to the `uci show` parser produced an empty map
+// and every scanned network was stamped band "unknown" (#490 follow-up).
+func radioBandMapFromConfigText(config string) map[string]string {
+	return bandMap(parseUciConfigWireless(config))
+}
+
 // radioBandMapFromConfig reads the live /etc/config/wireless and returns the
-// band→radio map in uci order. A missing/unreadable config yields an empty
+// band→radio map in config order. A missing/unreadable config yields an empty
 // map (callers then fall back to "unknown" bands), never an error.
 func radioBandMapFromConfig() map[string]string {
 	data, err := os.ReadFile("/etc/config/wireless")
 	if err != nil {
 		return map[string]string{}
 	}
-	return radioBandMap(string(data))
+	return radioBandMapFromConfigText(string(data))
+}
+
+// radioBandBySection inverts a band->radio map (the shape radioBandMap and
+// radioBandMapFromConfigText return) into the radio->band map that
+// assignNetworkBands consumes. The scan path used to hand the band->radio map
+// straight to assignNetworkBands, whose lookup is by radio section: no key ever
+// matched and every network came back band "unknown" even with a perfect band
+// map (#490 follow-up).
+func radioBandBySection(bandRadios map[string]string) map[string]string {
+	bySection := make(map[string]string, len(bandRadios))
+	for band, section := range bandRadios {
+		if section != "" {
+			bySection[section] = band
+		}
+	}
+	return bySection
+}
+
+// bandByRadioFromConfig reads the live /etc/config/wireless and returns the
+// radio->band map the scan path stamps each scanned network with.
+func bandByRadioFromConfig() map[string]string {
+	return radioBandBySection(radioBandMapFromConfig())
 }
 
 // assignNetworkBands stamps each scanned NetworkInfo with the band of the
