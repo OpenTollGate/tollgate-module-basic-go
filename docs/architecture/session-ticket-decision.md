@@ -307,9 +307,10 @@ and nothing in PR 2 should be read as claiming otherwise.
 **Update 2026-09-24 (operator decision).** This amendment governs the record
 above. The session-ticket carry-over it proposes — the ticket, the rebind flow,
 and Invariants 1-2 which exist only to make a rebind safe — is **held, not
-withdrawn**. The governing principle is rotation *between* purchases, and the
-open question is whether any opt-in escape hatch is warranted. Where the body
-of this record conflicts with R1-R3, R1-R3 govern.
+withdrawn**; R4-R6 extend the same rules to the Spillman channels the operator
+intends as the payment rail. The governing principle is rotation *between*
+purchases, and the open question is whether any opt-in escape hatch is
+warranted. Where the body of this record conflicts with R1-R6, R1-R6 govern.
 
 **R1 - the address is session-scoped.** Entitlement belongs to one address for
 the lifetime of the purchase that paid for it. Nothing carries across
@@ -362,3 +363,62 @@ open questions for maintainers are set out in a discussion note:
 https://njump.me/55a5ca8b0d6ed31b9566451fe513c2ed0a741eac4143b3223d0844b6c1b28fb0 .
 That note is the place to argue the decision; this ADR records only the current
 position.
+
+The cash-native early exit the operator wants is the channel close described in
+the following subsection, which returns the customer's change at the mint
+without the router ever holding a record of what it owes.
+
+### Spillman channels as the intended payment rail (2026-09-24)
+
+**Operator decision.** The module migrates to Spillman-style Cashu payment
+channels — the reference implementation is SatsAndSports/cashu_spilman_channels
+(`cdk-spilman`), with SatsAndSports/MONAD as the production-shaped example —
+**as soon as the wallet runs on CDK and a wallet that supports the channel
+protocol is available.** That is the migration gate; until both hold, the
+per-step invoice path above stays the shipping one.
+
+Why this answers the early-exit question better than a refund does:
+
+- **Closing the channel is the client's own way to end a session early.** Either
+  party can close; at close the server submits the latest balance update to the
+  mint and receives its share while the client's change returns to the client's
+  own outputs. The unspent remainder therefore never passes through the router,
+  and no durable per-address record of owed value is needed — which is precisely
+  what ruled the refund out in the section above.
+- **It is the payment shape this product wants.** One funding transaction
+  carries unlimited channel updates, so small, frequent, granular payments stop
+  costing an invoice and a mint round-trip each. Granularity was never the
+  problem; the per-payment overhead was.
+- **It is the better privacy fit.** P2BK (pay-to-blinded-key) prevents mint
+  correlation, and the channel is keyed by blinded channel/payment material, not
+  by the customer's address.
+
+Channels introduce durable state the router has never had — a close/claim
+journal and an expiry watcher — so the amendment's rules extend to them:
+
+- **R4 — one channel, one purchase, one address.** A channel is bound to a
+  single session for its lifetime; the binding lives in RAM and is dropped when
+  the session ends. A channel identifier is never accepted across a session or
+  address boundary.
+- **R5 — close before rotating.** Client software must close the previous channel
+  (or leave it to expire) before rotating its address, and must never present an
+  existing channel after a rotation. The router treats a channel arriving from a
+  new address as unrelated and does not resume it: R3 applied to channels.
+- **R6 — the journal is MAC-blind.** The durable close/claim journal and any
+  expiry watcher are keyed by blinded channel/payment identifiers only and hold
+  no address — no MAC, no IP — and no row may pair a channel with an address:
+  R2 applied to channels. This is a rule, not a preference, because the journal
+  is the one artifact that outlives the session.
+- **The gate follows the balance.** The router passes traffic only up to the
+  latest signed balance (gate = signed balance ≥ measured usage, with an
+  explicit headroom policy for the sampling gap between channel updates and the
+  NDS counters), and it never blindly retries a stale or conflicting payment —
+  MONAD's `PAYMENT_CONFLICT` behaviour is the model.
+
+Risks accepted with the gate, recorded so they are not rediscovered later: the
+reference implementation is **Early Alpha with breaking API changes**; the
+receiver must claim before expiry or the sender refunds the whole channel, so a
+crash or a forgotten close is lost revenue; the CDK sidecar's flash/RAM fitting
+on the target router is unverified; and the operator's balance sits at a
+third-party mint, with the recovery paths (`UnknownSpent`, NUT-09 restore)
+belonging to the wallet layer, not to this module.

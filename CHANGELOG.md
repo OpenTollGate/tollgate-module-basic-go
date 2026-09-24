@@ -372,7 +372,12 @@ and [Semantic Versioning](https://semver.org/).
   and the rebind is refused while the old attachment is still authenticated) and
   the headline acceptance test — after a rotation,
   `remaining == allotment - consumed`, not `allotment`. Status: Proposed;
-  the module, portal and bundle steps follow as their own PRs
+  the module, portal and bundle steps follow as their own PRs. The record was
+  then amended on the operator's decision: the address is session-scoped and
+  nothing carries across addresses (R1-R3), early-exit cash refunds are not the
+  default path, and the intended payment rail is Spillman-style Cashu channels,
+  to be adopted as soon as the wallet runs on CDK and a wallet supporting the
+  channel protocol exists (R4-R6)
   ([#572](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/572)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so
