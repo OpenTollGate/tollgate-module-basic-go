@@ -723,7 +723,14 @@ setup_private_network() {
     # generate only when unset.
     private_ssid=$(uci -q get wireless.private_radio0.ssid)
     if [ -z "$private_ssid" ]; then
-        private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
+        # Product name, never a person: this SSID is broadcast in the AP
+        # beacon and readable by any scanner in range, so naming it after the
+        # operator's handle leaked their username to the street.
+        #
+        # Composed from the brand selector like every other shipped name
+        # (load_brand, and GATEWAY_NAME above): a net4sats build must not
+        # broadcast the TollGate product name on its own private network.
+        private_ssid="${BRAND_HOSTNAME}-Private-${RANDOM_SUFFIX}"
     fi
 
     private_key=$(uci -q get wireless.private_radio0.key)

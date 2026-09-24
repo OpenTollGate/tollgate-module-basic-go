@@ -26,107 +26,23 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **The captive portal's Lightning lane can sell time again: the module
-  canonicalises the mint URL a client sends before using it as a lookup key.**
-  The portal echoes the mint URL from the advertisement's `price_per_step` tag,
-  which is `accepted_mints[].url` verbatim — and the shipped default config
-  writes that URL *without* a trailing slash — while the wallet registers and
-  keys a mint in canonical form (`"<url>/"`). `POST /ln-invoice` therefore handed
-  the caller's spelling straight to an exact-string mint lookup, missed, and
-  answered `400 {"error":"failed to create lightning invoice"}`
-  (`error="mint does not exist"`), so a default install could not sell over the
-  Lightning lane at all; the Cashu lane was unaffected (it never takes a mint URL
-  from the client), which is why a manual token-paste pass still worked and hid
-  it. `Merchant.RequestLightningInvoice` now canonicalises the URL at the
-  boundary where it enters, through the same mint identity the registry keys and
-  `MintURLMatches` derive from (`tollwallet.NormalizeMintURL`, newly exported),
-  so every spelling of one mint resolves to the single registered entry and the
-  quote record, the status poll and the allotment lookup all address it. The
-  happy-path suite's tolerated `portal:lightning-lane-against-live-module` known
-  issue is deleted with it
-  ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
-- **`00:00:00:00:00:00` is no longer accepted as a client identity.** The
-  all-zero address is what dnsmasq and the ARP table write for "no address at
-  all"; five routes substituted it whenever the MAC lookup failed and continued,
-  so every client the router could not identify collapsed into ONE shared
-  identity — one session record, one byte meter, one lightning quote and one open
-  gate — and a customer whose lookup failed could pay for a session belonging to
-  a device that does not exist. `POST /` (the cashu money path) and
-  `POST /ln-invoice` now refuse before any value moves, and `GET /ln-invoice`
-  refuses before it authorises a quote read, answering `400` with
-  `{"status":0,"error":"We could not identify your device on the network.
-  Reconnect to the TollGate Wi-Fi and try again.","code":"device-unresolved"}`
-  (`status`/`error` are what the shipped portal reads; `code` is additive and
-  machine-readable). `/session-state` keeps answering `none` — with an empty
-  `mac` instead of the sentinel — and `/whoami` answers an empty `mac=` instead
-  of echoing it
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
-- **Identity is resolved from the socket, never from a client-asserted `mac`.**
-  `/whoami`, `GET /session-state`, `POST /`, `POST /ln-invoice` and
-  `GET /ln-invoice` took the caller's own claim — a `mac` query parameter, or the
-  `mac` field of the invoice-request body — as the identity that keys the
-  session, the byte-meter baseline, the lightning quote and the gate. Any client
-  on the LAN could therefore name another device's address (or name nothing, as
-  the shipped portal's Lightning lane does when it sends
-  `?mac=00:00:00:00:00:00`), and the value the portal cached at page load decided
-  which device a payment was applied to — so a MAC rotation between the page load
-  and the payment could take the customer's money and grant access to an address
-  their device no longer had. All five routes now resolve the address from the
-  request's source IP through the DHCP lease file and the kernel ARP table — the
-  one input the client cannot choose — and canonicalise it before use. A
-  client-supplied `mac` is still accepted on the wire (the pinned portal sends
-  it) and has no effect on the outcome
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
-- **The spendable Cashu token is no longer written to the log.** `POST /` logged
-  its whole request body at debug — and on that route the body *is* the bearer
-  instrument, so whoever read the line could spend it, with debug being the level
-  an operator enables precisely when a payment fails and needs diagnosing. The
-  token paths that create and receive one (`CreatePaymentToken`, `Fund`) logged a
-  50-character preview of the same value. All three now log the length and a
-  **salted fingerprint** (16 hex characters of HMAC-SHA256 under a per-install
-  salt at `/etc/tollgate/token-fingerprint.salt`, 0600, created on first use and
-  never overwritten; an ephemeral salt is used if the file cannot be written, with
-  the consequence logged). The fingerprint is stable for the same note, so one
-  payment can be followed through the log and matched against what the customer
-  reports, and it is useless to anyone reading the log — unlike the bare SHA-256
-  a log-reader could check a guess against. A source-level test fails if a logging
-  call is ever handed a token-carrying value again
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
-- **The late-`Receive` notice no longer tells the customer to spend the same
-  note twice.** When `Receive` outlived its deadline the notice said *"Payment
-  processing timed out after 30 seconds. Please try again."* — and acting on that
-  advice destroyed the customer's value: a `Receive` that completes just after
-  the deadline has already moved the proofs into the operator's wallet, so the
-  retry is refused as already-spent with no session and no refund. The notice now
-  states the truth (the outcome is **unknown**, not failed), tells the customer
-  not to resend the note, and carries a **reference** — the salted fingerprint of
-  the note (16 hex characters) — which the customer can quote and the operator
-  can find in the log next to the device, the mint and the time. The notice code
-  changes from `payment-processing-timeout` to `payment-outcome-unknown`; the
-  journal/janitor that would collect the late result and grant it is a separate
-  follow-up, and this change does not claim access arrives on its own
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
-- **A gate close that fails is no longer treated as a close.** `ndsctl deauth`
-  is the only way the module takes a customer's access away, and three
-  independent paths treated a *failed* deauth as a completed one — leaving the
-  client `Authenticated` through an open gate while the module forgot it: the
-  timed gate's expiry callback (and the delayed-auth timers) logged the error and
-  then deleted the tracked gate, so nothing ever retried; the usage monitor
-  retired a bytes session even when `CloseGate` returned an error, destroying the
-  only record that the client had to be closed; and a bytes session with no
-  metering baseline was skipped on every sweep for ever (its allotment purely
-  decorative), which also happened to a client whose counters could not be read,
-  because unreadable usage was reported as 0. A failed close now keeps the gate
-  tracked and is retried (immediately and then on a 2 s→60 s backoff, for ever),
-  every unconfirmed close is escalated to an `ERROR` log naming the client and
-  counted in `valve.GateCloseFailures()`, the session is retired only once the
-  close is confirmed, a missing baseline is established rather than skipped, and
-  a session whose usage stays unreadable for a full grace window has its gate
-  closed rather than left open unmetered. The failure direction stays "the module
-  keeps ownership of the gate": a retry abandons itself when the gate it was
-  armed for has been extended or reopened, and a close that raced a renewal
-  re-authorizes the client
-  ([#545](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/545)).
+- **The default private SSID names the product, not an operator handle.**
+  The private network is the operator's own: whitelisted devices connect
+  without paying (PSK-protected, no captive portal). The shipped default SSID
+  was generated as `c08r4d0r-${RANDOM_SUFFIX}` — a specific operator's handle,
+  broadcast in the AP beacon where any scanner in range reads it, and one that
+  neither describes the network's purpose nor survives rebranding. The default
+  is now `${BRAND_HOSTNAME}-Private-${RANDOM_SUFFIX}`, composed from the
+  `brand` selector like every other shipped name, and
+  `tests/contract/check-identity-leak.sh` (a CI gate, also wired into
+  `hooks/pre-commit`) keeps the shipped `packaging/files/` defaults
+  brand-derived, device-unique and free of operator-identity literals —
+  whitelabel hygiene: a rebranded or resold router should not broadcast
+  another operator's handle, or another brand's product name. `CONTRIBUTING.md`
+  draws the same line for reviewers (a nym may appear in examples, never in a
+  shipped default). Routers that already have a private SSID keep it — the
+  default is only generated when the option is unset — so this changes no
+  deployed network.
 
 - **The captive portal shipped in the package can renew an expired session
   without a reconnect, and follows the mint a pasted note came from.** The
@@ -384,6 +300,8 @@ same-version short branch.
   it. `tests/uci-defaults-same-version-allowlist_test.sh` drives the real
   same-version branch against a fake `uci`/`apk`.
   ([#513](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/513)).
+
+### Changed / Internal
 
 ### Changed / Internal
 - **ngit stage 1 now builds the portal from the pinned toolchain.** The
