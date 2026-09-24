@@ -9,6 +9,16 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Changed / Internal
+
+- **First-boot setup is silent when no brand file exists.** A fresh
+  install printed `can't open /etc/tollgate/brand: no such file` twice
+  during the uci-defaults run (BusyBox ash reports the failed redirect
+  before the command's own stderr redirection applies). Both brand
+  reads now probe with `[ -r ]` instead of opening, so the
+  default-brand path produces no shell noise.
+  ([#568](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/568))
+
 
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
@@ -1279,6 +1289,14 @@ and [Semantic Versioning](https://semver.org/).
   on main; the regression test forces whitespace-valued edge bytes through
   write→reload and pins the fingerprint
   ([#571](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/571)).
+
+- **First-boot setup is silent when no brand file exists.** A fresh
+  install printed `can't open /etc/tollgate/brand: no such file` twice
+  during the uci-defaults run (BusyBox ash reports the failed redirect
+  before the command's own stderr redirection applies). Both brand
+  reads now probe with `[ -r ]` instead of opening, so the
+  default-brand path produces no shell noise.
+  ([#557](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/557))
 
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**

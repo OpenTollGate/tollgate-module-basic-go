@@ -324,7 +324,11 @@ setup_marker_decision() {
 # from the value — a nine-character brand collapsed to a four-character
 # fragment and coerced to the default.
 load_brand() {
-    read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
+    # [ -r ] guard, not redirection with 2>/dev/null: BusyBox ash prints
+    # "can't open …" for the failed redirect itself before the null-stderr
+    # of the command applies (seen live in the alpha4-pre15 postinst).
+    BRAND=""
+    [ -r /etc/tollgate/brand ] && read -r BRAND < /etc/tollgate/brand
     case "$BRAND" in
         # A brand reaches a hostname and an SSID: one alphanumeric token only.
         # Anything else — an empty file, stray whitespace, punctuation — is not
