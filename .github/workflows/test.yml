@@ -10,7 +10,13 @@ jobs:
   go-test:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      # Fail fast: one red module lane stops the run instead of burning the
+      # remaining lanes. The PR-gate happy path (`happy-path` job below) is a
+      # separate job, NOT a member of this matrix, so it is never cancelled by a
+      # red module lane - a PR that breaks the happy path still goes red on the
+      # happy path itself. Cost of the flip: a PR that breaks two modules reports
+      # the first one and cancels the other; the author re-runs after fixing it.
+      fail-fast: true
       matrix:
         module:
           - src/config_manager

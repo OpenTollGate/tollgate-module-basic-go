@@ -193,8 +193,11 @@ and [Semantic Versioning](https://semver.org/).
   extracted with `apk-tools-static` in a container), and only then publishes:
   `publish-metadata` needs the happy-path job with no `if: always()`, so a red
   suite skips the release fail-closed, and `verify-publication` /
-  `trigger-build-os` inherit that. Both packaging matrices are now
-  `fail-fast: true`. `test.yml` runs the same suite on every push and pull
+  `trigger-build-os` inherit that. Every matrix is now `fail-fast: true`: both
+  packaging matrices, where a red row used to burn the remaining architectures,
+  and `test.yml`'s per-module `go-test` matrix (the happy path is a separate job,
+  never a member of that matrix, so a red module lane cannot cancel it).
+  `test.yml` runs the same suite on every push and pull
   request against a package built from the commit under test, so a PR that
   breaks the happy path is the PR that goes red. `--strict` is deliberate: the
   tip carries upstream #541 (`/session-state`) and the pinned portal ships the
