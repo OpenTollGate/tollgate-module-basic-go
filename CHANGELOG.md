@@ -201,6 +201,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **A MAC rotation no longer restarts the byte meter or extends paid time.**
+  Sessions are addressed by a server-signed, memory-only ticket carrying only a
+  session handle (no allotment, no metric, no MAC), issued and verified by the
+  module and moved to the client's new address by `POST /session/rebind`. The
+  session carries the bytes it consumed on the attachments it has already left
+  (`CustomerSession.Consumed`), so the meter is `consumed + the current
+  attachment's own baseline` rather than a fresh allotment per rotation, and
+  `StartTime` is copied verbatim because a rotation is not a renewal. A rebind
+  is refused (409 `attachment-active`) while the old address is still
+  authenticated, so one session is never delivered to two live clients. Proof of
+  possession (Tier 2) is decided in `docs/architecture/session-ticket-decision.md`
+  but not implemented, so a copy presented after the legitimate device has left
+  is still accepted — the ADR states that gap explicitly
+  ([#573](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/573)).
+
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
