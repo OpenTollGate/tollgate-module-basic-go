@@ -33,10 +33,16 @@ and [Semantic Versioning](https://semver.org/).
   nothing read the money-moving call's answer once the deadline had fired: it
   was discarded in silence, so a late **success** (the mint took the note, no
   session was granted, the value is stranded in the operator wallet) and a late
-  **failure** (the note is untouched and safe to resubmit) were the same two
-  words in the log, and the reference was not actionable. The answer is now
-  logged beside that reference with the mint, the device and the amount, and the
-  operator procedure is documented in
+  **failure** (the note is untouched) were the same two words in the log, and
+  the reference was not actionable. The answer is now logged beside that
+  reference with the mint, the device and the amount, and a late failure is
+  labelled **(outcome still ambiguous)** unless the mint itself refused the
+  note: a timeout or other unreachable-class error is the *common* late answer —
+  the wallet's own HTTP client runs on the same 30-second budget as the module's
+  deadline — and it does not establish that the note went unspent, so the record
+  no longer tells the operator "the mint did not take the note" on the one case
+  the reference exists to settle. The operator procedure, including the balance
+  check for the ambiguous class, is documented in
   [docs/operator-guide.md](docs/operator-guide.md). Log-only on purpose: no
   session is granted and no value moves, so a successful late `Receive` is still
   stranded value until the journal work lands — this change only makes it

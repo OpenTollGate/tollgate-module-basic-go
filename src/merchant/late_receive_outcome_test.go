@@ -2,7 +2,9 @@ package merchant
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -275,5 +277,96 @@ func TestLateReceiveFailureAfterTheDeadlineIsRecordedAsAFailure(t *testing.T) {
 	}
 	if !strings.Contains(record, "no session was granted") {
 		t.Errorf("the late failure record does not state that the customer still has no session: %q", record)
+	}
+}
+
+// The other half of the same question, and the finding this test was added for:
+// an error that surfaces *after* the deadline is not automatically evidence that
+// the mint refused the note. The module's deadline and the wallet's own HTTP
+// client timeout are both 30 s, so the first answer to arrive late is normally
+// the client-side one (`context deadline exceeded`), and a mint 5xx answered
+// after it processed the swap is ambiguous the same way. Both mean the mint may
+// well have taken the note. Stamping "the mint did not take the note" there is
+// exactly the confidently-wrong label on the case the record exists to
+// disambiguate: the operator tells the customer to resubmit, the retry is
+// refused as already-spent, and the value is gone with no session — the loss
+// this whole record was written to prevent.
+func TestLateReceiveTimeoutIsRecordedAsAmbiguousNotAsDefinitelyNotTaken(t *testing.T) {
+	// The shape the wallet answers with when its 30 s client gives up on a swap
+	// POST that the mint may already have processed.
+	timeoutErr := fmt.Errorf("Post %q: %w (Client.Timeout exceeded while awaiting headers)",
+		"https://late-outcome.example.com/v1/swap", context.DeadlineExceeded)
+	m, wallet, release, logs := lateOutcomeCase(t, 0, timeoutErr)
+
+	event := submitLateReceive(t, m, wallet)
+	reference := utils.TokenFingerprint(lateOutcomeSerialized)
+	if !strings.Contains(event.Content, reference) {
+		t.Errorf("notice %q does not carry the reference %q", event.Content, reference)
+	}
+
+	release()
+
+	lines := waitForLogLines(t, logs, reference, 2, 5*time.Second)
+	if len(lines) < 2 {
+		t.Fatalf("the reference the notice carries appears on %d log line(s); the late outcome was dropped in silence:\n%s",
+			len(lines), logs.String())
+	}
+	record := lateOutcomeRecord(lines)
+	if record == "" {
+		t.Fatalf("no log line records the late timeout:\n%s", strings.Join(lines, "\n"))
+	}
+	t.Logf("late outcome record: %s", record)
+
+	if !strings.Contains(record, "FAILED") {
+		t.Errorf("a late Receive that returned an error is not recorded as a failure: %q", record)
+	}
+	if !strings.Contains(record, "deadline exceeded") {
+		t.Errorf("the late record does not carry the wallet's error: %q", record)
+	}
+	if !strings.Contains(record, "no session was granted") {
+		t.Errorf("the late record does not state that the customer still has no session: %q", record)
+	}
+	if strings.Contains(record, "did not take the note") {
+		t.Errorf("a timeout-class late error leaves the note's fate undecided, yet the record claims the mint did not take it: %q", record)
+	}
+	if !strings.Contains(record, "ambiguous") || !strings.Contains(record, "wallet balance") {
+		t.Errorf("the late record does not tell the operator the outcome is still ambiguous, nor where to settle it: %q", record)
+	}
+}
+
+// The mirror: when the mint *did* answer and the answer is a refusal that no
+// outage can produce (the note is already spent, it sits on a retired keyset,
+// or it cannot cover the swap fee), the note really is untouched and the
+// original wording is the honest one — the customer can submit it again.
+func TestLateReceiveDefinitiveRejectionKeepsTheNotTakenWording(t *testing.T) {
+	m, wallet, release, logs := lateOutcomeCase(t, 0,
+		fmt.Errorf("swap rejected: %w", tollwallet.ErrTokenAlreadySpent))
+
+	event := submitLateReceive(t, m, wallet)
+	reference := utils.TokenFingerprint(lateOutcomeSerialized)
+	if !strings.Contains(event.Content, reference) {
+		t.Errorf("notice %q does not carry the reference %q", event.Content, reference)
+	}
+
+	release()
+
+	lines := waitForLogLines(t, logs, reference, 2, 5*time.Second)
+	if len(lines) < 2 {
+		t.Fatalf("the reference the notice carries appears on %d log line(s):\n%s", len(lines), logs.String())
+	}
+	record := lateOutcomeRecord(lines)
+	if record == "" {
+		t.Fatalf("no log line records the late rejection:\n%s", strings.Join(lines, "\n"))
+	}
+	t.Logf("late outcome record: %s", record)
+
+	if !strings.Contains(record, "did not take the note") {
+		t.Errorf("a definitive mint refusal should keep the 'the mint did not take the note' wording: %q", record)
+	}
+	if strings.Contains(record, "ambiguous") {
+		t.Errorf("a definitive mint refusal is hedged as ambiguous, so the operator cannot safely tell the customer to resubmit: %q", record)
+	}
+	if !strings.Contains(record, "no session was granted") {
+		t.Errorf("the late rejection record does not state that the customer still has no session: %q", record)
 	}
 }
