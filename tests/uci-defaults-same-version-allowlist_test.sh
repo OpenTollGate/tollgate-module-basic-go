@@ -223,7 +223,31 @@ run_same_version
 rc=$?
 [ "$rc" = 0 ] && ok "same-version run exits 0" \
               || bad "same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
-if grep -q "Flag matches" "$LOGFILE" 2>/dev/null; then
+# The branch the driver took, as the driver itself logged it:
+#   `2026-09-25 01:00:00 - Setup branch VERIFY — marker matches: recorded=… expected=…`
+# The anchor is the verdict TOKEN followed by a boundary. A bare
+# `Setup branch VERIFY` also matches `Setup branch VERIFY_REPAIR` (the driver
+# logs the two verdicts with the same prefix); the control below pins that the
+# distinction is real, so the assertion cannot be silently weakened.
+BRANCH_VERIFY_ANCHOR='Setup branch VERIFY([[:space:]]|$)'
+branch_is_verify() { grep -Eq "$BRANCH_VERIFY_ANCHOR" "$1" 2>/dev/null; }
+
+# Control for the anchor itself: a `Setup branch VERIFY_REPAIR` line must NOT
+# satisfy it. VERIFY_REPAIR on this fixture means the marker was rewritten when
+# it should have been left alone — precisely the regression the assertion below
+# exists to catch — so an anchor that cannot tell the two apart is not an
+# assertion at all.
+printf '%s\n' '2026-01-01 00:00:00 - Setup branch VERIFY_REPAIR — not an orderable release marker: recorded=unsubstituted expected=v0.6.0-alpha4 (relation UNORDERABLE)' > "$TMP/anchor-probe.log"
+if branch_is_verify "$TMP/anchor-probe.log"; then
+    bad "anchor control: a 'Setup branch VERIFY_REPAIR' line satisfies the VERIFY anchor"
+else
+    ok "anchor control: a 'Setup branch VERIFY_REPAIR' line does not satisfy the VERIFY anchor"
+fi
+
+# The marker here is the apk-shaped version the resolution path produces
+# (`0.6.0_alpha4-r0`), which normalises to the same release as the shipped
+# `v0.6.0-alpha4`, so the verdict is SAME -> verify/repair.
+if branch_is_verify "$LOGFILE"; then
     ok "same-version branch was the path taken (flag = $FAKE_VERSION)"
 else
     bad "same-version branch not taken (log: $(head -n 2 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"

@@ -255,14 +255,32 @@ check_guest_isolation_shape() { # <label> — both bands, one shared writer
 }
 
 # ------------------------------------------------- 1. same-version repo path
+# The branch the driver took, as the driver itself logged it:
+#   `2026-09-25 01:00:00 - Setup branch VERIFY — marker matches: recorded=… expected=…`
+# The anchor is the verdict TOKEN followed by a boundary. A bare
+# `Setup branch VERIFY` also matches `Setup branch VERIFY_REPAIR` (the driver
+# logs both with the same prefix); the control below pins that the distinction
+# is real, so the assertion cannot be silently weakened.
+BRANCH_VERIFY_ANCHOR='Setup branch VERIFY([[:space:]]|$)'
+branch_is_verify() { grep -Eq "$BRANCH_VERIFY_ANCHOR" "$1" 2>/dev/null; }
+
 echo "== guest APs are isolated on the same-version reinstall path"
 seed_stock
 run_same_version
 rc=$?
 [ "$rc" = 0 ] && ok "same-version run exits 0" \
               || bad "same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
-grep -q "Flag matches" "$LOGFILE" 2>/dev/null && ok "same-version branch was the path taken" \
-                                             || bad "same-version branch not taken"
+printf '%s\n' '2026-01-01 00:00:00 - Setup branch VERIFY_REPAIR — not an orderable release marker: recorded=unsubstituted expected=v0.6.0-alpha4 (relation UNORDERABLE)' > "$TMP/anchor-probe.log"
+if branch_is_verify "$TMP/anchor-probe.log"; then
+    bad "anchor control: a 'Setup branch VERIFY_REPAIR' line satisfies the VERIFY anchor"
+else
+    ok "anchor control: a 'Setup branch VERIFY_REPAIR' line does not satisfy the VERIFY anchor"
+fi
+if branch_is_verify "$LOGFILE"; then
+    ok "same-version branch was the path taken"
+else
+    bad "same-version branch not taken"
+fi
 check_guest_isolated "same-version install"
 check_never_isolated "same-version install"
 check_guest_isolation_shape "same-version install"

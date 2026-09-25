@@ -24,6 +24,34 @@ and [Semantic Versioning](https://semver.org/).
   portal parses them
   ([#541](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/541)).
 
+- **Router happy-path harness: the operator's manual pass over a flashed MT3000
+  is now a script that fails closed.** `tests/router-happy-path/run.sh` takes a
+  published `.apk` and asserts, in order, that (1) **every asset the router
+  serves is byte-identical to the same path inside that package** — sha256 by
+  leading path, plus the reverse direction (every reference the live entry
+  document makes must resolve inside the package) and an optional
+  `NAME:SIZE:SHA256` pin for the entry chunk, which is the check that catches "a
+  shipped bundle that did not contain the fix its pin claimed"; (2) the surfaces
+  `80 / 2050 / 2051 / 2121 / 8080 / 8090` answer what they should, where `:2050`
+  is a cache-bust **stub** whose own resolved redirect expression points at the
+  SPA on `:2051` (asserted, never assumed) and the app must **not** also be
+  served on `:2050`; (3) unauthenticated HTTP is `307`'d to
+  `/splash.html?redir=…` and the whole chain lands on the SPA; (4) the
+  `/whoami`, `/balance`, `/usage`, `/session-state` and `kind:10021` shapes (with
+  the box idle as a precondition, and degraded mode fatal); (5) the
+  `GET /ln-invoice` no-quote `400 {"error":"quote is required"}` status-poll
+  contract, so it is not mistaken for a regression. Read-only: the only write is
+  a POST with an empty body, which carries no proof. Liveness is TCP-only —
+  this firewall drops ICMP, so `ping` must never be a liveness test here — and
+  the on-box SSH checks are opt-in because router SSH is credential gated. A
+  full paid purchase is supported but gated behind an operator-supplied
+  `RHP_CASHU_TOKEN` plus an explicit `RHP_SPEND_MAX_SATS` ceiling; the default
+  run spends nothing. `selftest/run_selftest.sh` drives the whole harness against
+  a localhost stub with no hardware at all and proves the check ids this rig can
+  break actually go red when their surface breaks (a check that has never been
+  seen failing is decoration), names in its header the ids it cannot break
+  offline, and runs in CI.
+
 ### Fixed
 
 - **A policy change now reaches the running nodogsplash: the setup script
@@ -50,6 +78,32 @@ and [Semantic Versioning](https://semver.org/).
   cannot parse (a hand-edited port range), which is reported rather than
   compared partially — a partial comparison can never be repaired by a reload
   ([#579](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/579)).
+- **A version roll-back no longer re-runs full setup and clobbers the
+  operator's state.** `99-tollgate-setup` compared the version in
+  `/etc/tollgate-setup-done` with the shipped version for **equality**, so every
+  different version counted as a new one — and a downgrade is a different
+  version. Reinstalling an older build over a newer one therefore re-ran full
+  setup, re-randomised the guest SSID and rewrote the nodogsplash state on a
+  router the operator had already configured (observed on the bench MT3000 on
+  2026-09-24, three times, mid-test). The marker is now compared **by order**:
+  no marker, or a marker older than the shipped version, runs full setup; a
+  marker equal to, **newer** than (a roll-back), or not orderable against the
+  shipped version takes the verify/repair branch — verify the APs, re-assert the
+  uhttpd contract and the nodogsplash allow list — and never touches the
+  operator's guest SSID, private credentials or hostname. Version strings are
+  the repository-root VERSION with an optional `-g<sha>` build suffix (the same
+  release, so a suffix no longer counts as a new version). A marker that records
+  no orderable version — `unsubstituted`, an empty file, a dev branch build — is
+  verified and then **re-stamped** with the shipped version rather than obeyed,
+  so a marker poisoned the way #459 could no longer wedge a router into never
+  running full setup again. The driver logs which branch it took and why
+  (recorded vs expected, comparison verdict). Offline,
+  `tests/uci-defaults-setup-marker-order_test.sh` pins the
+  absent/same/older/newer/malformed/suffixed cases and the
+  alpha4→alpha5→alpha4 round trip, with a failing negative control: the same
+  roll-back fixture run under the pre-change equality predicate re-runs full
+  setup and re-randomises the SSID
+  ([#578](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/578)).
 - **`tollgate upstream scan` reports the real band of every network again.**
   The band column added for #452 was inert on real hardware: the scan path reads
   `/etc/config/wireless` itself, but classified that file with the parser for
@@ -110,6 +164,24 @@ and [Semantic Versioning](https://semver.org/).
   stranded value until the journal work lands — this change only makes it
   visible and decidable
   ([#558](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/558)).
+- **The happy-path harness can no longer go green having never run a phase.**
+  `fold()` read each helper's output from a process substitution, which discards
+  the helper's exit status: a helper that died partway (bad interpreter, import
+  error, OOM) simply removed every check it never reached from the tally, and a
+  run whose surface checks passed could still print `RHPEXIT 0` with those
+  phases absent. Helpers now write to a file (preserving `$?`) and each phase is
+  reconciled afterwards — a helper that exits non-zero, or that exits 0 having
+  emitted nothing at all, is itself a FAIL (`helper:<phase>`). Two self-test
+  cases (`helper-dies`, `helper-silent`) drive both halves through the
+  `RHP_API_HELPER` seam. Also from the same review: `paid:spends-nothing-by-default`
+  was a hard-coded PASS that also printed on opt-in runs that DID send a token
+  (now PASS only without a token, SKIP with one); the anti-`ping` source guard
+  audited only `run.sh` (now `run.sh` + `lib/` + `selftest/`); `stub_chain.py`
+  resolved an unmodelled `location.port` to the default port instead of failing
+  loudly; and the self-test's own coverage claim is now measured rather than
+  asserted (31 cases, 49 of 74 live check ids driven red, the 25 that cannot be
+  are listed in the header and the README).
+
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**
   The portal echoes the mint URL from the advertisement's `price_per_step` tag,
@@ -533,6 +605,23 @@ and [Semantic Versioning](https://semver.org/).
   regression — measured on the same 2026-09-24 run and reproduced locally against
   the .apk that run built
   ([#554](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/554)).
+- **Session-ticket architecture decision (ADR).**
+  `docs/architecture/session-ticket-decision.md` proposes removing
+  MAC-as-authorization in favour of a server-signed, memory-only session ticket
+  carrying only a session handle, with the MAC demoted to the socket-resolved
+  delivery address; it fixes the three invariants a MAC-rotation rebind must
+  honour (the byte meter's `consumed` total carries across the rebind and is
+  never re-based, `StartTime` is preserved so a rebind cannot extend paid time,
+  and the rebind is refused while the old attachment is still authenticated) and
+  the headline acceptance test — after a rotation,
+  `remaining == allotment - consumed`, not `allotment`. Status: Proposed;
+  the module, portal and bundle steps follow as their own PRs. The record was
+  then amended on the operator's decision: the address is session-scoped and
+  nothing carries across addresses (R1-R3), early-exit cash refunds are not the
+  default path, and the intended payment rail is Spillman-style Cashu channels,
+  to be adopted as soon as the wallet runs on CDK and a wallet supporting the
+  channel protocol exists (R4-R6)
+  ([#572](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/572)).
 
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
@@ -555,6 +644,13 @@ and [Semantic Versioning](https://semver.org/).
   invisible to its bare-argument matcher. Both are covered now, with the scanning
   shared by the two tests
   ([#559](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/559)).
+
+- **CI builds only the shipped OpenWrt SDK targets.** The package matrix drops
+  the Raspberry Pi (`bcm27xx-bcm2711`, `bcm27xx-bcm2709`) and generic `x86-64`
+  targets, which no shipped TollGateOS device uses, and keeps only
+  `mediatek-filogic`, `ramips-mt7621` and `ath79-generic`. A full run pulls
+  three SDK images instead of six
+  ([#539](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/539)).
 
 ## [v0.6.0-alpha4] - 2026-09-22
 
