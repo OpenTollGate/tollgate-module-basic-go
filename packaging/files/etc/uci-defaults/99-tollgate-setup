@@ -11,12 +11,16 @@
 # config change is otherwise not delivered until something restarts it, which is
 # right on a fresh boot and wrong on an upgrade of a running router.
 #
-# The flag file stores the setup version. On reinstall/upgrade:
-# - Same version → verify wireless APs, re-assert the uhttpd contract and the
-#   nodogsplash pre-auth allow list (uhttpd.main/uhttpd.portal drift and a
-#   stale users_to_router list are repaired; the rest is not re-run), then
-#   converge the running ruleset on the repaired list
-# - New version or first boot → full setup
+# The flag file records the setup version — the version whose FULL setup last
+# ran. The next run decides between the two branches by ORDER, not by equality
+# (see "-- setup-marker ordering" below):
+# - No marker / marker OLDER than the shipped version → full setup
+# - Marker equal to, NEWER than (a roll-back), or not orderable against the
+#   shipped version → verify/repair only: verify the APs, re-assert the uhttpd
+#   contract and the nodogsplash pre-auth allow list (repairing the uhttpd and
+#   users_to_router drift), then converge the running ruleset on the repaired
+#   list, and leave the operator's choices (guest SSID, private credentials,
+#   hostname) alone
 
 SETUP_FLAG="/etc/tollgate-setup-done"
 # Version marker for this setup script. It is the release version, taken from
@@ -52,6 +56,225 @@ LOGFILE=/tmp/tollgate-setup.log
 # (tests/uci-defaults-*_test.sh).
 NDS_INIT="/etc/init.d/nodogsplash"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
+
+# -- setup-marker ordering ---------------------------------------------------
+#
+# /etc/tollgate-setup-done records the version whose FULL setup last ran, and
+# the decision the next run takes is an ORDER question, not an equality one:
+#
+#   no marker at all          -> full setup (first boot: nothing is configured)
+#   marker equal to shipped   -> verify/repair
+#   marker OLDER than shipped -> full setup (a real upgrade)
+#   marker NEWER than shipped -> verify/repair ONLY (a roll-back/downgrade)
+#
+# The last line is the fix. Comparing for equality made every DIFFERENT version
+# look like a new one, so rolling alpha5 back to alpha4 re-ran full setup, which
+# re-randomises the guest SSID, recreates the nodogsplash/private-network state
+# and rewrites operator choices on a box that was already configured — observed
+# on the bench MT3000 on 2026-09-24, three times, mid-test.
+#
+# What a marker is: the repository-root VERSION (the single source of truth,
+# substituted into SETUP_VERSION by every packaging path) with an OPTIONAL
+# git-describe build suffix, e.g. v0.6.0-alpha4-g2796d96 — a build cut from a
+# commit past the alpha4 tag, i.e. the SAME release, so the suffix is
+# normalised away. Everything else — a dev branch build
+# (`main.574.2796d96`), `unsubstituted`, any unrecognised shape, a marker
+# truncated to nothing — carries no ordering this script can trust, so it
+# VERIFIES (never full setup) and re-stamps the marker with the shipped
+# version. Re-stamping is what stops a marker poisoned by #459 from wedging a
+# router in the verify path forever.
+#
+# Why the ordering rule is total: the comparison key is a fixed-arity tuple of
+# integers — (major, minor, patch, pre-release rank, pre-release number) —
+# compared lexicographically. Lexicographic comparison of fixed-arity integer
+# tuples is antisymmetric and transitive, and no field can be missing (a marker
+# that does not parse is rejected up front, never defaulted), so any two
+# release markers have exactly one of SAME / OLDER / NEWER. "Does not parse"
+# includes a numeric field too wide for the shell's integer comparison (see
+# MAX_VERSION_COMPONENT_DIGITS): such a field is refused rather than compared,
+# because a comparison that errors out would silently report SAME. Markers that
+# do not both parse never enter the order at all: they take the verify verdict.
+# The DECISION is therefore total over every possible marker string, even
+# though the order itself is only defined on release markers.
+
+# The shape this script can order:
+#   [v]MAJOR.MINOR.PATCH[-pre|alpha|beta|rc[N]][-g<short sha>]
+# Whitespace, a leading `v`, a git-describe `-g<sha>` suffix, and the apk
+# package-revision suffix with its `_alpha` pre-release spelling do not change
+# which release a marker denotes, so they are normalised away first. The apk
+# spelling is not hypothetical: this script's own version resolution falls back
+# to `apk list --installed` (which prints `tollgate-wrt-0.6.0_alpha4-r0`), and
+# whatever that resolution writes into the marker must compare equal to the
+# same release substituted by the packaging paths.
+#
+# The `-g` suffix is stripped for ANY hex length, not just git's >=7: the length
+# is not part of the shape, and a short-sha marker that failed to normalise was
+# classified as an unorderable pre-release and RE-STAMPED with the shipped
+# version — a marker rewrite over a build of the same release, which is the
+# very thing the roll-back protection must never do. A `-g` suffix with an EMPTY
+# or NON-HEX payload is not a describe suffix at all and is deliberately left in
+# place: it then fails to parse (as a pre-release, or on the charset check) and
+# lands on the verify verdict, the fail-safe direction — see the "any -g<hex>
+# suffix" and "empty or non-hex payload" cases in
+# tests/uci-defaults-setup-marker-order_test.sh.
+normalize_version() {
+    printf '%s\n' "${1:-}" | sed -n '1p' | tr -d '\r' |
+        sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^[vV]//' \
+            -e 's/-g[0-9a-fA-F]\{1,\}$//' -e 's/-r[0-9]\{1,\}$//' \
+            -e 's/_alpha/-alpha/' -e 's/_beta/-beta/' \
+            -e 's/_rc/-rc/' -e 's/_pre/-pre/'
+}
+
+# version_key <normalized version> -> "MAJOR MINOR PATCH RANK PRENUM" on stdout,
+# nothing and exit 1 when the argument is not a release marker. RANK orders the
+# pre-release labels (pre < alpha < beta < rc); a plain release ranks above
+# every pre-release of its own core.
+#
+# A numeric component must be a plain decimal integer of at most 9 digits. The
+# bound is not cosmetic: version_relation compares the fields with the shell's
+# `[ … -gt … ]`, which is bounded by the platform's integer width, and an
+# operand that does not fit makes the comparison itself FAIL — dash prints
+# `integer expected`, busybox ash `out of range`, both return non-zero. Every
+# branch of the comparison is then skipped and the relation falls through to
+# SAME: the marker is ACCEPTED and ordered wrongly (a router wedged in the
+# verify path forever, the #459 shape this change exists to prevent), which is
+# strictly worse than refusing to order it. Nine digits (max 999999999) is far
+# beyond any real version component and safely inside intmax_t on every shell
+# this script runs under, including a 32-bit one where ten digits already
+# overflow.
+MAX_VERSION_COMPONENT_DIGITS=9
+is_numeric_component() {
+    case "${1:-}" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    [ "${#1}" -le "$MAX_VERSION_COMPONENT_DIGITS" ]
+}
+
+version_key() {
+    local v major rest minor tail patch pre rank digits
+    v="${1:-}"
+    [ -n "$v" ] || return 1
+    case "$v" in
+        *[!0-9A-Za-z.-]*) return 1 ;;
+        *.*.*) ;;
+        *) return 1 ;;
+    esac
+    major="${v%%.*}"
+    rest="${v#*.}"
+    minor="${rest%%.*}"
+    tail="${rest#*.}"
+    patch="${tail%%-*}"
+    pre=""
+    case "$tail" in
+        *-) return 1 ;;
+        *-*) pre="${tail#*-}" ;;
+    esac
+    [ -n "$major" ] && [ -n "$minor" ] && [ -n "$patch" ] || return 1
+    is_numeric_component "$major" || return 1
+    is_numeric_component "$minor" || return 1
+    is_numeric_component "$patch" || return 1
+    rank=4
+    digits=0
+    if [ -n "$pre" ]; then
+        case "$pre" in
+            pre*)   rank=0; digits="${pre#pre}" ;;
+            alpha*) rank=1; digits="${pre#alpha}" ;;
+            beta*)  rank=2; digits="${pre#beta}" ;;
+            rc*)    rank=3; digits="${pre#rc}" ;;
+            *) return 1 ;;
+        esac
+        if [ -n "$digits" ]; then
+            is_numeric_component "$digits" || return 1
+        else
+            digits=0
+        fi
+    fi
+    printf '%s %s %s %s %s\n' "$major" "$minor" "$patch" "$rank" "$digits"
+}
+
+# version_relation <recorded> <expected> -> SAME|OLDER|NEWER|UNORDERABLE
+# OLDER/NEWER are relative to the EXPECTED (shipped) version, so NEWER is a
+# roll-back. UNORDERABLE (exit 1) means at least one side is not a release
+# marker — the caller decides, and it fails toward verify.
+version_relation() {
+    local a b ka kb amaj amin apat arank aprn bmaj bmin bpat brank bprn
+    a="$(normalize_version "${1:-}")"
+    b="$(normalize_version "${2:-}")"
+    if [ -z "$a" ] || [ -z "$b" ]; then
+        printf 'UNORDERABLE'
+        return 1
+    fi
+    ka="$(version_key "$a")" || { printf 'UNORDERABLE'; return 1; }
+    kb="$(version_key "$b")" || { printf 'UNORDERABLE'; return 1; }
+    set -- $ka
+    amaj="$1"; amin="$2"; apat="$3"; arank="$4"; aprn="$5"
+    set -- $kb
+    bmaj="$1"; bmin="$2"; bpat="$3"; brank="$4"; bprn="$5"
+    if [ "$amaj" -ne "$bmaj" ]; then
+        [ "$amaj" -gt "$bmaj" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$amin" -ne "$bmin" ]; then
+        [ "$amin" -gt "$bmin" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$apat" -ne "$bpat" ]; then
+        [ "$apat" -gt "$bpat" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$arank" -ne "$brank" ]; then
+        [ "$arank" -gt "$brank" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$aprn" -ne "$bprn" ]; then
+        [ "$aprn" -gt "$bprn" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    printf 'SAME'
+    return 0
+}
+
+# setup_marker_decision <recorded> <shipped> <marker file present 0|1>
+# prints "<VERDICT> <reason>" where VERDICT is one of
+#   FULL          run full setup
+#   VERIFY        verify/repair only, leave the marker alone
+#   VERIFY_REPAIR verify/repair only, then re-stamp the marker
+# and exits 0 for FULL, 1 otherwise, so the reason is loggable and the exit
+# status also reads as a boolean at the call site.
+setup_marker_decision() {
+    local recorded="${1:-}" expected="${2:-}" present="${3:-0}" relation
+    if [ "$present" != "1" ]; then
+        printf 'FULL no marker recorded (first boot): recorded=<absent> expected=%s\n' "$expected"
+        return 0
+    fi
+    if [ -z "$(normalize_version "$recorded")" ]; then
+        printf 'VERIFY_REPAIR marker records no version: recorded=<empty> expected=%s\n' "$expected"
+        return 1
+    fi
+    relation="$(version_relation "$recorded" "$expected")"
+    case "$relation" in
+        OLDER)
+            printf 'FULL marker is older: recorded=%s expected=%s (relation OLDER)\n' \
+                "$recorded" "$expected"
+            return 0
+            ;;
+        SAME)
+            printf 'VERIFY marker matches: recorded=%s expected=%s (relation SAME)\n' \
+                "$recorded" "$expected"
+            return 1
+            ;;
+        NEWER)
+            printf 'VERIFY roll-back: recorded=%s is newer than expected=%s (relation NEWER) - verify/repair only, operator state preserved\n' \
+                "$recorded" "$expected"
+            return 1
+            ;;
+        *)
+            printf 'VERIFY_REPAIR not an orderable release marker: recorded=%s expected=%s (relation %s)\n' \
+                "$recorded" "$expected" "$relation"
+            return 1
+            ;;
+    esac
+}
 
 # -- setup steps ------------------------------------------------------------
 
@@ -1210,19 +1433,34 @@ if [ "${TOLLGATE_SETUP_LIB_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# Check if full setup is needed (version mismatch or first boot)
+# Which branch this run takes, and why. The comparison is ORDER-aware (see
+# "-- setup-marker ordering" above): a roll-back must never be mistaken for an
+# upgrade, because full setup re-randomises state the operator owns.
 EXISTING_VERSION=""
+MARKER_PRESENT=0
 if [ -f "$SETUP_FLAG" ]; then
+    MARKER_PRESENT=1
     EXISTING_VERSION=$(cat "$SETUP_FLAG" 2>/dev/null)
 fi
 
-if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
-    # Same version — verify wireless APs, re-assert the uhttpd contract
-    # (fixes #103/#173: APs missing after reinstall when setup-done flag
-    # persisted from a prior install).
-    : > "$LOGFILE"
-    chmod 600 "$LOGFILE"
-    log "Flag matches $SETUP_VERSION — verifying wireless APs, the uhttpd contract and the portal allow list"
+DECISION=$(setup_marker_decision "$EXISTING_VERSION" "$SETUP_VERSION" "$MARKER_PRESENT")
+BRANCH=${DECISION%% *}
+REASON=${DECISION#* }
+
+: > "$LOGFILE"
+chmod 600 "$LOGFILE"  # may contain the WiFi password — keep it root-only
+log "Setup branch $BRANCH — $REASON"
+
+# Everything that is not FULL is the verify/repair path. The offline test
+# tests/uci-defaults-setup-marker-order_test.sh replaces the decision call just
+# above with the pre-change equality predicate in its own copy of this script,
+# which is the failing negative control: under equality a roll-back is taken
+# for a new version and re-runs full setup.
+if [ "$BRANCH" != "FULL" ]; then
+    # Verify wireless APs and re-assert the uhttpd contract
+    # (fixes #103/#173: APs missing after reinstall when the setup-done flag
+    # persisted from a prior install). The operator's own choices are NOT
+    # rewritten here — that is the whole point of the NEWER/roll-back verdict.
 
     load_brand
 
@@ -1303,13 +1541,22 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
     # router takes effect without an operator restart (and so a fresh boot,
     # where procd has not started the service yet, is left untouched).
     converge_nodogsplash_runtime
+    if [ "$BRANCH" = "VERIFY_REPAIR" ]; then
+        # A marker that records no orderable version is re-stamped with the
+        # shipped one. Without this, a marker poisoned by #459
+        # (`unsubstituted`) would take the verify path forever and full setup
+        # would never run again — the mirror-image defect of the one this
+        # change fixes. A parseable marker is NEVER rewritten here: overwriting
+        # it on a roll-back is what would turn the next install of the version
+        # being rolled back to into a "genuine upgrade" and re-run full setup.
+        printf '%s\n' "$SETUP_VERSION" > "$SETUP_FLAG"
+        log "Marker re-stamped to $SETUP_VERSION (no orderable version was recorded)"
+    fi
     log "Wireless AP verification completed"
     exit 0
 fi
 
-# Full setup (first boot or version change)
-: > "$LOGFILE"
-chmod 600 "$LOGFILE"  # contains the WiFi password — keep it root-only
+# Full setup (first boot, or a marker genuinely older than this version)
 log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
 
 load_brand
