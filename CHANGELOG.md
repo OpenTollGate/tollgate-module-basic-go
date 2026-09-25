@@ -201,6 +201,10 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Dropped a stray tracked `.pyc` and ignored `scripts/__pycache__/`.**
+  `scripts/__pycache__/ngit-gen-shards.cpython-312.pyc` was committed to
+  main — build output, not source; it is removed and the directory
+  ignored so a future `git add -A` cannot reintroduce it.
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
