@@ -9,6 +9,14 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Changed / Internal
+
+- **Dropped a stray tracked `.pyc` and ignored `scripts/__pycache__/`.**
+  `scripts/__pycache__/ngit-gen-shards.cpython-312.pyc` was committed to
+  main — build output, not source; it is removed and the directory
+  ignored so a future `git add -A` cannot reintroduce it.
+  ([#580](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/580))
+
 
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
