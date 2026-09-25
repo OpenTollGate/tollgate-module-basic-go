@@ -60,6 +60,17 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      - name: Setup-marker ordering (roll-back safety)
+        run: |
+          # Offline (no router, no SDK, no network): the setup script's version
+          # marker must be compared BY ORDER, not for equality. Equality made a
+          # downgrade look like an upgrade, so rolling back re-ran full setup
+          # and re-randomised the operator's guest SSID (bench MT3000,
+          # 2026-09-24). The suite pins absent/same/older/newer/malformed/
+          # suffixed markers and the alpha4->alpha5->alpha4 round trip, and its
+          # negative control fails if the comparison ever goes back to equality.
+          bash tests/uci-defaults-setup-marker-order_test.sh
+
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).

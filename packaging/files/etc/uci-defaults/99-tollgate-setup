@@ -1,13 +1,26 @@
 #!/bin/sh
 # TollGate first-boot configuration. Runs once from /etc/init.d/boot before
-# services start. All UCI changes are committed in a single pass at the end;
-# no service restarts here (uci-defaults runs before procd brings services up).
+# services start, and from the package postinst on every install/upgrade. All
+# UCI changes are committed in a single pass at the end.
 #
-# The flag file stores the setup version. On reinstall/upgrade:
-# - Same version → verify wireless APs, re-assert the uhttpd contract and the
-#   nodogsplash pre-auth allow list (uhttpd.main/uhttpd.portal drift and a
-#   stale users_to_router list are repaired; the rest is not re-run)
-# - New version or first boot → full setup
+# No service is restarted on the first-boot path (uci-defaults runs before procd
+# brings services up, and procd then starts them once from the config written
+# here). The ONE exception is converge_nodogsplash_runtime: when this script runs
+# on an ALREADY-RUNNING system and the nodogsplash pre-auth allow list no longer
+# matches the ruleset the live process installed, that process is reloaded — a
+# config change is otherwise not delivered until something restarts it, which is
+# right on a fresh boot and wrong on an upgrade of a running router.
+#
+# The flag file records the setup version — the version whose FULL setup last
+# ran. The next run decides between the two branches by ORDER, not by equality
+# (see "-- setup-marker ordering" below):
+# - No marker / marker OLDER than the shipped version → full setup
+# - Marker equal to, NEWER than (a roll-back), or not orderable against the
+#   shipped version → verify/repair only: verify the APs, re-assert the uhttpd
+#   contract and the nodogsplash pre-auth allow list (repairing the uhttpd and
+#   users_to_router drift), then converge the running ruleset on the repaired
+#   list, and leave the operator's choices (guest SSID, private credentials,
+#   hostname) alone
 
 SETUP_FLAG="/etc/tollgate-setup-done"
 # Version marker for this setup script. It is the release version, taken from
@@ -38,7 +51,230 @@ case "$SETUP_VERSION" in
 esac
 
 LOGFILE=/tmp/tollgate-setup.log
+# The nodogsplash init script, as an absolute path next to SETUP_FLAG and
+# LOGFILE so the offline tests can redirect all three the same way
+# (tests/uci-defaults-*_test.sh).
+NDS_INIT="/etc/init.d/nodogsplash"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
+
+# -- setup-marker ordering ---------------------------------------------------
+#
+# /etc/tollgate-setup-done records the version whose FULL setup last ran, and
+# the decision the next run takes is an ORDER question, not an equality one:
+#
+#   no marker at all          -> full setup (first boot: nothing is configured)
+#   marker equal to shipped   -> verify/repair
+#   marker OLDER than shipped -> full setup (a real upgrade)
+#   marker NEWER than shipped -> verify/repair ONLY (a roll-back/downgrade)
+#
+# The last line is the fix. Comparing for equality made every DIFFERENT version
+# look like a new one, so rolling alpha5 back to alpha4 re-ran full setup, which
+# re-randomises the guest SSID, recreates the nodogsplash/private-network state
+# and rewrites operator choices on a box that was already configured — observed
+# on the bench MT3000 on 2026-09-24, three times, mid-test.
+#
+# What a marker is: the repository-root VERSION (the single source of truth,
+# substituted into SETUP_VERSION by every packaging path) with an OPTIONAL
+# git-describe build suffix, e.g. v0.6.0-alpha4-g2796d96 — a build cut from a
+# commit past the alpha4 tag, i.e. the SAME release, so the suffix is
+# normalised away. Everything else — a dev branch build
+# (`main.574.2796d96`), `unsubstituted`, any unrecognised shape, a marker
+# truncated to nothing — carries no ordering this script can trust, so it
+# VERIFIES (never full setup) and re-stamps the marker with the shipped
+# version. Re-stamping is what stops a marker poisoned by #459 from wedging a
+# router in the verify path forever.
+#
+# Why the ordering rule is total: the comparison key is a fixed-arity tuple of
+# integers — (major, minor, patch, pre-release rank, pre-release number) —
+# compared lexicographically. Lexicographic comparison of fixed-arity integer
+# tuples is antisymmetric and transitive, and no field can be missing (a marker
+# that does not parse is rejected up front, never defaulted), so any two
+# release markers have exactly one of SAME / OLDER / NEWER. "Does not parse"
+# includes a numeric field too wide for the shell's integer comparison (see
+# MAX_VERSION_COMPONENT_DIGITS): such a field is refused rather than compared,
+# because a comparison that errors out would silently report SAME. Markers that
+# do not both parse never enter the order at all: they take the verify verdict.
+# The DECISION is therefore total over every possible marker string, even
+# though the order itself is only defined on release markers.
+
+# The shape this script can order:
+#   [v]MAJOR.MINOR.PATCH[-pre|alpha|beta|rc[N]][-g<short sha>]
+# Whitespace, a leading `v`, a git-describe `-g<sha>` suffix, and the apk
+# package-revision suffix with its `_alpha` pre-release spelling do not change
+# which release a marker denotes, so they are normalised away first. The apk
+# spelling is not hypothetical: this script's own version resolution falls back
+# to `apk list --installed` (which prints `tollgate-wrt-0.6.0_alpha4-r0`), and
+# whatever that resolution writes into the marker must compare equal to the
+# same release substituted by the packaging paths.
+#
+# The `-g` suffix is stripped for ANY hex length, not just git's >=7: the length
+# is not part of the shape, and a short-sha marker that failed to normalise was
+# classified as an unorderable pre-release and RE-STAMPED with the shipped
+# version — a marker rewrite over a build of the same release, which is the
+# very thing the roll-back protection must never do. A `-g` suffix with an EMPTY
+# or NON-HEX payload is not a describe suffix at all and is deliberately left in
+# place: it then fails to parse (as a pre-release, or on the charset check) and
+# lands on the verify verdict, the fail-safe direction — see the "any -g<hex>
+# suffix" and "empty or non-hex payload" cases in
+# tests/uci-defaults-setup-marker-order_test.sh.
+normalize_version() {
+    printf '%s\n' "${1:-}" | sed -n '1p' | tr -d '\r' |
+        sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^[vV]//' \
+            -e 's/-g[0-9a-fA-F]\{1,\}$//' -e 's/-r[0-9]\{1,\}$//' \
+            -e 's/_alpha/-alpha/' -e 's/_beta/-beta/' \
+            -e 's/_rc/-rc/' -e 's/_pre/-pre/'
+}
+
+# version_key <normalized version> -> "MAJOR MINOR PATCH RANK PRENUM" on stdout,
+# nothing and exit 1 when the argument is not a release marker. RANK orders the
+# pre-release labels (pre < alpha < beta < rc); a plain release ranks above
+# every pre-release of its own core.
+#
+# A numeric component must be a plain decimal integer of at most 9 digits. The
+# bound is not cosmetic: version_relation compares the fields with the shell's
+# `[ … -gt … ]`, which is bounded by the platform's integer width, and an
+# operand that does not fit makes the comparison itself FAIL — dash prints
+# `integer expected`, busybox ash `out of range`, both return non-zero. Every
+# branch of the comparison is then skipped and the relation falls through to
+# SAME: the marker is ACCEPTED and ordered wrongly (a router wedged in the
+# verify path forever, the #459 shape this change exists to prevent), which is
+# strictly worse than refusing to order it. Nine digits (max 999999999) is far
+# beyond any real version component and safely inside intmax_t on every shell
+# this script runs under, including a 32-bit one where ten digits already
+# overflow.
+MAX_VERSION_COMPONENT_DIGITS=9
+is_numeric_component() {
+    case "${1:-}" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    [ "${#1}" -le "$MAX_VERSION_COMPONENT_DIGITS" ]
+}
+
+version_key() {
+    local v major rest minor tail patch pre rank digits
+    v="${1:-}"
+    [ -n "$v" ] || return 1
+    case "$v" in
+        *[!0-9A-Za-z.-]*) return 1 ;;
+        *.*.*) ;;
+        *) return 1 ;;
+    esac
+    major="${v%%.*}"
+    rest="${v#*.}"
+    minor="${rest%%.*}"
+    tail="${rest#*.}"
+    patch="${tail%%-*}"
+    pre=""
+    case "$tail" in
+        *-) return 1 ;;
+        *-*) pre="${tail#*-}" ;;
+    esac
+    [ -n "$major" ] && [ -n "$minor" ] && [ -n "$patch" ] || return 1
+    is_numeric_component "$major" || return 1
+    is_numeric_component "$minor" || return 1
+    is_numeric_component "$patch" || return 1
+    rank=4
+    digits=0
+    if [ -n "$pre" ]; then
+        case "$pre" in
+            pre*)   rank=0; digits="${pre#pre}" ;;
+            alpha*) rank=1; digits="${pre#alpha}" ;;
+            beta*)  rank=2; digits="${pre#beta}" ;;
+            rc*)    rank=3; digits="${pre#rc}" ;;
+            *) return 1 ;;
+        esac
+        if [ -n "$digits" ]; then
+            is_numeric_component "$digits" || return 1
+        else
+            digits=0
+        fi
+    fi
+    printf '%s %s %s %s %s\n' "$major" "$minor" "$patch" "$rank" "$digits"
+}
+
+# version_relation <recorded> <expected> -> SAME|OLDER|NEWER|UNORDERABLE
+# OLDER/NEWER are relative to the EXPECTED (shipped) version, so NEWER is a
+# roll-back. UNORDERABLE (exit 1) means at least one side is not a release
+# marker — the caller decides, and it fails toward verify.
+version_relation() {
+    local a b ka kb amaj amin apat arank aprn bmaj bmin bpat brank bprn
+    a="$(normalize_version "${1:-}")"
+    b="$(normalize_version "${2:-}")"
+    if [ -z "$a" ] || [ -z "$b" ]; then
+        printf 'UNORDERABLE'
+        return 1
+    fi
+    ka="$(version_key "$a")" || { printf 'UNORDERABLE'; return 1; }
+    kb="$(version_key "$b")" || { printf 'UNORDERABLE'; return 1; }
+    set -- $ka
+    amaj="$1"; amin="$2"; apat="$3"; arank="$4"; aprn="$5"
+    set -- $kb
+    bmaj="$1"; bmin="$2"; bpat="$3"; brank="$4"; bprn="$5"
+    if [ "$amaj" -ne "$bmaj" ]; then
+        [ "$amaj" -gt "$bmaj" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$amin" -ne "$bmin" ]; then
+        [ "$amin" -gt "$bmin" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$apat" -ne "$bpat" ]; then
+        [ "$apat" -gt "$bpat" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$arank" -ne "$brank" ]; then
+        [ "$arank" -gt "$brank" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    if [ "$aprn" -ne "$bprn" ]; then
+        [ "$aprn" -gt "$bprn" ] && { printf 'NEWER'; return 0; }
+        printf 'OLDER'; return 0
+    fi
+    printf 'SAME'
+    return 0
+}
+
+# setup_marker_decision <recorded> <shipped> <marker file present 0|1>
+# prints "<VERDICT> <reason>" where VERDICT is one of
+#   FULL          run full setup
+#   VERIFY        verify/repair only, leave the marker alone
+#   VERIFY_REPAIR verify/repair only, then re-stamp the marker
+# and exits 0 for FULL, 1 otherwise, so the reason is loggable and the exit
+# status also reads as a boolean at the call site.
+setup_marker_decision() {
+    local recorded="${1:-}" expected="${2:-}" present="${3:-0}" relation
+    if [ "$present" != "1" ]; then
+        printf 'FULL no marker recorded (first boot): recorded=<absent> expected=%s\n' "$expected"
+        return 0
+    fi
+    if [ -z "$(normalize_version "$recorded")" ]; then
+        printf 'VERIFY_REPAIR marker records no version: recorded=<empty> expected=%s\n' "$expected"
+        return 1
+    fi
+    relation="$(version_relation "$recorded" "$expected")"
+    case "$relation" in
+        OLDER)
+            printf 'FULL marker is older: recorded=%s expected=%s (relation OLDER)\n' \
+                "$recorded" "$expected"
+            return 0
+            ;;
+        SAME)
+            printf 'VERIFY marker matches: recorded=%s expected=%s (relation SAME)\n' \
+                "$recorded" "$expected"
+            return 1
+            ;;
+        NEWER)
+            printf 'VERIFY roll-back: recorded=%s is newer than expected=%s (relation NEWER) - verify/repair only, operator state preserved\n' \
+                "$recorded" "$expected"
+            return 1
+            ;;
+        *)
+            printf 'VERIFY_REPAIR not an orderable release marker: recorded=%s expected=%s (relation %s)\n' \
+                "$recorded" "$expected" "$relation"
+            return 1
+            ;;
+    esac
+}
 
 # -- setup steps ------------------------------------------------------------
 
@@ -679,6 +915,185 @@ setup_nodogsplash() {
     fi
 }
 
+# --- nodogsplash runtime convergence ----------------------------------------
+#
+# users_to_router is nodogsplash's pre-authentication allow list, and
+# nodogsplash turns it into a ruleset ONCE, when the process starts: the
+# pre-auth accepts are the `ndsRTR` iptables chain it installs for the captive
+# bridge (br-lan). A change to the list therefore reaches a RUNNING router only
+# if something reloads the service.
+#
+# Nothing in the packaging path does. This script deliberately restarts no
+# service (on a FRESH BOOT it runs from /etc/init.d/boot before procd starts
+# them, and procd then starts nodogsplash once, from the config written here),
+# and the postinst that actually ships in the published package restarts only
+# tollgate-wrt (measured 2026-09-25: extracted from /lib/apk/db/scripts.tar.gz
+# on the bench). Measured consequence after the pre16 install: `uci show
+# nodogsplash` no longer listed :8090 while the RUNNING ruleset still carried
+#   -A ndsRTR -p tcp -m tcp --dport 8090 -j ACCEPT
+# so the owner-facing admin board answered HTTP 200 to a client on br-lan that
+# had paid nothing, until an operator ran `/etc/init.d/nodogsplash restart` by
+# hand (which dropped it to 000 with the portal unaffected).
+#
+# The step below makes the effective policy equal the configured one: it
+# compares the pre-auth TCP ports the config lists with the ports the RUNNING
+# ruleset actually accepts, and reloads the service when — and only when — the
+# two differ and the service is already up. A fresh boot is left alone (procd
+# starts the service once, with the new config), a steady-state run is left
+# alone (no reload storm, no dropped sessions), and the reload is logged with
+# the resulting accept-rule count so an install can be audited from
+# /tmp/tollgate-setup.log.
+
+# The pre-auth entries the CONFIGURED allow list holds, as `proto/port` pairs.
+# Entries look like 'allow tcp port 8090' / 'allow udp port 67'; `uci get`
+# renders a list either one entry per line or as a quoted single-line list, so
+# quotes become newlines before matching. BOTH protocols are compared: a stale
+# udp permit is as much a policy divergence as a stale tcp one, and the running
+# ruleset is filtered the same way, so the two sides stay symmetric (comparing
+# raw port numbers would let an `allow udp port 67` entry read as a phantom
+# divergence, because it appears in ndsRTR as a udp rule and never as a tcp one).
+nodogsplash_users_to_router_raw() {
+    uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo ""
+}
+
+nodogsplash_configured_accept_entries() {
+    nodogsplash_users_to_router_raw \
+        | tr "'" '\n' \
+        | sed -n 's/^ *allow \([a-z][a-z]*\) port \([0-9][0-9]*\) *$/\1\/\2/p' \
+        | sort -u \
+        | nodogsplash_drop_entry "tcp/$(nodogsplash_gateway_port)"
+}
+
+# Entries the configured list holds that this writer does NOT write and this step
+# cannot turn into a `proto/port` pair — a port range, a multiport entry,
+# anything else an operator may have hand-edited in. Non-empty means the
+# comparison below would cover only PART of the list, which reads as a
+# divergence this step can never repair (it would reload on every run), so it is
+# reported instead of acted on. `uci get` renders a list either one entry per
+# line or as a quoted single-line list, hence the quote splitting and trimming.
+nodogsplash_configured_unparsable_entries() {
+    nodogsplash_users_to_router_raw \
+        | tr "'" '\n' \
+        | sed 's/^ *//;s/ *$//;/^$/d' \
+        | grep -v -E '^allow [a-z]+ port [0-9]+$'
+}
+
+nodogsplash_gateway_port() {
+    uci -q get nodogsplash.@nodogsplash[0].gatewayport 2>/dev/null || echo ""
+}
+
+nodogsplash_drop_entry() { # filter one entry out of a newline separated set
+    if [ -n "$1" ]; then grep -v -x -e "$1"; else cat; fi
+}
+
+# The pre-auth entries the RUNNING ruleset accepts, read from the chain
+# nodogsplash installs for the captive bridge. The gateway port is dropped from
+# both sides of the comparison as `tcp/<gatewayport>`: nodogsplash injects that
+# rule itself, so it is present even when the list does not carry it, and
+# comparing it would reload on every run instead of on a real divergence.
+# Verified on the bench (2026-09-25) that the two sets are EQUAL in steady
+# state, so the step does not fire on an unchanged router.
+nodogsplash_runtime_accept_entries() {
+    iptables -S ndsRTR 2>/dev/null \
+        | grep -- '-j ACCEPT' \
+        | sed -n 's/.*-p \([a-z][a-z]*\) .*--dport \([0-9][0-9]*\).*/\1\/\2/p' \
+        | sort -u \
+        | nodogsplash_drop_entry "tcp/$(nodogsplash_gateway_port)"
+}
+
+# A missing chain makes `iptables -S` fail; that is not the same as an empty
+# one, and the caller must not read "cannot measure" as "converge me".
+nodogsplash_ruleset_present() {
+    iptables -S ndsRTR >/dev/null 2>&1
+}
+
+nodogsplash_accept_rule_count() {
+    iptables -S ndsRTR 2>/dev/null | grep -c -- '-j ACCEPT' || true
+}
+
+nodogsplash_is_running() {
+    if command -v pidof >/dev/null 2>&1; then
+        pidof nodogsplash >/dev/null 2>&1
+    else
+        "$NDS_INIT" status >/dev/null 2>&1
+    fi
+}
+
+nodogsplash_entries_csv() { # [tcp/1,udp/2] — render a newline separated set
+    printf '%s' "$1" | tr '\n' ',' | sed 's/,$//'
+}
+
+converge_nodogsplash_runtime() {
+    local want have before_count after_count rc i unparsable
+
+    if ! nodogsplash_is_running; then
+        log "nodogsplash policy convergence: service not running (first boot) — procd starts it once with the configured allow list, no reload here"
+        return 0
+    fi
+    if ! command -v iptables >/dev/null 2>&1; then
+        log "nodogsplash policy convergence: iptables not available — cannot read the running ruleset, leaving the service alone"
+        return 0
+    fi
+    # Before the comparison, not after: a missing chain means there is nothing to
+    # compare against, and reporting that is more honest than falling through to
+    # "already matches" when both sides happen to be empty.
+    if ! nodogsplash_ruleset_present; then
+        log "nodogsplash policy convergence: no ndsRTR chain to compare against — leaving the service alone"
+        return 0
+    fi
+
+    # Compare only when EVERY configured entry was understood: a list holding an
+    # entry this step cannot turn into a `proto/port` pair would compare only
+    # part of it, read as a divergence it can never repair, and reload the
+    # service on every run. Reported, not assumed-equal — "cannot read the list"
+    # is not "the list is fine".
+    unparsable=$(nodogsplash_configured_unparsable_entries)
+    if [ -n "$unparsable" ]; then
+        log "nodogsplash policy convergence: the configured allow list holds entries this step cannot compare ($(printf '%s' "$unparsable" | tr '\n' ' ')) — leaving the service alone"
+        return 0
+    fi
+
+    want=$(nodogsplash_configured_accept_entries)
+
+    have=$(nodogsplash_runtime_accept_entries)
+    if [ "$have" = "$want" ]; then
+        log "nodogsplash policy convergence: running ruleset already matches the configured allow list ([$(nodogsplash_entries_csv "$want")]) — no reload"
+        return 0
+    fi
+
+    before_count=$(nodogsplash_accept_rule_count)
+    # reload is the intent-revealing verb; for a procd service that defines no
+    # reload of its own (nodogsplash 5.0.2 does not) rc.common's reload calls
+    # restart, so restart is only the fallback for an init script whose reload
+    # fails outright.
+    "$NDS_INIT" reload >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" != 0 ]; then
+        "$NDS_INIT" restart >/dev/null 2>&1
+        rc=$?
+    fi
+
+    # procd starts the service asynchronously, so wait — bounded — for the
+    # regenerated ruleset to match the configured list before logging the result
+    # rather than guessing with a fixed sleep. Integer seconds only: BusyBox
+    # `sleep 0.5` is rejected on this target (measured 2026-09-25).
+    i=0
+    while [ "$i" -lt 5 ]; do
+        have=$(nodogsplash_runtime_accept_entries)
+        [ "$have" = "$want" ] && break
+        sleep 1
+        i=$((i + 1))
+    done
+
+    after_count=$(nodogsplash_accept_rule_count)
+    if [ "$rc" = 0 ]; then
+        log "nodogsplash policy convergence: reloaded after an allow-list change — pre-auth accept rules ${before_count} -> ${after_count}; runtime entries [$(nodogsplash_entries_csv "$have")] (configured [$(nodogsplash_entries_csv "$want")])"
+    else
+        log "nodogsplash policy convergence: reload FAILED (rc=$rc) — the running ruleset may still be stale (pre-auth accept rules ${before_count} -> ${after_count}; runtime entries [$(nodogsplash_entries_csv "$have")], configured [$(nodogsplash_entries_csv "$want")])"
+    fi
+    return 0
+}
+
 setup_tollgate_firewall_rules() {
     uci -q get firewall.tollgate_protocol >/dev/null 2>&1 || {
         uci set firewall.tollgate_protocol='rule'
@@ -1018,19 +1433,34 @@ if [ "${TOLLGATE_SETUP_LIB_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# Check if full setup is needed (version mismatch or first boot)
+# Which branch this run takes, and why. The comparison is ORDER-aware (see
+# "-- setup-marker ordering" above): a roll-back must never be mistaken for an
+# upgrade, because full setup re-randomises state the operator owns.
 EXISTING_VERSION=""
+MARKER_PRESENT=0
 if [ -f "$SETUP_FLAG" ]; then
+    MARKER_PRESENT=1
     EXISTING_VERSION=$(cat "$SETUP_FLAG" 2>/dev/null)
 fi
 
-if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
-    # Same version — verify wireless APs, re-assert the uhttpd contract
-    # (fixes #103/#173: APs missing after reinstall when setup-done flag
-    # persisted from a prior install).
-    : > "$LOGFILE"
-    chmod 600 "$LOGFILE"
-    log "Flag matches $SETUP_VERSION — verifying wireless APs, the uhttpd contract and the portal allow list"
+DECISION=$(setup_marker_decision "$EXISTING_VERSION" "$SETUP_VERSION" "$MARKER_PRESENT")
+BRANCH=${DECISION%% *}
+REASON=${DECISION#* }
+
+: > "$LOGFILE"
+chmod 600 "$LOGFILE"  # may contain the WiFi password — keep it root-only
+log "Setup branch $BRANCH — $REASON"
+
+# Everything that is not FULL is the verify/repair path. The offline test
+# tests/uci-defaults-setup-marker-order_test.sh replaces the decision call just
+# above with the pre-change equality predicate in its own copy of this script,
+# which is the failing negative control: under equality a roll-back is taken
+# for a new version and re-runs full setup.
+if [ "$BRANCH" != "FULL" ]; then
+    # Verify wireless APs and re-assert the uhttpd contract
+    # (fixes #103/#173: APs missing after reinstall when the setup-done flag
+    # persisted from a prior install). The operator's own choices are NOT
+    # rewritten here — that is the whole point of the NEWER/roll-back verdict.
 
     load_brand
 
@@ -1105,13 +1535,28 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
         uci commit nodogsplash
         log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
     fi
+    # A repaired allow list is not a delivered policy: the running nodogsplash
+    # holds the ruleset it generated from the list it saw at start-up. Converge
+    # it here, after the commit above, so an upgrade or a repair on a RUNNING
+    # router takes effect without an operator restart (and so a fresh boot,
+    # where procd has not started the service yet, is left untouched).
+    converge_nodogsplash_runtime
+    if [ "$BRANCH" = "VERIFY_REPAIR" ]; then
+        # A marker that records no orderable version is re-stamped with the
+        # shipped one. Without this, a marker poisoned by #459
+        # (`unsubstituted`) would take the verify path forever and full setup
+        # would never run again — the mirror-image defect of the one this
+        # change fixes. A parseable marker is NEVER rewritten here: overwriting
+        # it on a roll-back is what would turn the next install of the version
+        # being rolled back to into a "genuine upgrade" and re-run full setup.
+        printf '%s\n' "$SETUP_VERSION" > "$SETUP_FLAG"
+        log "Marker re-stamped to $SETUP_VERSION (no orderable version was recorded)"
+    fi
     log "Wireless AP verification completed"
     exit 0
 fi
 
-# Full setup (first boot or version change)
-: > "$LOGFILE"
-chmod 600 "$LOGFILE"  # contains the WiFi password — keep it root-only
+# Full setup (first boot, or a marker genuinely older than this version)
 log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-none})"
 
 load_brand
@@ -1132,6 +1577,13 @@ setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
 commit_all
+
+# After the commit: on a version-changing upgrade of an ALREADY-RUNNING router
+# the nodogsplash that is serving right now holds the ruleset generated from the
+# previous allow list, and nothing in the packaging path reloads it. On a fresh
+# boot this is a no-op (the service is not up yet; procd starts it once, with
+# the config committed above).
+converge_nodogsplash_runtime
 
 log "TollGate setup completed (version $SETUP_VERSION)"
 echo "$SETUP_VERSION" > "$SETUP_FLAG"

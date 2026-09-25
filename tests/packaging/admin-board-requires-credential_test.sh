@@ -243,6 +243,21 @@ run_same_version() {
 }
 
 echo "== same-version reinstall with an empty hash and a failing passwd"
+# The branch the driver took, as the driver itself logged it:
+#   `2026-09-25 01:00:00 - Setup branch VERIFY — marker matches: recorded=… expected=…`
+# The anchor is the verdict TOKEN followed by a boundary. A bare
+# `Setup branch VERIFY` also matches `Setup branch VERIFY_REPAIR` (the driver
+# logs both with the same prefix); the control below pins that the distinction
+# is real, so the assertion cannot be silently weakened.
+BRANCH_VERIFY_ANCHOR='Setup branch VERIFY([[:space:]]|$)'
+branch_is_verify() { grep -Eq "$BRANCH_VERIFY_ANCHOR" "$1" 2>/dev/null; }
+printf '%s\n' '2026-01-01 00:00:00 - Setup branch VERIFY_REPAIR — not an orderable release marker: recorded=unsubstituted expected=v0.6.0-alpha4 (relation UNORDERABLE)' > "$TMP/anchor-probe.log"
+if branch_is_verify "$TMP/anchor-probe.log"; then
+    bad "anchor control: a 'Setup branch VERIFY_REPAIR' line satisfies the VERIFY anchor"
+else
+    ok "anchor control: a 'Setup branch VERIFY_REPAIR' line does not satisfy the VERIFY anchor"
+fi
+
 seed_deployed_router
 seed_shadow ''
 reset_run
@@ -253,7 +268,7 @@ rc=$?
 [ "$rc" = "0" ] \
     && ok "the same-version run still exits 0 (the gate refuses the board, it does not break the install)" \
     || bad "the same-version run exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
-if grep -q 'Flag matches' "$LOGFILE" 2>/dev/null; then
+if branch_is_verify "$LOGFILE"; then
     ok "the same-version branch was the path taken"
 else
     bad "the same-version branch was not taken (log: $(head -n 2 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
@@ -472,11 +487,28 @@ assert_board_kept "locked account"
 # The full setup path is not executed here: it writes /etc/profile, the kernel
 # hostname and sysctls, which an offline test must not touch. The call site is
 # asserted instead (the same shape PR #546's test uses for its second writer).
+# The anchor is CODE, not prose: `log "Running full setup …` is the line the
+# driver emits as it enters the full-setup section, so the region is delimited
+# by the branch the driver actually took. (It used to key off the `# Full setup`
+# comment header, which a branch-comment reword moves without changing the
+# behaviour under test — this PR reworded that very comment — and which would
+# then fail the suite for the wrong reason.)
 echo "== the full-setup path runs the same gate"
-if awk '/^# Full setup \(first boot or version change\)$/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" | grep -q found; then
+if awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" | grep -q found; then
     ok "the full-setup driver calls enforce_admin_credential right after setup_uhttpd_configui"
 else
     bad "the full-setup path does not call enforce_admin_credential — a first boot would leave an empty root hash behind the :8090 admin board"
+fi
+# Control for that anchor: it must not be satisfied by a region that never
+# enters full setup. Asserted against the driver source with the anchor's own
+# start line removed, so a re-flowed or replaced entry line fails here instead
+# of silently matching an unrelated part of the file.
+if awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" >/dev/null && \
+   ! sed 's|^log "Running full setup|log "XX-not-the-entry-line|' "$ROOT/$SCRIPT" | \
+     awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' | grep -q found; then
+    ok "anchor control: the full-setup region is delimited by the driver's own entry line"
+else
+    bad "anchor control: the anchor matches without the driver's full-setup entry line"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
