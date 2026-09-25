@@ -217,6 +217,14 @@ type WalletPort interface {
 	// Drain creates a token for the full balance of a mint.
 	Drain(mintUrl string) (Token, uint64, error)
 
+	// CheckTokenSpendable reports whether every proof of the serialized
+	// token is still UNSPENT at the token's mint (NUT-07 checkstate).
+	// Stateless with respect to the wallet: used by drain recovery to
+	// classify journaled tokens as live or already redeemed. An error
+	// means the state could not be determined (mint unreachable, token
+	// undecodable) — callers must treat that as unknown, not spent.
+	CheckTokenSpendable(tokenStr string) (bool, error)
+
 	// MeltToLightning pays a Lightning address from wallet funds.
 	MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error
 
