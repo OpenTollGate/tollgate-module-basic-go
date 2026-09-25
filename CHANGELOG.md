@@ -11,6 +11,17 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **CHANGELOG duplicate entries are now a checked contract.** Resolving a
+  CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
+  branch had already moved or reworded, leaving one change described twice (this
+  bit twice in one rebasing session). `tests/contract/check-changelog-duplicates.py`
+  — wired into `hooks/pre-commit` alongside the version-sync check, and into CI
+  beside the deps/import contract checks — fails when the same bold lead-in
+  appears in two sections and at least one of them is `[Unreleased]`; the same
+  lead-in inside already-released sections is history and is deliberately
+  tolerated
+  ([#581](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/581)).
+
 - **An authorisation NoDogSplash holds that this module never made is closed by
   the usage sweep — the inverse of the zombie-session drift.** The startup
   reconciliation (#595, #596) closes the window a module *restart* creates, but a
