@@ -208,6 +208,7 @@ type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
 	CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error)
 	DrainMint(mintURL string) (string, uint64, error)
+	CheckTokenSpendable(token string) (bool, error)
 	RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error)
 	GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error)
 	GetAcceptedMints() []config_manager.MintConfig
@@ -1839,6 +1840,14 @@ func (m *Merchant) GetAllMintBalances() map[string]uint64 {
 // stays the job of ValidateMACAddress.
 func NormalizeMACAddress(macAddress string) string {
 	return strings.ToLower(strings.TrimSpace(macAddress))
+}
+
+// CheckTokenSpendable reports whether every proof of the serialized token
+// is still UNSPENT at the token's mint (NUT-07). Used by drain recovery to
+// classify journaled tokens. An error means the state could not be
+// determined — treat as unknown, never as spent.
+func (m *Merchant) CheckTokenSpendable(token string) (bool, error) {
+	return m.tollwallet.CheckTokenSpendable(token)
 }
 
 // GetSession retrieves a customer session by MAC address. It answers
