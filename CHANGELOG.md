@@ -625,6 +625,13 @@ and [Semantic Versioning](https://semver.org/).
   shared by the two tests
   ([#559](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/559)).
 
+- **CI builds only the shipped OpenWrt SDK targets.** The package matrix drops
+  the Raspberry Pi (`bcm27xx-bcm2711`, `bcm27xx-bcm2709`) and generic `x86-64`
+  targets, which no shipped TollGateOS device uses, and keeps only
+  `mediatek-filogic`, `ramips-mt7621` and `ath79-generic`. A full run pulls
+  three SDK images instead of six
+  ([#539](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/539)).
+
 ## [v0.6.0-alpha4] - 2026-09-22
 
 Packaging-fix pre-release on the `v0.6.0-alpha3` code base, cut from the
