@@ -249,3 +249,21 @@ jobs:
           path: ${{ runner.temp }}/happy-path-evidence
           if-no-files-found: ignore
           retention-days: 7
+
+  router-happy-path-selftest:
+    # tests/router-happy-path/run.sh talks to REAL hardware (an MT3000 on the
+    # bench) and cannot run here. What can run here is its self-test: a localhost
+    # stub answers every surface the harness asserts, the harness is run clean
+    # (must be GREEN) and once per mutation (the intended check id must go RED
+    # and the run must exit non-zero). Two of the cases target the harness's own
+    # tally reconciliation: a helper that dies, or that exits 0 having emitted
+    # nothing, must be a FAIL rather than a shorter green tally.
+    #
+    # This job is what keeps the hardware harness honest between bench sessions:
+    # a check that has never been seen failing is decoration, not evidence, and a
+    # suite nobody can run goes stale. Needs python3 and openssl only.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Harness self-test (localhost stub, no router)
+        run: bash tests/router-happy-path/selftest/run_selftest.sh
