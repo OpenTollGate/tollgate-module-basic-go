@@ -28,9 +28,20 @@ time and assert the matching check id flips to FAIL:
   ln_200              /ln-invoice answers 200 instead of the 400 poll
   ln_wrong_error      /ln-invoice 400s with a different error string
   empty_token_ok      POST / with an empty body returns 200 kind:1022 (bypass)
+  post_reject_token   POST / with a NON-empty body is refused (400 kind:21023):
+                      the box will not take a payment that carries a proof
   no_cors_preflight   OPTIONS loses Access-Control-Allow-Methods
   portal_no_root_el   splash.html loses id="root"
   portal_no_hash      the entry chunk name loses its content hash
+  renew               the SECOND-purchase lane's session model:
+                        "ok"     -> the re-purchase opens the gate: the probe path
+                                    answers 204 (online) once a purchase is made
+                        "stuck"  -> the reported hardware defect: the balance is
+                                    restored (session_active true, allotment set)
+                                    while the probe path keeps 307-ing to the
+                                    splash, i.e. the gate stayed shut
+                      plus active_first: the box already reports an ACTIVE session
+                      before the lane buys (drives paid2:first-allotment-spent red)
 
 stdlib only.
 """
@@ -47,10 +58,54 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 SCENARIO = {}
 PORTS = {}
 RATE_STATE = {}
+# Live state of the stub's own session model, so a case can drive a SEQUENCE
+# (buy -> spend -> buy again) instead of a fixed answer. Only the renew lane
+# reads it; every other scenario leaves it at zero and is unaffected.
+SESSION = {"purchases": 0}
 
 
 def mut(name, default=False):
     return SCENARIO.get(name, default)
+
+
+def renew_mode():
+    """-> "" (off) | "ok" | "stuck"  -- the second-purchase model."""
+    value = mut("renew")
+    return value if value in ("ok", "stuck") else ""
+
+
+def renew_session_active():
+    """What /balance and /session-state answer in the renew model.
+
+    active_first models the precondition the lane must refuse: a session that is
+    still live, so a "second purchase" would be a renewal of an open gate.
+    Otherwise the session becomes active exactly when the lane's POST lands --
+    which is the reported symptom (the balance IS restored)."""
+    if not renew_mode():
+        return False
+    if mut("active_first"):
+        return True
+    return SESSION["purchases"] >= 1
+
+
+def gate_open():
+    """Whether the customer's traffic is past the gate in the stub's model.
+
+    "ok"    -> the re-purchase really opened it (probe path answers 204)
+    "stuck" -> the hardware defect: the gate never re-opened (probe path keeps
+               307-ing to the splash), while renew_session_active() says the
+               balance came back. The two must be able to disagree -- that
+               disagreement IS the bug this lane catches."""
+    return renew_mode() == "ok" and SESSION["purchases"] >= 1
+
+
+# The paths an OS uses to decide "am I behind a captive portal?".
+PROBE_PATHS = ("generate_204", "hotspot-detect.html", "connecttest.txt",
+               "success.txt", "ncsi.txt")
+
+
+def is_probe_path(path):
+    return any(fragment in path for fragment in PROBE_PATHS)
 
 
 class Base(BaseHTTPRequestHandler):
@@ -202,12 +257,27 @@ class ApiHandler(Base):
         if path == "/balance":
             if mut("balance_malformed"):
                 return self._json(200, {"status": 1})
+            if renew_mode():
+                active = renew_session_active()
+                allotment = 22020096 if active else 0
+                return self._json(200, {"status": 1, "session_active": active, "metric": "bytes",
+                                        "usage": 0, "allotment": allotment,
+                                        "remaining": allotment, "start_time": 0})
             return self._json(200, {"status": 1, "session_active": bool(mut("balance_active")),
                                     "usage": 0, "allotment": 0, "remaining": 0})
         if path == "/usage":
             return self._send(200, "nonsense" if mut("usage_bad") else "-1/-1",
                               "text/plain; charset=utf-8")
         if path == "/session-state":
+            if renew_mode():
+                # In the renew model the endpoint that exists to tell a
+                # first-time visitor from an exhausted customer answers the
+                # stateful value, so the lane reads its precondition here.
+                active = renew_session_active()
+                allotment = 22020096 if active else 0
+                return self._json(200, {"status": 1, "session_active": active,
+                                        "state": "active" if active else "expired",
+                                        "remaining": allotment, "allotment": allotment})
             if mut("session_state"):
                 return self._json(200, {"session_active": False, "remaining": 0, "allotment": 0})
             # pre-#541 behaviour: the mux falls through to the root handler
@@ -234,8 +304,13 @@ class ApiHandler(Base):
         if not body:
             return self._json(400, {"kind": 21023, "id": "stub-notice",
                                     "content": "No payment tag found in event"})
+        if mut("post_reject_token"):
+            return self._json(400, {"kind": 21023, "id": "stub-notice",
+                                    "content": "token could not be redeemed"})
         # a real token would be redeemed by the module; the stub only reports what
-        # the paid lane expects from a successful redemption.
+        # the paid lane expects from a successful redemption. The purchase counter
+        # backs the renew model (buy -> spend -> buy again).
+        SESSION["purchases"] += 1
         return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"})
 
 
@@ -243,6 +318,14 @@ class CaptiveHandler(Base):
     """:CAPTIVE_PORT -- nodogsplash pre-auth interception."""
 
     def do_GET(self):
+        # The OS captive-portal probes, arrived at through the customer's data
+        # path. On hardware this URL is a real public endpoint and NoDogSplash
+        # either intercepts it (307 to the splash) or lets it through; the stub
+        # plays both roles on this one port, which is what lets the self-test hold
+        # the two client-visible outcomes apart. Only the renew model's "ok"
+        # branch opens the gate, and only after a purchase.
+        if is_probe_path(self.path) and gate_open():
+            return self._send(204, "")
         if mut("captive_200"):
             return self._send(200, "<html><body>no enforcement here</body></html>")
         # NOTE: build these with concatenation, never %-formatting: the encoded

@@ -62,7 +62,39 @@ and [Semantic Versioning](https://semver.org/).
   seen failing is decoration), names in its header the ids it cannot break
   offline, and runs in CI.
 
+- **The happy-path harness now covers the SECOND purchase — the club's main
+  loop.** `tests/router-happy-path` could only ever buy once, so nothing in it
+  could see the failure the operator hit on real hardware (pre17 on an MT3000):
+  after the first allotment was spent, a second purchase restored the balance and
+  the gate stayed shut, with no OS captive-portal prompt either. `--second-purchase`
+  (or `RHP_SECOND_PURCHASE=1` + `RHP_CASHU_TOKEN_2`) buys a second time for the
+  SAME client and then asserts the GATE rather than the balance: `paid2:*` ends
+  with an HTTP request through the customer's own data path
+  (`RHP_EGRESS_PROBE_URL`, default the Android 204 probe) that must answer 200/204
+  with no redirect, naming the two failure shapes instead of collapsing them into
+  "no internet" — a `307` to the splash (still intercepted) and no answer at all
+  (neither redirected nor served). On the failing box `paid2:balance-restored` was
+  green while `paid2:gate-open` was red, which is the distinction a balance-only
+  suite cannot make. The lane refuses to run on a live session (a renewal is not a
+  re-purchase), keeps the same spend-ceiling and sentinel-MAC guards as the first
+  purchase, and the self-test drives both outcomes offline on a fixture token
+  (42 cases / 83 check ids, 53 driven red).
+
 ### Fixed
+
+- **The paid lane's token inspection was off by one, so the lane could never
+  spend anything.** `tests/router-happy-path/lib/cashtoken.py` read the NUT-00
+  version character at `token[6]` — the first character of the *payload* — and
+  sliced the payload at `token[7:]`, so a real `cashuB` token was reported as
+  `unknown Cashu token version character 'o'` and `paid:token-inspected` failed
+  before any purchase could be attempted. The lane had been dead since it merged,
+  and the default run's SKIP is why nothing caught it; it was found on the lane's
+  first hardware run (a 64-sat testnut token, pre17 on the bench MT3000). The
+  decode is now `token[5]` / `token[6:]`, and `selftest/cashtoken_selftest.py`
+  pins the v3 path, the v4 path, the malformed-version path (by the character at
+  index 5, so the offset itself is pinned) and the missing-prefix path; the
+  self-test also drives both purchase lanes offline on a non-redeemable fixture
+  token, which is the control whose absence let this through.
 
 - **A policy change now reaches the running nodogsplash: the setup script
   reloads the service when its `ndsRTR` ruleset no longer matches the configured
