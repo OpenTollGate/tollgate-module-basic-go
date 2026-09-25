@@ -58,6 +58,20 @@ var closeRetryBackoff = []time.Duration{
 	time.Minute,
 }
 
+// openRetryBackoff is the schedule for re-attempting an authorisation ndsctl
+// did not confirm, i.e. a gate the module owes a customer who has ALREADY PAID
+// but has not managed to open. The last entry repeats: the gate stays tracked
+// and the auth keeps being retried, because the alternative — forgetting it — is
+// a charged customer with no internet and nothing left that would ever open the
+// gate (the mirror of the close contract, C1-2). A var so tests can shrink it.
+var openRetryBackoff = []time.Duration{
+	2 * time.Second,
+	5 * time.Second,
+	15 * time.Second,
+	30 * time.Second,
+	time.Minute,
+}
+
 // runNdsctl executes an ndsctl command with a timeout.
 // It returns the combined stdout+stderr output and any error.
 // It is a var (not a func) so tests can stub it without a real ndsctl binary.
@@ -105,7 +119,60 @@ var (
 	// pendingCloseRetries holds the in-flight retry timers of unconfirmed
 	// closes, at most one per MAC.
 	pendingCloseRetries = make(map[string]*time.Timer)
+
+	// pendingAuthRetries holds the in-flight retry timers of unconfirmed
+	// OPENS, at most one per MAC. An open that ndsctl has not confirmed is a
+	// customer who has paid for access it does not have, so like a close it
+	// is retried until it is confirmed.
+	pendingAuthRetries = make(map[string]*time.Timer)
 )
+
+// gateOpenFailures counts opens ndsctl has not confirmed. It backs
+// OpenFailures, the counter the module's operator-visible surfaces use to report
+// how many paying customers may be sitting behind a shut gate.
+var gateOpenFailures uint64
+
+// OpenFailures reports how many gate opens have gone unconfirmed since the
+// process started. A non-zero value means a customer's payment was granted and
+// ndsctl has not accepted the authorisation that opens the gate: the gate is
+// still tracked, the auth is still being retried, and that customer has paid for
+// access it does not have right now.
+func OpenFailures() uint64 {
+	return atomic.LoadUint64(&gateOpenFailures)
+}
+
+// openRetryDelay returns the backoff before the given 1-based open-retry
+// attempt. Mirror of closeRetryDelay: the last entry repeats.
+func openRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	index := attempt - 1
+	if index >= len(openRetryBackoff) {
+		index = len(openRetryBackoff) - 1
+	}
+	return openRetryBackoff[index]
+}
+
+// gateOpenFailure records an unconfirmed open. This is the escalation: a failed
+// OPEN is the customer-facing mirror of a failed close — the money is in the
+// operator's wallet and the customer has nothing — so it names the client, the
+// attempt, the running total and when the next attempt runs, on the module log
+// that is the operator's only surface.
+func gateOpenFailure(macAddress string, attempt int, err error, retryIn time.Duration) {
+	total := atomic.AddUint64(&gateOpenFailures, 1)
+
+	fields := logrus.Fields{
+		"mac_address":       macAddress,
+		"attempt":           attempt,
+		"unconfirmed_opens": total,
+		"error":             err,
+	}
+	if retryIn > 0 {
+		fields["retry_in"] = retryIn.String()
+	}
+	logger.WithFields(fields).Error("Gate open NOT confirmed for client: the paid session stays tracked and the auth is retried — until ndsctl confirms it, this customer has paid for access it does not have")
+}
 
 // gateCloseFailures counts closes ndsctl has not confirmed. It backs
 // GateCloseFailures, the counter the module's operator-visible surfaces use to
@@ -311,6 +378,10 @@ func retireGateLocked(macAddress string) {
 		timer.Stop()
 		delete(pendingCloseRetries, macAddress)
 	}
+	if timer, ok := pendingAuthRetries[macAddress]; ok {
+		timer.Stop()
+		delete(pendingAuthRetries, macAddress)
+	}
 	ClearDataBaseline(macAddress)
 }
 
@@ -488,8 +559,8 @@ func OpenGateUntil(macAddress string, untilTimestamp int64) error {
 		if AuthDelay > 0 {
 			pendingUntil[macAddress] = untilTimestamp
 			openGates[macAddress] = nil
-			markGateOpenedLocked(macAddress)
-			go delayedAuth(macAddress)
+			epoch := markGateOpenedLocked(macAddress)
+			go delayedAuth(macAddress, epoch)
 			logger.WithFields(logrus.Fields{
 				"mac_address": macAddress,
 				"delay":       AuthDelay,
@@ -565,8 +636,15 @@ func OpenGate(macAddress string) error {
 	if AuthDelay > 0 {
 		if !exists {
 			pendingUntil[macAddress] = 1
-			markGateOpenedLocked(macAddress)
-			go delayedAuthIndefinite(macAddress)
+			// The gate this goroutine opens is marked opened by the tail of this
+			// function (it is what stores the nil timer), so the epoch it will
+			// carry is the NEXT one. Handing the goroutine that epoch — instead
+			// of the one a mark here would assign and the tail would immediately
+			// supersede — is what lets the deferred auth and its retries act only
+			// while THIS gate is still the tracked one, exactly like the timer in
+			// OpenGateUntil.
+			epoch := nextGateEpochLocked(macAddress)
+			go delayedAuthIndefinite(macAddress, epoch)
 			logger.WithFields(logrus.Fields{
 				"mac_address": macAddress,
 				"delay":       AuthDelay,
@@ -785,7 +863,11 @@ func CheckClientState(macAddress string) (ClientState, error) {
 	}, nil
 }
 
-func delayedAuth(macAddress string) {
+// delayedAuth performs the authorisation deferred by AuthDelay for a TIMED gate.
+// `epoch` is the gate this goroutine belongs to: every step that acts on the
+// client checks it, so a goroutine that outlived its gate can never deauthorize
+// or forget a newer one.
+func delayedAuth(macAddress string, epoch uint64) {
 	logger.WithFields(logrus.Fields{
 		"mac_address": macAddress,
 		"delay":       AuthDelay,
@@ -809,20 +891,18 @@ func delayedAuth(macAddress string) {
 
 	if !pending {
 		logger.WithField("mac_address", macAddress).Warn("Delayed auth has no pending entry, aborting")
-		gatesMutex.Lock()
-		delete(openGates, macAddress)
-		gatesMutex.Unlock()
+		forgetPendingGate(macAddress, epoch)
 		return
 	}
 
 	if err := authorizeMAC(macAddress); err != nil {
-		logger.WithFields(logrus.Fields{
-			"mac_address": macAddress,
-			"error":       err,
-		}).Error("Delayed auth failed")
-		gatesMutex.Lock()
-		delete(openGates, macAddress)
-		gatesMutex.Unlock()
+		// A failed auth is not an open: the customer has already paid (the
+		// merchant granted the session before this goroutine ran), so the gate
+		// stays TRACKED and the auth is retried until ndsctl confirms it. The
+		// code this replaces deleted the gate here, which left a paid session
+		// with a shut gate that nothing tracked and nothing would ever retry.
+		gateOpenFailure(macAddress, authMaxAttempts, err, openRetryDelay(1))
+		scheduleAuthRetry(macAddress, epoch, untilTimestamp, 1)
 		return
 	}
 
@@ -840,11 +920,11 @@ func delayedAuth(macAddress string) {
 	// Like the timer in OpenGateUntil, the callback captures the epoch of the
 	// gate it belongs to and acts only if that gate is still the tracked one.
 	gatesMutex.Lock()
-	epoch := nextGateEpochLocked(macAddress)
+	timerEpoch := nextGateEpochLocked(macAddress)
 	gatesMutex.Unlock()
 
 	timer := time.AfterFunc(remaining, func() {
-		expireTimedGate(macAddress, epoch)
+		expireTimedGate(macAddress, timerEpoch)
 	})
 
 	gatesMutex.Lock()
@@ -853,7 +933,10 @@ func delayedAuth(macAddress string) {
 	gatesMutex.Unlock()
 }
 
-func delayedAuthIndefinite(macAddress string) {
+// delayedAuthIndefinite performs the authorisation deferred by AuthDelay for an
+// INDEFINITE (bytes-metered) gate — the shape every paid step allotment uses.
+// `epoch` is the gate this goroutine belongs to, as in delayedAuth.
+func delayedAuthIndefinite(macAddress string, epoch uint64) {
 	logger.WithFields(logrus.Fields{
 		"mac_address": macAddress,
 		"delay":       AuthDelay,
@@ -877,20 +960,18 @@ func delayedAuthIndefinite(macAddress string) {
 
 	if !pending {
 		logger.WithField("mac_address", macAddress).Warn("Delayed indefinite auth has no pending entry, aborting")
-		gatesMutex.Lock()
-		delete(openGates, macAddress)
-		gatesMutex.Unlock()
+		forgetPendingGate(macAddress, epoch)
 		return
 	}
 
 	if err := authorizeMAC(macAddress); err != nil {
-		logger.WithFields(logrus.Fields{
-			"mac_address": macAddress,
-			"error":       err,
-		}).Error("Delayed auth failed")
-		gatesMutex.Lock()
-		delete(openGates, macAddress)
-		gatesMutex.Unlock()
+		// A failed auth is not an open. This is the path the reported defect
+		// takes: allotment spent -> gate closed -> customer buys again -> the
+		// merchant grants a fresh session and /balance shows it -> ndsctl does
+		// not accept the auth -> the old code DELETED the tracking here, so
+		// nothing retried and the customer kept a paid, shut gate.
+		gateOpenFailure(macAddress, authMaxAttempts, err, openRetryDelay(1))
+		scheduleAuthRetry(macAddress, epoch, 0, 1)
 		return
 	}
 
