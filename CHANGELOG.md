@@ -1049,6 +1049,16 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **CHANGELOG duplicate entries are now a checked contract.** Resolving a
+  CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
+  branch had already moved or reworded, leaving one change described twice (this
+  bit twice in one rebasing session). `tests/contract/check-changelog-duplicates.py`
+  — wired into `hooks/pre-commit` alongside the version-sync check, and into CI
+  beside the deps/import contract checks — fails when the same bold lead-in
+  appears in two sections and at least one of them is `[Unreleased]`; the same
+  lead-in inside already-released sections is history and is deliberately
+  tolerated
+  ([#581](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/581)).
 - **The module can report the gates it believes it holds, so the ones nothing
   else examines are reachable.** `valve.TrackedGates()` returns a sorted,
   read-only view of the gate bookkeeping — a gate whose close is unconfirmed is
