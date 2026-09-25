@@ -26,6 +26,30 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A policy change now reaches the running nodogsplash: the setup script
+  reloads the service when its `ndsRTR` ruleset no longer matches the configured
+  `users_to_router` list.** The allow list is nodogsplash's *pre-authentication*
+  permit set, and the process turns it into a ruleset once, at start-up, so
+  after an install/upgrade of a running router the config and the live policy
+  could disagree: measured on the bench after the pre16 install, `uci show
+  nodogsplash` no longer listed `:8090` while the running ruleset still carried
+  `-A ndsRTR -p tcp -m tcp --dport 8090 -j ACCEPT`, and the owner-facing admin
+  board answered HTTP 200 to a client on `br-lan` that had paid nothing, until
+  an operator ran `/etc/init.d/nodogsplash restart` by hand. Nothing in the
+  packaging path reloads it — the uci-defaults script deliberately restarts no
+  service (correct on a fresh boot, where procd starts nodogsplash once from the
+  config just written), and the postinst that actually ships in the published
+  apk runs the uci-defaults scripts and then restarts **only** `tollgate-wrt`.
+  `99-tollgate-setup` now compares the configured pre-auth permits (protocol
+  **and** port: an `allow udp port N` is a real permit, and a udp rule has no
+  tcp twin in `ndsRTR`) with the permits the live `ndsRTR` chain accepts, and
+  reloads nodogsplash when — and only when — they differ and the service is
+  already running, logging the resulting accept-rule count to
+  `/tmp/tollgate-setup.log`. A fresh boot and a steady-state run are left alone,
+  so no session is dropped for nothing; so is a list holding an entry this step
+  cannot parse (a hand-edited port range), which is reported rather than
+  compared partially — a partial comparison can never be repaired by a reload
+  ([#579](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/579)).
 - **A version roll-back no longer re-runs full setup and clobbers the
   operator's state.** `99-tollgate-setup` compared the version in
   `/etc/tollgate-setup-done` with the shipped version for **equality**, so every
