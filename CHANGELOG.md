@@ -46,7 +46,24 @@ and [Semantic Versioning](https://semver.org/).
   `0` — the driver's numeric spelling of `auto` — also no longer counts as
   2.4 GHz evidence; note the first-boot script's `radio_band` still reads a
   literal `0` as 2.4 GHz (packaging lane, deliberately unchanged here)
-  ([#561](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/561)).
+- **Guests on the open SSID can no longer reach each other: the setup writer
+  now arms client isolation on both guest APs.** Nothing in the writer, the
+  portal or the installer ever set it, so on the shipped config a guest on the
+  open SSID could ARP-scan its neighbours, answer their DHCP, advertise
+  mDNS/SSDP services to them, or relay through a paying client. The writer sets
+  `isolate=1` on each guest `wifi-iface` (2.4 and 5 GHz are separate BSSes, so
+  both need it), which hostapd renders as `ap_isolate=1`, and a packaging test
+  pins the option so it cannot drift out again. That is an intra-BSS forwarding
+  policy, not encryption: a monitor-mode neighbour still reads every frame in
+  the clear on `encryption=none`, and cross-radio discovery between the two
+  guest BSSes is unaffected. Guest-to-guest mDNS/Chromecast/AirPlay/printer
+  discovery and LAN games on one BSS stop working — accepted on purpose. The
+  owner's private SSID and the uplink are untouched. The wired ports are
+  deliberately **not** written: Linux bridge port isolation is bilateral, the
+  guest BSS's bridge port cannot be marked isolated from uci, and on the bench
+  the wired port's flag blocked nothing — shipping it would claim protection it
+  does not provide
+  ([#576](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/576)).
 - **A late `Receive` outcome is recorded, so the reference the customer was
   given leads somewhere.** When the mint did not answer within the 30-second
   deadline the customer was told the outcome was unknown — not failed — and
@@ -88,6 +105,38 @@ and [Semantic Versioning](https://semver.org/).
   happy-path suite's tolerated `portal:lightning-lane-against-live-module` known
   issue is deleted with it
   ([#553](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/553)).
+
+- **A client that leaves the network no longer leaves the address it paid on
+  authorised indefinitely.** Entitlement is keyed to the MAC address, and on the
+  default `bytes` metric the per-MAC meter of an address whose client has gone
+  has nothing left to measure — its counters simply stop moving — so nothing
+  that reads traffic could ever end that session. A mid-session Wi-Fi address
+  change (iOS rotates its private address by itself on a weak or open SSID,
+  which is the usual captive-portal posture) therefore left a free, metered,
+  already-authorised address behind, inheritable by whoever held it next (a
+  hardware-address fallback, a spoof, a collision), and a gate the module held
+  for an address it had no session record for was examined by nothing at all.
+  The usage monitor now also runs a stale-binding reconciliation: about every
+  30 s it asks NoDogSplash whether each bytes session and each gate the module
+  still holds really has its client on the network, and after two consecutive
+  "gone" answers it closes the gate and retires the record — under the existing
+  rule that a failed close is not a close, so the record is kept and the close
+  retried until `ndsctl` confirms it. How long the gap actually lasts is
+  bounded upstream of the module: NoDogSplash stops listing an authenticated
+  client only when its idle timeout fires, and TollGate ships
+  `authidletimeout='3600'`, so the departed client's address stays listed —
+  and NDS-authorised — for about an hour, and the reconciliation then retires
+  the record within ~30–90 s of the listing going away. A client that is
+  still listed is never touched however idle it is, an unreadable probe never
+  counts as an absence,
+  `milliseconds` sessions are deliberately out of scope (their gate is bounded
+  by its own expiry timer, so the leak is not indefinite), and only a confirmed
+  close clears the metering baseline — the next holder of that address starts
+  from nothing instead of inheriting the departed customer's accounting. The
+  purchased remainder does *not* travel to the address the customer moved to;
+  carrying entitlement across an address change needs a session ticket and is
+  its own change
+  ([#560](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/560)).
 
 - **The packaged `:8090` admin board is not served on a router with no root
   credential — the packaging fails closed.** rpcd's `rpc_login_test_password()`
@@ -170,6 +219,32 @@ and [Semantic Versioning](https://semver.org/).
   journal/janitor that would collect the late result and grant it is a separate
   follow-up, and this change does not claim access arrives on its own
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+
+- **A mint answering 429 no longer stops sales, and a flood can no longer drive
+  it there.** `POST /ln-invoice` is unauthenticated and, before this change,
+  unbounded in body size, unbounded in amount and unrate-limited, while each
+  accepted call costs a mint round trip, a durable write and a monitor
+  goroutine — so a LAN client could loop it until the mint answered `429`. The
+  second half of the bug is that a `429` was classified as the mint being
+  *unreachable*, so on a single-mint deployment one rate-limited request emptied
+  the reachable set and downgraded the merchant to degraded mode: a single `429`
+  stopped every sale. The probe now classifies `429` as `throttled` (the mint is
+  up and asking us to slow down) instead of as a failure, a payment-level `429`
+  leaves the reachable set alone, and a mint leaves the set only after three
+  consecutive failed probes instead of one. Alongside it, the quote-creation
+  POST is bounded (8 KiB body, 1 000 000 sats) and quota'd per client
+  (6/min, burst 3), per source network (20/min) and globally (2/s, burst 5),
+  keyed from the socket's DHCP/ARP identity rather than the caller's asserted
+  `mac`, with both bucket maps capped at 4096 entries — while the GET status
+  poll a paying customer sits in front of stays unlimited, because a limiter
+  around the whole route throttles the customer mid-payment. The in-flight quote
+  table is bounded at 3 per client and 128 overall, evicting the oldest
+  abandoned quote (never one being processed, one that already granted access,
+  or one younger than 5 minutes), and our own outbound quote traffic toward each
+  mint is self-limited, so a local flood is refused at the router instead of
+  being reported to the mint. Refusals keep the `status`/`error` pair the
+  shipped portal parses and add `code`/`retry_after`
+  ([#547](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/547)).
 
 - **The admin board's `:8090`/`:8443` are now dropped on the captive bridge,
   not merely held out of the pre-auth allow list.** Taking the two entries out
@@ -297,7 +372,58 @@ and [Semantic Versioning](https://semver.org/).
   when a future pin stops sending the MAC or drops those strings
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
 
+- **A mint whose front answers 429 to every probe is taken out of the
+  advertisement instead of being offered to customers for ever.** A 429 from a
+  mint no longer empties the reachable set (a busy mint is up), which left the
+  mirror image open: a mint that never stops answering 429 is *reachable*, so it
+  stayed in the kind-10021 advertisement, the customer's client kept picking it
+  out of `price_per_step` and every purchase failed — the invoice must come from
+  the mint that holds the customer's ecash, so the router cannot substitute
+  another one mid-purchase — and nothing self-healed, because the aggressive
+  15-second probe mode only arms when the reachable set is empty and a throttled
+  mint keeps it non-empty. A mint throttled on every probe for a ~30-minute
+  window (6 consecutive probes at the 5-minute cadence,
+  `TOLLGATE_PERSISTENT_THROTTLE_PROBES`) is now *persistently throttled*: it is
+  dropped from the advertisement and skipped by the payout routine while staying
+  in the reachable set, in the wallet and in the registered mints, and its
+  throttled probes are still never counted as failures. The first successful
+  probe re-admits it with no recovery threshold, and the advertisement is never
+  emptied — if dropping the throttled mints would leave nothing to advertise,
+  the reachable set is kept as it is, because a customer with no alternative is
+  better served by a busy mint than by an empty advertisement. A 429's
+  `Retry-After` is now honoured on the probe path (both the delta-seconds and the
+  HTTP-date form, clamped to `TOLLGATE_RETRY_AFTER_CAP_SECONDS`, 30 minutes by
+  default, so an untrusted value cannot silence a mint for ever) — but it is not
+  carried into the customer-facing refusal: the mint's 429 reaches the router as
+  a string-matched wallet error with no header attached to it, so a real
+  `retry_after` there would have to come from the wallet fork's error type or be
+  invented
+  ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
+
 ### Changed / Internal
+
+- **The module can report the gates it believes it holds, so the ones nothing
+  else examines are reachable.** `valve.TrackedGates()` returns a sorted,
+  read-only view of the gate bookkeeping — a gate whose close is unconfirmed is
+  still in it (C1-2), which is the point: those are the gates that stay
+  authorised. It answers a question about the module's OWN state, not about the
+  router, and changes no gate path; callers probe `ndsctl` before acting on it.
+- **The stale-binding reconciliation's policy is per merchant, not package
+  global.** Its cadence, grace window and NoDogSplash probe are fields on the
+  merchant rather than package variables: the reconciliation runs on the usage
+  monitor's own goroutine, so a test writing a package-level policy while that
+  goroutine read it was a data race a full-suite `-race` run caught. The
+  production values are unchanged (one pass per 15 sweeps, two consecutive
+  absences).
+- **The operator guide says what a MAC address is and is not.** A new section
+  ([client identity, MAC addresses, and what changing one
+  does](docs/operator-guide.md#client-identity-mac-addresses-and-what-changing-one-does),
+  linked from the README) documents that identity is taken from the socket and
+  never from a client-supplied value, the per-platform defaults that change a
+  device's address on their own, what a customer sees and loses when that
+  happens, the exact log lines of the reconciliation, and the rule that a MAC
+  allow-list is not an access control. It also corrects the claim that TollGate
+  rotates a visitor's MAC — it cannot, no release implemented it.
 
 - **The packaged nftables ruleset set is asserted, not assumed, and `FILES_`
   is complete.** `packaging/Makefile`'s `FILES_` list registered
