@@ -1,0 +1,137 @@
+# TollGate Hybrid Testing Infrastructure
+
+## Overview
+
+A hybrid testing approach that supports:
+- **Physical routers** - Local hardware or cloud-based (Hetzner, etc.)
+- **Virtual routers** - Docker/QEMU simulation
+- **Automated installation** - Firmware flashing, package deployment
+- **Parallel execution** - Multiple routers simultaneously
+- **CI/CD integration** - GitHub Actions, GitLab CI, etc.
+
+## Architecture
+
+```
+tests/
+├── infrastructure/
+│   ├── routers/                    # Router abstraction layer
+│   │   ├── __init__.py
+│   │   ├── base.py                 # Base RouterInterface
+│   │   ├── physical.py             # Physical router (SSH)
+│   │   ├── cloud.py               # Cloud router (Hetzner API)
+│   │   └── docker.py              # Docker router simulation
+│   ├── config/
+│   │   ├── __init__.py
+│   │   ├── loader.py               # Config file parser
+│   │   └── test_config.yml         # Default configuration
+│   ├── deployment/
+│   │   ├── __init__.py
+│   │   ├── firmware.py              # Firmware flashing
+│   │   ├── packages.py              # Package installation
+│   │   └── configuration.py         # Router configuration
+│   └── orchestration/
+│       ├── __init__.py
+│       ├── pool.py                 # Router pool management
+│       └── scheduler.py           # Test scheduling
+├── e2e/                           # End-to-end tests (physical routers)
+│   ├── test_payment_flow.py
+│   └── test_gateway_failover.py
+├── integration/                    # Integration tests (virtual routers)
+│   ├── test_merchant.py
+│   └── test_valve.py
+├── unit/                          # Unit tests (Go)
+└── conftest.py                     # Pytest fixtures
+```
+
+## Configuration
+
+### test_config.yml
+
+```yaml
+# Router configuration
+routers:
+  # Physical routers (SSH access)
+  physical:
+    - name: tollgate-physical-1
+      type: physical
+      host: 192.168.9.1
+      password: "c03rad0r123"
+      arch: mips_24kc
+      interface: wlp59s0
+      tags: [production, hardware]
+
+    - name: tollgate-physical-2
+      type: physical
+      host: 192.168.9.2
+      password: "c03rad0r123"
+      arch: mips_24kc
+      interface: wlp59s0
+      tags: [production, hardware]
+
+  # Cloud routers (Hetzner, etc.)
+  cloud:
+    provider: hetzner
+    api_token: ${HETZNER_API_TOKEN}
+    count: 2
+    server_type: cx21
+    image: openwrt-23.05
+      - name: tollgate-cloud-1
+        tags: [production, cloud]
+      - name: tollgate-cloud-2
+        tags: [production, cloud]
+
+  # Docker routers (simulation)
+  docker:
+    enabled: true
+    count: 3
+    image: openwrt/openwrt:latest
+      - name: tollgate-docker-1
+        tags: [dev, simulation]
+      - name: tollgate-docker-2
+        tags: [dev, simulation]
+      - name: tollgate-docker-3
+        tags: [dev, simulation]
+
+# Test configuration
+testing:
+  parallel: true
+  max_parallel_routers: 3
+
+  # Timeout settings
+  timeouts:
+    connect: 60
+    flash: 300
+    install: 120
+    test: 300
+
+  # Retry settings
+  retries:
+    connect: 5
+    flash: 1
+    install: 2
+
+# Firmware and packages
+resources:
+  firmware:
+    base_path: ./firmware
+    current_version: "0.0.4"
+
+  packages:
+    base_url: "https://github.com/OpenTollGate/tollgate-module-basic-go/releases"
+    repository_url: "https://opentollgate.github.io/tollgate-module-basic-go/packages"
+
+# Test mint (for e-cash payments)
+mint:
+  url: "https://nofees.testnut.cashu.space"
+  initial_amount: 1000
+
+# Reporting
+reporting:
+  format: json
+  output_path: ./test-results
+  upload_to: null  # Could be S3, etc.
+
+# Logging
+logging:
+  level: INFO
+  path: ./test-logs

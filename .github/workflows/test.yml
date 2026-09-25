@@ -1,0 +1,184 @@
+name: TollGate Testing CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  TEST_CONFIG_PATH: tests/infrastructure/config/test_config.yml
+
+jobs:
+  # Unit tests (Go)
+  unit-tests:
+    name: Run Go Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run unit tests
+        run: |
+          cd src
+          go test ./... -v -race -coverprofile=coverage.out -covermode=atomic
+
+      - name: Generate coverage report
+        run: |
+          go tool cover -html=coverage.html coverage.out
+          go tool cover -func=coverage.out | tee coverage.txt
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-reports
+          path: |
+            src/coverage.html
+            src/coverage.txt
+
+  # Integration tests with Docker routers
+  docker-integration-tests:
+    name: Run Integration Tests (Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker-practice/actions-setup-docker@v1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      - name: Run Docker integration tests
+        run: |
+          # Override config for Docker-only testing
+          export ROUTER_TYPE=docker
+          export DOCKER_ENABLED=true
+
+          pytest tests/integration/ -v \
+            --tb=short \
+            --html=test-results/integration.html \
+            --self-contained-html
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: docker-integration-results
+          path: test-results/
+
+  # E2E tests on physical routers (manual trigger)
+  e2e-tests:
+    name: Run E2E Tests (Physical Routers)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r tests/requirements.txt
+
+      - name: Configure test environment
+        run: |
+          echo "PHYSICAL_ROUTER_HOST=${{ secrets.PHYSICAL_ROUTER_HOST }}" >> $GITHUB_ENV
+          echo "PHYSICAL_ROUTER_PASSWORD=${{ secrets.PHYSICAL_ROUTER_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Run E2E tests
+        run: |
+          pytest tests/e2e/ -v \
+            --tb=short \
+            --html=test-results/e2e.html \
+            --self-contained-html \
+            --timeout=600
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-test-results
+          path: test-results/
+
+  # Build and deploy firmware (on release)
+  build-deploy:
+    name: Build and Deploy Firmware
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Build OpenWRT package
+        run: |
+          make package
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.VERSION }}
+
+      - name: Build firmware images (if configured)
+        run: |
+          # Firmware building would go here
+          echo "Firmware building would be configured in separate workflow"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: tollgate-package
+          path: |
+            bin/packages/*.ipk
+            firmware/images/*.bin
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          files: |
+            bin/packages/*.ipk
+            firmware/images/*.bin
