@@ -70,7 +70,11 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 # treats the character class as a literal set and deletes every s/p/a/c/e
 # from the value — "net4sats" became "nt4t" and coerced to the default.
 load_brand() {
-    read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
+    # [ -r ] guard, not redirection with 2>/dev/null: BusyBox ash prints
+    # "can't open …" for the failed redirect itself before the null-stderr
+    # of the command applies (seen live in the alpha4-pre15 postinst).
+    BRAND=""
+    [ -r /etc/tollgate/brand ] && read -r BRAND < /etc/tollgate/brand
     case "$BRAND" in
         net4sats) BRAND_HOSTNAME="Net4sats" ;;
         *) BRAND_HOSTNAME="TollGate"
@@ -172,7 +176,8 @@ setup_uhttpd_configui() {
     # lacks character classes and would delete the literal chars
     # [ : s p a c e — mangling "net4sats" into "nt4t". POSIX read strips
     # leading/trailing IFS whitespace and the trailing newline itself.
-    read -r cfgui_brand < /etc/tollgate/brand || cfgui_brand=""
+    cfgui_brand=""
+    [ -r /etc/tollgate/brand ] && read -r cfgui_brand < /etc/tollgate/brand
     [ "$cfgui_brand" = "net4sats" ] || return 0
     [ -d /www/net4sats ] || return 0
 
