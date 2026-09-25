@@ -1,12 +1,21 @@
 #!/bin/sh
 # TollGate first-boot configuration. Runs once from /etc/init.d/boot before
-# services start. All UCI changes are committed in a single pass at the end;
-# no service restarts here (uci-defaults runs before procd brings services up).
+# services start, and from the package postinst on every install/upgrade. All
+# UCI changes are committed in a single pass at the end.
+#
+# No service is restarted on the first-boot path (uci-defaults runs before procd
+# brings services up, and procd then starts them once from the config written
+# here). The ONE exception is converge_nodogsplash_runtime: when this script runs
+# on an ALREADY-RUNNING system and the nodogsplash pre-auth allow list no longer
+# matches the ruleset the live process installed, that process is reloaded — a
+# config change is otherwise not delivered until something restarts it, which is
+# right on a fresh boot and wrong on an upgrade of a running router.
 #
 # The flag file stores the setup version. On reinstall/upgrade:
 # - Same version → verify wireless APs, re-assert the uhttpd contract and the
 #   nodogsplash pre-auth allow list (uhttpd.main/uhttpd.portal drift and a
-#   stale users_to_router list are repaired; the rest is not re-run)
+#   stale users_to_router list are repaired; the rest is not re-run), then
+#   converge the running ruleset on the repaired list
 # - New version or first boot → full setup
 
 SETUP_FLAG="/etc/tollgate-setup-done"
@@ -38,6 +47,10 @@ case "$SETUP_VERSION" in
 esac
 
 LOGFILE=/tmp/tollgate-setup.log
+# The nodogsplash init script, as an absolute path next to SETUP_FLAG and
+# LOGFILE so the offline tests can redirect all three the same way
+# (tests/uci-defaults-*_test.sh).
+NDS_INIT="/etc/init.d/nodogsplash"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup steps ------------------------------------------------------------
@@ -414,6 +427,46 @@ first_ap_iface_on() {
     return 1
 }
 
+# -- guest client isolation --------------------------------------------------
+#
+# The open guest SSID is the one layer-2 domain on the router that strangers
+# share: nothing in this writer, the portal or the installer ever set client
+# isolation, so on the shipped config one guest could ARP-scan its neighbours,
+# answer their DHCP, advertise mDNS/SSDP services to them, or relay through
+# one of them. Both guest APs (2.4 and 5 GHz) are separate BSSes, so both need
+# it — one is not enough.
+#
+# What is set: `isolate` on each guest wifi-iface (below), which hostapd turns
+# into ap_isolate=1 (lib/netifd/hostapd.sh, "if [ \"$isolate\" -gt 0 ]").
+# It is an INTRA-BSS forwarding policy, not encryption: a monitor-mode
+# neighbour still sees every frame in the clear, an authorised MAC is still
+# harvestable from 802.11 headers, and cross-BSS traffic (2.4 GHz guest to
+# 5 GHz guest) is still bridged.
+#
+# What is deliberately NOT set, and why — the wired ports that share br-lan.
+# Checked rather than guessed, on the actual target (GL-MT3000, MT7981,
+# OpenWrt 25.12.5, 2026-09-24):
+#   * The netifd syntax exists: `config device` + `option isolate '1'` is
+#     defined (netifd device.c DEV_ATTR_ISOLATE -> system-linux.c
+#     system_bridge_set_isolated() -> sysfs brport/isolated).
+#   * But Linux bridge port isolation is BILATERAL: net/bridge/br_private.h
+#     br_skb_isolated() is `src_port_isolated && (to->flags & BR_ISOLATED)`,
+#     so isolating the wired port alone blocks nothing, and the guest BSS's
+#     own bridge port (phyN-apM) cannot be marked isolated from uci at all —
+#     netifd's `wireless_isolate` only clears hairpin_mode (system-linux.c
+#     system_bridge_set_wireless()).
+#   * Measured on the bench: with brport/isolated=1 on the LAN port, alone and
+#     together with the guest VAP's port, a guest still reached a wired host —
+#     ping, ARP and TCP all passed, and the frames were captured on the wired
+#     NIC. Writing the option would therefore be a control that reports
+#     protection it does not provide, so it is left out on purpose. The wired
+#     and cross-BSS halves need a different mechanism (a dedicated br-guest
+#     with its own reject-by-default zone, or a bridge-family nft rule keyed on
+#     the VAP ports); see the PR body for the measurements.
+#
+# Never isolated here: the uplink (an STA wifi-iface, and the WAN port is not a
+# member of the guest bridge) and the owner's private SSID/bridge — the
+# operator's own devices must keep seeing each other (casting, printing).
 configure_radio_ap() {
     local iface="$1" label="$2" radio="$3"
     if ! uci -q get "wireless.$iface" >/dev/null; then
@@ -433,6 +486,10 @@ configure_radio_ap() {
     uci set "wireless.$iface.network=lan"
     uci set "wireless.$iface.ssid=$GATEWAY_NAME"
     uci set "wireless.$iface.encryption=none"
+    # Guest client isolation (ap_isolate=1): armed here so it lands on BOTH
+    # setup paths — this function is the single writer of the public APs, and
+    # the same-version reinstall path reaches it through setup_band_ap() too.
+    uci set "wireless.$iface.isolate=1"
     uci set "wireless.$iface.disabled=0"
 }
 
@@ -633,6 +690,185 @@ setup_nodogsplash() {
     if ! echo "$nds_auth" | grep -q "192.168.0.0/16"; then
         uci add_list nodogsplash.@nodogsplash[0].authenticated_users='block to 192.168.0.0/16'
     fi
+}
+
+# --- nodogsplash runtime convergence ----------------------------------------
+#
+# users_to_router is nodogsplash's pre-authentication allow list, and
+# nodogsplash turns it into a ruleset ONCE, when the process starts: the
+# pre-auth accepts are the `ndsRTR` iptables chain it installs for the captive
+# bridge (br-lan). A change to the list therefore reaches a RUNNING router only
+# if something reloads the service.
+#
+# Nothing in the packaging path does. This script deliberately restarts no
+# service (on a FRESH BOOT it runs from /etc/init.d/boot before procd starts
+# them, and procd then starts nodogsplash once, from the config written here),
+# and the postinst that actually ships in the published package restarts only
+# tollgate-wrt (measured 2026-09-25: extracted from /lib/apk/db/scripts.tar.gz
+# on the bench). Measured consequence after the pre16 install: `uci show
+# nodogsplash` no longer listed :8090 while the RUNNING ruleset still carried
+#   -A ndsRTR -p tcp -m tcp --dport 8090 -j ACCEPT
+# so the owner-facing admin board answered HTTP 200 to a client on br-lan that
+# had paid nothing, until an operator ran `/etc/init.d/nodogsplash restart` by
+# hand (which dropped it to 000 with the portal unaffected).
+#
+# The step below makes the effective policy equal the configured one: it
+# compares the pre-auth TCP ports the config lists with the ports the RUNNING
+# ruleset actually accepts, and reloads the service when — and only when — the
+# two differ and the service is already up. A fresh boot is left alone (procd
+# starts the service once, with the new config), a steady-state run is left
+# alone (no reload storm, no dropped sessions), and the reload is logged with
+# the resulting accept-rule count so an install can be audited from
+# /tmp/tollgate-setup.log.
+
+# The pre-auth entries the CONFIGURED allow list holds, as `proto/port` pairs.
+# Entries look like 'allow tcp port 8090' / 'allow udp port 67'; `uci get`
+# renders a list either one entry per line or as a quoted single-line list, so
+# quotes become newlines before matching. BOTH protocols are compared: a stale
+# udp permit is as much a policy divergence as a stale tcp one, and the running
+# ruleset is filtered the same way, so the two sides stay symmetric (comparing
+# raw port numbers would let an `allow udp port 67` entry read as a phantom
+# divergence, because it appears in ndsRTR as a udp rule and never as a tcp one).
+nodogsplash_users_to_router_raw() {
+    uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo ""
+}
+
+nodogsplash_configured_accept_entries() {
+    nodogsplash_users_to_router_raw \
+        | tr "'" '\n' \
+        | sed -n 's/^ *allow \([a-z][a-z]*\) port \([0-9][0-9]*\) *$/\1\/\2/p' \
+        | sort -u \
+        | nodogsplash_drop_entry "tcp/$(nodogsplash_gateway_port)"
+}
+
+# Entries the configured list holds that this writer does NOT write and this step
+# cannot turn into a `proto/port` pair — a port range, a multiport entry,
+# anything else an operator may have hand-edited in. Non-empty means the
+# comparison below would cover only PART of the list, which reads as a
+# divergence this step can never repair (it would reload on every run), so it is
+# reported instead of acted on. `uci get` renders a list either one entry per
+# line or as a quoted single-line list, hence the quote splitting and trimming.
+nodogsplash_configured_unparsable_entries() {
+    nodogsplash_users_to_router_raw \
+        | tr "'" '\n' \
+        | sed 's/^ *//;s/ *$//;/^$/d' \
+        | grep -v -E '^allow [a-z]+ port [0-9]+$'
+}
+
+nodogsplash_gateway_port() {
+    uci -q get nodogsplash.@nodogsplash[0].gatewayport 2>/dev/null || echo ""
+}
+
+nodogsplash_drop_entry() { # filter one entry out of a newline separated set
+    if [ -n "$1" ]; then grep -v -x -e "$1"; else cat; fi
+}
+
+# The pre-auth entries the RUNNING ruleset accepts, read from the chain
+# nodogsplash installs for the captive bridge. The gateway port is dropped from
+# both sides of the comparison as `tcp/<gatewayport>`: nodogsplash injects that
+# rule itself, so it is present even when the list does not carry it, and
+# comparing it would reload on every run instead of on a real divergence.
+# Verified on the bench (2026-09-25) that the two sets are EQUAL in steady
+# state, so the step does not fire on an unchanged router.
+nodogsplash_runtime_accept_entries() {
+    iptables -S ndsRTR 2>/dev/null \
+        | grep -- '-j ACCEPT' \
+        | sed -n 's/.*-p \([a-z][a-z]*\) .*--dport \([0-9][0-9]*\).*/\1\/\2/p' \
+        | sort -u \
+        | nodogsplash_drop_entry "tcp/$(nodogsplash_gateway_port)"
+}
+
+# A missing chain makes `iptables -S` fail; that is not the same as an empty
+# one, and the caller must not read "cannot measure" as "converge me".
+nodogsplash_ruleset_present() {
+    iptables -S ndsRTR >/dev/null 2>&1
+}
+
+nodogsplash_accept_rule_count() {
+    iptables -S ndsRTR 2>/dev/null | grep -c -- '-j ACCEPT' || true
+}
+
+nodogsplash_is_running() {
+    if command -v pidof >/dev/null 2>&1; then
+        pidof nodogsplash >/dev/null 2>&1
+    else
+        "$NDS_INIT" status >/dev/null 2>&1
+    fi
+}
+
+nodogsplash_entries_csv() { # [tcp/1,udp/2] — render a newline separated set
+    printf '%s' "$1" | tr '\n' ',' | sed 's/,$//'
+}
+
+converge_nodogsplash_runtime() {
+    local want have before_count after_count rc i unparsable
+
+    if ! nodogsplash_is_running; then
+        log "nodogsplash policy convergence: service not running (first boot) — procd starts it once with the configured allow list, no reload here"
+        return 0
+    fi
+    if ! command -v iptables >/dev/null 2>&1; then
+        log "nodogsplash policy convergence: iptables not available — cannot read the running ruleset, leaving the service alone"
+        return 0
+    fi
+    # Before the comparison, not after: a missing chain means there is nothing to
+    # compare against, and reporting that is more honest than falling through to
+    # "already matches" when both sides happen to be empty.
+    if ! nodogsplash_ruleset_present; then
+        log "nodogsplash policy convergence: no ndsRTR chain to compare against — leaving the service alone"
+        return 0
+    fi
+
+    # Compare only when EVERY configured entry was understood: a list holding an
+    # entry this step cannot turn into a `proto/port` pair would compare only
+    # part of it, read as a divergence it can never repair, and reload the
+    # service on every run. Reported, not assumed-equal — "cannot read the list"
+    # is not "the list is fine".
+    unparsable=$(nodogsplash_configured_unparsable_entries)
+    if [ -n "$unparsable" ]; then
+        log "nodogsplash policy convergence: the configured allow list holds entries this step cannot compare ($(printf '%s' "$unparsable" | tr '\n' ' ')) — leaving the service alone"
+        return 0
+    fi
+
+    want=$(nodogsplash_configured_accept_entries)
+
+    have=$(nodogsplash_runtime_accept_entries)
+    if [ "$have" = "$want" ]; then
+        log "nodogsplash policy convergence: running ruleset already matches the configured allow list ([$(nodogsplash_entries_csv "$want")]) — no reload"
+        return 0
+    fi
+
+    before_count=$(nodogsplash_accept_rule_count)
+    # reload is the intent-revealing verb; for a procd service that defines no
+    # reload of its own (nodogsplash 5.0.2 does not) rc.common's reload calls
+    # restart, so restart is only the fallback for an init script whose reload
+    # fails outright.
+    "$NDS_INIT" reload >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" != 0 ]; then
+        "$NDS_INIT" restart >/dev/null 2>&1
+        rc=$?
+    fi
+
+    # procd starts the service asynchronously, so wait — bounded — for the
+    # regenerated ruleset to match the configured list before logging the result
+    # rather than guessing with a fixed sleep. Integer seconds only: BusyBox
+    # `sleep 0.5` is rejected on this target (measured 2026-09-25).
+    i=0
+    while [ "$i" -lt 5 ]; do
+        have=$(nodogsplash_runtime_accept_entries)
+        [ "$have" = "$want" ] && break
+        sleep 1
+        i=$((i + 1))
+    done
+
+    after_count=$(nodogsplash_accept_rule_count)
+    if [ "$rc" = 0 ]; then
+        log "nodogsplash policy convergence: reloaded after an allow-list change — pre-auth accept rules ${before_count} -> ${after_count}; runtime entries [$(nodogsplash_entries_csv "$have")] (configured [$(nodogsplash_entries_csv "$want")])"
+    else
+        log "nodogsplash policy convergence: reload FAILED (rc=$rc) — the running ruleset may still be stale (pre-auth accept rules ${before_count} -> ${after_count}; runtime entries [$(nodogsplash_entries_csv "$have")], configured [$(nodogsplash_entries_csv "$want")])"
+    fi
+    return 0
 }
 
 setup_tollgate_firewall_rules() {
@@ -1061,6 +1297,12 @@ if [ "$EXISTING_VERSION" = "$SETUP_VERSION" ]; then
         uci commit nodogsplash
         log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
     fi
+    # A repaired allow list is not a delivered policy: the running nodogsplash
+    # holds the ruleset it generated from the list it saw at start-up. Converge
+    # it here, after the commit above, so an upgrade or a repair on a RUNNING
+    # router takes effect without an operator restart (and so a fresh boot,
+    # where procd has not started the service yet, is left untouched).
+    converge_nodogsplash_runtime
     log "Wireless AP verification completed"
     exit 0
 fi
@@ -1088,6 +1330,13 @@ setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
 commit_all
+
+# After the commit: on a version-changing upgrade of an ALREADY-RUNNING router
+# the nodogsplash that is serving right now holds the ruleset generated from the
+# previous allow list, and nothing in the packaging path reloads it. On a fresh
+# boot this is a no-op (the service is not up yet; procd starts it once, with
+# the config committed above).
+converge_nodogsplash_runtime
 
 log "TollGate setup completed (version $SETUP_VERSION)"
 echo "$SETUP_VERSION" > "$SETUP_FLAG"

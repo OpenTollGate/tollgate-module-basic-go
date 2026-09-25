@@ -242,6 +242,9 @@ type Merchant struct {
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
 	quoteStore        *quoteStore
+	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
+	// a value so `&Merchant{}` literals keep working; its zero value is usable.
+	mintQuoteBudget mintQuoteBudget
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -899,10 +902,7 @@ func (m *Merchant) StartPayoutRoutine() {
 			defer ticker.Stop()
 
 			for range ticker.C {
-				if !m.mintHealthTracker.IsReachable(mintConfig.URL) {
-					continue
-				}
-				m.processPayout(mintConfig)
+				m.runPayoutForMint(mintConfig)
 			}
 		}(mint)
 	}
@@ -910,6 +910,25 @@ func (m *Merchant) StartPayoutRoutine() {
 	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
+}
+
+// runPayoutForMint runs one payout pass for one mint, or does nothing when the
+// mint is not usable right now. Two reasons to skip, and they are different:
+//
+//   - not reachable: we do not know the mint is up at all;
+//   - persistently throttled: the mint is up but has answered 429 to every probe
+//     for the persistent window, so a melt would be rate-limited too. The
+//     balance stays in the wallet and the next cycle after the mint answers
+//     again picks it up — this is a delay, not a loss of value.
+func (m *Merchant) runPayoutForMint(mintConfig config_manager.MintConfig) {
+	if !m.mintHealthTracker.IsReachable(mintConfig.URL) {
+		return
+	}
+	if m.mintHealthTracker.IsPersistentlyThrottled(mintConfig.URL) {
+		log.Printf("Skipping payout %s: the mint has answered 429 to every probe for the persistent window; the balance stays in the wallet", mintConfig.URL)
+		return
+	}
+	m.processPayout(mintConfig)
 }
 
 // payoutInvoiceRetries is the invoice-fetch retry count for the reachability probe.
@@ -1171,7 +1190,17 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
 
-		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) && !isExpiredKeysetError(err) {
+		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
+			!isExpiredKeysetError(err) &&
+			!isRateLimitError(err) {
+			// A rate-limit answer means the mint is UP and telling us to slow
+			// down, so it must not condemn the mint. On a single-mint
+			// deployment a single 429 used to empty the reachable set, fire the
+			// set-changed callback and downgrade the merchant to degraded mode —
+			// i.e. one rate-limited request stopped every sale on the router
+			// (a revenue DoS). The edge quota on POST /ln-invoice in main.go is
+			// the other half of this fix: it keeps our own flood from being
+			// what provokes the 429.
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
@@ -1368,7 +1397,14 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		return "", fmt.Errorf("main config is nil")
 	}
 
-	reachableMints := tracker.GetReachableMintConfigs()
+	// The advertisement is the one thing the customer's client selects a mint
+	// from, so it is the advertised set that is used here and not the reachable
+	// set: a mint whose front answers 429 to everything is still up (reachable)
+	// but cannot serve a purchase, and leaving it in means the client keeps
+	// picking it while nothing self-heals. See
+	// MintHealthTracker.GetAdvertisedMintConfigs for the single-mint guard that
+	// keeps this from ever advertising nothing.
+	advertisedMints := tracker.GetAdvertisedMintConfigs()
 
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
@@ -1380,7 +1416,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		Content: "",
 	}
 
-	for _, mintConfig := range reachableMints {
+	for _, mintConfig := range advertisedMints {
 		advertisementEvent.Tags = append(advertisementEvent.Tags, nostr.Tag{
 			"price_per_step",
 			"cashu",

@@ -54,6 +54,48 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A policy change now reaches the running nodogsplash: the setup script
+  reloads the service when its `ndsRTR` ruleset no longer matches the configured
+  `users_to_router` list.** The allow list is nodogsplash's *pre-authentication*
+  permit set, and the process turns it into a ruleset once, at start-up, so
+  after an install/upgrade of a running router the config and the live policy
+  could disagree: measured on the bench after the pre16 install, `uci show
+  nodogsplash` no longer listed `:8090` while the running ruleset still carried
+  `-A ndsRTR -p tcp -m tcp --dport 8090 -j ACCEPT`, and the owner-facing admin
+  board answered HTTP 200 to a client on `br-lan` that had paid nothing, until
+  an operator ran `/etc/init.d/nodogsplash restart` by hand. Nothing in the
+  packaging path reloads it — the uci-defaults script deliberately restarts no
+  service (correct on a fresh boot, where procd starts nodogsplash once from the
+  config just written), and the postinst that actually ships in the published
+  apk runs the uci-defaults scripts and then restarts **only** `tollgate-wrt`.
+  `99-tollgate-setup` now compares the configured pre-auth permits (protocol
+  **and** port: an `allow udp port N` is a real permit, and a udp rule has no
+  tcp twin in `ndsRTR`) with the permits the live `ndsRTR` chain accepts, and
+  reloads nodogsplash when — and only when — they differ and the service is
+  already running, logging the resulting accept-rule count to
+  `/tmp/tollgate-setup.log`. A fresh boot and a steady-state run are left alone,
+  so no session is dropped for nothing; so is a list holding an entry this step
+  cannot parse (a hand-edited port range), which is reported rather than
+  compared partially — a partial comparison can never be repaired by a reload
+  ([#579](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/579)).
+- **Guests on the open SSID can no longer reach each other: the setup writer
+  now arms client isolation on both guest APs.** Nothing in the writer, the
+  portal or the installer ever set it, so on the shipped config a guest on the
+  open SSID could ARP-scan its neighbours, answer their DHCP, advertise
+  mDNS/SSDP services to them, or relay through a paying client. The writer sets
+  `isolate=1` on each guest `wifi-iface` (2.4 and 5 GHz are separate BSSes, so
+  both need it), which hostapd renders as `ap_isolate=1`, and a packaging test
+  pins the option so it cannot drift out again. That is an intra-BSS forwarding
+  policy, not encryption: a monitor-mode neighbour still reads every frame in
+  the clear on `encryption=none`, and cross-radio discovery between the two
+  guest BSSes is unaffected. Guest-to-guest mDNS/Chromecast/AirPlay/printer
+  discovery and LAN games on one BSS stop working — accepted on purpose. The
+  owner's private SSID and the uplink are untouched. The wired ports are
+  deliberately **not** written: Linux bridge port isolation is bilateral, the
+  guest BSS's bridge port cannot be marked isolated from uci, and on the bench
+  the wired port's flag blocked nothing — shipping it would claim protection it
+  does not provide
+  ([#576](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/576)).
 - **A late `Receive` outcome is recorded, so the reference the customer was
   given leads somewhere.** When the mint did not answer within the 30-second
   deadline the customer was told the outcome was unknown — not failed — and
@@ -228,6 +270,32 @@ and [Semantic Versioning](https://semver.org/).
   follow-up, and this change does not claim access arrives on its own
   ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
 
+- **A mint answering 429 no longer stops sales, and a flood can no longer drive
+  it there.** `POST /ln-invoice` is unauthenticated and, before this change,
+  unbounded in body size, unbounded in amount and unrate-limited, while each
+  accepted call costs a mint round trip, a durable write and a monitor
+  goroutine — so a LAN client could loop it until the mint answered `429`. The
+  second half of the bug is that a `429` was classified as the mint being
+  *unreachable*, so on a single-mint deployment one rate-limited request emptied
+  the reachable set and downgraded the merchant to degraded mode: a single `429`
+  stopped every sale. The probe now classifies `429` as `throttled` (the mint is
+  up and asking us to slow down) instead of as a failure, a payment-level `429`
+  leaves the reachable set alone, and a mint leaves the set only after three
+  consecutive failed probes instead of one. Alongside it, the quote-creation
+  POST is bounded (8 KiB body, 1 000 000 sats) and quota'd per client
+  (6/min, burst 3), per source network (20/min) and globally (2/s, burst 5),
+  keyed from the socket's DHCP/ARP identity rather than the caller's asserted
+  `mac`, with both bucket maps capped at 4096 entries — while the GET status
+  poll a paying customer sits in front of stays unlimited, because a limiter
+  around the whole route throttles the customer mid-payment. The in-flight quote
+  table is bounded at 3 per client and 128 overall, evicting the oldest
+  abandoned quote (never one being processed, one that already granted access,
+  or one younger than 5 minutes), and our own outbound quote traffic toward each
+  mint is self-limited, so a local flood is refused at the router instead of
+  being reported to the mint. Refusals keep the `status`/`error` pair the
+  shipped portal parses and add `code`/`retry_after`
+  ([#547](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/547)).
+
 - **The admin board's `:8090`/`:8443` are now dropped on the captive bridge,
   not merely held out of the pre-auth allow list.** Taking the two entries out
   of that list settles what an
@@ -353,6 +421,34 @@ and [Semantic Versioning](https://semver.org/).
   `tests/packaging/assert-portal-bundle-contract.sh` gains a check that fails
   when a future pin stops sending the MAC or drops those strings
   ([#536](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/536)).
+
+- **A mint whose front answers 429 to every probe is taken out of the
+  advertisement instead of being offered to customers for ever.** A 429 from a
+  mint no longer empties the reachable set (a busy mint is up), which left the
+  mirror image open: a mint that never stops answering 429 is *reachable*, so it
+  stayed in the kind-10021 advertisement, the customer's client kept picking it
+  out of `price_per_step` and every purchase failed — the invoice must come from
+  the mint that holds the customer's ecash, so the router cannot substitute
+  another one mid-purchase — and nothing self-healed, because the aggressive
+  15-second probe mode only arms when the reachable set is empty and a throttled
+  mint keeps it non-empty. A mint throttled on every probe for a ~30-minute
+  window (6 consecutive probes at the 5-minute cadence,
+  `TOLLGATE_PERSISTENT_THROTTLE_PROBES`) is now *persistently throttled*: it is
+  dropped from the advertisement and skipped by the payout routine while staying
+  in the reachable set, in the wallet and in the registered mints, and its
+  throttled probes are still never counted as failures. The first successful
+  probe re-admits it with no recovery threshold, and the advertisement is never
+  emptied — if dropping the throttled mints would leave nothing to advertise,
+  the reachable set is kept as it is, because a customer with no alternative is
+  better served by a busy mint than by an empty advertisement. A 429's
+  `Retry-After` is now honoured on the probe path (both the delta-seconds and the
+  HTTP-date form, clamped to `TOLLGATE_RETRY_AFTER_CAP_SECONDS`, 30 minutes by
+  default, so an untrusted value cannot silence a mint for ever) — but it is not
+  carried into the customer-facing refusal: the mint's 429 reaches the router as
+  a string-matched wallet error with no header attached to it, so a real
+  `retry_after` there would have to come from the wallet fork's error type or be
+  invented
+  ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
 

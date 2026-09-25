@@ -40,10 +40,6 @@ const (
 	testClientIP  = "192.0.2.50"
 	testClientMAC = "8c:16:45:0d:6f:c5"
 
-	// sentinelMAC is the address that means "unknown" and must never be treated
-	// as an identity.
-	sentinelMAC = "00:00:00:00:00:00"
-
 	// deviceUnresolvedCode is the machine-readable code the portal can act on
 	// when the router cannot identify the caller. It is additive next to the
 	// existing `status`/`error` pair every portal already parses.
