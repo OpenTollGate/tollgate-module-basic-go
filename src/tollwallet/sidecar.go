@@ -47,6 +47,7 @@ var sidecarReadOnlyMethods = map[string]bool{
 	"decode_token":          true,
 	"mint_quote_state":      true,
 	"swap_fee_sats":         true,
+	"check_token_spendable": true,
 }
 
 type sidecarRequest struct {
@@ -310,6 +311,16 @@ func (s *SidecarWallet) Drain(mintUrl string) (Token, uint64, error) {
 		return nil, 0, err
 	}
 	return &sidecarToken{mint: r.Mint, amount: r.Amount, serialized: r.Token}, r.Amount, nil
+}
+
+// CheckTokenSpendable asks the daemon whether the token's proofs are all
+// UNSPENT (NUT-07). Read-only, so it is safe to re-issue.
+func (s *SidecarWallet) CheckTokenSpendable(tokenStr string) (bool, error) {
+	var spendable bool
+	if err := s.call("check_token_spendable", map[string]string{"token": tokenStr}, &spendable); err != nil {
+		return false, err
+	}
+	return spendable, nil
 }
 
 // MeltToLightning pays a Lightning address from wallet funds.

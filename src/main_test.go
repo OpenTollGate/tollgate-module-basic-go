@@ -176,6 +176,9 @@ func (m *namedMerchant) CreatePaymentTokenWithOverpayment(mintURL string, amount
 func (m *namedMerchant) DrainMint(mintURL string) (string, uint64, error) {
 	return "", 0, nil
 }
+func (m *namedMerchant) CheckTokenSpendable(token string) (bool, error) {
+	return false, nil
+}
 func (m *namedMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
 func (m *namedMerchant) GetBalance() uint64                            { return 0 }
 func (m *namedMerchant) GetBalanceByMint(mintURL string) uint64        { return 0 }

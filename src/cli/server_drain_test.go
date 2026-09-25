@@ -37,6 +37,19 @@ type scriptedDrainMerchant struct {
 	calls []string
 	// beforeDrain, when set, runs at the top of every DrainMint call.
 	beforeDrain func(mintURL string)
+	// spendable / checkErr configure CheckTokenSpendable per token string.
+	spendable map[string]bool
+	checkErr  map[string]error
+}
+
+func (m *scriptedDrainMerchant) CheckTokenSpendable(token string) (bool, error) {
+	if err, ok := m.checkErr[token]; ok {
+		return false, err
+	}
+	if spendable, ok := m.spendable[token]; ok {
+		return spendable, nil
+	}
+	return false, fmt.Errorf("no canned state for token %q", token)
 }
 
 func (m *scriptedDrainMerchant) DrainMint(mintURL string) (string, uint64, error) {
