@@ -104,6 +104,26 @@ and [Semantic Versioning](https://semver.org/).
   roll-back fixture run under the pre-change equality predicate re-runs full
   setup and re-randomises the SSID
   ([#578](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/578)).
+- **`tollgate upstream scan` reports the real band of every network again.**
+  The band column added for #452 was inert on real hardware: the scan path reads
+  `/etc/config/wireless` itself, but classified that file with the parser for
+  `uci show wireless` output (which renders a section as
+  `wireless.radio0=wifi-device`), so no radio was ever recognised; the resulting
+  band→radio map was then handed to a lookup keyed by radio section, so no key
+  ever matched either. Every scanned network came back `band: "unknown"`. The
+  scan path now parses the config-file form (`config wifi-device 'radio0'` /
+  `option band '2g'`) and inverts the map into the orientation the scanner looks
+  up by
+  ([#561](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/561)).
+- **A band is never bound to a radio whose frequency is unknown.** `radioForBand`
+  fell back to the legacy section name (`radio1` = 5 GHz) whenever just ONE band
+  was missing from the map, so on swapped hardware a band could be bound to an
+  unclassified radio — the #452 defect reintroduced by the fallback. The legacy
+  name is now used only when no radio reports a band at all, which is what the
+  first-boot setup's `detect_band_radios` already did. A radio whose channel is
+  `0` — the driver's numeric spelling of `auto` — also no longer counts as
+  2.4 GHz evidence; note the first-boot script's `radio_band` still reads a
+  literal `0` as 2.4 GHz (packaging lane, deliberately unchanged here)
 - **Guests on the open SSID can no longer reach each other: the setup writer
   now arms client isolation on both guest APs.** Nothing in the writer, the
   portal or the installer ever set it, so on the shipped config a guest on the
