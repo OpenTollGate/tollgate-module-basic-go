@@ -84,6 +84,11 @@ Options:
                      that never compared bytes is the thing this harness exists
                      to prevent.
   --ssh              also run the on-box checks (needs RHP_SSH set/reachable)
+  --second-purchase  also run the SECOND-purchase lane: buy again with
+                     RHP_CASHU_TOKEN_2 for the SAME client and require the gate
+                     to actually re-open (an egress probe answering 200/204, no
+                     redirect). Needs the first allotment already spent, or the
+                     first check fails instead of pretending the run was valid.
   --skip-money-path  do not send even the empty-body POST
   --out DIR          evidence dir (default <tmp>/evidence)
   --keep             keep the work dir
@@ -97,6 +102,16 @@ Environment:
   RHP_SPEND_MAX_SATS   spend cap for the paid lane (required to spend anything)
   RHP_CASHU_TOKEN      operator-supplied Cashu token. THE ONLY WAY the paid lane
                        runs. Unset => nothing is sent, nothing is spent.
+  RHP_SECOND_PURCHASE=1 run the second-purchase lane (same as --second-purchase)
+  RHP_CASHU_TOKEN_2    operator-supplied SECOND token, for the SAME client. It is
+                       only sent when RHP_SECOND_PURCHASE=1. Unset => the lane
+                       SKIPs and nothing is spent.
+  RHP_EGRESS_PROBE_URL the URL the second-purchase lane fetches to prove the gate
+                       re-opened (default the Android captive-portal probe,
+                       http://connectivitycheck.gstatic.com/generate_204). Point
+                       it at whatever the customer's OS actually probes: a 200/204
+                       with no redirect is "online", a 3xx to the splash is "still
+                       intercepted".
   RHP_SSH=1            enable the on-box SSH checks (default: SKIP)
   RHP_SSH_USER         SSH user (default root)
   RHP_TMPDIR           parent for the work dir (default /var/tmp; the /tmp
@@ -113,6 +128,7 @@ while [ $# -gt 0 ]; do
         --strict)        STRICT=1; shift ;;
         --no-identity)   DO_IDENTITY=0; shift ;;
         --ssh)           SSH_MODE=1; shift ;;
+        --second-purchase) export RHP_SECOND_PURCHASE=1; shift ;;
         --skip-money-path) SKIP_MONEY_PATH=1; shift ;;
         --expect-entry)  EXPECT_ENTRY="${2:-}"; shift 2 ;;
         --expect-version) EXPECT_VERSION="${2:-}"; shift 2 ;;
@@ -506,6 +522,23 @@ if [ -z "${RHP_CASHU_TOKEN:-}" ]; then
     chk "paid:spends-nothing-by-default" PASS "the default run sent no token; only an empty-body POST touched the payment lane"
 else
     chk "paid:spends-nothing-by-default" SKIP "RHP_CASHU_TOKEN WAS supplied, so this run DID touch the payment lane: read the paid:* lines above, do not read this line as 'nothing was spent'"
+fi
+
+# --------------------------------------------------------------------------
+# 6b. the SECOND purchase -- OPT-IN (--second-purchase / RHP_SECOND_PURCHASE=1
+#     + RHP_CASHU_TOKEN_2). The club's main loop is "use the allotment up, buy
+#     again": buying once is only half the happy path, and a box that restores
+#     the balance while the gate stays shut passes every paid:* check above.
+#     This lane spends a SECOND token for the same client and then demands the
+#     GATE -- a request through the customer's own data path that comes back
+#     200/204 with no redirect. See lib/api_check.py second_purchase_lane().
+# --------------------------------------------------------------------------
+printf '\n===== 6b. the SECOND purchase (opt-in: --second-purchase + RHP_CASHU_TOKEN_2) =====\n'
+fold paid2 "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only paid2
+if [ "${RHP_SECOND_PURCHASE:-0}" = "1" ]; then
+    chk "paid2:requested" PASS "the second purchase was requested for this run (RHP_SECOND_PURCHASE=1)"
+else
+    chk "paid2:requested" SKIP "RHP_SECOND_PURCHASE is not 1: the second purchase is opt-in, so its checks are SKIPs and no second token is sent"
 fi
 
 # --------------------------------------------------------------------------

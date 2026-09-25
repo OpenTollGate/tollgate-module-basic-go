@@ -13,26 +13,34 @@
 # evidence. A hardware-only suite rots precisely because nobody can see it go red
 # on demand.
 #
-# COVERAGE, MEASURED (not asserted). A live run can emit 74 distinct check ids and
-# these 35 cases drive 49 of them red at least once. The ones that DO NOT go red
+# COVERAGE, MEASURED (not asserted). A live run can emit 83 distinct check ids and
+# these 42 cases drive 53 of them red at least once. The ones that DO NOT go red
 # here are the ones this rig cannot break -- named, so nobody has to guess:
-#   * paid:* (6)          the paid lane is opt-in behind RHP_CASHU_TOKEN; no case
-#                         redeems, spends, or touches ecash. Its DECODE is pinned
-#                         by the cashtoken-* cases below (v3, v4, malformed
-#                         version, no prefix), which is the part that was broken:
-#                         the version character was read at token[6], so every
-#                         real token failed inspection before the lane could buy
-#                         anything at all
 #   * ssh:* (4)           needs a real router; opt-in behind RHP_SSH
 #   * net:tcp-<port> (7)  a stub that stops listening is not a state one rig run
 #                         can hold; the port sweep is GREEN in every case
 #   * net:icmp-not-a-liveness-test  the source guard: it can only go red if
 #                         somebody reintroduces `ping`, which is the edit it forbids
+#   * paid:* / paid2:*    the opt-in purchase lanes now RUN offline on a fixture
+#                         token (paid-lane-fixture, paid-lane-rejected,
+#                         renew-gate-opens, renew-gate-stuck) -- the control the
+#                         paid lane never had, which is exactly how a decode bug
+#                         that killed EVERY token survived in a merged harness.
+#                         The ids whose red path is "the operator did not supply
+#                         the thing" (paid:token-supplied, paid2:requested,
+#                         paid2:spend-declaration, paid2:token-inspected,
+#                         paid2:purchase-accepted, paid2:balance-restored,
+#                         paid:session-flip) stay green: a missing token is not a
+#                         defect to model, and the case that owns the lane's RED
+#                         is the one that reads the customer's data path.
 #   * api:whoami-shape, api:identity-shape (SKIPs on 404), artifact:package,
 #     captive:spa-noscript-fallback, identity:admin:refs-in-package,
 #     ln:no-quote-not-granted, surface:<luci>-luci-307
 #                         shape assertions whose red path is a variant the stub
 #                         does not produce yet -- a known, listed gap, not a claim
+# The fixture token the purchase lanes are driven with is a v3 token built by
+# selftest/cashtoken_selftest.py -- non-redeemable, accepted only by the stub, and
+# the same file pins the decode it goes through. No real ecash exists in any case.
 # Re-derive the list with `--keep`: every per-case transcript is left on disk, and
 # the ids that never appear as FAIL across them are the uncovered set.
 #
@@ -157,9 +165,16 @@ start_stub() {  # start_stub [scenario file]
     return 1
 }
 
-harness_run() {  # harness_run <outfile> [harness args...]
+harness_run() {  # harness_run <outfile> [VAR=VAL...] [harness args...]
+    # Leading VAR=VAL words are handed to the run as environment. That is how the
+    # opt-in lanes are driven offline (they are gated on operator env vars), so a
+    # case can prove the lane's RED/GREEN behaviour with no hardware and no
+    # secret: the stub accepts any non-empty POST body.
     local out="$1"; shift
-    ( cd "$HARNESS" && RHP_TMPDIR="$TMP_PARENT" \
+    local envs=()
+    while [ $# -gt 0 ] && printf '%s' "$1" | grep -q '='; do envs+=("$1"); shift; done
+    ( cd "$HARNESS" && env ${envs[@]+"${envs[@]}"} \
+        RHP_TMPDIR="$TMP_PARENT" \
         RHP_PORTAL_PORT="$PORTAL_PORT" RHP_STUB_PORT="$STUB_PORT" RHP_API_PORT="$API_PORT" \
         RHP_ADMIN_PORT="$ADMIN_PORT" RHP_LUCI_PORT="$LUCI_PORT" RHP_CAPTIVE_PORT="$CAPTIVE_PORT" \
         RHP_SSH_PORT="$SSH_PORT" RHP_TLS_PORT="$TLS_PORT" \
@@ -202,6 +217,28 @@ mut_case() {  # mut_case <case> <expect> <id> <scenario json> [harness args...]
     start_stub "$WORK/scenario.json" || { st "$name" BAD "stub did not restart"; return; }
     local out="$WORK/out.$name.txt"
     harness_run "$out" "$@"
+    check_case "$name" "$expect" "$id" "$out" "$?"
+}
+
+env_case() {  # env_case <case> <expect> <id> <scenario json> [VAR=VAL...] [-- harness args...]
+    # An OPT-IN lane cannot be driven by a mutation alone: it is gated on an
+    # operator env var (a token, a ceiling, an explicit request). This case hands
+    # the run those vars, so the lane's own RED/GREEN behaviour is provable with
+    # no hardware, no secret and no spend -- the stub accepts any non-empty body.
+    local name="$1" expect="$2" id="$3" json="$4"; shift 4
+    local envs=() args=() after_sep=0 arg
+    for arg in "$@"; do
+        if [ "$arg" = "--" ]; then after_sep=1; continue; fi
+        if [ "$after_sep" = "1" ]; then args+=("$arg"); else envs+=("$arg"); fi
+    done
+    printf '%s\n' "$json" > "$WORK/scenario.json"
+    start_stub "$WORK/scenario.json" || { st "$name" BAD "stub did not restart"; return; }
+    local out="$WORK/out.$name.txt"
+    # NOTE: the `--` above is a LOCAL separator only. It is deliberately not
+    # forwarded: run.sh rejects an unknown argument, so a stray `--` would abort
+    # the run before a single check was emitted (which reads exactly like "the
+    # check never ran").
+    harness_run "$out" ${envs[@]+"${envs[@]}"} ${args[@]+"${args[@]}"}
     check_case "$name" "$expect" "$id" "$out" "$?"
 }
 
@@ -250,12 +287,55 @@ mut_case ln-wrong-error       FAIL ln:no-quote-status-poll                 '{"ln
 # 6. money path
 mut_case empty-token-accepted FAIL money:empty-token-rejected              '{"empty_token_ok": true}'
 
+# 6b. the SECOND purchase -- the club's main loop. Nothing here could see the
+#     defect the operator hit on hardware (2026-09-25, pre17): the second
+#     purchase restored the balance, the gate stayed shut, and the client's OS
+#     was never shown a sign-in prompt. The paid lane above only ever buys ONCE,
+#     so the whole re-purchase path was outside the suite. These cases drive it
+#     through the stub's renew model with a FIXTURE token -- the stub accepts any
+#     non-empty POST body, so no real ecash exists and none can move.
+FAKE_TOKEN_2="$(python3 "$SELF_DIR/cashtoken_selftest.py" --emit-v3 210)"
+
+# First: the two lanes' own controls. The paid lane never had one, and that is
+# precisely why a decode bug that made EVERY token un-inspectable could sit in a
+# merged harness: the default run SKIPs the lane, so nothing ever ran it.
+env_case paid-lane-fixture     PASS paid:purchase-accepted '{"renew": "ok"}' \
+    RHP_CASHU_TOKEN="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000
+env_case paid-lane-rejected    FAIL paid:purchase-accepted '{"post_reject_token": true}' \
+    RHP_CASHU_TOKEN="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000
+
+PROBE_URL="http://127.0.0.1:$CAPTIVE_PORT/generate_204"
+env_case renew-gate-opens    PASS paid2:gate-open '{"renew": "ok"}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL"
+env_case renew-gate-stuck    FAIL paid2:gate-open '{"renew": "stuck"}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL"
+env_case renew-live-session  FAIL paid2:first-allotment-spent '{"renew": "ok", "active_first": true}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL"
+# The two renew outcomes must be OPPOSITE on the same check -- that is the whole
+# claim: it reads the gate, not the module's memory of the session.
+if grep -q 'RHPCHECK paid2:gate-open PASS' "$WORK/out.renew-gate-opens.txt" \
+   && grep -q 'RHPCHECK paid2:gate-open FAIL' "$WORK/out.renew-gate-stuck.txt" \
+   && grep -q 'HTTP 307' "$WORK/out.renew-gate-stuck.txt"; then
+    st renew-two-outcomes OK "the same check distinguishes an open gate (probe 204) from the reported defect (balance restored, probe still 307 to the splash)"
+else
+    st renew-two-outcomes BAD "the renew cases did not produce the two opposite probe outcomes"
+fi
+# ... and the balance is NOT what distinguishes them: in the stuck case the
+# module's own /balance answers exactly like the healthy one.
+if grep -q 'RHPCHECK paid2:balance-restored PASS' "$WORK/out.renew-gate-stuck.txt"; then
+    st renew-balance-lies OK "in the stuck case paid2:balance-restored is PASS while paid2:gate-open is FAIL -- the balance was restored and the gate was not"
+else
+    st renew-balance-lies BAD "the stuck case did not restore the balance, so it does not model the reported defect"
+fi
+
 # The paid lane's spend gate: cashtoken.py's NUT-00 decode. Its off-by-one
 # (version read at token[6], the first PAYLOAD character) was found on the paid
-# lane's first hardware run (2026-09-25, pre17, a 64-sat testnut token) and made
-# EVERY token fail inspection -- so the lane never reached a purchase, and the
-# default run's SKIP is why nothing here had seen it. Pin both the good and the
-# malformed path.
+# lane's first hardware run and made EVERY token fail inspection -- so the lane
+# never reached a purchase, and the default run's SKIP hid it. Pin both the good
+# and the malformed path.
 CT_OUT="$WORK/cashtoken.txt"
 python3 "$SELF_DIR/cashtoken_selftest.py" > "$CT_OUT" 2>&1 || true
 while read -r tag name verdict rest; do

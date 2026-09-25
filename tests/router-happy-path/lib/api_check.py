@@ -467,6 +467,215 @@ def paid_lane(args):
             "after an accepted payment /balance still reports %r" % (bal if bal is not None else raw2[:120]))
 
 
+# --------------------------------------------------------------------------
+# The SECOND purchase -- OPT-IN (RHP_SECOND_PURCHASE=1 + RHP_CASHU_TOKEN_2).
+#
+# WHY THIS LANE EXISTS: the step allotment is 21 MiB, so a customer spends the
+# first one in minutes and buys again. That second purchase IS the club's happy
+# path, and it is the one that failed on real hardware (2026-09-25, pre17 on an
+# MT3000): the portal showed a NEW allotment, /balance agreed, and the client
+# still had no internet -- and no OS captive-portal prompt either, so it was
+# neither redirected nor served. The paid lane above only ever buys ONCE, so
+# nothing in this suite could see it.
+#
+# The assertion that matters is the GATE, never the balance. /balance is the
+# module's own memory of the session; on the failing box it said the allotment
+# was restored while the customer's traffic was still dropped. So this lane ends
+# with a request through the customer's OWN data path (RHP_EGRESS_PROBE_URL,
+# default the Android probe URL) and requires an online answer -- 200/204, no
+# redirect. The two failure shapes a shut gate produces are named in the FAIL
+# detail instead of being collapsed into "no internet":
+#   * a 3xx to :2050/splash.html?redir=...  -> still intercepted in NoDogSplash
+#   * no answer at all                      -> not redirected and not served
+# --------------------------------------------------------------------------
+DEFAULT_PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
+SECOND_CHECK_IDS = ("paid2:first-allotment-spent", "paid2:token-supplied",
+                    "paid2:spend-declaration", "paid2:token-inspected",
+                    "paid2:purchase-accepted", "paid2:balance-restored",
+                    "paid2:gate-open")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The probe is read RAW. urllib follows redirects by default, and a 307 to
+    the splash page is exactly the failure this lane is looking for."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_PROBE_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def probe_client_path(url, timeout=15):
+    """-> (status|None, location_header, body[:256]). One request from THIS
+    machine -- the customer's seat -- through whatever the box does to it."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with _PROBE_OPENER.open(req, timeout=timeout) as resp:
+            return resp.status, str(resp.headers.get("Location") or ""), resp.read(256)
+    except urllib.error.HTTPError as exc:
+        return exc.code, str((exc.headers or {}).get("Location") or ""), (exc.read() or b"")[:256]
+    except Exception:
+        return None, "", b""
+
+
+def session_active_state(args):
+    """-> (active|None, detail). `/session-state` is the endpoint that exists to
+    tell a first-time visitor from an exhausted customer; `/balance` is the
+    fallback for a build that predates it (#541) and answers session_active too."""
+    st, raw, _ = request(api_base(args) + "/session-state")
+    obj = jload(raw)
+    if st == 200 and isinstance(obj, dict) and "session_active" in obj:
+        return bool(obj["session_active"]), "/session-state -> %s" % raw[:160].decode("utf-8", "replace")
+    st2, raw2, _ = request(api_base(args) + "/balance")
+    bal = jload(raw2)
+    if isinstance(bal, dict) and "session_active" in bal:
+        return bool(bal["session_active"]), "/balance -> %s" % raw2[:160].decode("utf-8", "replace")
+    return None, "/session-state -> HTTP %s %r; /balance -> HTTP %s %r" % (
+        st, raw[:80], st2, raw2[:80])
+
+
+def second_purchase_lane(args):
+    # Each check id is emitted EXACTLY once, whatever path the lane takes out:
+    # a check that never appears is invisible in the tally, and a duplicate
+    # would be counted twice.
+    emitted = set()
+
+    def emit(cid, status, detail=""):
+        if cid in emitted:
+            return
+        emitted.add(cid)
+        chk(cid, status, detail)
+
+    def skip_rest(reason):
+        for cid in SECOND_CHECK_IDS:
+            emit(cid, "SKIP", reason)
+
+    if os.environ.get("RHP_SECOND_PURCHASE", "").strip() != "1":
+        skip_rest("RHP_SECOND_PURCHASE is not 1: the second purchase is opt-in "
+                  "(it needs a second token and an already spent first allotment)")
+        return
+
+    token2 = os.environ.get("RHP_CASHU_TOKEN_2", "").strip()
+    declared = os.environ.get("RHP_SPEND_MAX_SATS", "").strip()
+    probe_url = (os.environ.get("RHP_EGRESS_PROBE_URL") or DEFAULT_PROBE_URL).strip()
+
+    # 1. The precondition that makes everything below attributable. A "second
+    #    purchase" on a live session is a renewal of an OPEN gate, not the club's
+    #    loop, and it cannot show whether the gate re-opens -- it never closed.
+    #    So the box must be seen in the exhausted state first.
+    active, state_detail = session_active_state(args)
+    if active is None:
+        emit("paid2:first-allotment-spent", "FAIL",
+             "cannot read the session state, so the exhausted precondition cannot be "
+             "established: %s" % state_detail)
+        skip_rest("the session state is unreadable")
+        return
+    if active:
+        emit("paid2:first-allotment-spent", "FAIL",
+             "the box still reports an ACTIVE session (%s): spend the first allotment first "
+             "(download your step size through the guest SSID) and re-run -- on a live session "
+             "the re-purchase cannot be told from a renewal" % state_detail)
+        skip_rest("the first allotment has not been spent")
+        return
+    emit("paid2:first-allotment-spent", "PASS",
+         "the box reports NO active session, so the first allotment is spent (%s)" % state_detail)
+
+    if not token2:
+        emit("paid2:token-supplied", "SKIP", "RHP_CASHU_TOKEN_2 not set: no second token is sent")
+        skip_rest("no second token supplied")
+        return
+    emit("paid2:token-supplied", "PASS", "a second token was supplied (value moves only below)")
+
+    if not declared:
+        emit("paid2:spend-declaration", "FAIL",
+             "RHP_CASHU_TOKEN_2 is set but RHP_SPEND_MAX_SATS is not: refusing to spend without "
+             "an explicit declaration of how much value you are willing to lose")
+        skip_rest("no spend ceiling declared")
+        return
+    try:
+        declared_sats = int(declared)
+    except ValueError:
+        emit("paid2:spend-declaration", "FAIL", "RHP_SPEND_MAX_SATS=%r is not an integer" % declared)
+        skip_rest("the declared spend ceiling is not a number")
+        return
+    emit("paid2:spend-declaration", "PASS",
+         "operator declares <= %d sat spendable for the re-purchase; the lane aborts above that"
+         % declared_sats)
+
+    info = cashtoken.inspect(token2)
+    if not info["parseable"]:
+        emit("paid2:token-inspected", "FAIL", "cannot inspect the second token: %s" % info["note"])
+        skip_rest("the second token could not be inspected")
+        return
+    if info["total_sats"] is not None and info["total_sats"] > declared_sats:
+        emit("paid2:token-inspected", "FAIL",
+             "the second token carries %d sat > declared RHP_SPEND_MAX_SATS=%d: refusing to redeem it"
+             % (info["total_sats"], declared_sats))
+        skip_rest("the second token is above the declared ceiling")
+        return
+    emit("paid2:token-inspected", "PASS",
+         "v%s mint(s)=%s total=%s%s" % (info["version"], info["mint_urls"], info["total_sats"],
+                                        "" if not info["note"] else " (%s)" % info["note"]))
+
+    base = api_base(args)
+    mac = resolve_mac(args)
+    if not mac:
+        emit("paid2:purchase-accepted", "FAIL",
+             "cannot resolve this client's MAC from the socket; refusing to redeem a token "
+             "against the all-zero sentinel")
+        skip_rest("no client MAC resolvable")
+        return
+
+    st, raw, _ = request(base + "/?mac=%s" % mac, method="POST", body=token2.encode("utf-8"))
+    obj = jload(raw)
+    kind = obj.get("kind") if isinstance(obj, dict) else None
+    if st == 200 and kind == 1022:
+        emit("paid2:purchase-accepted", "PASS",
+             "POST / for the SAME client %s -> 200 kind:1022 (the second token is redeemed)" % mac)
+    else:
+        emit("paid2:purchase-accepted", "FAIL",
+             "the second POST / -> HTTP %s kind=%r body=%r" % (st, kind, raw[:200]))
+        skip_rest("the second purchase was not accepted")
+        return
+
+    st2, raw2, _ = request(base + "/balance")
+    bal = jload(raw2)
+    if isinstance(bal, dict) and bal.get("session_active") is True:
+        emit("paid2:balance-restored", "PASS",
+             "the balance shows the new allotment: session_active=%s allotment=%s remaining=%s"
+             % (bal.get("session_active"), bal.get("allotment"), bal.get("remaining")))
+    else:
+        emit("paid2:balance-restored", "FAIL",
+             "after the accepted re-purchase /balance reports %r"
+             % (bal if bal is not None else raw2[:120]))
+
+    # The one that matters. Everything above can be green on a box whose gate is
+    # still shut -- that is exactly what the operator saw.
+    pst, loc, body = probe_client_path(probe_url)
+    if pst in (200, 204) and not loc:
+        emit("paid2:gate-open", "PASS",
+             "the customer's data path is OPEN: %s -> HTTP %s, no redirect (the gate really "
+             "re-opened for %s)" % (probe_url, pst, mac))
+    elif pst is None:
+        emit("paid2:gate-open", "FAIL",
+             "the gate did NOT re-open: %s produced no answer at all (transport failure/timeout) "
+             "-- the client is neither redirected nor served. Capture the guard chain with "
+             "counters (nft list chain inet fw4 nds_enforce_forward) and `ndsctl clients` for "
+             "%s: an UNMARKED client is rejected there, and that state matches the report "
+             "(no OS sign-in prompt either)" % (probe_url, mac))
+    elif 300 <= pst < 400 and "splash" in loc:
+        emit("paid2:gate-open", "FAIL",
+             "the gate did NOT re-open: %s -> HTTP %s to %s -- the client is still INTERCEPTED "
+             "by NoDogSplash after a paid re-purchase, so the balance came back and the "
+             "authorisation did not" % (probe_url, pst, loc))
+    else:
+        emit("paid2:gate-open", "FAIL",
+             "the gate did NOT re-open: %s -> HTTP %s location=%r body=%r -- anything other than "
+             "200/204 with no redirect means the customer is not online, however healthy /balance "
+             "looks" % (probe_url, pst, loc, body[:120]))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--router-ip", required=True)
@@ -492,6 +701,8 @@ def main():
         check_empty_token(args)
     if not args.only or args.only == "paid":
         paid_lane(args)
+    if not args.only or args.only == "paid2":
+        second_purchase_lane(args)
     if THROTTLE["recovered"]:
         note("http: recovered from %d throttle response(s) (HTTP 429, the module's root-handler "
              "rate limit) by honouring Retry-After -- no check above is red because of the limiter"
