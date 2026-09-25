@@ -30,8 +30,12 @@ fail() { echo "FAIL: $1"; exit 1; }
 [ "$RC" -ne 0 ] || fail "script exited 0 on a clean checkout — the guard did not fire"
 echo "$ERR" | grep -q "make portal-build" \
     || fail "error does not tell the developer to run 'make portal-build': $(echo "$ERR" | head -1)"
-echo "$ERR" | grep -q "index.html" \
-    || fail "error does not name the missing staged file: $(echo "$ERR" | head -1)"
+# The JS-bundle guard runs first: the committed portal shell
+# (splash.html et al.) is present on a clean checkout but the built
+# bundles are not, and the guest SPA deliberately has no index.html —
+# the bundle set is its only staged-content canary.
+echo "$ERR" | grep -q "JS bundles" \
+    || fail "error does not name the unbuilt portal bundles: $(echo "$ERR" | head -1)"
 
 # The guard must fire before any Go build output — the failure has to be
 # fast and toolchain-independent.

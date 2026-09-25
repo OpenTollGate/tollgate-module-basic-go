@@ -29,13 +29,21 @@ case "$ARCH" in
 esac
 GOARM="${GOARM:-}"; GOMIPS="${GOMIPS:-}"
 
-# The portal, admin SPA and rpcd plugin are build products staged by
-# `make portal-build` (packaging/portal-build.sh); a clean checkout does
-# not contain built portal bytes (#335). Packaging without them ships an
-# .ipk whose captive portal renders nothing — refuse early, before any
-# toolchain work.
+# The portal JS bundles, admin SPA and rpcd plugin are build products
+# staged by `make portal-build` (packaging/portal-build.sh); a clean
+# checkout keeps only the committed portal shell (splash.html et al.) and
+# none of the built bytes (#335). Packaging without them ships an .ipk
+# whose captive portal renders nothing — refuse early, before any
+# toolchain work. The guest SPA has no index.html on purpose (its pages
+# are splash.html/balance.html/404.html), so the staged-content check for
+# it is the JS bundle set itself.
+if ! ls packaging/files/tollgate-captive-portal-site/assets/*.js >/dev/null 2>&1; then
+    echo "ERROR: no JS bundles under packaging/files/tollgate-captive-portal-site/assets/ —" >&2
+    echo "       run 'make portal-build' first (only the committed shell is present; the" >&2
+    echo "       portal would render nothing)." >&2
+    exit 1
+fi
 for staged in \
-    "tollgate-captive-portal-site/index.html" \
     "tollgate-admin/index.html" \
     "usr/libexec/rpcd/tollgate"
 do
@@ -46,12 +54,6 @@ do
         exit 1
     fi
 done
-if ! ls packaging/files/tollgate-captive-portal-site/assets/*.js >/dev/null 2>&1; then
-    echo "ERROR: no JS bundles under packaging/files/tollgate-captive-portal-site/assets/ —" >&2
-    echo "       run 'make portal-build' first (only the manifest is present; the portal" >&2
-    echo "       would render nothing)." >&2
-    exit 1
-fi
 
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
