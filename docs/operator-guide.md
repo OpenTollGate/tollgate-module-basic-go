@@ -26,6 +26,7 @@ tollgate wallet balance                   Total wallet balance (sats)
 tollgate wallet info                      Per-mint breakdown
 tollgate wallet fund [cashu-token]        Add funds from a Cashu token
 tollgate wallet drain cashu               Export ALL funds as Cashu tokens
+tollgate wallet recover                   Check drain journal for still-spendable tokens
 
 tollgate network private status           Private Wi-Fi: SSID, password, on/off
 tollgate network private enable           Turn private Wi-Fi on (2.4 + 5 GHz)
@@ -255,6 +256,28 @@ mint is attempted) to `/etc/tollgate/wallet-drain-journal.jsonl`, an
 append-only safety copy in case the terminal session or the device is
 lost before the tokens are secured. Sweep and clear that file the same
 way you treat the drain output.
+
+### Recover drain tokens
+
+```sh
+tollgate wallet recover
+```
+
+After an interrupted session (crash, lost SSH connection, partial
+drain), this command checks every token in the drain journal against
+its mint (NUT-07 proof state) and reports which ones are still
+spendable:
+
+- **live** — printed with mint, amount, and the full token string;
+  secure or redeem it like any drain output.
+- **spent** — already redeemed; nothing to do.
+- **unknown** — the mint could not give a definitive answer (unreachable,
+  an unusable response, or a redemption in flight); the command exits
+  non-zero so a partial answer is never mistaken for a clean sweep.
+  Re-run later.
+
+The command is read-only: it never moves funds and never modifies the
+wallet or the journal. Treat the printed token strings as cash.
 
 Cancellation and failure are distinguishable from success by exit
 code: `0` only when the whole drain succeeded; a declined or
