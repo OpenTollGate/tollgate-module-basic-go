@@ -1,4 +1,4 @@
-//go:build testenv && !cdk_wallet
+//go:build !cdk_wallet
 
 package merchant
 
