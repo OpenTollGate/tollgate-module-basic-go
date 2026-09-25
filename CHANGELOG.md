@@ -26,6 +26,28 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A gate OPEN that `ndsctl` did not confirm is no longer treated as an
+  open: the paid session stays tracked and the authorisation is retried until it
+  succeeds.** The deferred-auth path (the shape the shipped portal uses) deleted
+  the gate tracking and returned once `ndsctl auth` had failed its bounded
+  retries, so a customer who had **already paid** was left with a shut gate that
+  nothing tracked and nothing would ever re-open, while every module-visible
+  surface (`/balance`, the portal) reported the session as granted. That is the
+  club's main loop: spend the 21 MiB allotment, buy again, and the gate must
+  re-open — on hardware (GL-MT3000, pre17) the second purchase showed the new
+  allotment and no internet. Both deferred-auth paths now keep the gate and arm a
+  retry (`2 s → 5 s → 15 s → 30 s → 60 s`, then 60 s for ever) that re-runs the
+  auth and completes the grant — metering baseline included, so a recovered
+  session cannot become free unmetered internet — and every unconfirmed open is
+  escalated to an `ERROR` log naming client, attempt and next attempt and counted
+  in the new `valve.OpenFailures()`, the open-side twin of
+  `valve.GateCloseFailures()`. Retries and the pending-gate teardown are
+  epoch-guarded exactly like the close side, so a retry that outlived its gate
+  can never forget, extend or deauthorize a newer one the same client bought in
+  the meantime. Restart behaviour is unchanged (the grant is process memory):
+  a restart still loses a pending grant
+  ([#587](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/587)).
+
 - **Guests on the open SSID can no longer reach each other: the setup writer
   now arms client isolation on both guest APs.** Nothing in the writer, the
   portal or the installer ever set it, so on the shipped config a guest on the
