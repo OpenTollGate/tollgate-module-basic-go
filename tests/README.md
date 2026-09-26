@@ -70,8 +70,11 @@ bash tests/router-happy-path/selftest/run_selftest.sh   # offline, no router nee
 ```
 
 Read-only by default and it spends nothing. See
-`tests/router-happy-path/README.md` for the ordered check list, the traps it
-encodes (ICMP is dropped; `:2050` is a stub; `/session-state` falls through on
-pre-#541 builds), the opt-in paid lane, and the bench evidence (GREEN against
-`v0.6.0-alpha5`, RED against an older package). Deploy, flashing and browser E2E
-stay with `physical-router-test-automation`.
+`tests/router-happy-path/README.md` for the ordered check list, the **vantage**
+(`--vantage guest|mgmt|auto`: a guest-side run is the expected default for a
+tester, and it asserts that `:8090` is unreachable rather than skipping it), the
+traps it encodes (ICMP is dropped; `:2050` is a stub; `/session-state` falls
+through on pre-#541 builds; the section-0 TCP burst is retried and reconciled so a
+port that answers later is a WARNING, not a red line), the opt-in paid lane, and
+the bench evidence (GREEN against `v0.6.0-alpha5`, RED against an older package).
+Deploy, flashing and browser E2E stay with `physical-router-test-automation`.
