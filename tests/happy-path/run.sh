@@ -312,15 +312,23 @@ if [ "$RUN_MODULE" = "1" ] && command -v curl >/dev/null 2>&1; then
 fi
 
 # http <path> [curl args...] -> body on stdout. The status code lands in
-# $WORK/code: a command substitution runs in a subshell, so a variable assigned
-# inside http() would never reach the caller.
+# $WORK/code and the response headers in $WORK/headers: a command substitution
+# runs in a subshell, so a variable assigned inside http() would never reach the
+# caller.
 http() {
     local path="$1"; shift
-    curl -s -m 25 -o "$WORK/body" -w '%{http_code}' "$@" \
+    curl -s -m 25 -o "$WORK/body" -D "$WORK/headers" -w '%{http_code}' "$@" \
         "http://127.0.0.1:$MODULE_PORT$path" > "$WORK/code" 2>/dev/null
     cat "$WORK/body" 2>/dev/null
 }
 httpcode() { cat "$WORK/code" 2>/dev/null; }
+# httpheader <name> -> the value of that response header from the last http()
+# call, or "" if it was absent. Portable on mawk (no IGNORECASE): match the name
+# case-insensitively with grep -i, then strip "name:".
+httpheader() {
+    tr -d '\r' < "$WORK/headers" 2>/dev/null \
+        | grep -i "^$1:" | tail -1 | sed 's/^[^:]*:[[:space:]]*//'
+}
 
 if [ "$MOD_UP" = "1" ]; then
     # --- C4: kind:10021 advertisement -------------------------------------
@@ -367,6 +375,65 @@ if [ "$MOD_UP" = "1" ]; then
         *[0-9]/*[0-9]*) chk api:usage-shape PASS "/usage -> HTTP $CODE $(printf '%s' "$U" | head -c 40)" ;;
         *)              chk api:usage-shape FAIL "/usage -> HTTP $CODE body: $(printf '%s' "$U" | head -c 160)" ;;
     esac
+
+    # --- C7b: the client-identity contract --------------------------------
+    # Every client-scoped route of :2121 answers for the client at the other end
+    # of the socket, and NEVER for a `mac` the caller sent. The parameter is
+    # accepted for wire compatibility with the shipped portal (whose Lightning
+    # lane echoes back what /whoami told it) and ignored.
+    #
+    # WHY IT IS CHECKED HERE: measured on the bench (MT3000, 2026-09-26) a token
+    # posted "for" a MAC the sender was not using opened the gate for the
+    # SENDER's socket, and nothing on the wire said so — the rig read the answer
+    # that named no such session as "the gate never opened" and lost hours. So
+    # the contract is only worth anything if it is legible: name a MAC we are
+    # certainly not using and require the module to report that claim as
+    # IGNORED, and to name the client it really answered for.
+    #
+    # The identity the module resolves is the one /whoami just reported (C5), and
+    # the gate fixture leases this client (see happy-path-gate.sh) exactly as a
+    # router would. If /whoami resolved nothing here, the identity header is
+    # legitimately absent and the claim report is the half that is asserted.
+    ID_CLAIM='02:11:22:33:44:55'
+    ID_SENTINEL='00:00:00:00:00:00'
+    ID_SOCKET="$(printf '%s' "$W" | sed -n 's/^mac=//p' | tr 'A-Z' 'a-z')"
+    ID_FAIL=""
+    identity_probe() {  # identity_probe <label> <path> [curl args...]
+        local label="$1" path="$2"; shift 2
+        local ignored client
+        http "$path" "$@" > /dev/null
+        ignored="$(httpheader 'X-TollGate-Mac-Claim-Ignored' | tr 'A-Z' 'a-z')"
+        client="$(httpheader 'X-TollGate-Client-MAC' | tr 'A-Z' 'a-z')"
+        if [ "$ignored" != "$ID_CLAIM" ]; then
+            ID_FAIL="$ID_FAIL; $label reported the claim as '$ignored' (want $ID_CLAIM: an ignored claim must say so)"
+        fi
+        if [ -n "$ID_SOCKET" ] && [ "$ID_SOCKET" != "$ID_SENTINEL" ]; then
+            if [ "$client" != "$ID_SOCKET" ]; then
+                ID_FAIL="$ID_FAIL; $label named '$client' as the client (want the socket's $ID_SOCKET)"
+            fi
+        elif [ "$client" = "$ID_CLAIM" ]; then
+            ID_FAIL="$ID_FAIL; $label named the caller's claim as the client"
+        fi
+    }
+
+    identity_probe "GET /whoami"       "/whoami?mac=$ID_CLAIM"
+    identity_probe "GET /balance"      "/balance?mac=$ID_CLAIM"
+    identity_probe "GET /usage"        "/usage?mac=$ID_CLAIM"
+    identity_probe "GET /session-state" "/session-state?mac=$ID_CLAIM"
+    # The money route, with an EMPTY body: no proof, so nothing can be redeemed
+    # or spent — the same inert probe the router harness uses. What is asserted
+    # is that the route tells the caller which client it acted for and that its
+    # claim was not honoured, which is the signal that was missing on the bench.
+    identity_probe "POST / (empty body)" "/?mac=$ID_CLAIM" \
+        -X POST -H 'Content-Type: text/plain' --data-binary ''
+
+    if [ -z "$ID_FAIL" ]; then
+        chk api:client-identity PASS \
+            "a ?mac= claim is reported as IGNORED on /whoami, /balance, /usage, /session-state and POST /, and the identity named is the socket's (${ID_SOCKET:-unresolved})"
+    else
+        chk api:client-identity FAIL \
+            "the socket-scoped identity contract is not legible:$ID_FAIL (want 'X-TollGate-Mac-Claim-Ignored: $ID_CLAIM' on every client-scoped route and 'X-TollGate-Client-MAC' naming the client /whoami resolved to)"
+    fi
 
     # --- C8: the LN quote path --------------------------------------------
     # No quote = a 400 STATUS POLL, which is the documented answer, not a fault.
