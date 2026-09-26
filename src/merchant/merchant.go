@@ -1123,8 +1123,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Pre-check the mint's swap fee: a token whose value is entirely consumed
 	// by the fee fails the swap with an opaque mint error. Fail fast with a
 	// clear message. If the fee can't be determined (cdk adapter, mint
-	// unreachable), fall through and let Receive classify the error.
-	if fee, feeErr := m.tollwallet.SwapFeeSats(paymentCashuToken); feeErr == nil && fee > 0 {
+	// unreachable — or the precheck overruns its budget against a wedged
+	// mint, #525), fall through and let Receive classify the error.
+	if fee, feeErr, ok := swapFeeSatsBounded(m.tollwallet.SwapFeeSats, paymentCashuToken); ok && feeErr == nil && fee > 0 {
 		if amount := paymentCashuToken.Amount(); amount <= fee {
 			msg := fmt.Sprintf(
 				"This e-cash note is %d sat but mint %s charges a %d sat swap fee, so there is nothing left to spend. Use a larger token or a mint without fees.",
@@ -1321,6 +1322,38 @@ func isRateLimitError(err error) bool {
 	return strings.Contains(msg, "429") ||
 		strings.Contains(msg, "rate limit") ||
 		strings.Contains(msg, "too many requests")
+}
+
+// swapFeePrecheckBudget bounds the fee precheck (#525): the wallet client's
+// retry ladder (30 s per attempt, up to 5 attempts, chained endpoints) means
+// a wedged mint — one that accepts nothing, docker pause reproduces it —
+// parks SwapFeeSats for minutes, freezing the payment lane before anything
+// with a deadline runs. The fee check is an optimization, not a gate: past
+// the budget the payment proceeds and Receive's own error classification
+// (or its receive timeout) governs.
+const swapFeePrecheckBudget = 3 * time.Second
+
+// swapFeeSatsBounded runs fee with swapFeePrecheckBudget. ok=false means the
+// budget expired without an answer — treat the fee as unknown. The parked
+// call is abandoned (it self-clears when the retry ladder exhausts); the
+// result channel is buffered so a late answer does not leak a goroutine.
+func swapFeeSatsBounded(fee func(tollwallet.Token) (uint64, error), token tollwallet.Token) (feeSats uint64, err error, ok bool) {
+	type feeResult struct {
+		fee uint64
+		err error
+	}
+	res := make(chan feeResult, 1)
+	go func() {
+		f, err := fee(token)
+		res <- feeResult{f, err}
+	}()
+	select {
+	case r := <-res:
+		return r.fee, r.err, true
+	case <-time.After(swapFeePrecheckBudget):
+		log.Printf("PurchaseSession: fee precheck overran its %s budget (wedged mint?) — proceeding without the fee check", swapFeePrecheckBudget)
+		return 0, nil, false
+	}
 }
 
 // isBelowSwapFeeError reports whether err is the "the token cannot cover the
