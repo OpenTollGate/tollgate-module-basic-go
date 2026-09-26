@@ -33,7 +33,7 @@ and [Semantic Versioning](https://semver.org/).
   A definitive "no client record" from `ndsctl json` also completes a close; a
   probe that fails never does. Decision and scope, including why there is no
   startup reconciliation pass, in
-  `docs/architecture/zombie-session-close-reconciliation-decision.md`.
+  `docs/architecture/zombie-session-close-reconciliation-decision.md` ([#595](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/595)).
 
 - **A paid purchase that cannot be granted is a loud, specific error, not a
   silent no-op.** With the invoice settled and the tokens issued, a gate that
