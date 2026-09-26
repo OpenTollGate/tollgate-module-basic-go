@@ -302,6 +302,13 @@ load_brand() {
     esac
 }
 
+# LuCI's listener. :8080 is the plain-HTTP port and :443 is its TLS counterpart
+# (added only with a cert/key pair); both are MANAGEMENT-path listeners —
+# reached over br-private (the private SSID) and loopback — and both are kept
+# off the captive bridge by packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft
+# and by the absence of :8080/:443 from nodogsplash's pre-auth allow list
+# (assert_nodogsplash_allow_entries below). The guest journey's plain-HTTP entry
+# point is the :80 redirect stub that setup_uhttpd_trusted_entry installs.
 setup_uhttpd() {
     uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
     uci -q delete uhttpd.main.listen_http
@@ -359,6 +366,107 @@ setup_uhttpd_portal() {
     # inventory to pre-auth clients.
     uci set uhttpd.portal.no_dirlists='1'
 }
+
+# The plain-HTTP entry point for a client nodogsplash does NOT intercept.
+#
+# The defect this closes (bench MT3000, 2026-09-25, pre17): nodogsplash only
+# DNATs :80 to its own splash port for a PRE-AUTH client. For a trusted or
+# authenticated client its nat chain returns before the DNAT (mark 0x20000 /
+# 0x30000), and nothing listened on :80, so `http://<router>/` — the URL a
+# tester types, and the one a paying customer types to get back to the portal —
+# answered nothing at all. The client fell through to `https://<router>/`, which
+# used to land on LuCI (that half is closed by
+# 32-luci-not-guest-reachable.nft, so without this listener the URL would simply
+# be dead).
+#
+# So :80 gets a listener that serves exactly one document: the same kind of
+# redirect stub 90-tollgate-captive-portal-symlink installs for the pre-auth
+# path (JS `location.replace` with a <noscript> fallback), which bounces the
+# client to the product portal SPA on :2051. Serving the SPA itself from :80
+# would put the app on a second origin; the portal's canonical origin stays
+# :2051, where the app, its CORS allow-list and every existing check expect it.
+#
+# A dedicated uhttpd instance, not a port on uhttpd.portal: uhttpd has one
+# `home` per instance, and the portal's docroot is the pinned SPA bundle — a
+# redirect stub written into it would be a second writer fighting the bundle.
+# This instance's docroot belongs to this package and is written here.
+#
+# Defaults for a fresh install; every value is a full re-assert so an install
+# that lost the section converges.
+ROUTER_HOME_DIR="${ROUTER_HOME_DIR:-/etc/tollgate/router-home}"
+
+setup_uhttpd_trusted_entry() {
+    local home="$ROUTER_HOME_DIR"
+    local stub="$home/index.html"
+    local tmp="$home/.index.html.new"
+
+    if ! mkdir -p "$home" 2>/dev/null; then
+        log "ERROR: cannot create $home — the :80 entry point has no document root; skipping"
+        return 1
+    fi
+
+    # The <noscript> fallback cannot use JS's location.hostname, and the router
+    # may be reached by IP or by <hostname>.lan, so the link is written with the
+    # LAN IP resolved at install time (same reasoning as
+    # 90-tollgate-captive-portal-symlink). UCI accepts CIDR notation since
+    # 21.02, so a stored `192.168.1.1/24` is trimmed before it lands in a URL.
+    local lan_ip
+    lan_ip=$(uci -q get network.lan.ipaddr 2>/dev/null || echo 192.168.1.1)
+    [ -n "$lan_ip" ] || lan_ip=192.168.1.1
+    lan_ip="${lan_ip%%/*}"
+
+    cat > "$tmp" << EOF
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TollGate Portal</title>
+</head>
+<body>
+<p>Redirecting to the TollGate portal...</p>
+<script>
+// Cache-bust the SPA entry, exactly as the pre-auth stub in
+// 90-tollgate-captive-portal-symlink does: uhttpd serves the portal with
+// Last-Modified 1970-01-01 (reproducible builds) and no Cache-Control, so a
+// browser caches the HTML heuristically for years — and after an upgrade its
+// old /assets refs would 404. location.search (?redir=...) is preserved by
+// turning its leading '?' into '&'.
+location.replace('http://' + location.hostname + ':2051/splash.html?_cb=' + Date.now() + location.search.replace('?', '&'));
+</script>
+<noscript>
+<p><a href="http://${lan_ip}:2051/splash.html?_cb=1">Continue to the TollGate portal</a></p>
+</noscript>
+</body>
+</html>
+EOF
+
+    # Idempotent: only (re)write when it is missing or differs, so repeated runs
+    # (postinst, boot, reinstall) never touch an identical file.
+    if [ ! -f "$stub" ] || ! cmp -s "$tmp" "$stub"; then
+        cat "$tmp" > "$stub"
+        log "Installed the :80 portal redirect stub at $stub"
+    else
+        log ":80 portal redirect stub already present at $stub"
+    fi
+    rm -f "$tmp"
+
+    uci -q get uhttpd.trusted >/dev/null 2>&1 || uci set uhttpd.trusted=uhttpd
+    uci -q delete uhttpd.trusted.listen_http
+    uci add_list uhttpd.trusted.listen_http='0.0.0.0:80'
+    uci add_list uhttpd.trusted.listen_http='[::]:80'
+    uci set uhttpd.trusted.home="$home"
+    # The docroot holds exactly one document; without this a request for a name
+    # that is not there serves a file inventory to a guest.
+    uci set uhttpd.trusted.no_dirlists='1'
+    # Guests connect from RFC1918 addresses by definition.
+    uci set uhttpd.trusted.rfc1918_filter='0'
+    uci set uhttpd.trusted.max_requests='3'
+    uci set uhttpd.trusted.script_timeout='60'
+    uci set uhttpd.trusted.network_timeout='30'
+    uci set uhttpd.trusted.http_keepalive='20'
+    uci set uhttpd.trusted.tcp_keepalive='1'
+}
+
 
 # Remove stray :8090 entries from uhttpd.main's listen list.
 #
@@ -491,8 +599,13 @@ set_admin_password() {
 # is the portal-staged :8090/:8443 instance, uhttpd.net4sats this package's own
 # whitelabel configUI on the same port, and uhttpd.main is repaired because a
 # stray :8090 entry there has survived reinstalls before. Nothing else is
-# touched: LuCI (:80/:8080), the portal (:2050/:2051) and the backend (:2121)
-# are not admin surfaces.
+# touched: the portal (:2050/:2051), the :80 guest entry point and the backend
+# (:2121) are not admin surfaces, and LuCI's own :8080/:443 listeners are a
+# separate control — they stay configured (the management path needs them) and
+# are kept off the captive bridge by
+# packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft plus the
+# allow-list removal in assert_nodogsplash_allow_entries, not by being dropped
+# from uhttpd.main here.
 drop_admin_listeners() {
     uci -q del_list uhttpd.admin.listen_http='0.0.0.0:8090'
     uci -q del_list uhttpd.admin.listen_http='[::]:8090'
@@ -786,13 +899,20 @@ setup_hostname() {
 # /etc/tollgate-setup-done already equals SETUP_VERSION, e.g. the pre15 round
 # over pre14 while both reported v0.6.0-alpha3 — used to verify the wireless
 # APs and re-assert the uhttpd contract and nothing else, so it kept whatever
-# allow list the previous install left behind: the pre-auth :443 rule below was
-# missing on the router and the post-install sweep came out 4/9.
+# allow list the previous install left behind.
+#
+# The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
+# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA)
+# and the backend API (:2121). Every ADMIN surface — the :8090 board and LuCI's
+# :8080/:443 — is deliberately absent and actively removed below; a guest is
+# answered by the portal, never by a login form.
 #
 # Idempotent by construction: each rule is added only when its whole entry is
-# absent, so re-running adds nothing and duplicates nothing, and a config that
-# has :8443 but not :443 gains exactly :443 (the anchored match below is what
-# keeps :8443 from satisfying the :443 check).
+# absent, so re-running adds nothing and duplicates nothing. The `del_list`
+# removals are exact-value matches (uci's own semantics), so removing
+# `allow tcp port 443` can never touch an `allow tcp port 8443` entry — the
+# neighbouring-port confusion the old anchored add-check existed for (#516) is
+# gone with the adds.
 assert_nodogsplash_allow_entries() {
     [ -f /etc/config/nodogsplash ] || touch /etc/config/nodogsplash
     if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
@@ -804,15 +924,41 @@ assert_nodogsplash_allow_entries() {
     if ! uci_list_has_port 2121; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2121'
     fi
-    if ! uci_list_has_port 8080; then
-        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080'
-    fi
     if ! uci_list_has_port 2050; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2050'
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
     fi
+    # LuCI (:8080 plain HTTP, and the :443 TLS listener uhttpd.main opens
+    # whenever a cert/key pair exists) is an ADMIN surface, the same class as the
+    # :8090 board below: /www/index.html meta-refreshes into /cgi-bin/luci, i.e.
+    # the router's administration login. A client on the captive bridge — before
+    # payment, or after it, since this list says nothing about an authenticated
+    # client — must not be answered with that login.
+    #
+    # Measured on the bench (2026-09-25, pre17): a paying guest who typed
+    # `http://<router>/` got nothing on :80, fell through to
+    # `https://<router>/` and landed on LuCI, which the operator reasonably read
+    # as "the install is broken". The :80 half of that is fixed by
+    # setup_uhttpd_trusted_entry below (the plain-HTTP entry point now serves a
+    # redirect stub to the portal); this is the other half.
+    #
+    # An EARLIER decision (docs/architecture/luci-https-pre-auth-reachability-decision.md,
+    # 2026-09-22) deliberately added :443 next to :8080 so the :8080 ->
+    # `https://<router>/` redirect would not dead-end on a REJECTed port. That
+    # whole hop is gone for a guest now — :8080 is no longer answered either —
+    # so :443 has no guest-path purpose left: nothing else on the router serves
+    # a guest over TLS. The private network (br-private, which nodogsplash does
+    # not gate) and loopback keep LuCI reachable for the operator.
+    #
+    # Removed rather than merely omitted: an already-deployed router carries
+    # both entries (an older build wrote them, and tollgate-cli's `ssl enable`
+    # still writes :443), so leaving them out of the writer would only fix a
+    # factory-fresh router. `del_list` here is what converges the fleet, and the
+    # packet filter in packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft
+    # is the half that does not depend on this list being in the intended state.
+    #
     # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) is
     # OWNER-facing, exactly like the whitelabel configUI in
     # setup_uhttpd_configui above: the owner reaches it over the private
@@ -848,21 +994,12 @@ assert_nodogsplash_allow_entries() {
     # intended state.
     uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8090' 2>/dev/null
     uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8443' 2>/dev/null
-    # :443 belongs with :8080 above: with a cert/key pair in place
-    # uhttpd.main sets redirect_https=1 and answers the :8080 LuCI port with
-    # `307 Location: https://<router>/`, so the pre-auth client that follows
-    # the redirect needs a nodogsplash rule for :443 or it dead-ends on a port
-    # the gateway still REJECTs — the operator lockout
-    # docs/architecture/uhttpd-redirect-https-ownership-decision.md exists to
-    # prevent. (The admin board's :8443 is deliberately NOT allowed — the
-    # board is owner-facing and reached over br-private, see above.)
-    # tollgate-cli's
-    # `ssl enable` path already writes this rule for the routers that enable
-    # TLS from the CLI (src/cmd/tollgate-cli/ssl.go); first boot was the only
-    # path without it. Whole-field matching via uci_list_has_port (see #516).
-    if ! uci_list_has_port 443; then
-        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
-    fi
+    # LuCI's two ports, for the reasons in the block above. :8080 was ADDED here
+    # until 2026-09-26 and :443 alongside it (both are dropped from the list
+    # now); :443 is still written by tollgate-cli's `ssl enable` path, so its
+    # removal has to be re-asserted on every setup path just like the board's.
+    uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 8080' 2>/dev/null
+    uci -q del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443' 2>/dev/null
 }
 
 
@@ -1488,6 +1625,13 @@ if [ "$BRANCH" != "FULL" ]; then
     uhttpd_before=$(uci export uhttpd)
     setup_uhttpd
     setup_uhttpd_portal
+    # The :80 entry point is part of the same contract: nodogsplash stops
+    # intercepting plain HTTP the moment a client is trusted or authenticated,
+    # so without this listener `http://<router>/` is dead for exactly the
+    # clients that have paid (the 2026-09-25 pre17 measurement). Re-asserted
+    # here so an install that lost the section converges on reinstall, and so a
+    # reinstall also repairs a deleted stub document.
+    setup_uhttpd_trusted_entry
     # Reinstall must also repair the :8090 layout — a repair that added
     # 8090 to uhttpd.main (LuCI docroot) survives same-version reinstalls
     # otherwise, and the configUI section is never re-ensured.
@@ -1563,6 +1707,7 @@ load_brand
 
 setup_uhttpd
 setup_uhttpd_portal
+setup_uhttpd_trusted_entry
 sanitize_uhttpd_main_configui_port
 setup_uhttpd_configui
 enforce_admin_credential

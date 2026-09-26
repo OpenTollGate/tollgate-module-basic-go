@@ -145,6 +145,11 @@ LOGFILE="$TMP/setup.log"
 export LOGFILE
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd.db"
+# The same driver re-asserts the plain-HTTP entry point
+# (setup_uhttpd_trusted_entry), which writes a stub document into its docroot:
+# pin that into the sandbox too, or this test writes into the LIVE
+# /etc/tollgate/router-home of whatever host runs it.
+export ROUTER_HOME_DIR="$TMP/router-home"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
     -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \

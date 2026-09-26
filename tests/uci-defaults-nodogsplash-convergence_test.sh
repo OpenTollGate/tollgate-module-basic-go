@@ -48,13 +48,21 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/init.d"
 
-# Ports the shipped writer is expected to keep in the allow list, and the two
-# the admin-board fix removed. The convergence step does not care which ports
-# they are — it compares sets — but the fixtures use the real ones so a failure
-# reads like the incident.
+# Ports the shipped writer is expected to keep in the allow list, and the ones
+# the admin-surface fixes removed. The convergence step does not care which
+# ports they are — it compares sets — but the fixtures use the real ones so a
+# failure reads like the incident.
+#
+# `tcp/8080`, `tcp/443`, `tcp/8090` and `tcp/8443` are deliberately NOT in
+# CORE_ENTRIES: since 2026-09-26 the writer removes all four from the
+# configured list (LuCI and the admin board are management-path surfaces), so a
+# fixture that seeded them as configured entries would describe a router whose
+# config the setup script is supposed to change — and it would converge on every
+# run. Use STALE_ENTRY for "an entry the RUNNING ruleset still has and the
+# configured list must not".
 KEY="nodogsplash.@nodogsplash[0].users_to_router"
 # Entries are `proto/port` pairs, the shape the convergence step compares.
-CORE_ENTRIES="tcp/2121 tcp/8080 tcp/2050 tcp/2051 tcp/443"
+CORE_ENTRIES="tcp/2121 tcp/2050 tcp/2051"
 STALE_ENTRY="tcp/8090"
 
 # ---------------------------------------------------------------- fake apk
@@ -228,6 +236,12 @@ export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd.db"
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
+
+# The driver also re-asserts the plain-HTTP entry point
+# (setup_uhttpd_trusted_entry), which writes a stub document into its docroot.
+# Pin that into the sandbox as well: without it this test would write into the
+# LIVE /etc/tollgate/router-home of whatever host runs it.
+export ROUTER_HOME_DIR="$TMP/router-home"
 
 # ------------------------------------------------------------- fixtures/helpers
 seed_uci() { # seed_uci <proto/port>... — the CONFIGURED users_to_router list

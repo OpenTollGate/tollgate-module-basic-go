@@ -132,6 +132,10 @@ export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd.db"
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
+# …and the plain-HTTP entry point's docroot (setup_uhttpd_trusted_entry writes a
+# stub document into it), or this test writes into the LIVE
+# /etc/tollgate/router-home of whatever host runs it.
+export ROUTER_HOME_DIR="$TMP/router-home"
 
 # ------------------------------------------------------------- the fixtures
 # A stock-router wireless/network seed: two radios (2.4 + 5 GHz), the stock
