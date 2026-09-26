@@ -110,31 +110,38 @@ jobs:
             echo "release_channel=dev" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Derive SOURCE_DATE_EPOCH from the source commit
+      - name: Resolve SOURCE_DATE_EPOCH from the source commit
         # The reproducible-build pin from #383: every embedded timestamp —
         # BuildTime in the binaries, ipk archive mtimes, portal output —
         # derives from the source commit, never from the wall clock, so a
-        # rebuild of one commit yields the same bytes. The act workspace has
-        # no usable .git, so the derivation is env-first like repro-check.yml:
-        # triggering commit's timestamp, job-start clock as the last resort
-        # (which is then recorded in the stage-1 rendezvous record below, so
-        # stage 2 still packages with exactly the epoch the binaries used).
+        # rebuild of one commit yields the same bytes.
+        #
+        # scripts/ngit-commit-epoch.sh is the single derivation, shared with the
+        # build-portal job below and with the shards' resolve-inputs: it reads
+        # the commit time from the local history when there is one, and
+        # otherwise fetches exactly this commit (depth 1) from the ngit mirror
+        # the release is built from — an act job checkout has no git metadata,
+        # `git log` fails there, and the coordinator's synthesized push payload
+        # carries `head_commit` without a timestamp, so the previous cascade
+        # landed on `date +%s` on EVERY ngit run and stamped the binaries with
+        # the runner's clock (observed at ca5d07a2: "source: job clock (NOT
+        # commit-derived ...)"). That is exactly the failure this lane exists to
+        # prevent: two builds of one commit produced different BuildTime strings,
+        # so the published bytes could never be reproduced or compared.
+        #
+        # No wall-clock fallback on purpose. When neither source is available
+        # the script exits non-zero and this step fails with it: one clearly
+        # red run is better than a release whose artifacts silently cannot be
+        # rebuilt identically.
         id: source-epoch
         shell: bash
         run: |
+          set -euo pipefail
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          EPOCH="$(git -C "$GITHUB_WORKSPACE" log -1 --format=%ct HEAD 2>/dev/null || true)"
-          SOURCE="git"
-          if [ -z "$EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
-            EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
-            SOURCE="head_commit.timestamp"
-          fi
-          if [ -z "$EPOCH" ]; then
-            EPOCH="$(date +%s)"
-            SOURCE="job clock (NOT commit-derived — binaries will not rebuild identically)"
-          fi
+          EPOCH=$(bash scripts/ngit-commit-epoch.sh "$GITHUB_SHA")
+          case "$EPOCH" in ''|*[!0-9]*) echo "ERROR: not an epoch: '$EPOCH'" >&2; exit 1 ;; esac
           echo "source_date_epoch=$EPOCH" >> "$GITHUB_OUTPUT"
-          echo "SOURCE_DATE_EPOCH=$EPOCH (source: $SOURCE)"
+          echo "SOURCE_DATE_EPOCH=$EPOCH ($(date -u -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S UTC'))"
 
       - name: Report
         run: |
@@ -303,8 +310,9 @@ jobs:
           set -euo pipefail
           : ${GITHUB_OUTPUT:=/tmp/github_output}
           # The epoch rides the record so stage 2 packages with exactly the
-          # epoch these binaries were stamped with — even when the last-resort
-          # clock source produced it.
+          # epoch these binaries were stamped with. It is commit-derived (see
+          # the source-epoch step), so this record is stable across re-runs at
+          # one commit rather than reporting whenever the run happened.
           RECORD_JSON=$(printf '%s' "$HASHES_JSON" | jq -c --argjson epoch "$SOURCE_DATE_EPOCH" '. + {epoch: $epoch}')
           out=$(nak event --sec "$NSEC_HEX" -k 30078 \
             --tag "d=tollgate-build/${BUILD_ID}/binaries" \
