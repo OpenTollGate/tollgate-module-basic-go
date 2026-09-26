@@ -10,6 +10,26 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The install path provisions the router's own TLS identity, and
+  `uhttpd.main.redirect_https` now requires a certificate that covers this
+  router.** Setup inherited the OpenWrt image's placeholder certificate
+  (subject `CN=OpenWrt`, SAN `DNS:OpenWrt`), which covers neither the router's
+  hostname nor its LAN IP while satisfying the readable-and-non-empty guard, so
+  `http://<router>:8080/` redirected the admin browser onto a certificate it
+  cannot validate — a hard certificate error (a hostname mismatch, not the
+  expected self-signed prompt), with LuCI behind it. The setup path now drives
+  the module's own generator (`tollgate ssl apply -y --no-restart`) on the
+  full-setup and verify/repair paths, and derives the redirect from an x509 SAN
+  coverage check (`tollgate ssl covers`, which fails closed when the identity
+  cannot be checked). `ssl remove` re-derives the same value, and `ssl status`
+  reports coverage. The generator also learns to read `network.lan.ipaddr` with
+  a CIDR suffix — OpenWrt 25.12 stores `192.168.1.1/24`, and the unparsed value
+  made `x509.CreateCertificate` fail, so `tollgate ssl apply` could not run on
+  the router at all.
+  ([#593](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/593))
+
 ### Changed / Internal
 
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
