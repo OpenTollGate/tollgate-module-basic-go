@@ -73,6 +73,11 @@ PROVISIONED_CERT="/etc/tollgate/ssl/server.crt"
 PROVISIONED_KEY="/etc/tollgate/ssl/server.key"
 UHTTPD_IMAGE_CERT="/etc/uhttpd.crt"
 UHTTPD_IMAGE_KEY="/etc/uhttpd.key"
+# The marker `tollgate ssl remove` writes (src/cmd/tollgate-cli/ssl.go,
+# sslOptOutFile) when an operator removes the TLS identity on purpose. It is
+# honoured here: a reinstall or an upgrade must not re-key a router whose owner
+# said no, the same way setup_hostname never touches a custom hostname (#444).
+TLS_IDENTITY_OPTOUT="/etc/tollgate/ssl/tls-identity-removed"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup-marker ordering ---------------------------------------------------
@@ -461,7 +466,21 @@ setup_uhttpd_tls_identity() {
 # A failed provisioning is NOT fatal: the setup continues, the guard above keeps
 # the redirect off, and the reason is in the log (and in `tollgate ssl status`) —
 # a router that cannot provision a self-signed identity must still boot.
+#
+# Two deliberate NON-provisioning cases, both logged rather than silent: the
+# operator removed the identity (TLS_IDENTITY_OPTOUT, above) and the CLI is not
+# installed. Neither is an error — the router keeps whatever identity it has and
+# the derived redirect stays off unless that identity covers it.
 provision_tls_identity() {
+    # An operator who removed the identity asked for a router that serves no
+    # identity. `tollgate ssl remove` records that decision and this honours it:
+    # the uhttpd contract is still repaired below, but the router is not
+    # re-keyed behind the owner's back. `tollgate ssl apply` ends the opt-out.
+    if [ -f "$TLS_IDENTITY_OPTOUT" ]; then
+        log "TLS identity was removed by the operator (${TLS_IDENTITY_OPTOUT}) — not provisioning; run 'tollgate ssl apply' to end the opt-out"
+        return 0
+    fi
+
     if [ -r "$PROVISIONED_CERT" ] && [ -s "$PROVISIONED_CERT" ] &&
        [ -r "$PROVISIONED_KEY" ] && [ -s "$PROVISIONED_KEY" ] &&
        cert_covers_router "$PROVISIONED_CERT"; then

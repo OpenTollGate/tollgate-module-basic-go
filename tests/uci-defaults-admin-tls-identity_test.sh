@@ -79,6 +79,7 @@ PROVISIONED_CERT="$TMP/etc/tollgate/ssl/server.crt"
 PROVISIONED_KEY="$TMP/etc/tollgate/ssl/server.key"
 UHTTPD_IMAGE_CERT="$TMP/etc/uhttpd.crt"
 UHTTPD_IMAGE_KEY="$TMP/etc/uhttpd.key"
+OPTOUT_FILE="$TMP/etc/tollgate/ssl/tls-identity-removed"
 export UCI_STATE="$TMP/uci.state"
 export CLI_CALLS="$TMP/cli-calls"
 export UHTTPD_CALLS="$TMP/uhttpd-calls"
@@ -87,7 +88,7 @@ export FAKE_COVERAGE="$TMP/coverage"
 export UHTTPD_RUNNING="$TMP/uhttpd-running"
 export NDS_RUNNING="$TMP/nds-running"
 export COMMITTED="$TMP/committed-nodogsplash"
-export PROVISIONED_CERT PROVISIONED_KEY
+export PROVISIONED_CERT PROVISIONED_KEY OPTOUT_FILE
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
 
@@ -235,6 +236,10 @@ case "$sub" in
                 ;;
             remove)
                 rm -f "$PROVISIONED_CERT" "$PROVISIONED_KEY"
+                # The real `ssl remove` records the operator's decision in the
+                # opt-out marker; the setup path must see exactly that.
+                mkdir -p "$(dirname "${OPTOUT_FILE:?}")"
+                printf 'TLS identity removed by an operator\n' > "${OPTOUT_FILE:?}"
                 printf 'placeholder\n' > "${FAKE_COVERAGE:?}"
                 echo "Done. HTTPS removed."
                 exit 0
@@ -279,8 +284,9 @@ build_script() { # build_script <source-file> [extra-sed...]
         -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TOLLGATE_CLI\"|" \
         -e "s|^PROVISIONED_CERT=\"/etc/tollgate/ssl/server\.crt\"\$|PROVISIONED_CERT=\"$PROVISIONED_CERT\"|" \
         -e "s|^PROVISIONED_KEY=\"/etc/tollgate/ssl/server\.key\"\$|PROVISIONED_KEY=\"$PROVISIONED_KEY\"|" \
-        -e "s|^UHTTPD_IMAGE_CERT=\"/etc/uhttpd\.crt\"\$|UHTTPD_IMAGE_CERT=\"$UHTTPD_IMAGE_CERT\"|" \
-        -e "s|^UHTTPD_IMAGE_KEY=\"/etc/uhttpd\.key\"\$|UHTTPD_IMAGE_KEY=\"$UHTTPD_IMAGE_KEY\"|" \
+        -e "s|^UHTTPD_IMAGE_CERT=\"/etc/uhttpd\\.crt\"\$|UHTTPD_IMAGE_CERT=\"$UHTTPD_IMAGE_CERT\"|" \
+        -e "s|^UHTTPD_IMAGE_KEY=\"/etc/uhttpd\\.key\"\$|UHTTPD_IMAGE_KEY=\"$UHTTPD_IMAGE_KEY\"|" \
+        -e "s|^TLS_IDENTITY_OPTOUT=\"/etc/tollgate/ssl/tls-identity-removed\"\$|TLS_IDENTITY_OPTOUT=\"$OPTOUT_FILE\"|" \
         -e "s|^NDS_INIT=\"/etc/init\.d/nodogsplash\"\$|NDS_INIT=\"$NDS_INIT\"|" \
         -e "s|> */proc/sys/kernel/hostname|> $HOSTNAME_FILE|" \
         -e "s|/etc/profile|$PROFILE_FILE|g" \
@@ -344,7 +350,7 @@ seed_state() { # a stock, freshly-flashed box
     : > "$UHTTPD_CALLS"
     : > "$NDS_CALLS"
     : > "$COMMITTED"
-    rm -f "$PROVISIONED_CERT" "$PROVISIONED_KEY" "$FLAG"
+    rm -f "$PROVISIONED_CERT" "$PROVISIONED_KEY" "$FLAG" "$OPTOUT_FILE"
     rm -f "$UHTTPD_RUNNING" "$NDS_RUNNING"
     : > "$PROFILE_FILE"
     printf '%s\n' \
@@ -388,8 +394,9 @@ run_driver() { # run_driver <marker|__ABSENT__>
 
 build_script "$ROOT/$SCRIPT" || bad "harness could not build the script under test"
 if grep -q "^TOLLGATE_CLI=\"$TOLLGATE_CLI\"\$" "$SCRIPT_UNDER_TEST" &&
-   grep -q "^UHTTPD_IMAGE_CERT=\"$UHTTPD_IMAGE_CERT\"\$" "$SCRIPT_UNDER_TEST"; then
-    ok "harness redirected the CLI, the provisioned identity and the service init paths"
+   grep -q "^UHTTPD_IMAGE_CERT=\"$UHTTPD_IMAGE_CERT\"\$" "$SCRIPT_UNDER_TEST" &&
+   grep -q "^TLS_IDENTITY_OPTOUT=\"$OPTOUT_FILE\"\$" "$SCRIPT_UNDER_TEST"; then
+    ok "harness redirected the CLI, the provisioned identity, the opt-out marker and the service init paths"
 else
     bad "harness could not redirect the new absolute paths in the copied script"
 fi
@@ -465,6 +472,29 @@ else
     bad "provision: invoked a CLI that does not exist, or wrote an identity anyway"
 fi
 
+echo "-- an operator who removed the identity is not re-keyed behind their back"
+seed_state
+mkdir -p "$(dirname "$OPTOUT_FILE")"
+printf 'TLS identity removed by an operator\n' > "$OPTOUT_FILE"
+: > "$LOGFILE"
+( TOLLGATE_SETUP_LIB_ONLY=1 sh -c ". '$SCRIPT_UNDER_TEST'; provision_tls_identity" ) 2>/dev/null
+if [ ! -s "$CLI_CALLS" ] && [ ! -s "$PROVISIONED_CERT" ]; then
+    ok "opt-out: the marker suppresses provisioning — no CLI call, no identity written"
+else
+    bad "opt-out: provisioned over the operator's removal (CLI calls: '$(cli_calls | tr '\n' ';')')"
+fi
+if grep -q "removed by the operator" "$LOGFILE"; then
+    ok "opt-out: the decision is named in the setup log, not silently skipped"
+else
+    bad "opt-out: the log says nothing about the opt-out ($(tail -n 1 "$LOGFILE" 2>/dev/null))"
+fi
+# ... and the marker only suppresses PROVISIONING: the derived guard still runs
+# and still refuses a placeholder, which is what keeps :8080 reachable.
+( TOLLGATE_SETUP_LIB_ONLY=1 sh -c ". '$SCRIPT_UNDER_TEST'; setup_uhttpd_tls_identity" ) 2>/dev/null
+[ "$(redirect_now)" = 0 ] && [ "$(cert_now)" = "$UHTTPD_IMAGE_CERT" ] \
+    && ok "opt-out: the uhttpd contract is still asserted (image identity kept, redirect_https=0)" \
+    || bad "opt-out: cert=$(cert_now) redirect_https=$(redirect_now), want $UHTTPD_IMAGE_CERT / 0"
+
 echo
 echo "== C. the install path (real driver, end to end)"
 
@@ -516,6 +546,34 @@ run_driver "$SHIPPED_VERSION"
     && ok "running router: committed config carries the covering identity and the derived redirect" \
     || bad "running router: cert=$(cert_now) redirect_https=$(redirect_now)"
 rm -f "$UHTTPD_RUNNING"
+
+echo "-- an install must not undo a deliberate 'tollgate ssl remove'"
+seed_state
+run_driver __ABSENT__
+grep -q -x 'ssl apply -y --no-restart' "$CLI_CALLS" \
+    && ok "opt-out round trip: precondition — the fresh install provisioned an identity" \
+    || bad "opt-out round trip: precondition failed, the fresh install provisioned nothing"
+"$TOLLGATE_CLI" ssl remove -y >/dev/null 2>&1
+[ -f "$OPTOUT_FILE" ] \
+    && ok "opt-out round trip: 'ssl remove' records the operator's decision in the marker" \
+    || bad "opt-out round trip: 'ssl remove' left no marker, so the next install would re-provision"
+: > "$CLI_CALLS"
+: > "$LOGFILE"
+run_driver "$SHIPPED_VERSION"      # the reinstall/upgrade path
+rc=$?
+[ "$rc" = 0 ] && ok "opt-out round trip: the later install still completes" \
+              || bad "opt-out round trip: exit $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
+if ! grep -q '^ssl apply' "$CLI_CALLS"; then
+    ok "opt-out round trip: the later install did NOT re-provision the removed identity"
+else
+    bad "opt-out round trip: the later install provisioned over the operator's removal ($(cli_calls | tr '\n' ';'))"
+fi
+[ "$(redirect_now)" = 0 ] && [ "$(cert_now)" = "$UHTTPD_IMAGE_CERT" ] \
+    && ok "opt-out round trip: the uhttpd contract holds (image identity, redirect_https=0, :8080 stays reachable)" \
+    || bad "opt-out round trip: cert=$(cert_now) redirect_https=$(redirect_now), want $UHTTPD_IMAGE_CERT / 0"
+grep -q "removed by the operator" "$LOGFILE" \
+    && ok "opt-out round trip: the install log names the opt-out" \
+    || bad "opt-out round trip: the install log does not name the opt-out"
 
 echo "-- no CLI available: nothing can be provisioned, so the hop must stay OFF"
 seed_state

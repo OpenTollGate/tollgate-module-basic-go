@@ -29,9 +29,26 @@ var (
 	// (subject CN=OpenWrt, SAN DNS:OpenWrt) and covers no router's own hostname
 	// or LAN address — see certCoverage.
 	uhttpdCertDefault = "/etc/uhttpd.crt"
+	// sslOptOutFile records an operator who REMOVED the TLS identity on purpose
+	// (`tollgate ssl remove`). The unattended setup path honours it: a reinstall
+	// or an upgrade must not silently re-key a router behind an operator who
+	// asked for no HTTPS identity, the same way setup_hostname never touches a
+	// custom hostname (#444). `tollgate ssl apply` clears it — asking for an
+	// identity IS the way back in.
+	sslOptOutFile = sslDir + "/tls-identity-removed"
 )
 
 var sslYesFlag bool
+
+// The service init scripts `ssl apply`/`ssl remove` deliver a changed identity
+// to. Absolute paths in package variables (the same seam as sslDir above) so the
+// tests can point them at a stub instead of a live router — a test that cannot
+// run the removal path is a test that does not cover it.
+var (
+	uhttpdInitPath      = "/etc/init.d/uhttpd"
+	dnsmasqInitPath     = "/etc/init.d/dnsmasq"
+	nodogsplashInitPath = "/etc/init.d/nodogsplash"
+)
 
 // sslNoRestartFlag makes `ssl apply` leave the services alone. The unattended
 // setup path (packaging/files/etc/uci-defaults/99-tollgate-setup) needs this:
@@ -126,6 +143,31 @@ identity yet.`,
 			certPath = args[0]
 		}
 		covers, reason := certCoversRouter(certPath)
+		if jsonOutput {
+			// The verdict is machine-readable BY CONTRACT — the exit status is
+			// what the setup path branches on — so under --json it is one object
+			// on stdout AND the same exit status: a "no" that printed a
+			// successful-looking object and exited 0 is exactly the
+			// nothing-happened-but-you-cannot-tell hazard of #375.
+			payload := sslCoversResult{
+				Success:   covers,
+				Command:   "ssl covers",
+				Cert:      certPath,
+				Covers:    covers,
+				Reason:    reason,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			if !covers {
+				payload.Error = errCertDoesNotCoverRouter.Error()
+			}
+			if err := printJSON(payload); err != nil {
+				return err
+			}
+			if !covers {
+				return errCertDoesNotCoverRouter
+			}
+			return nil
+		}
 		if covers {
 			fmt.Printf("covers: yes — %s\n", reason)
 			return nil
@@ -166,6 +208,13 @@ func sslApply(args []string) error {
 			fmt.Println("Aborted.")
 			return nil
 		}
+	}
+
+	// Asking for an identity ends an earlier `ssl remove`: the setup path
+	// honours that marker, so leaving it in place would make the next install
+	// undo what this command is about to do.
+	if err := clearSSLOptOut(); err != nil {
+		return err
 	}
 
 	if len(args) == 0 {
@@ -452,6 +501,14 @@ func sslRemoveSelfSigned(domain string) error {
 
 	os.RemoveAll(backupDir)
 
+	// The removal is complete, so record the operator's decision: the install
+	// path honours this marker and will not re-provision the identity that was
+	// just removed. A failure to write it is reported, never hidden — the
+	// router is reverted either way.
+	if err := markSSLOptOut(fmt.Sprintf("self-signed identity for %s", domain)); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: %v\n  The identity is removed, but a later install may provision a new one.\n", err)
+	}
+
 	portalName, err := uciGet("system.@system[0].hostname")
 	if err != nil || portalName == "" {
 		portalName = "tollgate"
@@ -522,6 +579,12 @@ func sslRemoveRealCert(domain string) error {
 
 	os.RemoveAll(backupDir)
 
+	// Same marker as the self-signed removal above, and for the same reason: the
+	// install path provisions an identity, so a removal has to be visible to it.
+	if err := markSSLOptOut(fmt.Sprintf("real certificate for %s", domain)); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: %v\n  The identity is removed, but a later install may provision a new one.\n", err)
+	}
+
 	fmt.Println()
 	fmt.Println("Done. HTTPS removed. Portal now served over HTTP.")
 	portalName, err := uciGet("system.@system[0].hostname")
@@ -548,6 +611,15 @@ func sslStatus() error {
 			_, reason := certCoversRouter(path)
 			fmt.Printf("  uhttpd serves: %s\n", path)
 			fmt.Printf("  Coverage      : %s\n", reason)
+		}
+		// "Not configured" has two very different causes, and the difference
+		// matters to whoever is debugging HTTPS: nobody ever provisioned an
+		// identity, or an operator removed it on purpose and the install path is
+		// now holding that decision.
+		if sslOptedOut() {
+			fmt.Printf("  TLS identity  : removed by the operator (%s)\n", sslOptOutFile)
+			fmt.Println("                  the setup path will not provision one while that marker exists")
+			fmt.Println("                  run 'tollgate ssl apply' to end the opt-out")
 		}
 		return nil
 	}
@@ -789,6 +861,65 @@ func applyRedirectHTTPS() error {
 	return uciCommitChecked("uhttpd")
 }
 
+// -- the operator's opt-out --------------------------------------------------
+//
+// `tollgate ssl remove` is the documented way to say "this router serves no TLS
+// identity". It used to be enough on its own, because nothing but the CLI ever
+// wrote a certificate. Now that the install path provisions one, a removal that
+// left no trace would be undone by the next install or upgrade — the operator's
+// decision, overwritten silently. The marker is that trace; the setup path
+// reads it (packaging/files/etc/uci-defaults/99-tollgate-setup →
+// provision_tls_identity) and skips provisioning while it is present.
+
+// sslOptedOut reports whether the TLS identity was removed by the operator.
+func sslOptedOut() bool {
+	info, err := os.Stat(sslOptOutFile)
+	return err == nil && !info.IsDir()
+}
+
+// markSSLOptOut records that the operator removed the TLS identity. It is
+// written AFTER the removal succeeded, so a failed removal cannot leave a
+// marker that suppresses provisioning on a router that still has a cert.
+func markSSLOptOut(summary string) error {
+	if err := os.MkdirAll(sslDir, 0755); err != nil {
+		return fmt.Errorf("failed to create SSL dir: %w", err)
+	}
+	body := fmt.Sprintf("TLS identity removed by an operator: %s\n%s\n"+
+		"Written by `tollgate ssl remove` on %s.\n"+
+		"The setup path (uci-defaults 99-tollgate-setup) will not provision a TLS\n"+
+		"identity while this file exists. Run `tollgate ssl apply` to end the opt-out.\n",
+		summary, strings.Repeat("-", 70), time.Now().UTC().Format(time.RFC3339))
+	if err := os.WriteFile(sslOptOutFile, []byte(body), 0644); err != nil {
+		return fmt.Errorf("failed to record the TLS opt-out: %w", err)
+	}
+	return nil
+}
+
+// clearSSLOptOut ends the opt-out. Called by `ssl apply`: asking for an identity
+// is the way back in, and leaving the marker behind would make the next install
+// remove the identity the operator just installed.
+func clearSSLOptOut() error {
+	if !sslOptedOut() {
+		return nil
+	}
+	if err := os.Remove(sslOptOutFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to clear the TLS opt-out: %w", err)
+	}
+	fmt.Printf("Cleared the TLS opt-out marker (%s): this router will keep its identity across installs again.\n", sslOptOutFile)
+	return nil
+}
+
+// sslCoversResult is the --json payload of `tollgate ssl covers`.
+type sslCoversResult struct {
+	Success   bool   `json:"success"`
+	Command   string `json:"command"`
+	Cert      string `json:"cert"`
+	Covers    bool   `json:"covers"`
+	Reason    string `json:"reason"`
+	Error     string `json:"error,omitempty"`
+	Timestamp string `json:"timestamp"`
+}
+
 func writePEM(path, pemType string, bytes []byte) error {
 	f, err := os.Create(path)
 	if err != nil {
@@ -1025,15 +1156,15 @@ func restoreUhttpd() error {
 }
 
 func reloadServices(realCert bool) error {
-	if err := runCommandChecked("/etc/init.d/uhttpd", "reload"); err != nil {
+	if err := runCommandChecked(uhttpdInitPath, "reload"); err != nil {
 		return fmt.Errorf("failed to reload uhttpd: %w", err)
 	}
 	if realCert {
-		if err := runCommandChecked("/etc/init.d/dnsmasq", "reload"); err != nil {
+		if err := runCommandChecked(dnsmasqInitPath, "reload"); err != nil {
 			return fmt.Errorf("failed to reload dnsmasq: %w", err)
 		}
 	}
-	if err := runCommandChecked("/etc/init.d/nodogsplash", "restart"); err != nil {
+	if err := runCommandChecked(nodogsplashInitPath, "restart"); err != nil {
 		return fmt.Errorf("failed to restart nodogsplash: %w", err)
 	}
 	return nil
