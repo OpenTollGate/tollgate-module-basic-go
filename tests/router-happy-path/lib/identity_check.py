@@ -40,6 +40,15 @@ SURFACES = {
 
 HASHED_REF = re.compile(r"/assets/[^/\"']+-[A-Za-z0-9_-]{8}\.(?:js|css)$")
 
+# Why the admin surface is skipped from a guest vantage. Kept in one place so the
+# four ids it covers cannot drift apart, and phrased as an absence that is NAMED
+# rather than one that is quietly dropped.
+GUEST_ADMIN_REASON = (
+    "guest vantage: the admin board is not reachable from br-lan "
+    "(packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft), so its "
+    "build identity is not asserted here -- the mgmt/on-box lane asserts it "
+    "(--vantage mgmt from the private network, or --ssh on-box)")
+
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -78,8 +87,20 @@ def entry_asset(refs):
     return ""
 
 
-def check_surface(em, name, base_url, docroot, entry, artifact, strict, table):
+def check_surface(em, name, base_url, docroot, entry, artifact, strict, table, vantage="mgmt"):
     cid = "identity:%s" % name
+    if name == "admin" and vantage == "guest":
+        # The admin board is not reachable from br-lan at all (by design:
+        # 31-admin-board-not-guest-reachable.nft), so there is nothing here to
+        # compare. Say that on every id this surface would have emitted, name the
+        # lane that DOES assert it, and never let it read as covered.
+        for suffix in ("entry", "assets", "refs-in-package", "content-hashed-entry"):
+            em.chk("%s:%s" % (cid, suffix), "SKIP", GUEST_ADMIN_REASON)
+        em.note("%s: skipped as a NAMED absence, not a silent one -- the admin "
+                "board's build identity is asserted by the mgmt/on-box lane "
+                "(run.sh --vantage mgmt from the private network, or --ssh on-box)"
+                % cid)
+        return ""
     root = os.path.join(artifact, docroot)
     if not os.path.isdir(root):
         em.chk("%s:docroot" % cid, "FAIL",
@@ -181,6 +202,10 @@ def main():
     ap.add_argument("--portal-port", type=int, default=SURFACES["portal"][2])
     ap.add_argument("--admin-port", type=int, default=SURFACES["admin"][2])
     ap.add_argument("--only-surface", default="")
+    ap.add_argument("--vantage", choices=("guest", "mgmt"), default="mgmt",
+                    help="guest: the admin surface is not reachable from br-lan at all, "
+                         "so its checks are reported as named SKIPs instead of failed "
+                         "fetches (run.sh derives this from whether :8090 answers)")
     ap.add_argument("--expect-entry", default="",
                     help="NAME:SIZE:SHA256 pin for the portal entry chunk")
     ap.add_argument("--print-entry", default="",
@@ -215,7 +240,7 @@ def main():
         docroot, entry, _default = SURFACES[name]
         base = "http://%s:%d" % (args.router_ip, ports[name])
         ha = check_surface(em, name, base, docroot, entry, args.artifact_dir,
-                           False, table)
+                           False, table, args.vantage)
         if ha:
             found[name] = ha
 

@@ -42,13 +42,46 @@
 #     add a key to the router by hand first. All SSH checks are opt-in via
 #     RHP_SSH=1 and SKIP otherwise -- never silently "pass".
 #
+# VANTAGE. There are exactly two places a run can come from, and they cannot
+# assert the same set of things:
+#   * guest -- a client on br-lan. THIS IS THE DEFAULT A HUMAN TESTER HAS, and it
+#     is the vantage the review club runs from. :8090 is firewall-blocked here BY
+#     DESIGN (31-admin-board-not-guest-reachable.nft), so the admin-board checks
+#     are lifted out of this lane and NAMED: the guest lane asserts that :8090 is
+#     genuinely UNREACHABLE (surface:8090-admin-spa-not-guest-reachable, which
+#     PASSES on 000 and FAILS if the board answers), a note says in as many words
+#     that the admin SPA itself is the mgmt/on-box lane's assertion, and the
+#     admin build-identity checks report a named SKIP. Never a silent skip.
+#   * mgmt -- the private network or on-box, where :8090 must answer and the
+#     admin SPA is asserted in full. That assertion is NOT weakened for the guest
+#     lane; the mgmt lane is where the admin board is proven.
+# --vantage auto (the default) derives the mode from whether :8090 answers.
+#
+# THE SECTION-0 TCP BURST IS RETRIED, and a port that answers on a retry -- or
+# anywhere later in the same run -- is not a fatal preflight failure. Same class
+# of confusion as the documented 429: a race with the box's own convergence must
+# not read as a defect. So a port that fails every attempt there is printed as
+# PROVISIONAL, a NON-terminal status: it is not counted as a failure, and the
+# verdict has to resolve it to exactly one terminal line -- a WARNING (warn=N,
+# RHPWARNED, never fatal) when some later check in the same run demonstrably
+# reached the port, or the FAIL it always was when nothing anywhere in the run
+# reached it. That is deliberate: a transcript must never contain a FAIL line for
+# a port the run itself goes on to use, or a red line stops meaning a defect. A
+# port whose lane is not running at all (the opt-in SSH lane) is a WARNING from
+# the start, and the guest lane's firewall-blocked :8090 is its own PASS.
+#
 # Every check prints one line:
 #
-#   RHPCHECK <id> <PASS|FAIL|SKIP> <detail...>
-#   RHPRESULT total=N pass=N fail=N skip=N
+#   RHPCHECK <id> <PASS|FAIL|SKIP|WARN> <detail...>
+#   RHPCHECK <id> PROVISIONAL <detail...>   (section 0 only; never terminal)
+#   RHPRESULT total=N pass=N fail=N skip=N warn=N
+#   RHPFAILED <ids...>   RHPWARNED <ids...>
 #   RHPEXIT <0|1>
 #
-# Exit 0 = happy path intact, 1 = broken, 2 = usage/precondition error.
+# total= counts the terminal lines only: a PROVISIONAL line is counted where the
+# verdict resolves it, so every check contributes exactly one line to the totals.
+#
+# Exit 0 = happy path intact (warnings are allowed), 1 = broken, 2 = usage error.
 #
 set -u
 
@@ -62,13 +95,19 @@ STRICT=0
 SSH_MODE="${RHP_SSH:-0}"
 SKIP_MONEY_PATH=0
 DO_IDENTITY=1
+# Vantage: guest | mgmt | auto. See the header. RHP_VANTAGE / --vantage.
+VANTAGE="${RHP_VANTAGE:-auto}"
+VANTAGE_RESOLVED=""
 EXPECT_ENTRY="${RHP_EXPECT_ENTRY:-}"
 EXPECT_VERSION="${RHP_EXPECT_VERSION:-}"
 OUT=""
 KEEP=0
 
 usage() {
-    sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
+    # print the whole leading comment block as the help text: `set -u` is the
+    # last line of the header, so this cannot drift out of sync the way a fixed
+    # line range does (it did, silently, whenever the header grew).
+    sed -n '3,/^set -u$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
 Options:
@@ -77,6 +116,14 @@ Options:
                      (docker alpine:edge fallback); trees are cached by sha256.
   --artifact-dir DIR an already-extracted package tree (skips extraction)
   --router-ip IP     router under test (default 192.168.1.1, env RHP_ROUTER_IP)
+  --vantage MODE     guest | mgmt | auto (default auto, env RHP_VANTAGE).
+                     guest : the br-lan vantage a human tester/club has. :8090 is
+                             blocked by design, so the admin lane becomes the
+                             explicit not-guest-reachable assertion + named SKIPs.
+                     mgmt  : private network or on-box. The admin SPA is asserted
+                             in full here (that assertion is never weakened).
+                     auto  : derived from whether :8090 answers (guest otherwise).
+                     A run from the guest network is the expected default.
   --strict           make absent-but-expected surfaces fatal instead of SKIP
                      (/session-state, /identity -- use once a release ships them)
   --no-identity      explicit opt-out of the build-identity section. Without an
@@ -91,6 +138,7 @@ Options:
 
 Environment:
   RHP_ROUTER_IP        router address
+  RHP_VANTAGE          guest | mgmt | auto (same as --vantage)
   RHP_ARTIFACT_DIR     same as --artifact-dir
   RHP_EXPECT_ENTRY     NAME:SIZE:SHA256 pin for the portal entry chunk
   RHP_EXPECT_VERSION   expected installed package version (SSH lane only)
@@ -99,6 +147,10 @@ Environment:
                        runs. Unset => nothing is sent, nothing is spent.
   RHP_SSH=1            enable the on-box SSH checks (default: SKIP)
   RHP_SSH_USER         SSH user (default root)
+  RHP_TCP_TRIES        connect attempts per port in the section-0 burst (default 3)
+  RHP_TCP_BACKOFF      seconds between those attempts (default 1)
+  RHP_TCP_PACE         seconds between ports in the burst (default 0.25; the
+                       burst runs on connect, before anything else touches the box)
   RHP_TMPDIR           parent for the work dir (default /var/tmp; the /tmp
                        tmpfs is too small for extracted packages)
   RHP_DOCKER_IMAGE     image used for .apk extraction (default alpine:edge)
@@ -110,6 +162,7 @@ while [ $# -gt 0 ]; do
         --apk)           APK="${2:-}"; shift 2 ;;
         --artifact-dir)  ARTIFACT_DIR="${2:-}"; shift 2 ;;
         --router-ip)     ROUTER_IP="${2:-}"; shift 2 ;;
+        --vantage)       VANTAGE="${2:-}"; shift 2 ;;
         --strict)        STRICT=1; shift ;;
         --no-identity)   DO_IDENTITY=0; shift ;;
         --ssh)           SSH_MODE=1; shift ;;
@@ -122,6 +175,11 @@ while [ $# -gt 0 ]; do
         *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+case "$VANTAGE" in
+    guest|mgmt|auto) ;;
+    *) echo "unknown --vantage '$VANTAGE' (want guest|mgmt|auto)" >&2; exit 2 ;;
+esac
 
 [ -n "$APK" ] || APK="${RHP_APK:-}"
 [ -n "$ARTIFACT_DIR" ] || ARTIFACT_DIR="${RHP_ARTIFACT_DIR:-}"
@@ -143,22 +201,56 @@ WORK="$(mktemp -d "$TMP_PARENT/rhp.XXXXXX")" || exit 2
 EVIDENCE="${OUT:-$WORK/evidence}"
 mkdir -p "$EVIDENCE"
 TALLY="$WORK/checks.tally"
+# The transcript is every RHPCHECK/RHPNOTE line exactly as printed. The verdict
+# reads it to decide whether a provisional preflight failure was refuted later in
+# the same run -- which is why it is a file and not just stdout.
+TRANSCRIPT="$WORK/transcript.txt"
 : > "$TALLY"
+: > "$TRANSCRIPT"
 
-TOTAL=0; PASSED=0; FAILED_N=0; SKIPPED=0
+# Section-0 TCP liveness burst knobs. The burst is the FIRST thing that touches
+# these ports, right after the previous section's work, so on a box that is still
+# converging a single connect can miss a listener that answers seconds later.
+TCP_TRIES="${RHP_TCP_TRIES:-3}"
+TCP_BACKOFF="${RHP_TCP_BACKOFF:-1}"
+TCP_PACE="${RHP_TCP_PACE:-0.25}"
+TCP_ATTEMPTS=0
+PENDING_TCP_PORTS=""
+
+TOTAL=0; PASSED=0; FAILED_N=0; SKIPPED=0; WARNED=0
 FAILED_IDS=""
+WARNED_IDS=""
 
-chk() {  # chk <id> <PASS|FAIL|SKIP> <detail>
+emit() {  # emit <id> <status> <detail...> -- print + record, counters untouched
+    local line
+    line="$(printf 'RHPCHECK %s %s %s' "$1" "$2" "${3:-}")"
+    printf '%s\n' "$line"
+    printf '%s %s\n' "$1" "$2" >> "$TALLY"
+    printf '%s\n' "$line" >> "$TRANSCRIPT"
+}
+
+provisional() {  # provisional <id> <detail...> -- section 0's NON-terminal line
+    # Deliberately not counted: the verdict resolves this id to exactly one
+    # terminal status (FAIL or WARN) and counts it there. So a preflight result
+    # the run itself refutes is never counted as a failure, and a port that is
+    # genuinely dead is counted once, not twice. The tally keeps both rows; the
+    # terminal one is the answer, and the PROVISIONAL row says what was reported
+    # before the rest of the run had a say.
+    local id="$1"; shift
+    emit "$id" PROVISIONAL "$*"
+}
+
+chk() {  # chk <id> <PASS|FAIL|SKIP|WARN> <detail>
     local id="$1" status="$2"; shift 2
     local detail="${*:-}"
     TOTAL=$((TOTAL + 1))
     case "$status" in
         PASS) PASSED=$((PASSED + 1)) ;;
         SKIP) SKIPPED=$((SKIPPED + 1)) ;;
+        WARN) WARNED=$((WARNED + 1)); WARNED_IDS="$WARNED_IDS $id" ;;
         FAIL) FAILED_N=$((FAILED_N + 1)); FAILED_IDS="$FAILED_IDS $id" ;;
     esac
-    printf 'RHPCHECK %s %s %s\n' "$id" "$status" "$detail"
-    printf '%s %s\n' "$id" "$status" >> "$TALLY"
+    emit "$id" "$status" "$detail"
 }
 
 note() { printf 'RHPNOTE %s\n' "$*"; }
@@ -255,17 +347,95 @@ tcp_open() {  # TCP connect only -- never ping
     timeout 3 bash -c "exec 3<>/dev/tcp/$1/$2" >/dev/null 2>&1
 }
 
+tcp_probe() {  # tcp_probe <host> <port> -> 0 if a listener answers; TCP_ATTEMPTS = which attempt did
+    # Retried, because a single connect burst right after the previous section's
+    # work races the box's own convergence: measured on the bench MT3000, :22 was
+    # reported dead by the first burst during a run that held an SSH session to
+    # that very port, and :443 was reported dead and then answered 200 later in
+    # the same transcript. A race is not a defect.
+    local host="$1" port="$2" i=1
+    while [ "$i" -le "$TCP_TRIES" ]; do
+        if tcp_open "$host" "$port"; then TCP_ATTEMPTS="$i"; return 0; fi
+        [ "$i" -lt "$TCP_TRIES" ] && sleep "$TCP_BACKOFF"
+        i=$((i + 1))
+    done
+    TCP_ATTEMPTS="$TCP_TRIES"
+    return 1
+}
+
+tcp_nonfatal_reason() {  # why a failed port is reported WITHOUT being fatal
+    local port="$1"
+    if [ "$port" = "$ADMIN_PORT" ]; then
+        printf 'expected from a guest vantage: the #566 guard (packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft) blocks :%s for br-lan clients, so a guest-side probe MUST get nothing here. The admin board itself is asserted by the mgmt/on-box lane, and surface:%s-admin-spa-not-guest-reachable below proves this is the guard and not merely an unmonitored port' "$port" "$port"
+    else
+        printf 'no phase of THIS run depends on :%s -- the on-box SSH lane is opt-in (add --ssh / RHP_SSH=1 to assert it), so this result is reported but not fatal (it would be a FAIL with --ssh)' "$port"
+    fi
+}
+
+tcp_fatal_if_dead() {  # 0 = some phase of this run depends on :$1, so a dead port is fatal
+    local port="$1"
+    if [ "$port" = "$SSH_PORT" ] && [ "$SSH_MODE" != "1" ]; then
+        return 1
+    fi
+    if [ "$port" = "$ADMIN_PORT" ] && [ "$VANTAGE_RESOLVED" = "guest" ]; then
+        return 1
+    fi
+    return 0
+}
+
 # --------------------------------------------------------------------------
 # 0. Preflight -- liveness by TCP, and the box must be idle before anything
 #    else is attributable. Failing here does NOT abort the run: the operator
 #    wants the whole map, not the first red line.
 # --------------------------------------------------------------------------
 printf '\n===== 0. preflight (TCP liveness, never ICMP) =====\n'
-for port in "$SSH_PORT" "$STUB_PORT" "$PORTAL_PORT" "$API_PORT" "$LUCI_PORT" "$ADMIN_PORT" "$TLS_PORT"; do
-    if tcp_open "$ROUTER_IP" "$port"; then
-        chk "net:tcp-$port" PASS "TCP connect to $ROUTER_IP:$port succeeded"
+
+# --------------------------------------------------------------------------
+# 0a. Vantage. What this run can assert depends on where it runs from, and the
+#     guest network -- what a human tester and the review club actually have --
+#     cannot see :8090 by design. Say so ONCE, up front, and say which checks
+#     that moves: an unstated vantage is how a green run gets read as covering
+#     something it never looked at.
+# --------------------------------------------------------------------------
+if [ "$VANTAGE" = "auto" ]; then
+    VAN_WHY=""
+    if tcp_probe "$ROUTER_IP" "$ADMIN_PORT"; then
+        fetch "http://$ROUTER_IP:$ADMIN_PORT/"
+        if [ "$FETCH_CODE" != "000" ]; then
+            VANTAGE_RESOLVED=mgmt
+            VAN_WHY=":$ADMIN_PORT answered an HTTP request ($FETCH_CODE), so the admin board is visible from here"
+        else
+            VANTAGE_RESOLVED=guest
+            VAN_WHY=":$ADMIN_PORT accepted a TCP connect but answered nothing at the HTTP layer"
+        fi
     else
-        chk "net:tcp-$port" FAIL "no TCP listener answers on $ROUTER_IP:$port (ICMP is dropped here, so this TCP result IS the liveness answer)"
+        VANTAGE_RESOLVED=guest
+        VAN_WHY="nothing answers :$ADMIN_PORT, which is exactly what a br-lan (guest) client sees when 31-admin-board-not-guest-reachable.nft holds"
+    fi
+    chk "vantage:mode" PASS "auto-detected '$VANTAGE_RESOLVED': $VAN_WHY. Either lane is supported; --vantage guest|mgmt overrides the derivation"
+else
+    VANTAGE_RESOLVED="$VANTAGE"
+    chk "vantage:mode" PASS "'$VANTAGE_RESOLVED' (given with --vantage/RHP_VANTAGE; auto would have derived it from whether :$ADMIN_PORT answers)"
+fi
+
+# --------------------------------------------------------------------------
+# 0b. The liveness burst itself.
+# --------------------------------------------------------------------------
+SWEPT=0
+for port in "$SSH_PORT" "$STUB_PORT" "$PORTAL_PORT" "$API_PORT" "$LUCI_PORT" "$ADMIN_PORT" "$TLS_PORT"; do
+    if [ "$SWEPT" -gt 0 ] && [ "$TCP_PACE" != "0" ]; then sleep "$TCP_PACE"; fi
+    SWEPT=$((SWEPT + 1))
+    if tcp_probe "$ROUTER_IP" "$port"; then
+        retry_note=""
+        if [ "$TCP_ATTEMPTS" -gt 1 ]; then
+            retry_note=" (answered on attempt $TCP_ATTEMPTS/$TCP_TRIES: the first connect raced the box, which is why this is retried instead of reported dead)"
+        fi
+        chk "net:tcp-$port" PASS "TCP connect to $ROUTER_IP:$port succeeded$retry_note"
+    elif ! tcp_fatal_if_dead "$port"; then
+        chk "net:tcp-$port" WARN "no TCP listener answers on $ROUTER_IP:$port after $TCP_TRIES attempts -- $(tcp_nonfatal_reason "$port")"
+    else
+        provisional "net:tcp-$port" "no TCP listener answers on $ROUTER_IP:$port after $TCP_TRIES attempts (ICMP is dropped here, so this TCP result IS the liveness answer) -- NOT yet fatal: this line is PROVISIONAL and the verdict at the end of the run resolves it, either to a FAIL (if no check in this run reaches :$port) or to a WARNING (if one does, which means the burst raced the box rather than finding a dead port)"
+        PENDING_TCP_PORTS="$PENDING_TCP_PORTS $port"
     fi
 done
 # Guard against a future edit reintroducing ping as a liveness test. The regex
@@ -320,12 +490,13 @@ if [ -n "$ARTIFACT" ]; then
         fold identity python3 "$SELF_DIR/lib/identity_check.py" \
             --router-ip "$ROUTER_IP" --artifact-dir "$ARTIFACT" \
             --portal-port "$PORTAL_PORT" --admin-port "$ADMIN_PORT" \
+            --vantage "$VANTAGE_RESOLVED" \
             --expect-entry "$EXPECT_ENTRY" --out "$EVIDENCE"
     else
         fold identity python3 "$SELF_DIR/lib/identity_check.py" \
             --router-ip "$ROUTER_IP" --artifact-dir "$ARTIFACT" \
             --portal-port "$PORTAL_PORT" --admin-port "$ADMIN_PORT" \
-            --out "$EVIDENCE"
+            --vantage "$VANTAGE_RESOLVED" --out "$EVIDENCE"
     fi
 elif [ "$DO_IDENTITY" = "1" ]; then
     chk "identity:portal:entry" FAIL "no artifact: cannot compare the served bundle against a package"
@@ -427,11 +598,38 @@ else
     chk "surface:$LUCI_PORT-target-200" FAIL "$luci_target -> $FETCH_CODE: the :$LUCI_PORT redirect has no working target (nodogsplash allow-list regression)"
 fi
 
-fetch "http://$ROUTER_IP:$ADMIN_PORT/"
-if [ "$FETCH_CODE" = "200" ] && grep -qE '/assets/[^"]+-[A-Za-z0-9_-]{8}\.js' "$FETCH_BODY"; then
-    chk "surface:$ADMIN_PORT-admin-spa" PASS ":$ADMIN_PORT/ -> 200 with a content-hashed entry chunk"
+# :$ADMIN_PORT -- the admin board. WHICH assertion is correct depends on the
+# vantage, and both are assertions (never a silent skip):
+#   mgmt : the admin SPA must serve 200 with a content-hashed entry chunk.
+#   guest: a br-lan client must get NOTHING (:8090 is blocked by design), so the
+#          check PASSES on 000 and FAILS if the board answers at all. What the
+#          admin SPA does when it IS reachable is the mgmt/on-box lane's job.
+admin_spa_check() {  # the mgmt assertion: the admin SPA itself
+    fetch "http://$ROUTER_IP:$ADMIN_PORT/"
+    if [ "$FETCH_CODE" = "200" ] && grep -qE '/assets/[^"]+-[A-Za-z0-9_-]{8}\.js' "$FETCH_BODY"; then
+        chk "surface:$ADMIN_PORT-admin-spa" PASS ":$ADMIN_PORT/ -> 200 with a content-hashed entry chunk"
+    else
+        chk "surface:$ADMIN_PORT-admin-spa" FAIL ":$ADMIN_PORT/ -> $FETCH_CODE, expected the admin SPA (200 + hashed entry chunk)"
+    fi
+}
+
+if [ "$VANTAGE_RESOLVED" = "guest" ]; then
+    fetch "http://$ROUTER_IP:$ADMIN_PORT/"
+    if [ "$FETCH_CODE" = "000" ]; then
+        chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" PASS ":$ADMIN_PORT/ -> 000 from this guest vantage: the admin board is correctly unreachable for a br-lan client (31-admin-board-not-guest-reachable.nft). This is an assertion, not a skip -- the admin SPA itself is asserted by the mgmt/on-box lane (--vantage mgmt from the private network, or --ssh on-box)"
+        note "surface:$ADMIN_PORT-admin-spa was NOT asserted by this run: it is the mgmt/on-box lane's check. Everything the guest vantage can see was still asserted in full"
+    elif [ "$VANTAGE" = "auto" ]; then
+        # the port answered after all: the auto-derivation read it as closed at
+        # preflight (a startup race, not a guard finding). Report the admin-board
+        # findings rather than a false guard alarm.
+        note "vantage: :$ADMIN_PORT answered HTTP $FETCH_CODE although auto-detection read it as closed at preflight -- re-resolving to mgmt for the admin surface (a race, not a guard finding). The admin build-identity checks above ran as guest-vantage SKIPs; re-run with an explicit --vantage mgmt for that lane"
+        VANTAGE_RESOLVED=mgmt
+        admin_spa_check
+    else
+        chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" FAIL ":$ADMIN_PORT/ -> $FETCH_CODE from a guest vantage: the admin board IS answering a br-lan client, so 31-admin-board-not-guest-reachable.nft is inert (or --vantage guest was forced on a box this run can reach :$ADMIN_PORT from -- re-run with --vantage auto|mgmt in that case)"
+    fi
 else
-    chk "surface:$ADMIN_PORT-admin-spa" FAIL ":$ADMIN_PORT/ -> $FETCH_CODE, expected the admin SPA (200 + hashed entry chunk)"
+    admin_spa_check
 fi
 
 printf '\n===== 3. captive enforcement chain (%s -> :%s -> :%s) =====\n' "$CAPTIVE_PORT" "$STUB_PORT" "$PORTAL_PORT"
@@ -567,7 +765,52 @@ fi
 # --------------------------------------------------------------------------
 # Verdict
 # --------------------------------------------------------------------------
-printf '\nRHPRESULT total=%d pass=%d fail=%d skip=%d\n' "$TOTAL" "$PASSED" "$FAILED_N" "$SKIPPED"
+# The section-0 burst is the only place this harness reports on a state it has
+# not reasoned about yet, so its failures are PROVISIONAL -- a non-terminal
+# status that section 0 prints and never counts. Resolve them against the rest of
+# the run before the summary: a port that some later check demonstrably reached
+# was raced, not dead, and reporting it as a fatal preflight failure would make a
+# red line mean nothing -- the exact confusion this harness exists to remove.
+# Every pending id leaves this block as exactly one terminal line, so no check id
+# is ever both green and red in one transcript.
+tcp_evidence_ids() {  # which PASS ids prove that :$1 answered
+    # An explicit whitelist, because "the port number shows up in some PASS line"
+    # is NOT evidence: the :$LUCI_PORT 307 line names the https port in the URL it
+    # redirects to without ever having reached it.
+    local port="$1"
+    if [ "$port" = "$SSH_PORT" ];     then printf 'ssh:reachable\n'; return; fi
+    if [ "$port" = "$CAPTIVE_PORT" ]; then printf 'surface:%s-captive-307\n' "$port"; return; fi
+    if [ "$port" = "$STUB_PORT" ];    then printf 'surface:%s-cache-bust-stub\n' "$port"; return; fi
+    if [ "$port" = "$PORTAL_PORT" ];  then printf 'surface:%s-spa\nidentity:portal:assets\nidentity:portal:entry\ncaptive:chain-ends-200\n' "$port"; return; fi
+    if [ "$port" = "$API_PORT" ];     then printf 'surface:%s-api\napi:root-kind10021\n' "$port"; return; fi
+    if [ "$port" = "$LUCI_PORT" ];    then printf 'surface:%s-luci-307\n' "$port"; return; fi
+    if [ "$port" = "$TLS_PORT" ];     then printf 'surface:%s-target-200\n' "$LUCI_PORT"; return; fi
+    if [ "$port" = "$ADMIN_PORT" ];   then printf 'surface:%s-admin-spa\nidentity:admin:assets\nidentity:admin:entry\n' "$port"; return; fi
+}
+
+if [ -n "$PENDING_TCP_PORTS" ]; then
+    printf '\n===== verdict: resolving the section-0 liveness burst (PROVISIONAL lines above) =====\n'
+    for port in $PENDING_TCP_PORTS; do
+        ev_id=""; ev_line=""
+        for cand in $(tcp_evidence_ids "$port"); do
+            if grep -qE "^$cand PASS( |\$)" "$TALLY"; then
+                ev_id="$cand"
+                ev_line="$(grep -m1 -E "^RHPCHECK $cand PASS " "$TRANSCRIPT" | cut -c1-200)"
+                break
+            fi
+        done
+        if [ -n "$ev_id" ]; then
+            chk "net:tcp-$port" WARN "the section-0 burst found no listener on $ROUTER_IP:$port after $TCP_TRIES attempts, but $ev_id reached it later in this same run: $ev_line -- the burst raced the box, not a defect, so the preflight line is demoted here and is NOT fatal. No red line for a port this run itself went on to use"
+        else
+            chk "net:tcp-$port" FAIL "no TCP listener answers on $ROUTER_IP:$port after $TCP_TRIES attempts (ICMP is dropped here, so this TCP result IS the liveness answer), and no other check in this run reached :$port either: this is FINAL, not a race -- the section-0 result stands and is fatal"
+        fi
+    done
+fi
+
+printf '\nRHPRESULT total=%d pass=%d fail=%d skip=%d warn=%d\n' "$TOTAL" "$PASSED" "$FAILED_N" "$SKIPPED" "$WARNED"
+if [ -n "$WARNED_IDS" ]; then
+    printf 'RHPWARNED%s\n' "$WARNED_IDS"
+fi
 if [ "$FAILED_N" -gt 0 ]; then
     printf 'RHPFAILED%s\n' "$FAILED_IDS"
     printf 'RHPEXIT 1\n'

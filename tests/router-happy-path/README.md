@@ -7,6 +7,11 @@ when the box is not what it claims to be.
 # against a real router, comparing it to the package you think you shipped
 bash tests/router-happy-path/run.sh --apk /path/to/tollgate-wrt_<ver>_aarch64_cortex-a53.apk
 
+# the vantage is derived (guest unless :8090 answers); name it when you know it.
+# A guest-side run is the expected default for a tester; run this one as well when
+# the admin board is part of what you are gating:
+bash tests/router-happy-path/run.sh --apk <pkg> --vantage mgmt
+
 # no hardware needed: prove the harness itself still detects breakage
 bash tests/router-happy-path/selftest/run_selftest.sh
 ```
@@ -20,7 +25,7 @@ default run spends nothing.
 RHPCHECK identity:portal:entry PASS splash.html 2959 B sha256 8268215ee9043879 == package copy
 RHPCHECK identity:portal:assets PASS 17/17 shipped assets byte-identical on http://192.168.1.1:2051
 ...
-RHPRESULT total=58 pass=47 fail=0 skip=11
+RHPRESULT total=58 pass=47 fail=0 skip=11 warn=0
 RHPEXIT 0
 ```
 
@@ -42,20 +47,89 @@ the supplied package.
 
 ## What it asserts, in order
 
-| # | section | what must be true |
-|---|---|---|
-| 0 | preflight | TCP liveness on 22 / 80(the captive port) / 2050 / 2051 / 2121 / 8080 / 8090 / 443, and the box is **idle** (`session_active=false`) before anything below is attributable |
-| 1 | build identity | every shipped portal + admin asset is byte-identical to the package; every reference the live entry document makes resolves inside the package; the entry chunk is content-hashed; optional `--expect-entry` pin |
-| 2 | surfaces | `:80` 307s to `:2050/splash.html?redir=…`; `:2050` is the cache-bust **stub** and its own resolved redirect target is `:2051/splash.html?_cb=…`; `:2051/splash.html` serves the SPA; `:2121/` is `kind:10021`; `:8080` 307s to https **and that target answers 200**; `:8090` serves the admin SPA; the SPA entry is **not** also served on `:2050` |
-| 3 | captive chain | an unauthenticated deep-path request is 307'd to the splash with the original URL URL-encoded in `redir=`; following the stub's own expression lands on the SPA (200, `id="root"`); the stub keeps a `<noscript>` fallback that works |
-| 4 | API shapes | `/` `kind:10021` in **full** mode (mints advertised), `/whoami`, `/balance`, `/usage`, `/session-state`, `/identity`, CORS preflight for the cross-origin portal→API call |
-| 5 | Lightning quote | `GET /ln-invoice` with no quote is `400 {"error":"quote is required"}` — **that is a status poll, not a fault** — and it does not grant access |
-| 6 | money path | an empty-body POST is rejected (`400 kind:21023`), and an opt-in paid purchase (see below) |
-| 7 | on-box (opt-in) | with `--ssh`: installed package version, on-box file hashes vs the package, and a **non-empty** live `backend_input_firewall` chain |
+`vantage` says which vantage can assert the row: **both** = a guest-side run
+asserts it in full, `mgmt` = private network or on-box only (see the vantage
+section below; a guest-side run is the expected default for a tester).
+
+| # | section | vantage | what must be true |
+|---|---|---|---|
+| 0 | preflight | both | TCP liveness on 22 / 80(the captive port) / 2050 / 2051 / 2121 / 8080 / 8090 / 443, **each port retried** (a single burst races the box), and the box is **idle** (`session_active=false`) before anything below is attributable |
+| 1 | build identity | both (admin sub-lane: mgmt) | every shipped portal + admin asset is byte-identical to the package; every reference the live entry document makes resolves inside the package; the entry chunk is content-hashed; optional `--expect-entry` pin |
+| 2 | surfaces | both, except `:8090` | `:80` 307s to `:2050/splash.html?redir=…`; `:2050` is the cache-bust **stub** and its own resolved redirect target is `:2051/splash.html?_cb=…`; `:2051/splash.html` serves the SPA; `:2121/` is `kind:10021`; `:8080` 307s to https **and that target answers 200**; `:8090` serves the admin SPA (**mgmt**); a br-lan client must get **nothing** from `:8090` (**guest**, `surface:8090-admin-spa-not-guest-reachable`); the SPA entry is **not** also served on `:2050` |
+| 3 | captive chain | both | an unauthenticated deep-path request is 307'd to the splash with the original URL URL-encoded in `redir=`; following the stub's own expression lands on the SPA (200, `id="root"`); the stub keeps a `<noscript>` fallback that works |
+| 4 | API shapes | both | `/` `kind:10021` in **full** mode (mints advertised), `/whoami`, `/balance`, `/usage`, `/session-state`, `/identity`, CORS preflight for the cross-origin portal→API call |
+| 5 | Lightning quote | both | `GET /ln-invoice` with no quote is `400 {"error":"quote is required"}` — **that is a status poll, not a fault** — and it does not grant access |
+| 6 | money path | both | an empty-body POST is rejected (`400 kind:21023`), and an opt-in paid purchase (see below) |
+| 7 | on-box (opt-in) | mgmt | with `--ssh`: installed package version, on-box file hashes vs the package, and a **non-empty** live `backend_input_firewall` chain |
 
 Check ids are stable and greppable (`identity:*`, `surface:*`, `captive:*`,
-`api:*`, `ln:*`, `money:*`, `paid:*`, `ssh:*`, `net:*`, `pre:*`). Every id except
-the ones listed as SKIP below is fatal on FAIL.
+`api:*`, `ln:*`, `money:*`, `paid:*`, `ssh:*`, `net:*`, `pre:*`,
+`vantage:*`). Every id except the ones listed as SKIP below is fatal on FAIL; a
+**WARN** (`warn=N`, `RHPWARNED`) is reported, greppable, and never fatal.
+**PROVISIONAL** is the one status that is not a verdict — only section 0 prints
+it (the liveness burst, which cannot know what the rest of the run will reach) and
+the verdict always replaces it with PASS, WARN, or FAIL, so every id has exactly
+one terminal status per run.
+
+## Vantage: what a run can assert, and from where
+
+A tester's machine is a client on the guest network (`br-lan`). That is the
+vantage a human actually has, so it is the default: `--vantage auto` (the
+default, also `RHP_VANTAGE`) probes `:8090` — if it answers an HTTP request the
+run is **mgmt**, otherwise it is **guest**. `--vantage guest|mgmt` overrides the
+derivation, and either way the transcript's first line says which one this run
+resolved to and why.
+
+| check | guest (`br-lan`, the tester's default) | mgmt (private network / on-box) |
+|---|---|---|
+| `net:tcp-*` | asserted, retried | asserted, retried |
+| `identity:portal:*`, `surface:2051-*`, `captive:*`, `api:*`, `ln:*`, `money:*` | asserted in full | asserted in full |
+| `identity:admin:*` | **named SKIP**: `:8090` is unreachable from `br-lan`, so there is nothing to compare. The SKIP names the guard file and the lane that does assert it | asserted in full |
+| `surface:8090-admin-spa` | not run | asserted: `200` + a content-hashed entry chunk |
+| `surface:8090-admin-spa-not-guest-reachable` | asserted: **PASS on `000`**, FAIL if the board answers at all | not run |
+| `ssh:*` | opt-in (`--ssh`) | opt-in (`--ssh`) |
+
+`:8090` is blocked for `br-lan` clients **by design**
+(`packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft`, #566),
+so a guest-side probe correctly gets nothing. The guest lane therefore asserts
+the **absence** rather than dropping the port: `surface:8090-admin-spa-not-guest-reachable`
+PASSES on `000` and FAILS if anything answers, and an `RHPNOTE` states that the
+admin SPA itself is the mgmt/on-box lane's assertion. Nothing is skipped
+silently, and the mgmt assertion is **not** weakened for the guest lane's
+benefit: from the private network (or on-box with `--ssh`) `:8090` must serve the
+admin SPA, and that is the check a release gate should use.
+
+**A guest-side run is the expected default for a tester or the review club.** Run
+the mgmt lane as well when the admin board is part of what you are gating.
+
+## The section-0 TCP burst is retried, and a race is not a defect
+
+The liveness burst is the **first** thing that touches those ports, right after
+the previous section's work, on a box that may still be converging. Measured on
+the bench MT3000: `:22` was reported dead by the burst *during a run that held an
+SSH session to that very port*, and `:443` was reported dead and then answered
+`200` later in the same transcript. Same class as the documented `429`.
+
+* every port is probed up to `RHP_TCP_TRIES` (default 3) times, `RHP_TCP_BACKOFF`
+  (default 1 s) apart, with `RHP_TCP_PACE` (default 0.25 s) between ports. A port
+  that answers on a later attempt PASSES, and the line names the attempt that
+  answered.
+* a port that fails every attempt is printed as **PROVISIONAL** — a status that
+  is explicitly *not* a verdict, and is not counted in the totals. Before the
+  summary, the verdict resolves every PROVISIONAL port against the rest of the
+  run: if any check that demonstrably reaches it PASSed later, the line becomes a
+  **WARNING** that quotes that PASS. A preflight line the run itself refutes must
+  never be a red line, and a transcript must never hold a FAIL for a port the run
+  went on to use.
+* a port that answers **nowhere** in the run stays fatal, and the FAIL is printed
+  by the verdict (`no other check in this run reached :<port> either: this is
+  FINAL, not a race`), so each `net:tcp-*` id has exactly one terminal status per
+  run: PASS, WARN, or FAIL. The `net:tcp-*` ids are not decoration: they are what
+  says the box is up at all.
+* a port whose lane is not running is reported without being fatal, and the
+  reason is printed: with no `--ssh`, `:22` is a WARNING (`no phase of this run
+  depends on :22 -- the on-box SSH lane is opt-in`), and it is fatal again the
+  moment you pass `--ssh`.
 
 ## The paid lane is OPT-IN, and nothing here touches ecash by default
 
@@ -103,6 +177,11 @@ Two smaller ones, both learned the hard way and both now asserted rather than
 assumed: `:2051/` answers **403 by design** (the portal docroot has no
 `index.html`; the entry document is `/splash.html`), and `:2050` is a **stub**,
 so "the portal" must never be assumed to be one port.
+
+Two more, each with its own section above: **the vantage** (a guest-side run
+cannot assert `:8090` and says so out loud), and **the retried section-0 burst**
+(a port that answers on a retry, or anywhere later in the run, is a WARNING, not
+a fatal preflight failure).
 
 ## What it does NOT cover
 
