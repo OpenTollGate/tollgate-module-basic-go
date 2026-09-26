@@ -25,12 +25,38 @@ time and assert the matching check id flips to FAIL:
   usage_bad           /usage answers something that is not used/allotment
   session_state       /session-state answers a real session-state shape
   luci_307_no_target  :LUCI_PORT 307s to a dead https URL
+  luci_307_to_alt     :LUCI_PORT 307s to a LIVE https port that is NOT :TLS_PORT
+                      (:ALT_PORT, a port the harness never sweeps). This is the
+                      decoy for the credit rule: the "LuCI target answered 200"
+                      check really does PASS, but against a different port, so a
+                      credit rule that asks "did some check PASS for this id"
+                      demotes a dead :TLS_PORT to a WARNING while the rule that
+                      credits the port the request LANDED on keeps it FAIL.
   ln_200              /ln-invoice answers 200 instead of the 400 poll
   ln_wrong_error      /ln-invoice 400s with a different error string
   empty_token_ok      POST / with an empty body returns 200 kind:1022 (bypass)
   no_cors_preflight   OPTIONS loses Access-Control-Allow-Methods
   portal_no_root_el   splash.html loses id="root"
   portal_no_hash      the entry chunk name loses its content hash
+
+Liveness/timing scenarios (the section-0 TCP burst):
+  unbound_ports       a list of surfaces whose LISTENER IS NEVER BOUND, i.e. the
+                      port is genuinely dead for the whole run ("admin", "tls",
+                      "ssh", "portal", "stub", "api", "luci", "captive").
+                      Real case: :8090 as a br-lan client sees it (the #566 guard
+                      blocks it) -- a dead port, not a slow one.
+  ssh_late_bind_s     bind the :SSH_PORT listener this many seconds after start.
+                      Real case: the first connect burst races the box's own
+                      convergence, so the first attempt is refused and a LATER
+                      attempt answers. Deterministic: the harness's first attempt
+                      happens ~0.2 s after stub-ready, so 1.0 s with a 3 s backoff
+                      means attempt 1 is refused and attempt 2 answers.
+  admin_bind_on_first_http
+                      bind the :ADMIN_PORT listener on the first HTTP request the
+                      stub handles. Deterministic version of "dead at preflight
+                      (TCP-only), alive for every check after it": the burst runs
+                      before any HTTP, so :ADMIN is refused there and answers for
+                      every later phase.
 
 stdlib only.
 """
@@ -42,15 +68,42 @@ import re
 import socket
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SCENARIO = {}
 PORTS = {}
 RATE_STATE = {}
+LATE_BIND_LOCK = threading.Lock()
 
 
 def mut(name, default=False):
     return SCENARIO.get(name, default)
+
+
+def unbound(name):
+    """True when this surface's listener must never be bound (a genuinely dead
+    port for the whole run -- e.g. :8090 as a br-lan client sees it)."""
+    return name in (SCENARIO.get("unbound_ports") or [])
+
+
+def late_bind_admin():
+    """--scenario {"admin_bind_on_first_http": true}: bind the admin listener the
+    first time any HTTP request is handled.
+
+    The harness's section-0 liveness burst is TCP-only and runs before any HTTP,
+    so this is a DETERMINISTIC stand-in for the real bench behaviour that matters:
+    the port is refused during the burst and answers for every phase after it.
+    The bind happens synchronously, before the triggering request is answered, so
+    no later check can race the listener into existence.
+    """
+    if not SCENARIO.get("admin_bind_on_first_http") or unbound("admin"):
+        return
+    with LATE_BIND_LOCK:
+        if PORTS.get("admin_bound"):
+            return
+        PORTS["admin_bound"] = True
+    serve(AdminHandler, PORTS["admin"])
 
 
 class Base(BaseHTTPRequestHandler):
@@ -59,6 +112,10 @@ class Base(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):  # noqa: A002 - matches BaseHTTPRequestHandler
         pass
+
+    def parse_request(self):  # every method, every handler: see late_bind_admin()
+        late_bind_admin()
+        return super().parse_request()
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", extra=None):
         if isinstance(body, str):
@@ -262,7 +319,11 @@ class LuciHandler(Base):
     """:LUCI_PORT -- LuCI http, 307 to https."""
 
     def do_GET(self):
-        port = 1 if mut("luci_307_no_target") else PORTS["tls"]
+        if mut("luci_307_to_alt"):
+            # A live https target that is NOT the port the sweep calls :TLS_PORT.
+            port = PORTS["alt"]
+        else:
+            port = 1 if mut("luci_307_no_target") else PORTS["tls"]
         loc = "https://%s:%d/" % (PORTS["host"], port)
         return self._send(307, "", "text/plain", {"Location": loc})
 
@@ -294,23 +355,39 @@ def serve(handler, port, tls=False):
     return httpd
 
 
-def ssh_banner(port):
-    """A bare TCP listener: proves net:tcp-<port> without pretending to be SSH."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", port))
-    srv.listen(16)
+def ssh_banner(port, delay=0.0):
+    """A bare TCP listener: proves net:tcp-<port> without pretending to be SSH.
 
-    def loop():
-        while True:
-            try:
-                conn, _addr = srv.accept()
-                conn.sendall(b"SSH-2.0-rhp-stub\r\n")
-                conn.close()
-            except OSError:
-                return
+    delay > 0 (--scenario {"ssh_late_bind_s": N}) does not even BIND until then,
+    so the harness's first connect is refused and a later attempt answers -- the
+    bench's real "the first burst raced the box" case, made deterministic. The
+    bind stays synchronous for the default delay=0, so the listener is up before
+    "stub-ready" and no case depends on a startup race.
+    """
+    def bind_and_listen():
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("0.0.0.0", port))
+        srv.listen(16)
 
-    threading.Thread(target=loop, daemon=True).start()
+        def loop():
+            while True:
+                try:
+                    conn, _addr = srv.accept()
+                    conn.sendall(b"SSH-2.0-rhp-stub\r\n")
+                    conn.close()
+                except OSError:
+                    return
+
+        threading.Thread(target=loop, daemon=True).start()
+
+    if delay > 0:
+        def delayed():
+            time.sleep(delay)
+            bind_and_listen()
+        threading.Thread(target=delayed, daemon=True).start()
+    else:
+        bind_and_listen()
 
 
 def main():
@@ -326,6 +403,9 @@ def main():
     ap.add_argument("--luci-port", type=int, required=True)
     ap.add_argument("--captive-port", type=int, required=True)
     ap.add_argument("--tls-port", type=int, required=True)
+    ap.add_argument("--alt-port", type=int, default=0,
+                    help="a second, LIVE https listener the harness does not know about; "
+                         "bound only under the luci_307_to_alt scenario")
     ap.add_argument("--ssh-port", type=int, required=True)
     ap.add_argument("--cert", default="")
     ap.add_argument("--key", default="")
@@ -337,18 +417,36 @@ def main():
 
     PORTS.update({"host": args.host, "portal": args.portal_port, "stub": args.stub_port,
                   "api": args.api_port, "admin": args.admin_port, "luci": args.luci_port,
-                  "captive": args.captive_port, "tls": args.tls_port,
+                  "captive": args.captive_port, "tls": args.tls_port, "alt": args.alt_port,
                   "portal_docroot": args.portal_docroot, "admin_docroot": args.admin_docroot,
                   "cert": args.cert, "key": args.key})
 
-    serve(PortalHandler, args.portal_port)
-    serve(StubHandler, args.stub_port)
-    serve(ApiHandler, args.api_port)
-    serve(AdminHandler, args.admin_port)
-    serve(CaptiveHandler, args.captive_port)
-    serve(LuciHandler, args.luci_port)
-    serve(TlsHandler, args.tls_port, tls=bool(args.cert))
-    ssh_banner(args.ssh_port)
+    # A surface listed in "unbound_ports" is never bound at all -- the honest
+    # stand-in for a port that is genuinely dead for the whole run (as :8090 is
+    # for a br-lan client). The admin one may still be bound later, on demand:
+    # see late_bind_admin().
+    if not unbound("portal"):
+        serve(PortalHandler, args.portal_port)
+    if not unbound("stub"):
+        serve(StubHandler, args.stub_port)
+    if not unbound("api"):
+        serve(ApiHandler, args.api_port)
+    if not unbound("admin") and not SCENARIO.get("admin_bind_on_first_http"):
+        serve(AdminHandler, args.admin_port)
+    if not unbound("captive"):
+        serve(CaptiveHandler, args.captive_port)
+    if not unbound("luci"):
+        serve(LuciHandler, args.luci_port)
+    if not unbound("tls"):
+        serve(TlsHandler, args.tls_port, tls=bool(args.cert))
+    # The decoy listener: live https, on a port the harness never probes, so the
+    # only thing that can reach it is the :LUCI 307 Location. It exists so the
+    # rig can tell "a check reached the port in question" apart from "a check
+    # that mentions the port PASSed".
+    if args.alt_port and SCENARIO.get("luci_307_to_alt"):
+        serve(TlsHandler, args.alt_port, tls=bool(args.cert))
+    if not unbound("ssh"):
+        ssh_banner(args.ssh_port, delay=float(SCENARIO.get("ssh_late_bind_s", 0)))
 
     print("stub-ready", flush=True)
     try:

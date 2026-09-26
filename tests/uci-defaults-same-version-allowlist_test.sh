@@ -9,29 +9,39 @@
 # the nodogsplash users_to_router allow list, so an install of a build whose
 # version string is unchanged (the pre15 round: both pre14 and pre15 report
 # v0.6.0-alpha3, so apk sees the same 0.6.0_alpha3-r0 and the flag stays equal)
-# kept the pre-existing list. On that round the `allow tcp port 443` pre-auth
-# rule introduced for the LuCI :8080 -> https:// redirect was missing and the
-# router came out of the install with a 4/9 sweep: uhttpd.main.redirect_https=1
-# answers :8080 with `307 Location: https://<router>/`, nodogsplash REJECTs
-# :443 for an unauthenticated client, and LuCI is unreachable before payment.
+# kept the pre-existing list.
+#
+# WHAT THE LIST MUST HOLD (2026-09-26 contract): `users_to_router` is
+# nodogsplash's PRE-AUTHENTICATION allow list, i.e. what a client that has paid
+# nothing may reach ON THE ROUTER, and the customer journey owns exactly the
+# portal (`:2050` NDS gateway, `:2051` SPA) plus the backend API (`:2121`).
+# Every admin surface is off it:
+#
+#   * `:8090` / `:8443` — the owner-facing admin board (uhttpd.admin), whose
+#     login form and rpcd `/ubus` session endpoint share one cleartext origin;
+#     the session behind them reaches `file:["exec"]`,
+#     `system:["password_set"]` and `tollgate wallet_drain_cashu`.
+#   * `:8080` / `:443` — LuCI, whose `/www/index.html` meta-refreshes into
+#     `/cgi-bin/luci`. Measured on the bench MT3000 (2026-09-25, pre17): a
+#     paying guest whose plain-HTTP `http://<router>/` was dead (nothing
+#     listened on :80 — see tests/uci-defaults-trusted-entry-80_test.sh) fell
+#     through to `https://<router>/` and landed on that login, which the
+#     operator reported as "the install is broken".
+#
+# An EARLIER decision (docs/architecture/luci-https-pre-auth-reachability-decision.md,
+# 2026-09-22) ADDED `:8080` and `:443` here on purpose, to keep the `:8080` ->
+# `https://<router>/` hop from dead-ending. This test pinned that contract; it
+# now pins the opposite, so the reversal is guarded rather than merely
+# implemented. The removals must be active (`del_list`), not just omitted: an
+# already-deployed router carries all four entries — an earlier build wrote
+# them, the feed's 92-tollgate-admin-setup still re-asserts `:8090`/`:8443`, and
+# `tollgate-cli ssl enable` still writes `:443`.
 #
 # Nothing here needs a router, the SDK or the network: the setup script is
 # copied into a temp dir (only its SETUP_FLAG and LOGFILE paths are rewritten —
 # both are absolute paths into the live system) and run with `/bin/sh` against
 # a fake `uci` and a fake `apk`, so the real driver — version resolution, the
 # same-version branch, the allow-list writer — is exercised end to end.
-#
-# Second bug this guards: the same writer used to ADD `allow tcp port 8090` and
-# `allow tcp port 8443` — the admin board's uhttpd instance on :8090 (plain
-# HTTP) and its opt-in :8443 TLS listener. `users_to_router` is nodogsplash's
-# PRE-AUTHENTICATION allow list, so an unauthenticated guest on the open SSID
-# could load the board's login form and POST credential-carrying JSON-RPC to
-# its /ubus endpoint over cleartext. The board is owner-facing (reached over
-# br-private, exactly like the whitelabel configUI in setup_uhttpd_configui)
-# and is not part of the customer journey, so the admin ports must be ABSENT
-# from the list — and actively removed by every setup path, because an earlier
-# install (or a build of either writer from before this change) put them there
-# and a deployed router only converges if the removal is re-asserted.
 #
 # Usage: bash tests/uci-defaults-same-version-allowlist_test.sh
 set -uo pipefail
@@ -110,8 +120,9 @@ case "$cmd" in
     del_list)
         # `uci del_list cfg.sec.opt=value` drops every entry equal to value.
         # The list options under test carry spaces ("allow tcp port 8090"), so
-        # the match is whole-line, never word-split — a substring match would
-        # also delete "allow tcp port 8090" from a differently-spelled entry.
+        # the match is whole-line, never word-split and never a substring: an
+        # operator's own "allow tcp port 8081" must survive the removal of
+        # "allow tcp port 8080".
         grep -v -F -x -- "$1" "$state" > "$state.tmp" 2>/dev/null
         mv "$state.tmp" "$state"
         ;;
@@ -150,6 +161,13 @@ export PASSWD_FILE="$TMP/passwd.db"
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
 
+# ------------------------------------------- the :80 entry point's docroot
+# The same-version path also re-asserts the plain-HTTP entry point
+# (setup_uhttpd_trusted_entry), which writes a stub document into its docroot.
+# Pin that to the sandbox: without this the test would write into the LIVE
+# /etc/tollgate/router-home of whatever host runs it.
+export ROUTER_HOME_DIR="$TMP/router-home"
+
 KEY="nodogsplash.@nodogsplash[0].users_to_router"
 seed() { # seed <list entry>... — one argument per entry
     : > "$UCI_STATE"
@@ -173,21 +191,24 @@ count_entry() { grep -F -c "$KEY=$1" "$UCI_STATE" 2>/dev/null | tr -d ' '; }
 has_entry() { grep -F -q "$KEY=$1" "$UCI_STATE"; }
 has_no_entry() { ! grep -F -q "$KEY=$1" "$UCI_STATE"; }
 
-# The list an operator's router carries today: the captive-portal rules, the
-# admin board's :8090/:8443 allowance an earlier install wrote, and :443. The
-# first four and :443 must survive every setup path; :8090/:8443 must not.
+# The list an operator's router carries today: the customer journey's rules plus
+# every admin-surface allowance the fleet accumulated — the board's
+# :8090/:8443 (an earlier build wrote them, the feed's 92-tollgate-admin-setup
+# still re-asserts them) and LuCI's :8080/:443.
 LEGACY="allow tcp port 2121
 allow tcp port 8080
 allow tcp port 2050
 allow tcp port 2051
 allow tcp port 8090
-allow tcp port 8443"
-# Ports the allow list MUST hold exactly once after any run.
-ALL_PORTS="2121 8080 2050 2051 443"
-# Ports the allow list must NEVER hold: the admin board (uhttpd.admin) serves
-# a root-capable login over plain HTTP on :8090, and its opt-in TLS listener is
-# :8443. Both are owner-facing; a pre-auth guest must not reach an admin UI.
-ADMIN_PORTS="8090 8443"
+allow tcp port 8443
+allow tcp port 443"
+# Entries the allow list MUST hold exactly once after any run: the customer
+# journey and nothing else.
+JOURNEY_PORTS="2121 2050 2051"
+# Entries the allow list must NEVER hold: LuCI (an admin login) and the admin
+# board (a root-capable login over plain HTTP), all reachable over the captive
+# bridge today.
+ADMIN_PORTS="8080 443 8090 8443"
 
 run_same_version() { # run the copied script with the flag already set
     printf '%s\n' "$FAKE_VERSION" > "$FLAG"
@@ -196,28 +217,28 @@ run_same_version() { # run the copied script with the flag already set
     return $?
 }
 
-one_each_port() { # <label> — every port present exactly once
+journey_ports_once() { # <label> — every customer-journey port present exactly once
     local label="$1" port n
-    for port in $ALL_PORTS; do
+    for port in $JOURNEY_PORTS; do
         n=$(count_entry "allow tcp port $port")
         [ "$n" = 1 ] && ok "$label: 'allow tcp port $port' present exactly once" \
                      || bad "$label: 'allow tcp port $port' present $n times (want 1)"
     done
 }
 
-no_admin_ports() { # <label> — the admin board stays out of the pre-auth list
+no_admin_ports() { # <label> — every admin surface stays out of the pre-auth list
     local label="$1" port
     for port in $ADMIN_PORTS; do
         if has_no_entry "allow tcp port $port"; then
             ok "$label: 'allow tcp port $port' absent from users_to_router"
         else
-            bad "$label: 'allow tcp port $port' is in users_to_router — a pre-auth guest on the open SSID can reach the :8090 admin login over plain HTTP"
+            bad "$label: 'allow tcp port $port' is in users_to_router — a pre-auth guest on the open SSID can reach an admin login"
         fi
     done
 }
 
 # ---------------------------------------------------- same-version repo path
-echo "== same-version install re-adds a missing :443 rule"
+echo "== same-version install converges the allow list on the customer journey"
 seed_lines "$LEGACY"
 run_same_version
 rc=$?
@@ -252,24 +273,19 @@ if branch_is_verify "$LOGFILE"; then
 else
     bad "same-version branch not taken (log: $(head -n 2 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
 fi
-if has_entry 'allow tcp port 443'; then
-    ok "same-version install: stale allow list gains 'allow tcp port 443'"
-else
-    bad "same-version install: 'allow tcp port 443' still missing — the :8080 -> https:// redirect dead-ends on a REJECTed :443 (LuCI unreachable pre-auth)"
-fi
-one_each_port "same-version install"
+journey_ports_once "same-version install"
 no_admin_ports "same-version install"
 
 echo "== re-running on the same version does not duplicate anything"
 run_same_version
-one_each_port "second same-version run"
+journey_ports_once "second same-version run"
 no_admin_ports "second same-version run"
 
-echo "== an admin-board allowance left by an earlier install is removed"
-# This is the fleet case: the router already carries the :8090/:8443 entries
-# because a previous install (or the feed's 92-tollgate-admin-setup) wrote
-# them. Omitting them from the writer only fixes a factory-fresh router, so
-# the removal has to happen on every path that runs.
+echo "== an admin-surface allowance left by an earlier install is removed"
+# This is the fleet case: the router already carries all four entries because a
+# previous install (or the feed's 92-tollgate-admin-setup, or tollgate-cli's
+# `ssl enable`) wrote them. Omitting them from the writer only fixes a
+# factory-fresh router, so the removal has to happen on every path that runs.
 seed 'allow tcp port 2121' 'allow tcp port 8090' 'allow tcp port 8443'
 run_same_version
 [ "$(count_entry 'allow tcp port 2121')" = 1 ] \
@@ -277,37 +293,37 @@ run_same_version
     || bad "stale allowance: 'allow tcp port 2121' lost"
 no_admin_ports "stale allowance"
 
-echo "== the :8443 rule must not satisfy the :443 check"
-seed 'allow tcp port 8443'
+echo "== the LuCI allowance an earlier install wrote is removed too"
+# The pre-fix shipped writer ADDED both of these, so a router installed before
+# this change carries them even though nothing writes them any more.
+seed 'allow tcp port 8080' 'allow tcp port 443'
 run_same_version
-if has_entry 'allow tcp port 443'; then
-    ok "a list holding only 'allow tcp port 8443' still gains the :443 rule"
-else
-    bad "a list holding only 'allow tcp port 8443' did not gain the :443 rule (:8443 matched as a substring, or the entry was never written)"
-fi
-n=$(count_entry 'allow tcp port 8443')
-[ "$n" = 0 ] && ok ":8443 admin-board rule removed" \
-             || bad ":8443 admin-board rule present $n times (want 0)"
-n=$(count_entry 'allow tcp port 443')
-[ "$n" = 1 ] && ok ":443 rule added exactly once" || bad ":443 rule present $n times (want 1)"
+no_admin_ports "LuCI allowance"
+journey_ports_once "LuCI allowance"
 
-echo "== a :443 rule already present (tollgate-cli ssl enable) is not duplicated"
-seed_lines "$LEGACY" 'allow tcp port 443'
+echo "== the removal is by whole value, not by substring"
+# An operator's own rule on a neighbouring port must survive: `del_list
+# …='allow tcp port 443'` must not take `allow tcp port 8443` with it, and the
+# removal of `:8080` must not touch a hand-written `:8081`. This is the trap the
+# old anchored add-check existed for (#516), inverted: with the adds gone, the
+# risk moves to a removal implemented as a substring or sed match.
+seed_lines "allow tcp port 4443
+allow tcp port 8081" 'allow tcp port 8080'
 run_same_version
-one_each_port "pre-existing :443 rule"
-no_admin_ports "pre-existing :443 rule"
+for keep in 4443 8081; do
+    n=$(count_entry "allow tcp port $keep")
+    [ "$n" = 1 ] && ok "the operator's own 'allow tcp port $keep' rule survived" \
+                 || bad "the operator's own 'allow tcp port $keep' rule was removed by a neighbouring-port removal ($n copies, want 1)"
+done
+n=$(count_entry 'allow tcp port 8080')
+[ "$n" = 0 ] && ok "the :8080 admin allowance was removed while :8081 survived" \
+             || bad ":8080 allowance present $n times (want 0)"
+journey_ports_once "neighbouring-port removal"
 
 echo "== single-line (space separated) allow list is handled too"
 UCI_LIST_SEP=' ' seed_lines "$LEGACY"
 UCI_LIST_SEP=' ' run_same_version
-n=$(count_entry 'allow tcp port 443')
-[ "$n" = 1 ] && ok "space separated list: :443 added exactly once" \
-             || bad "space separated list: :443 present $n times (want 1)"
-for port in 2121 8080 2050 2051; do
-    n=$(count_entry "allow tcp port $port")
-    [ "$n" = 1 ] && ok "space separated list: 'allow tcp port $port' kept once" \
-                 || bad "space separated list: 'allow tcp port $port' present $n times (want 1)"
-done
+journey_ports_once "space separated list"
 no_admin_ports "space separated list"
 
 # ------------------------------------------------------- lib-only seam check
@@ -319,10 +335,10 @@ TOLLGATE_SETUP_LIB_ONLY=1 . "$ROOT/$SCRIPT" >/dev/null 2>&1
 if command -v assert_nodogsplash_allow_entries >/dev/null 2>&1; then
     ok "script exposes assert_nodogsplash_allow_entries()"
     GATEWAY_NAME="TestGate"
-    seed 'allow tcp port 8443'
+    seed_lines "$LEGACY"
     assert_nodogsplash_allow_entries >/dev/null 2>&1
     assert_nodogsplash_allow_entries >/dev/null 2>&1
-    for port in $ALL_PORTS; do
+    for port in $JOURNEY_PORTS; do
         n=$(count_entry "allow tcp port $port")
         [ "$n" = 1 ] && ok "writer: 'allow tcp port $port' present exactly once after two runs" \
                      || bad "writer: 'allow tcp port $port' present $n times after two runs (want 1)"
