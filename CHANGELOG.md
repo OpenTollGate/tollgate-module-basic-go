@@ -10,6 +10,42 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A session whose client NoDogSplash has forgotten is closed and retired, not
+  retried for ever.** On the bench (pre17) `ndsctl deauth` answered
+  `Client <mac> not found.` with exit status 1, and the module read that exit
+  status as an *unconfirmed* close: it kept the gate tracked, retried it at the
+  sweep cadence for ever (`unconfirmed_closes` 113 → 193 → 195, monotonic), never
+  retired the session, and logged the false warning "this client may still hold
+  open, unmetered access" for a MAC NoDogSplash did not know at all. The storm
+  drove ndsctl until its socket died, and with a dead socket a **paid** purchase
+  could no longer be authorised (`state=PAID`, merchant wallet +1 sat,
+  `access_granted` never true). Three changes: (1) "client not found" is a
+  COMPLETED close — the gate is retired, no retry is armed, and the verified
+  state is logged at INFO; (2) the close retry is BOUNDED per gate
+  (`closeAttemptBudget`); at the budget the module stops driving ndsctl about
+  that gate, keeps it tracked, and escalates the abandonment exactly once, so
+  `unconfirmed_closes` can no longer grow without bound, while the reconciliation
+  re-attempts the close under fresh evidence about the client
+  (`valve.ReconcileGateClose`); (3) the wording now matches the verified state —
+  an unconfirmed close is reported as UNVERIFIED rather than as free internet.
+  A definitive "no client record" from `ndsctl json` also completes a close; a
+  probe that fails never does. Decision and scope, including why there is no
+  startup reconciliation pass, in
+  `docs/architecture/zombie-session-close-reconciliation-decision.md`.
+
+- **A paid purchase that cannot be granted is a loud, specific error, not a
+  silent no-op.** With the invoice settled and the tokens issued, a gate that
+  cannot be opened left the customer with `state=PAID` and `access_granted:false`
+  and told nobody why (`failed to fetch invoice status`), while the value sat in
+  the operator's wallet. The merchant now fails with a distinct
+  `ErrAccessGrantNotApplied` that names the client and the quote, logs one ERROR
+  line naming the client whose purchase is stuck, and the API answers 503 with
+  the `access-grant-failed` code and a message that tells the customer the payment
+  was received and not to pay again. The allotment is rolled back rather than
+  reported as granted, so nothing downstream can read the purchase as a success.
+
 ### Changed / Internal
 
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
