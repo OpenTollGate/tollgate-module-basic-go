@@ -64,6 +64,19 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`/etc/init.d/tollgate-wrt status` now reports the money path instead of the
+  pid.** The initscript's own `status()` was dead code — `rc.common` sources the
+  initscript first and then defines `start`/`stop`/`status` inside its
+  `USE_PROCD` block — so `status` was procd's process check, and on a cold boot
+  it answered `running` for minutes while `:2121` was not listening and
+  `/var/run/tollgate.sock` did not exist yet (`tollgate wallet balance` failed
+  with ENOENT, so nothing could be bought). It now uses the hook `rc.common`
+  provides for exactly this (`status_service()`, `rc.common:178-184`), which
+  requires the API listener on `:2121` **and** the CLI control socket and
+  otherwise exits non-zero with a one-line reason. The probe is BusyBox-only:
+  `netstat` on the kernel's listener table, `uclient-fetch -T 3` as the fallback
+  on images built without it, and `test -S` for the socket
+  ([#591](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/591)).
 - **A policy change now reaches the running nodogsplash: the setup script
   reloads the service when its `ndsRTR` ruleset no longer matches the configured
   `users_to_router` list.** The allow list is nodogsplash's *pre-authentication*
