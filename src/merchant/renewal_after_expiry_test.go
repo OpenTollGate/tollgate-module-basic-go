@@ -73,10 +73,12 @@ func (w *renewalWallet) received() int { return int(atomic.LoadInt32(&w.receives
 // It can also be told to FAIL deauth (failDeauth), which is how the gate
 // close-failure contract is exercised: a deauth that fails is not a close.
 type renewalNdsctl struct {
-	logPath   string
-	statePath string
-	usagePath string
-	failPath  string
+	logPath       string
+	statePath     string
+	usagePath     string
+	failPath      string
+	forgottenPath string
+	authFailPath  string
 }
 
 func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
@@ -84,10 +86,12 @@ func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
 
 	dir := t.TempDir()
 	n := &renewalNdsctl{
-		logPath:   filepath.Join(dir, "ndsctl.log"),
-		statePath: filepath.Join(dir, "ndsctl.state"),
-		usagePath: filepath.Join(dir, "ndsctl.usage"),
-		failPath:  filepath.Join(dir, "ndsctl.deauthfail"),
+		logPath:       filepath.Join(dir, "ndsctl.log"),
+		statePath:     filepath.Join(dir, "ndsctl.state"),
+		usagePath:     filepath.Join(dir, "ndsctl.usage"),
+		failPath:      filepath.Join(dir, "ndsctl.deauthfail"),
+		forgottenPath: filepath.Join(dir, "ndsctl.deauthforgotten"),
+		authFailPath:  filepath.Join(dir, "ndsctl.authfail"),
 	}
 
 	script := fmt.Sprintf(`#!/bin/sh
@@ -95,15 +99,29 @@ LOG=%q
 STATE=%q
 USAGE=%q
 FAIL=%q
+FORGOTTEN=%q
+AUTHFAIL=%q
 mac="$2"
 case "$1" in
   auth)
     echo "AUTH $mac" >> "$LOG"
+    if [ -r "$AUTHFAIL" ]; then
+      # NoDogSplash refusing the authorisation, or its control socket not
+      # answering: the customer's gate stays shut.
+      echo "Failed to authenticate client"
+      exit 1
+    fi
     echo "Auth: $mac - Granted"
     exit 0
     ;;
   deauth)
     echo "DEAUTH $mac" >> "$LOG"
+    if [ -r "$FORGOTTEN" ]; then
+      # What the real ndsctl answers for a MAC NoDogSplash does not know at all
+      # (measured on the bench MT3000, pre17, 2026-09-26).
+      echo "Client $mac not found."
+      exit 1
+    fi
     if [ -r "$FAIL" ]; then
       echo "Failed to deauthenticate client"
       exit 1
@@ -128,7 +146,7 @@ case "$1" in
 esac
 echo OK
 exit 0
-`, n.logPath, n.statePath, n.usagePath, n.failPath)
+`, n.logPath, n.statePath, n.usagePath, n.failPath, n.forgottenPath, n.authFailPath)
 
 	if err := os.WriteFile(filepath.Join(dir, "ndsctl"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ndsctl: %v", err)
@@ -179,6 +197,41 @@ func (n *renewalNdsctl) failDeauth(t *testing.T, fail bool) {
 	}
 	if err := os.WriteFile(n.failPath, []byte("fail\n"), 0o644); err != nil {
 		t.Fatalf("write deauth failure marker: %v", err)
+	}
+}
+
+// forgetClient makes `ndsctl deauth` answer exactly what the bench measured for a
+// MAC NoDogSplash no longer knows at all: "Client <mac> not found." and exit
+// status 1.
+//
+// It is deliberately NOT the same as failDeauth: there the deauthorization was
+// refused while the client was still there, so the gate really is still open.
+// Here the enforcement layer holds nothing for the address, so there is nothing
+// left to close and no retry can ever converge.
+func (n *renewalNdsctl) forgetClient(t *testing.T) {
+	t.Helper()
+
+	if err := os.WriteFile(n.forgottenPath, []byte("forgotten\n"), 0o644); err != nil {
+		t.Fatalf("write deauth-forgotten marker: %v", err)
+	}
+}
+
+// failAuth makes `ndsctl auth` fail (exit 1, "Failed to authenticate client")
+// until it is called again with false. That is the enforcement layer refusing —
+// or being unable to answer — the authorisation of a client whose purchase has
+// already been paid for, which is the state in which a paid customer keeps a
+// shut gate.
+func (n *renewalNdsctl) failAuth(t *testing.T, fail bool) {
+	t.Helper()
+
+	if !fail {
+		if err := os.Remove(n.authFailPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("clear auth failure: %v", err)
+		}
+		return
+	}
+	if err := os.WriteFile(n.authFailPath, []byte("fail\n"), 0o644); err != nil {
+		t.Fatalf("write auth failure marker: %v", err)
 	}
 }
 

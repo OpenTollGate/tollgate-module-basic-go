@@ -421,6 +421,17 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 // StartDataUsageMonitoring starts a background routine to monitor data usage for
 // active sessions and to reconcile the bindings of clients that have left the
 // network (see the stale-binding reconciliation section).
+//
+// There is deliberately no separate startup pass here. The module's gate, session
+// and baseline bookkeeping is process-local — nothing loads it at startup — so
+// the set a startup pass would reconcile is EMPTY by construction, and a pass over
+// it would be code that cannot do anything. What is NOT empty at startup is
+// NoDogSplash's own client list, which survives a module restart; the module
+// cannot enumerate it with the per-MAC probe it has (that would need the client
+// list from `ndsctl`), and closing or adopting those records without knowing the
+// allotment behind them would be a guess. The reasoning, and the follow-up that
+// owns the inverse drift, are recorded in
+// docs/architecture/zombie-session-close-reconciliation-decision.md.
 func (m *Merchant) StartDataUsageMonitoring() {
 	log.Printf("Starting data usage monitoring routine")
 
@@ -526,13 +537,29 @@ func (m *Merchant) clearUnmetered(macAddress string) {
 	delete(m.unmeteredSessions, macAddress)
 }
 
+// closeRetryStateClause is what the module will do NEXT about a close that
+// ndsctl has not confirmed, and it is derived from the error rather than
+// assumed. A close whose retry budget is spent (ErrGateCloseAbandoned) is NOT
+// re-attempted by the sweep machinery — only the reconciliation re-attempts it,
+// under fresh evidence about the client — so a log line that says "the close is
+// retried" for that state is the same class of false claim as the
+// unmetered-access wording this release removes. Every caller that reports an
+// unconfirmed close must use this rather than assert a retry in prose.
+func closeRetryStateClause(err error) string {
+	if errors.Is(err, valve.ErrGateCloseAbandoned) {
+		return "the module has stopped re-attempting this close (the close budget for this gate is spent and the valve's UNRESOLVED line carries the operator action); only the reconciliation re-attempts it, under fresh evidence about the client"
+	}
+	return "the close is retried within the gate's close budget"
+}
+
 // enforceBytesSession is the usage monitor's per-session step. Every sweep takes
 // the session one step closer to enforcement — meter it against its allotment,
 // re-establish the baseline it is missing, or close a gate that cannot be
 // metered at all. The one thing it must never do is skip the session: a bytes
 // session the monitor stops looking at keeps an open gate for as long as the
 // process lives, which is exactly the free, unmetered internet this module
-// exists to prevent (C1-2b, C1-2c).
+// exists to prevent (C1-2b, C1-2c). Its failure log line derives its retry claim
+// from closeRetryStateClause, never from prose.
 func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSession) {
 	// A session whose baseline was never established cannot be metered. The old
 	// code answered this with `continue` on every sweep, for ever.
@@ -576,8 +603,8 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	// the client must be closed — retiring it is how the customer kept free,
 	// unmetered internet with nothing left to retry (C1-2b).
 	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and the close is retried; the client may still hold open, unmetered access (unconfirmed gate closes=%d)",
-			macAddress, err, valve.GateCloseFailures())
+		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and %s; whether the client still has access is UNVERIFIED until ndsctl confirms the deauthorization, and the valve logs the verified state of every attempt (unconfirmed gate closes=%d)",
+			macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		return
 	}
 	log.Printf("Successfully closed gate for %s", macAddress)
@@ -615,7 +642,10 @@ func (m *Merchant) establishBaseline(macAddress string) {
 // it is given usageMonitorGraceSweeps of grace and then its gate is closed, since
 // an unmeasurable session left open is unmetered internet. The close is subject
 // to the same contract as every other close — the session is retired only when
-// the close is confirmed, and the gate stays tracked and is retried otherwise.
+// the close is confirmed, and the gate stays tracked otherwise (and the valve
+// logs the verified state of the client, which is what distinguishes "ndsctl
+// refused" from "NoDogSplash does not know this client": the second is a
+// completed close and retires the session at once).
 func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	sweeps := m.noteUnmeterableSweep(macAddress)
 
@@ -629,8 +659,8 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 		macAddress, sweeps, usageErr)
 
 	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and the close is retried (unconfirmed gate closes=%d)",
-			macAddress, err, valve.GateCloseFailures())
+		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
+			macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		return
 	}
 
@@ -862,11 +892,17 @@ func (m *Merchant) reconcileStaleBindings() {
 // customer paid for cannot travel to the address they moved to until entitlement
 // is carried by a session ticket rather than by the address — that is the
 // next-release work this pass does not pretend to do.
+//
+// The close goes through ReconcileGateClose rather than CloseGate because this is
+// the one caller that brings EVIDENCE about the client (the probe above has just
+// established that NoDogSplash no longer lists the address): that is what lets it
+// re-attempt the close of a gate whose own budget is spent, which is the only way
+// such a gate can still converge.
 func (m *Merchant) reconcileStaleBinding(macAddress string) {
 	usage, usageErr := valve.GetDataUsageSinceBaseline(macAddress)
 
-	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate of the stale binding of %s: %v — the record is retained and the close is retried (unconfirmed gate closes=%d)",
+	if err := valve.ReconcileGateClose(macAddress); err != nil {
+		log.Printf("ERROR: could not close the gate of the stale binding of %s: %v — the record is retained and the next reconciliation pass re-attempts the close (unconfirmed gate closes=%d)",
 			macAddress, err, valve.GateCloseFailures())
 		return
 	}
