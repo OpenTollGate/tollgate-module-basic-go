@@ -421,8 +421,20 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 // StartDataUsageMonitoring starts a background routine to monitor data usage for
 // active sessions and to reconcile the bindings of clients that have left the
 // network (see the stale-binding reconciliation section).
+//
+// Before the first sweep it runs the STARTUP reconciliation (see
+// startup_reconciliation.go), which is the other direction of the same drift: a
+// module restart starts from an empty session set while NoDogSplash keeps every
+// client it had authorised, so a client this module holds no session for would
+// keep an open, unmetered gate. It runs here — synchronously, during merchant
+// construction and therefore before the merchant is installed behind the API —
+// so it can never race a purchase that is being served, and it asks
+// NoDogSplash's own client list (`ndsctl json`, no argument), which is the only
+// surface that survives the module.
 func (m *Merchant) StartDataUsageMonitoring() {
 	log.Printf("Starting data usage monitoring routine")
+
+	m.ReconcileNdsAuthorisationsOnStartup()
 
 	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
 	go func() {
