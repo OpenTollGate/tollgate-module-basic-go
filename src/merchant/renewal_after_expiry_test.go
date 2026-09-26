@@ -78,6 +78,7 @@ type renewalNdsctl struct {
 	usagePath     string
 	failPath      string
 	forgottenPath string
+	authFailPath  string
 }
 
 func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
@@ -90,6 +91,7 @@ func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
 		usagePath:     filepath.Join(dir, "ndsctl.usage"),
 		failPath:      filepath.Join(dir, "ndsctl.deauthfail"),
 		forgottenPath: filepath.Join(dir, "ndsctl.deauthforgotten"),
+		authFailPath:  filepath.Join(dir, "ndsctl.authfail"),
 	}
 
 	script := fmt.Sprintf(`#!/bin/sh
@@ -98,10 +100,17 @@ STATE=%q
 USAGE=%q
 FAIL=%q
 FORGOTTEN=%q
+AUTHFAIL=%q
 mac="$2"
 case "$1" in
   auth)
     echo "AUTH $mac" >> "$LOG"
+    if [ -r "$AUTHFAIL" ]; then
+      # NoDogSplash refusing the authorisation, or its control socket not
+      # answering: the customer's gate stays shut.
+      echo "Failed to authenticate client"
+      exit 1
+    fi
     echo "Auth: $mac - Granted"
     exit 0
     ;;
@@ -137,7 +146,7 @@ case "$1" in
 esac
 echo OK
 exit 0
-`, n.logPath, n.statePath, n.usagePath, n.failPath, n.forgottenPath)
+`, n.logPath, n.statePath, n.usagePath, n.failPath, n.forgottenPath, n.authFailPath)
 
 	if err := os.WriteFile(filepath.Join(dir, "ndsctl"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ndsctl: %v", err)
@@ -204,6 +213,25 @@ func (n *renewalNdsctl) forgetClient(t *testing.T) {
 
 	if err := os.WriteFile(n.forgottenPath, []byte("forgotten\n"), 0o644); err != nil {
 		t.Fatalf("write deauth-forgotten marker: %v", err)
+	}
+}
+
+// failAuth makes `ndsctl auth` fail (exit 1, "Failed to authenticate client")
+// until it is called again with false. That is the enforcement layer refusing —
+// or being unable to answer — the authorisation of a client whose purchase has
+// already been paid for, which is the state in which a paid customer keeps a
+// shut gate.
+func (n *renewalNdsctl) failAuth(t *testing.T, fail bool) {
+	t.Helper()
+
+	if !fail {
+		if err := os.Remove(n.authFailPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("clear auth failure: %v", err)
+		}
+		return
+	}
+	if err := os.WriteFile(n.authFailPath, []byte("fail\n"), 0o644); err != nil {
+		t.Fatalf("write auth failure marker: %v", err)
 	}
 }
 
