@@ -270,10 +270,95 @@ func TestStartupMonitoringClosesTheAuthorisationsTheModuleInherits(t *testing.T)
 	}
 
 	line := logs.String()
-	for _, want := range []string{"startup reconciliation", inheritedOrphanMAC, "unmetered"} {
+	for _, want := range []string{"startup reconciliation", inheritedOrphanMAC, "held open, UNMETERED access", "CLOSED"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("the operator has to be able to read what happened to %s: no line mentions %q\nlog:\n%s", inheritedOrphanMAC, want, line)
 		}
+	}
+}
+
+// TestStartupReconciliationChangesNothingWhenTheClientListCannotBeRead: an
+// unreadable list is not evidence about any client, so no gate may be closed on
+// the strength of it — and the residue (a client that may keep unmetered access)
+// is named once, with the check to run, instead of being silently ignored.
+func TestStartupReconciliationChangesNothingWhenTheClientListCannotBeRead(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+	ndsctl.setList(t, map[string]string{inheritedOrphanMAC: "Authenticated"})
+	ndsctl.setUnreadable(t, true)
+
+	m := inheritedMerchant(t)
+	installInheritedClientSession(t, m, inheritedKnownMAC)
+
+	logs := captureSyncLogs(t)
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	if got := ndsctl.opsFor(t, "DEAUTH "+inheritedOrphanMAC); got != 0 {
+		t.Fatalf("a client list the module could not read is not evidence about any client: deauths for %s = %d, want 0", inheritedOrphanMAC, got)
+	}
+	if got := ndsctl.opsFor(t, "DEAUTH "+inheritedKnownMAC); got != 0 {
+		t.Fatalf("deauths for the module's own live session = %d, want 0", got)
+	}
+
+	line := logs.String()
+	for _, want := range []string{"could not read NoDogSplash's client list", "ndsctl json"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("an unreadable client list must leave the operator a line naming the check to run (%q missing)\nlog:\n%s", want, line)
+		}
+	}
+}
+
+// TestStartupReconciliationIsQuietWhenNoDogSplashHoldsNobody: the fresh-box
+// path must not manufacture work or noise.
+func TestStartupReconciliationIsQuietWhenNoDogSplashHoldsNobody(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+	ndsctl.setList(t, map[string]string{})
+
+	m := inheritedMerchant(t)
+	logs := captureSyncLogs(t)
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	// Per-MAC, like every assertion in this file: building the merchant closes
+	// the gate of the harness's own MAC, and the valve's state is shared by the
+	// whole test binary.
+	for _, macAddress := range []string{inheritedOrphanMAC, inheritedKnownMAC, inheritedPreauthMAC} {
+		if got := ndsctl.opsFor(t, "DEAUTH "+macAddress); got != 0 {
+			t.Fatalf("NoDogSplash holds nobody, yet the module ran %d deauth(s) for %s", got, macAddress)
+		}
+	}
+	if !strings.Contains(logs.String(), "holds no authorised client") {
+		t.Fatalf("the pass must say it found nothing rather than stay silent\nlog:\n%s", logs.String())
+	}
+}
+
+// TestStartupReconciliationReportsACloseItCouldNotConfirm: the fail-closed
+// direction is only as good as what happens when the close is REFUSED. The gate
+// must stay tracked (a failed deauth is not a close), the operator must be told
+// the client may still hold open, unmetered access, and the pass must not
+// pretend it succeeded.
+func TestStartupReconciliationReportsACloseItCouldNotConfirm(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+	ndsctl.setList(t, map[string]string{inheritedOrphanMAC: "Authenticated"})
+	ndsctl.failDeauth(t, true)
+
+	m := inheritedMerchant(t)
+	logs := captureSyncLogs(t)
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	if got := ndsctl.opsFor(t, "DEAUTH "+inheritedOrphanMAC); got == 0 {
+		t.Fatalf("the gate of an inherited authorised client must be closed even when the close is refused: deauths = 0")
+	}
+
+	line := logs.String()
+	if !strings.Contains(line, "ERROR: startup reconciliation") {
+		t.Fatalf("a refused close is an ERROR, not a WARNING\nlog:\n%s", line)
+	}
+	for _, want := range []string{"may still hold open, unmetered access", "stays tracked", "OPERATOR ACTION"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the escalation must leave the operator the state and the action (%q missing)\nlog:\n%s", want, line)
+		}
+	}
+	if strings.Contains(line, "its gate is now CLOSED") {
+		t.Fatalf("a close that was not confirmed must never be reported as done\nlog:\n%s", line)
 	}
 }
 
