@@ -97,20 +97,20 @@ jobs:
           # negative control fails if the comparison ever goes back to equality.
           bash tests/uci-defaults-setup-marker-order_test.sh
 
-      - name: Admin TLS identity (setup provisions it, the redirect requires it)
+      - name: Admin TLS identity (HTTPS is not inherited from the image)
         run: |
-          # Offline (no router, no SDK, no network): the setup path must
-          # PROVISION the router's TLS identity through the module's own
-          # generator instead of inheriting the OpenWrt image's placeholder
-          # certificate, and uhttpd.main.redirect_https must require a
-          # certificate that actually COVERS this router — not merely a readable
-          # non-empty file. Measured on the bench MT3000 (2026-09-26):
-          # /etc/uhttpd.crt was the image's CN=OpenWrt / DNS:OpenWrt placeholder,
-          # `tollgate ssl status` said "not configured", and
-          # http://192.168.1.1:8080/ 307'd to https://192.168.1.1/ — a hard
-          # certificate error in the browser for an identity that covers neither
-          # the hostname nor the LAN IP. The suite's negative control fails if the
-          # guard ever goes back to a file-existence check.
+          # Offline (no router, no SDK, no network): the install path must
+          # PROVISION a TLS identity that covers this router and must derive
+          # uhttpd.main.redirect_https from a COVERAGE check, not from a
+          # readable-and-non-empty certificate file. The OpenWrt image ships a
+          # placeholder (CN=OpenWrt, SAN DNS:OpenWrt) that satisfies the old
+          # guard while covering neither the hostname nor the LAN IP, so :8080
+          # redirected a browser into a hard certificate error (bench MT3000,
+          # 2026-09-26). The suite drives the shipped uci-defaults script end to
+          # end against a fixture, pins the operator opt-out that `tollgate ssl
+          # remove` records, and carries a negative control that runs the
+          # pre-change rule over the same fixture and must derive
+          # redirect_https=1 from the placeholder.
           bash tests/uci-defaults-admin-tls-identity_test.sh
 
       - name: Spec-quote drift check
