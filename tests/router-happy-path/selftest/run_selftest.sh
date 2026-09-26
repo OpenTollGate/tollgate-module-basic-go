@@ -13,9 +13,11 @@
 # evidence. A hardware-only suite rots precisely because nobody can see it go red
 # on demand.
 #
-# COVERAGE, MEASURED (not asserted). A live run can emit 74 distinct check ids and
-# these 35 cases drive 49 of them red at least once. The ones that DO NOT go red
-# here are the ones this rig cannot break -- named, so nobody has to guess:
+# COVERAGE, MEASURED (not asserted). Re-derived from a --keep run of the merge
+# commit (2026-09-26): the 61 cases emit 67 distinct check ids between them -- a
+# single clean run emits 48 -- and 51 of them are driven red at least once. The
+# ones that DO NOT go red here
+# are the ones this rig cannot break -- named, so nobody has to guess:
 #   * paid:* (6)          the paid lane is opt-in behind RHP_CASHU_TOKEN; no case
 #                         redeems, spends, or touches ecash. Its DECODE is pinned
 #                         by the cashtoken-* cases below (v3, v4, malformed
@@ -24,8 +26,11 @@
 #                         real token failed inspection before the lane could buy
 #                         anything at all
 #   * ssh:* (4)           needs a real router; opt-in behind RHP_SSH
-#   * net:tcp-<port> (7)  a stub that stops listening is not a state one rig run
-#                         can hold; the port sweep is GREEN in every case
+#   * net:tcp-<port> (6 of 7)  the stub answers the burst on every port in every
+#                         other case; only the TLS port is driven red, by
+#                         tcp-dead-port (the one port a run truly cannot do without)
+#   * vantage:mode        reported, never fatal by construction (either lane is
+#                         supported, so there is no state that makes it FAIL)
 #   * net:icmp-not-a-liveness-test  the source guard: it can only go red if
 #                         somebody reintroduces `ping`, which is the edit it forbids
 #   * api:whoami-shape, api:identity-shape (SKIPs on 404), artifact:package,
@@ -77,8 +82,12 @@ ADMIN_PORT="$(free_port $((API_PORT + 1)))"
 CAPTIVE_PORT="$(free_port $((ADMIN_PORT + 1)))"
 LUCI_PORT="$(free_port $((CAPTIVE_PORT + 1)))"
 TLS_PORT="$(free_port $((LUCI_PORT + 1)))"
+# A second LIVE https listener that the harness does not know about: the decoy for
+# the TCP-credit rule (case 9d-bis). It is never in the section-0 sweep, so the
+# only thing that can reach it is the :LUCI 307 Location.
+ALT_PORT="$(free_port $((TLS_PORT + 1)))"
 echo "selftest ports: ssh=$SSH_PORT stub=$STUB_PORT portal=$PORTAL_PORT api=$API_PORT" \
-     "admin=$ADMIN_PORT captive=$CAPTIVE_PORT luci=$LUCI_PORT tls=$TLS_PORT"
+     "admin=$ADMIN_PORT captive=$CAPTIVE_PORT luci=$LUCI_PORT tls=$TLS_PORT alt=$ALT_PORT (decoy)"
 
 # --------------------------------------------------------------------------
 # Fixtures: a fake extracted package whose docroots the stub serves verbatim
@@ -145,7 +154,7 @@ start_stub() {  # start_stub [scenario file]
         --portal-docroot "$PDOC" --admin-docroot "$ADOC" \
         --portal-port "$PORTAL_PORT" --stub-port "$STUB_PORT" --api-port "$API_PORT" \
         --admin-port "$ADMIN_PORT" --luci-port "$LUCI_PORT" --captive-port "$CAPTIVE_PORT" \
-        --tls-port "$TLS_PORT" --ssh-port "$SSH_PORT" \
+        --tls-port "$TLS_PORT" --ssh-port "$SSH_PORT" --alt-port "$ALT_PORT" \
         --cert "$CERT" --key "$KEY" "${scenario_args[@]}" \
         > "$WORK/stub.log" 2>&1 &
     STUB_PID=$!
@@ -159,26 +168,55 @@ start_stub() {  # start_stub [scenario file]
 
 harness_run() {  # harness_run <outfile> [harness args...]
     local out="$1"; shift
+    # --vantage is PINNED in the rig (mgmt by default, RHP_HARNESS_VANTAGE to
+    # override, and a case may pass its own --vantage last to win). The vantage a
+    # live run gets is derived from the box; on a busy CI runner that derivation
+    # can flip to guest simply because :8090 did not answer the probe in time, and
+    # then every mgmt-lane case below would assert against a lane that never ran.
+    # The rig is for deterministic RED/GREEN, so it pins the lane -- and the
+    # derivation itself is asserted by its own case (vantage-auto-mgmt).
     ( cd "$HARNESS" && RHP_TMPDIR="$TMP_PARENT" \
         RHP_PORTAL_PORT="$PORTAL_PORT" RHP_STUB_PORT="$STUB_PORT" RHP_API_PORT="$API_PORT" \
         RHP_ADMIN_PORT="$ADMIN_PORT" RHP_LUCI_PORT="$LUCI_PORT" RHP_CAPTIVE_PORT="$CAPTIVE_PORT" \
         RHP_SSH_PORT="$SSH_PORT" RHP_TLS_PORT="$TLS_PORT" \
         RHP_429_PACE="${RHP_429_PACE:-1}" \
+        RHP_TCP_TRIES="${RHP_TCP_TRIES:-3}" \
+        RHP_TCP_BACKOFF="${RHP_TCP_BACKOFF:-1}" \
         RHP_API_HELPER="${RHP_API_HELPER:-}" \
         bash run.sh \
-        --artifact-dir "$ART" --router-ip 127.0.0.1 --out "$WORK/evidence" "$@" ) \
+        --artifact-dir "$ART" --router-ip 127.0.0.1 --out "$WORK/evidence" \
+        --vantage "${RHP_HARNESS_VANTAGE:-mgmt}" "$@" ) \
         >"$out" 2>"$WORK/err"
 }
 
 # check_case <case> <OK|BAD-expectation> ...
-check_case() {  # check_case <case> <expect PASS|FAIL> <check id> <outfile> <rc>
+check_case() {  # check_case <case> <expect PASS|FAIL|WARN> <check id> <outfile> <rc>
     local name="$1" expect="$2" id="$3" out="$4" rc="$5"
-    local line
-    line="$(grep -E "^RHPCHECK $id " "$out" | head -1)"
-    if [ -z "$line" ]; then
-        st "$name" BAD "check id '$id' never ran"
+    local line n
+    # The TERMINAL status is the run's answer. A section-0 liveness note is
+    # RHPPROVISIONAL -- deliberately not a RHPCHECK line at all, because the
+    # verdict has to resolve it (to FAIL, or to WARN when a later check reached
+    # the port). Judging the first matching line instead would read the
+    # pre-verdict state and call a refuted port red; judging the LAST line of a
+    # terminal status asserts what the run actually reports. Exactly one RHPCHECK
+    # line per id, asserted here: an id that is both red and green in one
+    # transcript is the confusion this whole rig exists to prevent, and a
+    # grep-based gate reading `^RHPCHECK <id> ` cannot see a PROVISIONAL note at
+    # all.
+    n="$(grep -cE "^RHPCHECK $id (PASS|FAIL|SKIP|WARN) " "$out")"
+    if [ "$n" = "0" ]; then
+        if grep -qE "^RHPPROVISIONAL $id " "$out"; then
+            st "$name" BAD "$id has a PROVISIONAL note but NO terminal resolution: the verdict never resolved the section-0 burst"
+        else
+            st "$name" BAD "check id '$id' never ran"
+        fi
         return
     fi
+    if [ "$n" != "1" ]; then
+        st "$name" BAD "$id has $n terminal lines, want exactly 1: $(grep -E "^RHPCHECK $id (PASS|FAIL|SKIP|WARN) " "$out" | cut -d' ' -f3 | tr '\n' ' ')"
+        return
+    fi
+    line="$(grep -E "^RHPCHECK $id (PASS|FAIL|SKIP|WARN) " "$out")"
     local got
     got="$(printf '%s' "$line" | cut -d' ' -f3)"
     if [ "$got" != "$expect" ]; then
@@ -191,6 +229,10 @@ check_case() {  # check_case <case> <expect PASS|FAIL> <check id> <outfile> <rc>
     fi
     if [ "$expect" = "PASS" ] && [ "$rc" != "0" ]; then
         st "$name" BAD "$id stayed green but the run exited $rc"
+        return
+    fi
+    if [ "$expect" = "WARN" ] && [ "$rc" != "0" ]; then
+        st "$name" BAD "$id was demoted to WARNING but the run still exited $rc (a warning is not fatal, by definition)"
         return
     fi
     st "$name" OK "$id $expect: $(printf '%s' "$line" | cut -c10-130)"
@@ -305,6 +347,179 @@ RHP_API_HELPER=/bin/true
 export RHP_API_HELPER
 mut_case helper-silent        FAIL helper:api                               '{}'
 unset RHP_API_HELPER
+
+# 9. vantage + the section-0 TCP liveness burst.
+#
+# A human tester (and the review club) has exactly one vantage: a client on the
+# guest network. From there :8090 is firewall-blocked BY DESIGN
+# (31-admin-board-not-guest-reachable.nft), and the harness's first connect burst
+# races the box's own convergence. Neither may paint a fatal FAIL, or a red line
+# stops meaning "a real defect" -- the whole point of the harness.
+#
+# These cases drive the three outcomes the card names: guest-vantage 000 => PASS,
+# a port that fails once and answers on retry => not fatal, a port that answers
+# nowhere in the run => still fatal. Two more cover the negative control (the
+# guard must be provably inert when :8090 answers) and the "answers later in the
+# same run" demotion.
+echo "--- vantage + the TCP liveness burst"
+assert_in() {  # assert_in <case> <file> <ERE> <what>
+    local name="$1" file="$2" re="$3" what="$4"
+    if grep -qE "$re" "$file"; then
+        st "$name" OK "$what"
+    else
+        st "$name" BAD "$what -- no line matching /$re/ in $(basename "$file")"
+    fi
+}
+
+assert_not_in() {  # assert_not_in <case> <file> <ERE> <what>
+    local name="$1" file="$2" re="$3" what="$4"
+    if grep -qE "$re" "$file"; then
+        st "$name" BAD "$what -- but a line matching /$re/ IS in $(basename "$file"): $(grep -m1 -E "$re" "$file" | cut -c1-120)"
+    else
+        st "$name" OK "$what"
+    fi
+}
+
+assert_after() {  # assert_after <case> <file> <marker ERE> <ERE> <what>
+    # the terminal line must come from the verdict, not from the burst: a port can
+    # only be called dead once the WHOLE run has failed to reach it.
+    local name="$1" file="$2" marker="$3" re="$4" what="$5"
+    local m l
+    m="$(grep -nE "$marker" "$file" | head -1 | cut -d: -f1)"
+    l="$(grep -nE "$re" "$file" | head -1 | cut -d: -f1)"
+    if [ -z "$l" ]; then
+        st "$name" BAD "$what -- no line matching /$re/ in $(basename "$file")"
+    elif [ -n "$m" ] && [ "$l" -gt "$m" ]; then
+        st "$name" OK "$what"
+    else
+        st "$name" BAD "$what -- the line is at $l, NOT after the verdict marker (line ${m:-missing})"
+    fi
+}
+
+# 9a-pre. the baseline ran with --vantage mgmt PINNED, and it says so: the rig
+#        never leaves the lane it is asserting to a derivation (that derivation
+#        has its own case below). This is also what keeps `admin-spa-missing`
+#        meaningful: it asserts a check id that only runs in the mgmt lane.
+assert_in baseline-vantage "$WORK/out.baseline.txt" \
+    "^RHPCHECK vantage:mode PASS 'mgmt'" \
+    "the rig's baseline pins the mgmt lane and the transcript names it"
+
+# 9a-bis. the derivation itself: with :$ADMIN_PORT answering, --vantage auto must
+#         resolve mgmt and run the mgmt admin assertion. Slow-probe tolerant on
+#         purpose (a busy runner must not flip the lane).
+RHP_HARNESS_VANTAGE=auto
+RHP_TCP_TRIES=8
+mut_case vantage-auto-mgmt PASS "surface:$ADMIN_PORT-admin-spa" '{}' --vantage auto
+RHP_HARNESS_VANTAGE=mgmt
+RHP_TCP_TRIES=3
+assert_in vantage-auto-mgmt-mode "$WORK/out.vantage-auto-mgmt.txt" \
+    "^RHPCHECK vantage:mode PASS .*auto-detected 'mgmt'" \
+    "auto-detection resolved mgmt from :$ADMIN_PORT answering"
+
+# 9a. guest vantage, the #566 guard working as designed: :8090 answers nothing.
+#     The dedicated check PASSES on 000, the preflight line is a WARNING (never a
+#     fatal FAIL), and the admin board is still spoken for -- by the mgmt/on-box
+#     lane, named in the transcript, not silently dropped.
+RHP_TCP_TRIES="${RHP_TCP_TRIES:-3}"
+RHP_TCP_BACKOFF=1
+mut_case guest-8090-guard PASS "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" \
+    '{"unbound_ports": ["admin"]}' --vantage guest
+guest_out="$WORK/out.guest-8090-guard.txt"
+assert_in guest-8090-guard-tcp-warn "$guest_out" \
+    "^RHPCHECK net:tcp-$ADMIN_PORT WARN " \
+    "the section-0 line for the blocked :$ADMIN_PORT is a WARNING, not a fatal preflight FAIL"
+assert_in guest-8090-guard-identity-skip "$guest_out" \
+    "^RHPCHECK identity:admin:entry SKIP .*(mgmt|on-box)" \
+    "the admin build-identity lane is a named SKIP that points at the mgmt/on-box lane (never a silent skip)"
+assert_in guest-8090-guard-green "$guest_out" \
+    "^RHPEXIT 0$" \
+    "the whole guest-vantage run is GREEN (exit 0) on a box whose admin board is correctly blocked -- the point of the vantage notion"
+assert_in guest-8090-guard-no-fatal "$guest_out" \
+    "^RHPRESULT total=[0-9]+ pass=[0-9]+ fail=0 skip=[0-9]+ warn=[0-9]+" \
+    "the guest-vantage run reports fail=0: no check can only pass from a management vantage"
+assert_not_in guest-8090-guard-no-dangling-fail "$guest_out" \
+    "^RHPCHECK net:tcp-$ADMIN_PORT FAIL " \
+    "no FAIL line is printed for the port the guest lane cannot reach (a WARNING, not a red line)"
+
+# 9b. negative control for the same check: the guard is INERT (:8090 answers a
+#     br-lan client) -> the guest-vantage check must go red. Without this, 9a
+#     would pass on a harness that always prints the same line.
+mut_case guest-8090-guard-inert FAIL "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" \
+    '{}' --vantage guest
+
+# 9c. a port that fails the first burst and answers on the retry is NOT fatal: the
+#     retry recovers it and the line goes green with the attempt named. The 3 s
+#     backoff against the stub's 1 s late bind is what makes "attempt 2" certain
+#     rather than a race.
+RHP_TCP_BACKOFF=3
+mut_case tcp-retry-recovers PASS "net:tcp-$SSH_PORT" \
+    '{"ssh_late_bind_s": 1.0}'
+RHP_TCP_BACKOFF=1
+assert_in tcp-retry-recovers-note "$WORK/out.tcp-retry-recovers.txt" \
+    "^RHPCHECK net:tcp-$SSH_PORT PASS .*attempt 2/$RHP_TCP_TRIES" \
+    "the recovered line names the attempt that answered, so a retried connect is visibly not the first one"
+
+# 9d. a port that answers nowhere in the run is STILL fatal (the TLS port is not
+#     decoration: the :$LUCI_PORT https redirect is asserted against it). The
+#     section-0 line for it is RHPPROVISIONAL -- the run has not looked at the
+#     rest of the box yet -- and the FAIL comes from the verdict, where it is
+#     final.
+mut_case tcp-dead-port FAIL "net:tcp-$TLS_PORT" '{"unbound_ports": ["tls"]}'
+dead_out="$WORK/out.tcp-dead-port.txt"
+assert_in tcp-dead-port-provisional "$dead_out" \
+    "^RHPPROVISIONAL net:tcp-$TLS_PORT " \
+    "the section-0 line says PROVISIONAL, i.e. explicitly not yet a verdict (and it is not a RHPCHECK line, so a grep for the id's verdict sees exactly one)"
+assert_after tcp-dead-port-final "$dead_out" \
+    "^===== verdict: resolving the section-0 liveness burst" \
+    "^RHPCHECK net:tcp-$TLS_PORT FAIL " \
+    "the FATAL line for a port nothing in the run reaches is printed by the verdict, after the reconciliation"
+assert_in tcp-dead-port-named "$dead_out" \
+    "^RHPFAILED .*net:tcp-$TLS_PORT" \
+    "the dead port is named in RHPFAILED (the summary a gate reads)"
+
+# 9d-bis. the DECOY: the credit rule must credit the port a check actually
+#         REACHED, not an id that merely mentions it. Here :$TLS_PORT is dead
+#         while the :$LUCI_PORT redirect lands on a DIFFERENT, live https port
+#         (:$ALT_PORT, which the harness never sweeps). So
+#         surface:$LUCI_PORT-target-200 genuinely PASSes -- against the other
+#         port -- and a rule of the shape "some PASS id names this port" demotes
+#         the dead :$TLS_PORT to a WARNING and exits 0. This is the round-1
+#         review's finding F1 in one scenario; the run must keep it FAIL.
+mut_case tcp-dead-tls-not-credited FAIL "net:tcp-$TLS_PORT" \
+    '{"luci_307_to_alt": true, "unbound_ports": ["tls"]}'
+decoy_out="$WORK/out.tcp-dead-tls-not-credited.txt"
+assert_in tcp-dead-tls-decoy-passes "$decoy_out" \
+    "^RHPCHECK surface:$LUCI_PORT-target-200 PASS " \
+    "the decoy really does PASS: the :$LUCI_PORT redirect answered 200 on a live https port"
+assert_not_in tcp-dead-tls-not-demoted "$decoy_out" \
+    "^RHPCHECK net:tcp-$TLS_PORT WARN " \
+    "the dead :$TLS_PORT is NOT demoted by a PASS that reached a different port"
+assert_in tcp-dead-tls-still-fatal "$decoy_out" \
+    "^RHPFAILED .*net:tcp-$TLS_PORT" \
+    "the dead :$TLS_PORT stays in RHPFAILED even with a live sibling https port in the run"
+
+# 9e. a port that fails the burst but answers LATER in the run: the PROVISIONAL
+#     section-0 line is resolved to a WARNING that quotes the later PASS -- the
+#     transcript says which line refuted it, and it never contains a FAIL for a
+#     port the run itself went on to use.
+mut_case tcp-refuted-later WARN "net:tcp-$ADMIN_PORT" \
+    '{"admin_bind_on_first_http": true}' --vantage mgmt
+refuted_out="$WORK/out.tcp-refuted-later.txt"
+assert_in tcp-refuted-later-quotes "$refuted_out" \
+    "^RHPCHECK net:tcp-$ADMIN_PORT WARN .*surface:$ADMIN_PORT-admin-spa PASS" \
+    "the demoted WARNING quotes the later PASS that refuted the burst"
+assert_in tcp-refuted-later-provisional "$refuted_out" \
+    "^RHPPROVISIONAL net:tcp-$ADMIN_PORT " \
+    "the same id's section-0 line is the PROVISIONAL note: one id, one RHPCHECK verdict, plus the pre-verdict note"
+assert_not_in tcp-refuted-later-no-fail "$refuted_out" \
+    "^RHPCHECK net:tcp-$ADMIN_PORT FAIL " \
+    "the transcript contains NO FAIL line for the port the run itself reached later"
+assert_in tcp-refuted-later-warned "$refuted_out" \
+    "^RHPWARNED .*net:tcp-$ADMIN_PORT" \
+    "the demotion lands in RHPWARNED (greppable, and never fatal)"
+assert_not_in tcp-refuted-later-not-fatal "$refuted_out" \
+    "^RHPFAILED .*net:tcp-$ADMIN_PORT" \
+    "the demoted port is NOT in RHPFAILED"
 
 printf '\nSELFTESTRESULT total=%d ok=%d bad=%d\n' "$TOTAL" "$OK" "$BAD"
 if [ "$BAD" -gt 0 ]; then
