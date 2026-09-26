@@ -31,7 +31,11 @@ and [Semantic Versioning](https://semver.org/).
   (`valve.ReconcileGateClose`); (3) the wording now matches the verified state —
   an unconfirmed close is reported as UNVERIFIED rather than as free internet.
   A definitive "no client record" from `ndsctl json` also completes a close; a
-  probe that fails never does. Decision and scope, including why there is no
+  probe that fails never does. The operator log lines that report an unconfirmed
+  close derive their retry claim from the error (`closeRetryStateClause`): an
+  abandoned close is no longer described as "retried" in the same breath as the
+  abandonment, which is the same class of false operator claim. Decision and
+  scope, including why there is no
   startup reconciliation pass, in
   `docs/architecture/zombie-session-close-reconciliation-decision.md` ([#595](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/595)).
 

@@ -1,6 +1,10 @@
 package merchant
 
 import (
+	"bytes"
+	"errors"
+	"log"
+	"strings"
 	"testing"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
@@ -136,3 +140,98 @@ func valveTrackedGate(macAddress string) bool {
 	}
 	return false
 }
+
+// zombieAbandonedMAC carries the gate whose close ndsctl keeps refusing, so the
+// close budget runs out and the close is ABANDONED rather than retried.
+const zombieAbandonedMAC = "aa:bb:cc:dd:ee:62"
+
+// TestAbandonedCloseIsNotLoggedAsRetried pins the OPERATOR-FACING claim of the
+// abandoned state, not just the state itself.
+//
+// The valve's budget (closeAttemptBudget) stops the sweep machinery from driving
+// ndsctl about a gate whose close has gone unconfirmed eight times, and it says
+// so once, in its own UNRESOLVED line. The merchant's failure log line used to
+// assert, unconditionally, that "the session is retained and the close is
+// retried" — a claim the code does NOT honour once the budget is spent, and the
+// same class of false operator claim as the "may still hold open, unmetered
+// access" wording this release removes. A reviewer reading it would chase a
+// retry that never happens.
+//
+// The test drives the merchant's own unmeterable-session entry point against a
+// real valve whose deauth keeps failing while NoDogSplash still lists the client
+// (so the read-only probe cannot complete the close either: the client is there,
+// the enforcement layer just will not do it) until the budget is spent, then
+// reads the LOG ITSELF.
+func TestAbandonedCloseIsNotLoggedAsRetried(t *testing.T) {
+	ndsctl := installRenewalNdsctl(t)
+	m, _ := newRenewalMerchant(t, "bytes")
+	closeGateCleanup(t, zombieAbandonedMAC)
+
+	// The client is still listed, but NoDogSplash refuses every deauthorization:
+	// the state the budget exists for. Not `forgetClient`: there the client is
+	// gone and the close completes at once, which is the other contract.
+	ndsctl.setRegistered(t, true)
+	ndsctl.failDeauth(t, true)
+
+	abandonedBefore := valve.GateClosesAbandoned()
+	failuresBefore := valve.GateCloseFailures()
+
+	// Capture the standard logger the way the production code writes (the
+	// testenv-tagged helper lives behind a build tag and this file is not, so
+	// the capture is done here: the untagged lane must still vet and compile).
+	buf := &bytes.Buffer{}
+	prevOut, prevFlags := log.Writer(), log.Flags()
+	log.SetOutput(buf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+
+	// Past the grace window, then past the close budget (8 unconfirmed attempts).
+	for i := 0; i < usageMonitorGraceSweeps+12; i++ {
+		m.closeUnmeterableSession(zombieAbandonedMAC, errors.New("client counters unavailable"))
+	}
+
+	logs := buf.String()
+	lines := []string{}
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, zombieAbandonedMAC) {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		t.Fatalf("the merchant never logged about %s, so nothing was driven", zombieAbandonedMAC)
+	}
+
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "has stopped re-attempting this close") {
+		t.Fatalf("the last line about %s does not report the abandoned close: %q — an operator reading it cannot tell that the module has stopped driving ndsctl for this gate", zombieAbandonedMAC, last)
+	}
+	if strings.Contains(last, "the close is retried") {
+		t.Fatalf("the last line about %s still claims \"the close is retried\" while the close budget is spent: %q — that is a false claim about the module's own behaviour, the class of wording this release removes", zombieAbandonedMAC, last)
+	}
+
+	if got := valve.GateClosesAbandoned() - abandonedBefore; got != 1 {
+		t.Fatalf("expected exactly one abandoned close for %s, got %d: an abandoned gate must be escalated once, not once per sweep", zombieAbandonedMAC, got)
+	}
+	if got := valve.GateCloseFailures() - failuresBefore; got > closeBudgetProbeLimit {
+		t.Fatalf("unconfirmed_closes grew by %d for one stuck gate, past the close budget: it must be bounded per gate, not monotonic (the bench measured 113 -> 193 -> 195 -> 2141)", got)
+	}
+
+	// Convergence: with the budget spent, the module must stop driving ndsctl.
+	deauthsAfter := deauthsFor(t, ndsctl, zombieAbandonedMAC)
+	for i := 0; i < 20; i++ {
+		m.closeUnmeterableSession(zombieAbandonedMAC, errors.New("client counters unavailable"))
+	}
+	if got := deauthsFor(t, ndsctl, zombieAbandonedMAC); got != deauthsAfter {
+		t.Fatalf("the module kept driving ndsctl for a gate whose close budget is spent (%d -> %d deauths): that storm is what wedged the socket on the bench", deauthsAfter, got)
+	}
+
+	ndsctl.failDeauth(t, false)
+}
+
+// closeBudgetProbeLimit bounds how much unconfirmed_closes may grow for ONE
+// stuck gate in the test above: the close budget, and each budgeted attempt may
+// spend the valve's internal deauth retries before it is counted.
+const closeBudgetProbeLimit = 8 * 4

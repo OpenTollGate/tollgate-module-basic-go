@@ -537,13 +537,29 @@ func (m *Merchant) clearUnmetered(macAddress string) {
 	delete(m.unmeteredSessions, macAddress)
 }
 
+// closeRetryStateClause is what the module will do NEXT about a close that
+// ndsctl has not confirmed, and it is derived from the error rather than
+// assumed. A close whose retry budget is spent (ErrGateCloseAbandoned) is NOT
+// re-attempted by the sweep machinery — only the reconciliation re-attempts it,
+// under fresh evidence about the client — so a log line that says "the close is
+// retried" for that state is the same class of false claim as the
+// unmetered-access wording this release removes. Every caller that reports an
+// unconfirmed close must use this rather than assert a retry in prose.
+func closeRetryStateClause(err error) string {
+	if errors.Is(err, valve.ErrGateCloseAbandoned) {
+		return "the module has stopped re-attempting this close (the close budget for this gate is spent and the valve's UNRESOLVED line carries the operator action); only the reconciliation re-attempts it, under fresh evidence about the client"
+	}
+	return "the close is retried within the gate's close budget"
+}
+
 // enforceBytesSession is the usage monitor's per-session step. Every sweep takes
 // the session one step closer to enforcement — meter it against its allotment,
 // re-establish the baseline it is missing, or close a gate that cannot be
 // metered at all. The one thing it must never do is skip the session: a bytes
 // session the monitor stops looking at keeps an open gate for as long as the
 // process lives, which is exactly the free, unmetered internet this module
-// exists to prevent (C1-2b, C1-2c).
+// exists to prevent (C1-2b, C1-2c). Its failure log line derives its retry claim
+// from closeRetryStateClause, never from prose.
 func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSession) {
 	// A session whose baseline was never established cannot be metered. The old
 	// code answered this with `continue` on every sweep, for ever.
@@ -587,8 +603,8 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	// the client must be closed — retiring it is how the customer kept free,
 	// unmetered internet with nothing left to retry (C1-2b).
 	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and the close is retried; whether the client still has access is UNVERIFIED until ndsctl confirms the deauthorization, and the valve logs the verified state of every attempt (unconfirmed gate closes=%d)",
-			macAddress, err, valve.GateCloseFailures())
+		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and %s; whether the client still has access is UNVERIFIED until ndsctl confirms the deauthorization, and the valve logs the verified state of every attempt (unconfirmed gate closes=%d)",
+			macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		return
 	}
 	log.Printf("Successfully closed gate for %s", macAddress)
@@ -643,12 +659,8 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 		macAddress, sweeps, usageErr)
 
 	if err := valve.CloseGate(macAddress); err != nil {
-		userFacingHint := ""
-		if errors.Is(err, valve.ErrGateCloseAbandoned) {
-			userFacingHint = " — the module has stopped re-attempting this close and escalated it once; see the valve's UNRESOLVED line for the operator action"
-		}
-		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v%s — the session is retained and the close is retried (unconfirmed gate closes=%d)",
-			macAddress, err, userFacingHint, valve.GateCloseFailures())
+		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
+			macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		return
 	}
 
