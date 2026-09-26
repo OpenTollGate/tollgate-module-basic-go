@@ -73,7 +73,8 @@ the trap, because it looks like the answer and is not. In
 (`config_foreach create_instance nodogsplash`, `files/etc/init.d/nodogsplash`)
 and starts one procd instance per `config nodogsplash` section
 (`procd_open_instance $cfg`), each with its own generated config file
-(`/tmp/etc/nodogsplash_$cfg.conf:172,189-205`). Per section it honours
+(`/tmp/etc/nodogsplash_$cfg.conf`, written at `:172`, started at `:189-205`).
+Per section it honours
 `gatewayinterface` (`:125,139`), `gatewayport`, `ndsctlsocket` and
 `fw_mark_{authenticated,trusted,blocked}` (`:141-147`), and those marks really
 are per instance (`src/conf.c:154-156,229-231,898-901`). So the *process* layer
@@ -183,7 +184,9 @@ would hand every wired client free internet — the exact hole this record exist
 to not create. The admin listeners need no change to be reachable: they bind
 `0.0.0.0`/`[::]` (`uhttpd.main` `:8080`/`:443`, `99-tollgate-setup:337-339,443-448`;
 `uhttpd.portal` `:2051`, `:364-365`; `uhttpd.trusted` `:80`, `:646-648`;
-`uhttpd.net4sats`/`configUI` `:8090`/`:8443`, `:689-709`).
+`:8090` written here on `uhttpd.net4sats`/configUI, `:689-709`, and the opt-in
+`:8443` on `uhttpd.admin` written by the feed's `92-tollgate-admin-setup` —
+this script only clears that listener, `:804-805`).
 
 **D3 — `br-mgmt` serves DHCP.** `dhcp.mgmt` (`interface 'mgmt'`), so the
 operator's laptop gets an address and the router has a lease to resolve it by —
