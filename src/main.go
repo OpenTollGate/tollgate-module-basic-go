@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
@@ -1598,6 +1600,7 @@ func registerIdentityRoutes(mux *http.ServeMux) {
 
 func main() {
 	fmt.Println("Starting Tollgate Core")
+	installShutdownHandler()
 
 	// The money path was bound and is being served from init() — BEFORE the
 	// mint-dependent construction — so :2121 accepts a connection, and answers
@@ -1613,6 +1616,28 @@ func main() {
 		mainLogger.WithError(err).Fatal("Failed to serve the payment API")
 	}
 	mainLogger.Fatal("The payment API stopped serving")
+}
+
+// installShutdownHandler gives the module the shutdown path it did not have:
+// nothing called valve.Stop, so a service restart (`tollgate-wrt restart`)
+// killed the process — and every ndsctl invocation that was in flight with it —
+// and the kills landed in the log as ndsctl failures that nothing had claimed.
+//
+// procd stops the service with SIGTERM. The handler drains the ndsctl
+// invocations that are in flight and then exits. The drain is bounded (twice
+// valve.Stop's drain budget) so a stop can never hang the service: procd
+// SIGKILLs what does not exit.
+func installShutdownHandler() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		sig := <-signals
+		mainLogger.WithField("signal", sig.String()).Info("Stopping: draining the ndsctl invocations that are in flight, so a restart does not end a child that was about to answer")
+		valve.Stop()
+		mainLogger.WithField("signal", sig.String()).Info("Stopped")
+		os.Exit(0)
+	}()
 }
 
 func isLocalRequest(r *http.Request) bool {
