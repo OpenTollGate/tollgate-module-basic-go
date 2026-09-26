@@ -57,9 +57,9 @@ section below; a guest-side run is the expected default for a tester).
 | 1 | build identity | both (admin sub-lane: mgmt) | every shipped portal + admin asset is byte-identical to the package; every reference the live entry document makes resolves inside the package; the entry chunk is content-hashed; optional `--expect-entry` pin |
 | 2 | surfaces | both, except `:8090` | `:80` 307s to `:2050/splash.html?redir=…`; `:2050` is the cache-bust **stub** and its own resolved redirect target is `:2051/splash.html?_cb=…`; `:2051/splash.html` serves the SPA; `:2121/` is `kind:10021`; `:8080` 307s to https **and that target answers 200**; `:8090` serves the admin SPA (**mgmt**); a br-lan client must get **nothing** from `:8090` (**guest**, `surface:8090-admin-spa-not-guest-reachable`); the SPA entry is **not** also served on `:2050` |
 | 3 | captive chain | both | an unauthenticated deep-path request is 307'd to the splash with the original URL URL-encoded in `redir=`; following the stub's own expression lands on the SPA (200, `id="root"`); the stub keeps a `<noscript>` fallback that works |
-| 4 | API shapes | both | `/` `kind:10021` in **full** mode (mints advertised), `/whoami`, `/balance`, `/usage`, `/session-state`, `/identity`, CORS preflight for the cross-origin portal→API call |
+| 4 | API shapes | both | `/` `kind:10021` in **full** mode (mints advertised), `/whoami`, `/balance`, `/usage`, `/session-state`, `/identity`, CORS preflight for the cross-origin portal→API call, and the **socket-identity contract**: a `?mac=` the caller sent is reported as ignored (`X-TollGate-Mac-Claim-Ignored`) while `X-TollGate-Client-MAC` names the client the module answered for |
 | 5 | Lightning quote | both | `GET /ln-invoice` with no quote is `400 {"error":"quote is required"}` — **that is a status poll, not a fault** — and it does not grant access |
-| 6 | money path | both | an empty-body POST is rejected (`400 kind:21023`), and an opt-in paid purchase (see below) |
+| 6 | money path | both | an empty-body POST is rejected (`400 kind:21023`), and an opt-in paid purchase (see below), which asserts against the module's OWN answer (`paid:grant-identity`) instead of the `?mac=` the harness sent |
 | 7 | on-box (opt-in) | mgmt | with `--ssh`: installed package version, on-box file hashes vs the package, and a **non-empty** live `backend_input_firewall` chain |
 
 Check ids are stable and greppable (`identity:*`, `surface:*`, `captive:*`,
@@ -230,7 +230,7 @@ each go red as `helper:<phase>` instead of quietly removing a whole phase's
 checks from the count.
 
 ```
-SELFTESTRESULT total=31 ok=31 bad=0
+SELFTESTRESULT total=62 ok=62 bad=0
 SELFTESTEXIT 0
 ```
 
@@ -239,12 +239,15 @@ rule it enforces: *a check that has never been seen failing is decoration, not
 evidence* — and a hardware-only suite rots precisely because nobody can see it go
 red on demand.
 
-Coverage is **measured, not claimed**. A live run can emit 74 distinct check ids;
-the 31 cases drive 49 of them red at least once. The 25 that never go red offline
+Coverage is **measured, not claimed**, re-derived from a `--keep` run of this
+commit on 2026-09-26: the 62 cases emit 77 distinct check ids between them — a
+single clean run emits 60 on the `mgmt` lane this rig's baseline pins — and 52 of
+them are driven red at least once. The 25 that never go red offline
 are exactly the ones this rig cannot break, and they are named here so nobody has
-to guess: the opt-in paid lane (`paid:*`, needs `RHP_CASHU_TOKEN`), the on-box lane
-(`ssh:*`, needs a router key), the per-port liveness ids (`net:tcp-*` — a stub that
-stops listening is not a state a single rig run can hold), the
+to guess: the opt-in paid lane (`paid:*` — 6, needs `RHP_CASHU_TOKEN`), the on-box
+lane (`ssh:*` — 4, needs a router key), the per-port liveness ids (`net:tcp-*` —
+6 of 7: a stub that stops listening is not a state a single rig run can hold),
+`vantage:mode` (reported, never fatal by construction), the
 `net:icmp-not-a-liveness-test` source guard itself (it can only go red if someone
 reintroduces `ping`, which is the edit it forbids), and seven shape ids not yet
 mutated (`api:whoami-shape`, `api:identity-shape` — SKIP on 404,
@@ -281,6 +284,21 @@ release time: the pin the card quoted for pre15 (`index-BDGoMmEt.js`, 360000 B,
 sha256 `86129a08…` — reproduced byte-exactly from the pre15 package during this
 work) is *falsified* by the package actually deployed, with no router access
 required to see why.
+
+## Control pair: the socket-identity check, measured without hardware
+
+`tests/happy-path/run.sh` now carries the same contract as `api:identity-contract`
+(`HPCHECK api:client-identity`). Both were run on 2026-09-26 against one extracted
+package root, swapping only the module binary, so the delta is attributable:
+
+| binary | result |
+|---|---|
+| the published package's own (sha256 `bfdee306f2cef2ea79117e4c24b76fcff898e905d9841e5d4012a1b07f8250b5`) | `HPRESULT total=24 pass=20 fail=2 skip=2 known=0`, exit 1 — `api:client-identity` FAIL: *"GET /whoami reported the claim as '' (want 02:11:22:33:44:55 …)"* on all five client-scoped routes |
+| this branch's `x86_64` build | `HPRESULT total=24 pass=22 fail=1 skip=1 known=0`, exit 1 — `api:client-identity` PASS (the identity named is the socket's `02:00:00:00:00:20`, the `?mac=` claim reported as ignored), and `portal:expired-view` FAILs identically in **both** runs, i.e. it is a pre-existing portal-lane red on that package root and not this change |
+
+That is the whole point of the check: a rig posting a token "for" a MAC it is not
+using used to get a grant for the SENDER's socket with nothing on the wire saying
+so, and the rig read the result as "the gate never opened".
 
 ## Files
 

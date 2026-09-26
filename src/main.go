@@ -861,6 +861,74 @@ func clientMACFromSocket(r *http.Request) (string, error) {
 	return mac, nil
 }
 
+// --- the client-identity contract, in one place ---------------------------
+//
+// Every client-scoped endpoint of this API answers for, and acts on, the client
+// at the other end of the socket. A MAC address in a query string or in a
+// request body is a caller's *claim* about itself: it is accepted for wire
+// compatibility with the shipped portal (whose Lightning lane sends back the
+// value it read from /whoami) and it NEVER decides which session, quote, byte
+// meter or gate a request touches.
+//
+// "Ignored" must not mean "silently ignored". A tool that posts a token "for" a
+// MAC it is not itself using used to get a false negative — "the gate never
+// opened", with nothing on the wire to explain it — because the grant went to
+// the socket. So every client-scoped response names the identity the module
+// actually used, and, when the caller asserted a different address, the claim it
+// did not honour:
+//
+//	X-TollGate-Client-MAC:         the socket-resolved, canonical address
+//	X-TollGate-Mac-Claim-Ignored:  the asserted address that was NOT honoured
+//
+// Both are additive (no body field or existing header changes shape), both are
+// exposed through CORS so a portal or harness page on :2050/:2051 can read them
+// (see CorsMiddleware), and both are set by the single entry point every
+// client-scoped route uses, clientIdentity, so the contract cannot be honoured
+// on one route and quietly forgotten on the next.
+//
+// To learn which device a purchase was granted to, read the session event's
+// `device-identifier` tag (kind 1022) or this header, and compare it with your
+// own socket address — do not compare it with a `mac` you sent.
+const (
+	headerClientMAC       = "X-TollGate-Client-MAC"
+	headerMacClaimIgnored = "X-TollGate-Mac-Claim-Ignored"
+)
+
+// claimedMACQuery returns the `mac` query parameter as a canonical address, or
+// "" when the caller asserted nothing.
+func claimedMACQuery(r *http.Request) string {
+	return merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
+}
+
+// reportClientIdentity records, on the response, which client the request was
+// answered for and whether a claim the caller made was ignored. It must run
+// before anything writes a status line.
+func reportClientIdentity(w http.ResponseWriter, r *http.Request, resolvedMAC, bodyClaim string) {
+	if resolvedMAC != "" {
+		w.Header().Set(headerClientMAC, resolvedMAC)
+	}
+
+	// A claim that names the address the socket already resolved to is not an
+	// ignored claim: the caller is simply echoing /whoami correctly, which is
+	// what the shipped portal does.
+	for _, asserted := range []string{claimedMACQuery(r), merchant.NormalizeMACAddress(bodyClaim)} {
+		if asserted != "" && asserted != resolvedMAC {
+			w.Header().Set(headerMacClaimIgnored, asserted)
+			return
+		}
+	}
+}
+
+// clientIdentity is the one entry point every identity-bearing route uses: it
+// resolves the client from the socket (clientMACFromSocket) and records the
+// answer on the response. bodyClaim is the `mac` field of a JSON request body,
+// when the route has one; it is reported as ignored and never used.
+func clientIdentity(w http.ResponseWriter, r *http.Request, bodyClaim string) (string, error) {
+	mac, err := clientMACFromSocket(r)
+	reportClientIdentity(w, r, mac, bodyClaim)
+	return mac, err
+}
+
 func getMacAddress(ipAddress string) (string, error) {
 	if net.ParseIP(ipAddress) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
@@ -913,6 +981,14 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// from a browser on the TollGate network (OWASP).
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Expose the identity headers reportClientIdentity sets on every
+		// client-scoped response. Cross-origin reads are denied by default, and
+		// the portal (:2050/:2051) and any harness page are cross-origin to this
+		// API — without this, "which client was this answered for?" and "was the
+		// MAC I sent honoured?" would be readable by curl only, which is how a
+		// tool ends up believing a `?mac=` it sent decided the purchase.
+		w.Header().Set("Access-Control-Expose-Headers",
+			headerClientMAC+", "+headerMacClaimIgnored+", Retry-After")
 		origin := r.Header.Get("Origin")
 		if origin != "" && origin != "null" && (isLocalOrigin(origin) || isSameHost(origin, r.Host)) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -934,8 +1010,8 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func handler(w http.ResponseWriter, r *http.Request) {
 	// The portal calls this once per page load to learn which device it is
 	// looking at. The answer comes from the socket, never from a `mac` parameter
-	// the caller supplied.
-	mac, err := clientMACFromSocket(r)
+	// the caller supplied (see clientIdentity).
+	mac, err := clientIdentity(w, r, "")
 	if err != nil {
 		// Not fatal here: /whoami is an echo of the caller's own address, not a
 		// request that needs one (the money routes refuse an unidentified
@@ -993,14 +1069,17 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Get the client's identity from the socket. A `mac` query parameter is not
 	// consulted: its value is the caller's claim about itself, and on this route
-	// it decides which device the grant is applied to.
+	// it decides which device the grant is applied to. The claim is reported back
+	// as ignored (see reportClientIdentity) so a harness posting a token "for" a
+	// MAC it is not itself using learns why the grant went elsewhere instead of
+	// reading it as "the gate never opened".
 	//
 	// This is the money path, where a wrong identity cannot be recovered: the
 	// token is received before the gate is opened, so a request that names
 	// 00:00:00:00:00:00 — or that cannot be resolved at all — would consume the
 	// customer's value and grant nothing (the rollback happens after Receive).
 	// Refuse BEFORE the token is read, with a distinct code the portal can show.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 			Warn("Payment refused: the client has no resolvable identity")
@@ -1098,8 +1177,12 @@ func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, sta
 
 // handleRoot routes requests based on method
 func HandleUsage(w http.ResponseWriter, r *http.Request) {
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
+	// Same identity contract as every other client-scoped route: the client is
+	// the one at the other end of the socket. A `mac` parameter is a claim, and
+	// it is reported back as ignored rather than silently dropped — this route
+	// used to resolve the address raw (no canonical form, no sentinel refusal),
+	// so it was the one place the contract could drift without any test noticing.
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).Error("Error getting MAC address for /usage")
 		w.WriteHeader(http.StatusOK)
@@ -1169,6 +1252,12 @@ type balanceResponse struct {
 	Remaining     uint64 `json:"remaining"`
 	StartTime     int64  `json:"start_time,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// Mac is the client this balance is about, resolved from the socket and
+	// canonicalised, exactly as /session-state reports it. It is additive and
+	// optional: a portal that ignores it parses the body it always did, and a
+	// probe that sent `?mac=<somewhere else>` can see which device answered
+	// instead of reading the (identical-looking) body as that device's balance.
+	Mac string `json:"mac,omitempty"`
 }
 
 // sessionStateResponse is the body of GET /session-state. `state` is the
@@ -1198,7 +1287,7 @@ func HandleSessionState(w http.ResponseWriter, r *http.Request) {
 	// The state of the client at the other end of the socket — the `mac` query
 	// parameter this route used to accept is a claim by the caller about some
 	// other device, and answering it let one client read another's state.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		// An unidentifiable client has no session, and the portal polls this
 		// while rendering — so answer "none" rather than erroring. The sentinel
@@ -1252,8 +1341,11 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
+	// Identity comes from the socket through the same resolver as every other
+	// client-scoped route (see clientIdentity): canonical form so a lease in any
+	// casing still finds the session that was created for this device, and the
+	// unresolvable-device sentinel refused rather than used as a lookup key.
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		// Client IP not in DHCP leases — can't identify device.
 		// Return "no active session" instead of erroring, so the balance
@@ -1277,7 +1369,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	if usage == "-1/-1" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false, Mac: macAddress})
 		return
 	}
 
@@ -1294,7 +1386,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	if err != nil || session == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false, Mac: macAddress})
 		return
 	}
 
@@ -1313,6 +1405,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		Allotment:     allotment,
 		Remaining:     remaining,
 		StartTime:     session.StartTime,
+		Mac:           macAddress,
 	})
 }
 
@@ -1379,9 +1472,12 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The quote is bound to the client at the other end of the socket. The `mac`
-	// field above is not read: a caller-named address would bind the quote — and
-	// the eventual grant — to a device that may not be the one paying.
-	macAddress, err := clientMACFromSocket(r)
+	// field above is not read as identity: a caller-named address would bind the
+	// quote — and the eventual grant — to a device that may not be the one
+	// paying. When the body names a different address it is reported as ignored
+	// (reportClientIdentity), which is what tells a harness that its quote went
+	// to its own socket rather than to the MAC it sent.
+	macAddress, err := clientIdentity(w, r, req.Mac)
 	if err != nil {
 		// A quote is only meaningful for a device that exists: the status poll
 		// and the eventual grant are both bound to this address, and the quote
@@ -1453,7 +1549,7 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	// that device's quote state. A poll that cannot be attributed must be refused
 	// rather than attributed to 00:00:00:00:00:00, which every unidentified
 	// client would share.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 			Warn("Refusing lightning status poll: the client has no resolvable identity")
