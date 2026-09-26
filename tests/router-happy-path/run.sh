@@ -60,26 +60,30 @@
 # THE SECTION-0 TCP BURST IS RETRIED, and a port that answers on a retry -- or
 # anywhere later in the same run -- is not a fatal preflight failure. Same class
 # of confusion as the documented 429: a race with the box's own convergence must
-# not read as a defect. So a port that fails every attempt there is printed as
-# PROVISIONAL, a NON-terminal status: it is not counted as a failure, and the
-# verdict has to resolve it to exactly one terminal line -- a WARNING (warn=N,
-# RHPWARNED, never fatal) when some later check in the same run demonstrably
-# reached the port, or the FAIL it always was when nothing anywhere in the run
-# reached it. That is deliberate: a transcript must never contain a FAIL line for
-# a port the run itself goes on to use, or a red line stops meaning a defect. A
-# port whose lane is not running at all (the opt-in SSH lane) is a WARNING from
-# the start, and the guest lane's firewall-blocked :8090 is its own PASS.
+# not read as a defect. So a port that fails every attempt there is printed as a
+# PROVISIONAL note -- not a RHPCHECK line at all, so a reader that greps the id's
+# verdict sees exactly one line -- and it is not counted: the verdict has to
+# resolve it to exactly one terminal line, a WARNING (warn=N, RHPWARNED, never
+# fatal) when some later check in the same run demonstrably reached the port, or
+# the FAIL it always was when nothing anywhere in the run reached it. That is
+# deliberate: a transcript must never contain a FAIL line for a port the run
+# itself goes on to use, or a red line stops meaning a defect. A port whose lane
+# is not running at all (the opt-in SSH lane) is a WARNING from the start, and the
+# guest lane's firewall-blocked :8090 is its own PASS.
 #
 # Every check prints one line:
 #
 #   RHPCHECK <id> <PASS|FAIL|SKIP|WARN> <detail...>
-#   RHPCHECK <id> PROVISIONAL <detail...>   (section 0 only; never terminal)
+#   RHPPROVISIONAL <id> <detail...>   (section 0 only; a pre-verdict NOTE, not a
+#                                      check line and never terminal)
 #   RHPRESULT total=N pass=N fail=N skip=N warn=N
 #   RHPFAILED <ids...>   RHPWARNED <ids...>
 #   RHPEXIT <0|1>
 #
-# total= counts the terminal lines only: a PROVISIONAL line is counted where the
-# verdict resolves it, so every check contributes exactly one line to the totals.
+# total= counts the RHPCHECK lines only: a PROVISIONAL note is counted where the
+# verdict resolves it, so every check contributes exactly one line to the totals,
+# and every id has exactly one RHPCHECK line (the note sits outside that
+# namespace: see the verdict block).
 #
 # Exit 0 = happy path intact (warnings are allowed), 1 = broken, 2 = usage error.
 #
@@ -208,6 +212,45 @@ TRANSCRIPT="$WORK/transcript.txt"
 : > "$TALLY"
 : > "$TRANSCRIPT"
 
+# Which ports this run DEMONSTRABLY reached, and by which check id. The verdict
+# resolves a PROVISIONAL preflight failure against THIS record -- never against
+# an id whitelist, which credited whatever id merely *named* a port.
+#
+# Why the record exists (round-1 cross-family review, finding F1): the previous
+# revision credited the TLS port from `surface:<luci>-target-200`, an id whose
+# port component is the LUCI port while the fetch it names goes wherever the
+# 307 Location points -- so a dead :443 could be demoted to a warning by a check
+# that never touched it. A port is now credited only by an id that PROVES a
+# request completed against that exact port: either a fixed id whose emission
+# site is the request itself (the table below), or a dynamic id that records the
+# port it actually reached out of the response it got.
+REACHED="$WORK/reached.txt"
+: > "$REACHED"
+
+reach() {  # reach <port> <id> -- this check completed a live request to :port
+    printf '%s\t%s\n' "$1" "$2" >> "$REACHED"
+}
+
+# The fixed half of that proof: these ids are emitted only after a request that
+# landed on the named port, so a PASS on one of them is reach evidence for it.
+# The dynamic half -- ids whose port comes from the response URL (a redirect
+# target, the stub's chain) -- records itself with an explicit reach() call.
+reach_port_for_id() {  # reach_port_for_id <id> -> port, or empty (no proof)
+    case "$1" in
+        "surface:$CAPTIVE_PORT-captive-307"|"surface:$CAPTIVE_PORT-redir-encodes-original"|\
+        "captive:unauth-307-to-splash"|"captive:redir-round-trips")
+            printf '%s\n' "$CAPTIVE_PORT" ;;
+        "surface:$STUB_PORT-cache-bust-stub"|"surface:$STUB_PORT-redirects-to-$PORTAL_PORT")
+            printf '%s\n' "$STUB_PORT" ;;
+        "surface:$PORTAL_PORT-spa")      printf '%s\n' "$PORTAL_PORT" ;;
+        "surface:$API_PORT-api")         printf '%s\n' "$API_PORT" ;;
+        "surface:$LUCI_PORT-luci-307")   printf '%s\n' "$LUCI_PORT" ;;
+        "surface:$ADMIN_PORT-admin-spa") printf '%s\n' "$ADMIN_PORT" ;;
+        "ssh:reachable")                 printf '%s\n' "$SSH_PORT" ;;
+        *) printf '' ;;
+    esac
+}
+
 # Section-0 TCP liveness burst knobs. The burst is the FIRST thing that touches
 # these ports, right after the previous section's work, so on a box that is still
 # converging a single connect can miss a listener that answers seconds later.
@@ -229,20 +272,30 @@ emit() {  # emit <id> <status> <detail...> -- print + record, counters untouched
     printf '%s\n' "$line" >> "$TRANSCRIPT"
 }
 
-provisional() {  # provisional <id> <detail...> -- section 0's NON-terminal line
-    # Deliberately not counted: the verdict resolves this id to exactly one
-    # terminal status (FAIL or WARN) and counts it there. So a preflight result
-    # the run itself refutes is never counted as a failure, and a port that is
-    # genuinely dead is counted once, not twice. The tally keeps both rows; the
-    # terminal one is the answer, and the PROVISIONAL row says what was reported
-    # before the rest of the run had a say.
+provisional() {  # provisional <id> <detail...> -- section 0's pre-verdict NOTE
+    # Deliberately NOT a RHPCHECK line, and deliberately not counted. The verdict
+    # resolves this id to exactly one terminal status (FAIL or WARN) and counts it
+    # there, so a preflight result the run itself refutes is never counted as a
+    # failure, and a port that is genuinely dead is counted once, not twice.
+    # Keeping the note outside the RHPCHECK namespace is what makes "one verdict
+    # per id" true for a grep-based reader as well: `grep '^RHPCHECK <id> '` sees
+    # the verdict and nothing else, whichever end of the transcript it reads.
     local id="$1"; shift
-    emit "$id" PROVISIONAL "$*"
+    printf 'RHPPROVISIONAL %s %s\n' "$id" "$*" >> "$TRANSCRIPT"
+    printf 'RHPPROVISIONAL %s %s\n' "$id" "$*"
 }
 
 chk() {  # chk <id> <PASS|FAIL|SKIP|WARN> <detail>
     local id="$1" status="$2"; shift 2
     local detail="${*:-}"
+    # A PASS on an id that proves a request landed on a port is reach evidence
+    # for that port (see reach_port_for_id). Only PASS records: a FAIL/SKIP
+    # proves nothing about the port being up, and recording it would let a
+    # broken check credit a dead port.
+    if [ "$status" = "PASS" ]; then
+        local rp; rp="$(reach_port_for_id "$id")"
+        [ -n "$rp" ] && reach "$rp" "$id"
+    fi
     TOTAL=$((TOTAL + 1))
     case "$status" in
         PASS) PASSED=$((PASSED + 1)) ;;
@@ -343,6 +396,23 @@ hdr() {  # hdr <header-name> -> value from the last fetch
               'BEGIN{IGNORECASE=1} tolower($1)==want":" {sub(/^[^:]*:[ ]*/,""); print; exit}'
 }
 
+url_port() {  # url_port <url> -> the port this URL actually contacts (80/443 default)
+    # An id that carries a port NUMBER is not proof that this port was reached:
+    # the response may have sent the request somewhere else (a 307 Location, the
+    # stub's chain). The port is taken from the URL that was really fetched.
+    local url="$1" scheme rest hostport
+    case "$url" in
+        http://*)  scheme=http ;;
+        https://*) scheme=https ;;
+        *) return 1 ;;
+    esac
+    rest="${url#*://}"; hostport="${rest%%/*}"
+    case "$hostport" in
+        *:*) printf '%s\n' "${hostport##*:}" ;;
+        *)   [ "$scheme" = "https" ] && printf '443\n' || printf '80\n' ;;
+    esac
+}
+
 tcp_open() {  # TCP connect only -- never ping
     timeout 3 bash -c "exec 3<>/dev/tcp/$1/$2" >/dev/null 2>&1
 }
@@ -406,7 +476,7 @@ if [ "$VANTAGE" = "auto" ]; then
             VAN_WHY=":$ADMIN_PORT answered an HTTP request ($FETCH_CODE), so the admin board is visible from here"
         else
             VANTAGE_RESOLVED=guest
-            VAN_WHY=":$ADMIN_PORT accepted a TCP connect but answered nothing at the HTTP layer"
+            VAN_WHY=":$ADMIN_PORT accepted a TCP connect but answered nothing at the HTTP layer -- that is NOT what the br-lan guard looks like (the guard drops the connect), so this run cannot tell a half-up admin board from a blocked one. The lane below therefore stays guest (flipping it mid-run would end the run green with the admin identity never asserted), and the :$ADMIN_PORT lines below are to be read as ambiguous, not as the guard holding"
         fi
     else
         VANTAGE_RESOLVED=guest
@@ -594,6 +664,10 @@ fi
 fetch "$luci_target" -k
 if [ "$FETCH_CODE" = "200" ]; then
     chk "surface:$LUCI_PORT-target-200" PASS "$luci_target -> 200 (the documented :$LUCI_PORT https redirect lands somewhere: without this pair the LuCI redirect dead-ends)"
+    # Reach evidence for whichever port the redirect ACTUALLY landed on -- not
+    # for $TLS_PORT merely because the id says "target".
+    target_port="$(url_port "$luci_target" 2>/dev/null || true)"
+    [ -n "$target_port" ] && reach "$target_port" "surface:$LUCI_PORT-target-200"
 else
     chk "surface:$LUCI_PORT-target-200" FAIL "$luci_target -> $FETCH_CODE: the :$LUCI_PORT redirect has no working target (nodogsplash allow-list regression)"
 fi
@@ -616,17 +690,22 @@ admin_spa_check() {  # the mgmt assertion: the admin SPA itself
 if [ "$VANTAGE_RESOLVED" = "guest" ]; then
     fetch "http://$ROUTER_IP:$ADMIN_PORT/"
     if [ "$FETCH_CODE" = "000" ]; then
-        chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" PASS ":$ADMIN_PORT/ -> 000 from this guest vantage: the admin board is correctly unreachable for a br-lan client (31-admin-board-not-guest-reachable.nft). This is an assertion, not a skip -- the admin SPA itself is asserted by the mgmt/on-box lane (--vantage mgmt from the private network, or --ssh on-box)"
+        chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" PASS ":$ADMIN_PORT/ -> 000 from this guest vantage: the admin board is correctly unreachable for a br-lan client (31-admin-board-not-guest-reachable.nft). This is an assertion, not a skip -- the admin SPA itself is asserted by the mgmt/on-box lane (--vantage mgmt from the private network, or --ssh on-box). 000 is also what a dead path and a half-up board produce, so read it together with net:tcp-$ADMIN_PORT above: that TCP line is the liveness answer, and vantage:mode names how the lane was resolved. If net:tcp-$ADMIN_PORT says the port answered a connect, this PASS is NOT the guard holding -- check what vantage:mode said before you read it as one"
         note "surface:$ADMIN_PORT-admin-spa was NOT asserted by this run: it is the mgmt/on-box lane's check. Everything the guest vantage can see was still asserted in full"
-    elif [ "$VANTAGE" = "auto" ]; then
-        # the port answered after all: the auto-derivation read it as closed at
-        # preflight (a startup race, not a guard finding). Report the admin-board
-        # findings rather than a false guard alarm.
-        note "vantage: :$ADMIN_PORT answered HTTP $FETCH_CODE although auto-detection read it as closed at preflight -- re-resolving to mgmt for the admin surface (a race, not a guard finding). The admin build-identity checks above ran as guest-vantage SKIPs; re-run with an explicit --vantage mgmt for that lane"
-        VANTAGE_RESOLVED=mgmt
-        admin_spa_check
     else
-        chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" FAIL ":$ADMIN_PORT/ -> $FETCH_CODE from a guest vantage: the admin board IS answering a br-lan client, so 31-admin-board-not-guest-reachable.nft is inert (or --vantage guest was forced on a box this run can reach :$ADMIN_PORT from -- re-run with --vantage auto|mgmt in that case)"
+        # ONE run, ONE lane. An earlier revision re-resolved to mgmt here when
+        # --vantage auto had read the port as closed at preflight, which produced
+        # a green run whose identity:admin:* checks had already been emitted as
+        # guest SKIPs -- the admin build identity was never asserted, and nothing
+        # said so beyond a note (round-1 cross-family review, finding F4). The
+        # lane is now resolved once, in 0a, and a contradiction is reported as
+        # what it is: this vantage CAN see the admin board, so the run must be
+        # repeated in the lane that asserts it.
+        if [ "$VANTAGE" = "auto" ]; then
+            chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" FAIL ":$ADMIN_PORT/ -> $FETCH_CODE from a guest vantage, although auto-detection read the port as closed at preflight: the admin board IS answering this vantage, so either 31-admin-board-not-guest-reachable.nft is inert here or the preflight probe raced the box. This run stays in the guest lane (flipping mid-run would end the run green with the admin build identity never asserted), so re-run with an explicit --vantage mgmt to assert the admin surface AND its identity in one lane"
+        else
+            chk "surface:$ADMIN_PORT-admin-spa-not-guest-reachable" FAIL ":$ADMIN_PORT/ -> $FETCH_CODE from a guest vantage: the admin board IS answering a br-lan client, so 31-admin-board-not-guest-reachable.nft is inert (or --vantage guest was forced on a box this run can reach :$ADMIN_PORT from -- re-run with --vantage auto|mgmt in that case)"
+        fi
     fi
 else
     admin_spa_check
@@ -653,6 +732,8 @@ if [ -n "$STUB_TARGET" ]; then
     fetch "$target"
     if [ "$FETCH_CODE" = "200" ] && grep -q 'id="root"' "$FETCH_BODY" 2>/dev/null; then
         chk "captive:chain-ends-200" PASS "$target -> 200 and the SPA root element is present"
+        chain_port="$(url_port "$target" 2>/dev/null || true)"
+        [ -n "$chain_port" ] && reach "$chain_port" "captive:chain-ends-200"
     else
         chk "captive:chain-ends-200" FAIL "$target -> $FETCH_CODE (the stub's target does not serve the SPA)"
     fi
@@ -675,6 +756,8 @@ if [ -n "$ns_href" ]; then
     fetch "$ns_href"
     if [ "$FETCH_CODE" = "200" ]; then
         chk "captive:stub-noscript-fallback" PASS "no-JS fallback $ns_href -> 200"
+        ns_port="$(url_port "$ns_href" 2>/dev/null || true)"
+        [ -n "$ns_port" ] && reach "$ns_port" "captive:stub-noscript-fallback"
     else
         chk "captive:stub-noscript-fallback" FAIL "no-JS fallback $ns_href -> $FETCH_CODE (a JS-less customer is stranded on the stub)"
     fi
@@ -768,41 +851,42 @@ fi
 # The section-0 burst is the only place this harness reports on a state it has
 # not reasoned about yet, so its failures are PROVISIONAL -- a non-terminal
 # status that section 0 prints and never counts. Resolve them against the rest of
-# the run before the summary: a port that some later check demonstrably reached
-# was raced, not dead, and reporting it as a fatal preflight failure would make a
-# red line mean nothing -- the exact confusion this harness exists to remove.
+# the run before the summary: a port that some later check demonstrably REACHED
+# (a completed request against that port, recorded in $REACHED by the check that
+# made it) was raced, not dead, and reporting it as a fatal preflight failure
+# would make a red line mean nothing -- the exact confusion this harness exists
+# to remove.
 # Every pending id leaves this block as exactly one terminal line, so no check id
 # is ever both green and red in one transcript.
-tcp_evidence_ids() {  # which PASS ids prove that :$1 answered
-    # An explicit whitelist, because "the port number shows up in some PASS line"
-    # is NOT evidence: the :$LUCI_PORT 307 line names the https port in the URL it
-    # redirects to without ever having reached it.
-    local port="$1"
-    if [ "$port" = "$SSH_PORT" ];     then printf 'ssh:reachable\n'; return; fi
-    if [ "$port" = "$CAPTIVE_PORT" ]; then printf 'surface:%s-captive-307\n' "$port"; return; fi
-    if [ "$port" = "$STUB_PORT" ];    then printf 'surface:%s-cache-bust-stub\n' "$port"; return; fi
-    if [ "$port" = "$PORTAL_PORT" ];  then printf 'surface:%s-spa\nidentity:portal:assets\nidentity:portal:entry\ncaptive:chain-ends-200\n' "$port"; return; fi
-    if [ "$port" = "$API_PORT" ];     then printf 'surface:%s-api\napi:root-kind10021\n' "$port"; return; fi
-    if [ "$port" = "$LUCI_PORT" ];    then printf 'surface:%s-luci-307\n' "$port"; return; fi
-    if [ "$port" = "$TLS_PORT" ];     then printf 'surface:%s-target-200\n' "$LUCI_PORT"; return; fi
-    if [ "$port" = "$ADMIN_PORT" ];   then printf 'surface:%s-admin-spa\nidentity:admin:assets\nidentity:admin:entry\n' "$port"; return; fi
+# A port is credited ONLY from the reach record: a (port, id) pair written when a
+# check completed a live request against that exact port. An id whitelist was
+# tried first and was wrong (round-1 cross-family review, finding F1): it
+# credited :$TLS_PORT from `surface:$LUCI_PORT-target-200`, whose port component
+# is the LUCI port while the fetch follows a 307 Location that may go anywhere,
+# and it credited the live ports from identity ids whose provenance is a
+# filesystem comparison as much as a fetch (F2/F3). Both classes are gone: a
+# dead port cannot be demoted by a check that never touched it, and there is no
+# list left to keep in sync with the ids the run actually emits.
+reach_evidence_id() {  # reach_evidence_id <port> -> id of the check that reached it
+    awk -F'\t' -v p="$1" '$1 == p { print $2; exit }' "$REACHED" 2>/dev/null
 }
 
 if [ -n "$PENDING_TCP_PORTS" ]; then
-    printf '\n===== verdict: resolving the section-0 liveness burst (PROVISIONAL lines above) =====\n'
+    printf '\n===== verdict: resolving the section-0 liveness burst (RHPPROVISIONAL notes above) =====\n'
     for port in $PENDING_TCP_PORTS; do
         ev_id=""; ev_line=""
-        for cand in $(tcp_evidence_ids "$port"); do
-            if grep -qE "^$cand PASS( |\$)" "$TALLY"; then
-                ev_id="$cand"
-                ev_line="$(grep -m1 -E "^RHPCHECK $cand PASS " "$TRANSCRIPT" | cut -c1-200)"
-                break
-            fi
-        done
+        ev_id="$(reach_evidence_id "$port")"
         if [ -n "$ev_id" ]; then
-            chk "net:tcp-$port" WARN "the section-0 burst found no listener on $ROUTER_IP:$port after $TCP_TRIES attempts, but $ev_id reached it later in this same run: $ev_line -- the burst raced the box, not a defect, so the preflight line is demoted here and is NOT fatal. No red line for a port this run itself went on to use"
+            # The id must still carry a PASS line AND still agree with the tally:
+            # a reach record for an id that never passed would be a bug in the
+            # recording, not evidence that the port is up.
+            ev_line="$(grep -m1 -E "^RHPCHECK $ev_id PASS " "$TRANSCRIPT" | cut -c1-200)"
+            grep -qE "^$ev_id PASS( |\$)" "$TALLY" || ev_line=""
+        fi
+        if [ -n "$ev_id" ] && [ -n "$ev_line" ]; then
+            chk "net:tcp-$port" WARN "the section-0 burst found no listener on $ROUTER_IP:$port after $TCP_TRIES attempts, but $ev_id reached :$port later in this same run: $ev_line -- the burst raced the box, not a defect, so the preflight line is demoted here and is NOT fatal. No red line for a port this run itself went on to use"
         else
-            chk "net:tcp-$port" FAIL "no TCP listener answers on $ROUTER_IP:$port after $TCP_TRIES attempts (ICMP is dropped here, so this TCP result IS the liveness answer), and no other check in this run reached :$port either: this is FINAL, not a race -- the section-0 result stands and is fatal"
+            chk "net:tcp-$port" FAIL "no TCP listener answers on $ROUTER_IP:$port after $TCP_TRIES attempts (ICMP is dropped here, so this TCP result IS the liveness answer), and no check in this run completed a request against :$port either: this is FINAL, not a race -- the section-0 result stands and is fatal"
         fi
     done
 fi

@@ -75,8 +75,12 @@ ADMIN_PORT="$(free_port $((API_PORT + 1)))"
 CAPTIVE_PORT="$(free_port $((ADMIN_PORT + 1)))"
 LUCI_PORT="$(free_port $((CAPTIVE_PORT + 1)))"
 TLS_PORT="$(free_port $((LUCI_PORT + 1)))"
+# A second LIVE https listener that the harness does not know about: the decoy for
+# the TCP-credit rule (case 9d-bis). It is never in the section-0 sweep, so the
+# only thing that can reach it is the :LUCI 307 Location.
+ALT_PORT="$(free_port $((TLS_PORT + 1)))"
 echo "selftest ports: ssh=$SSH_PORT stub=$STUB_PORT portal=$PORTAL_PORT api=$API_PORT" \
-     "admin=$ADMIN_PORT captive=$CAPTIVE_PORT luci=$LUCI_PORT tls=$TLS_PORT"
+     "admin=$ADMIN_PORT captive=$CAPTIVE_PORT luci=$LUCI_PORT tls=$TLS_PORT alt=$ALT_PORT (decoy)"
 
 # --------------------------------------------------------------------------
 # Fixtures: a fake extracted package whose docroots the stub serves verbatim
@@ -143,7 +147,7 @@ start_stub() {  # start_stub [scenario file]
         --portal-docroot "$PDOC" --admin-docroot "$ADOC" \
         --portal-port "$PORTAL_PORT" --stub-port "$STUB_PORT" --api-port "$API_PORT" \
         --admin-port "$ADMIN_PORT" --luci-port "$LUCI_PORT" --captive-port "$CAPTIVE_PORT" \
-        --tls-port "$TLS_PORT" --ssh-port "$SSH_PORT" \
+        --tls-port "$TLS_PORT" --ssh-port "$SSH_PORT" --alt-port "$ALT_PORT" \
         --cert "$CERT" --key "$KEY" "${scenario_args[@]}" \
         > "$WORK/stub.log" 2>&1 &
     STUB_PID=$!
@@ -182,18 +186,20 @@ harness_run() {  # harness_run <outfile> [harness args...]
 check_case() {  # check_case <case> <expect PASS|FAIL|WARN> <check id> <outfile> <rc>
     local name="$1" expect="$2" id="$3" out="$4" rc="$5"
     local line n
-    # The TERMINAL status is the run's answer. A section-0 liveness line is
-    # PROVISIONAL -- a status this rig treats as "not yet a status", because the
+    # The TERMINAL status is the run's answer. A section-0 liveness note is
+    # RHPPROVISIONAL -- deliberately not a RHPCHECK line at all, because the
     # verdict has to resolve it (to FAIL, or to WARN when a later check reached
     # the port). Judging the first matching line instead would read the
     # pre-verdict state and call a refuted port red; judging the LAST line of a
-    # terminal status asserts what the run actually reports. Exactly one terminal
+    # terminal status asserts what the run actually reports. Exactly one RHPCHECK
     # line per id, asserted here: an id that is both red and green in one
-    # transcript is the confusion this whole rig exists to prevent.
+    # transcript is the confusion this whole rig exists to prevent, and a
+    # grep-based gate reading `^RHPCHECK <id> ` cannot see a PROVISIONAL note at
+    # all.
     n="$(grep -cE "^RHPCHECK $id (PASS|FAIL|SKIP|WARN) " "$out")"
     if [ "$n" = "0" ]; then
-        if grep -qE "^RHPCHECK $id PROVISIONAL " "$out"; then
-            st "$name" BAD "$id has a PROVISIONAL line but NO terminal resolution: the verdict never resolved the section-0 burst"
+        if grep -qE "^RHPPROVISIONAL $id " "$out"; then
+            st "$name" BAD "$id has a PROVISIONAL note but NO terminal resolution: the verdict never resolved the section-0 burst"
         else
             st "$name" BAD "check id '$id' never ran"
         fi
@@ -435,13 +441,14 @@ assert_in tcp-retry-recovers-note "$WORK/out.tcp-retry-recovers.txt" \
 
 # 9d. a port that answers nowhere in the run is STILL fatal (the TLS port is not
 #     decoration: the :$LUCI_PORT https redirect is asserted against it). The
-#     section-0 line for it is PROVISIONAL -- the run has not looked at the rest of
-#     the box yet -- and the FAIL comes from the verdict, where it is final.
+#     section-0 line for it is RHPPROVISIONAL -- the run has not looked at the
+#     rest of the box yet -- and the FAIL comes from the verdict, where it is
+#     final.
 mut_case tcp-dead-port FAIL "net:tcp-$TLS_PORT" '{"unbound_ports": ["tls"]}'
 dead_out="$WORK/out.tcp-dead-port.txt"
 assert_in tcp-dead-port-provisional "$dead_out" \
-    "^RHPCHECK net:tcp-$TLS_PORT PROVISIONAL " \
-    "the section-0 line says PROVISIONAL, i.e. explicitly not yet a verdict"
+    "^RHPPROVISIONAL net:tcp-$TLS_PORT " \
+    "the section-0 line says PROVISIONAL, i.e. explicitly not yet a verdict (and it is not a RHPCHECK line, so a grep for the id's verdict sees exactly one)"
 assert_after tcp-dead-port-final "$dead_out" \
     "^===== verdict: resolving the section-0 liveness burst" \
     "^RHPCHECK net:tcp-$TLS_PORT FAIL " \
@@ -449,6 +456,27 @@ assert_after tcp-dead-port-final "$dead_out" \
 assert_in tcp-dead-port-named "$dead_out" \
     "^RHPFAILED .*net:tcp-$TLS_PORT" \
     "the dead port is named in RHPFAILED (the summary a gate reads)"
+
+# 9d-bis. the DECOY: the credit rule must credit the port a check actually
+#         REACHED, not an id that merely mentions it. Here :$TLS_PORT is dead
+#         while the :$LUCI_PORT redirect lands on a DIFFERENT, live https port
+#         (:$ALT_PORT, which the harness never sweeps). So
+#         surface:$LUCI_PORT-target-200 genuinely PASSes -- against the other
+#         port -- and a rule of the shape "some PASS id names this port" demotes
+#         the dead :$TLS_PORT to a WARNING and exits 0. This is the round-1
+#         review's finding F1 in one scenario; the run must keep it FAIL.
+mut_case tcp-dead-tls-not-credited FAIL "net:tcp-$TLS_PORT" \
+    '{"luci_307_to_alt": true, "unbound_ports": ["tls"]}'
+decoy_out="$WORK/out.tcp-dead-tls-not-credited.txt"
+assert_in tcp-dead-tls-decoy-passes "$decoy_out" \
+    "^RHPCHECK surface:$LUCI_PORT-target-200 PASS " \
+    "the decoy really does PASS: the :$LUCI_PORT redirect answered 200 on a live https port"
+assert_not_in tcp-dead-tls-not-demoted "$decoy_out" \
+    "^RHPCHECK net:tcp-$TLS_PORT WARN " \
+    "the dead :$TLS_PORT is NOT demoted by a PASS that reached a different port"
+assert_in tcp-dead-tls-still-fatal "$decoy_out" \
+    "^RHPFAILED .*net:tcp-$TLS_PORT" \
+    "the dead :$TLS_PORT stays in RHPFAILED even with a live sibling https port in the run"
 
 # 9e. a port that fails the burst but answers LATER in the run: the PROVISIONAL
 #     section-0 line is resolved to a WARNING that quotes the later PASS -- the
@@ -461,8 +489,8 @@ assert_in tcp-refuted-later-quotes "$refuted_out" \
     "^RHPCHECK net:tcp-$ADMIN_PORT WARN .*surface:$ADMIN_PORT-admin-spa PASS" \
     "the demoted WARNING quotes the later PASS that refuted the burst"
 assert_in tcp-refuted-later-provisional "$refuted_out" \
-    "^RHPCHECK net:tcp-$ADMIN_PORT PROVISIONAL " \
-    "the same id's section-0 line is PROVISIONAL: one id, one terminal status, plus the pre-verdict note"
+    "^RHPPROVISIONAL net:tcp-$ADMIN_PORT " \
+    "the same id's section-0 line is the PROVISIONAL note: one id, one RHPCHECK verdict, plus the pre-verdict note"
 assert_not_in tcp-refuted-later-no-fail "$refuted_out" \
     "^RHPCHECK net:tcp-$ADMIN_PORT FAIL " \
     "the transcript contains NO FAIL line for the port the run itself reached later"

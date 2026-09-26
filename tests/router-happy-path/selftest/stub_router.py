@@ -25,6 +25,13 @@ time and assert the matching check id flips to FAIL:
   usage_bad           /usage answers something that is not used/allotment
   session_state       /session-state answers a real session-state shape
   luci_307_no_target  :LUCI_PORT 307s to a dead https URL
+  luci_307_to_alt     :LUCI_PORT 307s to a LIVE https port that is NOT :TLS_PORT
+                      (:ALT_PORT, a port the harness never sweeps). This is the
+                      decoy for the credit rule: the "LuCI target answered 200"
+                      check really does PASS, but against a different port, so a
+                      credit rule that asks "did some check PASS for this id"
+                      demotes a dead :TLS_PORT to a WARNING while the rule that
+                      credits the port the request LANDED on keeps it FAIL.
   ln_200              /ln-invoice answers 200 instead of the 400 poll
   ln_wrong_error      /ln-invoice 400s with a different error string
   empty_token_ok      POST / with an empty body returns 200 kind:1022 (bypass)
@@ -312,7 +319,11 @@ class LuciHandler(Base):
     """:LUCI_PORT -- LuCI http, 307 to https."""
 
     def do_GET(self):
-        port = 1 if mut("luci_307_no_target") else PORTS["tls"]
+        if mut("luci_307_to_alt"):
+            # A live https target that is NOT the port the sweep calls :TLS_PORT.
+            port = PORTS["alt"]
+        else:
+            port = 1 if mut("luci_307_no_target") else PORTS["tls"]
         loc = "https://%s:%d/" % (PORTS["host"], port)
         return self._send(307, "", "text/plain", {"Location": loc})
 
@@ -392,6 +403,9 @@ def main():
     ap.add_argument("--luci-port", type=int, required=True)
     ap.add_argument("--captive-port", type=int, required=True)
     ap.add_argument("--tls-port", type=int, required=True)
+    ap.add_argument("--alt-port", type=int, default=0,
+                    help="a second, LIVE https listener the harness does not know about; "
+                         "bound only under the luci_307_to_alt scenario")
     ap.add_argument("--ssh-port", type=int, required=True)
     ap.add_argument("--cert", default="")
     ap.add_argument("--key", default="")
@@ -403,7 +417,7 @@ def main():
 
     PORTS.update({"host": args.host, "portal": args.portal_port, "stub": args.stub_port,
                   "api": args.api_port, "admin": args.admin_port, "luci": args.luci_port,
-                  "captive": args.captive_port, "tls": args.tls_port,
+                  "captive": args.captive_port, "tls": args.tls_port, "alt": args.alt_port,
                   "portal_docroot": args.portal_docroot, "admin_docroot": args.admin_docroot,
                   "cert": args.cert, "key": args.key})
 
@@ -425,6 +439,12 @@ def main():
         serve(LuciHandler, args.luci_port)
     if not unbound("tls"):
         serve(TlsHandler, args.tls_port, tls=bool(args.cert))
+    # The decoy listener: live https, on a port the harness never probes, so the
+    # only thing that can reach it is the :LUCI 307 Location. It exists so the
+    # rig can tell "a check reached the port in question" apart from "a check
+    # that mentions the port PASSed".
+    if args.alt_port and SCENARIO.get("luci_307_to_alt"):
+        serve(TlsHandler, args.alt_port, tls=bool(args.cert))
     if not unbound("ssh"):
         ssh_banner(args.ssh_port, delay=float(SCENARIO.get("ssh_late_bind_s", 0)))
 

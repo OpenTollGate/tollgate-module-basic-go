@@ -66,10 +66,12 @@ Check ids are stable and greppable (`identity:*`, `surface:*`, `captive:*`,
 `api:*`, `ln:*`, `money:*`, `paid:*`, `ssh:*`, `net:*`, `pre:*`,
 `vantage:*`). Every id except the ones listed as SKIP below is fatal on FAIL; a
 **WARN** (`warn=N`, `RHPWARNED`) is reported, greppable, and never fatal.
-**PROVISIONAL** is the one status that is not a verdict — only section 0 prints
-it (the liveness burst, which cannot know what the rest of the run will reach) and
-the verdict always replaces it with PASS, WARN, or FAIL, so every id has exactly
-one terminal status per run.
+**PROVISIONAL** is the one status that is not a verdict — it is printed as an
+`RHPPROVISIONAL <id> ...` **note**, not as an `RHPCHECK` line at all, and only
+section 0 prints it (the liveness burst, which cannot know what the rest of the
+run will reach). The verdict always follows with a real `RHPCHECK` line for the
+same id, so every id has exactly one `RHPCHECK` line per run and a gate that
+greps `^RHPCHECK <id> ` sees one answer, not two.
 
 ## Vantage: what a run can assert, and from where
 
@@ -114,18 +116,25 @@ SSH session to that very port*, and `:443` was reported dead and then answered
   (default 1 s) apart, with `RHP_TCP_PACE` (default 0.25 s) between ports. A port
   that answers on a later attempt PASSES, and the line names the attempt that
   answered.
-* a port that fails every attempt is printed as **PROVISIONAL** — a status that
-  is explicitly *not* a verdict, and is not counted in the totals. Before the
-  summary, the verdict resolves every PROVISIONAL port against the rest of the
-  run: if any check that demonstrably reaches it PASSed later, the line becomes a
-  **WARNING** that quotes that PASS. A preflight line the run itself refutes must
-  never be a red line, and a transcript must never hold a FAIL for a port the run
-  went on to use.
+* a port that fails every attempt gets an **`RHPPROVISIONAL` note** (not an
+  `RHPCHECK` line, so it can never be mistaken for the verdict) and is not counted
+  in the totals. Before the summary, the verdict resolves every such port against
+  the rest of the run: if a check that **demonstrably reached that port** PASSed
+  later, the id becomes a **WARNING** that quotes that PASS. A preflight line the
+  run itself refutes must never be a red line, and a transcript must never hold a
+  FAIL for a port the run went on to use.
+* **credit comes from a completed request, never from an id that merely names the
+  port.** A check records reach evidence when it completes a request against a
+  port (`reach <port> <id>`), and the port is taken from the URL the request
+  actually landed on — so `surface:8080-target-200`, whose fetch follows a `307
+  Location`, credits wherever that Location pointed, not `:443`. A dead `:443`
+  therefore stays fatal even when the rest of the run is healthy; a
+  `grep`-based rule of the shape "some PASS id mentions the port" would demote it.
 * a port that answers **nowhere** in the run stays fatal, and the FAIL is printed
-  by the verdict (`no other check in this run reached :<port> either: this is
-  FINAL, not a race`), so each `net:tcp-*` id has exactly one terminal status per
-  run: PASS, WARN, or FAIL. The `net:tcp-*` ids are not decoration: they are what
-  says the box is up at all.
+  by the verdict (`no other check in this run completed a request against :<port>
+  either: this is FINAL, not a race`), so each `net:tcp-*` id has exactly one
+  `RHPCHECK` line per run: PASS, WARN, or FAIL. The `net:tcp-*` ids are not
+  decoration: they are what says the box is up at all.
 * a port whose lane is not running is reported without being fatal, and the
   reason is printed: with no `--ssh`, `:22` is a WARNING (`no phase of this run
   depends on :22 -- the on-box SSH lane is opt-in`), and it is fatal again the

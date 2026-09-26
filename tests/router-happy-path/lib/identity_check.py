@@ -203,9 +203,13 @@ def main():
     ap.add_argument("--admin-port", type=int, default=SURFACES["admin"][2])
     ap.add_argument("--only-surface", default="")
     ap.add_argument("--vantage", choices=("guest", "mgmt"), default="mgmt",
-                    help="guest: the admin surface is not reachable from br-lan at all, "
-                         "so its checks are reported as named SKIPs instead of failed "
-                         "fetches (run.sh derives this from whether :8090 answers)")
+                    help="which lane to assert. Default mgmt, deliberately: this script "
+                         "cannot detect the lane itself (that derivation needs the :8090 "
+                         "probe run.sh does), so run.sh always resolves the lane and passes "
+                         "it in explicitly. A direct invocation without --vantage asserts "
+                         "the admin surface, which is the stricter of the two. With guest, "
+                         "the admin surface is not reachable from br-lan at all, so its "
+                         "checks are reported as named SKIPs instead of failed fetches")
     ap.add_argument("--expect-entry", default="",
                     help="NAME:SIZE:SHA256 pin for the portal entry chunk")
     ap.add_argument("--print-entry", default="",

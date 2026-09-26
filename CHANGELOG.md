@@ -39,13 +39,18 @@ and [Semantic Versioning](https://semver.org/).
   port and `:443` dead before the same run's own `https://192.168.1.1/ -> 200` —
   six to seven fatal-looking preflight FAILs per run, each refuted by the run
   itself, which is exactly the confusion the harness exists to remove. The
-  self-test goes from 31 to 53 cases: the new ones cover guest `000` => PASS (and
+  self-test goes from 31 to 57 cases: the new ones cover guest `000` => PASS (and
   a whole guest-vantage run being GREEN with `fail=0` and no FAIL line for the
   port, plus the negative control that the guard going inert => FAIL), a retried
   connect that answers on attempt 2 => not fatal, a port that answers nowhere =>
-  still fatal and named in `RHPFAILED`, and a port refuted later in the same run
-  => WARNING quoting that PASS. The rig now reads the **terminal** status, so it
-  judges what the run reports rather than the pre-verdict line.
+  still fatal and named in `RHPFAILED`, a port refuted later in the same run =>
+  WARNING quoting that PASS, and a decoy proving the demotion credits only a port
+  a check actually reached (a dead `:443` stays fatal even when the `:8080`
+  redirect target answers `200` on a different, live https port). The rig now
+  reads the run's `RHPCHECK` verdict for an id, and asserts there is exactly one,
+  so it judges what the run reports rather than the pre-verdict note — which is
+  why that note is printed as `RHPPROVISIONAL <id> ...` and not as a second
+  `RHPCHECK` line for the same id.
   ([#590](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/590))
 
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
