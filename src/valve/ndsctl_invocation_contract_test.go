@@ -2,6 +2,8 @@ package valve
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,7 +86,13 @@ func (f *ndsctlFake) spawns(t *testing.T) int {
 		}
 		t.Fatalf("read ndsctl spawn log: %v", err)
 	}
-	return len(strings.Fields(string(data)))
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // finished reports whether the child that was started has run to completion.
@@ -98,13 +106,25 @@ func (f *ndsctlFake) finished() bool {
 // socket) or finish slowly (a restart landing mid-invocation).
 //
 // It also guarantees the package's ndsctl state is restored afterwards: the
-// runner seam, the stop channel and the shutdown flag. Retry timers are stopped
-// first, so a leaked retry can never reach the restored seam.
+// runner seam, the deadline, the drain budget, the report interval and the
+// shutdown state. Retry timers are stopped first, so a leaked retry can never
+// reach the restored seam.
 func installFakeNdsctl(t *testing.T, body string) *ndsctlFake {
 	t.Helper()
 
 	origRunNdsctl := runNdsctl
 	origStopCh := stopCh
+	wasStopping := ndsctlStopping.Load()
+	previousContext, previousCancel := ndsctlParentCtx, cancelNdsctlParent
+	previousTimeout, previousDrain := ndsctlTimeout, ndsctlStopDrain
+	previousInterval := ndsctlTimeoutReportInterval
+
+	// A test's own clock: the deadline, the drain budget and the report interval
+	// are vars so the suite does not pay the production 5 s per hung invocation,
+	// and so a test can put two escalations inside one interval.
+	ndsctlStopping.Store(false)
+	stopCh = make(chan struct{})
+	ndsctlParentCtx, cancelNdsctlParent = context.WithCancel(context.Background())
 
 	fake := &ndsctlFake{
 		dir:      t.TempDir(),
@@ -112,7 +132,8 @@ func installFakeNdsctl(t *testing.T, body string) *ndsctlFake {
 		doneLog:  filepath.Join(t.TempDir(), "finished"),
 	}
 
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\n%s\n", fake.spawnLog, body)
+	script := fmt.Sprintf("#!/bin/sh\nNDSCTL_SPAWNS=%q\nNDSCTL_DONE=%q\nprintf '%%s\\n' \"$*\" >> \"$NDSCTL_SPAWNS\"\n%s\n",
+		fake.spawnLog, fake.doneLog, body)
 	if err := os.WriteFile(filepath.Join(fake.dir, "ndsctl"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ndsctl: %v", err)
 	}
@@ -128,9 +149,24 @@ func installFakeNdsctl(t *testing.T, body string) *ndsctlFake {
 
 		runNdsctl = origRunNdsctl
 		stopCh = origStopCh
+		ndsctlStopping.Store(wasStopping)
+		ndsctlParentCtx, cancelNdsctlParent = previousContext, previousCancel
+		ndsctlTimeout, ndsctlStopDrain = previousTimeout, previousDrain
+		ndsctlTimeoutReportInterval = previousInterval
+		resetNdsctlReportState()
 	})
 
 	return fake
+}
+
+// resetNdsctlReportState forgets the unresponsive episode a test created, so the
+// throttle of one test cannot silence the escalation of the next.
+func resetNdsctlReportState() {
+	ndsctlTimeoutReportsMu.Lock()
+	ndsctlLastTimeoutReport = time.Time{}
+	ndsctlUnresponsiveSince = time.Time{}
+	ndsctlTimeoutsSinceReport = 0
+	ndsctlTimeoutReportsMu.Unlock()
 }
 
 // TestNdsctlInvocationTheModuleKilledIsAttributed: an invocation the module's own
@@ -145,6 +181,8 @@ func TestNdsctlInvocationTheModuleKilledIsAttributed(t *testing.T) {
 	}
 
 	fake := installFakeNdsctl(t, "exec sleep 60")
+	ndsctlTimeout = 400 * time.Millisecond
+	ndsctlTimeoutReportInterval = time.Hour
 	log := captureValveLogAtLevel(t, logrus.InfoLevel)
 
 	macAddress := "aa:bb:cc:dd:ee:60"
@@ -163,6 +201,7 @@ func TestNdsctlInvocationTheModuleKilledIsAttributed(t *testing.T) {
 	if !strings.Contains(logged, "did not answer") {
 		t.Fatalf("the module did not say that ndsctl never answered; the operator cannot tell a wedged NoDogSplash from a refusal. Log was %q", logged)
 	}
+	t.Logf("operator log: %s", strings.TrimSpace(logged))
 	if got := fake.spawns(t); got != 1 {
 		t.Fatalf("ndsctl was started %d times for one deauthorization, want 1", got)
 	}
@@ -178,7 +217,8 @@ func TestStopDrainsInFlightNdsctlInvocations(t *testing.T) {
 	}
 
 	// A child that answers, but not instantly.
-	fake := installFakeNdsctl(t, "sleep 2\nprintf 'Auth: %s - Removed\\n' \"$2\"\nexit 0")
+	fake := installFakeNdsctl(t, "sleep 1\nprintf 'finished\\n' >> \"$NDSCTL_DONE\"\nprintf 'Auth: %s - Removed\\n' \"$2\"\nexit 0")
+	ndsctlStopDrain = 5 * time.Second
 
 	invocationDone := make(chan error, 1)
 	go func() {
@@ -215,6 +255,8 @@ func TestInvocationInterruptedByShutdownIsNotAnNdsctlFailure(t *testing.T) {
 	}
 
 	fake := installFakeNdsctl(t, "exec sleep 60")
+	ndsctlTimeout = 5 * time.Second
+	ndsctlTimeoutReportInterval = time.Hour
 	Stop()
 	log := captureValveLogAtLevel(t, logrus.InfoLevel)
 
@@ -233,5 +275,50 @@ func TestInvocationInterruptedByShutdownIsNotAnNdsctlFailure(t *testing.T) {
 	}
 	if got := fake.spawns(t); got != 0 {
 		t.Fatalf("the module started %d ndsctl children while it was stopping, want 0: a restart must not spawn invocations it cannot wait for", got)
+	}
+}
+
+// TestStopIsIdempotentAndBoundedWhenAChildOutlivesTheDrain: procd sends SIGTERM,
+// and a second signal (or a stop after a stop) must not panic on an already
+// closed channel. A child that does not finish inside the drain budget is killed
+// by the MODULE and attributed to the shutdown — never reported as an ndsctl
+// failure — and Stop still returns, because a service that refuses to exit is
+// indistinguishable from a hung one and procd SIGKILLs it anyway.
+func TestStopIsIdempotentAndBoundedWhenAChildOutlivesTheDrain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the ndsctl drain-overrun test in short mode")
+	}
+
+	fake := installFakeNdsctl(t, "exec sleep 60")
+	ndsctlTimeout = 30 * time.Second // the deadline is not what ends this child
+	ndsctlStopDrain = 300 * time.Millisecond
+
+	invocationDone := make(chan error, 1)
+	go func() {
+		_, err := runNdsctl("deauth", "aa:bb:cc:dd:ee:63")
+		invocationDone <- err
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for fake.spawns(t) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if fake.spawns(t) == 0 {
+		t.Fatal("the fake ndsctl was never started: the production ndsctl runner is not the one under test")
+	}
+
+	started := time.Now()
+	Stop()
+	Stop() // must be a no-op, not a panic on the closed stop channel
+	elapsed := time.Since(started)
+
+	if elapsed > 4*ndsctlStopDrain {
+		t.Fatalf("Stop() took %v, want the drain to be bounded by its budget (%v): a stop that can hang the service is killed by procd anyway", elapsed, ndsctlStopDrain)
+	}
+
+	if err := <-invocationDone; err == nil {
+		t.Fatal("the invocation that was killed on the way out reported success")
+	} else if !errors.Is(err, ErrNdsctlStopped) {
+		t.Fatalf("an invocation the module killed because it is stopping returned %v, want it to be attributed to the shutdown rather than reported as an ndsctl failure", err)
 	}
 }
