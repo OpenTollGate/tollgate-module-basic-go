@@ -229,7 +229,7 @@ jobs:
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src -o "$PWD/bin/$key/tollgate-wrt" \
-              -trimpath -ldflags="$LDFLAGS" main.go
+              -trimpath -ldflags="$LDFLAGS" .
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$PWD/bin/$key/tollgate" \
