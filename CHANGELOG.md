@@ -32,7 +32,7 @@ and [Semantic Versioning](https://semver.org/).
   parameter stays accepted for wire compatibility with the shipped portal; no
   existing field or header changes shape, and the contract (with what it means
   for a test rig) is in `docs/operator-guide.md`.
-  ([#597](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/597))
+  ([#598](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/598))
 
 - **A session whose client NoDogSplash has forgotten is closed and retired, not
   retried for ever.** On the bench (pre17) `ndsctl deauth` answered
