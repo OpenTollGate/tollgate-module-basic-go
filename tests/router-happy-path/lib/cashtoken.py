@@ -42,9 +42,15 @@ def inspect(token):
         out["note"] = "too short to carry a payload"
         return out
 
-    version = token[6]
+    # NUT-00: `cashu` + ONE version character + payload. So the version is
+    # token[5] and the payload starts at token[6]. Reading token[6] here picked
+    # the FIRST PAYLOAD character instead, which made every real token fail
+    # inspection ("unknown Cashu token version character 'o'" for a cashuB
+    # token) and killed the whole paid lane -- it was found on the lane's first
+    # hardware run. Do not "tidy" these two offsets.
+    version = token[5]
     out["version"] = version
-    payload = token[7:]
+    payload = token[6:]
 
     if version == "A":  # v3: base64url(JSON)
         try:

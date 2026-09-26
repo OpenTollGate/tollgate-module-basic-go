@@ -5,11 +5,13 @@
 #
 # No service is restarted on the first-boot path (uci-defaults runs before procd
 # brings services up, and procd then starts them once from the config written
-# here). The ONE exception is converge_nodogsplash_runtime: when this script runs
-# on an ALREADY-RUNNING system and the nodogsplash pre-auth allow list no longer
-# matches the ruleset the live process installed, that process is reloaded — a
-# config change is otherwise not delivered until something restarts it, which is
-# right on a fresh boot and wrong on an upgrade of a running router.
+# here). The exceptions are the CONVERGENCE steps — converge_nodogsplash_runtime
+# and converge_uhttpd_runtime, both of which do nothing at all unless the service
+# is already running: when this script runs on an ALREADY-RUNNING system and a
+# policy or an identity the live process is holding no longer matches the config
+# written here, that process is reloaded — a config change is otherwise not
+# delivered until something restarts it, which is right on a fresh boot and wrong
+# on an upgrade of a running router.
 #
 # The flag file records the setup version — the version whose FULL setup last
 # ran. The next run decides between the two branches by ORDER, not by equality
@@ -55,6 +57,27 @@ LOGFILE=/tmp/tollgate-setup.log
 # LOGFILE so the offline tests can redirect all three the same way
 # (tests/uci-defaults-*_test.sh).
 NDS_INIT="/etc/init.d/nodogsplash"
+# The other absolute paths into the live system this script writes or drives,
+# next to NDS_INIT for the same reason: the offline tests redirect them in their
+# copy of this script (tests/uci-defaults-admin-tls-identity_test.sh).
+#
+# TOLLGATE_CLI is the module's own binary (`src/cmd/tollgate-cli` is installed as
+# `tollgate`): the setup path provisions the router's TLS identity through it
+# rather than growing a second certificate generator. PROVISIONED_CERT/KEY are
+# the identity that generator writes; UHTTPD_IMAGE_CERT/KEY are the OpenWrt
+# image's own certificate, a PLACEHOLDER (CN=OpenWrt, SAN DNS:OpenWrt) that
+# covers no router's hostname or LAN address.
+UHTTPD_INIT="/etc/init.d/uhttpd"
+TOLLGATE_CLI="/usr/bin/tollgate"
+PROVISIONED_CERT="/etc/tollgate/ssl/server.crt"
+PROVISIONED_KEY="/etc/tollgate/ssl/server.key"
+UHTTPD_IMAGE_CERT="/etc/uhttpd.crt"
+UHTTPD_IMAGE_KEY="/etc/uhttpd.key"
+# The marker `tollgate ssl remove` writes (src/cmd/tollgate-cli/ssl.go,
+# sslOptOutFile) when an operator removes the TLS identity on purpose. It is
+# honoured here: a reinstall or an upgrade must not re-key a router whose owner
+# said no, the same way setup_hostname never touches a custom hostname (#444).
+TLS_IDENTITY_OPTOUT="/etc/tollgate/ssl/tls-identity-removed"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup-marker ordering ---------------------------------------------------
@@ -314,30 +337,10 @@ setup_uhttpd() {
     uci -q delete uhttpd.main.listen_http
     uci add_list uhttpd.main.listen_http='0.0.0.0:8080'
     uci add_list uhttpd.main.listen_http='[::]:8080'
-    uci -q delete uhttpd.main.listen_https
-    uci -q delete uhttpd.main.cert
-    uci -q delete uhttpd.main.key
-    # Only enable HTTPS if cert and key files exist; otherwise uhttpd
-    # crash-loops because it sees listen_https but has no TLS config.
-    if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then
-        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
-        uci add_list uhttpd.main.listen_https='[::]:443'
-        uci set uhttpd.main.cert='/etc/uhttpd.crt'
-        uci set uhttpd.main.key='/etc/uhttpd.key'
-    fi
-    # uhttpd.main.redirect_https is a DERIVED value, not a configured one:
-    # LuCI's :8080 is redirected to the TLS listener only when that listener is
-    # real. The feed's 92-tollgate-admin-setup computes the same rule (readable,
-    # non-empty cert/key pair AND a configured listen_https) because both scripts
-    # write this option and install order decides which lands last - the two must
-    # agree, and a router that lost its certs must never keep a stale redirect to
-    # a dead :443 (the 2026-09-21 pre13 LuCI lockout).
-    if [ -r /etc/uhttpd.crt ] && [ -s /etc/uhttpd.crt ] &&
-       [ -r /etc/uhttpd.key ] && [ -s /etc/uhttpd.key ]; then
-        uci set uhttpd.main.redirect_https='1'
-    else
-        uci set uhttpd.main.redirect_https='0'
-    fi
+    # uhttpd.main's TLS identity and the redirect derived from it live in one
+    # function: this call asserts the contract, and the setup paths re-derive it
+    # after provisioning has changed the identity. Two callers, one rule.
+    setup_uhttpd_tls_identity
     uci set uhttpd.main.home='/www'
     uci set uhttpd.main.rfc1918_filter='1'
     uci set uhttpd.main.max_requests='3'
@@ -365,6 +368,195 @@ setup_uhttpd_portal() {
     # The SPA ships no index.html — without this, / would serve a file
     # inventory to pre-auth clients.
     uci set uhttpd.portal.no_dirlists='1'
+}
+
+# -- the router's TLS identity -----------------------------------------------
+#
+# Everything below exists because the install path used to INHERIT the OpenWrt
+# image's own certificate as the router's identity. That file is a placeholder
+# (subject CN=OpenWrt, SAN DNS:OpenWrt; 561 bytes on the bench MT3000, dated with
+# the image) which covers neither the router's hostname nor its LAN IP, while
+# satisfying every readable-and-non-empty guard there is. Measured read-only on
+# the bench (OpenWrt 25.12.5, 2026-09-26) before this change:
+#
+#   tollgate ssl status            -> "SSL: not configured"
+#   uci show uhttpd                -> redirect_https='1', cert='/etc/uhttpd.crt'
+#   curl http://192.168.1.1:8080/  -> 307 https://192.168.1.1/  -> the browser
+#                                    shows a hard certificate error, because the
+#                                    certificate does not cover 192.168.1.1 (nor
+#                                    tollgate-OQ3Q, nor tollgate-OQ3Q.lan).
+#
+# So the setup path now does two things: it PROVISIONS an identity that covers
+# this router (through the module's own generator — no second certificate
+# generator), and it derives redirect_https from a COVERAGE check instead of a
+# file-existence check. A router that cannot be provisioned keeps its TLS
+# listener but does not redirect: no certificate the browser cannot validate ever
+# answers the :8080 hop.
+
+# Does this certificate cover THIS router? Delegated to the module's own x509
+# check (`tollgate ssl covers`, src/cmd/tollgate-cli/ssl.go), so the shell and the
+# Go side can never disagree about what "covers" means: the SANs must validate the
+# configured hostname, its <hostname>.lan alias or the LAN IP; a CommonName with
+# no SAN extension is deliberately not enough, because a browser ignores it.
+#
+# Fails CLOSED: an absent or unusable CLI is "does not cover", which keeps the
+# :8080 -> https:// hop off rather than pointing a browser at an identity nobody
+# checked. That is the direction that cannot lock an operator out.
+cert_covers_router() {
+    local cert="$1"
+    [ -n "$cert" ] || return 1
+    [ -x "$TOLLGATE_CLI" ] || return 1
+    "$TOLLGATE_CLI" ssl covers "$cert" >/dev/null 2>&1
+}
+
+# uhttpd.main's TLS identity, and the redirect derived from it.
+#
+# The identity is the PROVISIONED certificate when it exists — that is the one
+# built to cover this router — and the image's own cert/key pair otherwise, as a
+# fallback so a router that cannot provision still gets its :443 listener instead
+# of losing it. The image's certificate is never treated as an identity though:
+# nothing but coverage turns the redirect on.
+#
+# uhttpd.main.redirect_https is a DERIVED value, not a configured one: LuCI's
+# :8080 is redirected to the TLS listener only when that listener can actually
+# validate the address the browser used. The feed's 92-tollgate-admin-setup writes
+# the same option, and install order decides which lands last, so both scripts
+# must write an explicit value — and a router whose identity cannot be validated
+# must never keep a redirect to it (the 2026-09-21 pre13 LuCI lockout was the
+# same value derived from a weaker premise). See
+# docs/architecture/uhttpd-redirect-https-ownership-decision.md.
+setup_uhttpd_tls_identity() {
+    local cert="" key=""
+
+    # Only enable HTTPS when cert and key are readable and non-empty; otherwise
+    # uhttpd crash-loops because it sees listen_https but has no TLS config.
+    if [ -r "$PROVISIONED_CERT" ] && [ -s "$PROVISIONED_CERT" ] &&
+       [ -r "$PROVISIONED_KEY" ] && [ -s "$PROVISIONED_KEY" ]; then
+        cert="$PROVISIONED_CERT"
+        key="$PROVISIONED_KEY"
+    elif [ -r "$UHTTPD_IMAGE_CERT" ] && [ -s "$UHTTPD_IMAGE_CERT" ] &&
+         [ -r "$UHTTPD_IMAGE_KEY" ] && [ -s "$UHTTPD_IMAGE_KEY" ]; then
+        cert="$UHTTPD_IMAGE_CERT"
+        key="$UHTTPD_IMAGE_KEY"
+    fi
+
+    uci -q delete uhttpd.main.listen_https
+    uci -q delete uhttpd.main.cert
+    uci -q delete uhttpd.main.key
+    if [ -n "$cert" ]; then
+        uci add_list uhttpd.main.listen_https='0.0.0.0:443'
+        uci add_list uhttpd.main.listen_https='[::]:443'
+        uci set uhttpd.main.cert="$cert"
+        uci set uhttpd.main.key="$key"
+    fi
+
+    if [ -n "$cert" ] && cert_covers_router "$cert"; then
+        uci set uhttpd.main.redirect_https='1'
+        log "uhttpd.main TLS identity ${cert} covers this router — redirect_https=1"
+    else
+        uci set uhttpd.main.redirect_https='0'
+        log "uhttpd.main TLS identity '${cert:-none}' does not cover this router — redirect_https=0 (:8080 stays on HTTP, no lockout)"
+    fi
+}
+
+# Give the router a real TLS identity instead of inheriting the image's
+# placeholder. Idempotent: nothing is generated while an identity that covers
+# this router is already in place, so a reinstall/re-boot costs one `ssl covers`
+# call and never re-keys a router behind the operator's back.
+#
+# Non-interactive by construction: `ssl apply -y` (there is no prompt to answer)
+# plus `--no-restart`, because uci-defaults runs BEFORE procd starts the services
+# and a first boot must not be handed a mid-boot nodogsplash restart. The service
+# side is this script's job — see converge_uhttpd_runtime below, which reloads
+# uhttpd only if it is already running.
+#
+# A failed provisioning is NOT fatal: the setup continues, the guard above keeps
+# the redirect off, and the reason is in the log (and in `tollgate ssl status`) —
+# a router that cannot provision a self-signed identity must still boot.
+#
+# Two deliberate NON-provisioning cases, both logged rather than silent: the
+# operator removed the identity (TLS_IDENTITY_OPTOUT, above) and the CLI is not
+# installed. Neither is an error — the router keeps whatever identity it has and
+# the derived redirect stays off unless that identity covers it.
+provision_tls_identity() {
+    # An operator who removed the identity asked for a router that serves no
+    # identity. `tollgate ssl remove` records that decision and this honours it:
+    # the uhttpd contract is still repaired below, but the router is not
+    # re-keyed behind the owner's back. `tollgate ssl apply` ends the opt-out.
+    if [ -f "$TLS_IDENTITY_OPTOUT" ]; then
+        log "TLS identity was removed by the operator (${TLS_IDENTITY_OPTOUT}) — not provisioning; run 'tollgate ssl apply' to end the opt-out"
+        return 0
+    fi
+
+    if [ -r "$PROVISIONED_CERT" ] && [ -s "$PROVISIONED_CERT" ] &&
+       [ -r "$PROVISIONED_KEY" ] && [ -s "$PROVISIONED_KEY" ] &&
+       cert_covers_router "$PROVISIONED_CERT"; then
+        log "TLS identity already covers this router (${PROVISIONED_CERT}) — nothing to provision"
+        return 0
+    fi
+
+    if [ ! -x "$TOLLGATE_CLI" ]; then
+        log "WARNING: no usable tollgate CLI at ${TOLLGATE_CLI} — cannot provision a TLS identity; leaving the existing certificate in place and redirect_https=0"
+        return 0
+    fi
+
+    log "Provisioning a TLS identity for this router: ${TOLLGATE_CLI} ssl apply -y --no-restart"
+    provisioned=$("$TOLLGATE_CLI" ssl apply -y --no-restart 2>&1)
+    rc=$?
+    if [ "$rc" = 0 ]; then
+        log "TLS identity provisioned (ssl apply exit 0): $(printf '%s' "$provisioned" | tr '\n' ' ' | cut -c1-240)"
+    else
+        log "WARNING: TLS provisioning failed (ssl apply exit $rc): $(printf '%s' "$provisioned" | tr '\n' ' ' | cut -c1-240)"
+    fi
+    return 0
+}
+
+# Deliver a changed identity (and the derived redirect) to a RUNNING uhttpd. On a
+# fresh boot procd starts uhttpd once from the config written above, so there is
+# nothing to do; on an upgrade/reinstall of a running router the live process is
+# still holding the old certificate. Same shape as
+# converge_nodogsplash_runtime: never a restart, and never anything at all when
+# the service is not up.
+converge_uhttpd_runtime() {
+    if ! uhttpd_is_running; then
+        log "uhttpd convergence: service not running (first boot) — procd starts it once with the configured identity, no reload here"
+        return 0
+    fi
+    if "$UHTTPD_INIT" reload >/dev/null 2>&1; then
+        log "uhttpd convergence: reloaded to deliver the provisioned TLS identity"
+    else
+        log "WARNING: uhttpd reload failed after the TLS identity changed — the listener may still hold the previous certificate"
+    fi
+    return 0
+}
+
+uhttpd_is_running() {
+    if command -v pidof >/dev/null 2>&1; then
+        pidof uhttpd >/dev/null 2>&1
+    else
+        "$UHTTPD_INIT" status >/dev/null 2>&1
+    fi
+}
+
+# The ONE tail both setup paths share: provision if needed, re-derive the
+# identity/redirect contract from what is now on disk, and converge the running
+# service. It runs on the full-setup path (first boot, or a version-changing
+# upgrade) AND on the verify/repair path, because the router that carries the
+# image's placeholder is exactly the one being upgraded.
+ensure_admin_tls_identity() {
+    provision_tls_identity
+    setup_uhttpd_tls_identity
+    # Committed unconditionally, unlike the rest of the uhttpd contract, because
+    # this option group is written on EVERY run: an uncommitted `uci set` is a
+    # session delta under /tmp/.uci, and any LATER `uci commit` of the same config
+    # applies that stale delta on top of the file. Measured while restoring the
+    # bench after this change's own verification run: a delta left behind by an
+    # earlier run was re-applied by the restoring commit and put back the
+    # certificate that had just been removed. Writing and committing the value in
+    # one step is what makes "one derived value, one rule, every writer" true.
+    uci commit uhttpd
+    log "uhttpd TLS identity committed (cert/key/listen_https/redirect_https re-derived)"
+    converge_uhttpd_runtime
 }
 
 # The plain-HTTP entry point for a client nodogsplash does NOT intercept.
@@ -1679,6 +1871,13 @@ if [ "$BRANCH" != "FULL" ]; then
         uci commit nodogsplash
         log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
     fi
+    # The TLS identity is re-asserted on this path too, and this is the path that
+    # matters most for it: a router being REINSTALLED or upgraded is the one
+    # carrying the image's own placeholder certificate — the identity covers
+    # neither its hostname nor its LAN IP, and the derived redirect then points
+    # the operator's browser at a certificate it cannot validate. Provisioning
+    # and the re-derivation live in one shared tail (see its comment).
+    ensure_admin_tls_identity
     # A repaired allow list is not a delivered policy: the running nodogsplash
     # holds the ruleset it generated from the list it saw at start-up. Converge
     # it here, after the commit above, so an upgrade or a repair on a RUNNING
@@ -1722,6 +1921,12 @@ setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
 commit_all
+
+# The router's TLS identity is provisioned and re-derived LAST on this path, after
+# setup_hostname above has settled the hostname the certificate's SANs must cover
+# and after the nodogsplash section exists that the generator's port-443 rule
+# needs. It is also the only step here that runs the module's CLI.
+ensure_admin_tls_identity
 
 # After the commit: on a version-changing upgrade of an ALREADY-RUNNING router
 # the nodogsplash that is serving right now holds the ruleset generated from the
