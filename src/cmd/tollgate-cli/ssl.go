@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -23,9 +24,24 @@ var (
 	backupDir = sslDir + "/backup"
 	certDest  = sslDir + "/server.crt"
 	keyDest   = sslDir + "/server.key"
+	// uhttpdCertDefault is the certificate a stock OpenWrt image ships and that
+	// uhttpd.main points at until something replaces it. It is a PLACEHOLDER
+	// (subject CN=OpenWrt, SAN DNS:OpenWrt) and covers no router's own hostname
+	// or LAN address — see certCoverage.
+	uhttpdCertDefault = "/etc/uhttpd.crt"
 )
 
 var sslYesFlag bool
+
+// sslNoRestartFlag makes `ssl apply` leave the services alone. The unattended
+// setup path (packaging/files/etc/uci-defaults/99-tollgate-setup) needs this:
+// it runs before procd has brought uhttpd and nodogsplash up, and it converges
+// the services itself (reloading uhttpd only when it is already running).
+var sslNoRestartFlag bool
+
+// errCertDoesNotCoverRouter is the exit status of `ssl covers`: the certificate
+// is real but cannot validate any name this router is reached by.
+var errCertDoesNotCoverRouter = errors.New("certificate does not cover this router")
 
 func runCommand(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
@@ -82,10 +98,49 @@ var sslStatusCmd = &cobra.Command{
 	},
 }
 
+// sslCoversCmd answers the question a browser asks, and exits non-zero when the
+// answer is no, so a shell can branch on it. The uci-defaults setup path derives
+// uhttpd.main.redirect_https from exactly this verdict (see
+// docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+var sslCoversCmd = &cobra.Command{
+	Use:   "covers [<cert-file>]",
+	Short: "Check whether a certificate covers this router",
+	Long: `Check whether a certificate validates a name this router is actually reached by.
+
+Without an argument the certificate uhttpd.main is configured to present is
+checked. The certificate covers the router when its SANs validate the configured
+hostname, the <hostname>.lan alias dnsmasq serves, or the LAN IP; the CommonName
+alone is not enough, because a browser ignores it when the certificate carries no
+SAN extension.
+
+Exit status is 0 when the certificate covers the router and 1 when it does not,
+with the reason printed either way. A stock OpenWrt image's placeholder
+certificate (subject CN=OpenWrt, SAN DNS:OpenWrt) therefore reports "covers: no",
+which is what keeps uhttpd.main.redirect_https off on a router that has no real
+identity yet.`,
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		certPath := uhttpdCertPath()
+		if len(args) == 1 {
+			certPath = args[0]
+		}
+		covers, reason := certCoversRouter(certPath)
+		if covers {
+			fmt.Printf("covers: yes — %s\n", reason)
+			return nil
+		}
+		fmt.Printf("covers: no — %s\n", reason)
+		return errCertDoesNotCoverRouter
+	},
+}
+
 func init() {
 	sslApplyCmd.Flags().BoolVarP(&sslYesFlag, "yes", "y", false, "Skip confirmation prompt")
+	sslApplyCmd.Flags().BoolVar(&sslNoRestartFlag, "no-restart", false,
+		"Do not reload uhttpd/nodogsplash after applying (the caller converges them)")
 	sslRemoveCmd.Flags().BoolVarP(&sslYesFlag, "yes", "y", false, "Skip confirmation prompt")
-	sslCmd.AddCommand(sslApplyCmd, sslRemoveCmd, sslStatusCmd)
+	sslCmd.AddCommand(sslApplyCmd, sslRemoveCmd, sslStatusCmd, sslCoversCmd)
 	rootCmd.AddCommand(sslCmd)
 }
 
@@ -99,9 +154,9 @@ func confirmOrYes(msg string) bool {
 func sslApply(args []string) error {
 	cleanupStaleTempDirs()
 
-	lanIP, err := uciGet("network.lan.ipaddr")
-	if err != nil || lanIP == "" {
-		return fmt.Errorf("cannot determine LAN IP (network.lan.ipaddr)")
+	lanIP, err := lanIPFromUCI()
+	if err != nil {
+		return err
 	}
 
 	if _, err := os.Stat(backupDir); err == nil {
@@ -133,18 +188,7 @@ func sslApplySelfSigned(lanIP string) error {
 		return fmt.Errorf("failed to generate RSA key: %w", err)
 	}
 
-	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-
-	tmpl := &x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject:      pkix.Name{CommonName: domain},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(3650 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{domain, hostname},
-		IPAddresses:  []net.IP{net.ParseIP(lanIP)},
-	}
+	tmpl := selfSignedTemplate(hostname, lanIP)
 
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
@@ -208,7 +252,13 @@ func sslApplySelfSigned(lanIP string) error {
 	}
 	fmt.Println("[3] nodogsplash firewall updated.")
 
-	if err := reloadServices(false); err != nil {
+	if err := reloadAfterApply(false); err != nil {
+		return err
+	}
+	// The :8080 -> https:// hop is only safe while the certificate uhttpd
+	// presents validates the address the browser used; derive it here too so an
+	// operator running this by hand gets the same rule the setup path computes.
+	if err := applyRedirectHTTPS(); err != nil {
 		return err
 	}
 
@@ -315,7 +365,10 @@ func sslApplyRealCert(args []string, lanIP string) error {
 	}
 	fmt.Println("[4] nodogsplash firewall updated.")
 
-	if err := reloadServices(true); err != nil {
+	if err := reloadAfterApply(true); err != nil {
+		return err
+	}
+	if err := applyRedirectHTTPS(); err != nil {
 		return err
 	}
 
@@ -327,6 +380,17 @@ func sslApplyRealCert(args []string, lanIP string) error {
 	fmt.Println()
 	fmt.Println("To revert: tollgate ssl remove")
 	return nil
+}
+
+// reloadAfterApply delivers a changed TLS identity to the running services,
+// unless the caller asked for that to be skipped (--no-restart, used by the
+// unattended setup path which converges the services itself).
+func reloadAfterApply(realCert bool) error {
+	if sslNoRestartFlag {
+		fmt.Println("Skipping service reload (--no-restart): the caller converges uhttpd and nodogsplash.")
+		return nil
+	}
+	return reloadServices(realCert)
 }
 
 func sslRemove() error {
@@ -374,6 +438,12 @@ func sslRemoveSelfSigned(domain string) error {
 		return err
 	}
 	if err := uciCommitChecked("nodogsplash"); err != nil {
+		return err
+	}
+	// Removal restores whatever certificate uhttpd.main held before — on a stock
+	// image the placeholder — so the derived redirect must be recomputed, not
+	// left pointing a browser at an identity that no longer covers the router.
+	if err := applyRedirectHTTPS(); err != nil {
 		return err
 	}
 	if err := reloadServices(false); err != nil {
@@ -440,6 +510,12 @@ func sslRemoveRealCert(domain string) error {
 	if err := uciCommitChecked("nodogsplash"); err != nil {
 		return err
 	}
+	// Same rule as the self-signed removal above: the restored certificate (the
+	// image's placeholder, typically) does not cover this router, so the
+	// :8080 -> https:// hop goes back off with it.
+	if err := applyRedirectHTTPS(); err != nil {
+		return err
+	}
 	if err := reloadServices(true); err != nil {
 		return err
 	}
@@ -464,6 +540,15 @@ func sslStatus() error {
 		fmt.Println("SSL: not configured")
 		fmt.Println("  Run 'tollgate ssl apply' to generate a self-signed certificate")
 		fmt.Println("  Run 'tollgate ssl apply <cert> [key]' to install a real certificate")
+		// The product's own identity may not be configured while uhttpd still
+		// serves whatever the image shipped. Say what that is, because a
+		// placeholder that covers neither the hostname nor the LAN IP is what a
+		// browser shows a hard certificate error for.
+		if path := uhttpdCertPath(); path != "" {
+			_, reason := certCoversRouter(path)
+			fmt.Printf("  uhttpd serves: %s\n", path)
+			fmt.Printf("  Coverage      : %s\n", reason)
+		}
 		return nil
 	}
 
@@ -472,6 +557,11 @@ func sslStatus() error {
 	fmt.Printf("  Domain : %s\n", domain)
 	fmt.Printf("  Cert   : %s\n", certDest)
 	fmt.Printf("  Key    : %s\n", keyDest)
+	if covers, reason := certCoversRouter(certDest); covers {
+		fmt.Printf("  Coverage: this router (%s)\n", reason)
+	} else {
+		fmt.Printf("  Coverage: NOT this router (%s)\n", reason)
+	}
 
 	certPEM, err := os.ReadFile(certDest)
 	if err == nil {
@@ -497,6 +587,206 @@ func sslStatus() error {
 	}
 
 	return nil
+}
+
+// -- TLS identity coverage ---------------------------------------------------
+//
+// A certificate is only a usable identity for THIS router when it validates a
+// name the router is actually reached by. The check below is what keeps
+// uhttpd.main.redirect_https off while the router still presents the image's own
+// placeholder certificate (subject CN=OpenWrt, SAN DNS:OpenWrt): that file is
+// readable and non-empty, so every existence/size guard there is accepts it, and
+// the browser then shows a hard certificate error for the address it typed and
+// the :8080 -> https:// hop lands the operator on an UI over a certificate that
+// cannot validate the router.
+
+// lanIPFromUCI reads network.lan.ipaddr and returns the bare address.
+func lanIPFromUCI() (string, error) {
+	raw, err := uciGet("network.lan.ipaddr")
+	if err != nil {
+		return "", fmt.Errorf("cannot determine LAN IP (network.lan.ipaddr)")
+	}
+	ip := parseLanIP(raw)
+	if ip == "" {
+		return "", fmt.Errorf("cannot determine LAN IP (network.lan.ipaddr=%q)", strings.TrimSpace(raw))
+	}
+	return ip, nil
+}
+
+// parseLanIP turns a uci `network.lan.ipaddr` value into an address.
+//
+// OpenWrt accepts a CIDR suffix there and a 25.12 install stores one —
+// measured on the bench GL-MT3000: `network.lan.ipaddr='192.168.1.1/24'`.
+// net.ParseIP refuses that spelling, so handing the option straight to it
+// produces a nil address; a template carrying a nil address makes
+// x509.CreateCertificate fail outright ("invalid IP address in certificate"),
+// which is how a router ended up with no identity at all. Returns "" when
+// nothing usable is left.
+func parseLanIP(value string) string {
+	addr := strings.TrimSpace(value)
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		addr = strings.TrimSpace(addr[:i])
+	}
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
+}
+
+// routerSANs is the identity this router must present: the configured hostname,
+// its <hostname>.lan alias (dnsmasq serves the system hostname in the 'lan'
+// zone) and the LAN address the admin listeners bind.
+func routerSANs(hostname, lanIP string) (dnsNames []string, ipAddresses []net.IP) {
+	if h := strings.TrimSpace(hostname); h != "" {
+		dnsNames = append(dnsNames, h+".lan", h)
+	}
+	if ip := net.ParseIP(parseLanIP(lanIP)); ip != nil {
+		ipAddresses = append(ipAddresses, ip)
+	}
+	return dnsNames, ipAddresses
+}
+
+// selfSignedTemplate is the ONE certificate template this product generates;
+// `ssl apply` and the unattended setup path both go through it.
+func selfSignedTemplate(hostname, lanIP string) *x509.Certificate {
+	domain := strings.TrimSpace(hostname)
+	if domain == "" {
+		domain = "TollGate"
+	}
+	if !strings.HasSuffix(domain, ".lan") {
+		domain += ".lan"
+	}
+	dnsNames, ipAddresses := routerSANs(hostname, lanIP)
+	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	return &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject:      pkix.Name{CommonName: domain},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(3650 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     dnsNames,
+		IPAddresses:  ipAddresses,
+	}
+}
+
+// routerTLSNames returns the names this router answers to, from the live config.
+func routerTLSNames() (hosts, ips []string) {
+	hostname := strings.TrimSpace(uciGetOrEmpty("system.@system[0].hostname"))
+	if hostname == "" {
+		hostname, _ = os.Hostname()
+		hostname = strings.TrimSpace(hostname)
+	}
+	if hostname != "" {
+		hosts = append(hosts, hostname, hostname+".lan")
+	}
+	if ip := parseLanIP(uciGetOrEmpty("network.lan.ipaddr")); ip != "" {
+		ips = append(ips, ip)
+	}
+	return hosts, ips
+}
+
+// certCoverage decides whether a certificate may serve as this router's TLS
+// identity, and says why. The SANs are the subject of the test, matched with
+// x509.VerifyHostname so wildcards behave as a browser expects; a CommonName
+// with no SAN extension is deliberately NOT coverage, because modern browsers
+// ignore it.
+func certCoverage(cert *x509.Certificate, hosts, ips []string) (bool, string) {
+	if cert == nil {
+		return false, "no certificate to check"
+	}
+	if time.Now().After(cert.NotAfter) {
+		return false, fmt.Sprintf("certificate expired on %s", cert.NotAfter.Format("2006-01-02"))
+	}
+	var names []string
+	for _, name := range append(append([]string{}, hosts...), ips...) {
+		if strings.TrimSpace(name) != "" {
+			names = append(names, strings.TrimSpace(name))
+		}
+	}
+	if len(names) == 0 {
+		return false, "this router has no hostname or LAN IP to check the certificate against"
+	}
+	for _, name := range names {
+		if err := cert.VerifyHostname(name); err == nil {
+			return true, fmt.Sprintf("SANs cover %s", name)
+		}
+	}
+	return false, fmt.Sprintf("SANs (%s) cover none of this router's names (%s)",
+		sanSummary(cert), strings.Join(names, ", "))
+}
+
+// sanSummary renders what a certificate claims to be, for the refusal message.
+func sanSummary(cert *x509.Certificate) string {
+	var parts []string
+	for _, name := range cert.DNSNames {
+		parts = append(parts, "DNS:"+name)
+	}
+	for _, ip := range cert.IPAddresses {
+		parts = append(parts, "IP:"+ip.String())
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, ",")
+	}
+	if cn := strings.TrimSpace(cert.Subject.CommonName); cn != "" {
+		return "CN:" + cn + " (no SAN extension)"
+	}
+	return "none"
+}
+
+// certCoversRouter answers the question for a certificate file: does it cover
+// this router? Unreadable, empty and non-PEM files are all "no".
+func certCoversRouter(certPath string) (bool, string) {
+	if strings.TrimSpace(certPath) == "" {
+		return false, "no certificate path configured"
+	}
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		return false, fmt.Sprintf("cannot read %s: %v", certPath, err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return false, fmt.Sprintf("%s is empty", certPath)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return false, fmt.Sprintf("%s is not a PEM certificate", certPath)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Sprintf("cannot parse %s: %v", certPath, err)
+	}
+	hosts, ips := routerTLSNames()
+	return certCoverage(cert, hosts, ips)
+}
+
+// uhttpdCertPath is the certificate uhttpd.main will actually present — the one
+// a browser is offered, and therefore the one the derived redirect depends on.
+func uhttpdCertPath() string {
+	if path := strings.TrimSpace(uciGetOrEmpty("uhttpd.main.cert")); path != "" {
+		return path
+	}
+	return uhttpdCertDefault
+}
+
+// applyRedirectHTTPS re-derives uhttpd.main.redirect_https from the certificate
+// uhttpd.main serves: '1' only while that certificate covers this router. It is
+// the same rule the uci-defaults setup path evaluates (see
+// docs/architecture/uhttpd-redirect-https-ownership-decision.md), so every
+// writer of the option computes the same value.
+func applyRedirectHTTPS() error {
+	value := "0"
+	path := uhttpdCertPath()
+	if covers, reason := certCoversRouter(path); covers {
+		fmt.Printf("  redirect_https=1 (%s covers this router)\n", path)
+		value = "1"
+	} else {
+		fmt.Printf("  redirect_https=0 (%s does not: %s)\n", path, reason)
+	}
+	if err := uciSetScalar("uhttpd.main.redirect_https", value); err != nil {
+		return err
+	}
+	return uciCommitChecked("uhttpd")
 }
 
 func writePEM(path, pemType string, bytes []byte) error {

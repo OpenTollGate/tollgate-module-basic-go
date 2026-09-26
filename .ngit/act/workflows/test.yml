@@ -71,6 +71,22 @@ jobs:
           # negative control fails if the comparison ever goes back to equality.
           bash tests/uci-defaults-setup-marker-order_test.sh
 
+      - name: Admin TLS identity (setup provisions it, the redirect requires it)
+        run: |
+          # Offline (no router, no SDK, no network): the setup path must
+          # PROVISION the router's TLS identity through the module's own
+          # generator instead of inheriting the OpenWrt image's placeholder
+          # certificate, and uhttpd.main.redirect_https must require a
+          # certificate that actually COVERS this router — not merely a readable
+          # non-empty file. Measured on the bench MT3000 (2026-09-26):
+          # /etc/uhttpd.crt was the image's CN=OpenWrt / DNS:OpenWrt placeholder,
+          # `tollgate ssl status` said "not configured", and
+          # http://192.168.1.1:8080/ 307'd to https://192.168.1.1/ — a hard
+          # certificate error in the browser for an identity that covers neither
+          # the hostname nor the LAN IP. The suite's negative control fails if the
+          # guard ever goes back to a file-existence check.
+          bash tests/uci-defaults-admin-tls-identity_test.sh
+
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).
