@@ -99,15 +99,26 @@ moving.
 
    At **startup** there is nothing of the module's own to reconcile: the gate map,
    the session map and the metering baselines are process-local and nothing loads
-   them from disk, so a restart starts from an empty set. No startup pass is added,
-   because such a pass would iterate an empty set. What is *not* empty at startup
-   is NoDogSplash's own client list, which survives a module restart (its procd
-   dependency does not restart it): clients NDS still holds that the module knows
-   nothing about are unmetered access by construction. That is the **inverse
-   drift** — it needs the client list from `ndsctl`, which this module does not
-   read today, and a decision about what to do with a record whose allotment is
-   unknown. It is deliberately out of scope here and filed as its own task so it
-   is decided rather than assumed.
+   them from disk, so a restart starts from an empty set. No startup pass over the
+   module's own bookkeeping is added, because such a pass would iterate an empty
+   set. What is *not* empty at startup is NoDogSplash's own client list, which
+   survives a module restart (its procd dependency does not restart it): clients
+   NDS still holds that the module knows nothing about are unmetered access by
+   construction. That is the **inverse drift** — it needs the client list from
+   `ndsctl`, which this module did not read at the time, and a decision about what
+   to do with a record whose allotment is unknown. It is deliberately out of scope
+   here and filed as its own task so it is decided rather than assumed.
+
+   > **Amended 2026-09-26 (implemented):** the task this paragraph filed has been
+   > decided and implemented —
+   > [`startup-nds-reconciliation-decision.md`](startup-nds-reconciliation-decision.md).
+   > The module now reads NoDogSplash's client list once, at startup
+   > (`valve.AuthorisedClients`, `ndsctl json` with no argument) and closes the
+   > gate of every client NoDogSplash still authorises that it holds no session
+   > for; the measured free-internet window this paragraph describes (module
+   > restart, `state=Authenticated` in NDS, no session in the module) ends at the
+   > next startup. The paragraph above stands as the record of what this decision
+   > did NOT do.
 
 6. **The wording matches the verified state.** No line claims a client "may still
    hold open, unmetered access" without evidence that the client could hold

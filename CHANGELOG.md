@@ -12,6 +12,70 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A restart no longer leaves the clients NoDogSplash was still authorising with
+  an open, unmetered gate — the module reconciles them at startup.** The module's
+  gate, session and metering state is process-local, so a restarted module starts
+  from an empty session set while NoDogSplash (a separate service) keeps every
+  client it had authorised. Measured on the bench MT3000 (pre17): buy, gate open,
+  restart ONLY `tollgate-wrt`, and the client is still `state=Authenticated` in
+  `ndsctl json` with `probe=204`/`egress 200` while the freshly restarted module
+  holds no session at all — free, unmetered internet until NoDogSplash's own
+  timeout. The module now reads NoDogSplash's client list once, at startup
+  (`ndsctl json`, no argument — a new read, since every other one is per-MAC) and
+  closes the gate of every client NoDogSplash holds as authenticated that appears
+  in neither its session map nor its tracked gates; that check is sound because
+  the purchase path records the session BEFORE it opens the gate, so such a client
+  is never a purchase in flight. It runs synchronously during merchant
+  construction, before the merchant is installed behind the API, so it cannot race
+  a purchase being served. A client merely Preauthenticated (no access to leak),
+  or in a state this module does not recognise, is left alone; an unreadable
+  client list changes NOTHING (a failed read is not evidence about a client) and
+  reports the residue plus the check to run; a close that ndsctl does not confirm
+  is an ERROR that says the client may still hold open, unmetered access and names
+  the operator action, never "closed". The customer's remaining allotment does NOT
+  travel across a restart (it lived in the process that died) and the module says
+  so instead of pretending the session survived. Decision:
+  `docs/architecture/startup-nds-reconciliation-decision.md`, which closes the hole
+  recorded in `zombie-session-close-reconciliation-decision.md` §5.
+
+- **An `ndsctl` invocation the module ends is reported as such, not as an
+  `ndsctl` failure — and a service restart drains it instead of killing it.** Go
+  prints `signal: killed` for any child that died on a signal, so the module's
+  own deadline killing an invocation that never answered was indistinguishable
+  in the log from a restart, an OOM kill or a real refusal: the bench (pre17)
+  produced 97 lines of `Error deauthorizing MAC address error="signal: killed"`
+  on a box whose NoDogSplash control socket had stopped answering, and every
+  state machine reading them drew its own conclusion. Every production
+  invocation is now classified (`ErrNdsctlTimeout` / `ErrNdsctlStopped`): a
+  timed-out call escalates once per `ndsctlTimeoutReportInterval` with
+  `ndsctl_outcome=timeout` and the fact that the MODULE killed the child (a
+  wedged socket answers nothing and the sweep drives ndsctl every 2 s, so the
+  unthrottled line *was* the storm), repeats stay at DEBUG with the running
+  count, and recovery is reported when the socket answers again; a call
+  interrupted by a shutdown is INFO and is never re-escalated by the call sites.
+  `authorizeMAC` no longer retries an invocation that never answered. `Stop()` is
+  idempotent (it panicked on a second call) and DRAINS the invocations in flight
+  — bounded twice by `ndsctlStopDrain`, killing what is left deliberately and
+  attributing that kill to the shutdown — and refuses to start a new child once
+  the module is stopping. `main()` now installs the SIGTERM/SIGINT handler that
+  calls it, which nothing did before, so a `tollgate-wrt restart` no longer
+  kills the process and every in-flight child with it and leaves the log
+  claiming NoDogSplash failed.
+- **A session whose usage cannot be read is force-closed once, loudly, instead
+  of on every sweep for ever.** Past the metering grace window the module closed
+  the gate and repeated the escalation — plus the close failure under it — on
+  every 2-second sweep for as long as NoDogSplash refused the close (the bench
+  log's `has been unreadable for 39 sweeps`): two ERROR lines a second, which is
+  how a real escalation stops being readable. The escalation is now written
+  once, a CHANGE of state (the close being abandoned, or coming back) is
+  reported at once because a transition is not a repeat, and the same state
+  repeating is reported at most once per `unmeterableSessionReportInterval`, at
+  WARNING. Enforcement is unchanged: the session stays TRACKED while the close
+  is unconfirmed, the module keeps attempting it, and it is retired the moment
+  ndsctl confirms. Decision, including what "the session cannot be metered"
+  means and what happens after the close budget is spent, in
+  `docs/architecture/ndsctl-invocation-outcomes-decision.md`.
+
 - **A session whose client NoDogSplash has forgotten is closed and retired, not
   retried for ever.** On the bench (pre17) `ndsctl deauth` answered
   `Client <mac> not found.` with exit status 1, and the module read that exit
