@@ -95,6 +95,13 @@ const (
 	codeRequestTooLarge  = "request-too-large"
 	codeAmountTooLarge   = "amount-too-large"
 
+	// codeAccessGrantFailed is the refusal code for a purchase that was PAID and
+	// whose access could not be applied to the enforcement layer. It is
+	// deliberately distinct from every lookup/refusal code above: the customer's
+	// money is gone in this state, so the answer must tell them not to pay again
+	// rather than reading like a generic transient error.
+	codeAccessGrantFailed = "access-grant-failed"
+
 	// The MAC every route falls back to when the client cannot be identified.
 	// It is not an identity and must never key a quota: two unresolvable clients
 	// would share one bucket.
@@ -1464,6 +1471,23 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	// reveals status for that same device and access is granted to the recorded MAC.
 	status, err := merchantProvider.inner.GetMerchant().GetLightningInvoiceStatus(quoteID, macAddress)
 	if err != nil {
+		// A PAID purchase whose access could not be applied is NOT a status
+		// lookup failure, and answering it like one is how a customer ends up
+		// paying and staring at a portal that never says why (measured on the
+		// bench MT3000, 2026-09-26: state=PAID, merchant wallet +1 sat,
+		// access_granted never true). It is logged at ERROR with the client and
+		// the quote, and answered with its own code and a message that tells the
+		// customer the payment was received and not to pay again.
+		if errors.Is(err, merchant.ErrAccessGrantNotApplied) {
+			mainLogger.WithError(err).WithFields(logrus.Fields{
+				"quote": quoteID,
+				"mac":   macAddress,
+			}).Error("A PAID purchase could not be granted: the invoice settled but the access was NOT applied — the client keeps no allotment until the grant succeeds")
+			writeLightningRefusal(w, http.StatusServiceUnavailable, codeAccessGrantFailed,
+				"Your payment was received, but the router could not open the gate for this device yet. Do NOT pay again — access is retried automatically and opens as soon as the router can apply it.", 15)
+			return
+		}
+
 		statusCode := http.StatusInternalServerError
 		if errors.Is(err, merchant.ErrQuoteNotFound) {
 			statusCode = http.StatusNotFound
