@@ -3,6 +3,7 @@ package valve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os/exec"
@@ -58,6 +59,37 @@ var closeRetryBackoff = []time.Duration{
 	time.Minute,
 }
 
+// closeAttemptBudget bounds how many times the close of ONE gate is
+// re-attempted while ndsctl keeps answering with something other than a
+// confirmation (neither "deauthorized" nor "NoDogSplash does not know this
+// client"). At the budget the module STOPS driving ndsctl about that gate: it
+// keeps the gate tracked and escalates the abandonment once, because the
+// alternative is the loop measured on the bench MT3000 on 2026-09-26, where one
+// session whose client had left NoDogSplash was re-closed at the sweep cadence
+// for ever (unconfirmed_closes 113 -> 193 -> 195), NDSCTL WAS DRIVEN UNTIL ITS
+// SOCKET DIED ("Socket is not ready for communication : Bad file descriptor"
+// every ~5s) and a PAID purchase could no longer be authorised at all
+// (state=PAID, merchant wallet +1 sat, access_granted never true).
+//
+// A spent budget is not a dead end: the record stays tracked, and the
+// reconciliation re-attempts the close under fresh evidence about the client
+// (ReconcileGateClose). It is a bound on hammering, not a give-up on the gate.
+const closeAttemptBudget = 8
+
+// closeStreak is the unconfirmed-close budget of the current gate of one MAC.
+type closeStreak struct {
+	attempts  int
+	abandoned bool
+}
+
+// ErrGateCloseAbandoned reports that the close of a gate has been re-attempted
+// closeAttemptBudget times without ndsctl ever answering that the client is
+// deauthorized or that NoDogSplash does not know it, so the module's own sweep
+// machinery has stopped driving ndsctl about it. The gate is still tracked, and
+// the error means precisely "the close is NOT confirmed and no further attempt is
+// being made by this path".
+var ErrGateCloseAbandoned = errors.New("gate close abandoned after repeated unconfirmed attempts")
+
 // runNdsctl executes an ndsctl command with a timeout.
 // It returns the combined stdout+stderr output and any error.
 // It is a var (not a func) so tests can stub it without a real ndsctl binary.
@@ -105,20 +137,51 @@ var (
 	// pendingCloseRetries holds the in-flight retry timers of unconfirmed
 	// closes, at most one per MAC.
 	pendingCloseRetries = make(map[string]*time.Timer)
+
+	// closeStreaks is the unconfirmed-close budget of the CURRENT gate of a
+	// MAC: how many close attempts have gone unconfirmed in a row, and whether
+	// the module has stopped re-attempting the close because that budget is
+	// spent. A confirmed close, a new gate generation or a retirement forgets
+	// it, so a gate that is replaced starts with a clean budget.
+	closeStreaks = make(map[string]*closeStreak)
 )
 
 // gateCloseFailures counts closes ndsctl has not confirmed. It backs
 // GateCloseFailures, the counter the module's operator-visible surfaces use to
-// report how many gates may still be open after a failed close.
+// report how many gate closes were escalated after a failed close.
+//
+// It is bounded per gate: once the close budget of a gate is spent the module
+// stops re-attempting that close and stops escalating it (see
+// closeAttemptBudget and handleUnconfirmedClose), so one stuck session cannot
+// make this climb without bound — which is exactly what it did on the bench
+// (113 -> 193 -> 195) while the same session was retried twice a second.
 var gateCloseFailures uint64
 
-// GateCloseFailures reports how many gate closes have gone unconfirmed since the
-// process started. A non-zero value means the module tried to take a client's
-// access away and ndsctl did not confirm it: the gate is still tracked and the
-// close is still being retried, and that client may still hold open, unmetered
-// access right now.
+// gateClosesAbandoned counts the gates whose close the module has STOPPED
+// re-attempting after closeAttemptBudget unconfirmed attempts. Unlike a
+// per-attempt counter it cannot be driven up by a single stuck session: one gate
+// adds at most one.
+var gateClosesAbandoned uint64
+
+// GateCloseFailures reports how many gate closes have been escalated after an
+// unconfirmed attempt since the process started. A non-zero value means the
+// module tried to take a client's access away and ndsctl did not confirm it, so
+// the gate is still tracked. Whether that client still has access is UNVERIFIED:
+// ndsctl answered with an error, not with an answer about the client. Use
+// GateClosesAbandoned to see how many of those closes the module has given up
+// re-attempting, and the module log for the reason of each one.
 func GateCloseFailures() uint64 {
 	return atomic.LoadUint64(&gateCloseFailures)
+}
+
+// GateClosesAbandoned reports how many gates the module has stopped
+// re-attempting to close because closeAttemptBudget consecutive attempts went
+// unconfirmed. Such a gate is still TRACKED (the record that says the client
+// must be closed is never dropped) and the reconciliation re-attempts its close
+// whenever it has fresh evidence about the client, but the module's own sweep
+// machinery no longer drives ndsctl about it.
+func GateClosesAbandoned() uint64 {
+	return atomic.LoadUint64(&gateClosesAbandoned)
 }
 
 // ndsctlMutex ensures only one ndsctl command runs at a time
@@ -180,16 +243,59 @@ func authorizeMAC(macAddress string) error {
 	return lastErr
 }
 
-// deauthorizeMAC deauthorizes a MAC address using ndsctl
+// ndsctlUnknownClient reports whether ndsctl's answer says that NoDogSplash does
+// not know this client AT ALL.
+//
+// Measured on the bench MT3000 (pre17, NDS, 2026-09-26) with a real Wi-Fi client,
+// a8:a0:92:a5:39:7a: `ndsctl deauth a8:a0:92:a5:39:7a` printed
+//
+//	Client a8:a0:92:a5:39:7a not found.
+//
+// and exited 1 — the same exit status a refused deauthorization has. The two are
+// NOT the same state, and reading them as one is what made this session
+// unretirable: here the enforcement layer holds no client, so there is nothing
+// left to close and no retry can ever converge; there the client is still
+// Authenticated and still holds the open gate.
+//
+// The match is deliberately narrow — the phrase "not found" together with the
+// MAC or the word "client" — so unrelated ndsctl failures ("Socket is not ready
+// for communication : Bad file descriptor", "Could not connect to server") can
+// never be mistaken for it.
+func ndsctlUnknownClient(macAddress, output string) bool {
+	lowered := strings.ToLower(output)
+	if !strings.Contains(lowered, "not found") {
+		return false
+	}
+	return strings.Contains(lowered, strings.ToLower(macAddress)) ||
+		strings.Contains(lowered, "client")
+}
+
+// deauthorizeMAC deauthorizes a MAC address using ndsctl.
+//
+// It reports one deauthorization failure as a success: ndsctl answering that
+// NoDogSplash does not know the client. Nothing is left to deauthorize in that
+// state — NoDogSplash cannot be granting access to a client it does not hold —
+// so returning an error there only arms a retry that can never converge. The
+// operator still gets a line, at INFO, with the verified state (which is what
+// distinguishes it from a real failure).
 func deauthorizeMAC(macAddress string) error {
 	ndsctlMutex.Lock()
 	output, err := runNdsctl("deauth", macAddress)
 	ndsctlMutex.Unlock()
 
 	if err != nil {
+		if ndsctlUnknownClient(macAddress, output) {
+			logger.WithFields(logrus.Fields{
+				"mac_address": macAddress,
+				"ndsctl":      strings.TrimSpace(output),
+			}).Info("Client already gone from NoDogSplash: ndsctl reports that NoDogSplash does not know this client, so there is nothing left to deauthorize — the gate is closed by definition and the session is retired (no retry is armed for a client that is not there)")
+			return nil
+		}
+
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
 			"error":       err,
+			"ndsctl":      strings.TrimSpace(output),
 		}).Error("Error deauthorizing MAC address")
 		return err
 	}
@@ -220,12 +326,89 @@ func deauthorizeMAC(macAddress string) error {
 //     loses access", only "the module keeps trying to close what it owns".
 // ---------------------------------------------------------------------------
 
+// clearCloseStreak forgets the unconfirmed-close budget of a MAC. Called for a
+// confirmed close (there is nothing left to bound) and for a new gate generation
+// (a gate that is replaced or extended starts with a clean budget).
+func clearCloseStreak(macAddress string) {
+	gatesMutex.Lock()
+	delete(closeStreaks, macAddress)
+	gatesMutex.Unlock()
+}
+
+// closeAttemptAllowed reports whether the module's own machinery may spend an
+// ndsctl call on the close of macAddress. Once a gate's budget is spent it may
+// not: the close has been escalated once already, and driving ndsctl again at the
+// sweep cadence is the storm that wedged the socket on the bench. The
+// reconciliation re-attempts such a close under fresh evidence about the client
+// (ReconcileGateClose), which is the designated recovery path.
+func closeAttemptAllowed(macAddress string) bool {
+	gatesMutex.Lock()
+	defer gatesMutex.Unlock()
+
+	streak, exists := closeStreaks[macAddress]
+	return !exists || !streak.abandoned
+}
+
+// handleUnconfirmedClose records one unconfirmed close attempt of macAddress and
+// escalates it. It returns true when the caller must re-arm a retry.
+//
+// Inside the budget the close keeps being retried and the escalation names the
+// client, the attempt and the running total. At the budget the module STOPS:
+// no further attempt is made by this path, the running total stops growing for
+// this gate, and the abandonment is escalated exactly once with what an operator
+// has to do. The gate stays tracked throughout.
+func handleUnconfirmedClose(macAddress string, attempt int, err error) bool {
+	gatesMutex.Lock()
+	streak, exists := closeStreaks[macAddress]
+	if !exists {
+		streak = &closeStreak{}
+		closeStreaks[macAddress] = streak
+	}
+	if streak.abandoned {
+		gatesMutex.Unlock()
+		return false
+	}
+	streak.attempts++
+	attempts := streak.attempts
+	spent := attempts >= closeAttemptBudget
+	if spent {
+		streak.abandoned = true
+	}
+	gatesMutex.Unlock()
+
+	if !spent {
+		next := attempt + 1
+		gateCloseFailure(macAddress, next, err, closeRetryDelay(next))
+		return true
+	}
+
+	total := atomic.AddUint64(&gateClosesAbandoned, 1)
+	logger.WithFields(logrus.Fields{
+		"mac_address":      macAddress,
+		"attempts":         attempts,
+		"budget":           closeAttemptBudget,
+		"abandoned_closes": total,
+		"last_error":       err,
+	}).Error("Gate close UNRESOLVED: ndsctl never confirmed the deauthorization of this client and the close budget is spent, so the module stops re-attempting it here — it cannot keep hammering the ndsctl socket, because that storm is what wedges it and stops a PAID purchase from being authorised at all. The gate STAYS TRACKED and the client's access state is UNVERIFIED: ndsctl answered with an error, not with an answer about the client. The reconciliation re-attempts this close whenever it verifies the client's state with ndsctl, and the record is forgotten only when a new session replaces it. OPERATOR ACTION: inspect nodogsplash (ndsctl status) — restart it or reload the module to clear the wedge")
+	return false
+}
+
 // closeGateConfirmed deauthorizes macAddress and reports whether the gate is
 // closed. Confirmation is ndsctl's own answer: a deauth that fails is not a
 // close, so it is retried up to deauthMaxAttempts with a short delay. A nil
-// error means the client is deauthorized; a non-nil error means the close is
-// UNCONFIRMED and the caller must keep the gate tracked.
-func closeGateConfirmed(macAddress string) error {
+// error means the client is deauthorized — or that NoDogSplash does not know the
+// client at all, which is the same thing from the enforcement layer's side; a
+// non-nil error means the close is UNCONFIRMED and the caller must keep the gate
+// tracked.
+//
+// freshEvidence says the caller has just established something about the client
+// itself (the reconciliation's probe), which is the one thing that may spend
+// ndsctl on a gate whose close budget is already spent.
+func closeGateConfirmed(macAddress string, freshEvidence bool) error {
+	if !freshEvidence && !closeAttemptAllowed(macAddress) {
+		return fmt.Errorf("%w: the module stopped re-attempting the close of %s", ErrGateCloseAbandoned, macAddress)
+	}
+
 	var lastErr error
 	for attempt := 1; attempt <= deauthMaxAttempts; attempt++ {
 		if err := deauthorizeMAC(macAddress); err != nil {
@@ -237,13 +420,39 @@ func closeGateConfirmed(macAddress string) error {
 					"attempts":    attempt,
 				}).Info("Gate close confirmed after retry")
 			}
+			clearCloseStreak(macAddress)
 			return nil
 		}
 		if attempt < deauthMaxAttempts {
 			time.Sleep(deauthRetryDelay)
 		}
 	}
+
+	// Second, independent confirmation channel: NoDogSplash's own client list.
+	// ndsctl's wording can differ between versions, but a definitive "no record
+	// for this MAC" (`ndsctl json <mac>` -> "{}") is the enforcement layer
+	// stating that the client holds nothing to close. A probe that FAILS is not
+	// evidence of anything, so it leaves the close unconfirmed and the budget
+	// untouched — a probe error must never retire a gate.
+	if gone, err := ndsctlHasNoClient(macAddress); err == nil && gone {
+		logger.WithField("mac_address", macAddress).Info("Client already gone from NoDogSplash: ndsctl reports no client record for this MAC, so there is nothing left to deauthorize — the gate is closed by definition and the session is retired")
+		clearCloseStreak(macAddress)
+		return nil
+	}
+
 	return lastErr
+}
+
+// ndsctlHasNoClient asks NoDogSplash whether it knows macAddress at all
+// (`ndsctl json <mac>`), read-only. A definitive answer is returned as a bool; a
+// probe that fails returns an error, because a failed probe is not evidence that
+// the client is gone.
+func ndsctlHasNoClient(macAddress string) (bool, error) {
+	state, err := CheckClientState(macAddress)
+	if err != nil {
+		return false, err
+	}
+	return !state.Registered, nil
 }
 
 // closeRetryDelay returns the backoff before the given 1-based retry attempt.
@@ -277,7 +486,7 @@ func gateCloseFailure(macAddress string, attempt int, err error, retryIn time.Du
 	if retryIn > 0 {
 		fields["retry_in"] = retryIn.String()
 	}
-	logger.WithFields(fields).Error("Gate close NOT confirmed for client: the gate stays tracked and the close is retried — until ndsctl confirms it, this client may still hold open, unmetered access")
+	logger.WithFields(fields).Error("Gate close NOT confirmed for client: the gate stays tracked and the close is retried. The client's access state is UNVERIFIED until ndsctl confirms the deauthorization — ndsctl answered with an error, not with an answer about the client (a client NoDogSplash does not know at all is logged as already gone, and no retry is armed for it)")
 }
 
 // markGateOpenedLocked records that the gate of macAddress has been opened,
@@ -285,6 +494,9 @@ func gateCloseFailure(macAddress string, attempt int, err error, retryIn time.Du
 // Caller must hold gatesMutex.
 func markGateOpenedLocked(macAddress string) uint64 {
 	gateEpochs[macAddress]++
+	// A new gate generation starts with a clean close budget: whatever the
+	// previous gate's close went through, THIS gate has not been attempted yet.
+	delete(closeStreaks, macAddress)
 	return gateEpochs[macAddress]
 }
 
@@ -307,6 +519,7 @@ func retireGateLocked(macAddress string) {
 	gateEpochs[macAddress]++
 	delete(openGates, macAddress)
 	delete(pendingUntil, macAddress)
+	delete(closeStreaks, macAddress)
 	if timer, ok := pendingCloseRetries[macAddress]; ok {
 		timer.Stop()
 		delete(pendingCloseRetries, macAddress)
@@ -400,10 +613,10 @@ func retryGateClose(macAddress string, epoch uint64, attempt int) {
 		return
 	}
 
-	if err := closeGateConfirmed(macAddress); err != nil {
-		next := attempt + 1
-		gateCloseFailure(macAddress, next, err, closeRetryDelay(next))
-		scheduleCloseRetry(macAddress, epoch, next)
+	if err := closeGateConfirmed(macAddress, false); err != nil {
+		if handleUnconfirmedClose(macAddress, attempt, err) {
+			scheduleCloseRetry(macAddress, epoch, attempt+1)
+		}
 		return
 	}
 
@@ -422,9 +635,10 @@ func closeTrackedGateNow(macAddress string) {
 	epoch := gateEpochs[macAddress]
 	gatesMutex.Unlock()
 
-	if err := closeGateConfirmed(macAddress); err != nil {
-		gateCloseFailure(macAddress, deauthMaxAttempts, err, closeRetryDelay(1))
-		scheduleCloseRetry(macAddress, epoch, 1)
+	if err := closeGateConfirmed(macAddress, false); err != nil {
+		if handleUnconfirmedClose(macAddress, 0, err) {
+			scheduleCloseRetry(macAddress, epoch, 1)
+		}
 		return
 	}
 	finishGateClose(macAddress, epoch)
@@ -446,9 +660,10 @@ func expireTimedGate(macAddress string, epoch uint64) {
 		return
 	}
 
-	if err := closeGateConfirmed(macAddress); err != nil {
-		gateCloseFailure(macAddress, deauthMaxAttempts, err, closeRetryDelay(1))
-		scheduleCloseRetry(macAddress, epoch, 1)
+	if err := closeGateConfirmed(macAddress, false); err != nil {
+		if handleUnconfirmedClose(macAddress, 0, err) {
+			scheduleCloseRetry(macAddress, epoch, 1)
+		}
 		return
 	}
 
@@ -622,9 +837,49 @@ func CloseGate(macAddress string) error {
 		// still attempt to deauth, in case the state is out of sync
 	}
 
-	if err := closeGateConfirmed(macAddress); err != nil {
-		gateCloseFailure(macAddress, deauthMaxAttempts, err, closeRetryDelay(1))
-		scheduleCloseRetry(macAddress, epoch, 1)
+	if err := closeGateConfirmed(macAddress, false); err != nil {
+		if handleUnconfirmedClose(macAddress, 0, err) {
+			scheduleCloseRetry(macAddress, epoch, 1)
+		}
+		return fmt.Errorf("gate for MAC %s is NOT confirmed closed: %w", macAddress, err)
+	}
+
+	if !finishGateClose(macAddress, epoch) {
+		return fmt.Errorf("gate for MAC %s was reopened while it was being closed; the client was authorized again", macAddress)
+	}
+	return nil
+}
+
+// ReconcileGateClose re-attempts the close of a gate the module's sweep
+// machinery has stopped re-attempting on its own (ErrGateCloseAbandoned), and is
+// the recovery path that makes a spent budget converge.
+//
+// It may spend ndsctl on such a gate because the caller brings FRESH EVIDENCE
+// about the client itself: the reconciliation probes NoDogSplash first and only
+// calls this for an address whose client it has confirmed is gone. That evidence
+// is what makes the attempt different from the hammering the budget bounds.
+//
+// It is CloseGate's contract otherwise — a failed close is not a close, the gate
+// stays tracked and the session is retired only on a confirmed close — with one
+// difference: a failure here does NOT escalate or advance the budget. The
+// escalation for this gate has already fired once (that is what abandonment is),
+// and a caller that keeps bringing the same evidence must not be able to make
+// unconfirmed_closes grow monotonically. The failure is logged as a warning, and
+// the next reconciliation pass re-attempts it.
+func ReconcileGateClose(macAddress string) error {
+	if !isValidMAC(macAddress) {
+		return fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+
+	gatesMutex.Lock()
+	epoch := gateEpochs[macAddress]
+	gatesMutex.Unlock()
+
+	if err := closeGateConfirmed(macAddress, true); err != nil {
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Warn("The reconciliation could not confirm the close of this binding: it stays tracked and the next reconciliation pass re-attempts it (the reconciliation brings fresh evidence about the client once per pass, so it never hammers ndsctl)")
 		return fmt.Errorf("gate for MAC %s is NOT confirmed closed: %w", macAddress, err)
 	}
 
