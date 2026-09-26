@@ -90,6 +90,7 @@ func setUpZombieGateTest(t *testing.T) *zombieNdsctl {
 	t.Helper()
 
 	origRunNdsctl, origAuthDelay := runNdsctl, AuthDelay
+	origDeauthRetryDelay := deauthRetryDelay
 	z := &zombieNdsctl{deauths: make(map[string]int), registered: true}
 
 	t.Cleanup(func() {
@@ -104,12 +105,21 @@ func setUpZombieGateTest(t *testing.T) *zombieNdsctl {
 			timer.Stop()
 			delete(pendingCloseRetries, mac)
 		}
+		for mac := range closeStreaks {
+			delete(closeStreaks, mac)
+		}
 		gatesMutex.Unlock()
 		runNdsctl = origRunNdsctl
 		AuthDelay = origAuthDelay
+		deauthRetryDelay = origDeauthRetryDelay
 	})
 
 	AuthDelay = 0
+	// The contract under test is how many attempts are made and what happens
+	// between them, not how long the module waits between them: the production
+	// 400ms per attempt would add ~20s to a suite that drives dozens of failing
+	// closes. deauthRetryDelay is a var for exactly this.
+	deauthRetryDelay = 5 * time.Millisecond
 	runNdsctl = func(args ...string) (string, error) {
 		if len(args) == 0 {
 			return "", fmt.Errorf("ndsctl called without arguments")
