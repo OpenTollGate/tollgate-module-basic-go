@@ -210,17 +210,38 @@ func sslApply(args []string) error {
 		}
 	}
 
-	// Asking for an identity ends an earlier `ssl remove`: the setup path
-	// honours that marker, so leaving it in place would make the next install
-	// undo what this command is about to do.
-	if err := clearSSLOptOut(); err != nil {
-		return err
-	}
-
+	// Asking for an identity ends an earlier `ssl remove` — but only once an
+	// identity is actually in place, so this is done after the apply below and
+	// not before it. The apply functions return nil when the operator declines
+	// the confirmation prompt, and an opt-out ended by a declined prompt would
+	// let the next install re-key a router whose owner never asked for an
+	// identity.
+	var applyErr error
 	if len(args) == 0 {
-		return sslApplySelfSigned(lanIP)
+		applyErr = sslApplySelfSigned(lanIP)
+	} else {
+		applyErr = sslApplyRealCert(args, lanIP)
 	}
-	return sslApplyRealCert(args, lanIP)
+	if applyErr != nil {
+		return applyErr
+	}
+	if !identityInstalled() {
+		return nil
+	}
+	return clearSSLOptOut()
+}
+
+// identityInstalled reports whether a cert/key pair is on disk to serve. It is
+// the precondition for ending the operator's opt-out: `ssl apply` cleared the
+// marker unconditionally before, which would have ended the opt-out of a run
+// that installed nothing (a declined prompt, an aborted real-cert install).
+func identityInstalled() bool {
+	cert, err := os.Stat(certDest)
+	if err != nil || cert.IsDir() || cert.Size() == 0 {
+		return false
+	}
+	key, err := os.Stat(keyDest)
+	return err == nil && !key.IsDir() && key.Size() > 0
 }
 
 func sslApplySelfSigned(lanIP string) error {

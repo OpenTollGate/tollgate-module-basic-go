@@ -136,6 +136,46 @@ func TestSSLApplyInstallsACoveringIdentityAndEndsTheOptOut(t *testing.T) {
 	}
 }
 
+// TestSSLApplyDeclinedKeepsTheOptOut: an apply that installs nothing must not
+// end the operator's decision. Every apply path returns nil when the operator
+// declines the confirmation prompt, so "the command succeeded" is not the same
+// as "an identity is installed" — and only the second one may end the opt-out.
+func TestSSLApplyDeclinedKeepsTheOptOut(t *testing.T) {
+	redirectSSLPaths(t)
+	stubUCI(t, routerUCI())
+	t.Setenv("TMPDIR", t.TempDir())
+
+	if err := os.MkdirAll(sslDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sslOptOutFile, []byte("removed by the operator\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The operator declines: no answer on stdin, and the shared --yes flag that
+	// the install path sets is off.
+	sslYesFlag = false
+	empty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer empty.Close()
+	oldStdin := os.Stdin
+	os.Stdin = empty
+	defer func() { os.Stdin = oldStdin }()
+
+	_, applyErr := captureStdout(t, func() error { return sslApply(nil) })
+	if applyErr != nil {
+		t.Fatalf("a declined apply returned an error: %v", applyErr)
+	}
+	if identityInstalled() {
+		t.Fatal("a declined apply installed an identity — the fixture is not exercising the decline")
+	}
+	if !sslOptedOut() {
+		t.Error("a declined apply ended the opt-out: the next install would re-key a router whose owner asked for no identity")
+	}
+}
+
 // TestSSLRemoveRecordsTheOptOut is the other half: a removal that left no trace
 // would be undone by the next install, so the CLI has to write the marker — and
 // only after the removal actually completed.
