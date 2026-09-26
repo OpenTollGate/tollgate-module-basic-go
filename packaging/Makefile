@@ -231,7 +231,8 @@ FILES_$(PKG_NAME) += \
 	/etc/hotplug.d/iface/95-tollgate-restart \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
-	/etc/nftables.d/31-admin-board-not-guest-reachable.nft
+	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \
+	/etc/nftables.d/32-luci-not-guest-reachable.nft
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

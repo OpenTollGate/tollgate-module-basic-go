@@ -52,6 +52,61 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The happy-path harness is runnable from the vantage a human tester actually
+  has.** `tests/router-happy-path/run.sh` takes `--vantage guest|mgmt|auto` now
+  (default `auto`, env `RHP_VANTAGE`). A guest-side run — a client on `br-lan`,
+  which is the only vantage a tester or the review club has — could not pass
+  before: `:8090` is blocked for `br-lan` clients by design (#566) and the harness
+  treated the correct `000` as a fatal failure. In guest mode the `:8090` check
+  becomes `surface:8090-admin-spa-not-guest-reachable`, which **PASSES on `000`**
+  and FAILS if the admin board answers a br-lan client at all; the admin
+  build-identity checks report a named SKIP (`identity:admin:*`) that names the
+  guard file and points at the mgmt/on-box lane, and an `RHPNOTE` says the admin
+  SPA itself is that lane's assertion. `surface:8090-admin-spa` is unchanged for
+  the mgmt vantage and is what a release gate should use — the admin-board
+  assertion was **not** weakened for the guest lane. The section-0 TCP liveness
+  burst is also **retried** (`RHP_TCP_TRIES` / `RHP_TCP_BACKOFF` /
+  `RHP_TCP_PACE`), and a port that fails every attempt is printed as
+  **PROVISIONAL** — a status that is explicitly not a verdict and is not counted —
+  which the verdict then resolves against the rest of the run: a port that some
+  later check demonstrably reached becomes a **WARNING** (`warn=N`, `RHPWARNED`)
+  with that PASS quoted, while a port that answers **nowhere** in the run keeps
+  the **FAIL**, printed by the verdict, and a port whose lane is not running (with
+  no `--ssh`, `:22`) is reported without being fatal. So no transcript holds a
+  FAIL for a port the run itself went on to use, and every check id has exactly
+  one terminal status. Measured on the bench MT3000 with the merged harness: the
+  burst reported `:22` dead during a run that held an SSH session to that very
+  port and `:443` dead before the same run's own `https://192.168.1.1/ -> 200` —
+  six to seven fatal-looking preflight FAILs per run, each refuted by the run
+  itself, which is exactly the confusion the harness exists to remove. The
+  self-test goes from 31 to 57 cases: the new ones cover guest `000` => PASS (and
+  a whole guest-vantage run being GREEN with `fail=0` and no FAIL line for the
+  port, plus the negative control that the guard going inert => FAIL), a retried
+  connect that answers on attempt 2 => not fatal, a port that answers nowhere =>
+  still fatal and named in `RHPFAILED`, a port refuted later in the same run =>
+  WARNING quoting that PASS, and a decoy proving the demotion credits only a port
+  a check actually reached (a dead `:443` stays fatal even when the `:8080`
+  redirect target answers `200` on a different, live https port). The rig now
+  reads the run's `RHPCHECK` verdict for an id, and asserts there is exactly one,
+  so it judges what the run reports rather than the pre-verdict note — which is
+  why that note is printed as `RHPPROVISIONAL <id> ...` and not as a second
+  `RHPCHECK` line for the same id.
+  ([#590](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/590))
+- **The valve's timeout test asserts the timeout contract, not the host's
+  scheduling latency.** `TestRunNdsctlTimeout` required a 1s deadline to kill a
+  `sleep 30` child inside 3s, which is a property of the host's scheduler, not
+  of this package: on a loaded host the kill was measured landing 3.2-3.7s
+  late, so the test reddened the release pin `2796d96c` and unrelated branches
+  with no diff involved. It now asserts the contract directly — the deadline
+  fired (`ctx.Err()`), the child did not exit successfully, and the child was
+  killed by a signal — the child is given 60s so the unconditional wall-clock
+  bound is half its lifetime (above every latency measured under deliberate CPU
+  starvation, up to 13.1s, and ~8x the field value), and the old 3s prompt
+  bound survives as an opt-in (`TOLLGATE_TEST_STRICT_TIMING=1 go test ./valve`).
+  Test-only: the valve's `ndsctlTimeout` and `runNdsctl` are untouched, so the
+  module's timeout behaviour is unchanged.
+  ([#592](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/592))
+
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
   audit, `repro-check` failed on every push: the audit sources
   `packaging/build-env.sh`, which needs a `SOURCE_DATE_EPOCH` that an act
@@ -103,6 +158,94 @@ and [Semantic Versioning](https://semver.org/).
   offline, and runs in CI.
 
 ### Fixed
+
+- **The guest path is the portal and nothing else: a captive client can no
+  longer reach LuCI, and `http://<router>/` answers a trusted or authenticated
+  client instead of falling through to the administration login.** Measured on
+  the bench MT3000 (2026-09-25, pre17) from a MAC the box had never seen:
+  `curl http://192.168.1.1:8080/` returned `307 https://192.168.1.1/` and
+  `https://tollgate.lan` served LuCI's login, while for a trusted (mark
+  `0x20000`) or authenticated (`0x30000`) client nodogsplash's nat chain returns
+  *before* its `:80 → :2050` DNAT and nothing listened on `:80` — so
+  `http://<router>/`, the URL a tester types and the one a paying customer types
+  to get back to the portal, was dead and fell through to that login. Two halves,
+  layered like the `:8090` board fix: `assert_nodogsplash_allow_entries` no longer
+  writes `:8080`/`:443` into the pre-auth allow list and `del_list`s both (the
+  list is written by two scripts and repaired on every install, so merely
+  omitting them would only fix a factory-fresh router), and the new
+  `etc/nftables.d/32-luci-not-guest-reachable.nft` drops both ports on `br-lan`
+  at fw4 input priority -1 for both address families — the half that does not
+  depend on the list being in the intended state, and the only half that also
+  covers an *authenticated* guest, whose traffic `20-nds-enforce.nft` accepts by
+  mark. The pre-auth list is now the customer journey only: `:2050`, `:2051`,
+  `:2121`. `:80` gets a listener that serves exactly one document — this
+  package's own `uhttpd.trusted` instance, whose docroot holds a redirect stub to
+  the portal SPA on `:2051` (`setup_uhttpd_trusted_entry`, re-asserted on both
+  setup paths) — instead of the portal bundle on a second origin. LuCI stays
+  reachable on the management path (`br-private`, loopback); an operator who
+  disables the private network administers the router through the module CLI.
+  This reverses `docs/architecture/luci-https-pre-auth-reachability-decision.md`,
+  whose `:443`-alongside-`:8080` rule was correct only while `:8080` itself was
+  reachable pre-auth; that document now records the reversal and why.
+  ([#588](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/588))
+- **The admin HTTPS listener is provisioned instead of inherited, and the
+  `:8080` → `https://` hop now requires a certificate that actually covers this
+  router.** `99-tollgate-setup` derived `uhttpd.main.redirect_https` from
+  "readable, non-empty cert/key pair", and the OpenWrt **image's own placeholder
+  certificate** (`subject CN=OpenWrt`, `SAN DNS:OpenWrt`, 561 bytes, dated with
+  the build) satisfies that while covering neither the router's hostname nor its
+  LAN IP. Measured read-only on the bench (GL-MT3000, 25.12.5, pre17,
+  2026-09-26): `uci get network.lan.ipaddr` → `192.168.1.1/24`, hostname
+  `tollgate-OQ3Q`, `uhttpd.main.redirect_https='1'` with
+  `cert='/etc/uhttpd.crt'`, the certificate served on `:443` was `CN=OpenWrt /
+  DNS:OpenWrt`, `curl http://192.168.1.1:8080/` → `307 https://192.168.1.1/`
+  (a hard certificate error in a browser, with LuCI — not the TollGate board —
+  answering behind it), and `tollgate ssl status` answered `SSL: not
+  configured`: the product's own TLS provisioning had never run. The login
+  itself was never broken (`POST /ubus session.login` returned a real session
+  over both `:8443` and `:8090`). Two things changed:
+
+  - the install path **provisions** the identity instead of accepting the
+    placeholder — `provision_tls_identity` calls the module's existing generator
+    as `tollgate ssl apply -y --no-restart` (one generator, shared with the CLI;
+    no second certificate generator in shell), on the full-setup path **and** on
+    the verify/repair path, because the router being reinstalled or upgraded is
+    the one carrying the placeholder. `--no-restart` exists for exactly this
+    caller: uci-defaults runs before procd starts the services, and
+    `converge_uhttpd_runtime` delivers a changed identity to a *running* uhttpd
+    afterwards, the same shape `converge_nodogsplash_runtime` already had.
+  - the derived value is now a **coverage** check, not a file check:
+    `setup_uhttpd_tls_identity` calls `tollgate ssl covers` (new
+    `src/cmd/tollgate-cli/ssl.go` predicate, `x509.VerifyHostname` against the
+    hostname, its `<hostname>.lan` alias and the LAN IP; CommonName alone is not
+    coverage, and an expired certificate is not either). It **fails closed** —
+    no CLI means "does not cover", which keeps the hop off. A router that cannot
+    provision keeps its `:443` listener with whatever certificate it has and
+    does not redirect, and the reason is in `/tmp/tollgate-setup.log` and in
+    `tollgate ssl status`, which now reports what uhttpd serves and whether it
+    covers this router. Provisioning also fixed a latent CLI defect the path
+    exposed: `network.lan.ipaddr` holds a CIDR (`192.168.1.1/24` on 25.12) and
+    `net.ParseIP` refused it, so a nil address reached the certificate template
+    and `x509.CreateCertificate` failed outright.
+
+  An operator who removed the identity keeps that decision: `tollgate ssl
+  remove` records it in `/etc/tollgate/ssl/tls-identity-removed`, the setup path
+  does not provision while that marker exists (the
+  `setup_hostname`-never-touches-a-custom-hostname rule, #444), and `tollgate
+  ssl apply` clears it. `ssl covers` follows the CLI's `--json` contract (one
+  object, `success` mirrors the exit status) so a caller that parses stdout
+  cannot read a "no" as green (#375). Offline coverage:
+  `tests/uci-defaults-admin-tls-identity_test.sh` (36 assertions — the guard
+  matrix, the provisioning contract, the install paths end to end, the removal
+  round trip, and a **negative control** that runs the pre-change rule over the
+  same fixture and must derive `redirect_https=1` from the placeholder) plus new
+  Go cases in `src/cmd/tollgate-cli`. The rule and its history are recorded in
+  [`docs/architecture/uhttpd-redirect-https-ownership-decision.md`](docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+  The feed's vendored `92-tollgate-admin-setup` still carries the superseded
+  existence-only guard (it runs before `99`, so `99` lands the coverage-checked
+  value last and the shipped combination is safe) and must be updated to the
+  same rule in its own repository.
+  ([#593](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/593))
 
 - **A policy change now reaches the running nodogsplash: the setup script
   reloads the service when its `ndsRTR` ruleset no longer matches the configured
@@ -2398,8 +2541,3 @@ earlier work. Not documented in this changelog.
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
-
-## [Unreleased]
-
-### Added
-- \`tests/happy-path/\`: a happy-path regression suite that boots a published package and checks the customer-facing path (artifact identity, API contract, enforcement via the fake-ndsctl seam, and the portal in a real browser). Reports SKIP with a reason rather than a false pass, and tolerates a documented pre-existing defect via \`known-issues.txt\`.
