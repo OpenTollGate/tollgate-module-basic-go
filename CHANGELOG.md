@@ -91,6 +91,32 @@ and [Semantic Versioning](https://semver.org/).
   not bind on a cold boot until it finishes — see the next entry, which binds
   the API before any mint-dependent work at all.
 
+- **The payment API and the CLI socket are up before any mint-dependent
+  initialization, so a cold boot is no longer a blind money path.** The
+  listener and `/var/run/tollgate.sock` used to be created only after
+  `merchant.New()` returned — mint probes and then a wallet load that is
+  unbounded per mint — so on a cold boot a client got a refused connection for
+  minutes while `status` said `running`. The listener now binds and serves, and
+  the CLI socket starts, first; every mint-dependent route (`/`, `/ln-invoice`,
+  `/balance`, `/usage`, `/session-state`) answers an explicit
+  `503 {"status":0,"code":"starting"}` with `Retry-After: 5` until the merchant
+  has been constructed (`/whoami` keeps answering for real — it needs no
+  merchant), and `merchant.New()` then goes behind the provider every consumer
+  already holds. Measured with the real binary, 7 accepted mints whose fronts
+  accept and never answer, 1 s sampling, time from exec to `:2121` accepting a
+  TCP connection: the shipped pin `cfbfff5a` (binary sha256 `0032602395a8…`)
+  **never** accepted a connection inside a 120 s window and never created its
+  socket, while on this change `:2121` accepts at the first sample (t = 1.0 s,
+  the sampling interval) and all 119 HTTP probes in the window got that
+  explicit `starting` refusal while the wallet load was still running. The
+  probe-then-bind ordering alone (previous entry) measured 347.1 s in the same
+  shape, so this is 347 s -> the bind. Money-path semantics are untouched:
+  which mints are probed, what a probe result means, which mints are
+  advertised, the session/usage answers and the degraded-to-full upgrade path
+  are unchanged — only the order of "serve" and "construct" moved. Regression
+  test: `src/startup_gate_test.go` (drives the real boot sequence with a
+  construction that blocks: RED against the pre-fix ordering, GREEN with it).
+
 - **A policy change now reaches the running nodogsplash: the setup script
   reloads the service when its `ndsRTR` ruleset no longer matches the configured
   `users_to_router` list.** The allow list is nodogsplash's *pre-authentication*

@@ -406,6 +406,22 @@ var (
 
 var cliServer *cli.CLIServer
 
+// The money path. See startup_gate.go for why it is bound before the
+// mint-dependent construction, and bootSequence for the order.
+var (
+	// apiListenAddr is a variable so the off-router test build (-tags testenv,
+	// 000_test_env_testenv.go) can bind an ephemeral port instead of the
+	// shipped one. Production never changes it.
+	apiListenAddr = ":2121"
+
+	apiListener   net.Listener
+	apiHTTPServer *http.Server
+
+	// apiServeErr carries a real serve failure — not the ErrServerClosed of a
+	// deliberate shutdown — back to main(), which is where the process exits.
+	apiServeErr = make(chan error, 1)
+)
+
 type merchantTypesProvider struct {
 	inner *merchant.MutexMerchantProvider
 }
@@ -562,12 +578,113 @@ func init() {
 
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
-	var err2 error
-	merchantInstance, err2 := merchant.New(configManager)
-	if err2 != nil {
-		mainLogger.WithError(err2).Fatal("Failed to create merchant")
+	if err := bootSequence(apiListenAddr, merchant.New); err != nil {
+		mainLogger.WithError(err).Fatal("Failed to start TollGate")
 	}
-	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(merchantInstance)}
+
+	mainLogger.Info("Startup complete: the payment API is serving the money path")
+}
+
+// merchantConstructor is the mint-dependent construction step of the boot
+// sequence. It is a parameter rather than a direct call to merchant.New so the
+// boot ORDER can be tested with a construction that blocks — the cold-boot
+// shape startup_gate.go exists to fix.
+type merchantConstructor func(*config_manager.ConfigManager) (merchant.MerchantInterface, error)
+
+// bootSequence is the whole boot, in its required order:
+//
+//  1. everything that must NOT wait for a mint — the "starting" merchant
+//     placeholder, the payment API bound and served, the upstream Wi-Fi
+//     manager, and the CLI Unix socket;
+//  2. the mint-dependent construction (merchant.New: mint probes then the
+//     wallet load, which is unbounded per mint on a cold boot), after which the
+//     constructed merchant goes behind the provider every consumer already
+//     holds and the reachable-set callbacks the degraded -> full upgrade needs
+//     are wired;
+//  3. the gate opens, so mint-dependent requests stop being refused.
+//
+// Only the order changed. Every stage does what it did before, and an error out
+// of either stage is fatal at the call site, exactly as it was.
+func bootSequence(addr string, construct merchantConstructor) error {
+	apiStartup.setStage(stageBindingAPI)
+
+	// The placeholder is installed BEFORE the CLI server, which is handed this
+	// same provider: the socket has to exist before the mint-dependent work, so
+	// it cannot be handed a merchant that does not exist yet.
+	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(startingMerchant{})}
+
+	if err := bindAndServeAPI(addr); err != nil {
+		return err
+	}
+
+	// No merchant dependency: this is the Wi-Fi side of the box, and it is what
+	// the CLI's upstream commands read. Started here so the box is looking for
+	// its uplink while the wallet is still loading instead of after.
+	initUpstreamManager()
+
+	// The CLI socket is bound and served here too. The operator's
+	// `tollgate wallet balance` failed with ENOENT for the same minutes the API
+	// was missing; the socket now exists before the mint-dependent work, and a
+	// command that arrives during it gets an explicit "starting" answer from
+	// the placeholder merchant instead of a missing socket.
+	initCLIServer()
+
+	apiStartup.setStage(stageConnectingMerchant)
+	merchantInstance, err := construct(configManager)
+	if err != nil {
+		return fmt.Errorf("create merchant: %w", err)
+	}
+	installMerchant(merchantInstance)
+
+	initUpstreamDetector()
+
+	apiStartup.markReady()
+	return nil
+}
+
+// bindAndServeAPI binds the payment API and starts serving it. From the moment
+// net.Listen returns, a client can connect (the kernel completes the handshake
+// into the backlog) and from the moment the goroutine below is scheduled it
+// gets an explicit "starting" refusal rather than a hang. This is the sequence
+// point the boot-race measurement reads.
+func bindAndServeAPI(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("bind the payment API on %s: %w", addr, err)
+	}
+	apiListener = ln
+
+	mux := http.NewServeMux()
+	registerAPIHandlers(mux)
+	apiHTTPServer = &http.Server{
+		Addr:    addr,
+		Handler: mux,
+		// The timeouts the old ListenAndServe carried, unchanged.
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		if err := apiHTTPServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			apiServeErr <- err
+		}
+	}()
+
+	mainLogger.WithFields(logrus.Fields{
+		"addr":     ln.Addr().String(),
+		"api_addr": addr,
+	}).Info("Money path listening: the API is bound and serving; mint-dependent init is still in flight")
+	return nil
+}
+
+// installMerchant puts the constructed merchant behind the provider every
+// consumer already holds — the HTTP handlers read it per request, and the CLI
+// server was handed the same pointer — and wires the callbacks the degraded ->
+// full upgrade path needs. Nothing about that path changed: a degraded merchant
+// still upgrades on the first reachable mint, exactly as before.
+func installMerchant(merchantInstance merchant.MerchantInterface) {
+	swapMerchant(merchantInstance)
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
 		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
@@ -579,12 +696,6 @@ func init() {
 	} else {
 		registerReachableSetChangedCallback(merchantInstance)
 	}
-
-	initUpstreamManager()
-
-	initUpstreamDetector()
-
-	initCLIServer()
 }
 
 func initUpstreamDetector() {
@@ -1389,49 +1500,53 @@ func versionRequested(args []string) bool {
 	return args[1] == "--version" || args[1] == "-version"
 }
 
-func main() {
-	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
-	fmt.Println("Starting Tollgate Core")
-	fmt.Println("Listening on all interfaces on port", port)
-
-	mainLogger.Info("Registering handlers...")
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+// registerAPIHandlers binds every route the money path serves, in the shape it
+// always had. It runs from bindAndServeAPI, i.e. BEFORE the merchant exists —
+// which is why every mint-dependent route is wrapped in requireStarted.
+// /whoami is deliberately not: it echoes the caller's own address and needs no
+// merchant, so it keeps answering for real while the wallet is loading.
+func registerAPIHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
-		RateLimitMiddleware(CorsMiddleware(HandleRoot))(w, r)
+		RateLimitMiddleware(CorsMiddleware(requireStarted(HandleRoot)))(w, r)
 	})
 
-	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /whoami endpoint")
 		CorsMiddleware(handler)(w, r)
 	})
 
-	http.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /ln-invoice endpoint")
-		CorsMiddleware(handleLNInvoiceRoute)(w, r)
+		CorsMiddleware(requireStarted(handleLNInvoiceRoute))(w, r)
 	})
 
-	http.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /balance endpoint")
-		CorsMiddleware(HandleBalance)(w, r)
+		CorsMiddleware(requireStarted(HandleBalance))(w, r)
 	})
 
-	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /usage endpoint")
-		CorsMiddleware(HandleUsage)(w, r)
+		CorsMiddleware(requireStarted(HandleUsage))(w, r)
 	})
 
-	http.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session-state endpoint")
-		CorsMiddleware(HandleSessionState)(w, r)
+		CorsMiddleware(requireStarted(HandleSessionState))(w, r)
 	})
 
-	// --- Identity derivation (additive, optional) --------------------------
-	// Derive network identity (npub, IPv4, MACs, BIP39 seed) from the existing
-	// merchant private key in identities.json (owned_identities[0].privatekey).
-	// This is a bonus feature: if identities.json is missing, malformed, or has
-	// no usable key, the routes are simply not registered and TollGate boots and
-	// serves all existing endpoints normally. No existing endpoint is touched.
+	registerIdentityRoutes(mux)
+}
+
+// registerIdentityRoutes is the optional identity block, unchanged by the boot
+// reordering and deliberately not gated: the routes derive a network identity
+// (npub, IPv4, MACs, BIP39 seed) from the existing merchant private key in
+// identities.json (owned_identities[0].privatekey) and never touch the
+// merchant. As before, if identities.json is missing, malformed, or has no
+// usable key, the routes are simply not registered and TollGate boots and
+// serves all existing endpoints normally.
+func registerIdentityRoutes(mux *http.ServeMux) {
 	identityPrivKey := ""
 	if ids := configManager.GetIdentities(); ids != nil && len(ids.OwnedIdentities) > 0 {
 		identityPrivKey = ids.OwnedIdentities[0].PrivateKey
@@ -1443,29 +1558,37 @@ func main() {
 		identityPrivKey = ""
 	}
 	if identityPrivKey != "" {
-		http.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity endpoint")
 			CorsMiddleware(handleIdentityDerive(identityPrivKey))(w, r)
 		})
 		// reveal-seed accepts a 12-word BIP39 mnemonic and raw private key —
 		// POST-only so the request is intentional and never cached/prefetched.
-		http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Hit /identity/reveal-seed endpoint (sensitive)")
 			CorsMiddleware(handleIdentityRevealSeed(identityPrivKey))(w, r)
 		})
 		mainLogger.Info("identity: /identity and /identity/reveal-seed routes registered")
 	}
+}
 
-	mainLogger.Info("Starting HTTP server on all interfaces...")
-	server := &http.Server{
-		Addr: port,
-		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  60 * time.Second,
+func main() {
+	fmt.Println("Starting Tollgate Core")
+
+	// The money path was bound and is being served from init() — BEFORE the
+	// mint-dependent construction — so :2121 accepts a connection, and answers
+	// an explicit "starting" refusal, while the mints and the wallet are still
+	// loading. All that is left here is to keep the process alive, and to exit
+	// if the money path itself dies.
+	if apiListener == nil || apiHTTPServer == nil {
+		mainLogger.Fatal("The payment API was never bound: the boot sequence did not run")
 	}
+	mainLogger.Info("Starting HTTP server on all interfaces...")
 
-	mainLogger.Fatal(server.ListenAndServe())
+	if err := <-apiServeErr; err != nil {
+		mainLogger.WithError(err).Fatal("Failed to serve the payment API")
+	}
+	mainLogger.Fatal("The payment API stopped serving")
 }
 
 func isLocalRequest(r *http.Request) bool {
