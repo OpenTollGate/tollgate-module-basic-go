@@ -64,6 +64,65 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The admin HTTPS listener is provisioned instead of inherited, and the
+  `:8080` → `https://` hop now requires a certificate that actually covers this
+  router.** `99-tollgate-setup` derived `uhttpd.main.redirect_https` from
+  "readable, non-empty cert/key pair", and the OpenWrt **image's own placeholder
+  certificate** (`subject CN=OpenWrt`, `SAN DNS:OpenWrt`, 561 bytes, dated with
+  the build) satisfies that while covering neither the router's hostname nor its
+  LAN IP. Measured read-only on the bench (GL-MT3000, 25.12.5, pre17,
+  2026-09-26): `uci get network.lan.ipaddr` → `192.168.1.1/24`, hostname
+  `tollgate-OQ3Q`, `uhttpd.main.redirect_https='1'` with
+  `cert='/etc/uhttpd.crt'`, the certificate served on `:443` was `CN=OpenWrt /
+  DNS:OpenWrt`, `curl http://192.168.1.1:8080/` → `307 https://192.168.1.1/`
+  (a hard certificate error in a browser, with LuCI — not the TollGate board —
+  answering behind it), and `tollgate ssl status` answered `SSL: not
+  configured`: the product's own TLS provisioning had never run. The login
+  itself was never broken (`POST /ubus session.login` returned a real session
+  over both `:8443` and `:8090`). Two things changed:
+
+  - the install path **provisions** the identity instead of accepting the
+    placeholder — `provision_tls_identity` calls the module's existing generator
+    as `tollgate ssl apply -y --no-restart` (one generator, shared with the CLI;
+    no second certificate generator in shell), on the full-setup path **and** on
+    the verify/repair path, because the router being reinstalled or upgraded is
+    the one carrying the placeholder. `--no-restart` exists for exactly this
+    caller: uci-defaults runs before procd starts the services, and
+    `converge_uhttpd_runtime` delivers a changed identity to a *running* uhttpd
+    afterwards, the same shape `converge_nodogsplash_runtime` already had.
+  - the derived value is now a **coverage** check, not a file check:
+    `setup_uhttpd_tls_identity` calls `tollgate ssl covers` (new
+    `src/cmd/tollgate-cli/ssl.go` predicate, `x509.VerifyHostname` against the
+    hostname, its `<hostname>.lan` alias and the LAN IP; CommonName alone is not
+    coverage, and an expired certificate is not either). It **fails closed** —
+    no CLI means "does not cover", which keeps the hop off. A router that cannot
+    provision keeps its `:443` listener with whatever certificate it has and
+    does not redirect, and the reason is in `/tmp/tollgate-setup.log` and in
+    `tollgate ssl status`, which now reports what uhttpd serves and whether it
+    covers this router. Provisioning also fixed a latent CLI defect the path
+    exposed: `network.lan.ipaddr` holds a CIDR (`192.168.1.1/24` on 25.12) and
+    `net.ParseIP` refused it, so a nil address reached the certificate template
+    and `x509.CreateCertificate` failed outright.
+
+  An operator who removed the identity keeps that decision: `tollgate ssl
+  remove` records it in `/etc/tollgate/ssl/tls-identity-removed`, the setup path
+  does not provision while that marker exists (the
+  `setup_hostname`-never-touches-a-custom-hostname rule, #444), and `tollgate
+  ssl apply` clears it. `ssl covers` follows the CLI's `--json` contract (one
+  object, `success` mirrors the exit status) so a caller that parses stdout
+  cannot read a "no" as green (#375). Offline coverage:
+  `tests/uci-defaults-admin-tls-identity_test.sh` (36 assertions — the guard
+  matrix, the provisioning contract, the install paths end to end, the removal
+  round trip, and a **negative control** that runs the pre-change rule over the
+  same fixture and must derive `redirect_https=1` from the placeholder) plus new
+  Go cases in `src/cmd/tollgate-cli`. The rule and its history are recorded in
+  [`docs/architecture/uhttpd-redirect-https-ownership-decision.md`](docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+  The feed's vendored `92-tollgate-admin-setup` still carries the superseded
+  existence-only guard (it runs before `99`, so `99` lands the coverage-checked
+  value last and the shipped combination is safe) and must be updated to the
+  same rule in its own repository.
+  ([#593](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/593))
+
 - **A policy change now reaches the running nodogsplash: the setup script
   reloads the service when its `ndsRTR` ruleset no longer matches the configured
   `users_to_router` list.** The allow list is nodogsplash's *pre-authentication*
