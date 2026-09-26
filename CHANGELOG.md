@@ -12,6 +12,26 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The uhttpd redirect/identity decision record now states the captive-side
+  product decision and the measured install order.**
+  `docs/architecture/uhttpd-redirect-https-ownership-decision.md` gains a
+  "Product decision: what answers the captive side" section: the captive side is
+  answered by the portal, never by LuCI or the `:8090` board (both management
+  surfaces, reached over the private network), and the `:8080` → `https://` hop
+  exists only for a client that actually reaches `uhttpd.main`, armed solely on a
+  certificate that covers the address that browser used. It also records the
+  order the two writers actually run in — `packaging/Makefile`'s postinst runs
+  `90, 99, 92`, so **`92` is the last writer of `uhttpd.main.redirect_https` on
+  the install/upgrade pass**, while numeric uci-defaults order at boot makes `99`
+  last — which is why "the other script also writes it" is a live hazard rather
+  than a style note: a writer with the superseded existence-only premise derives
+  `1` for an identity no browser can validate, after the coverage rule derived
+  `0`. The portal repo's copy of `92` is being aligned to the same rule and now
+  carries a cross-repo guard over the pair; the pins (this module's
+  `packaging/build-inputs.json .portal.commit`, the feed's `vendor.lock.json`)
+  still have to advance for that to reach a router, which the document states
+  explicitly.
+  ([#594](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/594))
 - **The valve's timeout test asserts the timeout contract, not the host's
   scheduling latency.** `TestRunNdsctlTimeout` required a 1s deadline to kill a
   `sleep 30` child inside 3s, which is a property of the host's scheduler, not

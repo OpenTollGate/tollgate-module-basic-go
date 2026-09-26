@@ -138,3 +138,65 @@ login itself was never broken: `POST /ubus session.login` over `:8443` and
 - The feed's companion change adds a fail-open post-restart check that turns
   the redirect back off when no listen socket exists on `:443`. Both writers
   must be updated together whenever this rule changes.
+- **Install order is NOT a safety net, and here is the measured order.**
+  `packaging/Makefile`'s postinst runs the uci-defaults explicitly as
+  `90-tollgate-captive-portal-symlink`, `99-tollgate-setup`, `92-tollgate-admin-setup`
+  — so on the module's own install/upgrade pass **`92` is the LAST writer of
+  `uhttpd.main.redirect_https`**. At boot they run numerically (`90, 92, 99`), so
+  `99` is last there. A writer that kept the superseded existence-only premise
+  therefore wins on the install pass: a router whose identity cannot be validated
+  (provisioning refused, or the image's placeholder as the fallback listener
+  identity) is derived to `0` by `99` and then put back to `1` by `92`, which is
+  the operator-visible defect this rule was hardened for. The two writers must
+  evaluate the same rule; they cannot rely on who runs last.
+
+## Product decision: what answers the captive side (2026-09-26)
+
+The operator-facing question behind this document — "https problems logging into
+the admin portal" — is really two decisions, and only the second one is recorded
+here:
+
+1. **What is the captive side answered by?** Not the router's administration UI.
+   A client that is not on the owner's private network is answered by the captive
+   portal (`:2050` → `:2051`, and the pre-auth stub before that). LuCI
+   (`uhttpd.main`, `:8080`/`:443`) and the owner-facing admin board
+   (`uhttpd.admin`, `:8090`/`:8443`) are management surfaces, reached over the
+   private network, never as part of the customer journey. The mechanical half —
+   which ports an *unauthenticated* client may reach, and the packet-filter drop
+   that also covers an *authenticated* guest, which the allow list cannot — is
+   recorded in
+   [`luci-https-pre-auth-reachability-decision.md`](luci-https-pre-auth-reachability-decision.md)
+   and its companion nftables fragment, and for the board in
+   `31-admin-board-not-guest-reachable.nft`. Consequence for this document: the
+   `:8080` → `https://` hop is not a customer-path component and must never be
+   part of the pre-auth allowance. It exists for whoever **does** reach
+   `uhttpd.main` — the owner on the private network — so that an admin login is
+   not typed over plain HTTP.
+2. **When is that hop armed, and with which identity?** Only when the identity
+   on the configured listener **covers the address the browser used** (the
+   router's hostname, its `<hostname>.lan` alias, or its LAN IP — the addresses
+   that actually reach `uhttpd.main` differ by network), and the identity is
+   **provisioned by setup** with those SANs, never inherited from the image. A
+   redirect armed on a premise weaker than "this browser can validate this
+   certificate" is the whole defect class this rule exists to stop: it produced
+   the pre13 lockout (redirect into a dead port) and, on 2026-09-26, a live TLS
+   listener serving an identity that covers neither the router's hostname nor its
+   LAN IP (hard certificate error on every login, measured on the bench MT3000,
+   pre17).
+
+**One rule, two writers — and a guard over the pair.** The second writer is
+`92-tollgate-admin-setup`, whose source lives in
+`OpenTollGate/tollgate-captive-portal-site` (the feed vendors a pinned copy). It
+kept the superseded existence-only premise until portal PR
+[#64](https://github.com/OpenTollGate/tollgate-captive-portal-site/pull/64),
+which evaluates the same coverage rule through the same CLI predicate and adds a
+cross-repo guard
+(`packaging/tests/test-redirect-https-single-rule.sh`) that fails if **either**
+writer carries a premise of its own. Two caveats, deliberately recorded instead
+of implied: (a) the source moving is not the router receiving it — the module's
+`packaging/build-inputs.json .portal.commit` and the feed's `vendor.lock.json`
+must be advanced for the aligned script to ship, and until then the install-order
+hazard above is live on the module's postinst pass; (b) this document's rule is
+about the derived value only — a change to *which* ports the captive side may
+reach is a change to decision 1, in the reachability document and the drop rules,
+never a tweak to this redirect.
