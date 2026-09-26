@@ -52,6 +52,20 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The packaging and release builds compile the whole `main` package, not one
+  file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
+  and the ngit `build-package-binaries.yml` all built `tollgate-wrt` with
+  `go build … main.go`. A file-list build compiles only the files it is given,
+  which was equivalent to building the package only while `main.go` was the sole
+  non-test file in `src/` — and stopped being equivalent as soon as this PR added
+  `src/startup_gate.go` alongside it: the build then failed with `undefined:
+  apiStartup`, `undefined: startingMerchant`, … on the first run and on the
+  re-run alike, in the `Happy path (suite on a package built from this commit)`
+  lane. All three now build `.`, i.e. the package, which is what `go test .` and
+  the release lane already do. Build-path only — no symbol, flag or behaviour
+  change.
+  ([#589](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/589))
+
 - **The happy-path harness is runnable from the vantage a human tester actually
   has.** `tests/router-happy-path/run.sh` takes `--vantage guest|mgmt|auto` now
   (default `auto`, env `RHP_VANTAGE`). A guest-side run — a client on `br-lan`,
@@ -159,6 +173,58 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The startup mint probe no longer walks every accepted mint to its own
+  timeout before the process can do anything else.** `merchant.New()` ran the
+  startup probe to completion before `main()` ever reached
+  `http.ListenAndServe` — one probe per accepted mint, each with the 30 s
+  `probeTimeout` — so on a boot where the uplink is not up yet every probe burns
+  its full timeout and `:2121` and `/var/run/tollgate.sock` do not exist for up
+  to `7 mints x 30 s = 210 s`, while procd's `status` reports `running` the whole
+  time because it reports the *process*, not the API. Measured on the bench
+  MT3000 (fresh install + reboot, pre17): `status` running, `:2121` absent from
+  `netstat -tln`, no
+  `/var/run/tollgate.sock`, `tollgate wallet balance` failing with ENOENT, and
+  the acceptance run refusing at stage 0 with `TCP 2121 not answering` — then
+  `PASS TCP 2121` minutes later with nothing changed. The probe is now bounded
+  by `defaultStartupProbeBudget` (30 s: the one full chance a mint already had)
+  and mints the budget never reaches are left **unlearned** rather than marked
+  failed — the convention `runProactiveCheck` already uses for a mint it skipped
+  inside its `Retry-After` window — so the aggressive 15 s loop, the proactive
+  loop and the degraded-to-full upgrade path are unchanged. Overridable per
+  router with `TOLLGATE_STARTUP_PROBE_BUDGET_SECONDS`. Regression tests:
+  `src/merchant/startup_probe_budget_test.go` (RED at 14.01 s with 7
+  non-answering mints and a 2 s client timeout; GREEN at 1.00 s; the fast path
+  and the knob arithmetic covered in the same file).
+  **This bounds one stage of the boot, not the boot:** the wallet construction
+  that follows it is the dominant term and is unbounded, so the API still does
+  not bind on a cold boot until it finishes — see the next entry, which binds
+  the API before any mint-dependent work at all.
+
+- **The payment API and the CLI socket are up before any mint-dependent
+  initialization, so a cold boot is no longer a blind money path.** The
+  listener and `/var/run/tollgate.sock` used to be created only after
+  `merchant.New()` returned — mint probes and then a wallet load that is
+  unbounded per mint — so on a cold boot a client got a refused connection for
+  minutes while `status` said `running`. The listener now binds and serves, and
+  the CLI socket starts, first; every mint-dependent route (`/`, `/ln-invoice`,
+  `/balance`, `/usage`, `/session-state`) answers an explicit
+  `503 {"status":0,"code":"starting"}` with `Retry-After: 5` until the merchant
+  has been constructed (`/whoami` keeps answering for real — it needs no
+  merchant), and `merchant.New()` then goes behind the provider every consumer
+  already holds. Measured with the real binary, 7 accepted mints whose fronts
+  accept and never answer, 1 s sampling, time from exec to `:2121` accepting a
+  TCP connection: the shipped pin `cfbfff5a` (binary sha256 `0032602395a8…`)
+  **never** accepted a connection inside a 120 s window and never created its
+  socket, while on this change `:2121` accepts at the first sample (t = 1.0 s,
+  the sampling interval) and all 119 HTTP probes in the window got that
+  explicit `starting` refusal while the wallet load was still running. The
+  probe-then-bind ordering alone (previous entry) measured 347.1 s in the same
+  shape, so this is 347 s -> the bind. Money-path semantics are untouched:
+  which mints are probed, what a probe result means, which mints are
+  advertised, the session/usage answers and the degraded-to-full upgrade path
+  are unchanged — only the order of "serve" and "construct" moved. Regression
+  test: `src/startup_gate_test.go` (drives the real boot sequence with a
+  construction that blocks: RED against the pre-fix ordering, GREEN with it).
 - **`/etc/init.d/tollgate-wrt status` now reports the money path instead of the
   pid.** The initscript's own `status()` was dead code — `rc.common` sources the
   initscript first and then defines `start`/`stop`/`status` inside its
