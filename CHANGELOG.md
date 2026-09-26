@@ -12,6 +12,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The valve's timeout test asserts the timeout contract, not the host's
+  scheduling latency.** `TestRunNdsctlTimeout` required a 1s deadline to kill a
+  `sleep 30` child inside 3s, which is a property of the host's scheduler, not
+  of this package: on a loaded host the kill was measured landing 3.2-3.7s
+  late, so the test reddened the release pin `2796d96c` and unrelated branches
+  with no diff involved. It now asserts the contract directly — the deadline
+  fired (`ctx.Err()`), the child did not exit successfully, and the child was
+  killed by a signal — the child is given 60s so the unconditional wall-clock
+  bound is half its lifetime (above every latency measured under deliberate CPU
+  starvation, up to 13.1s, and ~8x the field value), and the old 3s prompt
+  bound survives as an opt-in (`TOLLGATE_TEST_STRICT_TIMING=1 go test ./valve`).
+  Test-only: the valve's `ndsctlTimeout` and `runNdsctl` are untouched, so the
+  module's timeout behaviour is unchanged.
+  ([#592](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/592))
+
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
   audit, `repro-check` failed on every push: the audit sources
   `packaging/build-env.sh`, which needs a `SOURCE_DATE_EPOCH` that an act
