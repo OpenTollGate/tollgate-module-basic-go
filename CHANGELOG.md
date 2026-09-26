@@ -1573,6 +1573,47 @@ same-version short branch.
   `src/cli.*` ldflags, which its separate Go module never links, so
   the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
+- **`tollgate-clientd` scenario battery.** New
+  `tests/cloud-lab/run-clientd-scenarios.sh` (compose profile
+  `clientd`): S2 bytes-metric lifecycle against a data-metered upstream
+  with live file-driven ndsctl counters (renewal before exhaustion, gate
+  close, re-payment), S3 a real nutshell wallet paying live (image
+  `Dockerfile.client-ns`, wallet persisted via `CASHU_DIR`), S4 mint
+  outage mid-session (logged backoff, recovery after restart), and S5
+  keyset rotation + swap fees (auto-skipped unless the rotation mints
+  are defined in the compose). Hard-won notes baked in: ms sessions in
+  the lab expire lazily (expiry recorded, not asserted); fee-charging
+  mints credit `floor((amount − fee)/price)` steps; fresh
+  `pip install cashu` needs `marshmallow<4` pinned (environs
+  incompatibility with marshmallow 4.x). ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
+
+- **`tollgate-clientd` laptop client.** New
+  `scripts/tollgate-clientd.py`: detects a TollGate on the default
+  gateway, registers with the captive portal (nodogsplash workaround),
+  shows the remaining bytes/seconds live, and auto-tops-up with ecash
+  from a local wallet — cdk-cli or nutshell, auto-detected — before the
+  allotment runs out. One-shot `--status`/`--json` output for status
+  bars, `--waybar` module JSON (text/tooltip/class/percentage) for
+  waybar-style bars, `--dry-run`, `--list-offers`, and a `--selftest`
+  that runs the full discovery/payment/renewal loop against a built-in
+  mock TollGate. The cdk-cli adapter supports both the modern
+  (`--v3 --amount`) and legacy (stdin) CLIs and expands short keyset IDs
+  for cdk-mintd compatibility. Money-path guards: payment tokens are
+  written to disk (0600, `--state-dir`, default
+  `~/.local/state/tollgate-clientd`) before the POST and reused on
+  retry instead of minting a fresh one; router notice `code` tags are
+  read and terminal codes (`payment-error-below-swap-fee`,
+  `-invalid-token`, `-token-spent`) stop the daemon with a non-zero
+  exit instead of feeding the backoff loop; the payment POST timeout is
+  configurable (`--payment-timeout`, default 30 s — routers may swap
+  synchronously); and `--max-blind-payments` (default 3) bounds the
+  runaway where payments are accepted but `/usage` never reflects them
+  (#422), stopping the daemon non-zero with the unacknowledged token's
+  location. Tested by a new unit suite
+  (`tests/clientd/`, 39 tests over in-process mock TollGates) and a
+  cloud-lab e2e lane (`tests/cloud-lab/test_clientd_autotopup.py`)
+  that pays the real backend and observes threshold renewal. ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
+
 ### Fixed
 
 - **Upgrades no longer abort on devices without `jq`.** The maintainer
