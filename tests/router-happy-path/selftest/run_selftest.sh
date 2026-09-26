@@ -13,11 +13,18 @@
 # evidence. A hardware-only suite rots precisely because nobody can see it go red
 # on demand.
 #
-# COVERAGE, MEASURED (not asserted). A live run can emit 76 distinct check ids and
-# these cases drive 51 of them red at least once. The ones that DO NOT go red here
+# COVERAGE, MEASURED (not asserted). Re-derived from a --keep run of the merge
+# commit (2026-09-26): the 61 cases emit 67 distinct check ids between them -- a
+# single clean run emits 48 -- and 51 of them are driven red at least once. The
+# ones that DO NOT go red here
 # are the ones this rig cannot break -- named, so nobody has to guess:
 #   * paid:* (6)          the paid lane is opt-in behind RHP_CASHU_TOKEN; no case
-#                         redeems, spends, or touches ecash
+#                         redeems, spends, or touches ecash. Its DECODE is pinned
+#                         by the cashtoken-* cases below (v3, v4, malformed
+#                         version, no prefix), which is the part that was broken:
+#                         the version character was read at token[6], so every
+#                         real token failed inspection before the lane could buy
+#                         anything at all
 #   * ssh:* (4)           needs a real router; opt-in behind RHP_SSH
 #   * net:tcp-<port> (6 of 7)  the stub answers the burst on every port in every
 #                         other case; only the TLS port is driven red, by
@@ -284,6 +291,19 @@ mut_case ln-200               FAIL ln:no-quote-status-poll                 '{"ln
 mut_case ln-wrong-error       FAIL ln:no-quote-status-poll                 '{"ln_wrong_error": true}'
 # 6. money path
 mut_case empty-token-accepted FAIL money:empty-token-rejected              '{"empty_token_ok": true}'
+
+# The paid lane's spend gate: cashtoken.py's NUT-00 decode. Its off-by-one
+# (version read at token[6], the first PAYLOAD character) was found on the paid
+# lane's first hardware run (2026-09-25, pre17, a 64-sat testnut token) and made
+# EVERY token fail inspection -- so the lane never reached a purchase, and the
+# default run's SKIP is why nothing here had seen it. Pin both the good and the
+# malformed path.
+CT_OUT="$WORK/cashtoken.txt"
+python3 "$SELF_DIR/cashtoken_selftest.py" > "$CT_OUT" 2>&1 || true
+while read -r tag name verdict rest; do
+    [ "${tag:-}" = "SELFTEST" ] || continue
+    st "$name" "$verdict" "${rest:-}"
+done < "$CT_OUT"
 # 7. the module's rate limiter (root handler, per client IP). A throttle must not
 #    read as a regression: a 429 that is retried away leaves the run GREEN, only a
 #    429 that survives every attempt is red, and the transcript has to say which.
