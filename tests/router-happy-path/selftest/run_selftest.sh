@@ -14,8 +14,9 @@
 # on demand.
 #
 # COVERAGE, MEASURED (not asserted). Re-derived from a --keep run of the merge
-# commit (2026-09-26): the 61 cases emit 67 distinct check ids between them -- a
-# single clean run emits 48 -- and 51 of them are driven red at least once. The
+# commit (2026-09-26): the 62 cases emit 77 distinct check ids between them -- a
+# single clean run emits 60 on the mgmt lane the baseline pins -- and 52 of them
+# are driven red at least once. The
 # ones that DO NOT go red here
 # are the ones this rig cannot break -- named, so nobody has to guess:
 #   * paid:* (6)          the paid lane is opt-in behind RHP_CASHU_TOKEN; no case
@@ -286,6 +287,12 @@ mut_case balance-active       FAIL pre:idle                               '{"bal
 mut_case usage-bad            FAIL api:usage-shape                         '{"usage_bad": true}'
 mut_case cors-no-methods      FAIL api:cors-preflight                      '{"no_cors_preflight": true}'
 mut_case session-state-shipped PASS api:session-state                      '{"session_state": true}'
+# the socket-identity contract: a `?mac=` the caller sent must be reported back
+# as an ignored claim BY NAME, on every client-scoped route. This is the check
+# that would have saved the bench rig hours on 2026-09-26 (a token posted "for" a
+# MAC the sender was not using opened the gate for the SENDER's socket, and
+# nothing on the wire said so).
+mut_case identity-silent      FAIL api:identity-contract                   '{"identity_silent": true}'
 # 5. Lightning quote contract
 mut_case ln-200               FAIL ln:no-quote-status-poll                 '{"ln_200": true}'
 mut_case ln-wrong-error       FAIL ln:no-quote-status-poll                 '{"ln_wrong_error": true}'

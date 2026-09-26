@@ -36,6 +36,9 @@ time and assert the matching check id flips to FAIL:
   ln_wrong_error      /ln-invoice 400s with a different error string
   empty_token_ok      POST / with an empty body returns 200 kind:1022 (bypass)
   no_cors_preflight   OPTIONS loses Access-Control-Allow-Methods
+  identity_silent     the API stops reporting the ?mac= claim it ignored (the
+                      module goes back to ignoring the parameter SILENTLY, which
+                      is how a rig reads 'the gate never opened')
   portal_no_root_el   splash.html loses id="root"
   portal_no_hash      the entry chunk name loses its content hash
 
@@ -207,10 +210,33 @@ class AdminHandler(Base):
 class ApiHandler(Base):
     """:API_PORT -- the module API."""
 
-    def _json(self, code, obj, ctype="application/json"):
-        return self._send(code, json.dumps(obj), ctype)
+    def _json(self, code, obj, ctype="application/json", extra=None):
+        return self._send(code, json.dumps(obj), ctype, extra)
 
-    def _root_doc(self):
+    # --- the socket-identity contract (see docs/operator-guide.md) --------
+    # Every client-scoped route answers for the client at the other end of the
+    # SOCKET, and says which client that was: X-TollGate-Client-MAC. A `?mac=`
+    # the caller sent is a claim the module accepts for wire compatibility with
+    # the shipped portal and never honours, so when it differs from the socket
+    # address the answer also names the claim it did NOT honour
+    # (X-TollGate-Mac-Claim-Ignored). `identity_silent` removes that second
+    # header: the harness must then go red, because a silently-ignored claim is
+    # exactly what misled the bench rig on 2026-09-26.
+    def _claimed_mac(self):
+        """The `?mac=` the caller asserted, canonicalised, or ""."""
+        m = re.search(r"[?&]mac=([0-9A-Fa-f:]{17})", self.path)
+        return m.group(1).lower() if m else ""
+
+    def _identity_headers(self):
+        """What the module reports about the client it answered for."""
+        resolved = "00:00:00:00:00:00" if mut("whoami_sentinel") else "aa:bb:cc:dd:ee:ff"
+        hdrs = {"X-TollGate-Client-MAC": resolved}
+        claimed = self._claimed_mac()
+        if claimed and claimed != resolved and not mut("identity_silent"):
+            hdrs["X-TollGate-Mac-Claim-Ignored"] = claimed
+        return hdrs
+
+    def _root_doc(self, extra=None):
         """GET / -- also what /session-state falls through to on a build that
         does not ship the endpoint (byte-identical is the whole point)."""
         kind = mut("root_kind") or 10021
@@ -218,7 +244,8 @@ class ApiHandler(Base):
         if not mut("root_degraded"):
             tags.append(["price_per_step", "cashu", "1", "sat", "https://mint.stub.invalid", "0"])
         return self._json(200, {"kind": kind, "id": "stub-id", "pubkey": "stub-pubkey",
-                                "created_at": 0, "tags": tags})
+                                "created_at": 0, "tags": tags},
+                          extra=self._identity_headers())
 
     def do_OPTIONS(self):
         extra = {}
@@ -255,21 +282,24 @@ class ApiHandler(Base):
             return self._root_doc()
         if path == "/whoami":
             mac = "00:00:00:00:00:00" if mut("whoami_sentinel") else "aa:bb:cc:dd:ee:ff"
-            return self._send(200, "mac=%s\n" % mac, "text/plain; charset=utf-8")
+            return self._send(200, "mac=%s\n" % mac, "text/plain; charset=utf-8",
+                              self._identity_headers())
         if path == "/balance":
             if mut("balance_malformed"):
-                return self._json(200, {"status": 1})
+                return self._json(200, {"status": 1}, extra=self._identity_headers())
             return self._json(200, {"status": 1, "session_active": bool(mut("balance_active")),
-                                    "usage": 0, "allotment": 0, "remaining": 0})
+                                    "usage": 0, "allotment": 0, "remaining": 0},
+                              extra=self._identity_headers())
         if path == "/usage":
             return self._send(200, "nonsense" if mut("usage_bad") else "-1/-1",
-                              "text/plain; charset=utf-8")
+                              "text/plain; charset=utf-8", self._identity_headers())
         if path == "/session-state":
             if mut("session_state"):
-                return self._json(200, {"session_active": False, "remaining": 0, "allotment": 0})
+                return self._json(200, {"session_active": False, "remaining": 0, "allotment": 0},
+                                  extra=self._identity_headers())
             # pre-#541 behaviour: the mux falls through to the root handler
             # -> BYTE-IDENTICAL to GET /, which is what the harness detects
-            return self._root_doc()
+            return self._root_doc(extra=self._identity_headers())
         if path == "/identity":
             return self._json(200, {"npub": "npub1stubstubstub", "ipv4": "100.64.0.1",
                                     "macs": {"br-lan": "aa:bb:cc:dd:ee:ff"}})
@@ -287,13 +317,18 @@ class ApiHandler(Base):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         if mut("empty_token_ok"):
-            return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"})
+            return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"},
+                              extra=self._identity_headers())
         if not body:
             return self._json(400, {"kind": 21023, "id": "stub-notice",
-                                    "content": "No payment tag found in event"})
+                                    "content": "No payment tag found in event"},
+                              extra=self._identity_headers())
         # a real token would be redeemed by the module; the stub only reports what
-        # the paid lane expects from a successful redemption.
-        return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"})
+        # the paid lane expects from a successful redemption -- including the
+        # signed device-identifier tag naming the client the grant went to.
+        return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted",
+                                "tags": [["device-identifier", "mac", "aa:bb:cc:dd:ee:ff"]]},
+                          extra=self._identity_headers())
 
 
 class CaptiveHandler(Base):
