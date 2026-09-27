@@ -74,12 +74,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
-- **The wired LAN ports' own bridge is decided — together with the half of that
+- **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
   `docs/architecture/lan-port-management-bridge-decision.md` answers the
   operator's report ("neither luci on 8080 nor the luci alternative config ui on
   port 8090 are reachable" from his Ethernet cable, which is a member of the
-  captive bridge `br-lan`). It decides that the wired ports move to a new
+  captive bridge `br-lan`). It proposes that the wired ports move to a new
   management bridge `br-mgmt` whose clients reach `:8080`/`:443` and
   `:8090`/`:8443` before paying, **and states that the bridge cannot also be a
   paywalled network**: nodogsplash 5.0.2 manages one interface
@@ -97,7 +97,9 @@ and [Semantic Versioning](https://semver.org/).
   evaluates and rejects the MAC-allow shortcut (`99-tollgate-setup:969-972` has
   already measured MACs as harvestable from 802.11 headers), and lists the
   seventeen assertions that must hold before the bridge ships. Docs-only.
-  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599))
+  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599);
+  review findings folded in by
+  [#600](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/600))
 
 - **The wired LAN ports move to a bridge of their own, `br-mgmt`: a cabled
   operator reaches the administration surfaces before paying, and the cable
@@ -1076,6 +1078,21 @@ and [Semantic Versioning](https://semver.org/).
   `mediatek-filogic`, `ramips-mt7621` and `ath79-generic`. A full run pulls
   three SDK images instead of six
   ([#539](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/539)).
+
+- **The merchant suite's notice, token-flow and log-hygiene tests are now
+  compiled by the lane CI actually runs.** `.github/workflows/test.yml` runs
+  each module with `./... -v -count=1 -race` and **no build tags**, so the six
+  test files in `src/merchant` that carried a `testenv` constraint — the
+  late-`Receive` notice tests, the token-flow characterisation, the log-hygiene
+  guard, the Lightning-state and quote wire-format tests, and the token
+  fixtures the flow tests are built on — were absent from that build: the lane
+  reported green while those tests never ran at all, and PRs had started adding
+  untagged copies to get the coverage back (#559 and #558 each did). The tag is
+  dropped, with `!cdk_wallet` kept exactly where it was load-bearing, and
+  `TestNoMerchantTestFileIsGatedOnTestenv` fails if any test file in the package
+  requires `testenv` again
+  ([#584](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/584)).
+
 
 ## [v0.6.0-alpha4] - 2026-09-22
 
