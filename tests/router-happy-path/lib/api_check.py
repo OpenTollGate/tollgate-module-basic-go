@@ -29,6 +29,20 @@ MAC_RE = re.compile(r"^mac=((?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})$")
 USAGE_RE = re.compile(r"^-?\d+/-?\d+$")
 SENTINEL = "00:00:00:00:00:00"
 
+# The client-identity contract of the API on :2121 (see docs/operator-guide.md,
+# "every client-scoped endpoint is socket-scoped"). Every client-scoped route
+# answers for the client at the other end of the SOCKET; a `?mac=` a caller sends
+# is a claim the module accepts for wire compatibility with the shipped portal
+# and never honours. It must not be ignored SILENTLY, though: measured on the
+# bench (MT3000, 2026-09-26) a rig that posted a token "for" a MAC it was not
+# using bought a session for its own socket, and nothing on the wire said so --
+# the rig read "no session on the MAC I named" as "the gate never opened".
+IDENTITY_HEADER = "X-TollGate-Client-MAC"       # the client the module answered for
+CLAIM_HEADER = "X-TollGate-Mac-Claim-Ignored"   # a claim it did NOT honour
+# A claim no run of this harness can be making: the checks below assert that this
+# address is never named as an identity, and that the module says it ignored it.
+CLAIM_MAC = "02:11:22:33:44:55"
+
 
 def chk(cid, status, detail=""):
     print("RHPCHECK %s %s %s" % (cid, status, detail), flush=True)
@@ -130,6 +144,51 @@ def jload(raw):
         return None
 
 
+def header(hdrs, name):
+    """Case-insensitive response-header lookup, or "" -- HTTP names are not case-sensitive."""
+    for k, v in (hdrs or {}).items():
+        if str(k).lower() == name.lower():
+            return str(v).strip()
+    return ""
+
+
+def granted_identity(obj, hdrs):
+    """Which client the module says it granted a purchase to, or "" if it says nothing.
+
+    Read from the module's OWN answer -- the signed ``device-identifier`` tag of the
+    session event (kind 1022), else the identity header on the same response -- and
+    never from the ``?mac=`` this harness sent, which does not decide it. See
+    resolve_mac().
+    """
+    tags = obj.get("tags") if isinstance(obj, dict) else None
+    for tag in tags or []:
+        if isinstance(tag, list) and len(tag) >= 3 and tag[0] == "device-identifier":
+            return str(tag[2]).strip().lower()
+    return header(hdrs, IDENTITY_HEADER).lower()
+
+
+def claim_failures(hdrs, label, socket_mac):
+    """Check one response against the socket-identity contract -> [reason, ...].
+
+    ``socket_mac`` is this harness's own address as /whoami reported it, or "" when
+    the router could not place us. The contract: the claim we sent is reported as
+    ignored BY NAME, the identity named is the socket's, and the claim is never
+    named as the identity.
+    """
+    bad = []
+    ignored = header(hdrs, CLAIM_HEADER).lower()
+    named = header(hdrs, IDENTITY_HEADER).lower()
+    if ignored != CLAIM_MAC:
+        bad.append("%s did not report the ?mac=%s it carried as ignored (%s=%r): a claim that is "
+                   "dropped silently is how a rig reads 'the gate never opened'"
+                   % (label, CLAIM_MAC, CLAIM_HEADER, ignored))
+    if named == CLAIM_MAC:
+        bad.append("%s named the caller's claim %s as the identity it acted for" % (label, CLAIM_MAC))
+    elif socket_mac and named != socket_mac:
+        bad.append("%s named %r as the client, want the socket-resolved %s" % (label, named, socket_mac))
+    return bad
+
+
 def api_base(args):
     return "http://%s:%d" % (args.router_ip, args.api_port)
 
@@ -137,8 +196,23 @@ def api_base(args):
 def resolve_mac(args):
     """This client's MAC as the router sees it (socket-derived), or "" if unknown.
 
-    Purchase requests must be bound to a real MAC: redeeming a token against the
-    all-zero sentinel would grant access to nothing (or, worse, to somebody else).
+    Read from ``GET /whoami``, which answers from the request's source IP: the
+    module takes an identity from the socket and from nothing the caller sends.
+    The value is what THIS harness compares against — its preconditions, and the
+    identity the module reports back on a purchase — and it is also passed along
+    as ``?mac=``, which the module accepts for wire compatibility with the
+    shipped portal and IGNORES.
+
+    Do not read that ``?mac=`` as a binding. The grant goes to the socket the
+    request came from, never to the address in the query string, so a run that
+    posts a token "for" a MAC this harness is not itself using buys a session for
+    the harness's own address (measured on the bench, MT3000, 2026-09-26 — the
+    rig then read "no session on the MAC I named" as "the gate never opened").
+    The paid lane below therefore checks the identity in the module's own answer
+    against THIS value instead of trusting the claim.
+
+    The all-zero sentinel is never accepted as an identity: redeeming a token
+    against it would grant access to nothing (or, worse, to somebody else).
     """
     if args.mac:
         return args.mac
@@ -225,7 +299,10 @@ def check_api(args):
             chk("api:root-full-mode", "PASS" if mints_ok else "FAIL",
                 "%d cashu price_per_step mints: %s" % (len(mints), ", ".join(str(t[4]) for t in mints[:4])))
 
-    st, raw, _ = request(base + "/whoami")
+    # The claim rides on the requests this lane already makes: the parameter is
+    # documented as ignored, so asking WITH it must not change the answer -- and
+    # asking with it is what proves the module says so out loud (id_fail below).
+    st, raw, whoami_hdrs = request(base + "/whoami?mac=" + CLAIM_MAC)
     mac = ""
     if st != 200:
         chk("api:whoami-shape", "FAIL", "GET /whoami -> HTTP %s" % st)
@@ -244,7 +321,7 @@ def check_api(args):
     else:
         chk("api:whoami-not-sentinel", "FAIL", "no MAC resolved, cannot rule out the sentinel")
 
-    st, raw, _ = request(base + "/balance")
+    st, raw, balance_hdrs = request(base + "/balance?mac=" + CLAIM_MAC)
     balance = jload(raw)
     need = ["status", "session_active", "usage", "allotment", "remaining"]
     if st != 200:
@@ -269,7 +346,7 @@ def check_api(args):
     if balance is not None:
         note("api:box-idle session_active=%s (the paid lane requires false)" % balance.get("session_active"))
 
-    st, raw, _ = request(base + "/usage")
+    st, raw, usage_hdrs = request(base + "/usage?mac=" + CLAIM_MAC)
     text = raw.decode("utf-8", "replace").strip()
     if st != 200:
         chk("api:usage-shape", "FAIL", "GET /usage -> HTTP %s" % st)
@@ -282,7 +359,7 @@ def check_api(args):
     # falls through to "/" and answers with the advertisement document. Report
     # that as an honest SKIP, never as a PASS, and never as a FAIL unless the
     # caller says this build must ship it (--strict).
-    st, raw, _ = request(base + "/session-state")
+    st, raw, state_hdrs = request(base + "/session-state?mac=" + CLAIM_MAC)
     if st is None:
         chk("api:session-state", "FAIL", "GET /session-state -> transport failure %s" % raw[:120])
     elif st != 200:
@@ -319,6 +396,26 @@ def check_api(args):
                 chk("api:identity-shape", "FAIL", "/identity -> unexpected shape: %r" % raw[:120])
         else:
             chk("api:identity-shape", "FAIL", "/identity -> not JSON: %r" % raw[:120])
+
+    # The socket-identity contract, collected from the responses above (the money
+    # route is covered by the paid lane, which reads the identity out of the
+    # module's own kind:1022 answer). A build that predates the contract cannot
+    # report a claim as ignored, so a silent ignore is a FAIL and never a SKIP:
+    # this harness runs against OUR artifacts, and a rig that cannot tell which
+    # client was served is exactly the instrument failure this check prevents.
+    id_fail = []
+    for label, hdrs in (("/whoami", whoami_hdrs), ("/balance", balance_hdrs),
+                        ("/usage", usage_hdrs), ("/session-state", state_hdrs)):
+        id_fail += claim_failures(hdrs, label, mac)
+    if id_fail:
+        chk("api:identity-contract", "FAIL",
+            "?mac=%s was not reported as an ignored claim on every client-scoped route: %s"
+            % (CLAIM_MAC, "; ".join(id_fail)))
+    else:
+        chk("api:identity-contract", "PASS",
+            "?mac=%s is reported as ignored (%s) and the identity named is the socket-resolved "
+            "%s (%s), on /whoami, /balance, /usage and /session-state"
+            % (CLAIM_MAC, CLAIM_HEADER, mac or "unresolved", IDENTITY_HEADER))
 
     st, raw, hdrs = request(base + "/ln-invoice", method="OPTIONS")
     allow = hdrs.get("Access-Control-Allow-Methods", "")
@@ -446,7 +543,7 @@ def paid_lane(args):
             "against the all-zero sentinel")
         chk("paid:session-flip", "SKIP", "no purchase attempted")
         return
-    st, raw, _ = request(base + "/?mac=%s" % mac, method="POST", body=token.encode("utf-8"))
+    st, raw, hdrs = request(base + "/?mac=%s" % mac, method="POST", body=token.encode("utf-8"))
     obj = jload(raw)
     kind = obj.get("kind") if isinstance(obj, dict) else None
     if st == 200 and kind == 1022:
@@ -456,6 +553,27 @@ def paid_lane(args):
         chk("paid:purchase-accepted", "FAIL",
             "POST / -> HTTP %s kind=%r body=%r" % (st, kind, raw[:200]))
         return
+
+    # Which client did the module actually grant this to? The `?mac=` above did
+    # not decide it — the socket did — so assert against the module's OWN answer:
+    # the session event's signed `device-identifier` tag, or the identity header
+    # on the same response. A mismatch means this run is paying for a device that
+    # is not the one being measured (the harness resolves its MAC from /whoami),
+    # and every conclusion drawn from the session it opened would be about the
+    # wrong client.
+    granted = granted_identity(obj, hdrs)
+    if granted == mac:
+        chk("paid:grant-identity", "PASS",
+            "POST / granted the session to %s — the socket this harness requested from, as the module reports it" % granted)
+    elif not granted:
+        chk("paid:grant-identity", "FAIL",
+            "POST / -> 200 kind:1022 with no identity to check: neither a device-identifier tag nor "
+            "an %s header on the response (body=%r)" % (IDENTITY_HEADER, raw[:200]))
+    else:
+        chk("paid:grant-identity", "FAIL",
+            "POST / was granted to %s, not to this harness's socket identity %s: the purchase is real, "
+            "but it belongs to another device — do not read this run's session checks as this client's"
+            % (granted, mac))
 
     st2, raw2, _ = request(base + "/balance")
     bal = jload(raw2)
