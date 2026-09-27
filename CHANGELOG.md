@@ -1181,7 +1181,8 @@ and [Semantic Versioning](https://semver.org/).
   producing a local `.ipk` whose captive portal renders nothing. It now
   exits with a `make portal-build` instruction before any toolchain work
   when the staged files are missing (pinned by
-  `tests/packaging/local-build-ipk-guard_test.sh`).
+  `tests/packaging/local-build-ipk-guard_test.sh`)
+  ([#556](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/556)).
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
