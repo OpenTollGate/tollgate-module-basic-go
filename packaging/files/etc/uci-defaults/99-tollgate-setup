@@ -1743,6 +1743,181 @@ setup_private_network() {
     uci set firewall.private_forwarding.dest='wan'
 }
 
+# -- the wired LAN ports: their own bridge ------------------------------------
+#
+# The wired LAN ports are MOVED off the captive bridge onto one of their own
+# (br-mgmt). Two things come out of that, and a third deliberately does not:
+#
+#   * the lockout ends. The two administration guards
+#     (31-admin-board-not-guest-reachable.nft, 32-luci-not-guest-reachable.nft)
+#     and nodogsplash's pre-auth allow list are all scoped to the CAPTIVE bridge
+#     by name, so on br-mgmt the board (:8090/:8443) and LuCI (:8080/:443) answer
+#     before anything is paid — see 33-mgmt-bridge-scope.nft for why that is the
+#     right trust boundary for a cable and not for an open SSID;
+#   * the sharing ends. The operator's port stops sitting in the same layer-2
+#     domain as the strangers on the open guest SSID — the exposure the
+#     isolation comment above records as unclosable by bridge-port isolation
+#     (the wired port is the one the repo could not separate, and the mechanism
+#     that comment names is a dedicated bridge);
+#   * the wired port does NOT become a selling network. One nodogsplash gates
+#     one bridge, so br-mgmt has no captive gate; a second instance is startable
+#     and unsafe (shared `nds*` chain names, name-scoped teardown, one control
+#     socket) and its failure mode is a bridge with free internet. br-mgmt is a
+#     MANAGEMENT network: no forwarding to the WAN, and the payment surfaces
+#     (:2050, :2051, :2121) kept off it, because a network this module cannot
+#     gate must not take money it cannot deliver (the paid purchase would fail
+#     in the single instance's `ndsctl` with `Client <mac> not found.`). A
+#     paywalled wired network is the F1/F2 follow-up in the ADR, not this
+#     writer. Decision, evidence and rejected alternatives:
+#     docs/architecture/lan-port-management-bridge-decision.md (PR #599).
+#
+# IDEMPOTENT AND CONVERGENT BY CONSTRUCTION. The port list is IMAGE-OWNED
+# (/bin/config_generate writes `list ports` from board.json), so a factory reset
+# or a `sysupgrade -n` puts the wired port back on the captive bridge and
+# nothing else in this repository would notice. The writer therefore reads what
+# is on the captive bridge's device section RIGHT NOW, appends whatever is not
+# already on br-mgmt, and clears the captive bridge's list — a converged router
+# is a no-op, a reset router is repaired, and the port is never named
+# (eth1/lan1/... differ per board).
+#
+# FAIL LOUDLY, CHANGE NOTHING. The one case that cannot be repaired here is a
+# captive bridge with no port list while br-mgmt holds none either: there is
+# nothing to move, and writing a portless br-mgmt would report a management
+# bridge the operator has no way into. That case logs an ERROR and writes
+# nothing at all — every precondition is checked before the first `uci set`.
+#
+# The address: the bridge keeps whatever `network.mgmt.ipaddr` already says (a
+# reinstall must not move an address the operator may have chosen), and takes
+# the first free /24 next to the LAN's otherwise, skipping the private
+# network's — br-private defaults to the LAN+1 case, and two bridges on one /24
+# is a broken router. Reuses the collision helpers above, so an upstream-side
+# collision moves it the same way the private subnet moves.
+setup_mgmt_bridge() {
+    local lan_dev sec idx ports mgmt_ports p converged=0
+    local lan_ip lan_mask lan_prefix lan_octet3 occupied cand step octet existing_ip mgmt_ip mgmt_prefix
+
+    lan_dev=$(uci -q get network.lan.device 2>/dev/null)
+    [ -n "$lan_dev" ] || lan_dev="br-lan"
+
+    # Device sections are anonymous in a shipped config (config_generate writes
+    # `add network device` + `option name 'br-lan'`), so the section that holds
+    # the wired ports is found by its name, not addressed by an index we guess.
+    sec=""
+    idx=0
+    while [ "$idx" -lt 24 ]; do
+        if [ "$(uci -q get "network.@device[$idx].name" 2>/dev/null)" = "$lan_dev" ]; then
+            sec="network.@device[$idx]"
+            break
+        fi
+        idx=$((idx + 1))
+    done
+
+    ports=""
+    [ -n "$sec" ] && ports=$(uci -q get "$sec.ports" 2>/dev/null)
+    mgmt_ports=$(uci -q get network.mgmt_bridge.ports 2>/dev/null)
+
+    # ---- preconditions: nothing is written until all of them pass ----------
+    if [ -z "$ports" ] && [ -z "$mgmt_ports" ]; then
+        log "ERROR: skipping the wired-LAN management bridge — ${lan_dev} declares no device ports and br-mgmt holds none, so there is nothing to move. The wired LAN ports stay on ${lan_dev}; nothing was changed."
+        return 1
+    fi
+    if [ -z "$ports" ]; then
+        converged=1
+    fi
+
+    existing_ip=$(uci -q get network.mgmt.ipaddr 2>/dev/null)
+    if [ -n "$existing_ip" ]; then
+        mgmt_ip="$existing_ip"
+    else
+        lan_ip=$(uci -q get network.lan.ipaddr 2>/dev/null)
+        if [ -z "$lan_ip" ]; then
+            log "ERROR: skipping the wired-LAN management bridge — no network.lan.ipaddr to derive its address from. Nothing was changed."
+            return 1
+        fi
+        lan_mask=$(uci -q get network.lan.netmask 2>/dev/null)
+        [ -n "$lan_mask" ] || lan_mask="255.255.255.0"
+        occupied="${lan_ip}/$(netmask_to_prefixlen "$lan_mask")"
+        private_ip=$(uci -q get network.private.ipaddr 2>/dev/null)
+        [ -n "$private_ip" ] && occupied="$occupied ${private_ip}/24"
+        for cand in $(upstream_networks); do
+            occupied="$occupied $cand"
+        done
+
+        lan_prefix=$(prefix24_of "$lan_ip")
+        lan_octet3=$(octet_of "$lan_prefix" 3)
+        mgmt_prefix=""
+        step=1
+        while [ "$step" -le 3 ]; do
+            octet=$(( (lan_octet3 + step) % 256 ))
+            # .0 and .255 are not offered: an address that looks like a
+            # broadcast is a support call, not a management subnet.
+            if [ "$octet" -ne 0 ] && [ "$octet" -ne 255 ]; then
+                cand="$(octet_of "$lan_prefix" 1).$(octet_of "$lan_prefix" 2).${octet}"
+                if ! subnet_conflicts "$cand" $occupied; then
+                    mgmt_prefix="$cand"
+                    break
+                fi
+            fi
+            step=$((step + 1))
+        done
+        if [ -z "$mgmt_prefix" ]; then
+            cand="$(octet_of "$lan_prefix" 1).$(octet_of "$lan_prefix" 2).$(( (lan_octet3 + 1) % 256 ))"
+            mgmt_prefix=$(choose_private_subnet "$cand" $occupied)
+        fi
+        mgmt_ip="${mgmt_prefix}.1"
+        log "Management bridge br-mgmt: ${mgmt_ip}/24 (first free /24 next to the LAN's, skipping the private network's)"
+    fi
+
+    # ---- writes -----------------------------------------------------------
+    uci set network.mgmt='interface'
+    uci set network.mgmt.proto='static'
+    uci set network.mgmt.device='br-mgmt'
+    uci set network.mgmt.ipaddr="$mgmt_ip"
+    uci set network.mgmt.netmask='255.255.255.0'
+    # No IPv6: the posture setup_disable_ipv6_lan takes for the captive bridge,
+    # and the reason 33-mgmt-bridge-scope.nft drops the family outright.
+    uci set network.mgmt.ip6assign='0'
+
+    uci set network.mgmt_bridge='device'
+    uci set network.mgmt_bridge.type='bridge'
+    uci set network.mgmt_bridge.name='br-mgmt'
+
+    if [ "$converged" = 0 ]; then
+        for p in $ports; do
+            case " $(echo $mgmt_ports) " in
+                *" $p "*) : ;;
+                *) uci add_list network.mgmt_bridge.ports="$p" ; mgmt_ports="$mgmt_ports $p" ;;
+            esac
+        done
+        uci -q delete "$sec.ports" 2>/dev/null
+        log "Wired LAN ports moved from ${lan_dev} to br-mgmt ($(echo $ports | tr '\n' ' '))"
+    else
+        log "Wired LAN ports already on br-mgmt ($(echo $mgmt_ports | tr '\n' ' ')); nothing to move"
+    fi
+
+    uci set dhcp.mgmt='dhcp'
+    uci set dhcp.mgmt.interface='mgmt'
+    uci set dhcp.mgmt.start='100'
+    uci set dhcp.mgmt.limit='150'
+    uci set dhcp.mgmt.leasetime='12h'
+    uci set dhcp.mgmt.ra='disabled'
+    uci set dhcp.mgmt.dhcpv6='disabled'
+
+    # Its own zone, NOT firewall.private_zone: that zone is forward 'ACCEPT' and
+    # carries a `private -> wan` forwarding, i.e. reusing it would hand every
+    # wired client free internet — the hole this change exists not to create.
+    # input ACCEPT is what lets the allow list in 33-mgmt-bridge-scope.nft be
+    # the thing that decides reachability (fw4 needs the zone permissive for
+    # DHCP/DNS/SSH/the admin ports to work at all); forward REJECT is the "no
+    # way out" half, and no `config forwarding` is created for this zone.
+    uci set firewall.mgmt_zone='zone'
+    uci set firewall.mgmt_zone.name='mgmt'
+    uci set firewall.mgmt_zone.network='mgmt'
+    uci set firewall.mgmt_zone.input='ACCEPT'
+    uci set firewall.mgmt_zone.output='ACCEPT'
+    uci set firewall.mgmt_zone.forward='REJECT'
+}
+
 commit_all() {
     uci commit system
     uci commit network
@@ -1861,6 +2036,36 @@ if [ "$BRANCH" != "FULL" ]; then
         log "nodogsplash allow list already complete — nothing to commit"
     fi
 
+    # The wired LAN ports' bridge is re-asserted here for the same reason the
+    # uhttpd contract and the allow list are: the port list is IMAGE-OWNED, so a
+    # factory reset or a `sysupgrade -n` puts the wired port back on the captive
+    # bridge — and a router that was merely reinstalled would leave the operator
+    # locked out of the admin surfaces he can reach from that port, which is the
+    # defect setup_mgmt_bridge exists to fix. The writer is idempotent (it moves
+    # only what is on the captive bridge and not already on br-mgmt), so a
+    # converged router changes nothing; each of the three configs it writes is
+    # committed only when its export actually differs, and an unreadable export
+    # commits unconditionally rather than drop a delta.
+    net_before=$(uci export network)
+    dhcp_before=$(uci export dhcp)
+    firewall_before=$(uci export firewall)
+    setup_mgmt_bridge
+    net_after=$(uci export network)
+    dhcp_after=$(uci export dhcp)
+    firewall_after=$(uci export firewall)
+    if [ -z "$net_before" ] || [ "$net_before" != "$net_after" ]; then
+        uci commit network
+        log "network config re-asserted (wired LAN ports on br-mgmt)"
+    fi
+    if [ -z "$dhcp_before" ] || [ "$dhcp_before" != "$dhcp_after" ]; then
+        uci commit dhcp
+        log "dhcp config re-asserted (br-mgmt lease)"
+    fi
+    if [ -z "$firewall_before" ] || [ "$firewall_before" != "$firewall_after" ]; then
+        uci commit firewall
+        log "firewall config re-asserted (mgmt zone)"
+    fi
+
     # The #428 loop guard must also fire here: a device upgrading from a
     # pre-#432 install can carry a stale gatewaydomainname while its
     # SETUP_VERSION already matches (postinst and the boot hook re-run
@@ -1920,6 +2125,7 @@ setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
+setup_mgmt_bridge            # moves the wired LAN ports off the captive bridge
 commit_all
 
 # The router's TLS identity is provisioned and re-derived LAST on this path, after

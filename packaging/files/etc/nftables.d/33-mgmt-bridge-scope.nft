@@ -1,0 +1,86 @@
+#!/usr/sbin/nft -f
+
+# Scope the wired management bridge (br-mgmt) to the administration surfaces.
+#
+# This include is loaded inside fw4's `inet` table (same shape as
+# 20-nds-enforce.nft, 30-backend-firewall.nft, 31-admin-board-not-guest-reachable.nft
+# and 32-luci-not-guest-reachable.nft), so it runs on `fw4 reload` and survives a
+# nodogsplash restart.
+#
+# WHAT br-mgmt IS. The wired LAN ports are moved off the captive bridge onto a
+# bridge of their own by `setup_mgmt_bridge` in 99-tollgate-setup, so the port an
+# operator administers from stops sharing a layer-2 domain with the strangers on
+# the open guest SSID, and so the administration surfaces answer his cable
+# before he pays anything. The decision, the evidence and the rejected
+# alternatives are docs/architecture/lan-port-management-bridge-decision.md
+# (PR #599). This fragment is its D4/D5 half: the bridge is an ALLOW LIST of
+# administration surfaces and nothing else.
+#
+# WHY AN ALLOW LIST AND NOT A BLACKLIST. Because it has to carry a property a
+# blacklist cannot state: br-mgmt cannot transact. One nodogsplash process gates
+# exactly one bridge (a single `gw_interface`, fixed shared `nds*` chain names,
+# one control socket), so the wired bridge has NO captive gate. A client on a
+# bridge this module cannot gate must not be able to buy: it resolves a MAC
+# through the dnsmasq lease it gets from `dhcp.mgmt`, can be quoted, can pay, and
+# the grant then fails in the single instance's `ndsctl` answer
+# `Client <mac> not found.` — money taken, nothing delivered. So the payment
+# surfaces (`:2050`, `:2051`, `:2121`) are deliberately NOT in the allow list,
+# and the catch-all drop below is what makes that structural rather than
+# incidental: `:2121` is a bridge that sells. Reopening any of the three belongs
+# to the F1/F2 follow-up in the ADR (a real second gate), not to a wider list.
+#
+# WHY THE ADMIN PORTS ARE REACHABLE HERE. `:443`/`:8080` (LuCI, uhttpd.main) and
+# `:8090`/`:8443` (the TollGate board, uhttpd.admin) are dropped on the CAPTIVE
+# bridge by 32-luci-not-guest-reachable.nft and
+# 31-admin-board-not-guest-reachable.nft, both of which match `iifname "br-lan"`.
+# Those guards are about a stranger on an open SSID — the board is a
+# root-capable login (`file:["exec"]`, `system:["password_set"]`,
+# `tollgate wallet_drain_cashu` behind rpcd's session) and :8090 serves it over
+# cleartext HTTP. br-mgmt holds no stranger: reaching it means walking to the
+# router and plugging in a cable, which is the same trust boundary as the
+# operator's own hands. That is why the four ports are reachable here and stay
+# dropped there, and why this fragment must never be extended to `br-lan` and the
+# two guards must never be extended to `br-mgmt` (both directions are pinned by
+# tests/packaging/mgmt-bridge-scope_test.sh).
+#
+# WHAT IS DROPPED, INCLUDING BY THE CATCH-ALL: everything that is not DHCP, DNS,
+# SSH or one of the four administration ports. No forwarding to the WAN exists
+# for this bridge either (`firewall.mgmt_zone` has `forward 'REJECT'` and no
+# `config forwarding`), so the cable has no internet at all — that is the
+# deliberate consequence of "one gate" that makes the payment-surface half
+# honest, not an oversight. ICMP is dropped too: a ping to the router's own
+# address fails by design here; `:22` is the diagnostic path.
+#
+# CAVEAT, same as 30-backend-firewall.nft:15-17 — this assumes the wired
+# management bridge is named br-mgmt, which is what `setup_mgmt_bridge` writes.
+# An operator who renamed it loses this rule and nothing else (the ports then
+# fall back to the zone's input policy).
+
+chain mgmt_bridge_scope {
+	type filter hook input priority -1; policy accept
+
+	# What a client needs to exist on this bridge at all: a lease and DNS.
+	meta nfproto ipv4 iifname "br-mgmt" udp dport { 53, 67, 68 } counter accept
+	meta nfproto ipv4 iifname "br-mgmt" tcp dport 53 counter accept
+
+	# SSH: one of the two documented recovery paths (the other is the private
+	# SSID), and the only diagnostic that works here because ICMP is dropped.
+	meta nfproto ipv4 iifname "br-mgmt" tcp dport 22 counter accept
+
+	# The four administration surfaces: LuCI (:8080, and the :443 TLS listener
+	# uhttpd.main opens when a cert/key exists) and the board (:8090, and its
+	# opt-in :8443 TLS listener). See the header for why they are reachable
+	# here and nowhere else.
+	meta nfproto ipv4 iifname "br-mgmt" tcp dport { 443, 8080, 8090, 8443 } counter accept
+
+	# No IPv6 is configured on this bridge (`network.mgmt.ip6assign='0'`,
+	# `dhcp.mgmt.ra`/`dhcpv6` disabled — the same posture the captive bridge
+	# takes in setup_disable_ipv6_lan), so nothing legitimate arrives over IPv6
+	# and the family is dropped outright rather than left to the zone policy.
+	meta nfproto ipv6 iifname "br-mgmt" counter drop
+
+	# The tail: everything else from the wired bridge, including the payment
+	# surfaces (`:2050`, `:2051`, `:2121`) and any path off the router that is
+	# not one of the accepts above. Keep it last.
+	meta nfproto ipv4 iifname "br-mgmt" counter drop
+}
