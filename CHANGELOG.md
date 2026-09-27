@@ -170,6 +170,35 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The board is the default face — decided, with the switch, the cross-link
+  rules, and the reason it is not a one-repo change.**
+  `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
+  decision of 2026-09-26: the hostname/entry point opens the **board**, LuCI stays
+  available but secondary, through a cross-link button in the board UI and a
+  config switch (`entry_ui ∈ {board, luci}`, default `board`) for what the
+  hostname/ports serve. The record fixes the mapping (`board`: entry pair
+  `:8080`/`:443` answered by `uhttpd.admin`, secondary `:8090`/`:8443` by LuCI;
+  `luci`: today's mapping), shows that **ports move and webroots do not** — so no
+  guard fragment, no pre-auth entry and no guest-path byte changes, and the whole
+  change reverts with one value — and gives the mechanism reason two instances
+  exist at all (uhttpd resolves one docroot per instance and resolves CGI against
+  it; `/www` on the board's port served LuCI's CGI in the 2026-09-20 incident,
+  `92-tollgate-admin-setup` header). Three defects it has to answer are read from
+  source: the release guide called LuCI's URL "the admin UI" (`:419` vs `:442`,
+  the inconsistency #593 left), the board SPA's own cross-link is
+  `http://<host>:8080/` (portal `admin/src/routes/login.tsx:336`) — cleartext,
+  hardcoded, and self-referential once `:8080` answers the board — and the
+  board's opt-in `:8443` still serves the image's placeholder identity because
+  portal `92` keys it off `/etc/uhttpd.crt` while the module's generator writes
+  `/etc/tollgate/ssl/server.{crt,key}` (`src/cmd/tollgate-cli/ssl.go:23-31`).
+  Two things the record decides *against* shipping blind: a half-converged pair
+  must degrade to today's mapping rather than have two sections claim one port
+  (the mode-aware `92` announces the protocol; `99` honours `board` only when it
+  does), so the `board` default is release-gated on the feed vendoring both halves
+  (D4), and a cross-link is rendered only from a router answer
+  (`tollgate ui links --json`, HTTPS-only, same host, no hardcoded port) or not at
+  all. This PR is docs-only: the record plus the guide correction.
+  ([#603](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/603))
 - **The payment pre-flight's test seam is per merchant, so the `-race` gate
   stops racing.** `stubPreflightProbe` wrote the package-level probe
   (`ndsClientCheck`) and retry delay (`preflightRetryDelay`) that the
