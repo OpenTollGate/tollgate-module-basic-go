@@ -440,7 +440,11 @@ identity is self-signed and carries the router's hostname, its `<hostname>.lan`
 alias and its LAN address; the `:8080` → `https://` hop is enabled **only** while
 the certificate uhttpd serves actually covers the address you used. So:
 
-- Log in at **`https://<hostname>.lan/`** (or `https://<LAN IP>/`). Expect the
+- Log in at **`https://<LAN IP>/`** — the LAN address is in the certificate's SANs
+  and needs no resolver, so it is the URL to start from. `https://<hostname>.lan/`
+  should work as well (setup writes the dnsmasq entry for the alias), but if that
+  name does not resolve on your network, use the address: an unresolved alias is
+  a DNS answer, not a certificate problem. Expect the
   usual browser interstitial for a self-signed certificate — *"Your connection
   is not private"* / *"Not secure"* — and proceed through it. That is the
   expected warning, and it is not a defect worth reporting on its own.
