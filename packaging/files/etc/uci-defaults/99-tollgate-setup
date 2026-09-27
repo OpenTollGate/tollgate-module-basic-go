@@ -349,8 +349,10 @@ load_brand() {
 # deploy, and a private SSID with a third suffix — three names, one router.
 #
 # The store is /etc/config/tollgate. It survives an in-place reinstall
-# (apk/opkg), an upgrade, and a sysupgrade that keeps settings (OpenWrt keeps
-# /etc/config/*; see packaging/files/lib/upgrade/keep.d/tollgate). A sysupgrade
+# (apk/opkg), an upgrade, and a sysupgrade that keeps settings: this repo's own
+# preservation contract is packaging/files/lib/upgrade/keep.d/tollgate, and
+# /etc/config/tollgate is LISTED there (stock OpenWrt keeps /etc/config/* as
+# well, but the listed set is the one this repo documents and tests). A sysupgrade
 # with a wipe, or a factory reset, has no store by definition and therefore
 # mints a new code — that is the ONLY case in which the code changes.
 #
@@ -360,9 +362,16 @@ load_brand() {
 #
 # THE CONTRACT IS SHARED with the installer (OpenTollGate/tollgate-installer,
 # deploy.go: resolveDeviceIdentity + brandingCommands): the same store, the same
-# adoption order, the same mint alphabet. Both sides pin the same case table —
+# adoption order, the same mint alphabet. Both sides pin the case table —
 # tests/uci-defaults-device-code_test.sh here, branding_test.go there — so a
 # change to the order or the alphabet on one side fails the other's tests.
+#
+# Two things are NOT shared, and are documented rather than claimed to match
+# (docs/architecture/one-device-code.md): the nym CHARSET — safe_nym below is
+# [A-Za-z0-9_-], while the installer's ssid_safe refuses only the empty string
+# and a value carrying a quote, so a prefix like "my nym" is adopted and stored
+# there and refused here — and the nodogsplash BANNER, which the installer
+# writes as the captive SSID with no " Portal" suffix.
 # See docs/architecture/one-device-code.md for the decision record.
 DEVICE_CODE_STORE="${DEVICE_CODE_STORE:-/etc/config/tollgate}"
 DEVICE_CODE_DEFAULT_NYM="c08r4d0r"
@@ -2073,11 +2082,30 @@ if [ "$BRANCH" != "FULL" ]; then
     setup_device_identity
     GATEWAY_NAME=$(captive_ssid_for_code "$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null)")
     log "Gateway name on the repair path: ${GATEWAY_NAME}"
-    # nodogsplash's gatewayname is machine-owned on every path (the full setup
-    # writes it from the same value), so it converges with the SSID above
-    # instead of keeping the pre-convergence name in the portal banner.
+    # nodogsplash's gatewayname is machine-owned on EVERY path, and both paths
+    # write the SAME string: the brand's captive-SSID name plus the banner
+    # suffix " Portal" — the exact value the full setup (setup_nodogsplash) has
+    # always written. The suffix-less form this block used to write was a second
+    # spelling, so the portal banner flapped between the two writers; the banner
+    # is a user-visible string, so the pre-existing one wins.
+    #
+    # The write is COMMITTED here, in the block that makes it, and NOT left to
+    # the export diff further down: this block runs BEFORE that snapshot
+    # (nds_before) is taken, so a gatewayname-only change could never be the
+    # reason that commit fires and would stay an uncommitted /tmp/.uci session
+    # delta — the config file keeps the old banner, the convergence is lost at
+    # the next reboot, and any LATER `uci commit nodogsplash` (the
+    # gatewaydomainname delete below, or a repair that also drifts the allow
+    # list) re-applies the stale delta on top of the file. That is exactly the
+    # session-delta hazard this file warns about at the top.
     if uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
-        uci -q set nodogsplash.@nodogsplash[0].gatewayname="$GATEWAY_NAME"
+        if [ "$(uci -q get nodogsplash.@nodogsplash[0].gatewayname 2>/dev/null)" != "${GATEWAY_NAME} Portal" ]; then
+            uci -q set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+            uci commit nodogsplash
+            log "nodogsplash gatewayname converged on '${GATEWAY_NAME} Portal' and committed"
+        else
+            log "nodogsplash gatewayname already '${GATEWAY_NAME} Portal' — nothing to commit"
+        fi
     fi
 
     detect_band_radios
