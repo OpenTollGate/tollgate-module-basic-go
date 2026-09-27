@@ -2117,6 +2117,17 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 
 	m.sessionMu.RLock()
 	session, exists := m.customerSessions[macAddress]
+	if exists {
+		// Clone INSIDE the read lock. `attachmentUsage` is written in place by the
+		// usage monitor on every sweep (noteAttachmentUsage), so a clone taken
+		// after RUnlock reads a field of a record that is still live: a data race
+		// (the shipped suites never polled concurrently with the monitor, which is
+		// how it stayed invisible) and, on the 32-bit mips/mipsel router targets, a
+		// torn uint64 read is a real misread. Cloning here keeps the invariant the
+		// rest of this method already assumes: nothing reads a shared record
+		// outside sessionMu.
+		session = cloneCustomerSession(session)
+	}
 	m.sessionMu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionNotFound, macAddress)
@@ -2134,7 +2145,8 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionExpired, macAddress)
 	}
 
-	return cloneCustomerSession(session), nil
+	// Already a clone: it was taken under the read lock above.
+	return session, nil
 }
 
 // GetSessionState reports the machine-readable session state of a MAC, so a
