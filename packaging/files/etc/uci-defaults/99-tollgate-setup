@@ -416,11 +416,14 @@ is_minted_suffix() {
 # joined with " && " and run as root on the router. A value carrying a quote
 # would end that quote and let the rest be read as shell syntax, so an adopted
 # prefix is charset-checked here exactly like the stored one:
-# resolve_nym's first branch. Empty output means "not a nym" — fall through to
-# the default rather than propagate the value.
+# resolve_nym's first branch.
+#
+# It is a predicate as well as a filter: a value that is not a nym produces no
+# output AND exits non-zero, so `if safe_nym "$x"` cannot read a refusal as
+# success. The call sites test the output, which is the same verdict.
 safe_nym() {
     case "$1" in
-        ''|*[!A-Za-z0-9_-]*) return 0 ;;
+        ''|*[!A-Za-z0-9_-]*) return 1 ;;
         *) printf '%s\n' "$1" ;;
     esac
 }

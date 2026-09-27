@@ -138,6 +138,13 @@ Both halves pin the behaviour: `tests/uci-defaults-device-code_test.sh` and
 "a value that cannot be quoted is neither adopted nor preserved",
 `TestPrivateSSIDCommandRefusesAValueItCannotQuote`).
 
+One asymmetry is deliberate and worth stating for an operator: a renamed private
+SSID containing a quote is safe **here** (this script hands values to `uci` as
+argv, with shell quoting), so it stays the operator's name across a reinstall —
+but the installer's write cannot carry that value and refuses it, so the same
+network converges on `<nym>-<code>` at the next **deploy** (an operator action,
+not a reinstall). Each layer is individually safe; the end state is the code.
+
 ## Consequences
 
 * **A code is stable across reinstall, upgrade and a sysupgrade that keeps

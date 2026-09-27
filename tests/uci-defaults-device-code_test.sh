@@ -151,6 +151,12 @@ eq "a hyphen and an underscore pass"  "$(safe_nym a-b_c)"       "a-b_c"
 eq "a quote is refused"               "$(safe_nym "x';reboot")" ""
 eq "a space is refused"               "$(safe_nym 'my nym')"    ""
 eq "empty is refused"                 "$(safe_nym '')"          ""
+# The name reads like a predicate, so it must behave like one: a refusal exits
+# non-zero, or a future `if safe_nym "$x"` would read an unsafe value as safe.
+safe_nym amperstrand >/dev/null 2>&1 && ok "a nym exits zero" \
+                                     || bad "a nym exits zero"
+safe_nym "x'y" >/dev/null 2>&1 && bad "a refused value must exit non-zero" \
+                               || ok "a refused value exits non-zero (safe as a predicate)"
 
 echo "== mint_device_code (four characters of [A-Z0-9], never a bare prefix)"
 minted="$(mint_device_code)"
@@ -278,6 +284,9 @@ grep -q '^    setup_device_identity$' "$ROOT/$SCRIPT" \
 grep -q 'GATEWAY_NAME=$(captive_ssid_for_code' "$ROOT/$SCRIPT" \
     && ok "the repair path preserves an operator-named captive SSID" \
     || bad "the repair path forces the brand SSID on every router (a reinstall would rename the operator's open network)"
+grep -q -F 'uci -q set nodogsplash.@nodogsplash[0].gatewayname="$GATEWAY_NAME"' "$ROOT/$SCRIPT" \
+    && ok "the repair path converges nodogsplash's gatewayname with the SSID" \
+    || bad "the repair path leaves nodogsplash's gatewayname on the pre-convergence name (the banner disagrees with the SSID)"
 grep -q '^setup_device_identity ' "$ROOT/$SCRIPT" \
     && ok "the full-setup path resolves the code" \
     || bad "the full-setup path does not resolve the code"
