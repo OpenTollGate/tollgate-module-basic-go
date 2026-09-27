@@ -11,6 +11,7 @@ the router is built from it, so the three names can never disagree:
 | hostname | `tollgate-<code>` | module `setup_hostname`, installer `brandingCommands` |
 | captive SSID | `TollGate-<code>` | module `setup_public_wifi`, installer `brandingCommands` |
 | private SSID | `<nym>-<code>` | module `setup_private_network`, installer `brandingCommands` |
+| portal banner (`nodogsplash.gatewayname`) | `<captive SSID> Portal` | module `setup_nodogsplash` **and** the verify/repair convergence in `99-tollgate-setup`; installer `brandingCommands` writes `<captive SSID>` with **no** ` Portal` suffix — see "The portal banner is written by three places" below |
 
 The store is `/etc/config/tollgate`:
 
@@ -48,7 +49,9 @@ so nothing could ever be reused):
 
 **One store, one adoption order, one mint alphabet, shared by both repos.** The
 contract is duplicated deliberately (two repos, two languages of record), and
-both sides pin the same case table so a change to one fails the other's tests:
+both sides pin the same case table so a change to one fails the other's tests —
+with **one known exception, the nym charset**, which is stated here rather than
+claimed to match (see "The nym charset differs between the two writers below"):
 
 * module: `tests/uci-defaults-device-code_test.sh`
 * installer: `branding_test.go`
@@ -106,7 +109,8 @@ and the open SSID is the one network a visitor has to re-pick by hand. The FULL
 path and the installer's branding still write the brand's name, which is what
 they have always done. `nodogsplash.gatewayname` is machine-owned on every path,
 so the repair path converges it with the SSID instead of leaving the portal
-banner on the pre-convergence name.
+banner on the pre-convergence name — and both module paths write the SAME string,
+`<captive SSID> Portal` (see "The portal banner is written by three places").
 
 ### The escape hatch
 
@@ -120,9 +124,10 @@ never re-derived.
 
 The private SSID is `<nym>-<code>`, and the nym can come from the store, from an
 existing machine-shaped private SSID, or from the default. **All three paths are
-charset-checked** (`[A-Za-z0-9_-]`; `safe_nym` here, `ssid_safe` in the
-installer), and a value that fails falls back to the default nym rather than being
-carried:
+charset-checked on this side** (`safe_nym`, `[A-Za-z0-9_-]`), and a value that
+fails falls back to the default nym rather than being carried. The installer's
+check is NOT the same charset — see "The nym charset differs between the two
+writers below":
 
 * the store's value was already checked, and the value is operator-writable;
 * an **adopted prefix** was not, and it is arbitrary text read off the router.
@@ -145,11 +150,75 @@ but the installer's write cannot carry that value and refuses it, so the same
 network converges on `<nym>-<code>` at the next **deploy** (an operator action,
 not a reinstall). Each layer is individually safe; the end state is the code.
 
+### The nym charset differs between the two writers — stated, not claimed to match
+
+Read off both trees (2026-09-27), the two charset checks are **not** the same:
+
+| side | check | refuses |
+|---|---|---|
+| module `99-tollgate-setup` `safe_nym` | `case "$1" in ''\|*[!A-Za-z0-9_-]*) return 1` | anything outside `[A-Za-z0-9_-]` — spaces, dots, `@`, quotes |
+| installer `deploy.go` `ssid_safe` / `ssidSafeForShell` | `case "$1" in ''\|*"'\"*) return 1` | only the empty string and a value containing a single quote |
+
+**Consequence — a stored-nym flap.** The installer's check exists to protect its
+*single-quoted* `uci -q set` chain, and it is strictly weaker than this side's.
+For an existing private SSID the module refuses but the installer accepts, e.g.
+`my nym-AB12`:
+
+* the installer adopts the prefix `my nym` (`ssid_safe` passes) and stores
+  `tollgate.device.nym='my nym'`;
+* the module reads that stored value, `safe_nym` refuses it (a space), falls back
+  to the default and stores `tollgate.device.nym='c08r4d0r'`.
+
+The two writers therefore overwrite each other's stored nym on alternate runs.
+**This is a real cross-repo divergence, tracked here rather than fixed here**:
+the right fix is ONE charset — this side's, which is the stricter and the one the
+private SSID is validated against at every read — and it belongs in
+`OpenTollGate/tollgate-installer` (`deploy.go`, `ssid_safe`/`ssidSafeForShell`),
+where the value is only ever written back inside the single-quote chain. Until
+that lands, a private SSID whose prefix is not `[A-Za-z0-9_-]` is not a stable
+nym source across the two writers, and the module's stricter refusal (fall back
+to the default nym) is the safe end of the flap.
+
+### The portal banner is written by three places
+
+`nodogsplash.@nodogsplash[0].gatewayname` is the string a captive client reads on
+the splash page, and three writers touch it:
+
+| writer | value | committed? |
+|---|---|---|
+| module full setup (`setup_nodogsplash`) | `"${GATEWAY_NAME} Portal"` | yes — the full path's `commit_all` |
+| module verify/repair convergence (reinstall of the same version) | `"${GATEWAY_NAME} Portal"` — same string | yes — committed in the block that writes it (see below) |
+| installer `brandingCommands` | `id.SSID` → `TollGate-<code>`, **no** ` Portal` suffix | yes (the installer's own `uci commit`) |
+
+Both module paths now write one identical value, and the repair path **commits it
+where it writes it**: the block runs before the nodogsplash export-diff snapshot
+(`nds_before`) is taken, so a gatewayname-only change could never be the reason
+that commit fires. Without the explicit commit the write stayed a `/tmp/.uci`
+session delta on a settled router — the config file kept the old banner, the
+convergence was lost at the next reboot, and any later `uci commit nodogsplash`
+(the stale `gatewaydomainname` delete, or an allow-list repair) re-applied the
+delta on top of the file. That is guarded by
+`tests/uci-defaults-gatewayname-banner_test.sh`, which drives BOTH paths against
+a delta-aware `uci` (committed state + a pending-delta file) and pins the same
+committed value from each plus an empty gatewayname delta.
+
+The installer's spelling is the remaining cross-repo divergence: it writes the
+banner **without** the ` Portal` suffix, and it is the writer that runs last on a
+deployed router, so a deploy after a setup flips the banner back. Reconciling it
+means adding the same suffix in `brandingCommands` (`OpenTollGate/tollgate-installer`)
+— a one-line change in that repo, listed here as a follow-up rather than claimed
+as done. The banner keeps its ` Portal` suffix on this side because that is the
+string every deployed router already shows (the full setup has written it since
+before this decision), so changing it would be a user-visible rename with no
+driver.
+
 ## Consequences
 
 * **A code is stable across reinstall, upgrade and a sysupgrade that keeps
-  settings** (OpenWrt keeps `/etc/config/*`; the store is a config file, so it is
-  kept with the rest of `/etc/config`). A **wiped** sysupgrade or a factory reset
+  settings.** The repo's preservation contract is the listed set in
+  `packaging/files/lib/upgrade/keep.d/tollgate`, and `/etc/config/tollgate` is
+  **listed there** (OpenWrt also keeps `/etc/config/*` wholesale, but the listed
+  set is the one this repo documents and tests). A **wiped** sysupgrade or a factory reset
   has no store by definition and mints a new code — the only case in which the
   code changes.
 * **Already-deployed routers change names once**, on the first install that
