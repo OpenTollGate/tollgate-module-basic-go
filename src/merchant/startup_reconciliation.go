@@ -40,10 +40,23 @@ import (
 
 // ReconcileNdsAuthorisationsOnStartup closes the gate of every client NoDogSplash
 // still authorises that this module holds no session for, and reports what it
-// found. It is called once, synchronously, from StartDataUsageMonitoring — i.e.
-// during merchant construction, before the merchant is installed behind the API
-// and before apiStartup opens the gate, so it can never race a purchase that is
-// being served.
+// found. It is called once, synchronously, from StartDataUsageMonitoring, i.e.
+// from merchant construction.
+//
+// At boot that construction happens before the merchant is installed behind the
+// API and before apiStartup opens the gate, so the pass cannot race a purchase
+// that is being served. It is NOT only a boot pass: the degraded -> full upgrade
+// constructs a merchant at RUNTIME too (MerchantDegraded.AttemptUpgrade ->
+// newFullMerchant -> StartDataUsageMonitoring, wired to the mint tracker's
+// first-reachable callback), and on that path the API is already open. It is
+// still safe there, for two reasons that do not depend on the boot ordering:
+// the merchant being served at that moment is the DEGRADED one, which refuses
+// every purchase (it has no wallet), so no grant can be in flight; and a client
+// that was mid-session when the mint went away is still named by the valve's
+// process-global tracked gates, which knowsClient treats as the module's own.
+// Anything that removes either of those — a merchant that is serving while it is
+// reconstructed, or a downgrade that forgets the tracked gates — turns this pass
+// into one that closes a paying client's gate, so both are load-bearing.
 //
 // It is deliberately NOT run periodically. The drift it repairs is created by
 // exactly one event — this module starting (its session set starts empty while
@@ -52,6 +65,14 @@ import (
 // NoDogSplash has forgotten, or whose device has left the network) is the
 // stale-binding reconciliation's, and that one does run periodically because a
 // device can leave at any time.
+//
+// Not covered, and stated as such: a boot that finds no reachable mint starts the
+// module in degraded mode (merchant.New returns MerchantDegraded), whose
+// StartDataUsageMonitoring is a no-op, so this pass does not run until a mint
+// becomes reachable and the upgrade constructs a full merchant. A box that
+// restarts with no uplink therefore keeps NoDogSplash's authorisations until the
+// upgrade — the window this pass exists to close is closed at the upgrade, not at
+// the boot.
 func (m *Merchant) ReconcileNdsAuthorisationsOnStartup() {
 	authorised, err := valve.AuthorisedClients()
 	if err != nil {

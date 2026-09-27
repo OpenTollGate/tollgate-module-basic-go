@@ -398,6 +398,42 @@ func TestStartupReconciliationIsBoundedAndReadable(t *testing.T) {
 	}
 }
 
+// TestStartupMonitoringLeavesAClientWhoseGateTheModuleStillTracks pins the
+// SECOND half of knowsClient — a client the valve still tracks is the module's
+// own and must not be closed — which no other test exercises: the only client
+// the pass is asserted to spare also has a session record, so the tracked-gate
+// loop could be deleted without a test going red.
+//
+// It is the guard the pass relies on when it runs at RUNTIME, not at boot: the
+// degraded -> full upgrade constructs a fresh merchant with an EMPTY session map
+// on a box that is already serving (MerchantDegraded.AttemptUpgrade ->
+// newFullMerchant -> StartDataUsageMonitoring), so a client that was mid-session
+// when the mint went away has no session record anywhere — only the valve's
+// process-global gate. Without this guard that client's paying gate is closed by
+// the upgrade.
+func TestStartupMonitoringLeavesAClientWhoseGateTheModuleStillTracks(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+	ndsctl.setList(t, map[string]string{trackedOnlyMAC: "Authenticated"})
+
+	m := inheritedMerchant(t)
+
+	// A gate this module opened, with NO session record at all.
+	closeGateCleanup(t, trackedOnlyMAC)
+	if err := valve.OpenGate(trackedOnlyMAC); err != nil {
+		t.Fatalf("open gate for %s: %v", trackedOnlyMAC, err)
+	}
+
+	logs := captureSyncLogs(t)
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	if got := ndsctl.opsFor(t, "DEAUTH "+trackedOnlyMAC); got != 0 {
+		t.Fatalf("the pass closed the gate of a client the valve still tracks (%s): deauths = %d, want 0 — a tracked gate is this module's own client, and a client that was mid-session when a merchant was constructed again has no session record anywhere else", trackedOnlyMAC, got)
+	}
+	if !strings.Contains(logs.String(), trackedOnlyMAC) {
+		t.Fatalf("the pass must say what it did with the client it left alone\nlog:\n%s", logs.String())
+	}
+}
+
 // TestStartDataUsageMonitoringStopsTheSweepItStarts is the isolation seam the
 // merchant tests need. StartDataUsageMonitoring is where the startup
 // reconciliation runs, so the tests that pin it drive the REAL startup path —
