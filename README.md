@@ -142,15 +142,33 @@ dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
 kmods) installs and `nodogsplash` runs with the module's keepalive contract
 live (trusted MAC plus `allow tcp port 22`).
 
-**Caveat — 16 MB of flash.** The WR3000 v1 has only 16 MB of SPI-NOR, and
-that is not enough for a persistent install: the firmware area is ~15.1 MB
-and leaves roughly 4.6 MB of free overlay, while the `tollgate-wrt` payload is
-~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
-`usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed. `apk add` fails with
-`failed to extract usr/bin/tollgate-wrt: No space left on device`, and a
-custom ImageBuilder image does not fit either. On this router TollGate is
-usable only as a volatile (tmpfs) install for bench and testing work — do not
-expect a package install that survives a reboot.
+**Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
+The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and
+leaves roughly 4.6 MB of free overlay. The default build does not fit: its
+payload is ~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+`usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed, `apk add` fails with
+`failed to extract usr/bin/tollgate-wrt: No space left on device`, and a custom
+ImageBuilder image does not fit either. The **`upx-ultra-brute` variant that
+this repo's CI already builds for `aarch64_cortex-a53`** does fit: it shrinks
+the payload to **5.34 MiB** (`usr/bin/tollgate-wrt` 3,389.5 KiB plus
+`usr/bin/tollgate` 1,823.8 KiB, plus ~256 KiB of config and captive-portal
+files). A real WR3000 v1 was taken through it on 2026-09-27 — installed from the
+compressed `.apk`, rebooted, and came back with `tollgate-wrt` running and no
+volatile helper, so a **persistent** install is possible on a 16 MB device with
+this variant. Two notes for such devices:
+
+- the 1.78 MiB `tollgate` CLI is only needed for provisioning, so on this class
+  of device it can be dropped after the first boot to leave room for the
+  `nodogsplash` dependency closure;
+- install the dependency closure in **one** `apk add` transaction. `apk add
+  --force-non-repository <file>` performs a world sync and removes packages that
+  were previously installed from files, which silently takes `nodogsplash` back
+  out.
+
+A volatile (tmpfs) install remains the fallback for bench work that cannot free
+the space. (Measured with the `upx-ultra-brute` dev-channel build
+`main.200.4469994`, sha256 `29bb68adbb26e67c…`; publishing that variant in the
+feed release is tracked with the packaging feed, not here.)
 
 ## Configuration
 
