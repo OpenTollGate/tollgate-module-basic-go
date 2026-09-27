@@ -585,14 +585,29 @@ func redactSecretFields(cfg *config_manager.Config) *config_manager.Config {
 	return &redacted
 }
 
+// secretFieldValues is the ONE place that names which struct field carries each
+// schema secret. Both redactSecretFields' contract and secretFieldState read
+// from it, and TestEverySchemaSecretIsRedactedAndReported fails the suite the
+// moment a field is marked Secret in the schema and is not handled here — so a
+// second secret cannot be added without this list, and therefore the redacting
+// read path, being updated in the same commit.
+func secretFieldValues(cfg *config_manager.Config) map[string]string {
+	if cfg == nil {
+		return map[string]string{}
+	}
+	return map[string]string{"private_key": cfg.PrivateKey}
+}
+
 // secretFieldState reports, per secret schema field, whether a value is stored.
 // The board needs to know that a passphrase EXISTS without being told what it
 // is, so it can label the field "set" and leave the input empty.
 func secretFieldState(cfg *config_manager.Config) map[string]bool {
-	if cfg == nil {
-		return map[string]bool{}
+	state := map[string]bool{}
+	values := secretFieldValues(cfg)
+	for _, key := range secretJSONKeys() {
+		state[key] = values[key] != ""
 	}
-	return map[string]bool{"private_key": cfg.PrivateKey != ""}
+	return state
 }
 
 // secretJSONKeys returns the json keys of the schema's secret fields.

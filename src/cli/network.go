@@ -238,7 +238,8 @@ func (s *CLIServer) handlePrivateNetworkRename(newSSID string) CLIResponse {
 // handlePrivateNetworkSetPassword changes the private network password
 func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIResponse {
 	// If no password provided, generate a random one
-	if newPassword == "" {
+	generated := newPassword == ""
+	if generated {
 		var err error
 		newPassword, err = generateRandomPassword()
 		if err != nil {
@@ -278,13 +279,25 @@ func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIRespo
 	warning := s.recordPrivateSetting("private_key", newPassword)
 
 	return CLIResponse{
-		Success: true,
-		Message: fmt.Sprintf("Private network password changed successfully%s", warning),
-		Data: map[string]interface{}{
-			"new_password": newPassword,
-		},
+		Success:   true,
+		Message:   fmt.Sprintf("Private network password changed successfully%s", warning),
+		Data:      privateNetworkPasswordData(generated, newPassword),
 		Timestamp: time.Now(),
 	}
+}
+
+// privateNetworkPasswordData is the body of a successful `private-net
+// set-password`. The passphrase is echoed back ONLY when this call minted it:
+// a random passphrase has no other way of reaching the operator, while a value
+// the caller supplied is already known to the caller and is therefore never
+// echoed. This verb is a root-console command, not a request path, and it is
+// deliberately not a read path for a passphrase the operator already had to
+// know — see docs/architecture/lan-port-management-bridge-decision.md (D11).
+func privateNetworkPasswordData(generated bool, newPassword string) map[string]interface{} {
+	if !generated {
+		return nil
+	}
+	return map[string]interface{}{"new_password": newPassword}
 }
 
 // handlePrivateNetworkSetEncryption sets the encryption mode of the private

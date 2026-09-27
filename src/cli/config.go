@@ -143,12 +143,13 @@ func (s *CLIServer) handleConfigSet(key, value string) CLIResponse {
 		"applied": results,
 	}
 
-	message := fmt.Sprintf("Set %s = %s (restart tollgate-wrt to apply)", key, value)
+	message := ""
 	if isSecretJSONKey(key) {
 		// A secret is never echoed back: the response is rendered by the board
 		// and kept by whatever shell ran the command.
 		message = fmt.Sprintf("Set %s (value withheld)", key)
 	} else {
+		message = fmt.Sprintf("Set %s = %s (restart tollgate-wrt to apply)", key, value)
 		data["value"] = value
 	}
 
