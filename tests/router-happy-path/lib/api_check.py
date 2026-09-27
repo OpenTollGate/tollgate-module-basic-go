@@ -864,14 +864,25 @@ def second_purchase_lane(args):
 
     st2, raw2, _ = request(base + "/balance")
     bal = jload(raw2)
-    if isinstance(bal, dict) and bal.get("session_active") is True:
+    allot = bal.get("allotment") if isinstance(bal, dict) else None
+    # `session_active: true` ALONE is not the claim this row makes. The reported
+    # defect was a balance that came back WITH a new allotment while the gate
+    # stayed shut; a box that reports an active session and a zero allotment is a
+    # different state, and reading it as "the balance was restored" would be the
+    # same class of overstatement the gate check exists to catch.
+    has_allotment = (isinstance(allot, (int, float)) and not isinstance(allot, bool)
+                     and allot > 0)
+    if isinstance(bal, dict) and bal.get("session_active") is True and has_allotment:
         emit("paid2:balance-restored", "PASS",
              "the balance shows the new allotment: session_active=%s allotment=%s remaining=%s"
-             % (bal.get("session_active"), bal.get("allotment"), bal.get("remaining")))
+             % (bal.get("session_active"), allot, bal.get("remaining")))
     else:
         emit("paid2:balance-restored", "FAIL",
-             "after the accepted re-purchase /balance reports %r"
-             % (bal if bal is not None else raw2[:120]))
+             "after the accepted re-purchase /balance does NOT show the new allotment: this "
+             "check needs session_active=true WITH a positive allotment (that is the claim the "
+             "README row makes), got session_active=%r allotment=%r%s"
+             % (bal.get("session_active") if isinstance(bal, dict) else None, allot,
+                "" if isinstance(bal, dict) else " (body=%r)" % (raw2[:120])))
 
     # The one that matters. Everything above can be green on a box whose gate is
     # still shut -- that is exactly what the operator saw.

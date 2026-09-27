@@ -444,6 +444,13 @@ assert_in lane-exclusive-spends-nothing "$WORK/out.lane-exclusive.txt" \
 env_case renew-grant-other-mac FAIL paid2:grant-identity '{"renew": "ok", "grant_mac": "02:00:00:00:00:99", "unbound_ports": ["admin"]}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
     RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+# ... and "the balance was restored" means the row's own words: session_active
+# WITH a positive allotment. An active session with no allotment is a different
+# state, and `renew-balance-lies` below already shows the balance can lie in the
+# other direction -- so the claim is asserted, not implied.
+env_case renew-balance-no-allotment FAIL paid2:balance-restored '{"renew": "ok", "renew_no_allotment": true, "unbound_ports": ["admin"]}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
 # The two renew outcomes must be OPPOSITE on the same check -- that is the whole
 # claim: it reads the gate, not the module's memory of the session.
 if grep -q 'RHPCHECK paid2:gate-open PASS' "$WORK/out.renew-gate-opens.txt" \

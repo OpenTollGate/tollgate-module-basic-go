@@ -344,7 +344,10 @@ class ApiHandler(Base):
                 return self._json(200, {"status": 1}, extra=self._identity_headers())
             if renew_mode():
                 active = renew_session_active()
-                allotment = 22020096 if active else 0
+                # `renew_no_allotment`: the module reports an active session but no
+                # allotment at all -- the state a balance-only check would still
+                # call "restored".
+                allotment = 0 if mut("renew_no_allotment") else (22020096 if active else 0)
                 return self._json(200, {"status": 1, "session_active": active, "metric": "bytes",
                                         "usage": 0, "allotment": allotment,
                                         "remaining": allotment, "start_time": 0},
@@ -361,7 +364,7 @@ class ApiHandler(Base):
                 # first-time visitor from an exhausted customer answers the
                 # stateful value, so the lane reads its precondition here.
                 active = renew_session_active()
-                allotment = 22020096 if active else 0
+                allotment = 0 if mut("renew_no_allotment") else (22020096 if active else 0)
                 return self._json(200, {"status": 1, "session_active": active,
                                         "state": "active" if active else "expired",
                                         "remaining": allotment, "allotment": allotment},
