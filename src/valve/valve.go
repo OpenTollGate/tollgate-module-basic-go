@@ -19,7 +19,8 @@ import (
 // ndsctlTimeout is the maximum time to wait for an ndsctl command to complete.
 // ndsctl typically responds in 230-350ms; this guards against NoDogSplash
 // deadlocks (issue #387) that can cause ndsctl to hang indefinitely.
-const ndsctlTimeout = 5 * time.Second
+// It is a var so tests can shrink it.
+var ndsctlTimeout = 5 * time.Second
 
 // authMaxAttempts bounds the number of authorizeMAC attempts.
 //
@@ -90,15 +91,282 @@ type closeStreak struct {
 // being made by this path".
 var ErrGateCloseAbandoned = errors.New("gate close abandoned after repeated unconfirmed attempts")
 
+// ndsctlStopDrain is how long Stop() waits for the invocations that are in
+// flight when the module is told to stop. ndsctl answers in 230-350ms, so a
+// healthy invocation finishes well inside it; a child that is still running
+// after it is killed deliberately, and the kill is attributed to the shutdown
+// (see drainNdsctlChildren). It is a var so tests can shrink it.
+var ndsctlStopDrain = 3 * time.Second
+
+// ndsctlTimeoutReportInterval is the shortest interval between two ERROR
+// escalations of "ndsctl did not answer within its deadline". A wedged
+// NoDogSplash answers nothing, and the module drives ndsctl at the sweep
+// cadence (every 2 s per metered session), so an unthrottled escalation repeats
+// the same line for ever — that is the 97-line storm measured on the bench
+// MT3000 on 2026-09-26. Inside the interval a repeat is logged at DEBUG with the
+// running count, and the module says so at INFO once ndsctl answers again. It is
+// a var so tests can shrink it.
+var ndsctlTimeoutReportInterval = 30 * time.Second
+
+// ErrNdsctlTimeout reports that an ndsctl invocation did not answer within
+// ndsctlTimeout, so the MODULE killed the child. It means "NoDogSplash never
+// answered on its control socket", which is a different state from "ndsctl
+// answered that the operation failed": the client's access is UNVERIFIED, not
+// unchanged.
+var ErrNdsctlTimeout = errors.New("ndsctl did not answer within its deadline and the module killed the invocation")
+
+// ErrNdsctlStopped reports that an ndsctl invocation was interrupted because the
+// module is stopping. It is not a failure of anything: the module ended the
+// child on its way out.
+var ErrNdsctlStopped = errors.New("ndsctl was interrupted because the module is stopping")
+
+// ndsctlOutcome says which side ended an ndsctl invocation.
+type ndsctlOutcome string
+
+const (
+	// ndsctlOutcomeTimedOut: the module's own deadline expired and it killed the
+	// child, which had not answered.
+	ndsctlOutcomeTimedOut ndsctlOutcome = "timeout"
+	// ndsctlOutcomeStopping: the module is stopping, so the invocation was not
+	// started, or the child was killed on the way out.
+	ndsctlOutcomeStopping ndsctlOutcome = "module_stopping"
+)
+
+// ndsctlInterruption is the error of an ndsctl invocation the MODULE ended. Its
+// message names the side that ended the child, because the alternative — Go's
+// `signal: killed`, which is all `exec` reports for a child that died on a
+// signal — is indistinguishable from a restart, an OOM kill or a real ndsctl
+// refusal, and every state machine reading the log drew its own conclusion.
+type ndsctlInterruption struct {
+	outcome ndsctlOutcome
+	args    []string
+	output  string
+	reason  error
+}
+
+// newNdsctlInterruption builds the error for an invocation the module ended.
+func newNdsctlInterruption(outcome ndsctlOutcome, args []string, output string, reason error) *ndsctlInterruption {
+	return &ndsctlInterruption{
+		outcome: outcome,
+		args:    append([]string(nil), args...),
+		output:  output,
+		reason:  reason,
+	}
+}
+
+func (e *ndsctlInterruption) Error() string {
+	command := "ndsctl " + strings.Join(e.args, " ")
+	if e.outcome == ndsctlOutcomeStopping {
+		return fmt.Sprintf("%s was interrupted because the module is stopping (%v): the module ended the child on its way out, so this is not an ndsctl failure and says nothing about the client", command, e.reason)
+	}
+	return fmt.Sprintf("%s did not answer within %s: the module killed the child, so NoDogSplash never answered on its control socket — this is not ndsctl reporting a failure", command, ndsctlTimeout)
+}
+
+// Unwrap maps the interruption onto the sentinel callers can test with
+// errors.Is, so "the module timed out" and "the module is stopping" stay
+// distinguishable without matching on the message.
+func (e *ndsctlInterruption) Unwrap() error {
+	if e.outcome == ndsctlOutcomeStopping {
+		return ErrNdsctlStopped
+	}
+	return ErrNdsctlTimeout
+}
+
+// ndsctlInterruptionOf reports whether err is an invocation the module ended,
+// and the invocation's outcome.
+func ndsctlInterruptionOf(err error) (*ndsctlInterruption, bool) {
+	var interruption *ndsctlInterruption
+	if errors.As(err, &interruption) {
+		return interruption, true
+	}
+	return nil, false
+}
+
+// ndsctlInterruptedByStop reports whether err is an invocation the module ended
+// because it is stopping.
+func ndsctlInterruptedByStop(err error) bool {
+	return errors.Is(err, ErrNdsctlStopped)
+}
+
+// ndsctl invocation bookkeeping. The counters back the accessors below; the
+// report bookkeeping is what keeps an unanswered socket from producing one ERROR
+// line per invocation.
+var (
+	// ndsctlStopping is set by Stop() and never cleared: the process is on its
+	// way out, so no new ndsctl child may be started.
+	ndsctlStopping atomic.Bool
+
+	// ndsctlInFlight is held for READING for the whole life of every ndsctl
+	// child, so Stop() can wait for the children that are in flight by taking it
+	// for writing. Stop() sets ndsctlStopping first, so a call that arrives
+	// during the drain waits for the write lock and then leaves without starting
+	// a child.
+	ndsctlInFlight sync.RWMutex
+
+	// ndsctlParentCtx is the parent of every invocation's deadline. Cancelling
+	// it is how a drain that overran its budget kills the child that is left,
+	// deliberately and attributed (rather than letting the process exit and
+	// leaving the log to explain a kill that nothing claimed).
+	ndsctlParentCtx, cancelNdsctlParent = context.WithCancel(context.Background())
+
+	ndsctlTimeouts            uint64
+	ndsctlStoppedInvocations  uint64
+	ndsctlTimeoutReportsMu    sync.Mutex
+	ndsctlLastTimeoutReport   time.Time
+	ndsctlTimeoutsSinceReport int
+	ndsctlUnresponsiveSince   time.Time
+)
+
+// NdsctlTimeouts reports how many ndsctl invocations did not answer within
+// ndsctlTimeout since the process started (the module killed each of them). A
+// non-zero value means NoDogSplash's control socket stopped answering at least
+// once: the operation's outcome is UNVERIFIED, and a purchase that needs ndsctl
+// cannot be applied while it lasts.
+func NdsctlTimeouts() uint64 {
+	return atomic.LoadUint64(&ndsctlTimeouts)
+}
+
+// NdsctlStoppedInvocations reports how many ndsctl invocations were interrupted
+// because the module was stopping. These are not failures of NoDogSplash.
+func NdsctlStoppedInvocations() uint64 {
+	return atomic.LoadUint64(&ndsctlStoppedInvocations)
+}
+
 // runNdsctl executes an ndsctl command with a timeout.
 // It returns the combined stdout+stderr output and any error.
 // It is a var (not a func) so tests can stub it without a real ndsctl binary.
+//
+// The production implementation classifies how the invocation ended: a child
+// that exited on its own is ndsctl answering (or refusing), while one the MODULE
+// ended — its deadline, or its shutdown — is reported as such and never as an
+// ndsctl failure.
 var runNdsctl = func(args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ndsctlTimeout)
+	return runNdsctlCommand(args...)
+}
+
+// runNdsctlCommand runs one ndsctl invocation under the module's own deadline and
+// reports whether the module ended it.
+func runNdsctlCommand(args ...string) (string, error) {
+	if ndsctlStopping.Load() {
+		interruption := newNdsctlInterruption(ndsctlOutcomeStopping, args, "", context.Canceled)
+		reportNdsctlInterruption(interruption)
+		return "", interruption
+	}
+
+	ndsctlInFlight.RLock()
+	defer ndsctlInFlight.RUnlock()
+
+	// Stop() may have been called between the check above and the lock: a module
+	// that is stopping must not start a child it cannot wait for.
+	if ndsctlStopping.Load() {
+		interruption := newNdsctlInterruption(ndsctlOutcomeStopping, args, "", context.Canceled)
+		reportNdsctlInterruption(interruption)
+		return "", interruption
+	}
+
+	ctx, cancel := context.WithTimeout(ndsctlParentCtx, ndsctlTimeout)
 	defer cancel()
+
 	cmd := exec.CommandContext(ctx, "ndsctl", args...)
 	output, err := cmd.CombinedOutput()
-	return string(output), err
+	if err == nil || ctx.Err() == nil {
+		// The child exited on its own: ndsctl answered. (A non-nil error here is
+		// ndsctl refusing an operation, which the callers report as before.)
+		reportNdsctlAnswered()
+		return string(output), err
+	}
+
+	outcome := ndsctlOutcomeTimedOut
+	if errors.Is(ctx.Err(), context.Canceled) {
+		outcome = ndsctlOutcomeStopping
+	}
+	interruption := newNdsctlInterruption(outcome, args, string(output), ctx.Err())
+	reportNdsctlInterruption(interruption)
+	return string(output), interruption
+}
+
+// ndsctlInterruptionFields describes an interruption for the log: which command,
+// which client, and which side ended it.
+func ndsctlInterruptionFields(interruption *ndsctlInterruption) logrus.Fields {
+	fields := logrus.Fields{
+		"ndsctl":         strings.Join(interruption.args, " "),
+		"ndsctl_outcome": string(interruption.outcome),
+	}
+	if len(interruption.args) > 1 {
+		fields["mac_address"] = interruption.args[1]
+	}
+	if len(interruption.args) > 0 {
+		fields["ndsctl_op"] = interruption.args[0]
+	}
+	if answer := strings.TrimSpace(interruption.output); answer != "" {
+		fields["ndsctl_output"] = answer
+	}
+	return fields
+}
+
+// reportNdsctlInterruption makes an invocation the module ended visible, at a
+// rate that cannot become a storm.
+//
+// An interruption because the module is stopping is INFO: it is the module
+// leaving, and escalating it is what made a service restart read like a burst of
+// ndsctl failures. A timeout is an ERROR, because a socket that stops answering
+// is how a paid purchase ends up with no access at all — but only once per
+// ndsctlTimeoutReportInterval, with the running count on every later one at
+// DEBUG, because the module drives ndsctl at the sweep cadence and a wedged
+// socket answers nothing.
+func reportNdsctlInterruption(interruption *ndsctlInterruption) {
+	fields := ndsctlInterruptionFields(interruption)
+
+	if interruption.outcome == ndsctlOutcomeStopping {
+		total := atomic.AddUint64(&ndsctlStoppedInvocations, 1)
+		fields["stopped_invocations"] = total
+		logger.WithFields(fields).Info("ndsctl invocation ended because the module is stopping: the module ended the child on its way out, so this is not an ndsctl failure and the client's access is unchanged by it")
+		return
+	}
+
+	total := atomic.AddUint64(&ndsctlTimeouts, 1)
+	fields["ndsctl_timeouts"] = total
+	fields["error"] = interruption.Error()
+
+	ndsctlTimeoutReportsMu.Lock()
+	now := time.Now()
+	if ndsctlUnresponsiveSince.IsZero() {
+		ndsctlUnresponsiveSince = now
+	}
+	ndsctlTimeoutsSinceReport++
+	report := ndsctlLastTimeoutReport.IsZero() || now.Sub(ndsctlLastTimeoutReport) >= ndsctlTimeoutReportInterval
+	if report {
+		ndsctlLastTimeoutReport = now
+		unanswered := ndsctlTimeoutsSinceReport
+		ndsctlTimeoutsSinceReport = 0
+		fields["unresponsive_since"] = ndsctlUnresponsiveSince.Format(time.RFC3339)
+		fields["unanswered_invocations"] = unanswered
+	}
+	ndsctlTimeoutReportsMu.Unlock()
+
+	if report {
+		logger.WithFields(fields).Error("NoDogSplash did not answer an ndsctl invocation within its deadline, so the module killed the child and the operation's outcome is UNVERIFIED — the gate is NOT known to be closed, and a purchase cannot be applied while this lasts. This is not ndsctl reporting a failure; it is the control socket not answering. OPERATOR ACTION: check `ndsctl status` / nodogsplash on the router")
+		return
+	}
+	logger.WithFields(fields).Debug("ndsctl still has not answered an invocation within its deadline (already escalated; repeats inside the report interval stay at debug so a wedged socket cannot produce a storm)")
+}
+
+// reportNdsctlAnswered closes the unresponsive episode: the socket answered
+// again, and the operator is told how long it was silent for.
+func reportNdsctlAnswered() {
+	ndsctlTimeoutReportsMu.Lock()
+	silentSince := ndsctlUnresponsiveSince
+	ndsctlUnresponsiveSince = time.Time{}
+	ndsctlTimeoutsSinceReport = 0
+	ndsctlTimeoutReportsMu.Unlock()
+
+	if silentSince.IsZero() {
+		return
+	}
+	logger.WithFields(logrus.Fields{
+		"unresponsive_for": time.Since(silentSince).Round(time.Second).String(),
+		"ndsctl_timeouts":  NdsctlTimeouts(),
+	}).Info("ndsctl answered again after invocations that did not answer: the NoDogSplash control socket has recovered")
 }
 
 // isValidMAC checks that the input is a well-formed MAC address (e.g. "aa:bb:cc:dd:ee:ff").
@@ -187,8 +455,55 @@ func GateClosesAbandoned() uint64 {
 // ndsctlMutex ensures only one ndsctl command runs at a time
 var ndsctlMutex = &sync.Mutex{}
 
+// Stop tells the module to shut down: it cancels the pending delayed auth and
+// DRAINS the ndsctl invocations that are in flight, so a service restart
+// (`tollgate-wrt restart`, which is what the bench defect's reproduction does)
+// does not kill a child that was about to answer and does not leave the operator
+// reading a kill that nothing claimed.
+//
+// It is idempotent: procd sends SIGTERM, a second signal (or a stop after a stop)
+// must not panic on a channel that is already closed.
 func Stop() {
+	if !ndsctlStopping.CompareAndSwap(false, true) {
+		logger.Debug("Stop was called again: the module is already stopping")
+		return
+	}
 	close(stopCh)
+	drainNdsctlChildren()
+}
+
+// drainNdsctlChildren waits for the ndsctl invocations that are in flight, and
+// kills the ones that outlive the drain budget — deliberately, so the kill is
+// attributed to the shutdown instead of being reported as an ndsctl failure.
+//
+// The drain is bounded twice (once before the kill, once after) because a
+// shutdown must never hang: procd SIGKILLs the service after its own timeout, and
+// a module that refuses to exit is indistinguishable from a hung one.
+func drainNdsctlChildren() {
+	drained := make(chan struct{})
+	go func() {
+		// The write lock is granted only once every in-flight invocation has
+		// released its read lock, i.e. once every child has finished.
+		ndsctlInFlight.Lock()
+		ndsctlInFlight.Unlock()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		logger.Info("ndsctl: every in-flight invocation finished before the module stopped, so the module killed none of them")
+		return
+	case <-time.After(ndsctlStopDrain):
+	}
+
+	logger.WithField("drain_budget", ndsctlStopDrain.String()).Warn("ndsctl: an invocation is still in flight after the drain budget, so the module is killing its child because it is stopping — the kill is attributed to the shutdown, not to ndsctl")
+	cancelNdsctlParent()
+
+	select {
+	case <-drained:
+	case <-time.After(ndsctlStopDrain):
+		logger.WithField("drain_budget", ndsctlStopDrain.String()).Warn("ndsctl: an invocation did not release the valve within the drain budget even after being killed; the module is stopping without waiting for it")
+	}
 }
 
 // authorizeMAC authorizes a MAC address using ndsctl.
@@ -215,6 +530,15 @@ func authorizeMAC(macAddress string) error {
 		}
 
 		lastErr = err
+		if interruption, ended := ndsctlInterruptionOf(err); ended {
+			// The module ended this invocation: the retry above exists for
+			// NoDogSplash answering that it does not have the client yet, not for
+			// an invocation that never answered. Retrying a socket that is not
+			// answering only spends the caller's deadline, so the attributed
+			// escalation from the invocation itself is the whole report.
+			logger.WithFields(ndsctlInterruptionFields(interruption)).Debug("ndsctl auth was ended by the module; not retrying an invocation that never answered")
+			return lastErr
+		}
 		// NDS 5.0.2 exits 1 when the client is already Authenticated; the gate
 		// is open in that case, so this auth "failure" is success (issue #403).
 		if state, perr := CheckClientState(macAddress); perr == nil && state.Authenticated {
@@ -292,6 +616,17 @@ func deauthorizeMAC(macAddress string) error {
 			return nil
 		}
 
+		if interruption, ended := ndsctlInterruptionOf(err); ended {
+			// The invocation was ended by the module (its deadline, or the
+			// shutdown) and the invocation itself already reported that, naming
+			// which side ended it. Escalating it again as "Error deauthorizing
+			// MAC address" is exactly the unattributed `signal: killed` line the
+			// bench produced 97 times on a box whose socket had stopped
+			// answering. The error is still returned: the close is NOT confirmed.
+			logger.WithFields(ndsctlInterruptionFields(interruption)).Debug("ndsctl deauth was ended by the module; the close stays unconfirmed (the invocation has already been escalated with its outcome)")
+			return err
+		}
+
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
 			"error":       err,
@@ -358,6 +693,22 @@ func closeAttemptAllowed(macAddress string) bool {
 // this gate, and the abandonment is escalated exactly once with what an operator
 // has to do. The gate stays tracked throughout.
 func handleUnconfirmedClose(macAddress string, attempt int, err error) bool {
+	if ndsctlInterruptedByStop(err) {
+		// The module is stopping, so this close was not attempted (or its child
+		// was ended on the way out). It is not an ndsctl failure and it is not a
+		// spent budget: the gate stays TRACKED, this process does not re-attempt
+		// it, and the record that says the client must be closed is not lost.
+		// A client NoDogSplash still authorises after a restart — the inverse
+		// drift — is the reconciliation the architecture decision record leaves
+		// open (docs/architecture/zombie-session-close-reconciliation-decision.md
+		// §5), and is NOT claimed here.
+		logger.WithFields(logrus.Fields{
+			"mac_address": macAddress,
+			"error":       err,
+		}).Info("Gate close not confirmed because the module is stopping: the gate stays tracked, this process does not re-attempt it, and the client's access is left exactly as NoDogSplash has it (this is not an ndsctl failure)")
+		return false
+	}
+
 	gatesMutex.Lock()
 	streak, exists := closeStreaks[macAddress]
 	if !exists {
@@ -920,6 +1271,13 @@ func GetClientStats(macAddress string) (downloaded uint64, uploaded uint64, err 
 	ndsctlMutex.Unlock() // Unlock immediately after command completes
 
 	if err != nil {
+		if interruption, ended := ndsctlInterruptionOf(err); ended {
+			// Ended by the module, already reported with its outcome: reading
+			// the counters is not an ndsctl refusal, and the caller must treat
+			// the usage as UNKNOWN (not as zero) either way.
+			logger.WithFields(ndsctlInterruptionFields(interruption)).Debug("ndsctl json was ended by the module; the client's counters stay unknown")
+			return 0, 0, fmt.Errorf("failed to execute ndsctl json for MAC %s: %w", macAddress, err)
+		}
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
 			"error":       err,
@@ -1013,6 +1371,10 @@ func CheckClientState(macAddress string) (ClientState, error) {
 	ndsctlMutex.Unlock()
 
 	if err != nil {
+		if interruption, ended := ndsctlInterruptionOf(err); ended {
+			logger.WithFields(ndsctlInterruptionFields(interruption)).Debug("ndsctl json for the client's state was ended by the module; the state stays unknown")
+			return ClientState{}, fmt.Errorf("failed to execute ndsctl json for MAC %s: %w", macAddress, err)
+		}
 		logger.WithFields(logrus.Fields{
 			"mac_address": macAddress,
 			"error":       err,
