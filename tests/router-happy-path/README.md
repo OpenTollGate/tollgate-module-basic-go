@@ -89,6 +89,7 @@ resolved to and why.
 | `identity:admin:*` | **named SKIP**: `:8090` is unreachable from `br-lan`, so there is nothing to compare. The SKIP names the guard file and the lane that does assert it | asserted in full |
 | `surface:8090-admin-spa` | not run | asserted: `200` + a content-hashed entry chunk |
 | `surface:8090-admin-spa-not-guest-reachable` | asserted: **PASS on `000`**, FAIL if the board answers at all | not run |
+| `paid2:*` (opt-in, see below) | asserted — this is the seat the lane requires | **FAIL**, named `paid2:vantage`: the shipped enforcement rule matches `iifname "br-lan"` only, so from here the egress probe does not traverse the gate and would answer `204` on a box whose gate is shut. Nothing is sent |
 | `ssh:*` | opt-in (`--ssh`) | opt-in (`--ssh`) |
 
 `:8090` is blocked for `br-lan` clients **by design**
@@ -177,13 +178,17 @@ served. The paid lane above only ever buys ONCE, so nothing in this suite could
 see it. Hence `paid2:*` and `--second-purchase`:
 
 ```bash
-# exhaust the first allotment first (browse/download your step size from the guest SSID)
+# exhaust the first allotment first (browse/download your step size from the guest SSID),
+# and run from that same guest seat: the lane's egress probe only means something
+# where the enforcement rule applies (iifname "br-lan"), so it asserts --vantage guest
+# and refuses to run (and to spend) from the management vantage.
 sudo RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2='cashuB...' RHP_SPEND_MAX_SATS=64 \
-     bash tests/router-happy-path/run.sh --apk <published.apk> --second-purchase
+     bash tests/router-happy-path/run.sh --apk <published.apk> --second-purchase --vantage guest
 ```
 
 | id | what it means |
 |---|---|
+| `paid2:vantage` | the run resolved to the **guest/client seat** — the only one that can carry this lane. The shipped enforcement rule matches `iifname "br-lan"`, so a probe from the management vantage never traverses the gate and could answer `204` on a box whose gate is shut; from anywhere but the guest seat this check is a named **FAIL** and **nothing is sent** |
 | `paid2:first-allotment-spent` | the box reports NO active session. A "second purchase" on a live session is a renewal of an open gate, so the lane **fails** instead of pretending the run was valid |
 | `paid2:token-supplied` | a second token was supplied (nothing is sent without it) |
 | `paid2:spend-declaration` | `RHP_SPEND_MAX_SATS` is an integer and the second token is inside it — same guards as the first lane |
@@ -201,11 +206,14 @@ gate that was seen **shut** first: `paid2:gate-shut-before` is the same probe ta
 before the second token is posted, so what the pair asserts is the *transition*
 (shut → open), which a gate that never closed cannot satisfy.
 
-Requires an already-spent first allotment, a second token and a reachable probe
-URL. `RHP_EGRESS_PROBE_URL` is worth pointing at whatever the customer's OS
-actually probes (Android `generate_204`, Apple `hotspot-detect.html`, Windows
-`connecttest.txt`, Firefox `success.txt`): the check is the OS's own question,
-asked from the customer's seat.
+Requires the **guest seat** (a client on `br-lan`), an already-spent first
+allotment, a second token and a reachable probe URL. `RHP_EGRESS_PROBE_URL` is
+worth pointing at whatever the customer's OS actually probes (Android
+`generate_204`, Apple `hotspot-detect.html`, Windows `connecttest.txt`, Firefox
+`success.txt`): the check is the OS's own question, asked from the customer's seat.
+The vantage is not a preference here but a precondition — `paid2:vantage` fails
+from anywhere else, because the enforcement chain the probe is supposed to cross
+matches `iifname "br-lan"` and a request from the management plane never enters it.
 
 ## Three traps this harness encodes on purpose
 

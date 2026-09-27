@@ -139,7 +139,12 @@ Options:
                      RHP_CASHU_TOKEN_2 for the SAME client and require the gate
                      to actually re-open (an egress probe answering 200/204, no
                      redirect). Needs the first allotment already spent, or the
-                     first check fails instead of pretending the run was valid.
+                     first check fails instead of pretending the run was valid,
+                     and it needs the GUEST vantage (--vantage guest, the
+                     default a tester has): the enforcement chain matches
+                     `iifname "br-lan"`, so from the management vantage the probe
+                     does not cross the gate at all -- `paid2:vantage` fails
+                     there and nothing is sent.
   --skip-money-path  do not send even the empty-body POST
   --out DIR          evidence dir (default <tmp>/evidence)
   --keep             keep the work dir
@@ -813,9 +818,15 @@ fi
 #     This lane spends a SECOND token for the same client and then demands the
 #     GATE -- a request through the customer's own data path that comes back
 #     200/204 with no redirect. See lib/api_check.py second_purchase_lane().
+#     It also needs the GUEST vantage (--vantage guest, the tester's default):
+#     nds_enforce_forward matches `iifname "br-lan"` only, so the props
+#     "the egress probe traverses the gate" holds for a br-lan client and
+#     nowhere else -- the lane's first check id asserts that, and refuses to run
+#     (and to spend) from anywhere else. $VANTAGE_RESOLVED is passed below.
 # --------------------------------------------------------------------------
-printf '\n===== 6b. the SECOND purchase (opt-in: --second-purchase + RHP_CASHU_TOKEN_2) =====\n'
-fold paid2 "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only paid2
+printf '\n===== 6b. the SECOND purchase (opt-in: --second-purchase + RHP_CASHU_TOKEN_2, guest vantage) =====\n'
+fold paid2 "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" \
+    --vantage "$VANTAGE_RESOLVED" --only paid2
 if [ "${RHP_SECOND_PURCHASE:-0}" = "1" ]; then
     chk "paid2:requested" PASS "the second purchase was requested for this run (RHP_SECOND_PURCHASE=1)"
 else

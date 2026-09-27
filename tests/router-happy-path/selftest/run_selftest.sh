@@ -361,19 +361,32 @@ env_case paid-lane-rejected    FAIL paid:purchase-accepted '{"post_reject_token"
     RHP_CASHU_TOKEN="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000
 
 PROBE_URL="http://127.0.0.1:$CAPTIVE_PORT/generate_204"
-env_case renew-gate-opens    PASS paid2:gate-open '{"renew": "ok"}' \
+# The renew cases run from the GUEST seat, which is the only seat the lane is
+# allowed to assert from (iifname "br-lan"), and with the admin board unbound --
+# exactly the shape case 9a proves is a fully green run from that vantage, so the
+# only thing these cases move is the second purchase.
+RENEW_SCENARIO='{"renew": "ok", "unbound_ports": ["admin"]}'
+env_case renew-gate-opens    PASS paid2:gate-open "$RENEW_SCENARIO" \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
-    RHP_EGRESS_PROBE_URL="$PROBE_URL"
-env_case renew-gate-stuck    FAIL paid2:gate-open '{"renew": "stuck"}' \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+env_case renew-gate-stuck    FAIL paid2:gate-open '{"renew": "stuck", "unbound_ports": ["admin"]}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
-    RHP_EGRESS_PROBE_URL="$PROBE_URL"
-env_case renew-live-session  FAIL paid2:first-allotment-spent '{"renew": "ok", "active_first": true}' \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+env_case renew-live-session  FAIL paid2:first-allotment-spent '{"renew": "ok", "active_first": true, "unbound_ports": ["admin"]}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
-    RHP_EGRESS_PROBE_URL="$PROBE_URL"
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
 # ... and the pair must be a TRANSITION, not two states. `gate_open_before` is a
 # box that answers the probe BEFORE the second token is posted: the gate was never
 # shut, so "open after" would prove nothing, and the lane must refuse to spend.
-env_case renew-gate-already-open FAIL paid2:gate-shut-before '{"renew": "ok", "gate_open_before": true}' \
+env_case renew-gate-already-open FAIL paid2:gate-shut-before '{"renew": "ok", "gate_open_before": true, "unbound_ports": ["admin"]}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+# The lane refuses to run from anywhere but the guest seat: the shipped
+# enforcement rule matches `iifname "br-lan"`, so a probe from the management
+# vantage does not traverse the gate at all and could answer 204 on a box whose
+# gate is shut. The rig pins `mgmt` by default, so this case simply does not
+# override it -- and the lane must go red rather than report a PASS about itself.
+env_case paid2-vantage-mgmt  FAIL paid2:vantage '{"renew": "ok"}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
     RHP_EGRESS_PROBE_URL="$PROBE_URL"
 # The two renew outcomes must be OPPOSITE on the same check -- that is the whole

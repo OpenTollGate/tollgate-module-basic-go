@@ -607,7 +607,18 @@ def paid_lane(args):
 #   * no answer at all                      -> not redirected and not served
 # --------------------------------------------------------------------------
 DEFAULT_PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
-SECOND_CHECK_IDS = ("paid2:first-allotment-spent", "paid2:token-supplied",
+# WHERE this lane has to run FROM. The module's shipped enforcement rule
+# (`nds_enforce_forward`, packaging/files/etc/nftables.d/20-nds-enforce.nft)
+# matches `iifname "br-lan"`: the gate exists for clients ON the captive bridge
+# and nowhere else. A probe issued from the management vantage does not traverse
+# that chain at all, so it answers 204 whether the gate is open or wide shut -- a
+# PASS printed from there would be a claim about this rig's seat, not about the
+# customer's data path. So the resolved vantage is asserted as the lane's own
+# first check id, and the rest of the lane is conditional on it.
+GATE_VANTAGE = "guest"
+GATE_VANTAGE_WHY = ('the shipped enforcement rule matches `iifname "br-lan"` only, so only a '
+                    "request from the guest seat traverses the gate this lane asserts")
+SECOND_CHECK_IDS = ("paid2:vantage", "paid2:first-allotment-spent", "paid2:token-supplied",
                     "paid2:spend-declaration", "paid2:token-inspected",
                     "paid2:gate-shut-before", "paid2:purchase-accepted",
                     "paid2:balance-restored", "paid2:gate-open")
@@ -675,6 +686,24 @@ def second_purchase_lane(args):
         skip_rest("RHP_SECOND_PURCHASE is not 1: the second purchase is opt-in "
                   "(it needs a second token and an already spent first allotment)")
         return
+
+    # 0. WHERE this run is. The egress probe only means something from a seat the
+    #    enforcement rule applies to (iifname "br-lan"); from anywhere else it is a
+    #    measurement of the wrong thing, and it would answer 204 on a box whose
+    #    gate is wide shut. Asserted first and named, never assumed.
+    vantage = (getattr(args, "vantage", "") or "").strip()
+    if vantage != GATE_VANTAGE:
+        emit("paid2:vantage", "FAIL",
+             "this run resolved to vantage %r, not the guest/client seat (%r): %s. From there the "
+             "egress probe answers 200/204 whether the gate is open or shut, so this lane cannot "
+             "assert anything about the customer's data path and did not run: no second token was "
+             "sent and no value moved. Re-run from a client on the guest network -- --vantage "
+             "guest, which is what a tester and the review club actually have"
+             % (vantage or "unset", GATE_VANTAGE, GATE_VANTAGE_WHY))
+        skip_rest("the paid2 lane needs the guest/client seat (%s)" % GATE_VANTAGE)
+        return
+    emit("paid2:vantage", "PASS",
+         "this run resolved to the guest/client seat (%s): %s" % (vantage, GATE_VANTAGE_WHY))
 
     token2 = os.environ.get("RHP_CASHU_TOKEN_2", "").strip()
     declared = os.environ.get("RHP_SPEND_MAX_SATS", "").strip()
@@ -848,6 +877,9 @@ def main():
     ap.add_argument("--skip-money-path", action="store_true")
     ap.add_argument("--only", default="")
     ap.add_argument("--mac", default="")
+    # guest | mgmt, as resolved by run.sh. Only the second-purchase lane needs it
+    # (its egress probe asserts enforcement, which only exists for br-lan clients).
+    ap.add_argument("--vantage", default="")
     args = ap.parse_args()
 
     if not args.only or args.only == "pre":
