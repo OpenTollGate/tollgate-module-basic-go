@@ -86,10 +86,10 @@ and [Semantic Versioning](https://semver.org/).
   0.01 s). The two seams now live on the merchant — `clientProbe` and
   `clientProbeDelay`, defaulting to `valve.CheckClientState` and
   `preflightRetryDelayDefault` — the shape the reconciliation's own probe and
-  policy already use, and no test writes package-level state any more, so the
-  racing write cannot be written back. The pre-flight's behaviour is unchanged:
-  the #403 contracts keep their assertions, and the module is green under
-  `-race` over repeated runs.
+  policy already use, and no test writes the pre-flight's package-level seams
+  any more, so the racing write cannot be written back. The pre-flight's
+  behaviour is unchanged: the #403 contracts keep their assertions, and the
+  module is green under `-race` over repeated runs.
   ([#608](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/608))
 
 - **The wired LAN ports' own bridge is proposed — together with the half of that

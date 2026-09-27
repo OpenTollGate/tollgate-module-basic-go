@@ -143,8 +143,11 @@ const preflightRetryDelayDefault = 400 * time.Millisecond
 
 // receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
 // a money-moving `Receive` before it answers the customer with "outcome
-// unknown". It is a var, like preflightRetryDelay, so a test can shrink the
-// window instead of waiting it out; nothing in production reassigns it.
+// unknown". It is a var so a test can shrink the window instead of waiting it
+// out; nothing in production reassigns it, and — unlike the pre-flight's delay
+// (Merchant.clientProbeDelay, which is per merchant because the usage monitor
+// reads it from its own goroutine) — every reader of this one is on the
+// goroutine that called PurchaseSession.
 var receiveTimeout = 30 * time.Second
 
 // receiveResult is the answer of one money-moving `Receive` call.
