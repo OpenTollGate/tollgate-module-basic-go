@@ -244,7 +244,8 @@ FILES_$(PKG_NAME) += \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \
-	/etc/nftables.d/32-luci-not-guest-reachable.nft
+	/etc/nftables.d/32-luci-not-guest-reachable.nft \
+	/etc/nftables.d/33-mgmt-bridge-scope.nft
 
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

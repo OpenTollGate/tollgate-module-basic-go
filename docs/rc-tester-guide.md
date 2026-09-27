@@ -473,6 +473,25 @@ the certificate uhttpd serves actually covers the address you used. So:
   covering identity on the entry point says nothing about the board's TLS
   listener: a **name mismatch** there is reportable on its own, and it is not the
   same finding as a mismatch on `https://<hostname>.lan/`.
+- The TollGate admin board has its **own** listeners — `http://<router>:8090/`
+  and `https://<router>:8443/` — on a separate uhttpd instance from LuCI's
+  `:8080`/`:443`. **Which client can reach them depends on where you plugged in:**
+  - **Wired into a LAN port** you are on the management bridge `br-mgmt`, and the
+    administration surfaces answer you **before you pay anything**: `:8090`
+    (board), `:8080` and `:443` (LuCI), `:8443` (the board over TLS if it is
+    enabled) and `:22`. Find the address with `uci get network.mgmt.ipaddr` — the
+    wired ports do **not** share the captive bridge's address, so
+    `http://<router>.lan/` is not the URL to use from the cable. The same bridge
+    gives you **no internet at all** (`ping 9.9.9.9` fails, and `:2121`/`:2050`/
+    `:2051` are dropped, so a purchase cannot even be started): with one
+    nodogsplash, internet is bought on the wireless network, exactly as before.
+    A cable into a LAN port is an administration port, not a customer one.
+  - **On the guest SSID** the guard still drops `:8090`/`:8443`/`:8080`/`:443`
+    (measured on the bench: tcp 8090/8443 dropped for a LAN/guest client), so
+    "connection refused" there is that guard, not TLS. Also true for any client
+    still on the captive bridge `br-lan`.
+  - **On the private SSID** (`br-private`, which nodogsplash does not gate) both
+    the board and LuCI answer, unchanged.
 
 ---
 

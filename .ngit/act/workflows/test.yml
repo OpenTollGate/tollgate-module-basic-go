@@ -107,22 +107,35 @@ jobs:
           # both setup paths re-assert it.
           bash tests/uci-defaults-trusted-entry-80_test.sh
 
-      - name: The wired LAN ports move onto the operator's private bridge
+      - name: The wired LAN ports get their own management bridge
         run: |
-          # Offline (no router, no daemon, no network): the wired LAN ports
-          # must be MOVED off the captive bridge onto br-private - the
-          # operator's trusted network with internet, the admin board and
-          # LuCI, no payment step - discovered from the bridge's device
-          # section (never named per board), idempotently, with the captive
-          # bridge's port list cleared so a port is never on two layer-2
-          # domains. The same-version verify/repair path re-asserts the
-          # placement (a factory reset is repaired), the module keep-list
-          # still carries /etc/config/network, and all four guard fragments
-          # are pinned byte-identical to main and still br-lan-scoped - that
-          # literal is what keeps a guest off :8090/:8443 and LuCI while a
-          # br-private client gets in. A neutralised-writer negative control
-          # must go red.
-          bash tests/uci-defaults-lan-private-wired_test.sh
+          # Offline (no router, no daemon, no network): the wired LAN ports must
+          # be MOVED off the captive bridge onto br-mgmt, the bridge must own a
+          # zone with no forwarding to the wan, and it must be a MANAGEMENT
+          # network - the payment surfaces (:2050/:2051/:2121) stay unreachable
+          # from a cable, because one nodogsplash gates one bridge and a network
+          # this module cannot gate must not sell (the grant would fail in the
+          # single instance's ndsctl with `Client <mac> not found.`: money taken,
+          # nothing delivered). The suite drives the shipped uci-defaults writer
+          # end to end against a fixture, pins the refusal when there is nothing
+          # to move, pins the re-assertion on the reinstall/upgrade path, and
+          # carries four negative controls that must each go red when the line
+          # they pin is removed.
+          bash tests/uci-defaults-mgmt-bridge_test.sh
+
+      - name: The wired bridge is scoped to the administration surfaces
+        run: |
+          # Offline (no router, no SDK, no network; the `nft -c` half skips
+          # loudly where CAP_NET_ADMIN is unavailable): the new
+          # 33-mgmt-bridge-scope.nft fragment must be an allow list - DHCP/DNS,
+          # SSH, :443/:8080/:8090/:8443 - closed by a catch-all drop, and it must
+          # be installed by BOTH packaging recipes and present in a package built
+          # from them. The suite also pins the direction that must NOT move: the
+          # two administration guards (31-*.nft, 32-*.nft) and their :8080/:8090/
+          # :8443 ports stay scoped to the CAPTIVE bridge, while they answer on
+          # br-mgmt - and it refuses an allow list that re-opens a payment
+          # surface (two of its RED controls do exactly that).
+          bash tests/packaging/mgmt-bridge-scope_test.sh
 
       - name: One device code (hostname, captive SSID and private SSID agree)
         run: |
