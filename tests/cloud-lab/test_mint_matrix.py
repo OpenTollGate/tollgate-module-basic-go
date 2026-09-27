@@ -3,7 +3,7 @@ test_mint_matrix.py — one suite, many mints.
 
 Runs the core payment acceptance loop against any reachable Cashu mint
 declared via MINT_MATRIX (comma-separated name=url pairs) while the
-router (upstream-ext) accepts exactly those mints. Built for the signet
+router (upstream-matrix) accepts exactly those mints. Built for the signet
 zoo matrix (cdk-mintd 0.17/0.18/0.18.1 + nutshell 0.20.3/0.21.0), where
 invoices auto-settle within ~a minute: a session float is minted ONCE
 per mint (see conftest.fund_mint_wallet) and every test then spends
@@ -57,8 +57,7 @@ print(f"mint matrix: {MINTS}", file=sys.stderr)
 
 def _mac(suffix):
     rand = os.urandom(2).hex()
-    return f"02:{rand[0:2]}:{rand[2:4]}:00:0m:{suffix:02x}" if False else \
-        f"02:{rand[0:2]}:{rand[2:4]}:00:{suffix >> 8:02x}:{suffix & 0xff:02x}"
+    return f"02:{rand[0:2]}:{rand[2:4]}:00:{suffix >> 8:02x}:{suffix & 0xff:02x}"
 
 
 def notice_code(event):
