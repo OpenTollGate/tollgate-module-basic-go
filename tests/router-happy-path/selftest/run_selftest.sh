@@ -370,11 +370,17 @@ env_case renew-gate-stuck    FAIL paid2:gate-open '{"renew": "stuck"}' \
 env_case renew-live-session  FAIL paid2:first-allotment-spent '{"renew": "ok", "active_first": true}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
     RHP_EGRESS_PROBE_URL="$PROBE_URL"
+# ... and the pair must be a TRANSITION, not two states. `gate_open_before` is a
+# box that answers the probe BEFORE the second token is posted: the gate was never
+# shut, so "open after" would prove nothing, and the lane must refuse to spend.
+env_case renew-gate-already-open FAIL paid2:gate-shut-before '{"renew": "ok", "gate_open_before": true}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL"
 # The two renew outcomes must be OPPOSITE on the same check -- that is the whole
 # claim: it reads the gate, not the module's memory of the session.
 if grep -q 'RHPCHECK paid2:gate-open PASS' "$WORK/out.renew-gate-opens.txt" \
    && grep -q 'RHPCHECK paid2:gate-open FAIL' "$WORK/out.renew-gate-stuck.txt" \
-   && grep -q 'HTTP 307' "$WORK/out.renew-gate-stuck.txt"; then
+   && grep -qE '^RHPCHECK paid2:gate-open FAIL.*HTTP 307' "$WORK/out.renew-gate-stuck.txt"; then
     st renew-two-outcomes OK "the same check distinguishes an open gate (probe 204) from the reported defect (balance restored, probe still 307 to the splash)"
 else
     st renew-two-outcomes BAD "the renew cases did not produce the two opposite probe outcomes"

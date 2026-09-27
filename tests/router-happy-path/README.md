@@ -188,14 +188,18 @@ sudo RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2='cashuB...' RHP_SPEND_MAX_SATS=64 \
 | `paid2:token-supplied` | a second token was supplied (nothing is sent without it) |
 | `paid2:spend-declaration` | `RHP_SPEND_MAX_SATS` is an integer and the second token is inside it — same guards as the first lane |
 | `paid2:token-inspected` | the second token parses; its self-declared value is compared against the ceiling |
+| `paid2:gate-shut-before` | the SAME egress probe, taken **before** the second token is posted, must answer anything **other than** `200/204`-with-no-redirect. The lane refuses to spend when it does not — no value moves — because the pair `gate-shut-before` → `gate-open` is a **transition**: a gate that was never shut cannot satisfy it, and "open after" would prove nothing about the re-purchase |
 | `paid2:purchase-accepted` | `POST /?mac=<same mac>` → `200 kind:1022` |
 | `paid2:balance-restored` | `/balance` reports `session_active: true` with an allotment |
-| **`paid2:gate-open`** | **the customer's own data path**: `RHP_EGRESS_PROBE_URL` (default the Android probe) must answer **200/204 with no redirect**. This is the check the reported defect fails. A `307` to `:2050/splash.html?redir=…` means the client is still intercepted; **no answer at all** means it is neither redirected nor served — the two failure shapes are named in the FAIL detail, and the second one is the one the operator saw |
+| **`paid2:gate-open`** | **the customer's own data path**: `RHP_EGRESS_PROBE_URL` (default the Android probe) must answer **200/204 with no redirect**, and it is only read as a PASS when `paid2:gate-shut-before` observed the gate **SHUT** before the token was posted. This is the check the reported defect fails. A `307` to `:2050/splash.html?redir=…` means the client is still intercepted; **no answer at all** means it is neither redirected nor served — the two failure shapes are named in the FAIL detail, and the second one is the one the operator saw |
 
 The point of the ordering: on the failing box `paid2:balance-restored` was
 **green** and `paid2:gate-open` was **red**. A suite that stopped at the balance
 would have called that box healthy — which is why the last check reads the wire,
-not the module's memory of the session.
+not the module's memory of the session. And that last check is read only against a
+gate that was seen **shut** first: `paid2:gate-shut-before` is the same probe taken
+before the second token is posted, so what the pair asserts is the *transition*
+(shut → open), which a gate that never closed cannot satisfy.
 
 Requires an already-spent first allotment, a second token and a reachable probe
 URL. `RHP_EGRESS_PROBE_URL` is worth pointing at whatever the customer's OS

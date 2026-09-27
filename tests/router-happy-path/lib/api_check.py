@@ -609,8 +609,8 @@ def paid_lane(args):
 DEFAULT_PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
 SECOND_CHECK_IDS = ("paid2:first-allotment-spent", "paid2:token-supplied",
                     "paid2:spend-declaration", "paid2:token-inspected",
-                    "paid2:purchase-accepted", "paid2:balance-restored",
-                    "paid2:gate-open")
+                    "paid2:gate-shut-before", "paid2:purchase-accepted",
+                    "paid2:balance-restored", "paid2:gate-open")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -656,13 +656,15 @@ def session_active_state(args):
 def second_purchase_lane(args):
     # Each check id is emitted EXACTLY once, whatever path the lane takes out:
     # a check that never appears is invisible in the tally, and a duplicate
-    # would be counted twice.
-    emitted = set()
+    # would be counted twice. The statuses are kept too, because a later check
+    # may have to be CONDITIONAL on an earlier one -- `paid2:gate-open` is only
+    # a transition if `paid2:gate-shut-before` observed a shut gate.
+    emitted = {}
 
     def emit(cid, status, detail=""):
         if cid in emitted:
             return
-        emitted.add(cid)
+        emitted[cid] = status
         chk(cid, status, detail)
 
     def skip_rest(reason):
@@ -745,7 +747,37 @@ def second_purchase_lane(args):
         skip_rest("no client MAC resolvable")
         return
 
-    st, raw, _ = request(base + "/?mac=%s" % mac, method="POST", body=token2.encode("utf-8"))
+    # THE PAIR, not the state: "the gate is open" after a re-purchase only means
+    # something if the gate was SHUT before it. On its own, `paid2:gate-open` is
+    # satisfiable by a box whose gate was never closed -- a renewal of a live
+    # session, a client that was authorised by something else, a box whose
+    # enforcement is not running at all -- and every one of those reads as a pass.
+    # So the same probe is taken BEFORE the second token is posted, as its own
+    # check id, and the lane refuses to spend when it is not shut: the pre-state
+    # is what makes the post-state attributable to this purchase.
+    shut_said = "no answer at all"
+    shut_st, shut_loc, _shut_body = probe_client_path(probe_url)
+    if shut_st is None:
+        shut_said = "no answer at all (transport failure/timeout)"
+    else:
+        shut_said = "HTTP %s%s" % (shut_st, " -> %s" % shut_loc if shut_loc else "")
+    if shut_st in (200, 204) and not shut_loc:
+        emit("paid2:gate-shut-before", "FAIL",
+             "the customer's data path was ALREADY OPEN before the re-purchase: %s -> HTTP %s "
+             "with no redirect, so the second token was NOT sent (no value moved). The two "
+             "checks are a TRANSITION -- shut before, open after -- and a gate that was never "
+             "shut cannot satisfy it: an 'open after' result here would prove nothing about "
+             "the re-purchase. Establish the precondition first (spend the first allotment and "
+             "let the box deauthorise the client), then re-run" % (probe_url, shut_st))
+        skip_rest("the gate was not shut before the re-purchase, so there is no transition to "
+                  "observe (and no value was sent)")
+        return
+    emit("paid2:gate-shut-before", "PASS",
+         "the customer's data path was SHUT before the re-purchase: %s -> %s (anything other "
+         "than a 200/204 with no redirect). This is the pre-state the check pair needs"
+         % (probe_url, shut_said))
+
+    st, raw, hdrs = request(base + "/?mac=%s" % mac, method="POST", body=token2.encode("utf-8"))
     obj = jload(raw)
     kind = obj.get("kind") if isinstance(obj, dict) else None
     if st == 200 and kind == 1022:
@@ -770,11 +802,25 @@ def second_purchase_lane(args):
 
     # The one that matters. Everything above can be green on a box whose gate is
     # still shut -- that is exactly what the operator saw.
+    #
+    # ... and it is only a TRANSITION when the pre-state was observed PASS. The
+    # probe above returns early when the gate was already open, so today this is
+    # always satisfied -- but the condition is expressed against the RECORDED
+    # status rather than assumed from the control flow, so an edit that reorders
+    # the lane cannot silently decouple the pair and report "the gate did not
+    # re-open" about a gate that never closed.
+    if emitted.get("paid2:gate-shut-before") != "PASS":
+        emit("paid2:gate-open", "FAIL",
+             "cannot be read as a transition: paid2:gate-shut-before reported %r, so a gate "
+             "that is open now proves nothing about the re-purchase"
+             % emitted.get("paid2:gate-shut-before"))
+        return
     pst, loc, body = probe_client_path(probe_url)
     if pst in (200, 204) and not loc:
         emit("paid2:gate-open", "PASS",
              "the customer's data path is OPEN: %s -> HTTP %s, no redirect (the gate really "
-             "re-opened for %s)" % (probe_url, pst, mac))
+             "re-opened for %s, and paid2:gate-shut-before saw it SHUT before this token was "
+             "posted -- that pair is the transition, not the state)" % (probe_url, pst, mac))
     elif pst is None:
         emit("paid2:gate-open", "FAIL",
              "the gate did NOT re-open: %s produced no answer at all (transport failure/timeout) "

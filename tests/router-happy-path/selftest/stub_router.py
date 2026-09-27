@@ -419,7 +419,12 @@ class CaptiveHandler(Base):
         # plays both roles on this one port, which is what lets the self-test hold
         # the two client-visible outcomes apart. Only the renew model's "ok"
         # branch opens the gate, and only after a purchase.
-        if is_probe_path(self.path) and gate_open():
+        #
+        # `gate_open_before` is the ONE state that must not read as a pass: the
+        # gate answers the probe BEFORE the re-purchase, i.e. it was never shut,
+        # so the shut/open pair is not a transition and `paid2:gate-open` must not
+        # be satisfiable.
+        if is_probe_path(self.path) and (gate_open() or mut("gate_open_before")):
             return self._send(204, "")
         if mut("captive_200"):
             return self._send(200, "<html><body>no enforcement here</body></html>")
