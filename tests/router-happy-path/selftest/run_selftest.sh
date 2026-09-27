@@ -13,44 +13,54 @@
 # evidence. A hardware-only suite rots precisely because nobody can see it go red
 # on demand.
 #
-# COVERAGE, MEASURED (not asserted). Re-derived from a --keep run of the merge
-# commit (2026-09-26): the 62 cases emit 77 distinct check ids between them -- a
-# single clean run emits 60 on the mgmt lane the baseline pins -- and 52 of them
-# are driven red at least once. The
-# ones that DO NOT go red here
-# are the ones this rig cannot break -- named, so nobody has to guess:
-#   * paid:* (6)          the paid lane is opt-in behind RHP_CASHU_TOKEN; no case
-#                         redeems, spends, or touches ecash. Its DECODE is pinned
-#                         by the cashtoken-* cases below (v3, v4, malformed
-#                         version, no prefix), which is the part that was broken:
-#                         the version character was read at token[6], so every
-#                         real token failed inspection before the lane could buy
-#                         anything at all
-#   * ssh:* (4)           needs a real router; opt-in behind RHP_SSH
-#   * net:tcp-<port> (6 of 7)  the stub answers the burst on every port in every
-#                         other case; only the TLS port is driven red, by
-#                         tcp-dead-port (the one port a run truly cannot do without)
-#   * vantage:mode        reported, never fatal by construction (either lane is
-#                         supported, so there is no state that makes it FAIL)
-#   * net:icmp-not-a-liveness-test  the source guard: it can only go red if
-#                         somebody reintroduces `ping`, which is the edit it forbids
-#   * paid:* / paid2:*    the opt-in purchase lanes now RUN offline on a fixture
-#                         token (paid-lane-fixture, paid-lane-rejected,
-#                         renew-gate-opens, renew-gate-stuck) -- the control the
-#                         paid lane never had, which is exactly how a decode bug
-#                         that killed EVERY token survived in a merged harness.
-#                         The ids whose red path is "the operator did not supply
-#                         the thing" (paid:token-supplied, paid2:requested,
-#                         paid2:spend-declaration, paid2:token-inspected,
-#                         paid2:purchase-accepted, paid2:balance-restored,
-#                         paid:session-flip) stay green: a missing token is not a
-#                         defect to model, and the case that owns the lane's RED
-#                         is the one that reads the customer's data path.
-#   * api:whoami-shape, api:identity-shape (SKIPs on 404), artifact:package,
-#     captive:spa-noscript-fallback, identity:admin:refs-in-package,
-#     ln:no-quote-not-granted, surface:<luci>-luci-307
-#                         shape assertions whose red path is a variant the stub
-#                         does not produce yet -- a known, listed gap, not a claim
+# COVERAGE, MEASURED (not asserted). Re-derived from a --keep run of this head
+# (2026-09-27): the run checks 79 cases (SELFTESTRESULT total=79 ok=79 bad=0), of
+# which 50 write a per-case transcript. Those 50 transcripts emit 90 distinct
+# check ids between them, and 61 of them are driven red at least once. The 29
+# that DO NOT go red here are the ones this rig cannot break -- named in full
+# below, and the group counts sum to that 29, so the list can be checked rather
+# than trusted:
+#   * paid:* (6)          paid:token-supplied, paid:spend-declaration,
+#                         paid:token-inspected, paid:spends-nothing-by-default,
+#                         paid:session-flip, paid:grant-identity
+#                         The paid lane is opt-in behind RHP_CASHU_TOKEN. Its
+#                         DECODE is pinned by the cashtoken-* cases (v3, v4,
+#                         malformed version, no prefix), which is the part that
+#                         was broken: the version character was read at token[6],
+#                         so every real token failed inspection before the lane
+#                         could buy anything at all. The ids above stay green
+#                         because their red path is "the operator did not supply
+#                         the thing" -- a missing token is not a defect to model.
+#   * paid2:* (4)         paid2:requested, paid2:token-supplied,
+#                         paid2:spend-declaration, paid2:purchase-accepted
+#                         Same class in the second-purchase lane. Its RED is
+#                         owned elsewhere: paid2:gate-shut-before and
+#                         paid2:gate-open are driven red by renew-gate-stuck,
+#                         paid2:first-allotment-spent by renew-live-session, and
+#                         paid2:balance-restored / paid2:token-inspected by the
+#                         ceiling cases -- so those five are NOT in this list.
+#   * ssh:* (4)           ssh:reachable, ssh:installed-version, ssh:on-box-sha,
+#                         ssh:firewall-chain-present -- needs a real router;
+#                         opt-in behind RHP_SSH.
+#   * net:tcp-* (6)       net:tcp-41446, -41447, -41448, -41449, -41450, -41452.
+#                         The stub answers the burst on every port in every other
+#                         case; only the TLS port is driven red, by tcp-dead-port
+#                         (the one port a run truly cannot do without).
+#   * unchanged shapes (6) api:whoami-shape, api:identity-shape (SKIPs on 404),
+#                         artifact:package, captive:spa-noscript-fallback,
+#                         identity:admin:refs-in-package, ln:no-quote-not-granted
+#                         Shape assertions whose red path is a variant the stub
+#                         does not produce yet -- a known, listed gap, not a claim.
+#   * one-offs (3)        net:icmp-not-a-liveness-test (the source guard: it can
+#                         only go red if somebody reintroduces `ping`, which is
+#                         the edit it forbids), vantage:mode (reported, never
+#                         fatal by construction -- either lane is supported, so no
+#                         state makes it FAIL), surface:41452-luci-307.
+# Re-derive this list with `--keep`: every per-case transcript is left on disk, and
+# the ids that never appear as FAIL across them are the uncovered set. Count them
+# from the transcripts, not from this comment -- a list that is short is the same
+# defect as a check that cannot fail.
+#
 # The fixture token the purchase lanes are driven with is a v3 token built by
 # selftest/cashtoken_selftest.py -- non-redeemable, accepted only by the stub, and
 # the same file pins the decode it goes through. No real ecash exists in any case.
@@ -451,6 +461,23 @@ env_case renew-grant-other-mac FAIL paid2:grant-identity '{"renew": "ok", "grant
 env_case renew-balance-no-allotment FAIL paid2:balance-restored '{"renew": "ok", "renew_no_allotment": true, "unbound_ports": ["admin"]}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
     RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+# The declared-ceiling guard is v3-ONLY, and the transcript must not imply
+# otherwise. `inspect()` sums a `cashuA` token's own proof amounts, so the cap IS
+# enforced there; integer amounts are not recoverable from a `cashuB` (CBOR)
+# payload, so for a v4 token the declared number is an operator-supplied cap this
+# harness cannot verify -- and the PR's own hardware evidence (a 64-sat testnut
+# token) was v4. Both halves are driven, so the difference is MEASURED rather than
+# asserted in prose.
+env_case paid2-v3-over-ceiling FAIL paid2:token-inspected "$RENEW_SCENARIO" \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+FAKE_TOKEN_V4="$(python3 "$SELF_DIR/cashtoken_selftest.py" --emit-v4)"
+env_case paid2-v4-ceiling-unverifiable PASS paid2:token-inspected "$RENEW_SCENARIO" \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_V4" RHP_SPEND_MAX_SATS=1 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+assert_in paid2-v4-ceiling-unverifiable-note "$WORK/out.paid2-v4-ceiling-unverifiable.txt" \
+    "^RHPCHECK paid2:token-inspected PASS .*declared ceiling NOT enforced" \
+    "a v4 token ABOVE the declared ceiling passes inspection with the unenforced cap named in the detail -- the guard really is v3-only, and the transcript says so instead of implying 'same guards as the first lane'"
 # The two renew outcomes must be OPPOSITE on the same check -- that is the whole
 # claim: it reads the gate, not the module's memory of the session.
 if grep -q 'RHPCHECK paid2:gate-open PASS' "$WORK/out.renew-gate-opens.txt" \

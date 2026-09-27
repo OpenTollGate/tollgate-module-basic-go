@@ -152,20 +152,27 @@ RHP_SPEND_MAX_SATS   required whenever a token IS supplied: the harness refuses
 With `RHP_CASHU_TOKEN` unset (the default) the paid checks report SKIP with that
 reason, and `paid:spends-nothing-by-default` records the fact. With a token set,
 the harness re-checks the box is idle, refuses if the token's declared value
-exceeds `RHP_SPEND_MAX_SATS`, refuses if this client's MAC cannot be resolved
-(never redeem against the `00:00:00:00:00:00` sentinel), then POSTs the token to
-`:2121/?mac=<mac>` and asserts `200 kind:1022` plus `session_active
-false -> true`.
+exceeds `RHP_SPEND_MAX_SATS` (**for a `cashuA`/v3 token only** — a `cashuB`/v4
+token's value is not recoverable by this inspector, so the declared ceiling is an
+unverifiable operator-supplied cap there and the `paid:token-inspected` detail
+says so; see the v3/v4 note in the second-purchase section below), refuses if this
+client's MAC cannot be resolved (never redeem against the `00:00:00:00:00:00`
+sentinel), then POSTs the token to `:2121/?mac=<mac>` and asserts `200 kind:1022`
+plus `session_active false -> true`.
 
 **Honest status of that lane.** It was exercised on hardware for the first time
-on 2026-09-25 (pre17 on the bench MT3000, a 64-sat testnut token) — and it was
-**dead before it could spend anything**: `lib/cashtoken.py` read the NUT-00
-version character at `token[6]`, the first *payload* character, so every token
-failed inspection with `unknown Cashu token version character 'o'`. The decode is
-fixed (`token[5]` / `token[6:]`), and `selftest/cashtoken_selftest.py` now pins
-both the good and the malformed path, so the lane cannot go dead silently again.
-The lane itself remains code-reviewed rather than continuously proven: a real
-purchase costs real sats, so only an operator run with a small token proves it.
+on 2026-09-25 (pre17 on the bench MT3000, a 64-sat testnut token — a **`cashuB`
+(v4)** token, which is why the v3/v4 ceiling split above is not academic: the one
+token this lane has ever been driven with on real hardware is the kind whose value
+the inspector cannot recover, so the declared ceiling was never enforced on it) —
+and it was **dead before it could spend anything**: `lib/cashtoken.py` read the
+NUT-00 version character at `token[6]`, the first *payload* character, so every
+token failed inspection with `unknown Cashu token version character 'o'`. The
+decode is fixed (`token[5]` / `token[6:]`), and `selftest/cashtoken_selftest.py`
+now pins both the good and the malformed path, so the lane cannot go dead silently
+again. The lane itself remains code-reviewed rather than continuously proven: a
+real purchase costs real sats, so only an operator run with a small token proves
+it.
 
 ## The SECOND purchase is OPT-IN too — and it is the club's main loop
 
@@ -191,8 +198,8 @@ sudo RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2='cashuB...' RHP_SPEND_MAX_SATS=64 \
 | `paid2:vantage` | the run resolved to the **guest/client seat** — the only one that can carry this lane. The shipped enforcement rule matches `iifname "br-lan"`, so a probe from the management vantage never traverses the gate and could answer `204` on a box whose gate is shut; from anywhere but the guest seat this check is a named **FAIL** and **nothing is sent** |
 | `paid2:first-allotment-spent` | the box reports NO active session. A "second purchase" on a live session is a renewal of an open gate, so the lane **fails** instead of pretending the run was valid |
 | `paid2:token-supplied` | a second token was supplied (nothing is sent without it) |
-| `paid2:spend-declaration` | `RHP_SPEND_MAX_SATS` is an integer and the second token is inside it — same guards as the first lane |
-| `paid2:token-inspected` | the second token parses; its self-declared value is compared against the ceiling |
+| `paid2:spend-declaration` | `RHP_SPEND_MAX_SATS` is an integer, and the guard that compares the token against it is **v3-only**: for a **`cashuA` (v3)** token the token's own proofs are summed and it is refused above the ceiling; for a **`cashuB` (v4)** token the value is **not recoverable** by this inspector, so the declared number is an operator-supplied cap the harness cannot verify. This row deliberately does **not** say "same guards as the first lane", because for v4 it is not |
+| `paid2:token-inspected` | the second token parses; for a v3 token its self-declared value is compared against the ceiling (above it → FAIL, and nothing is sent), for a v4 token the parse is asserted **and the detail says in as many words that the declared ceiling was NOT enforced**. Both halves are driven by the self-test (`paid2-v3-over-ceiling` red, `paid2-v4-ceiling-unverifiable` green with the unenforced cap named) |
 | `paid2:gate-shut-before` | the SAME egress probe, taken **before** the second token is posted, must answer anything **other than** `200/204`-with-no-redirect. The lane refuses to spend when it does not — no value moves — because the pair `gate-shut-before` → `gate-open` is a **transition**: a gate that was never shut cannot satisfy it, and "open after" would prove nothing about the re-purchase |
 | `paid2:purchase-accepted` | `POST /?mac=<same mac>` → `200 kind:1022` |
 | `paid2:grant-identity` | the module's **own** answer names the client the re-purchase was granted to (the signed `device-identifier` tag, else `X-TollGate-Client-MAC`), and it must be this run's `/whoami` MAC. The `?mac=` above does not decide it — the grant goes to the socket the request came from — so without this check a PASS could name an address the module never granted, and the gate checks below would not be this client's answer |

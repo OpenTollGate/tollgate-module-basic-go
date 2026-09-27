@@ -491,6 +491,26 @@ def check_empty_token(args):
 # --------------------------------------------------------------------------
 # The paid lane -- OPT-IN. Absent either env var, nothing is sent.
 # --------------------------------------------------------------------------
+def ceiling_clause(info, declared_sats):
+    """What the declared spend ceiling actually DID to this token.
+
+    `inspect()` sums a v3/JSON token's own proof amounts, so for a `cashuA` token
+    the declared cap is enforced here, before anything is posted. Integer amounts
+    are NOT reliably recoverable from a `cashuB` (CBOR) payload, so for a v4 token
+    the declared number is an operator-supplied cap this harness cannot verify:
+    the token is posted whatever it carries. The PR's own hardware evidence used a
+    v4 token (a 64-sat testnut token), so "same guards as the first lane" would
+    overstate the guard for exactly the token an operator is most likely to hold --
+    the detail has to say which of the two this is.
+    """
+    if info["total_sats"] is None:
+        return ("; declared ceiling NOT enforced: a v%s token's value is not recoverable by "
+                "this inspector, so nothing here bounds the %d sat the operator declared"
+                % (info["version"], declared_sats))
+    return ("; total %d sat is inside the declared %d sat ceiling, which this token's own "
+            "proofs are checked against" % (info["total_sats"], declared_sats))
+
+
 def paid_lane(args):
     token = os.environ.get("RHP_CASHU_TOKEN", "").strip()
     declared = os.environ.get("RHP_SPEND_MAX_SATS", "").strip()
@@ -552,9 +572,10 @@ def paid_lane(args):
             % (info["total_sats"], declared_sats))
         return
     chk("paid:token-inspected", "PASS",
-        "v%s mint(s)=%s total=%s%s"
+        "v%s mint(s)=%s total=%s%s%s"
         % (info["version"], info["mint_urls"], info["total_sats"],
-           "" if not info["note"] else " (%s)" % info["note"]))
+           "" if not info["note"] else " (%s)" % info["note"],
+           ceiling_clause(info, declared_sats)))
 
     base = api_base(args)
     mac = resolve_mac(args)
@@ -785,8 +806,9 @@ def second_purchase_lane(args):
         skip_rest("the second token is above the declared ceiling")
         return
     emit("paid2:token-inspected", "PASS",
-         "v%s mint(s)=%s total=%s%s" % (info["version"], info["mint_urls"], info["total_sats"],
-                                        "" if not info["note"] else " (%s)" % info["note"]))
+         "v%s mint(s)=%s total=%s%s%s" % (info["version"], info["mint_urls"], info["total_sats"],
+                                          "" if not info["note"] else " (%s)" % info["note"],
+                                          ceiling_clause(info, declared_sats)))
 
     base = api_base(args)
     mac = resolve_mac(args)
