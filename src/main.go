@@ -95,6 +95,13 @@ const (
 	codeRequestTooLarge  = "request-too-large"
 	codeAmountTooLarge   = "amount-too-large"
 
+	// codeAccessGrantFailed is the refusal code for a purchase that was PAID and
+	// whose access could not be applied to the enforcement layer. It is
+	// deliberately distinct from every lookup/refusal code above: the customer's
+	// money is gone in this state, so the answer must tell them not to pay again
+	// rather than reading like a generic transient error.
+	codeAccessGrantFailed = "access-grant-failed"
+
 	// The MAC every route falls back to when the client cannot be identified.
 	// It is not an identity and must never key a quota: two unresolvable clients
 	// would share one bucket.
@@ -406,6 +413,22 @@ var (
 
 var cliServer *cli.CLIServer
 
+// The money path. See startup_gate.go for why it is bound before the
+// mint-dependent construction, and bootSequence for the order.
+var (
+	// apiListenAddr is a variable so the off-router test build (-tags testenv,
+	// 000_test_env_testenv.go) can bind an ephemeral port instead of the
+	// shipped one. Production never changes it.
+	apiListenAddr = ":2121"
+
+	apiListener   net.Listener
+	apiHTTPServer *http.Server
+
+	// apiServeErr carries a real serve failure — not the ErrServerClosed of a
+	// deliberate shutdown — back to main(), which is where the process exits.
+	apiServeErr = make(chan error, 1)
+)
+
 type merchantTypesProvider struct {
 	inner *merchant.MutexMerchantProvider
 }
@@ -562,12 +585,113 @@ func init() {
 
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
-	var err2 error
-	merchantInstance, err2 := merchant.New(configManager)
-	if err2 != nil {
-		mainLogger.WithError(err2).Fatal("Failed to create merchant")
+	if err := bootSequence(apiListenAddr, merchant.New); err != nil {
+		mainLogger.WithError(err).Fatal("Failed to start TollGate")
 	}
-	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(merchantInstance)}
+
+	mainLogger.Info("Startup complete: the payment API is serving the money path")
+}
+
+// merchantConstructor is the mint-dependent construction step of the boot
+// sequence. It is a parameter rather than a direct call to merchant.New so the
+// boot ORDER can be tested with a construction that blocks — the cold-boot
+// shape startup_gate.go exists to fix.
+type merchantConstructor func(*config_manager.ConfigManager) (merchant.MerchantInterface, error)
+
+// bootSequence is the whole boot, in its required order:
+//
+//  1. everything that must NOT wait for a mint — the "starting" merchant
+//     placeholder, the payment API bound and served, the upstream Wi-Fi
+//     manager, and the CLI Unix socket;
+//  2. the mint-dependent construction (merchant.New: mint probes then the
+//     wallet load, which is unbounded per mint on a cold boot), after which the
+//     constructed merchant goes behind the provider every consumer already
+//     holds and the reachable-set callbacks the degraded -> full upgrade needs
+//     are wired;
+//  3. the gate opens, so mint-dependent requests stop being refused.
+//
+// Only the order changed. Every stage does what it did before, and an error out
+// of either stage is fatal at the call site, exactly as it was.
+func bootSequence(addr string, construct merchantConstructor) error {
+	apiStartup.setStage(stageBindingAPI)
+
+	// The placeholder is installed BEFORE the CLI server, which is handed this
+	// same provider: the socket has to exist before the mint-dependent work, so
+	// it cannot be handed a merchant that does not exist yet.
+	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(startingMerchant{})}
+
+	if err := bindAndServeAPI(addr); err != nil {
+		return err
+	}
+
+	// No merchant dependency: this is the Wi-Fi side of the box, and it is what
+	// the CLI's upstream commands read. Started here so the box is looking for
+	// its uplink while the wallet is still loading instead of after.
+	initUpstreamManager()
+
+	// The CLI socket is bound and served here too. The operator's
+	// `tollgate wallet balance` failed with ENOENT for the same minutes the API
+	// was missing; the socket now exists before the mint-dependent work, and a
+	// command that arrives during it gets an explicit "starting" answer from
+	// the placeholder merchant instead of a missing socket.
+	initCLIServer()
+
+	apiStartup.setStage(stageConnectingMerchant)
+	merchantInstance, err := construct(configManager)
+	if err != nil {
+		return fmt.Errorf("create merchant: %w", err)
+	}
+	installMerchant(merchantInstance)
+
+	initUpstreamDetector()
+
+	apiStartup.markReady()
+	return nil
+}
+
+// bindAndServeAPI binds the payment API and starts serving it. From the moment
+// net.Listen returns, a client can connect (the kernel completes the handshake
+// into the backlog) and from the moment the goroutine below is scheduled it
+// gets an explicit "starting" refusal rather than a hang. This is the sequence
+// point the boot-race measurement reads.
+func bindAndServeAPI(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("bind the payment API on %s: %w", addr, err)
+	}
+	apiListener = ln
+
+	mux := http.NewServeMux()
+	registerAPIHandlers(mux)
+	apiHTTPServer = &http.Server{
+		Addr:    addr,
+		Handler: mux,
+		// The timeouts the old ListenAndServe carried, unchanged.
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		if err := apiHTTPServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			apiServeErr <- err
+		}
+	}()
+
+	mainLogger.WithFields(logrus.Fields{
+		"addr":     ln.Addr().String(),
+		"api_addr": addr,
+	}).Info("Money path listening: the API is bound and serving; mint-dependent init is still in flight")
+	return nil
+}
+
+// installMerchant puts the constructed merchant behind the provider every
+// consumer already holds — the HTTP handlers read it per request, and the CLI
+// server was handed the same pointer — and wires the callbacks the degraded ->
+// full upgrade path needs. Nothing about that path changed: a degraded merchant
+// still upgrades on the first reachable mint, exactly as before.
+func installMerchant(merchantInstance merchant.MerchantInterface) {
+	swapMerchant(merchantInstance)
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
 		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
@@ -579,12 +703,6 @@ func init() {
 	} else {
 		registerReachableSetChangedCallback(merchantInstance)
 	}
-
-	initUpstreamManager()
-
-	initUpstreamDetector()
-
-	initCLIServer()
 }
 
 func initUpstreamDetector() {
@@ -743,6 +861,74 @@ func clientMACFromSocket(r *http.Request) (string, error) {
 	return mac, nil
 }
 
+// --- the client-identity contract, in one place ---------------------------
+//
+// Every client-scoped endpoint of this API answers for, and acts on, the client
+// at the other end of the socket. A MAC address in a query string or in a
+// request body is a caller's *claim* about itself: it is accepted for wire
+// compatibility with the shipped portal (whose Lightning lane sends back the
+// value it read from /whoami) and it NEVER decides which session, quote, byte
+// meter or gate a request touches.
+//
+// "Ignored" must not mean "silently ignored". A tool that posts a token "for" a
+// MAC it is not itself using used to get a false negative — "the gate never
+// opened", with nothing on the wire to explain it — because the grant went to
+// the socket. So every client-scoped response names the identity the module
+// actually used, and, when the caller asserted a different address, the claim it
+// did not honour:
+//
+//	X-TollGate-Client-MAC:         the socket-resolved, canonical address
+//	X-TollGate-Mac-Claim-Ignored:  the asserted address that was NOT honoured
+//
+// Both are additive (no body field or existing header changes shape), both are
+// exposed through CORS so a portal or harness page on :2050/:2051 can read them
+// (see CorsMiddleware), and both are set by the single entry point every
+// client-scoped route uses, clientIdentity, so the contract cannot be honoured
+// on one route and quietly forgotten on the next.
+//
+// To learn which device a purchase was granted to, read the session event's
+// `device-identifier` tag (kind 1022) or this header, and compare it with your
+// own socket address — do not compare it with a `mac` you sent.
+const (
+	headerClientMAC       = "X-TollGate-Client-MAC"
+	headerMacClaimIgnored = "X-TollGate-Mac-Claim-Ignored"
+)
+
+// claimedMACQuery returns the `mac` query parameter as a canonical address, or
+// "" when the caller asserted nothing.
+func claimedMACQuery(r *http.Request) string {
+	return merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
+}
+
+// reportClientIdentity records, on the response, which client the request was
+// answered for and whether a claim the caller made was ignored. It must run
+// before anything writes a status line.
+func reportClientIdentity(w http.ResponseWriter, r *http.Request, resolvedMAC, bodyClaim string) {
+	if resolvedMAC != "" {
+		w.Header().Set(headerClientMAC, resolvedMAC)
+	}
+
+	// A claim that names the address the socket already resolved to is not an
+	// ignored claim: the caller is simply echoing /whoami correctly, which is
+	// what the shipped portal does.
+	for _, asserted := range []string{claimedMACQuery(r), merchant.NormalizeMACAddress(bodyClaim)} {
+		if asserted != "" && asserted != resolvedMAC {
+			w.Header().Set(headerMacClaimIgnored, asserted)
+			return
+		}
+	}
+}
+
+// clientIdentity is the one entry point every identity-bearing route uses: it
+// resolves the client from the socket (clientMACFromSocket) and records the
+// answer on the response. bodyClaim is the `mac` field of a JSON request body,
+// when the route has one; it is reported as ignored and never used.
+func clientIdentity(w http.ResponseWriter, r *http.Request, bodyClaim string) (string, error) {
+	mac, err := clientMACFromSocket(r)
+	reportClientIdentity(w, r, mac, bodyClaim)
+	return mac, err
+}
+
 func getMacAddress(ipAddress string) (string, error) {
 	if net.ParseIP(ipAddress) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
@@ -795,6 +981,14 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// from a browser on the TollGate network (OWASP).
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Expose the identity headers reportClientIdentity sets on every
+		// client-scoped response. Cross-origin reads are denied by default, and
+		// the portal (:2050/:2051) and any harness page are cross-origin to this
+		// API — without this, "which client was this answered for?" and "was the
+		// MAC I sent honoured?" would be readable by curl only, which is how a
+		// tool ends up believing a `?mac=` it sent decided the purchase.
+		w.Header().Set("Access-Control-Expose-Headers",
+			headerClientMAC+", "+headerMacClaimIgnored+", Retry-After")
 		origin := r.Header.Get("Origin")
 		if origin != "" && origin != "null" && (isLocalOrigin(origin) || isSameHost(origin, r.Host)) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -816,8 +1010,8 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func handler(w http.ResponseWriter, r *http.Request) {
 	// The portal calls this once per page load to learn which device it is
 	// looking at. The answer comes from the socket, never from a `mac` parameter
-	// the caller supplied.
-	mac, err := clientMACFromSocket(r)
+	// the caller supplied (see clientIdentity).
+	mac, err := clientIdentity(w, r, "")
 	if err != nil {
 		// Not fatal here: /whoami is an echo of the caller's own address, not a
 		// request that needs one (the money routes refuse an unidentified
@@ -875,14 +1069,17 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Get the client's identity from the socket. A `mac` query parameter is not
 	// consulted: its value is the caller's claim about itself, and on this route
-	// it decides which device the grant is applied to.
+	// it decides which device the grant is applied to. The claim is reported back
+	// as ignored (see reportClientIdentity) so a harness posting a token "for" a
+	// MAC it is not itself using learns why the grant went elsewhere instead of
+	// reading it as "the gate never opened".
 	//
 	// This is the money path, where a wrong identity cannot be recovered: the
 	// token is received before the gate is opened, so a request that names
 	// 00:00:00:00:00:00 — or that cannot be resolved at all — would consume the
 	// customer's value and grant nothing (the rollback happens after Receive).
 	// Refuse BEFORE the token is read, with a distinct code the portal can show.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 			Warn("Payment refused: the client has no resolvable identity")
@@ -980,8 +1177,12 @@ func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, sta
 
 // handleRoot routes requests based on method
 func HandleUsage(w http.ResponseWriter, r *http.Request) {
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
+	// Same identity contract as every other client-scoped route: the client is
+	// the one at the other end of the socket. A `mac` parameter is a claim, and
+	// it is reported back as ignored rather than silently dropped — this route
+	// used to resolve the address raw (no canonical form, no sentinel refusal),
+	// so it was the one place the contract could drift without any test noticing.
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).Error("Error getting MAC address for /usage")
 		w.WriteHeader(http.StatusOK)
@@ -1051,6 +1252,12 @@ type balanceResponse struct {
 	Remaining     uint64 `json:"remaining"`
 	StartTime     int64  `json:"start_time,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// Mac is the client this balance is about, resolved from the socket and
+	// canonicalised, exactly as /session-state reports it. It is additive and
+	// optional: a portal that ignores it parses the body it always did, and a
+	// probe that sent `?mac=<somewhere else>` can see which device answered
+	// instead of reading the (identical-looking) body as that device's balance.
+	Mac string `json:"mac,omitempty"`
 }
 
 // sessionStateResponse is the body of GET /session-state. `state` is the
@@ -1080,7 +1287,7 @@ func HandleSessionState(w http.ResponseWriter, r *http.Request) {
 	// The state of the client at the other end of the socket — the `mac` query
 	// parameter this route used to accept is a claim by the caller about some
 	// other device, and answering it let one client read another's state.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		// An unidentifiable client has no session, and the portal polls this
 		// while rendering — so answer "none" rather than erroring. The sentinel
@@ -1134,8 +1341,11 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
+	// Identity comes from the socket through the same resolver as every other
+	// client-scoped route (see clientIdentity): canonical form so a lease in any
+	// casing still finds the session that was created for this device, and the
+	// unresolvable-device sentinel refused rather than used as a lookup key.
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		// Client IP not in DHCP leases — can't identify device.
 		// Return "no active session" instead of erroring, so the balance
@@ -1159,7 +1369,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	if usage == "-1/-1" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false, Mac: macAddress})
 		return
 	}
 
@@ -1176,7 +1386,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	if err != nil || session == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false, Mac: macAddress})
 		return
 	}
 
@@ -1195,6 +1405,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		Allotment:     allotment,
 		Remaining:     remaining,
 		StartTime:     session.StartTime,
+		Mac:           macAddress,
 	})
 }
 
@@ -1261,9 +1472,12 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The quote is bound to the client at the other end of the socket. The `mac`
-	// field above is not read: a caller-named address would bind the quote — and
-	// the eventual grant — to a device that may not be the one paying.
-	macAddress, err := clientMACFromSocket(r)
+	// field above is not read as identity: a caller-named address would bind the
+	// quote — and the eventual grant — to a device that may not be the one
+	// paying. When the body names a different address it is reported as ignored
+	// (reportClientIdentity), which is what tells a harness that its quote went
+	// to its own socket rather than to the MAC it sent.
+	macAddress, err := clientIdentity(w, r, req.Mac)
 	if err != nil {
 		// A quote is only meaningful for a device that exists: the status poll
 		// and the eventual grant are both bound to this address, and the quote
@@ -1335,7 +1549,7 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	// that device's quote state. A poll that cannot be attributed must be refused
 	// rather than attributed to 00:00:00:00:00:00, which every unidentified
 	// client would share.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 			Warn("Refusing lightning status poll: the client has no resolvable identity")
@@ -1353,6 +1567,23 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	// reveals status for that same device and access is granted to the recorded MAC.
 	status, err := merchantProvider.inner.GetMerchant().GetLightningInvoiceStatus(quoteID, macAddress)
 	if err != nil {
+		// A PAID purchase whose access could not be applied is NOT a status
+		// lookup failure, and answering it like one is how a customer ends up
+		// paying and staring at a portal that never says why (measured on the
+		// bench MT3000, 2026-09-26: state=PAID, merchant wallet +1 sat,
+		// access_granted never true). It is logged at ERROR with the client and
+		// the quote, and answered with its own code and a message that tells the
+		// customer the payment was received and not to pay again.
+		if errors.Is(err, merchant.ErrAccessGrantNotApplied) {
+			mainLogger.WithError(err).WithFields(logrus.Fields{
+				"quote": quoteID,
+				"mac":   macAddress,
+			}).Error("A PAID purchase could not be granted: the invoice settled but the access was NOT applied — the client keeps no allotment until the grant succeeds")
+			writeLightningRefusal(w, http.StatusServiceUnavailable, codeAccessGrantFailed,
+				"Your payment was received, but the router could not open the gate for this device yet. Do NOT pay again — access is retried automatically and opens as soon as the router can apply it.", 15)
+			return
+		}
+
 		statusCode := http.StatusInternalServerError
 		if errors.Is(err, merchant.ErrQuoteNotFound) {
 			statusCode = http.StatusNotFound
@@ -1389,49 +1620,53 @@ func versionRequested(args []string) bool {
 	return args[1] == "--version" || args[1] == "-version"
 }
 
-func main() {
-	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
-	fmt.Println("Starting Tollgate Core")
-	fmt.Println("Listening on all interfaces on port", port)
-
-	mainLogger.Info("Registering handlers...")
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+// registerAPIHandlers binds every route the money path serves, in the shape it
+// always had. It runs from bindAndServeAPI, i.e. BEFORE the merchant exists —
+// which is why every mint-dependent route is wrapped in requireStarted.
+// /whoami is deliberately not: it echoes the caller's own address and needs no
+// merchant, so it keeps answering for real while the wallet is loading.
+func registerAPIHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
-		RateLimitMiddleware(CorsMiddleware(HandleRoot))(w, r)
+		RateLimitMiddleware(CorsMiddleware(requireStarted(HandleRoot)))(w, r)
 	})
 
-	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /whoami endpoint")
 		CorsMiddleware(handler)(w, r)
 	})
 
-	http.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /ln-invoice endpoint")
-		CorsMiddleware(handleLNInvoiceRoute)(w, r)
+		CorsMiddleware(requireStarted(handleLNInvoiceRoute))(w, r)
 	})
 
-	http.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /balance endpoint")
-		CorsMiddleware(HandleBalance)(w, r)
+		CorsMiddleware(requireStarted(HandleBalance))(w, r)
 	})
 
-	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /usage endpoint")
-		CorsMiddleware(HandleUsage)(w, r)
+		CorsMiddleware(requireStarted(HandleUsage))(w, r)
 	})
 
-	http.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session-state endpoint")
-		CorsMiddleware(HandleSessionState)(w, r)
+		CorsMiddleware(requireStarted(HandleSessionState))(w, r)
 	})
 
-	// --- Identity derivation (additive, optional) --------------------------
-	// Derive network identity (npub, IPv4, MACs, BIP39 seed) from the existing
-	// merchant private key in identities.json (owned_identities[0].privatekey).
-	// This is a bonus feature: if identities.json is missing, malformed, or has
-	// no usable key, the routes are simply not registered and TollGate boots and
-	// serves all existing endpoints normally. No existing endpoint is touched.
+	registerIdentityRoutes(mux)
+}
+
+// registerIdentityRoutes is the optional identity block, unchanged by the boot
+// reordering and deliberately not gated: the routes derive a network identity
+// (npub, IPv4, MACs, BIP39 seed) from the existing merchant private key in
+// identities.json (owned_identities[0].privatekey) and never touch the
+// merchant. As before, if identities.json is missing, malformed, or has no
+// usable key, the routes are simply not registered and TollGate boots and
+// serves all existing endpoints normally.
+func registerIdentityRoutes(mux *http.ServeMux) {
 	identityPrivKey := ""
 	if ids := configManager.GetIdentities(); ids != nil && len(ids.OwnedIdentities) > 0 {
 		identityPrivKey = ids.OwnedIdentities[0].PrivateKey
@@ -1443,29 +1678,37 @@ func main() {
 		identityPrivKey = ""
 	}
 	if identityPrivKey != "" {
-		http.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity endpoint")
 			CorsMiddleware(handleIdentityDerive(identityPrivKey))(w, r)
 		})
 		// reveal-seed accepts a 12-word BIP39 mnemonic and raw private key —
 		// POST-only so the request is intentional and never cached/prefetched.
-		http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Hit /identity/reveal-seed endpoint (sensitive)")
 			CorsMiddleware(handleIdentityRevealSeed(identityPrivKey))(w, r)
 		})
 		mainLogger.Info("identity: /identity and /identity/reveal-seed routes registered")
 	}
+}
 
-	mainLogger.Info("Starting HTTP server on all interfaces...")
-	server := &http.Server{
-		Addr: port,
-		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  60 * time.Second,
+func main() {
+	fmt.Println("Starting Tollgate Core")
+
+	// The money path was bound and is being served from init() — BEFORE the
+	// mint-dependent construction — so :2121 accepts a connection, and answers
+	// an explicit "starting" refusal, while the mints and the wallet are still
+	// loading. All that is left here is to keep the process alive, and to exit
+	// if the money path itself dies.
+	if apiListener == nil || apiHTTPServer == nil {
+		mainLogger.Fatal("The payment API was never bound: the boot sequence did not run")
 	}
+	mainLogger.Info("Starting HTTP server on all interfaces...")
 
-	mainLogger.Fatal(server.ListenAndServe())
+	if err := <-apiServeErr; err != nil {
+		mainLogger.WithError(err).Fatal("Failed to serve the payment API")
+	}
+	mainLogger.Fatal("The payment API stopped serving")
 }
 
 func isLocalRequest(r *http.Request) bool {

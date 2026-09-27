@@ -23,6 +23,13 @@ var testEnvConfigDir string
 // This file is guarded by the `testenv` build tag so it is never compiled
 // into the production binary (enforced by tests/contract/build-purity.sh).
 func init() {
+	// The money path is bound during main.go's init(), and this file's init()
+	// runs first (its name sorts before main.go). Point the API at an ephemeral
+	// loopback port so a `go test -tags testenv` run NEVER takes the shipped
+	// :2121: on a real router that port belongs to the running daemon, and in a
+	// test runner two packages' binaries would collide on it.
+	apiListenAddr = "127.0.0.1:0"
+
 	if os.Getenv("TOLLGATE_TEST_CONFIG_DIR") != "" {
 		return
 	}

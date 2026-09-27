@@ -56,7 +56,7 @@ mkdir -p "bin/$COMPILE_KEY"
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" \
-  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+  -trimpath -buildvcs=false -ldflags="$LDFLAGS" .
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
@@ -103,6 +103,7 @@ install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart      
 install -D -m 0644 packaging/files/etc/nftables.d/20-nds-enforce.nft                 "$PAYLOAD/etc/nftables.d/20-nds-enforce.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/30-backend-firewall.nft            "$PAYLOAD/etc/nftables.d/30-backend-firewall.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft "$PAYLOAD/etc/nftables.d/31-admin-board-not-guest-reachable.nft"
+install -D -m 0644 packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft   "$PAYLOAD/etc/nftables.d/32-luci-not-guest-reachable.nft"
 
 # Man pages
 mkdir -p "$PAYLOAD/usr/share/man/man8"

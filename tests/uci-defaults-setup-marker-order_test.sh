@@ -254,6 +254,11 @@ export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
+# The driver also re-asserts the plain-HTTP entry point
+# (setup_uhttpd_trusted_entry), which writes a stub document into its docroot;
+# pin that into the sandbox too, or this test writes into the LIVE
+# /etc/tollgate/router-home of whatever host runs it.
+export ROUTER_HOME_DIR="$TMP/router-home"
 
 cat > "$TMP/bin/uci" <<'SHIM'
 #!/bin/sh
@@ -485,7 +490,24 @@ branch_now()   { sed -n 's/^.*Setup branch \([A-Z_]*\) .*$/\1/p' "$LOGFILE" | he
 full_ran()     { grep -q '^.*Running full setup' "$LOGFILE"; }
 ipv6_off()     { grep -Fq 'dhcp.lan.ra=disabled' "$UCI_STATE"; }
 redirect_now() { grep -F 'uhttpd.main.redirect_https=' "$UCI_STATE" | head -n1 | cut -d= -f2-; }
-allow443()     { grep -F -c 'nodogsplash.@nodogsplash[0].users_to_router=allow tcp port 443' "$UCI_STATE"; }
+# Policy-list witnesses for the branch assertions below.
+#
+# Since 2026-09-26 the pre-auth allow list holds the customer journey only
+# (portal :2050/:2051 and the backend :2121); LuCI's :8080/:443 and the board's
+# :8090/:8443 are admin surfaces and must be ABSENT on every setup path. The
+# verify/repair path still re-asserts the list — the observable witness of that
+# is a journey rule being present exactly once.
+journey_allow() {
+    grep -F -c 'nodogsplash.@nodogsplash[0].users_to_router=allow tcp port 2051' "$UCI_STATE"
+}
+admin_allowances() {
+    local port n total=0
+    for port in 8080 443 8090 8443; do
+        n=$(grep -F -c "nodogsplash.@nodogsplash[0].users_to_router=allow tcp port $port" "$UCI_STATE")
+        total=$((total + n))
+    done
+    printf '%s' "$total"
+}
 
 # --------------------------------------------------- 2a. absent marker (first boot)
 echo "== absent marker: full setup, and the marker is written"
@@ -517,8 +539,10 @@ SSID_BEFORE="$GUEST_SSID"
 full_ran && bad "same: full setup ran on an equal marker" || ok "same: full setup did not run"
 [ "$(ssid_now)" = "$SSID_BEFORE" ] && ok "same: guest SSID untouched" \
                                    || bad "same: guest SSID changed to $(ssid_now)"
-[ "$(allow443)" = 1 ] && ok "same: the :443 pre-auth rule was re-asserted exactly once" \
-                      || bad "same: :443 rule present $(allow443) times"
+[ "$(journey_allow)" = 1 ] && ok "same: the policy list was re-asserted (portal :2051 present once)" \
+                           || bad "same: portal :2051 rule present $(journey_allow) times"
+[ "$(admin_allowances)" = 0 ] && ok "same: no admin-surface allowance (:8080/:443/:8090/:8443) in the list" \
+                              || bad "same: admin-surface allowance present $(admin_allowances) times"
 [ "$(redirect_now)" = 0 ] && ok "same: uhttpd.main.redirect_https repaired to 0" \
                           || bad "same: redirect_https is $(redirect_now)"
 [ "$(marker_now)" = "v0.6.0-alpha4" ] && ok "same: marker left alone" \
@@ -552,8 +576,10 @@ full_ran && bad "newer: full setup ran on a roll-back — the defect" \
                                    || bad "newer: private key lost"
 [ "$(hostname_now)" = "$OPERATOR_HOSTNAME" ] && ok "newer: operator hostname survived" \
                                             || bad "newer: hostname clobbered"
-[ "$(allow443)" = 1 ] && ok "newer: policy list still re-asserted (:443 present once)" \
-                      || bad "newer: :443 rule present $(allow443) times"
+[ "$(journey_allow)" = 1 ] && ok "newer: policy list still re-asserted (portal :2051 present once)" \
+                           || bad "newer: portal :2051 rule present $(journey_allow) times"
+[ "$(admin_allowances)" = 0 ] && ok "newer: no admin-surface allowance in the list" \
+                              || bad "newer: admin-surface allowance present $(admin_allowances) times"
 [ "$(redirect_now)" = 0 ] && ok "newer: uhttpd contract still repaired" \
                           || bad "newer: redirect_https is $(redirect_now)"
 [ "$(marker_now)" = "v0.6.0-alpha5" ] \
@@ -625,8 +651,10 @@ run_setup_chain v0.6.0-alpha4               # DOWNGRADE back to alpha4
                              || bad "round trip: SSID became $(ssid_now) (was $SSID_B)"
 [ "$(marker_now)" = "v0.6.0-alpha5" ] && ok "round trip: marker still alpha5 after the downgrade" \
                                       || bad "round trip: marker is '$(marker_now)'"
-[ "$(allow443)" = 1 ] && ok "round trip: policy list re-asserted on the downgrade leg" \
-                      || bad "round trip: :443 rule present $(allow443) times"
+[ "$(journey_allow)" = 1 ] && ok "round trip: policy list re-asserted on the downgrade leg (portal :2051 once)" \
+                           || bad "round trip: portal :2051 rule present $(journey_allow) times"
+[ "$(admin_allowances)" = 0 ] && ok "round trip: no admin-surface allowance in the list after the downgrade" \
+                              || bad "round trip: admin-surface allowance present $(admin_allowances) times"
 
 run_setup_chain v0.6.0-alpha5               # reinstall alpha5 (return leg)
 [ "$(branch_now)" = "VERIFY" ] && ok "round trip: return leg -> VERIFY" \
