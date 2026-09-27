@@ -416,19 +416,21 @@ func (m *Merchant) RebindSession(ticket, macAddress string) (*CustomerSession, e
 	}
 
 	m.sessionMu.Lock()
-	defer m.sessionMu.Unlock()
 
 	session, exists := m.customerSessions[previous]
 	if !exists || session.ticketHandle != payload.Handle {
 		// A handle names one session, and only the one it was issued for: a
 		// session retired and re-bought under the same MAC is a different
 		// session, and an old ticket must not be able to move it.
+		m.sessionMu.Unlock()
 		return nil, ErrTicketUnknown
 	}
 
 	if previous == macAddress {
 		// Already delivering here: report the session and change nothing.
-		return cloneCustomerSession(session), nil
+		clone := cloneCustomerSession(session)
+		m.sessionMu.Unlock()
+		return clone, nil
 	}
 
 	// Invariant 1: carry the meter. The carried total is what the session already
@@ -458,8 +460,15 @@ func (m *Merchant) RebindSession(ticket, macAddress string) (*CustomerSession, e
 	delete(m.customerSessions, previous)
 	m.customerSessions[macAddress] = moved
 
+	previousAttachment := attachment.MacAddress
 	attachment.MacAddress = macAddress
 	attachment.AttachedAt = now.Unix()
+
+	// The move itself is complete and consistent; release the session lock BEFORE
+	// the ndsctl subprocesses below. On a single-core router an exec under
+	// sessionMu stalls purchases, renewals, expiry and every /usage poll for its
+	// whole duration, and this path now makes two execs (authorize, tear down).
+	m.sessionMu.Unlock()
 
 	// The new attachment is metered against its own baseline, which is what the
 	// carried total sits on top of. If NoDogSplash cannot report its counters yet
@@ -472,6 +481,35 @@ func (m *Merchant) RebindSession(ticket, macAddress string) (*CustomerSession, e
 			log.Printf("WARNING: session rebind for handle %s: could not read the counters of the new attachment %s, so its metering baseline is recorded from zero on top of the %d bytes already consumed: %v",
 				payload.Handle, macAddress, carried, err)
 		}
+	}
+
+	// Authorize the new attachment. A rebind that moves the record without opening
+	// the gate hands the customer a receipt, not the internet: they arrive as a
+	// fresh preauthenticated client, nothing else in the tree authorizes a rotated
+	// address (gates are opened by purchase settlement), and the record ends up
+	// metering an address whose traffic is still blocked.
+	if err := openGateForSession(macAddress, moved); err != nil {
+		// The move is rolled back rather than left half-delivered: the customer
+		// keeps the access they already had (the previous attachment's gate is
+		// untouched — it is torn down only after the new one is authorized), the
+		// ticket stays valid, and the rebind can simply be retried.
+		m.sessionMu.Lock()
+		delete(m.customerSessions, macAddress)
+		m.customerSessions[previous] = session
+		m.sessionMu.Unlock()
+		attachment.MacAddress = previousAttachment
+		return nil, fmt.Errorf("rebind: could not authorize the new attachment %s: %w", macAddress, err)
+	}
+
+	// Make before break: only now tear the previous attachment's gate down. The
+	// record has moved, so leaving the old gate authorized would leave an open,
+	// unmetered gate on an address the session no longer tracks — inheritable by
+	// whoever takes that address next. A failed close is not a close (valve
+	// escalates it): the rebind succeeded and the customer has access at the new
+	// address, so the failure is reported rather than turned into a refusal.
+	if err := valve.CloseGate(previous); err != nil {
+		log.Printf("ERROR: session rebind for handle %s moved the session to %s but could NOT confirm the previous attachment %s is closed: %v — that address may still hold an open, unmetered gate",
+			payload.Handle, macAddress, previous, err)
 	}
 
 	log.Printf("Session rebind: handle %s moved from %s to %s (%d bytes carried, metric=%s)",
