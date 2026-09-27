@@ -404,8 +404,9 @@ class ApiHandler(Base):
         # signed device-identifier tag naming the client the grant went to. The
         # purchase counter backs the renew model (buy -> spend -> buy again).
         SESSION["purchases"] += 1
+        granted = mut("grant_mac") or "aa:bb:cc:dd:ee:ff"
         return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted",
-                                "tags": [["device-identifier", "mac", "aa:bb:cc:dd:ee:ff"]]},
+                                "tags": [["device-identifier", "mac", granted]]},
                           extra=self._identity_headers())
 
 

@@ -438,6 +438,12 @@ assert_in lane-exclusive-paid-skip "$WORK/out.lane-exclusive.txt" \
 assert_in lane-exclusive-spends-nothing "$WORK/out.lane-exclusive.txt" \
     "^RHPCHECK paid:spends-nothing-by-default SKIP .*NOT sent" \
     "the transcript also records that the first token was NOT sent"
+# The module's OWN answer decides WHO got the grant -- `?mac=` never does, because
+# the grant goes to the socket the request came from. A PASS that names the address
+# this run happens to have sent could name a device the module never granted.
+env_case renew-grant-other-mac FAIL paid2:grant-identity '{"renew": "ok", "grant_mac": "02:00:00:00:00:99", "unbound_ports": ["admin"]}' \
+    RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
 # The two renew outcomes must be OPPOSITE on the same check -- that is the whole
 # claim: it reads the gate, not the module's memory of the session.
 if grep -q 'RHPCHECK paid2:gate-open PASS' "$WORK/out.renew-gate-opens.txt" \

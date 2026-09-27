@@ -642,7 +642,7 @@ GATE_VANTAGE_WHY = ('the shipped enforcement rule matches `iifname "br-lan"` onl
 SECOND_CHECK_IDS = ("paid2:vantage", "paid2:first-allotment-spent", "paid2:token-supplied",
                     "paid2:spend-declaration", "paid2:token-inspected",
                     "paid2:gate-shut-before", "paid2:purchase-accepted",
-                    "paid2:balance-restored", "paid2:gate-open")
+                    "paid2:grant-identity", "paid2:balance-restored", "paid2:gate-open")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -838,6 +838,29 @@ def second_purchase_lane(args):
              "the second POST / -> HTTP %s kind=%r body=%r" % (st, kind, raw[:200]))
         skip_rest("the second purchase was not accepted")
         return
+
+    # WHICH client did the module actually grant this to? The `?mac=` above did
+    # not decide it -- the grant goes to the socket the request came from -- so
+    # assert against the module's OWN answer: the session event's signed
+    # `device-identifier` tag, else the identity header on the same response. The
+    # first lane asserts this too (#598); without it a PASS here could name an
+    # address the module never granted, and every conclusion drawn from the
+    # session it opened would be about a different device.
+    granted = granted_identity(obj, hdrs)
+    if granted == mac:
+        emit("paid2:grant-identity", "PASS",
+             "the second purchase was granted to %s -- the module's OWN answer (device-identifier "
+             "tag / %s), which is the socket this harness requested from, not the ?mac= it sent"
+             % (granted, IDENTITY_HEADER))
+    elif not granted:
+        emit("paid2:grant-identity", "FAIL",
+             "POST / -> 200 kind:1022 with no identity to check: neither a device-identifier tag "
+             "nor an %s header on the response (body=%r)" % (IDENTITY_HEADER, raw[:200]))
+    else:
+        emit("paid2:grant-identity", "FAIL",
+             "POST / was granted to %s, not to this run's /whoami identity %s: the re-purchase is "
+             "real, but it belongs to another device, so the gate checks below are not this "
+             "client's answer" % (granted, mac))
 
     st2, raw2, _ = request(base + "/balance")
     bal = jload(raw2)
