@@ -12,6 +12,28 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **“The MAC I sent was ignored” is now said out loud on every
+  client-scoped endpoint.** `?mac=` never decided which session, quote, byte
+  meter or gate a request touched — the module has always answered for the
+  client at the other end of the **socket** — but it did so silently, and
+  that cost hours on the bench: a valid token posted *for*
+  `02:11:22:33:44:55` from a host whose own socket was `8c:16:45:0d:6f:c5`
+  opened the gate for the *sender* (`ndsctl json`: `8c:16:45:0d:6f:c5`
+  Authenticated, `02:11:22:33:44:55` Preauthenticated), while
+  `/balance?mac=<other>` and `/balance` returned byte-identical bodies — so
+  the probe read “the gate never opened”. Every client-scoped route now goes
+  through one resolver and every response names the client it answered for
+  (`X-TollGate-Client-MAC`) plus, when the caller asserted a different
+  address, the claim it did **not** honour (`X-TollGate-Mac-Claim-Ignored`);
+  both are exposed through CORS so the portal and any harness page can read
+  them. `/balance`’s body names its client like `/session-state` already did,
+  and `/balance`+`/usage` — which resolved the address themselves, raw, without
+  the unresolvable-client refusal — now share the money path’s resolver. The
+  parameter stays accepted for wire compatibility with the shipped portal; no
+  existing field or header changes shape, and the contract (with what it means
+  for a test rig) is in `docs/operator-guide.md`.
+  ([#598](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/598))
+
 - **A session whose client NoDogSplash has forgotten is closed and retired, not
   retried for ever.** On the bench (pre17) `ndsctl deauth` answered
   `Client <mac> not found.` with exit status 1, and the module read that exit
@@ -51,6 +73,31 @@ and [Semantic Versioning](https://semver.org/).
   reported as granted, so nothing downstream can read the purchase as a success.
 
 ### Changed / Internal
+
+- **The wired LAN ports' own bridge is decided — together with the half of that
+  request the shipped stack cannot deliver.**
+  `docs/architecture/lan-port-management-bridge-decision.md` answers the
+  operator's report ("neither luci on 8080 nor the luci alternative config ui on
+  port 8090 are reachable" from his Ethernet cable, which is a member of the
+  captive bridge `br-lan`). It decides that the wired ports move to a new
+  management bridge `br-mgmt` whose clients reach `:8080`/`:443` and
+  `:8090`/`:8443` before paying, **and states that the bridge cannot also be a
+  paywalled network**: nodogsplash 5.0.2 manages one interface
+  (`src/conf.h:146`), uses fixed iptables chain names in one namespace
+  (`src/fw_iptables.h:35-44`) and deletes them **by name** on teardown
+  (`src/fw_iptables.c:689-747`), so two instances — which the OpenWrt init
+  script does start, one procd instance per uci section — tear each other's
+  enforcement down whenever either restarts, and this module's single `ndsctl`
+  call site (`src/valve/valve.go:96-102`, no `-s`) could never authorise the
+  second one. `br-mgmt` therefore gets its own fw4 zone with no path to `wan`,
+  an allow list of admin surfaces only, and **no** customer/payment surfaces
+  (`:2050`/`:2051`/`:2121`), because a network this module cannot gate must not
+  be able to buy. The record also establishes that the wired-port binding is
+  base-image owned (so the module must move the port list device-agnostically),
+  evaluates and rejects the MAC-allow shortcut (`99-tollgate-setup:969-972` has
+  already measured MACs as harvestable from 802.11 headers), and lists the
+  seventeen assertions that must hold before the bridge ships. Docs-only.
+  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599))
 
 - **The packaging and release builds compile the whole `main` package, not one
   file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
@@ -106,6 +153,28 @@ and [Semantic Versioning](https://semver.org/).
   why that note is printed as `RHPPROVISIONAL <id> ...` and not as a second
   `RHPCHECK` line for the same id.
   ([#590](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/590))
+
+- **The uhttpd redirect/identity decision record now states the captive-side
+  product decision and the measured install order.**
+  `docs/architecture/uhttpd-redirect-https-ownership-decision.md` gains a
+  "Product decision: what answers the captive side" section: the captive side is
+  answered by the portal, never by LuCI or the `:8090` board (both management
+  surfaces, reached over the private network), and the `:8080` → `https://` hop
+  exists only for a client that actually reaches `uhttpd.main`, armed solely on a
+  certificate that covers the address that browser used. It also records the
+  order the two writers actually run in — `packaging/Makefile`'s postinst runs
+  `90, 99, 92`, so **`92` is the last writer of `uhttpd.main.redirect_https` on
+  the install/upgrade pass**, while numeric uci-defaults order at boot makes `99`
+  last — which is why "the other script also writes it" is a live hazard rather
+  than a style note: a writer with the superseded existence-only premise derives
+  `1` for an identity no browser can validate, after the coverage rule derived
+  `0`. The portal repo's copy of `92` is being aligned to the same rule and now
+  carries a cross-repo guard over the pair; the pins (this module's
+  `packaging/build-inputs.json .portal.commit`, the feed's `vendor.lock.json`)
+  still have to advance for that to reach a router, which the document states
+  explicitly.
+  ([#594](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/594))
+
 - **The valve's timeout test asserts the timeout contract, not the host's
   scheduling latency.** `TestRunNdsctlTimeout` required a 1s deadline to kill a
   `sleep 30` child inside 3s, which is a property of the host's scheduler, not
