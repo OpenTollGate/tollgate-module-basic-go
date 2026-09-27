@@ -12,7 +12,10 @@
 # SSID re-minted to tollgate-0GLK by a later deploy.
 #
 # The contract now, shared with the installer (OpenTollGate/tollgate-installer,
-# branding_test.go — the same case table, because the two writers must agree):
+# branding_test.go — the same case table, because the two writers must agree;
+# two exceptions are documented, not claimed away: the nym CHARSET, which is
+# [A-Za-z0-9_-] here and weaker there, and the installer's suffix-less
+# nodogsplash banner — docs/architecture/one-device-code.md):
 #
 #   store         /etc/config/tollgate, `config device 'device'`
 #                 option code '<4 x [A-Z0-9]>'
@@ -284,9 +287,21 @@ grep -q '^    setup_device_identity$' "$ROOT/$SCRIPT" \
 grep -q 'GATEWAY_NAME=$(captive_ssid_for_code' "$ROOT/$SCRIPT" \
     && ok "the repair path preserves an operator-named captive SSID" \
     || bad "the repair path forces the brand SSID on every router (a reinstall would rename the operator's open network)"
-grep -q -F 'uci -q set nodogsplash.@nodogsplash[0].gatewayname="$GATEWAY_NAME"' "$ROOT/$SCRIPT" \
+grep -q -F 'uci -q set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"' "$ROOT/$SCRIPT" \
     && ok "the repair path converges nodogsplash's gatewayname with the SSID" \
     || bad "the repair path leaves nodogsplash's gatewayname on the pre-convergence name (the banner disagrees with the SSID)"
+# ...and it must COMMIT it in the same block: the block runs before the
+# nodogsplash export-diff snapshot, so a gatewayname-only change can never be the
+# reason that conditional commit fires (the uncommitted /tmp/.uci delta, PR #605
+# review finding F1). tests/uci-defaults-gatewayname-banner_test.sh drives both
+# paths against a delta-aware uci and pins the committed value; this is the
+# static half, so a reviewer reading only this suite still sees the contract.
+if grep -A2 -F 'uci -q set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"' "$ROOT/$SCRIPT" \
+     | grep -q 'uci commit nodogsplash'; then
+    ok "the repair path commits that gatewayname (not left as a session delta)"
+else
+    bad "the repair path writes gatewayname without committing it — the convergence is lost at reboot"
+fi
 grep -q '^setup_device_identity ' "$ROOT/$SCRIPT" \
     && ok "the full-setup path resolves the code" \
     || bad "the full-setup path does not resolve the code"
