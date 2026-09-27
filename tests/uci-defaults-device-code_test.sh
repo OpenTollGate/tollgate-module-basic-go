@@ -124,6 +124,7 @@ reset_log() { : > "$LOGFILE"; }
 echo "== normalize_device_code (the mint alphabet, from one place)"
 eq "lowercase is uppercased"      "$(normalize_device_code oq3q)" "OQ3Q"
 eq "four [A-Z0-9] is kept"        "$(normalize_device_code 0GLK)" "0GLK"
+eq "surrounding whitespace is stripped" "$(normalize_device_code ' OQ3Q ')" "OQ3Q"
 eq "three chars is not a code"    "$(normalize_device_code OQ3)"  ""
 eq "five chars is not a code"     "$(normalize_device_code OQ3QQ)" ""
 eq "punctuation is not a code"    "$(normalize_device_code 'OQ-3')" ""

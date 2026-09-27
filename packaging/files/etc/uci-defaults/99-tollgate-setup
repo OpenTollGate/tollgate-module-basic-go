@@ -370,9 +370,14 @@ DEVICE_CODE_DEFAULT_NYM="c08r4d0r"
 # The code, uppercase-normalised; empty when the input is not one (a mint is
 # exactly four [A-Z0-9] characters — never a longer, shorter or punctuated
 # string, so a stray value in the store is re-derived rather than trusted).
+# Whitespace goes first: a value an operator typed (`uci set
+# tollgate.device.code='OQ3Q '`) must not turn a good code into a re-mint.
+# An explicit set, not `[:space:]`: see the load_brand() note on BusyBox tr
+# and character classes (a build without them reads the class as a literal
+# set of s/p/a/c/e).
 normalize_device_code() {
     local code
-    code=$(printf '%s' "$1" | tr 'a-z' 'A-Z')
+    code=$(printf '%s' "$1" | tr -d ' \011\015\012' | tr 'a-z' 'A-Z')
     case "$code" in
         [A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]) printf '%s\n' "$code" ;;
         *) printf '\n' ;;
