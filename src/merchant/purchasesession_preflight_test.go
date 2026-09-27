@@ -2,6 +2,7 @@ package merchant
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -66,15 +67,15 @@ func noticeCode(t *testing.T, event *nostr.Event) string {
 	return ""
 }
 
-func stubPreflightProbe(t *testing.T, probe func(mac string) (valve.ClientState, error)) {
+// stubPreflightProbe drives the payment pre-flight of one merchant. It cannot
+// be a package-level override: the usage monitor of an earlier test's merchant
+// is still running in this test binary and reads the default probe on its own
+// goroutine, so writing a package-level seam here is a data race the suite's
+// `-race` gate reports as a failure of whichever test happens to be running.
+func stubPreflightProbe(t *testing.T, m *Merchant, probe func(mac string) (valve.ClientState, error)) {
 	t.Helper()
-	origProbe, origDelay := ndsClientCheck, preflightRetryDelay
-	t.Cleanup(func() {
-		ndsClientCheck = origProbe
-		preflightRetryDelay = origDelay
-	})
-	ndsClientCheck = probe
-	preflightRetryDelay = time.Millisecond
+	m.setClientProbe(probe, time.Millisecond)
+	t.Cleanup(func() { m.setClientProbe(nil, 0) })
 }
 
 // TestPurchaseSessionPreflightRefusesUnregisteredClient pins the fund-safety
@@ -83,7 +84,7 @@ func stubPreflightProbe(t *testing.T, probe func(mac string) (valve.ClientState,
 // consumed, so the customer keeps custody.
 func TestPurchaseSessionPreflightRefusesUnregisteredClient(t *testing.T) {
 	m, receiveCalled := newPreflightMerchant(t)
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{}, nil
 	})
 
@@ -110,7 +111,7 @@ func TestPurchaseSessionPreflightRefusesUnregisteredClient(t *testing.T) {
 // proceeds exactly as before the pre-flight existed.
 func TestPurchaseSessionPreflightFailsOpenOnProbeError(t *testing.T) {
 	m, receiveCalled := newPreflightMerchant(t)
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{}, errPreflightProbeStub
 	})
 
@@ -130,7 +131,7 @@ func TestPurchaseSessionPreflightFailsOpenOnProbeError(t *testing.T) {
 func TestPurchaseSessionPreflightRetriesUntilRegistered(t *testing.T) {
 	m, receiveCalled := newPreflightMerchant(t)
 	probes := 0
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		probes++
 		if probes < 3 {
 			return valve.ClientState{}, nil
@@ -151,3 +152,42 @@ func TestPurchaseSessionPreflightRetriesUntilRegistered(t *testing.T) {
 }
 
 var errPreflightProbeStub = fmt.Errorf("stub: ndsctl probe failure")
+
+// TestClientProbeSeamIsPerMerchantAndDefaultsToTheNdsProbe pins the seam that
+// replaced the package-level pre-flight probe. Two properties matter, both of
+// them reasons the package-level version was a data race: a merchant with no
+// seam probes with the router's own probe at the production retry delay, and
+// stubbing one merchant leaves every other merchant on that default — so the
+// pre-flight tests never write state a usage-monitor goroutine of another
+// merchant can read.
+func TestClientProbeSeamIsPerMerchantAndDefaultsToTheNdsProbe(t *testing.T) {
+	stubbed, _ := newPreflightMerchant(t)
+	untouched, _ := newPreflightMerchant(t)
+
+	defaultProbe := reflect.ValueOf(valve.CheckClientState).Pointer()
+
+	probe, delay := untouched.clientProbeSeam()
+	if got := reflect.ValueOf(probe).Pointer(); got != defaultProbe {
+		t.Fatalf("a merchant with no pre-flight seam must probe with valve.CheckClientState (%v), got %v", defaultProbe, got)
+	}
+	if delay != preflightRetryDelayDefault {
+		t.Fatalf("default pre-flight retry delay = %v, want %v", delay, preflightRetryDelayDefault)
+	}
+
+	stubPreflightProbe(t, stubbed, func(string) (valve.ClientState, error) {
+		return valve.ClientState{Registered: true}, nil
+	})
+
+	stubbedProbe, stubbedDelay := stubbed.clientProbeSeam()
+	if reflect.ValueOf(stubbedProbe).Pointer() == defaultProbe {
+		t.Fatal("the stubbed merchant still probes with the package default")
+	}
+	if stubbedDelay != time.Millisecond {
+		t.Fatalf("stubbed pre-flight retry delay = %v, want %v", stubbedDelay, time.Millisecond)
+	}
+
+	otherProbe, otherDelay := untouched.clientProbeSeam()
+	if reflect.ValueOf(otherProbe).Pointer() != defaultProbe || otherDelay != preflightRetryDelayDefault {
+		t.Fatal("stubbing one merchant's pre-flight changed another merchant's seam: the seam is not per merchant")
+	}
+}

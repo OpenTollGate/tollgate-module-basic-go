@@ -125,8 +125,10 @@ with two instances:
   function is the only `ndsctl` exec in the non-test tree, and every
   enforcement action goes through it: `authorizeMAC` (`valve.go:201-244`),
   `deauthorizeMAC` (`:281-308`), `GetClientStats` (`:912-961`),
-  `CheckClientState` (`:1002-1041`, aliased as `ndsClientCheck`,
-  `src/merchant/merchant.go:131`).
+  `CheckClientState` (`:1002-1041`) — the read-only probe the merchant's
+  payment pre-flight and its stale-binding reconciliation both use, each
+  through a per-merchant test seam (`src/merchant/merchant.go`, `clientProbe`
+  and `staleBindings.probe`).
 - **Session tracking is keyed by MAC only, never by bridge.** `openGates`,
   `gateEpochs`, `pendingCloseRetries` (`valve.go:125-147`) and
   `m.customerSessions[mac]` (`merchant.go`) carry no interface, so a MAC that

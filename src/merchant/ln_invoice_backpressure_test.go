@@ -132,10 +132,6 @@ func reachableTrackerFor(t *testing.T, mintURL string) (*MintHealthTracker, *con
 func TestReceiveRateLimitDoesNotRemoveMintFromReachableSet(t *testing.T) {
 	const mintURL = "https://preflight-mint.example.com"
 
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
-		return valve.ClientState{Registered: true}, nil
-	})
-
 	tracker, cm := reachableTrackerFor(t, mintURL)
 	setChanged := make(chan struct{}, 1)
 	tracker.SetOnReachableSetChanged(func() {
@@ -154,6 +150,11 @@ func TestReceiveRateLimitDoesNotRemoveMintFromReachableSet(t *testing.T) {
 			receiveErr: errors.New("mint https://preflight-mint.example.com returned status 429: too many requests"),
 		},
 	}
+	// The pre-flight must see the client as registered, or the payment is refused
+	// before Receive and the 429 path this test is about is never reached.
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
+		return valve.ClientState{Registered: true}, nil
+	})
 
 	event, err := m.PurchaseSession("cashuAstub", "AA:BB:CC:DD:EE:FF")
 	if err != nil {
@@ -179,10 +180,6 @@ func TestReceiveRateLimitDoesNotRemoveMintFromReachableSet(t *testing.T) {
 func TestReceiveTransportErrorStillRemovesMintFromReachableSet(t *testing.T) {
 	const mintURL = "https://preflight-mint.example.com"
 
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
-		return valve.ClientState{Registered: true}, nil
-	})
-
 	tracker, cm := reachableTrackerFor(t, mintURL)
 	m := &Merchant{
 		config:            cm.GetConfig(),
@@ -193,6 +190,11 @@ func TestReceiveTransportErrorStillRemovesMintFromReachableSet(t *testing.T) {
 			receiveErr: errors.New("dial tcp 203.0.113.7:443: connect: connection refused"),
 		},
 	}
+	// Same pre-flight seam as the 429 guard above: without a registered client the
+	// payment never reaches the Receive whose transport error is under test.
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
+		return valve.ClientState{Registered: true}, nil
+	})
 
 	if _, err := m.PurchaseSession("cashuAstub", "AA:BB:CC:DD:EE:FF"); err != nil {
 		t.Fatalf("PurchaseSession returned a hard error: %v", err)

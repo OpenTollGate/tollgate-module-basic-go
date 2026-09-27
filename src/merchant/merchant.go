@@ -126,17 +126,20 @@ func (m *Merchant) sessionKnownToHaveExpiredLocked(macAddress string) bool {
 	return time.Since(time.Unix(when, 0)) <= sessionHistoryTTL
 }
 
-// ndsClientCheck is a seam over valve.CheckClientState so tests can stub the
-// read-only NDS probe without a router.
-var ndsClientCheck = valve.CheckClientState
+// The pre-flight's test seam is per merchant (clientProbe and
+// clientProbeDelay below), not a package-level variable. It used to be one, and
+// a test writing it raced with the usage monitor goroutine of an earlier test's
+// merchant, which reads the default probe through the reconciliation's
+// fallback; the full-suite `-race` gate caught it. See setClientProbe.
 
 // preflightProbeAttempts mirrors the valve auth-retry budget: the reseller
 // flow's upstream NDS registers client sessions asynchronously, so absence at
 // first probe is not final.
 const preflightProbeAttempts = 5
 
-// preflightRetryDelay is a var so tests can shrink it.
-var preflightRetryDelay = 400 * time.Millisecond
+// preflightRetryDelayDefault is how long the pre-flight waits between two
+// probes. It is the zero-value default of Merchant.clientProbeDelay.
+const preflightRetryDelayDefault = 400 * time.Millisecond
 
 // receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
 // a money-moving `Receive` before it answers the customer with "outcome
@@ -245,6 +248,22 @@ type Merchant struct {
 	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
 	// a value so `&Merchant{}` literals keep working; its zero value is usable.
 	mintQuoteBudget mintQuoteBudget
+
+	// clientProbe overrides the read-only NDS identity probe the payment
+	// pre-flight uses for this merchant; nil means valve.CheckClientState, which
+	// is what production uses. clientProbeDelay overrides
+	// preflightRetryDelayDefault the same way.
+	//
+	// Both are per merchant rather than package-level seams because the usage
+	// monitor runs on its own goroutine, and a leaked monitor goroutine of an
+	// earlier test's merchant reads the default probe: a test writing a
+	// package-level seam is then a write racing against that read, which is what
+	// the full-suite `-race` gate caught. The reconciliation's policy and probe
+	// are per merchant for the same reason. Guarded so a test may also drive the
+	// pre-flight from its own goroutine.
+	clientProbeMu    sync.RWMutex
+	clientProbe      func(string) (valve.ClientState, error)
+	clientProbeDelay time.Duration
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -721,10 +740,9 @@ type staleBindingJanitor struct {
 	gracePasses int
 
 	// probe overrides the read-only NDS identity probe for this merchant. It
-	// exists so a test can drive the reconciliation without writing the
-	// package-level ndsClientCheck seam that a monitor goroutine in the same
-	// test binary is reading; nil means ndsClientCheck, which is what production
-	// uses.
+	// exists so a test can drive the reconciliation without writing a
+	// package-level seam that a monitor goroutine in the same test binary is
+	// reading; nil means valve.CheckClientState, which is what production uses.
 	probe func(string) (valve.ClientState, error)
 }
 
@@ -734,11 +752,11 @@ func (j *staleBindingJanitor) staleBindingProbeLocked() func(string) (valve.Clie
 	if j.probe != nil {
 		return j.probe
 	}
-	return ndsClientCheck
+	return valve.CheckClientState
 }
 
 // setStaleBindingProbe replaces the identity probe for this merchant only. It
-// exists for tests; production leaves it nil and uses ndsClientCheck.
+// exists for tests; production leaves it nil and uses valve.CheckClientState.
 func (m *Merchant) setStaleBindingProbe(probe func(string) (valve.ClientState, error)) {
 	m.staleBindings.mu.Lock()
 	defer m.staleBindings.mu.Unlock()
@@ -1985,14 +2003,44 @@ func (m *Merchant) restoreSession(macAddress string, previousSession *CustomerSe
 	delete(m.customerSessions, macAddress)
 }
 
+// clientProbeSeam returns the read-only NDS identity probe and the retry delay
+// this merchant's payment pre-flight uses.
+func (m *Merchant) clientProbeSeam() (func(string) (valve.ClientState, error), time.Duration) {
+	m.clientProbeMu.RLock()
+	defer m.clientProbeMu.RUnlock()
+
+	probe := m.clientProbe
+	if probe == nil {
+		probe = valve.CheckClientState
+	}
+	delay := m.clientProbeDelay
+	if delay <= 0 {
+		delay = preflightRetryDelayDefault
+	}
+	return probe, delay
+}
+
+// setClientProbe replaces the payment pre-flight's identity probe and retry
+// delay for this merchant only. It exists for tests; production leaves both
+// unset and uses valve.CheckClientState and preflightRetryDelayDefault. It is a
+// per-merchant seam, like setStaleBindingProbe, because the usage monitor runs
+// on its own goroutine in the same test binary.
+func (m *Merchant) setClientProbe(probe func(string) (valve.ClientState, error), delay time.Duration) {
+	m.clientProbeMu.Lock()
+	defer m.clientProbeMu.Unlock()
+
+	m.clientProbe, m.clientProbeDelay = probe, delay
+}
+
 // clientRegisteredForGate is the pre-Receive pre-flight of issue #403: a
 // payment whose MAC NDS does not know cannot have its gate opened, so
 // accepting it would consume the customer's token with no session and no
 // refund path. Probe errors fail open — a broken probe must not become a
 // payment denial of service.
 func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
+	probe, retryDelay := m.clientProbeSeam()
 	for attempt := 1; attempt <= preflightProbeAttempts; attempt++ {
-		state, err := ndsClientCheck(macAddress)
+		state, err := probe(macAddress)
 		if err != nil {
 			log.Printf("PurchaseSession pre-flight: NDS probe error, failing open (attempt %d): %v", attempt, err)
 			return true
@@ -2001,7 +2049,7 @@ func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
 			return true
 		}
 		if attempt < preflightProbeAttempts {
-			time.Sleep(preflightRetryDelay)
+			time.Sleep(retryDelay)
 		}
 	}
 
