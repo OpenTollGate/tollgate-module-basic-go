@@ -74,6 +74,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The payment pre-flight's test seam is per merchant, so the `-race` gate
+  stops racing.** `stubPreflightProbe` wrote the package-level probe
+  (`ndsClientCheck`) and retry delay (`preflightRetryDelay`) that the
+  stale-binding reconciliation reads through its fallback whenever the merchant
+  it belongs to has no probe of its own. The usage monitor runs on its own
+  goroutine and outlives its test, so a pre-flight test was writing a variable
+  another merchant's monitor goroutine was reading: `-race` failed the module
+  intermittently, and reported it against whichever test happened to be in
+  flight (usually `TestPurchaseSessionPreflightRefusesUnregisteredClient`, at
+  0.01 s). The two seams now live on the merchant — `clientProbe` and
+  `clientProbeDelay`, defaulting to `valve.CheckClientState` and
+  `preflightRetryDelayDefault` — the shape the reconciliation's own probe and
+  policy already use, and no test writes package-level state any more, so the
+  racing write cannot be written back. The pre-flight's behaviour is unchanged:
+  the #403 contracts keep their assertions, and the module is green under
+  `-race` over repeated runs.
+  ([#608](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/608))
+
 - **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
   `docs/architecture/lan-port-management-bridge-decision.md` answers the
