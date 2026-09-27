@@ -12,6 +12,50 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The TLS review of #593, closed: the derived hop is committed before the
+  reload, the operator's own identity survives an install, and the postinst runs
+  the order the boot path uses.** Three defects in the change that made setup
+  provision a router's TLS identity. (1) `tollgate ssl apply` reloaded uhttpd and
+  only then derived `uhttpd.main.redirect_https`, so the running server was handed
+  the PREVIOUS value while the command printed `redirect_https=1 (... covers this
+  router)` — the same defect class as the setup path the rule exists for; the
+  removal paths already ordered it correctly and the apply paths now match. (2)
+  Provisioning was idempotent on this module's own output path
+  (`/etc/tollgate/ssl/server.crt`) instead of on the certificate `uhttpd.main`
+  actually presents, so a router whose administrator had installed a CA-signed
+  certificate — or run `tollgate ssl apply <cert> <key>` — had it replaced by a
+  fresh self-signed identity on the next install: a trusted certificate silently
+  downgraded, a covering identity re-keyed behind its owner's back. Provisioning
+  now skips when `tollgate ssl covers "$(uci -q get uhttpd.main.cert)"` is true,
+  and the identity selection prefers the first candidate that COVERS this router
+  (configured → provisioned → the image's pair), so the certificate the operator
+  chose is the one uhttpd keeps serving. (3) `ssl covers` printed its refusal
+  twice — cobra prints the returned error and `main()` printed it again — which
+  makes one refusal indistinguishable from two failures in a log;
+  `SilenceErrors` on the root command leaves the single line (measured on the
+  built binary: 2 → 1). Regressions pinned by
+  `TestSSLApplyDerivesTheRedirectBeforeItReloadsUhttpd` (the uhttpd init stub
+  records what the running service would have read at reload time),
+  `TestSSLCoversPrintsItsRefusalOnce`, and a new section E of
+  `tests/uci-defaults-admin-tls-identity_test.sh` — all of them RED on the parent
+  commit, and the suite can be pointed at another copy of the script with
+  `TOLLGATE_SETUP_SCRIPT` so that RED stays reproducible. Separately,
+  `packaging/Makefile`'s postinst now runs the uci-defaults in the numeric order
+  the boot path uses (`90, 92, 99`, not `90, 99, 92`): the LAST writer of
+  `uhttpd.main.redirect_https` is the same on the install pass as at boot, so an
+  install converges to the state the next reboot produces whatever either writer
+  decides, instead of to a state a reboot silently changes. Pinned by
+  `tests/packaging/uci-defaults-run-order_test.sh`, with the pre-change order as
+  its negative control. The feed repository's vendored `92-tollgate-admin-setup`
+  still decides that option from the readability of `/etc/uhttpd.crt`, and its
+  recipe still runs `92` last, so the operator-visible defect stands on a
+  feed-installed router until that repository carries the same premise — recorded
+  in `docs/architecture/uhttpd-redirect-https-ownership-decision.md`, not fixed
+  from here. `docs/rc-tester-guide.md` also now leads with `https://<LAN IP>/`,
+  the address that is in the certificate's SANs and needs no resolver, with the
+  `.lan` alias as the alternative.
+  ([#612](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/612))
+
 - **`generate_admin_password()` no longer depends on `od`, which is absent from
   the stripped busybox shipped on OpenWrt 25.12.5 base images.** On those
   images the old `od -An -N 20 -tu1 /dev/urandom` pipeline produced no output,
@@ -470,11 +514,12 @@ and [Semantic Versioning](https://semver.org/).
   last — which is why "the other script also writes it" is a live hazard rather
   than a style note: a writer with the superseded existence-only premise derives
   `1` for an identity no browser can validate, after the coverage rule derived
-  `0`. The portal repo's copy of `92` is being aligned to the same rule and now
-  carries a cross-repo guard over the pair; the pins (this module's
-  `packaging/build-inputs.json .portal.commit`, the feed's `vendor.lock.json`)
-  still have to advance for that to reach a router, which the document states
-  explicitly.
+  `0`. The portal repo's copy of `92` was aligned to the same rule and carries a
+  cross-repo guard over the pair, and the module's own pin has since advanced
+  (`packaging/build-inputs.json .portal.commit` → `4158030`, #609), so this
+  module's package ships that coverage-checked `92`; the feed's
+  `vendor.lock.json` still has to advance for it to reach a feed-installed
+  router, which the document states explicitly.
   ([#594](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/594))
 
 - **The valve's timeout test asserts the timeout contract, not the host's
