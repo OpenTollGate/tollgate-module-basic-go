@@ -195,6 +195,26 @@ and [Semantic Versioning](https://semver.org/).
   world-syncs packages previously installed from files back out. A volatile
   (tmpfs) install is documented as the fallback.
   ([#613](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/613))
+- **COMFAST CF-WR632AX documented as a covered target, with the OpenWrt
+  ≥25.12.5 requirement and the absence of a hardware result stated up front.**
+  The CF-WR632AX (MediaTek MT7981-class SoC) reports the same
+  `mediatek/filogic` / `aarch64_cortex-a53` target and `DISTRIB_ARCH` as the
+  Cudy WR3000 v1 above, so the CI
+  [build matrix](.github/workflows/build-package.yml) already covers it and no
+  row was added or removed. OpenWrt has supported it since 25.12.0 (device page
+  [openwrt.org/toh/comfast/cf-wr632ax](https://openwrt.org/toh/comfast/cf-wr632ax)),
+  and its 128 MiB of SPI NAND means it has **no** flash-capacity caveat — the
+  default build fits, so the `upx-ultra-brute` variant the 16 MB WR3000 needs
+  is not required here. The "Supported devices" subsection in
+  [README.md](README.md) gains a paragraph recording that, the ≥25.12.5
+  requirement for the OpenWrt U-Boot layout (a memory-speed stability issue in
+  25.12.0–25.12.4, fixed by upstream PRs
+  [#22929](https://github.com/openwrt/openwrt/pull/22929) /
+  [#23416](https://github.com/openwrt/openwrt/pull/23416)), and that the device
+  has **not yet been exercised on real hardware** — no unit is in hand, so this
+  entry rests on upstream OpenWrt support and the shared target/architecture
+  row, not on a measured result.
+  ([#616](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/616))
 - **The board is the default face — decided, with the switch, the cross-link
   rules, and the reason it is not a one-repo change.**
   `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
