@@ -157,6 +157,33 @@ and [Semantic Versioning](https://semver.org/).
   behaviour is unchanged: the #403 contracts keep their assertions, and the
   module is green under `-race` over repeated runs.
   ([#608](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/608))
+- **The captive-portal pin advances to portal main, and the module now gates the
+  admin board's redirect rule that its own tree cannot show it.** The pin moves
+  from `e6fe0e0e` (portal #60) to `4158030` (portal main: #62's admin SPA and
+  #64/#65's `92-tollgate-admin-setup`), so the admin board and the uci-defaults
+  script the package installs come from the revision the release intends.
+  Measured by re-staging BOTH pins with `bash packaging/portal-build.sh`: the
+  committed guest bundle is **byte-identical** — all 18 files under
+  `packaging/files/tollgate-captive-portal-site/`, including the nine tracked
+  ones and the gitignored entry chunk `assets/index-YkGiQMp2.js`
+  (`c86ad25bd7739292…`, 361923 bytes) — because #64/#65 changed only the
+  uci-defaults script and #62 only the admin SPA. What does change in the package
+  is the admin SPA (`index-DJpT8hFU.js` → `index-CKy1kEGj.js` with its
+  `index.html`) and, straight from the pin, the rpcd plugin, its ACL and
+  `92-tollgate-admin-setup`. `tests/packaging/assert-portal-bundle-contract.sh`
+  gains CHECK F: the module ships only 90 and 99, so 92 is not in this tree and
+  the check resolves it **from the pinned portal commit** (the script's existing
+  `pin_file` helper) and fails unless that file derives
+  `uhttpd.admin.redirect_https` through the module CLI's own coverage predicate
+  (`tollgate ssl covers`, `src/cmd/tollgate-cli/ssl.go`), writes an explicit
+  value in BOTH directions, and does not decide the hop from a fixed-path test on
+  the OpenWrt image's placeholder pair (`/etc/uhttpd.crt`, subject `CN=OpenWrt`,
+  `SAN DNS:OpenWrt`) — which satisfies every existence check while covering
+  neither the router's hostname nor its LAN IP, and pointed :8090 at a hard
+  certificate error. A pin that cannot be read fails CHECK F in every
+  environment rather than skipping.
+  ([#609](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/609))
+
 - **`src/cli`'s module file is tidy again, so the documented pre-PR gate stops
   dying at that module.** `src/cli/go.mod` — added by #517 — never carried
   `golang.org/x/time v0.6.0 // indirect`, although `src/merchant` requires that
