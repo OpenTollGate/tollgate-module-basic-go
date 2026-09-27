@@ -102,7 +102,7 @@ and [Semantic Versioning](https://semver.org/).
   (D4), and a cross-link is rendered only from a router answer
   (`tollgate ui links --json`, HTTPS-only, same host, no hardcoded port) or not at
   all. This PR is docs-only: the record plus the guide correction.
-  ([#602](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/602))
+  ([#603](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/603))
 
 - **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
