@@ -107,6 +107,18 @@ jobs:
           # both setup paths re-assert it.
           bash tests/uci-defaults-trusted-entry-80_test.sh
 
+      - name: One device code (hostname, captive SSID and private SSID agree)
+        run: |
+          # Offline (no router, no daemon, no network): the router's identity is
+          # ONE code, minted once, stored in /etc/config/tollgate and reused —
+          # never re-minted (bench MT3000, 2026-09-26: hostname=tollgate-OQ3Q
+          # while the captive SSID had been re-minted to tollgate-0GLK and the
+          # private SSID carried a suffix from a third mint path). The suite
+          # pins the adoption order, the store's authority, the
+          # <nym>-<code> private SSID with `tollgate network private rename` as
+          # the honoured escape hatch, and that exactly ONE mint site ships.
+          bash tests/uci-defaults-device-code_test.sh
+
 
       - name: Spec-quote drift check
         run: |
