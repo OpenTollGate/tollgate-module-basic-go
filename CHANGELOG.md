@@ -562,6 +562,7 @@ and [Semantic Versioning](https://semver.org/).
   non-existent section, and record the value in `config.json` so the two
   writers cannot disagree.   Decision record:
   `docs/architecture/lan-port-management-bridge-decision.md` D9-D12.
+  ([#604](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/604))
 
 - **`GET /session-state?mac=…` reports a machine-readable session state per
   client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
