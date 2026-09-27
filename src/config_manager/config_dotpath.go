@@ -46,6 +46,15 @@ func SetDotPath(cm *ConfigManager, key, value string) error {
 	}
 }
 
+// ValidateValue runs the schema validation for one dotpath/value pair without
+// writing anything. It exists for the wholesale `config save` path, which
+// replaces the whole file and therefore never went through the per-key checks
+// SetDotPath applies: an enum field written that way used to be stored
+// unvalidated, and a bad value in one of them is a router that stops answering.
+func ValidateValue(key, value string) error {
+	return validateAgainstSchema(key, value)
+}
+
 func validateAgainstSchema(key, value string) error {
 	parts := strings.Split(key, ".")
 	if len(parts) == 0 {

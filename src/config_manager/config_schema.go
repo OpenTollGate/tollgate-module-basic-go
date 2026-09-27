@@ -12,13 +12,18 @@ type FieldSchema struct {
 	Children    []FieldSchema `json:"children,omitempty"`
 	JSONKey     string        `json:"json_key"`
 	Editable    bool          `json:"editable"`
+	// Secret marks a field whose VALUE is never returned. A read path must emit
+	// an empty value for it (and may emit nothing else), and a write path must
+	// treat an empty incoming value as "unchanged" rather than "clear". The
+	// board renders it as a password input and never prefills it.
+	Secret bool `json:"secret,omitempty"`
 }
 
 func GetConfigSchema() []FieldSchema {
 	return []FieldSchema{
 		{
 			Name: "ConfigVersion", JSONKey: "config_version", Type: "string",
-			Description: "Configuration file version", Default: "v0.0.8", Required: true, Editable: false,
+			Description: "Configuration file version", Default: "v0.0.9", Required: true, Editable: false,
 		},
 		{
 			Name: "LogLevel", JSONKey: "log_level", Type: "string",
@@ -140,6 +145,28 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Enable 802.11 vendor-specific IE for TollGate router-to-router discovery", Default: false, Required: false, Editable: true},
 			},
+		},
+		{
+			Name: "PrivateSSID", JSONKey: "private_ssid", Type: "string",
+			Description: "Private network (management) SSID. Empty keeps the SSID the router minted at setup. Written to both private radios.",
+			Default:     "", Required: false, Editable: true,
+		},
+		{
+			Name: "PrivateKey", JSONKey: "private_key", Type: "string",
+			Description: "Private network WPA passphrase (8-63 characters). Empty keeps the passphrase the router already has. Write-only: the value is never returned by any read path.",
+			Default:     "", Required: false, Editable: true, Secret: true,
+		},
+		{
+			Name: "PrivateEncryption", JSONKey: "private_encryption", Type: "string",
+			Description: "Private network encryption. psk2+ccmp is WPA2-AES (default); psk2+tkip+ccmp adds the legacy TKIP cipher; psk-mixed+ccmp also accepts WPA1 clients. SAE/WPA3 is deliberately absent: the shipped wpad has no SAE support, so offering it would take the management network down.",
+			Default:     "psk2+ccmp", Required: true, Editable: true,
+			Enum: []string{"psk2+ccmp", "psk2+tkip+ccmp", "psk-mixed+ccmp"},
+		},
+		{
+			Name: "AdminAccess", JSONKey: "admin_access", Type: "string",
+			Description: "Which network may reach the administration surfaces (board :8090/:8443 and LuCI :8080/:443). br-private = the private SSID only; br-mgmt = the wired management bridge only; both = either (default, which changes nothing until br-mgmt exists); loopback-only = nothing off the router. The guest bridge is never in scope.",
+			Default:     "both", Required: true, Editable: true,
+			Enum: []string{"br-private", "br-mgmt", "both", "loopback-only"},
 		},
 	}
 }

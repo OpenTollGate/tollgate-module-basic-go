@@ -339,6 +339,31 @@ Private network password changed successfully
   new_password: Alpha-Bravo-Charlie-42
 ```
 
+### Change the encryption mode
+
+```sh
+tollgate network private set-encryption psk2+tkip+ccmp
+```
+
+Supported modes:
+
+| Mode | Meaning |
+|---|---|
+| `psk2+ccmp` | WPA2-PSK with AES/CCMP. The default and what the router is set up with. |
+| `psk2+tkip+ccmp` | Also offers the legacy TKIP cipher, for old clients that cannot do AES. |
+| `psk-mixed+ccmp` | Also accepts WPA1 clients. |
+
+WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
+SAE support, so selecting it would leave the private network unable to start —
+a lockout, not a feature. An open (unencrypted) mode is refused for the same
+class of reason: the private network is how you reach the admin board, whose
+login is a root-capable login over plain HTTP on `:8090`.
+
+The three private-network commands above (rename, set-password, set-encryption)
+also record the new value in `/etc/tollgate/config.json`, which is the file the
+service reconciles the router onto at every start. Both radios are written
+together, so the 2.4 GHz and 5 GHz SSIDs cannot drift apart.
+
 ## Upstream WiFi management
 
 Upstream Wi-Fi is how the router reaches the internet — either from
@@ -471,6 +496,50 @@ Set metric = milliseconds (restart tollgate-wrt to apply)
 Most `config set` changes take effect only after
 `tollgate restart` (or `/etc/init.d/tollgate-wrt restart`), because
 the running service reads the file at startup.
+
+Two settings are the exception, and they are the reason `config set` also
+reports what it applied:
+
+```sh
+tollgate config set private_ssid c08r4d0r-7F3A
+tollgate config set admin_access br-private
+```
+
+```
+Set private_ssid = c08r4d0r-7F3A; runtime: 1 applied, 1 not applicable here
+```
+
+The private network's SSID, passphrase and encryption live in UCI
+(`/etc/config/wireless`), which hostapd reads, and `admin_access` is an
+nftables property. Neither can be honoured by a file the service merely reads,
+so `config set`/`config save` write them to the router as well, and say for
+each setting whether the runtime was changed (`applied`), already matched
+(`unchanged`), could not be applied on this host (`skipped`), or was refused
+with the reason (`refused` — e.g. `admin_access=br-mgmt` on a router that has
+no `br-mgmt` bridge yet). See the README's
+[Network settings](../README.md#network-settings-v009) for the values.
+
+Setting `private_key` from the CLI never echoes the passphrase back.
+
+### Make the router match the file
+
+```sh
+tollgate config apply
+```
+
+Re-applies every declared operator setting — the private-network credentials
+and the admin-access scope — and reports per setting what happened. The same
+work runs automatically after `config set`/`config save` and at service start,
+so this verb is for a `config.json` you edited by hand:
+
+```
+Operator settings converged (runtime: unchanged, not applicable here)
+```
+
+It is a converging writer: a router whose runtime already matches the file
+reports `unchanged` and nothing on the wire moves. That is what makes it safe
+on a service restart — it never drops your private-network clients for a change
+that was already in effect.
 
 ### Inspect the schema
 

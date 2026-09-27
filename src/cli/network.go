@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // handleNetworkCommand processes network-related commands
@@ -65,10 +67,19 @@ func (s *CLIServer) handlePrivateNetworkCommand(args []string, flags map[string]
 			return s.handlePrivateNetworkSetPassword("")
 		}
 		return s.handlePrivateNetworkSetPassword(args[1])
+	case "set-encryption":
+		if len(args) < 2 {
+			return CLIResponse{
+				Success:   false,
+				Error:     fmt.Sprintf("set-encryption requires an encryption mode (%s)", strings.Join(privateEncryptionAlgorithms, ", ")),
+				Timestamp: time.Now(),
+			}
+		}
+		return s.handlePrivateNetworkSetEncryption(args[1])
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown private network action: %s (supported: status, enable, disable, rename, set-password)", action),
+			Error:     fmt.Sprintf("Unknown private network action: %s (supported: status, enable, disable, rename, set-password, set-encryption)", action),
 			Timestamp: time.Now(),
 		}
 	}
@@ -194,39 +205,32 @@ func (s *CLIServer) handlePrivateNetworkRename(newSSID string) CLIResponse {
 			Timestamp: time.Now(),
 		}
 	}
+	if err := validatePrivateCredential("private_ssid", newSSID); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
 
-	// Update SSID for both radios
-	if err := setUCIValue("wireless.private_radio0.ssid", newSSID); err != nil {
+	changed, err := setPrivateRadioOption("ssid", newSSID)
+	if err != nil {
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Failed to rename 2.4GHz private network: %v", err),
+			Error:     fmt.Sprintf("Failed to rename the private network: %v", err),
 			Timestamp: time.Now(),
 		}
 	}
 
-	if err := setUCIValue("wireless.private_radio1.ssid", newSSID); err != nil {
-		cliLogger.WithError(err).Warn("Failed to rename 5GHz private network (may not exist)")
+	if err := finishPrivateRadioWrite(changed); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
 	}
 
-	if err := commitUCI("wireless"); err != nil {
-		return CLIResponse{
-			Success:   false,
-			Error:     fmt.Sprintf("Failed to commit wireless changes: %v", err),
-			Timestamp: time.Now(),
-		}
-	}
-
-	if err := reloadWireless(); err != nil {
-		return CLIResponse{
-			Success:   false,
-			Error:     fmt.Sprintf("Failed to reload wireless: %v", err),
-			Timestamp: time.Now(),
-		}
-	}
+	// The same value goes into config.json. Both surfaces are now writers of the
+	// private network (this command and the config file / the board), and
+	// without this the applier would treat a stale config.json value as the
+	// operator's intent and put the old SSID back at the next daemon start.
+	warning := s.recordPrivateSetting("private_ssid", newSSID)
 
 	return CLIResponse{
 		Success:   true,
-		Message:   fmt.Sprintf("Private network renamed to '%s' successfully", newSSID),
+		Message:   fmt.Sprintf("Private network renamed to '%s' successfully%s", newSSID, warning),
 		Timestamp: time.Now(),
 	}
 }
@@ -255,43 +259,123 @@ func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIRespo
 		}
 	}
 
-	// Update password for both radios
-	if err := setUCIValue("wireless.private_radio0.key", newPassword); err != nil {
+	changed, err := setPrivateRadioOption("key", newPassword)
+	if err != nil {
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Failed to change 2.4GHz private network password: %v", err),
+			Error:     fmt.Sprintf("Failed to change the private network password: %v", err),
 			Timestamp: time.Now(),
 		}
 	}
 
-	if err := setUCIValue("wireless.private_radio1.key", newPassword); err != nil {
-		cliLogger.WithError(err).Warn("Failed to change 5GHz private network password (may not exist)")
+	if err := finishPrivateRadioWrite(changed); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
 	}
 
-	if err := commitUCI("wireless"); err != nil {
-		return CLIResponse{
-			Success:   false,
-			Error:     fmt.Sprintf("Failed to commit wireless changes: %v", err),
-			Timestamp: time.Now(),
-		}
-	}
-
-	if err := reloadWireless(); err != nil {
-		return CLIResponse{
-			Success:   false,
-			Error:     fmt.Sprintf("Failed to reload wireless: %v", err),
-			Timestamp: time.Now(),
-		}
-	}
+	// Recorded so the applier (config apply / daemon start) converges onto this
+	// passphrase instead of restoring the one config.json still had. A failure
+	// to record is a warning: the wireless is already serving the new password.
+	warning := s.recordPrivateSetting("private_key", newPassword)
 
 	return CLIResponse{
 		Success: true,
-		Message: "Private network password changed successfully",
+		Message: fmt.Sprintf("Private network password changed successfully%s", warning),
 		Data: map[string]interface{}{
 			"new_password": newPassword,
 		},
 		Timestamp: time.Now(),
 	}
+}
+
+// handlePrivateNetworkSetEncryption sets the encryption mode of the private
+// network. Until this existed the mode was a literal in 99-tollgate-setup
+// (psk2+ccmp at both radios) that every full setup pass rewrote, so an operator
+// had no way to change it and no way to keep a change.
+func (s *CLIServer) handlePrivateNetworkSetEncryption(encryption string) CLIResponse {
+	if err := validatePrivateCredential("private_encryption", encryption); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
+
+	changed, err := setPrivateRadioOption("encryption", encryption)
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to set the private network encryption: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+
+	if err := finishPrivateRadioWrite(changed); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
+
+	warning := s.recordPrivateSetting("private_encryption", encryption)
+
+	return CLIResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("Private network encryption set to '%s'%s", encryption, warning),
+		Timestamp: time.Now(),
+	}
+}
+
+// setPrivateRadioOption writes one option on every private radio that exists,
+// and returns the sections it changed.
+//
+// It exists because the three private-network commands used to write
+// wireless.private_radio0 and wireless.private_radio1 independently, each
+// ignoring a failure on radio1 — which is how the two radios drift apart — and
+// because `uci set` on a section that does not exist CREATES it, so a
+// single-radio router ended up with a typeless wifi-iface section. Writing only
+// existing sections and reporting "nothing to write" fixes both.
+func setPrivateRadioOption(option, value string) ([]string, error) {
+	sections := existingPrivateRadioSections()
+	if len(sections) == 0 {
+		return nil, fmt.Errorf("this router has no private network (no wireless.private_radio0 section); run the TollGate setup first")
+	}
+
+	var changed []string
+	for _, section := range sections {
+		current, err := getUCIValue(section + "." + option)
+		if err == nil && current == value {
+			continue
+		}
+		if err := setUCIValue(section+"."+option, value); err != nil {
+			return changed, fmt.Errorf("%s.%s: %w", section, option, err)
+		}
+		changed = append(changed, section)
+	}
+	return changed, nil
+}
+
+// finishPrivateRadioWrite commits and reloads. A no-op write (every radio
+// already carried the value) still reports success but does not bounce the
+// wireless.
+func finishPrivateRadioWrite(changed []string) error {
+	if len(changed) == 0 {
+		return nil
+	}
+	if err := commitUCI("wireless"); err != nil {
+		return fmt.Errorf("failed to commit wireless changes: %w", err)
+	}
+	if err := reloadWireless(); err != nil {
+		return fmt.Errorf("failed to reload wireless: %w", err)
+	}
+	return nil
+}
+
+// recordPrivateSetting mirrors a private-network change into config.json, which
+// is the file the applier treats as the operator's declared intent. It returns
+// a suffix for the success message (empty on success) rather than failing the
+// command: the radio already carries the new value.
+func (s *CLIServer) recordPrivateSetting(key, value string) string {
+	if s.configManager == nil {
+		return " (not recorded in config.json: no config manager; the next `config apply` would use the value already in the file)"
+	}
+	if err := config_manager.SetDotPath(s.configManager, key, value); err != nil {
+		cliLogger.WithError(err).WithField("key", key).Warn("Failed to record the private-network change in config.json")
+		return fmt.Sprintf(" (warning: could not record %s in config.json: %v)", key, err)
+	}
+	return ""
 }
 
 // generateRandomPassword generates a human-readable random password

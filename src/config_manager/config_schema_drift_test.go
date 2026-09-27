@@ -364,6 +364,25 @@ func assertFieldValue(t *testing.T, cfg *Config, jsonKey, value, typ string) {
 		if cfg.Margin != 0.5 {
 			t.Errorf("margin: got %f, want 0.5", cfg.Margin)
 		}
+	// The operator-settable network settings. Without a case here the
+	// round-trip test above is vacuous for them: assertFieldValue has no
+	// default branch, so an unhandled key silently asserts nothing.
+	case "private_ssid":
+		if cfg.PrivateSSID != value {
+			t.Errorf("private_ssid: got %q, want %q", cfg.PrivateSSID, value)
+		}
+	case "private_key":
+		if cfg.PrivateKey != value {
+			t.Errorf("private_key: got %q, want %q", cfg.PrivateKey, value)
+		}
+	case "private_encryption":
+		if cfg.PrivateEncryption != value {
+			t.Errorf("private_encryption: got %q, want %q", cfg.PrivateEncryption, value)
+		}
+	case "admin_access":
+		if cfg.AdminAccess != value {
+			t.Errorf("admin_access: got %q, want %q", cfg.AdminAccess, value)
+		}
 	}
 }
 
