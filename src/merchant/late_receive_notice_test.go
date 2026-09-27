@@ -73,12 +73,12 @@ func TestLateReceiveNoticeIsHonestAndCarriesAReference(t *testing.T) {
 	// the test process does not carry a stuck goroutine into the next test.
 	t.Cleanup(func() { close(wallet.release) })
 
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
 
 	// The production deadline is a var precisely so this window can be tested
-	// without waiting 30 s (the same seam style as preflightRetryDelay).
+	// without waiting 30 s (the same seam style as preflightRetryDelayDefault).
 	prevTimeout := receiveTimeout
 	receiveTimeout = 25 * time.Millisecond
 	t.Cleanup(func() { receiveTimeout = prevTimeout })
@@ -158,7 +158,7 @@ func TestLateReceiveReturnsANoticeWhileReceiveIsStillInFlight(t *testing.T) {
 	}
 	t.Cleanup(func() { close(wallet.release) })
 
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
 

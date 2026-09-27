@@ -150,7 +150,7 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 	release := func() { once.Do(func() { close(wallet.release) }) }
 	t.Cleanup(release)
 
-	stubPreflightProbe(t, func(string) (valve.ClientState, error) {
+	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
 
