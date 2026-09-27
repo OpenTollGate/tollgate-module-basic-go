@@ -74,12 +74,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
-- **The wired LAN ports' own bridge is decided — together with the half of that
+- **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
   `docs/architecture/lan-port-management-bridge-decision.md` answers the
   operator's report ("neither luci on 8080 nor the luci alternative config ui on
   port 8090 are reachable" from his Ethernet cable, which is a member of the
-  captive bridge `br-lan`). It decides that the wired ports move to a new
+  captive bridge `br-lan`). It proposes that the wired ports move to a new
   management bridge `br-mgmt` whose clients reach `:8080`/`:443` and
   `:8090`/`:8443` before paying, **and states that the bridge cannot also be a
   paywalled network**: nodogsplash 5.0.2 manages one interface
