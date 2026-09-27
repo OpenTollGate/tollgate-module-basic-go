@@ -12,6 +12,36 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The repair path's portal banner is now committed, and both setup paths write
+  one identical value.** The verify/repair path a same-version reinstall takes
+  converged `nodogsplash.gatewayname` on a second spelling — `"$GATEWAY_NAME"`,
+  without the ` Portal` suffix the full setup writes — so the splash page's name
+  flapped with whichever path ran last; and because that block runs BEFORE the
+  nodogsplash export-diff snapshot its commit is taken against, on a settled
+  router the write stayed an uncommitted `/tmp/.uci` session delta:
+  `/etc/config/nodogsplash` kept the **old** banner, the convergence was lost at
+  the next reboot, and any later `uci commit nodogsplash` (the stale
+  `gatewaydomainname` delete, or an allow-list repair) re-applied the stale delta
+  on top of the file. Both module paths now write `"<captive SSID> Portal"` — the
+  string every deployed router already shows, so this is not a user-visible
+  rename — and the repair path commits it in the block that writes it, and only
+  when the value differs. Found by the cold review of the one-device-code change
+  (#605, findings F1/F2); the same pass fixed three smaller items:
+  `/etc/config/tollgate` is now listed in
+  `packaging/files/lib/upgrade/keep.d/tollgate` so the code survives a
+  keep-settings sysupgrade by the repo's own preservation contract (F3), the
+  decision record states the two known cross-repo divergences instead of
+  claiming the case tables match (the installer's suffix-less banner, and its
+  `ssid_safe` nym charset being weaker than this side's `safe_nym`) (F5), and
+  the #605 entry below carries its missing PR link (F4). Guarded by a new suite,
+  `tests/uci-defaults-gatewayname-banner_test.sh`, which drives both paths
+  against a delta-aware `uci`: the existing suites' flat-file fake returns empty
+  for `export`, so their harness committed unconditionally and could not see the
+  delta at all — the review's mutation M8 left them at 71 passed / 0 failed,
+  while the new suite fails 7 assertions on pristine `main` and 4 on that
+  mutation.
+  ([#610](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/610))
+
 - **“The MAC I sent was ignored” is now said out loud on every
   client-scoped endpoint.** `?mac=` never decided which session, quote, byte
   meter or gate a request touched — the module has always answered for the
