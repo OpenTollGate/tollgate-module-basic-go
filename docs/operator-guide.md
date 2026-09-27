@@ -87,6 +87,15 @@ NoDogSplash keeps existing authorisations until their MAC entries
 expire — but no new sessions can be purchased while the service is
 down.
 
+What happens to those authorisations is not left to NoDogSplash's timer
+once the module comes back: at startup the module reads NoDogSplash's
+client list and closes the gate of every client NoDogSplash still
+authorises that it holds no session for (a restart loses every session —
+they live in the process that died). The client must buy again, and the
+log says so per MAC (`startup reconciliation`), because an inherited
+authorisation with nothing metering it is free internet. See
+`docs/architecture/startup-nds-reconciliation-decision.md`.
+
 ### Health
 
 ```sh
