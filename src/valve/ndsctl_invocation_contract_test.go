@@ -322,3 +322,71 @@ func TestStopIsIdempotentAndBoundedWhenAChildOutlivesTheDrain(t *testing.T) {
 		t.Fatalf("an invocation the module killed because it is stopping returned %v, want it to be attributed to the shutdown rather than reported as an ndsctl failure", err)
 	}
 }
+
+// TestNdsctlTimeoutIsThrottledAndItsRecoveryReported pins the other half of the
+// same claim, which nothing else does: the point of the attribution is that a
+// wedged socket stops producing one ERROR per invocation. The test above asserts
+// a SINGLE timeout is attributed, and would still pass if every later timeout in
+// the report interval escalated all over again — i.e. it would pass with the
+// 97-line storm this card exists to remove. So: three timeouts inside one
+// interval produce exactly one ERROR, the repeats stay at DEBUG with the running
+// count, and the socket answering again is reported once.
+func TestNdsctlTimeoutIsThrottledAndItsRecoveryReported(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the ndsctl throttle test in short mode")
+	}
+
+	// The fake hangs until the answer marker exists, then answers like ndsctl.
+	answerMarker := filepath.Join(t.TempDir(), "answer")
+	installFakeNdsctl(t, fmt.Sprintf(`if [ -f %q ]; then
+  echo '{"id":1,"ip":"192.0.2.10","state":"Authenticated","downloaded":1024,"uploaded":512}'
+  exit 0
+fi
+exec sleep 60`, answerMarker))
+
+	ndsctlTimeout = 250 * time.Millisecond
+	ndsctlTimeoutReportInterval = time.Hour
+	resetNdsctlReportState()
+	log := captureValveLogAtLevel(t, logrus.DebugLevel)
+
+	macAddress := "aa:bb:cc:dd:ee:64"
+	for i := 0; i < 3; i++ {
+		if err := deauthorizeMAC(macAddress); err == nil {
+			t.Fatal("deauthorizeMAC reported a confirmed close for an invocation that never answered")
+		}
+	}
+
+	escalations := strings.Count(log.String(), "did not answer an ndsctl invocation within its deadline")
+	if escalations != 1 {
+		t.Fatalf("three timeouts inside one report interval produced %d ERROR escalations, want exactly 1 — an unthrottled escalation on a wedged socket IS the storm:\n%s", escalations, log.String())
+	}
+	if !strings.Contains(log.String(), "still has not answered") {
+		t.Fatalf("a repeat inside the report interval must stay visible at DEBUG with its outcome:\n%s", log.String())
+	}
+
+	// The socket answers again: the recovery is reported once, and the episode
+	// it ends is forgotten (while the report interval itself keeps bounding the
+	// next ERROR).
+	if err := os.WriteFile(answerMarker, []byte("answer\n"), 0o644); err != nil {
+		t.Fatalf("write the answer marker: %v", err)
+	}
+	if err := deauthorizeMAC(macAddress); err != nil {
+		t.Fatalf("an invocation that answers must be a confirmed close, got %v", err)
+	}
+	if !strings.Contains(log.String(), "answered again after invocations that did not answer") {
+		t.Fatalf("the recovery of the NoDogSplash control socket was not reported:\n%s", log.String())
+	}
+
+	if err := os.Remove(answerMarker); err != nil {
+		t.Fatalf("remove the answer marker: %v", err)
+	}
+	if err := deauthorizeMAC(macAddress); err == nil {
+		t.Fatal("deauthorizeMAC reported a confirmed close for an invocation that never answered")
+	}
+	// The bound is one ERROR per report interval, and a recovery clears the
+	// episode (unresponsive_since) but not the report clock, so this one is a
+	// DEBUG repeat rather than a fourth ERROR.
+	if got := strings.Count(log.String(), "did not answer an ndsctl invocation within its deadline"); got != 1 {
+		t.Fatalf("timeouts after a recovery inside the same report interval produced %d ERROR escalations in total, want 1: the bound is one per interval, and a recovery ends the episode, not the clock:\n%s", got, log.String())
+	}
+}
