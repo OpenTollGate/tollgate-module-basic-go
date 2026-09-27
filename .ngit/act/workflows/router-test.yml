@@ -73,8 +73,10 @@ jobs:
     steps:
       - name: Run via the elected router-bench-gateway
         env:
-          GW_HOST: ${{ vars.ROUTER_BENCH_GATEWAY }}
-          GW_KEY: ${{ secrets.ROUTER_BENCH_SSH_KEY }}
+          # Per-repo secrets are injected only for maintainer-authored runs;
+          # a third-party PR runs with empty secrets and is skipped here.
+          GW_HOST: ${{ secrets.ROUTER_BENCH_GATEWAY }}
+          GW_KEY_B64: ${{ secrets.ROUTER_BENCH_SSH_KEY_B64 }}
           EVENT: ${{ github.event_name == 'pull_request' && 'pr' || 'push' }}
           REF: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
@@ -83,9 +85,12 @@ jobs:
           PAID: ${{ inputs.paid || 'false' }}
         run: |
           set -eu
-          test -n "${GW_HOST:-}" || { echo "ROUTER_BENCH_GATEWAY not set"; exit 1; }
+          if [ -z "${GW_HOST:-}" ] || [ -z "${GW_KEY_B64:-}" ]; then
+            echo "No router-bench credentials for this run (non-maintainer?) — skipping."
+            exit 0
+          fi
           install -d -m700 ~/.ssh
-          printf '%s\n' "$GW_KEY" > ~/.ssh/gw && chmod 600 ~/.ssh/gw
+          printf '%s' "$GW_KEY_B64" | base64 -d > ~/.ssh/gw && chmod 600 ~/.ssh/gw
           ssh -i ~/.ssh/gw -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
             "$GW_HOST" \
             "router_bench_test.sh --event $EVENT --ref '$REF' --commit '$SHA' \
