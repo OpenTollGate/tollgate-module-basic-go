@@ -494,6 +494,27 @@ def check_empty_token(args):
 def paid_lane(args):
     token = os.environ.get("RHP_CASHU_TOKEN", "").strip()
     declared = os.environ.get("RHP_SPEND_MAX_SATS", "").strip()
+    # ONE-RUN-EXCLUSIVE with the second-purchase lane (`paid2:*`). Both lanes buy
+    # for the SAME client, and the second lane's whole value is that it starts
+    # from a state the OPERATOR reached -- first allotment spent. In one run the
+    # paid lane would buy first, and the paid2 lane would then be reporting a
+    # state this harness had just created as if it were the operator's box: the
+    # precondition check would go red and blame the operator for the harness's own
+    # purchase. So when the second purchase is requested, the paid lane stands
+    # down BY NAME and sends nothing.
+    if os.environ.get("RHP_SECOND_PURCHASE", "").strip() == "1":
+        reason = ("one-run-exclusive: this run is a second-purchase run "
+                  "(RHP_SECOND_PURCHASE=1), so the paid lane did NOT run and RHP_CASHU_TOKEN "
+                  "(set=%s) was NOT sent -- it would buy for this client first, which is the very "
+                  "client the paid2 lane then re-purchases for, and every paid2:* verdict would "
+                  "be about a state this harness created. Run the lanes in two runs: buy (and "
+                  "spend) first, then --second-purchase"
+                  % ("yes" if token else "no"))
+        chk("paid:token-supplied", "SKIP", reason)
+        for cid in ("paid:spend-declaration", "paid:token-inspected",
+                    "paid:purchase-accepted", "paid:session-flip"):
+            chk(cid, "SKIP", reason)
+        return
     if not token:
         chk("paid:token-supplied", "SKIP",
             "RHP_CASHU_TOKEN not set -- the default run spends nothing (this is the safe default)")

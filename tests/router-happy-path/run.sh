@@ -159,6 +159,8 @@ Environment:
   RHP_SPEND_MAX_SATS   spend cap for the paid lane (required to spend anything)
   RHP_CASHU_TOKEN      operator-supplied Cashu token. THE ONLY WAY the paid lane
                        runs. Unset => nothing is sent, nothing is spent.
+                       ONE-RUN-EXCLUSIVE with RHP_SECOND_PURCHASE=1: the paid
+                       lane then stands down by name and this token is NOT sent.
   RHP_SECOND_PURCHASE=1 run the second-purchase lane (same as --second-purchase)
   RHP_CASHU_TOKEN_2    operator-supplied SECOND token, for the SAME client. It is
                        only sent when RHP_SECOND_PURCHASE=1. Unset => the lane
@@ -802,10 +804,14 @@ fold money "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" \
     --only money $MONEY_ARGS
 if [ -z "${RHP_CASHU_TOKEN:-}" ]; then
     note "paid lane: RHP_CASHU_TOKEN not set -> no token is sent and no ecash is touched (by design)"
+elif [ "${RHP_SECOND_PURCHASE:-0}" = "1" ]; then
+    note "paid lane: SKIPPED -- the two purchase lanes are ONE-RUN-EXCLUSIVE. This run is a second-purchase run, and the paid lane would buy for the same client the paid2 lane then re-purchases for: every paid2:* verdict would be about a state this harness created rather than one the operator reached. RHP_CASHU_TOKEN IS set and was NOT sent (no value moved). Run the lanes in two runs instead: buy and spend first, then --second-purchase"
 fi
 fold paid "${API_HELPER[@]}" --router-ip "$ROUTER_IP" --api-port "$API_PORT" --only paid
 if [ -z "${RHP_CASHU_TOKEN:-}" ]; then
     chk "paid:spends-nothing-by-default" PASS "the default run sent no token; only an empty-body POST touched the payment lane"
+elif [ "${RHP_SECOND_PURCHASE:-0}" = "1" ]; then
+    chk "paid:spends-nothing-by-default" SKIP "second-purchase run: the paid lane stood down (the two purchase lanes are one-run-exclusive) and RHP_CASHU_TOKEN was NOT sent -- no value moved. Read the paid2:* lines below for this run's purchase"
 else
     chk "paid:spends-nothing-by-default" SKIP "RHP_CASHU_TOKEN WAS supplied, so this run DID touch the payment lane: read the paid:* lines above, do not read this line as 'nothing was spent'"
 fi

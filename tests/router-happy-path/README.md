@@ -215,6 +215,34 @@ The vantage is not a preference here but a precondition — `paid2:vantage` fail
 from anywhere else, because the enforcement chain the probe is supposed to cross
 matches `iifname "br-lan"` and a request from the management plane never enters it.
 
+## The two purchase lanes are one-run-exclusive
+
+`paid:*` and `paid2:*` buy for the **same client**, and the second lane's whole
+value is that it starts from a state the *operator* reached: the first allotment
+spent, the client deauthorised. If one run did both, the paid lane would buy
+first and the second lane would then be reporting the state the harness itself had
+just created — its precondition check would go red and read as the operator's box
+failing.
+
+So when the second purchase is requested (`--second-purchase` /
+`RHP_SECOND_PURCHASE=1`), the paid lane **stands down**: `lib/api_check.py`
+reports every `paid:*` id as a `SKIP` whose detail says one-run-exclusive,
+`run.sh` prints an `RHPNOTE` saying `RHP_CASHU_TOKEN` is set and was **not sent**
+(no value moved), and `paid:spends-nothing-by-default` says the same. Setting both
+token variables in one run is a configuration error, and it is reported as one
+instead of as a defect on the box.
+
+The correct shape is two runs:
+
+```bash
+# run 1: buy once (and then spend the allotment by hand, from the guest seat)
+sudo RHP_CASHU_TOKEN='cashuB…' RHP_SPEND_MAX_SATS=64 \
+     bash tests/router-happy-path/run.sh --apk <published.apk>
+# run 2: the re-purchase, once the box reports no active session
+sudo RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2='cashuB…' RHP_SPEND_MAX_SATS=64 \
+     bash tests/router-happy-path/run.sh --apk <published.apk> --vantage guest
+```
+
 ## Three traps this harness encodes on purpose
 
 * **This firewall DROPS ICMP.** `ping` is not a liveness test here; a live router

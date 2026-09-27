@@ -261,6 +261,40 @@ check_case() {  # check_case <case> <expect PASS|FAIL|WARN> <check id> <outfile>
     st "$name" OK "$id $expect: $(printf '%s' "$line" | cut -c10-130)"
 }
 
+assert_in() {  # assert_in <case> <file> <ERE> <what>
+    local name="$1" file="$2" re="$3" what="$4"
+    if grep -qE "$re" "$file"; then
+        st "$name" OK "$what"
+    else
+        st "$name" BAD "$what -- no line matching /$re/ in $(basename "$file")"
+    fi
+}
+
+assert_not_in() {  # assert_not_in <case> <file> <ERE> <what>
+    local name="$1" file="$2" re="$3" what="$4"
+    if grep -qE "$re" "$file"; then
+        st "$name" BAD "$what -- but a line matching /$re/ IS in $(basename "$file"): $(grep -m1 -E "$re" "$file" | cut -c1-120)"
+    else
+        st "$name" OK "$what"
+    fi
+}
+
+assert_after() {  # assert_after <case> <file> <marker ERE> <ERE> <what>
+    # the terminal line must come from the verdict, not from the burst: a port can
+    # only be called dead once the WHOLE run has failed to reach it.
+    local name="$1" file="$2" marker="$3" re="$4" what="$5"
+    local m l
+    m="$(grep -nE "$marker" "$file" | head -1 | cut -d: -f1)"
+    l="$(grep -nE "$re" "$file" | head -1 | cut -d: -f1)"
+    if [ -z "$l" ]; then
+        st "$name" BAD "$what -- no line matching /$re/ in $(basename "$file")"
+    elif [ -n "$m" ] && [ "$l" -gt "$m" ]; then
+        st "$name" OK "$what"
+    else
+        st "$name" BAD "$what -- the line is at $l, NOT after the verdict marker (line ${m:-missing})"
+    fi
+}
+
 mut_case() {  # mut_case <case> <expect> <id> <scenario json> [harness args...]
     local name="$1" expect="$2" id="$3" json="$4"; shift 4
     printf '%s\n' "$json" > "$WORK/scenario.json"
@@ -389,6 +423,21 @@ env_case renew-gate-already-open FAIL paid2:gate-shut-before '{"renew": "ok", "g
 env_case paid2-vantage-mgmt  FAIL paid2:vantage '{"renew": "ok"}' \
     RHP_SECOND_PURCHASE=1 RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" RHP_SPEND_MAX_SATS=1000 \
     RHP_EGRESS_PROBE_URL="$PROBE_URL"
+# ... and the two purchase lanes are ONE-RUN-EXCLUSIVE. With BOTH tokens set on
+# one run the paid lane used to buy first, after which the paid2 lane's
+# precondition check went red and blamed the operator for a state the harness had
+# just created. The paid lane must stand down by name (and send nothing) while the
+# second lane still runs and still opens the gate.
+env_case lane-exclusive      PASS paid2:gate-open "$RENEW_SCENARIO" \
+    RHP_CASHU_TOKEN="$FAKE_TOKEN_2" RHP_CASHU_TOKEN_2="$FAKE_TOKEN_2" \
+    RHP_SECOND_PURCHASE=1 RHP_SPEND_MAX_SATS=1000 \
+    RHP_EGRESS_PROBE_URL="$PROBE_URL" -- --vantage guest
+assert_in lane-exclusive-paid-skip "$WORK/out.lane-exclusive.txt" \
+    "^RHPCHECK paid:token-supplied SKIP .*one-run-exclusive" \
+    "the paid lane stood down BY NAME with RHP_CASHU_TOKEN set, instead of buying first and blaming the operator for the state it created"
+assert_in lane-exclusive-spends-nothing "$WORK/out.lane-exclusive.txt" \
+    "^RHPCHECK paid:spends-nothing-by-default SKIP .*NOT sent" \
+    "the transcript also records that the first token was NOT sent"
 # The two renew outcomes must be OPPOSITE on the same check -- that is the whole
 # claim: it reads the gate, not the module's memory of the session.
 if grep -q 'RHPCHECK paid2:gate-open PASS' "$WORK/out.renew-gate-opens.txt" \
@@ -476,39 +525,6 @@ unset RHP_API_HELPER
 # guard must be provably inert when :8090 answers) and the "answers later in the
 # same run" demotion.
 echo "--- vantage + the TCP liveness burst"
-assert_in() {  # assert_in <case> <file> <ERE> <what>
-    local name="$1" file="$2" re="$3" what="$4"
-    if grep -qE "$re" "$file"; then
-        st "$name" OK "$what"
-    else
-        st "$name" BAD "$what -- no line matching /$re/ in $(basename "$file")"
-    fi
-}
-
-assert_not_in() {  # assert_not_in <case> <file> <ERE> <what>
-    local name="$1" file="$2" re="$3" what="$4"
-    if grep -qE "$re" "$file"; then
-        st "$name" BAD "$what -- but a line matching /$re/ IS in $(basename "$file"): $(grep -m1 -E "$re" "$file" | cut -c1-120)"
-    else
-        st "$name" OK "$what"
-    fi
-}
-
-assert_after() {  # assert_after <case> <file> <marker ERE> <ERE> <what>
-    # the terminal line must come from the verdict, not from the burst: a port can
-    # only be called dead once the WHOLE run has failed to reach it.
-    local name="$1" file="$2" marker="$3" re="$4" what="$5"
-    local m l
-    m="$(grep -nE "$marker" "$file" | head -1 | cut -d: -f1)"
-    l="$(grep -nE "$re" "$file" | head -1 | cut -d: -f1)"
-    if [ -z "$l" ]; then
-        st "$name" BAD "$what -- no line matching /$re/ in $(basename "$file")"
-    elif [ -n "$m" ] && [ "$l" -gt "$m" ]; then
-        st "$name" OK "$what"
-    else
-        st "$name" BAD "$what -- the line is at $l, NOT after the verdict marker (line ${m:-missing})"
-    fi
-}
 
 # 9a-pre. the baseline ran with --vantage mgmt PINNED, and it says so: the rig
 #        never leaves the lane it is asserting to a derivation (that derivation
