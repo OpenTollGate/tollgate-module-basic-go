@@ -1,4 +1,7 @@
 # This file is used to preserve configuration during sysupgrade
 /etc/config/network
 /etc/config/wireless
+# The one-device-code store (`config device 'device'` -> option code/nym):
+# an upgrade must keep the code, or the next boot mints a different one.
+/etc/config/tollgate
 /etc/tollgate

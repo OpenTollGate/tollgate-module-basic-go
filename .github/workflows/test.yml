@@ -148,8 +148,30 @@ jobs:
           # private SSID with `tollgate network private rename` as the honoured
           # escape hatch, and that the shipped script has exactly ONE mint site.
           # The same case table is pinned on the installer side
-          # (OpenTollGate/tollgate-installer, branding_test.go).
+          # (OpenTollGate/tollgate-installer, branding_test.go), with two
+          # documented exceptions in docs/architecture/one-device-code.md: the
+          # nym charset and the installer's suffix-less nodogsplash banner.
           bash tests/uci-defaults-device-code_test.sh
+
+      - name: The portal banner is one value on both paths, and committed
+        run: |
+          # Offline (no router, no daemon, no network): nodogsplash's
+          # `gatewayname` is the string a captive client reads on the splash
+          # page, and TWO writers in the shipped driver produce it — the full
+          # setup and the verify/repair convergence a same-version reinstall
+          # takes. The repair path used to converge on a second spelling (no
+          # " Portal" suffix) and never committed it on a settled router: its
+          # block runs BEFORE the nodogsplash export-diff snapshot the
+          # conditional commit is taken against, so the write stayed a
+          # /tmp/.uci session delta, the config file kept the old banner, and
+          # any later `uci commit nodogsplash` re-applied the stale delta on top
+          # of the file (PR #605 cold review, findings F1/F2). This suite drives
+          # BOTH paths end to end against a DELTA-AWARE uci (a committed state
+          # file plus a pending-delta file, as real uci has under /tmp/.uci) and
+          # pins one committed banner value from each path with no gatewayname
+          # op left pending. The other suites cannot see it: their flat-file uci
+          # returns empty for `export`, so their harness commits unconditionally.
+          bash tests/uci-defaults-gatewayname-banner_test.sh
 
 
       - name: Spec-quote drift check

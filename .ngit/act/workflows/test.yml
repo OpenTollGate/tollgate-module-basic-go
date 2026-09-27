@@ -119,6 +119,23 @@ jobs:
           # the honoured escape hatch, and that exactly ONE mint site ships.
           bash tests/uci-defaults-device-code_test.sh
 
+      - name: The portal banner is one value on both paths, and committed
+        run: |
+          # Offline (no router, no daemon, no network): nodogsplash's
+          # `gatewayname` is the string a captive client reads on the splash
+          # page, and TWO writers in the shipped driver produce it — the full
+          # setup and the verify/repair convergence a same-version reinstall
+          # takes. The repair path used to converge on a second spelling (no
+          # " Portal" suffix) and never committed it on a settled router (its
+          # block runs before the export-diff snapshot the conditional commit
+          # is taken against), so the write stayed a /tmp/.uci session delta and
+          # a later `uci commit nodogsplash` re-applied it with the wrong banner
+          # (PR #605 cold review, F1/F2). This suite drives BOTH paths against a
+          # DELTA-AWARE uci (committed state + pending delta, as uci has under
+          # /tmp/.uci) and pins one committed banner from each path, with no
+          # gatewayname op left pending.
+          bash tests/uci-defaults-gatewayname-banner_test.sh
+
 
       - name: Spec-quote drift check
         run: |
