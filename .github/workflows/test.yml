@@ -86,6 +86,54 @@ jobs:
           # was never wired into CI, so nothing ran it automatically.
           bash tests/packaging/package-nodogsplash-dependency_test.sh
 
+      - name: Setup-marker ordering (roll-back safety)
+        run: |
+          # Offline (no router, no SDK, no network): the setup script's version
+          # marker must be compared BY ORDER, not for equality. Equality made a
+          # downgrade look like an upgrade, so rolling back re-ran full setup
+          # and re-randomised the operator's guest SSID (bench MT3000,
+          # 2026-09-24). The suite pins absent/same/older/newer/malformed/
+          # suffixed markers and the alpha4->alpha5->alpha4 round trip, and its
+          # negative control fails if the comparison ever goes back to equality.
+          bash tests/uci-defaults-setup-marker-order_test.sh
+
+      - name: Admin TLS identity (HTTPS is not inherited from the image)
+        run: |
+          # Offline (no router, no SDK, no network): the install path must
+          # PROVISION a TLS identity that covers this router and must derive
+          # uhttpd.main.redirect_https from a COVERAGE check, not from a
+          # readable-and-non-empty certificate file. The OpenWrt image ships a
+          # placeholder (CN=OpenWrt, SAN DNS:OpenWrt) that satisfies the old
+          # guard while covering neither the hostname nor the LAN IP, so :8080
+          # redirected a browser into a hard certificate error (bench MT3000,
+          # 2026-09-26). The suite drives the shipped uci-defaults script end to
+          # end against a fixture, pins the operator opt-out that `tollgate ssl
+          # remove` records, and carries a negative control that runs the
+          # pre-change rule over the same fixture and must derive
+          # redirect_https=1 from the placeholder.
+          bash tests/uci-defaults-admin-tls-identity_test.sh
+      - name: LuCI is not reachable pre-auth (guest path is the portal)
+        run: |
+          # Offline (no router, no daemon, no network): LuCI's :8080/:443 must
+          # not be in nodogsplash's pre-auth allow list, and a list that carries
+          # them must be repaired on every setup path. Measured on the bench
+          # MT3000 (2026-09-25, pre17): a paying guest who typed
+          # `http://<router>/` fell through to `https://<router>/` and got the
+          # router's administration login, which the operator read as
+          # "the install is broken".
+          bash tests/uci-defaults-luci-ports-not-pre-auth_test.sh
+
+      - name: A trusted client gets a plain-HTTP entry point on :80
+        run: |
+          # Offline (no router, no daemon, no network): nodogsplash DNATs :80 to
+          # its splash port only for a PRE-AUTH client, so for a trusted or
+          # authenticated one `http://<router>/` was dead (nothing listened) and
+          # the client fell through to LuCI. The suite pins the uhttpd.trusted
+          # :80 listener, its redirect stub to the portal SPA on :2051, and that
+          # both setup paths re-assert it.
+          bash tests/uci-defaults-trusted-entry-80_test.sh
+
+
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).
@@ -249,3 +297,21 @@ jobs:
           path: ${{ runner.temp }}/happy-path-evidence
           if-no-files-found: ignore
           retention-days: 7
+
+  router-happy-path-selftest:
+    # tests/router-happy-path/run.sh talks to REAL hardware (an MT3000 on the
+    # bench) and cannot run here. What can run here is its self-test: a localhost
+    # stub answers every surface the harness asserts, the harness is run clean
+    # (must be GREEN) and once per mutation (the intended check id must go RED
+    # and the run must exit non-zero). Two of the cases target the harness's own
+    # tally reconciliation: a helper that dies, or that exits 0 having emitted
+    # nothing, must be a FAIL rather than a shorter green tally.
+    #
+    # This job is what keeps the hardware harness honest between bench sessions:
+    # a check that has never been seen failing is decoration, not evidence, and a
+    # suite nobody can run goes stale. Needs python3 and openssl only.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Harness self-test (localhost stub, no router)
+        run: bash tests/router-happy-path/selftest/run_selftest.sh

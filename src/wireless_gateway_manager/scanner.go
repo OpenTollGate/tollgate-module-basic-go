@@ -85,8 +85,10 @@ func (s *Scanner) ScanAllRadios() ([]NetworkInfo, error) {
 	// Stamp the band of the radio each network was scanned on, so consumers
 	// (installer / admin SPA) can tell 2.4 GHz from 5 GHz SSIDs without
 	// assuming radio0 is 2.4 GHz. Falls back to "unknown" when the wireless
-	// config carries no band information (#452).
-	allNetworks = assignNetworkBands(allNetworks, radioBandMapFromConfig())
+	// config carries no band information (#452). bandByRadioFromConfig reads
+	// /etc/config/wireless itself (the file GetRadios() parses) and hands the
+	// map over in the radio->band orientation assignNetworkBands looks up by.
+	allNetworks = assignNetworkBands(allNetworks, bandByRadioFromConfig())
 
 	return allNetworks, nil
 }

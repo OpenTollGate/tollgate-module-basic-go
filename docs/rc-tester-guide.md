@@ -407,6 +407,45 @@ installed happily, which is exactly the hole the rule closes. If you have a
 feed problem, fix the key or the URL — do not reach for that flag, and do not
 paste it into a report as advice.
 
+### The admin UI, and what its certificate warning means
+
+A fresh install now **provisions the router's own TLS identity** instead of
+inheriting the OpenWrt image's placeholder certificate (`subject CN=OpenWrt`,
+`SAN DNS:OpenWrt`, which covers no router's hostname or LAN address). The
+identity is self-signed and carries the router's hostname, its `<hostname>.lan`
+alias and its LAN address; the `:8080` → `https://` hop is enabled **only** while
+the certificate uhttpd serves actually covers the address you used. So:
+
+- Log in at **`https://<hostname>.lan/`** (or `https://<LAN IP>/`). Expect the
+  usual browser interstitial for a self-signed certificate — *"Your connection
+  is not private"* / *"Not secure"* — and proceed through it. That is the
+  expected warning, and it is not a defect worth reporting on its own.
+- A **name mismatch** — *"certificate is not valid for this address"* — is not
+  that warning, and it is not expected: it means the certificate does not cover
+  the name in the URL. Use the names this router actually answers to:
+
+  ```sh
+  uci get system.@system[0].hostname    # the <hostname>.lan alias
+  uci get network.lan.ipaddr            # the LAN address (a /24 suffix may be present)
+  tollgate ssl status                   # what uhttpd serves, and whether it covers this router
+  tollgate ssl covers                   # exit 0 = it covers; the reason prints either way
+  ```
+
+- If `:8080` answers plain HTTP instead of redirecting, that is the fail-closed
+  direction, not a bug: the install only turns the redirect on for a certificate
+  it could verify. `tollgate ssl status` and `/tmp/tollgate-setup.log` say which
+  case you are in.
+- If the identity was removed on purpose, the install will not put one back.
+  `tollgate ssl remove` records that decision in
+  `/etc/tollgate/ssl/tls-identity-removed`; `tollgate ssl apply` (no prompt with
+  `-y`) ends it.
+- The TollGate admin board has its **own** listeners — `http://<router>:8090/`
+  and `https://<router>:8443/` — on a separate uhttpd instance from LuCI's
+  `:8080`/`:443`. They answer from the management/private network and on-box; the
+  router's own firewall guard drops them for ordinary `br-lan` clients (measured
+  on the bench: tcp 8090/8443 dropped for a LAN client), so "connection refused"
+  from a wired-LAN or guest-SSID client is that guard, not TLS.
+
 ---
 
 ## 8. What to expect from an alpha

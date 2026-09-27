@@ -80,6 +80,11 @@ is generated from
   (reseller mode).
 - Per-mint pricing, trust allow/blocklists, configurable session
   increments and renewal thresholds.
+- No accounts and no user identifiers: a customer is identified by the MAC
+  address their device uses, always resolved from the request's socket and
+  never from a value the client sends, and an address whose client left is
+  deauthorised instead of staying open ([what that means for a customer who
+  changes their address](docs/operator-guide.md#client-identity-mac-addresses-and-what-changing-one-does)).
 
 ## Modules
 
@@ -231,7 +236,7 @@ See [tests/README.md](tests/README.md) for how to wire up the test fleet.
 
 Design and protocol docs live under [docs/](docs/):
 
-- [docs/operator-guide.md](docs/operator-guide.md) — practical CLI reference for router operators
+- [docs/operator-guide.md](docs/operator-guide.md) — practical CLI reference for router operators, including [client identity, MAC addresses, and what changing one does](docs/operator-guide.md#client-identity-mac-addresses-and-what-changing-one-does)
 - [docs/rc-tester-guide.md](docs/rc-tester-guide.md) — install/upgrade/rollback/report guide for the alpha release candidate
 - [docs/tester-intake.md](docs/tester-intake.md) — the single intake channel, the report template, and the triage/severity rules for alpha testers
 - [docs/merchant.md](docs/merchant.md)
