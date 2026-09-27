@@ -22,14 +22,23 @@
 #      `setup_marker_decision`), sourced from the real script in lib-only mode.
 #   2. End-to-end runs of the real driver against a fake uci/apk/shadow, one per
 #      case, asserting WHICH BRANCH ran (the log line the driver writes), that
-#      the guest SSID and the operator's own choices survived every roll-back,
-#      that the policy list was still re-asserted, and what the marker file
-#      holds afterwards.
+#      the device code — and therefore the guest SSID built from it — and the
+#      operator's own choices survived every roll-back, that the policy list was
+#      still re-asserted, and what the marker file holds afterwards.
 #   3. The FAILING NEGATIVE CONTROL: the same roll-back fixture run against a
 #      copy of the same script whose decision call is replaced by the pre-change
-#      equality predicate. That run must take the FULL-setup branch and
-#      re-randomise the guest SSID — i.e. the test is proven to fail when the
+#      equality predicate. That run must take the FULL-setup branch and rewrite
+#      full-setup-only state — i.e. the test is proven to fail when the
 #      comparison is equality-based.
+#
+# NOTE (2026-09-27): the guest SSID is no longer usable as the "did the full
+# path run?" witness. It is built from the router's device code, which is stored
+# in UCI and reused (docs/architecture/one-device-code.md), so it is stable on
+# EVERY path — that stability is now asserted in its own right (and the
+# re-minting itself is pinned by tests/uci-defaults-device-code_test.sh). The
+# witness for a full pass moved to writes only the full path makes:
+# `dhcp.lan.ra=disabled` (setup_disable_ipv6_lan) and `network.private.proto`
+# (setup_private_network).
 #
 # The end-to-end harness copies the shipped script into a temp dir and rewrites
 # the absolute paths into the live system (flag file, log, /etc/profile,
@@ -489,6 +498,19 @@ hostname_now() { grep -F 'system.@system[0].hostname=' "$UCI_STATE" | head -n1 |
 branch_now()   { sed -n 's/^.*Setup branch \([A-Z_]*\) .*$/\1/p' "$LOGFILE" | head -n1; }
 full_ran()     { grep -q '^.*Running full setup' "$LOGFILE"; }
 ipv6_off()     { grep -Fq 'dhcp.lan.ra=disabled' "$UCI_STATE"; }
+# The device code the store holds (docs/architecture/one-device-code.md). The
+# guest SSID is no longer a "did full setup run?" witness: it is built from this
+# code and is therefore STABLE across every setup path, which is precisely what
+# this file's other assertions now check.
+device_code_now() { grep -F 'tollgate.device.code=' "$UCI_STATE" | head -n1 | cut -d= -f2-; }
+# Writes only a FULL pass makes (setup_private_network / setup_disable_ipv6_lan
+# are not reached by the verify/repair branch), so re-creating one after it has
+# been stripped is evidence that THIS run took the full path.
+private_net_configured() { grep -F -c 'network.private.proto=static' "$UCI_STATE" | tr -d ' '; }
+strip_full_setup_artifacts() {
+    grep -v -F -e 'network.private.proto=' -e 'dhcp.lan.ra=' "$UCI_STATE" > "$UCI_STATE.tmp" 2>/dev/null
+    mv "$UCI_STATE.tmp" "$UCI_STATE"
+}
 redirect_now() { grep -F 'uhttpd.main.redirect_https=' "$UCI_STATE" | head -n1 | cut -d= -f2-; }
 # Policy-list witnesses for the branch assertions below.
 #
@@ -518,8 +540,18 @@ rc=$?
 [ "$(branch_now)" = "FULL" ] && ok "absent: FULL branch taken" \
                              || bad "absent: branch $(branch_now) (log: $(head -n 2 "$LOGFILE" | tr '\n' ' '))"
 full_ran && ok "absent: full setup ran" || bad "absent: full setup did not run"
-[ "$(ssid_now)" != "$GUEST_SSID" ] && ok "absent: guest SSID was generated" \
-                                   || bad "absent: guest SSID not regenerated on first boot"
+# The guest SSID used to be re-randomised by every full setup, which is what
+# made it this file's witness for "the full path ran". Since the device code is
+# stored and reused it is STABLE on every path, so the witness moves to a write
+# only a full pass makes — and the stability itself is now asserted.
+ipv6_off && ok "absent: a full-setup-only step ran (IPv6 disabled on LAN)" \
+         || bad "absent: full-setup step did not run"
+[ "$(ssid_now)" = "$GUEST_SSID" ] \
+    && ok "absent: the seeded machine-shaped SSID was ADOPTED, not re-minted ($GUEST_SSID)" \
+    || bad "absent: the seeded SSID became $(ssid_now) instead of being adopted as $GUEST_SSID"
+[ "$(device_code_now)" = "SEED" ] \
+    && ok "absent: the device code was adopted from the SSID and stored (SEED)" \
+    || bad "absent: stored device code is '$(device_code_now)'"
 [ "$(marker_now)" = "v0.6.0-alpha4" ] && ok "absent: marker written as v0.6.0-alpha4" \
                                       || bad "absent: marker is '$(marker_now)'"
 [ "$(key_now)" = "$OPERATOR_KEY" ] && ok "absent: existing private key preserved" \
@@ -635,12 +667,19 @@ SSID_A="$(ssid_now)"
 [ "$(marker_now)" = "v0.6.0-alpha4" ] && ok "round trip: alpha4 marker written" \
                                       || bad "round trip: marker is '$(marker_now)'"
 
+strip_full_setup_artifacts
 run_setup_chain v0.6.0-alpha5               # upgrade to alpha5
 [ "$(branch_now)" = "FULL" ] && ok "round trip: alpha5 is an upgrade -> FULL" \
                              || bad "round trip: alpha5 took $(branch_now)"
 SSID_B="$(ssid_now)"
-[ "$SSID_A" != "$SSID_B" ] && ok "round trip: the upgrade re-ran full setup (SSID $SSID_A -> $SSID_B)" \
-                           || bad "round trip: full setup did not regenerate the SSID"
+# Both halves matter: the full path RAN (a full-setup-only write came back) and
+# the code — hence the SSID — was NOT re-minted by it. Before the device code
+# was stored, this leg was where the guest SSID got re-randomised.
+[ "$SSID_A" = "$SSID_B" ] \
+    && ok "round trip: the device code survived the upgrade ($SSID_B, never re-minted)" \
+    || bad "round trip: the SSID changed on the upgrade ($SSID_A -> $SSID_B) — a code was re-minted"
+ipv6_off && ok "round trip: the upgrade re-ran full setup (the stripped full-setup-only write came back)" \
+         || bad "round trip: the upgrade did not re-run the full setup steps"
 [ "$(marker_now)" = "v0.6.0-alpha5" ] && ok "round trip: marker advanced to alpha5" \
                                       || bad "round trip: marker is '$(marker_now)'"
 
@@ -686,10 +725,10 @@ if full_ran; then
 else
     bad "control: equality-based decision did NOT re-run full setup — the negative control is not reproducing the defect"
 fi
-if [ "$(ssid_now)" != "$GUEST_SSID" ]; then
-    ok "control: equality-based decision re-randomised the guest SSID ($GUEST_SSID -> $(ssid_now))"
+if [ "$(private_net_configured)" = 1 ]; then
+    ok "control: equality-based decision re-ran full setup (network.private was configured)"
 else
-    bad "control: equality-based decision left the guest SSID alone — the negative control no longer reproduces the clobber"
+    bad "control: equality-based decision did not re-run the full-setup steps — the negative control no longer reproduces the defect"
 fi
 ipv6_off && ok "control: full-setup-only state was rewritten (IPv6 disabled on LAN)" \
          || bad "control: full-setup-only state was not rewritten"
