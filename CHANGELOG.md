@@ -58,6 +58,7 @@ and [Semantic Versioning](https://semver.org/).
   so instead of pretending the session survived. Decision:
   `docs/architecture/startup-nds-reconciliation-decision.md`, which closes the hole
   recorded in `zombie-session-close-reconciliation-decision.md` §5.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
 
 - **An `ndsctl` invocation the module ends is reported as such, not as an
   `ndsctl` failure — and a service restart drains it instead of killing it.** Go
@@ -82,6 +83,7 @@ and [Semantic Versioning](https://semver.org/).
   calls it, which nothing did before, so a `tollgate-wrt restart` no longer
   kills the process and every in-flight child with it and leaves the log
   claiming NoDogSplash failed.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
 - **A session whose usage cannot be read is force-closed once, loudly, instead
   of on every sweep for ever.** Past the metering grace window the module closed
   the gate and repeated the escalation — plus the close failure under it — on
@@ -96,6 +98,7 @@ and [Semantic Versioning](https://semver.org/).
   ndsctl confirms. Decision, including what "the session cannot be metered"
   means and what happens after the close budget is spent, in
   `docs/architecture/ndsctl-invocation-outcomes-decision.md`.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
 
 - **A session whose client NoDogSplash has forgotten is closed and retired, not
   retried for ever.** On the bench (pre17) `ndsctl deauth` answered
