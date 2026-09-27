@@ -541,6 +541,47 @@ source IP through the DHCP lease file and the kernel ARP table, and
 refuses the request (`device-unresolved`) rather than guessing when it
 cannot.
 
+### The API contract: every client-scoped endpoint is socket-scoped
+
+This is one rule, and it holds on **every** endpoint of the payment API on
+`:2121`, not just the money path:
+
+| Endpoint | What it acts on | `mac` you send |
+| --- | --- | --- |
+| `GET /whoami` | the calling client | ignored |
+| `POST /` (a token) | the calling client's session | ignored |
+| `POST /ln-invoice` | the calling client's quote | ignored (query **and** JSON body) |
+| `GET /ln-invoice?quote=…` | the quote of the calling client | ignored |
+| `GET /session-state` | the calling client's session state | ignored |
+| `GET /balance` | the calling client's session | ignored |
+| `GET /usage` | the calling client's byte/time usage | ignored |
+
+The parameter is accepted because the shipped portal's Lightning lane sends
+back the address it read from `/whoami`; it never decides which device a
+read or a grant applies to. Nothing about this is silent, because silence is
+how a test rig ends up believing the wrong thing:
+
+* every client-scoped response carries
+  `X-TollGate-Client-MAC: <address>` — **the client the module actually
+  answered for**, in canonical (lowercase) form;
+* when you assert a *different* address, the response also carries
+  `X-TollGate-Mac-Claim-Ignored: <address>` — the claim that was **not**
+  honoured. A matching claim (what the portal sends) is not reported.
+
+Both headers are exposed through CORS, so a page or harness running on the
+portal origin can read them. The session event of a purchase (`kind: 1022`)
+names the same thing independently, in its `device-identifier` tag.
+
+**What this means for a test rig or a script.** To pay for the session of a
+device, send the request *from that device's own socket* — bind to its
+interface/IP, or run the probe on the device. Posting a token to
+`http://<router>:2121/?mac=<some-other-device>` does not buy that device
+anything: the grant goes to the socket that sent it, and the MAC you named
+is reported back as ignored. A harness that posts "for" a MAC it is not
+itself using and then looks for a session on that MAC is measuring the wrong
+device — read `X-TollGate-Client-MAC` (or the `device-identifier` tag of the
+`1022`) and compare it with your own socket address instead.
+
 ### What a MAC address is not
 
 It is not an account, not stable, and **not something this router can
