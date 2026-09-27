@@ -124,6 +124,34 @@ For local packaging experiments use
 the target binaries locally, stages the canonical `packaging/` recipe into the
 OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
 
+### Supported devices
+
+Whether a package exists for a router at all is decided by the CI build
+matrix in
+[.github/workflows/build-package.yml](.github/workflows/build-package.yml):
+a router is covered when its OpenWrt *target* and `DISTRIB_ARCH` match one of
+the rows in that matrix (check them with `ubus call system board`, or
+`cat /etc/openwrt_release`). That is the machine-true definition of
+"supported" — there is no per-model board list in the package.
+
+**Cudy WR3000 v1** (MediaTek MT7981B, 256 MB RAM) matches the matrix on
+`mediatek/filogic` / `aarch64_cortex-a53`, board name `cudy,wr3000-v1`, so the
+`arm64` package built for that row installs on it. It was exercised on real
+hardware against mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`): the full
+dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
+kmods) installs and `nodogsplash` runs with the module's keepalive contract
+live (trusted MAC plus `allow tcp port 22`).
+
+**Caveat — 16 MB of flash.** The WR3000 v1 has only 16 MB of SPI-NOR, and
+that is not enough for a persistent install: the firmware area is ~15.1 MB
+and leaves roughly 4.6 MB of free overlay, while the `tollgate-wrt` payload is
+~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+`usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed. `apk add` fails with
+`failed to extract usr/bin/tollgate-wrt: No space left on device`, and a
+custom ImageBuilder image does not fit either. On this router TollGate is
+usable only as a volatile (tmpfs) install for bench and testing work — do not
+expect a package install that survives a reboot.
+
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.

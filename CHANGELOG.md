@@ -170,6 +170,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Cudy WR3000 v1 documented as a covered target, with its 16 MB-flash limit
+  stated up front.** The package matrix already builds for
+  `mediatek/filogic` / `aarch64_cortex-a53`, which is what the WR3000 v1
+  (board name `cudy,wr3000-v1`) reports, so this is a documentation change
+  only — no matrix row was added or removed.
+  [README.md](README.md) gains a "Supported devices" subsection under
+  Installation that says how coverage is decided (the target/architecture rows
+  of the CI
+  [build matrix](.github/workflows/build-package.yml)) and records the
+  on-hardware result: on mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`) the
+  whole 37-package dependency closure installs and `nodogsplash` runs with the
+  keepalive contract live. It also states the limit that makes this a bench
+  target rather than a deployment one: the stock 16 MB of flash leaves ~4.6 MB
+  of free overlay while the package payload is ~20 MB uncompressed / ~8.5 MB
+  compressed (`usr/bin/tollgate-wrt` 12,361,280 B plus `usr/bin/tollgate`
+  7,373,632 B), so `apk add` fails with `No space left on device` and only a
+  volatile tmpfs install fits.
+  ([#PR](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/PR))
 - **The board is the default face — decided, with the switch, the cross-link
   rules, and the reason it is not a one-repo change.**
   `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
