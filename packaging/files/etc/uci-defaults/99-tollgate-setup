@@ -410,6 +410,21 @@ is_minted_suffix() {
     return 0
 }
 
+# The nym, if the value is one this stack can carry. The nym is a prefix of the
+# private SSID, and the private SSID is later interpolated into a single-quoted
+# `uci -q set` line BY THE INSTALLER (deploy.go: privateSSIDCommand), on a chain
+# joined with " && " and run as root on the router. A value carrying a quote
+# would end that quote and let the rest be read as shell syntax, so an adopted
+# prefix is charset-checked here exactly like the stored one:
+# resolve_nym's first branch. Empty output means "not a nym" — fall through to
+# the default rather than propagate the value.
+safe_nym() {
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*) return 0 ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
 # Mint one: four characters of [A-Z0-9] from /dev/urandom, with the BusyBox-safe
 # hexdump idiom this script already used for the SSID suffix (BusyBox ships no
 # `od`, and `stat` is missing on the bench too). A host whose RNG cannot be read
@@ -438,9 +453,12 @@ resolve_nym() {
     existing=$(uci -q get wireless.private_radio0.ssid 2>/dev/null)
     prefix=${existing%%-*}
     suffix=${existing#*-}
-    if [ "$suffix" != "$existing" ] && [ -n "$prefix" ] && is_minted_suffix "$suffix"; then
-        NYM="$prefix"
-        return 0
+    if [ "$suffix" != "$existing" ] && is_minted_suffix "$suffix"; then
+        # The adopted prefix is charset-checked too: an operator's existing SSID
+        # is arbitrary text, and this value ends up in the private SSID that the
+        # installer interpolates into a single-quoted shell command (safe_nym).
+        NYM=$(safe_nym "$prefix")
+        [ -n "$NYM" ] && return 0
     fi
     NYM="$DEVICE_CODE_DEFAULT_NYM"
 }
@@ -464,6 +482,33 @@ private_ssid_for_code() {
     else
         printf '%s\n' "$current"
     fi
+}
+
+# The captive SSID on the verify/repair path. A name this stack wrote — the
+# brand prefix plus four characters, either brand, the legacy lowercase
+# spelling included — converges on the code; a name the OPERATOR chose is
+# preserved, exactly as the hostname (#444) and the private SSID are. This is
+# the behaviour this path had before it derived the SSID from the store (it read
+# the live SSID back), kept deliberately: a reinstall must not rename a network
+# the operator named. The full path still writes the brand's name, which is what
+# it has always done.
+captive_ssid_for_code() {
+    local current="$1" prefix suffix
+    if [ -z "$current" ]; then
+        printf '%s\n' "$DEVICE_SSID"
+        return 0
+    fi
+    prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
+    suffix=${current#*-}
+    case "$prefix" in
+        tollgate|net4sats)
+            if [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+                printf '%s\n' "$DEVICE_SSID"
+                return 0
+            fi
+            ;;
+    esac
+    printf '%s\n' "$current"
 }
 
 # Resolve the device code and the nym, and STORE both. Runs on every setup path
@@ -2016,8 +2061,21 @@ if [ "$BRANCH" != "FULL" ]; then
     # router that has not been through a full setup under a device code yet gets
     # its hostname converged by the next version-changing install, where
     # setup_hostname rewrites it together with the SSIDs.
+    #
+    # The captive SSID follows the same rule (captive_ssid_for_code): a name this
+    # stack wrote converges on the stored code, and a name the OPERATOR chose
+    # survives — a reinstall must not rename a network the operator named. A
+    # router with a custom open SSID therefore keeps it here; the brand's name is
+    # what the FULL path and the installer's branding write.
     setup_device_identity
-    GATEWAY_NAME="$DEVICE_SSID"
+    GATEWAY_NAME=$(captive_ssid_for_code "$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null)")
+    log "Gateway name on the repair path: ${GATEWAY_NAME}"
+    # nodogsplash's gatewayname is machine-owned on every path (the full setup
+    # writes it from the same value), so it converges with the SSID above
+    # instead of keeping the pre-convergence name in the portal banner.
+    if uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
+        uci -q set nodogsplash.@nodogsplash[0].gatewayname="$GATEWAY_NAME"
+    fi
 
     detect_band_radios
     setup_band_ap "$R2G" 'tollgate_2g_open'

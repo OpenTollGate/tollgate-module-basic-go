@@ -84,7 +84,7 @@ upstream discovery in `src/wireless_gateway_manager` matches `"TollGate-*"`
 | Path | Device code | hostname | captive SSID | private SSID |
 |---|---|---|---|---|
 | module, first boot / version-changing install | resolved + stored | rewritten when brand-default or machine-shaped (#444 preserved) | derived | derived |
-| module, verify/repair (same version) | resolved + stored | **not touched** | derived | not touched |
+| module, verify/repair (same version) | resolved + stored | **not touched** | converged when machine-shaped, an operator's own name preserved | not touched |
 | installer deploy | resolved + stored | derived | derived | derived |
 
 The verify/repair path deliberately does **not** rewrite the hostname: it is the
@@ -95,6 +95,19 @@ it there would also re-key the router's TLS identity (`ensure_admin_tls_identity
 provisions a certificate covering the current hostname), which is not something a
 reinstall of the same build should do.
 
+The captive SSID follows the same rule on that path
+(`captive_ssid_for_code`), which is **also the behaviour it had before this
+change**: the old code read the live SSID back and re-asserted it, so an
+operator-named open network survived a reinstall. The convergence applies to a
+name this stack wrote — brand prefix (either brand, either case) plus a
+machine-shaped suffix — and to a missing one; anything else is the operator's own
+name and is preserved. A reinstall must not rename a network the operator named,
+and the open SSID is the one network a visitor has to re-pick by hand. The FULL
+path and the installer's branding still write the brand's name, which is what
+they have always done. `nodogsplash.gatewayname` is machine-owned on every path,
+so the repair path converges it with the SSID instead of leaving the portal
+banner on the pre-convergence name.
+
 ### The escape hatch
 
 `tollgate network private rename <name>` (`docs/operator-guide.md`) is honoured:
@@ -102,6 +115,28 @@ the setup script re-derives the private SSID **only** when the current one is
 missing or machine-shaped (`<nym>-` + four characters, or `<nym>-` + digits, the
 older numeric form). A renamed SSID is neither, so it is preserved. The PSK is
 never re-derived.
+
+### The nym is charset-checked, from wherever it comes
+
+The private SSID is `<nym>-<code>`, and the nym can come from the store, from an
+existing machine-shaped private SSID, or from the default. **All three paths are
+charset-checked** (`[A-Za-z0-9_-]`; `safe_nym` here, `ssid_safe` in the
+installer), and a value that fails falls back to the default nym rather than being
+carried:
+
+* the store's value was already checked, and the value is operator-writable;
+* an **adopted prefix** was not, and it is arbitrary text read off the router.
+  That matters because the private SSID is not only written here: the installer
+  builds its write as a *single-quoted* `uci -q set …` line, on a chain joined
+  with `&&` and run as root. A quote in the value would end the quote, break the
+  chain before the commits, and — with the right bytes — be read as shell syntax.
+  The installer refuses such a value outright (`ssidSafeForShell`); this side
+  never builds one.
+
+Both halves pin the behaviour: `tests/uci-defaults-device-code_test.sh` and
+`branding_test.go` (`TestDeviceIdentityScriptAdoptionOrder` case
+"a value that cannot be quoted is neither adopted nor preserved",
+`TestPrivateSSIDCommandRefusesAValueItCannotQuote`).
 
 ## Consequences
 

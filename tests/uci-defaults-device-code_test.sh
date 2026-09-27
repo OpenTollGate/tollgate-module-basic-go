@@ -104,7 +104,8 @@ LOGFILE="$TMP/setup.log"
 export LOGFILE
 
 for fn in setup_device_identity normalize_device_code code_from_name \
-          is_minted_suffix mint_device_code resolve_nym private_ssid_for_code; do
+          is_minted_suffix safe_nym mint_device_code resolve_nym private_ssid_for_code \
+          captive_ssid_for_code; do
     command -v "$fn" >/dev/null 2>&1 || { echo "FATAL: $fn not defined by the script" >&2; exit 1; }
 done
 ok "setup script sources in lib-only mode and defines the device-identity functions"
@@ -143,6 +144,13 @@ is_minted_suffix 0GLK   && ok "four chars is machine-shaped"   || bad "four char
 is_minted_suffix 123456 && ok "digits-only (legacy numeric) is machine-shaped" || bad "digits-only (legacy numeric) is machine-shaped"
 is_minted_suffix Office && bad "a word is machine-shaped"      || ok "a word is not machine-shaped"
 is_minted_suffix ''     && bad "empty is machine-shaped"       || ok "empty is not machine-shaped"
+
+echo "== safe_nym (the nym travels into a shell-quoted command on the installer side)"
+eq "an operator nym is kept"          "$(safe_nym amperstrand)" "amperstrand"
+eq "a hyphen and an underscore pass"  "$(safe_nym a-b_c)"       "a-b_c"
+eq "a quote is refused"               "$(safe_nym "x';reboot")" ""
+eq "a space is refused"               "$(safe_nym 'my nym')"    ""
+eq "empty is refused"                 "$(safe_nym '')"          ""
 
 echo "== mint_device_code (four characters of [A-Z0-9], never a bare prefix)"
 minted="$(mint_device_code)"
@@ -225,6 +233,15 @@ eq "renamed SSID (no nym) is preserved"        "$(private_ssid_for_code 'MyNewNe
 eq "renamed SSID (other nym) is preserved"     "$(private_ssid_for_code 'office-lan')" "office-lan"
 eq "renamed SSID (nym + word) is preserved"    "$(private_ssid_for_code 'c08r4d0r-Office')" "c08r4d0r-Office"
 
+echo "== the captive SSID on the repair path keeps an operator's own name"
+DEVICE_SSID="TollGate-OQ3Q"
+eq "a machine-shaped SSID converges"       "$(captive_ssid_for_code 'tollgate-0GLK')" "TollGate-OQ3Q"
+eq "the brand case converges too"          "$(captive_ssid_for_code 'TollGate-0GLK')" "TollGate-OQ3Q"
+eq "the other brand converges"             "$(captive_ssid_for_code 'Net4sats-AB12')" "TollGate-OQ3Q"
+eq "an operator's own name survives"       "$(captive_ssid_for_code 'CafeWiFi')" "CafeWiFi"
+eq "a brand word without a code survives"  "$(captive_ssid_for_code 'TollGate-CafeNet')" "TollGate-CafeNet"
+eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "TollGate-OQ3Q"
+
 echo "== the nym is adopted from an existing machine-shaped private SSID"
 seed "tollgate.device=device" "tollgate.device.code=OQ3Q" \
      "wireless.private_radio0=wifi-iface" "wireless.private_radio0.ssid=amperstrand-11AA"
@@ -237,6 +254,10 @@ eq "a renamed SSID does not donate a nym" "$NYM" "c08r4d0r"
 seed "tollgate.device=device" "tollgate.device.code=OQ3Q" "tollgate.device.nym=stored-nym"
 resolve_nym
 eq "a stored nym is authoritative" "$NYM" "stored-nym"
+seed "tollgate.device=device" "tollgate.device.code=OQ3Q" \
+     "wireless.private_radio0=wifi-iface" "wireless.private_radio0.ssid=x';reboot #-OQ3Q"
+resolve_nym
+eq "a quote-bearing adopted prefix is refused" "$NYM" "c08r4d0r"
 
 # ----------------------------------------------------------- static guards
 echo "== one mint path only (a second writer is how the drift started)"
@@ -254,6 +275,9 @@ echo "== the store is read on BOTH setup paths"
 grep -q '^    setup_device_identity$' "$ROOT/$SCRIPT" \
     && ok "the verify/repair path resolves and stores the code" \
     || bad "the verify/repair path does not resolve the code (the read-back is back)"
+grep -q 'GATEWAY_NAME=$(captive_ssid_for_code' "$ROOT/$SCRIPT" \
+    && ok "the repair path preserves an operator-named captive SSID" \
+    || bad "the repair path forces the brand SSID on every router (a reinstall would rename the operator's open network)"
 grep -q '^setup_device_identity ' "$ROOT/$SCRIPT" \
     && ok "the full-setup path resolves the code" \
     || bad "the full-setup path does not resolve the code"
