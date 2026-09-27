@@ -795,7 +795,15 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 
 	m.sessionMu.Lock()
 	m.expireSessionLocked(macAddress)
-	m.sessionMu.Unlock()	log.Printf("Removed unmeterable session for %s", macAddress)
+	m.sessionMu.Unlock()
+	// The episode is over: the bookkeeping belongs to THIS unmeterable session,
+	// so it is forgotten with it. Leaving it behind would leave
+	// forceCloseEscalated set for the MAC, and a later session that cannot be
+	// metered would start in the throttled "repeat" branch — the operator would
+	// never get its ERROR escalation, and the sweeps counter would continue from
+	// the previous session's grace window instead of granting this one its own.
+	m.clearUnmetered(macAddress)
+	log.Printf("Removed unmeterable session for %s", macAddress)
 }
 
 // ---------------------------------------------------------------------------

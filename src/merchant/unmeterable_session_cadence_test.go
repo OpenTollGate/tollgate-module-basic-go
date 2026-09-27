@@ -46,10 +46,10 @@ func TestUnmeterableSessionEscalationIsBounded(t *testing.T) {
 	// cannot be retired.
 	ndsctl.setRegistered(t, true)
 	ndsctl.failDeauth(t, true)
-	unmeterableSessionReportInterval = time.Hour
+	restoreReportInterval := setUnmeterableReportInterval(time.Hour)
+	t.Cleanup(restoreReportInterval)
 
 	buf := captureMerchantLog(t)
-
 	usageErr := errors.New("client counters unavailable")
 	for i := 0; i < usageMonitorGraceSweeps+3; i++ {
 		m.closeUnmeterableSession(macAddress, usageErr)
@@ -202,3 +202,70 @@ func TestUnmeterableSessionEscalationStillExposesTheAbandonedClose(t *testing.T)
 // drive past it without exporting the constant. It is a bound, not an exact
 // value: the test only needs to be past the budget.
 const closeAttemptBudget = 8
+
+// setUnmeterableReportInterval shrinks the repeat interval for one test and
+// returns the restore, so this file's tuning of a package-level var cannot
+// silence or accelerate the reporting of a later test.
+func setUnmeterableReportInterval(interval time.Duration) func() {
+	previous := unmeterableSessionReportInterval
+	unmeterableSessionReportInterval = interval
+	return func() { unmeterableSessionReportInterval = previous }
+}
+
+// TestUnmeterableEpisodeEscalatesAgainAfterItsSessionIsRetired pins that the
+// escalation is written once per EPISODE and not once per MAC for the life of
+// the process.
+//
+// The bookkeeping belongs to the session that could not be metered, so a
+// CONFIRMED force-close must forget it. If it does not, the flag stays set for
+// that address and a later, distinct unmeterable session starts in the throttled
+// branch: no ERROR escalation at all (only the "the state changed" WARNING, or
+// nothing), and — because the unchanged `sweeps` counter continues from the
+// previous episode — no grace window of its own either, so the new session is
+// force-closed on its first unreadable sweep instead of after a minute. That is
+// the "a bound whose reset cannot fire in normal operation" shape: the address is
+// live again, the state machine is not.
+func TestUnmeterableEpisodeEscalatesAgainAfterItsSessionIsRetired(t *testing.T) {
+	ndsctl := installRenewalNdsctl(t)
+	m, _ := newRenewalMerchant(t, "bytes")
+
+	const macAddress = "aa:bb:cc:dd:ee:7d"
+	closeGateCleanup(t, macAddress)
+
+	restoreReportInterval := setUnmeterableReportInterval(time.Hour)
+	t.Cleanup(restoreReportInterval)
+
+	usageErr := errors.New("client counters unavailable")
+
+	// Episode one: the counters are unreadable and NoDogSplash refuses the
+	// close, so the force-close escalates once and the session stays tracked.
+	installBytesSession(t, m, macAddress, 22020096)
+	ndsctl.setRegistered(t, true)
+	ndsctl.failDeauth(t, true)
+	for i := 0; i < usageMonitorGraceSweeps+1; i++ {
+		m.closeUnmeterableSession(macAddress, usageErr)
+	}
+
+	// NoDogSplash answers again: the close is confirmed and the session is
+	// retired.
+	ndsctl.failDeauth(t, false)
+	m.closeUnmeterableSession(macAddress, usageErr)
+	if hasSession(m, macAddress) {
+		t.Fatal("precondition: a confirmed force-close must retire the session")
+	}
+
+	// Episode two, same address, a new paid session: the counters are unreadable
+	// again and the close is refused again.
+	installBytesSession(t, m, macAddress, 22020096)
+	ndsctl.failDeauth(t, true)
+
+	buf := captureMerchantLog(t)
+	for i := 0; i < usageMonitorGraceSweeps+1; i++ {
+		m.closeUnmeterableSession(macAddress, usageErr)
+	}
+
+	escalations := linesMentioning(buf.String(), macAddress, "has been unreadable for")
+	if len(escalations) != 1 {
+		t.Fatalf("a second, distinct unmeterable episode on the same address was escalated %d times, want exactly 1: the bookkeeping of the retired session must not silence the new one (and must not carry its sweep count into it either)\nlines: %v", len(escalations), linesMentioning(buf.String(), macAddress, ""))
+	}
+}
