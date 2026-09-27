@@ -230,3 +230,16 @@ func (startingMerchant) Fund(string) (uint64, error) {
 }
 
 func (startingMerchant) SetOnReachableSetChanged(func()) {}
+
+// Session tickets are part of the same "money path is not up yet" surface: the
+// routes that call them resolve the caller from the socket and are gated behind
+// the merchant being installed, so this placeholder answers "still starting"
+// rather than pretending a ticket exists. (Added when the session-ticket
+// interface widening met this file during an upstream merge.)
+func (startingMerchant) IssueSessionTicket(string) (string, int64, error) {
+	return "", 0, errMerchantStarting
+}
+
+func (startingMerchant) RebindSession(string, string) (*merchant.CustomerSession, error) {
+	return nil, errMerchantStarting
+}
