@@ -202,6 +202,32 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **One device code, minted once and stored, now names the router on every
+  network.** The hostname, the captive SSID and the private SSID are built from
+  a single four-character code kept in `/etc/config/tollgate`
+  (`config device 'device'` → `option code`), so the three names can no longer
+  disagree — and the code is REUSED, never re-minted, across a reinstall, an
+  upgrade and a sysupgrade that keeps settings. Measured on the bench MT3000
+  (2026-09-26): `hostname=tollgate-OQ3Q` while the open SSID had been re-minted
+  to `tollgate-0GLK` by a later deploy and the private SSID carried a suffix
+  from a third mint path, because nothing was ever stored — this script
+  re-randomised `RANDOM_SUFFIX` on every full setup, the installer minted its
+  own code on every deploy, and the installer skips `private_radio*` on purpose
+  so the admin LAN kept a code no other name used. The store is authoritative
+  and the adoption order (`store` → machine-shaped hostname → machine-shaped
+  captive SSID → mint) lets an already-deployed router converge on the code it
+  is ALREADY known by instead of collecting a third one; the verify/repair path
+  re-asserts the captive SSID from the stored code instead of reading the live
+  SSID back, which is how a re-minted one survived a reinstall. The hostname
+  becomes `tollgate-<code>` (one glance tells you which box it is; a custom
+  hostname is still never touched, #444) and the private SSID follows the
+  operator's nym (`c08r4d0r-<code>`) with `tollgate network private rename`
+  honoured as the escape hatch — only a machine-shaped SSID is re-derived, and
+  the PSK never is. Decision record:
+  [`docs/architecture/one-device-code.md`](docs/architecture/one-device-code.md);
+  the installer half (OpenTollGate/tollgate-installer, whose branding is the
+  writer that runs LAST on a deployed router) shares this store, this adoption
+  order and this test case table.
 - **`GET /session-state?mac=…` reports a machine-readable session state per
   client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
   device that has never paid *and* for one whose paid session just ran out, so a
