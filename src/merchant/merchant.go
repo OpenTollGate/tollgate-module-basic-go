@@ -49,6 +49,15 @@ type CustomerSession struct {
 	// through an older ticket cannot move a session this record never issued one
 	// for. Unexported, and never on the wire.
 	ticketHandle string
+
+	// ticketExpiresAt is the horizon (Unix seconds) of the ticket issued for this
+	// session; zero means no ticket was ever issued. It lives on the record rather
+	// than being read from the ticket store on purpose: the package's documented
+	// lock order is ts.mu then sessionMu, and the retirement paths below hold
+	// sessionMu alone, so consulting the store there would invert that order. It is
+	// what lets the janitor and the unmeterable-session path tell a session whose
+	// remainder is still claimable from one nobody can come back for.
+	ticketExpiresAt int64
 }
 
 // SessionState is the machine-readable lifecycle state of the session of one
@@ -109,6 +118,45 @@ func sessionHasExpired(session *CustomerSession, now time.Time) bool {
 func (m *Merchant) expireSessionLocked(macAddress string) {
 	delete(m.customerSessions, macAddress)
 	m.rememberExpiredSessionLocked(macAddress)
+}
+
+// retireSessionOrParkForTicketLocked retires the session record of macAddress —
+// unless the session still holds a LIVE session ticket, in which case the record is
+// PARKED: kept, with no access attached to it.
+//
+// Why parking exists. Entitlement is keyed to a MAC address, and the address
+// belongs to the device that chose it, so a device that rotates its address leaves
+// its record behind. The stale-binding janitor retires such a record ~60s after the
+// address drops off the NDS client list, and the unmeterable-session path does the
+// same when the meter cannot be read — which is what a departed client looks like on
+// the bytes metric. Both are right about ACCESS: the gate is closed either way and
+// nothing is left authorised. But retiring the record used to destroy the only
+// record of what the customer paid for, so a device that took longer than the grace
+// window to come back presented a perfectly valid ticket and got ErrTicketUnknown:
+// the remainder was gone. This branch exists to carry that remainder to the new
+// address, so retirement now yields to a live ticket.
+//
+// What parking does NOT do: it grants nothing. The gate is already deauthorised and
+// NoDogSplash no longer lists the address, and a rebind still has to authorise its
+// new attachment before the customer has any access. Parking only keeps the meter,
+// the StartTime and the handle mapping alive long enough to be carried.
+//
+// Bound: a parked record lives only until the ticket's own horizon
+// (defaultSessionTicketTTL, 12h). After that the next pass that asks retires it, so
+// parking cannot accumulate records indefinitely.
+//
+// Caller must hold sessionMu.
+func (m *Merchant) retireSessionOrParkForTicketLocked(macAddress string, now time.Time) (retired, parked bool) {
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return false, false
+	}
+	if session.ticketExpiresAt > now.Unix() {
+		return false, true
+	}
+
+	m.expireSessionLocked(macAddress)
+	return true, false
 }
 
 // rememberExpiredSessionLocked records an observed expiry. Caller must hold
@@ -739,9 +787,15 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	}
 
 	m.sessionMu.Lock()
-	m.expireSessionLocked(macAddress)
+	retired, parked := m.retireSessionOrParkForTicketLocked(macAddress, time.Now())
 	m.sessionMu.Unlock()
-	log.Printf("Removed unmeterable session for %s", macAddress)
+
+	switch {
+	case retired:
+		log.Printf("Removed unmeterable session for %s", macAddress)
+	case parked:
+		log.Printf("Parked the unmeterable session of %s instead of retiring it: its gate is closed and it cannot be metered, but it still holds a live session ticket, so a rebind can still carry the remainder the customer paid for to the address they moved to", macAddress)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -961,11 +1015,13 @@ func (m *Merchant) reconcileStaleBindings() {
 
 // reconcileStaleBinding tears down the binding of an address whose client is
 // gone: the gate is closed (and, only when that close is CONFIRMED, the session
-// record is retired, so the address cannot be inherited by a later holder). The
-// usage of the last covered sweep is reported, because the remainder the
-// customer paid for cannot travel to the address they moved to until entitlement
-// is carried by a session ticket rather than by the address — that is the
-// next-release work this pass does not pretend to do.
+// record is retired, so the address cannot be inherited by a later holder) —
+// unless the session still holds a live session ticket, in which case the record is
+// PARKED instead of retired, so the remainder the customer paid for can still be
+// carried to the address they moved to. Entitlement now travels with a session
+// ticket, which is the work this paragraph used to defer (see
+// retireSessionOrParkForTicketLocked). The usage of the last covered sweep is
+// reported either way.
 //
 // The close goes through ReconcileGateClose rather than CloseGate because this is
 // the one caller that brings EVIDENCE about the client (the probe above has just
@@ -983,12 +1039,8 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 
 	m.forgetStaleBinding(macAddress)
 
-	retired := false
 	m.sessionMu.Lock()
-	if _, exists := m.customerSessions[macAddress]; exists {
-		m.expireSessionLocked(macAddress)
-		retired = true
-	}
+	retired, parked := m.retireSessionOrParkForTicketLocked(macAddress, time.Now())
 	m.sessionMu.Unlock()
 
 	lastUsage := "nothing was metered for it"
@@ -996,8 +1048,12 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 		lastUsage = fmt.Sprintf("%s of covered usage", utils.BytesToHumanReadable(usage))
 	}
 
+	if parked {
+		log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, but the session is PARKED rather than retired because it still holds a live session ticket (%s) — a rebind inside that ticket's horizon still carries the purchased remainder to the address the customer moved to, and the first pass after the horizon retires the record", macAddress, lastUsage)
+		return
+	}
 	if retired {
-		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; the purchased remainder is not transferable until entitlement travels with a session ticket)", macAddress, lastUsage)
+		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; a session with no live ticket has nothing left to claim — entitlement travels with a session ticket)", macAddress, lastUsage)
 		return
 	}
 	log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, and there was no session record to retire (%s)", macAddress, lastUsage)

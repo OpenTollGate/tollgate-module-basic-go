@@ -314,6 +314,11 @@ func (m *Merchant) IssueSessionTicket(macAddress string) (string, int64, error) 
 		AttachedAt: now.Unix(),
 	}
 
+	// Record the horizon on the session itself: the retirement paths hold
+	// sessionMu alone and must not consult the ticket store (see
+	// retireSessionOrParkForTicketLocked for the lock-order reason).
+	session.ticketExpiresAt = payload.ExpiresAt
+
 	return ticket, payload.ExpiresAt, nil
 }
 
@@ -449,6 +454,10 @@ func (m *Merchant) RebindSession(ticket, macAddress string) (*CustomerSession, e
 		Allotment:    session.Allotment,
 		Consumed:     carried,
 		ticketHandle: payload.Handle,
+
+		// The ticket's horizon travels with the record: it is what decides whether
+		// the retirement paths park or retire this session.
+		ticketExpiresAt: session.ticketExpiresAt,
 	}
 
 	delete(m.customerSessions, previous)
