@@ -170,6 +170,31 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Cudy WR3000 v1 documented as a covered target, with its 16 MB-flash limit
+  stated up front.** The package matrix already builds for
+  `mediatek/filogic` / `aarch64_cortex-a53`, which is what the WR3000 v1
+  (board name `cudy,wr3000-v1`) reports, so this is a documentation change
+  only — no matrix row was added or removed.
+  [README.md](README.md) gains a "Supported devices" subsection under
+  Installation that says how coverage is decided (the target/architecture rows
+  of the CI
+  [build matrix](.github/workflows/build-package.yml)) and records the
+  on-hardware result: on mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`) the
+  whole 37-package dependency closure installs and `nodogsplash` runs with the
+  keepalive contract live. It also states the 16 MB-flash limit and — measured
+  on the same device — the variant that works around it: the `upx-ultra-brute`
+  build this repo's CI already produces for `aarch64_cortex-a53` shrinks the
+  payload from ~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+  `usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed to **5.34 MiB**, and a
+  real WR3000 v1 installed that `.apk`, rebooted, and came back with
+  `tollgate-wrt` running and no volatile helper, so a persistent install is
+  possible on a 16 MB device. The two practical notes from that run are
+  recorded too: the 1.78 MiB `tollgate` CLI can be dropped after provisioning
+  to leave room for the `nodogsplash` closure, and the closure must be installed
+  in one `apk add` transaction because `apk add --force-non-repository <file>`
+  world-syncs packages previously installed from files back out. A volatile
+  (tmpfs) install is documented as the fallback.
+  ([#613](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/613))
 - **The board is the default face — decided, with the switch, the cross-link
   rules, and the reason it is not a one-repo change.**
   `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
