@@ -306,6 +306,7 @@ and [Semantic Versioning](https://semver.org/).
   the installer half (OpenTollGate/tollgate-installer, whose branding is the
   writer that runs LAST on a deployed router) shares this store, this adoption
   order and this test case table.
+  ([#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605))
 - **`GET /session-state?mac=…` reports a machine-readable session state per
   client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
   device that has never paid *and* for one whose paid session just ran out, so a
