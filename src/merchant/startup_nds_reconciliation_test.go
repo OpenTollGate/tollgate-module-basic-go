@@ -46,6 +46,14 @@ const (
 	// inheritedPreauthMAC is merely KNOWN to NoDogSplash (Preauthenticated): it
 	// cannot pass traffic, so it is not an access leak and must be left alone.
 	inheritedPreauthMAC = "aa:bb:cc:dd:ee:53"
+
+	// sweepLifecycleMAC belongs to no test but the sweep-lifecycle one.
+	sweepLifecycleMAC = "aa:bb:cc:dd:ee:54"
+
+	// trackedOnlyMAC is Authenticated in NoDogSplash and has NO session record in
+	// the module, but the valve still tracks its gate: the module's own client,
+	// which the pass must leave alone.
+	trackedOnlyMAC = "aa:bb:cc:dd:ee:55"
 )
 
 // inheritedNdsctl is a fake `ndsctl` on PATH which answers the client LIST as
@@ -257,6 +265,10 @@ func TestStartupMonitoringClosesTheAuthorisationsTheModuleInherits(t *testing.T)
 
 	logs := captureSyncLogs(t)
 	m.StartDataUsageMonitoring()
+	// The sweep this starts writes through the standard logger and reaches the
+	// valve's process-global gate state; it must not outlive the test (see
+	// TestStartDataUsageMonitoringStopsTheSweepItStarts).
+	t.Cleanup(m.stopDataUsageMonitoring)
 
 	if got := ndsctl.opsFor(t, "DEAUTH "+inheritedOrphanMAC); got != 1 {
 		t.Fatalf("the module inherited an authorised client it holds no session for and did not close its gate: deauths for %s = %d, want 1\nlog:\n%s",
@@ -372,6 +384,9 @@ func TestStartupReconciliationIsBoundedAndReadable(t *testing.T) {
 	m := inheritedMerchant(t)
 	logs := captureSyncLogs(t)
 	m.StartDataUsageMonitoring()
+	// See TestStartDataUsageMonitoringStopsTheSweepItStarts: the sweep must not
+	// outlive the test.
+	t.Cleanup(m.stopDataUsageMonitoring)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -381,4 +396,73 @@ func TestStartupReconciliationIsBoundedAndReadable(t *testing.T) {
 	if got := strings.Count(logs.String(), inheritedOrphanMAC); got > 4 {
 		t.Fatalf("%s is mentioned %d times for ONE inherited client: the reconciliation is not bounded\nlog:\n%s", inheritedOrphanMAC, got, logs.String())
 	}
+}
+
+// TestStartDataUsageMonitoringStopsTheSweepItStarts is the isolation seam the
+// merchant tests need. StartDataUsageMonitoring is where the startup
+// reconciliation runs, so the tests that pin it drive the REAL startup path —
+// and the sweep it starts writes through the standard logger and reaches the
+// valve's process-global gate state. Left running it reports into the next
+// test's log capture (that is a genuine data race under `-race`, and it made
+// `go test -race -tags testenv ./...` in this package fail with "race detected
+// during execution of test" on 2026-09-27) and keeps sweeping a merchant the
+// test has finished with.
+func TestStartDataUsageMonitoringStopsTheSweepItStarts(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+	ndsctl.setList(t, map[string]string{})
+
+	m := inheritedMerchant(t)
+	installBytesSession(t, m, sweepLifecycleMAC, 1<<40)
+
+	// A merchant that never monitored can be asked to stop without a panic.
+	m.stopDataUsageMonitoring()
+
+	m.StartDataUsageMonitoring()
+
+	m.monitorMu.Lock()
+	stop, done, running := m.monitorStop, m.monitorDone, m.monitorOn
+	m.monitorMu.Unlock()
+	if !running || stop == nil || done == nil {
+		t.Fatal("StartDataUsageMonitoring did not leave a sweep that can be stopped")
+	}
+
+	// The capture is installed AFTER the start, so the start-up line itself is
+	// not part of what is asserted below.
+	buffer := captureMerchantLog(t)
+
+	m.stopDataUsageMonitoring()
+
+	select {
+	case <-done:
+	default:
+		t.Fatal("stopDataUsageMonitoring returned while the sweep goroutine was still running")
+	}
+
+	// Longer than one sweep interval: a sweep that is still alive would report
+	// this test's own session in the meantime.
+	time.Sleep(2*time.Second + 500*time.Millisecond)
+	if logged := buffer.String(); strings.Contains(logged, sweepLifecycleMAC) {
+		t.Fatalf("a sweep that was stopped is still reporting %s: %q", sweepLifecycleMAC, logged)
+	}
+
+	// Negative control: a sweep of THIS session does write such a line, so the
+	// assertion above can fail rather than passing vacuously.
+	before := buffer.Len()
+	m.checkDataUsage()
+	if !strings.Contains(buffer.String()[before:], sweepLifecycleMAC) {
+		t.Fatalf("a sweep of this session writes nothing, so the assertion above cannot fail; log was %q", buffer.String())
+	}
+
+	// Stopping twice is a no-op, not a panic on a closed channel, and a merchant
+	// started again gets a sweep that can be stopped again.
+	m.stopDataUsageMonitoring()
+
+	m.StartDataUsageMonitoring()
+	m.monitorMu.Lock()
+	secondDone, secondRunning := m.monitorDone, m.monitorOn
+	m.monitorMu.Unlock()
+	if !secondRunning || secondDone == done {
+		t.Fatal("a merchant started again did not get a fresh, stoppable sweep")
+	}
+	m.stopDataUsageMonitoring()
 }

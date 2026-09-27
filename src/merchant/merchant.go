@@ -245,6 +245,18 @@ type Merchant struct {
 	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
 	// a value so `&Merchant{}` literals keep working; its zero value is usable.
 	mintQuoteBudget mintQuoteBudget
+	// monitorMu guards the usage sweep's stop/done channels. They are created by
+	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
+	// test that drives the real startup path can end the sweep it started: the
+	// goroutine writes through the standard logger and touches the valve's
+	// process-global gate state, so a monitor left running logs into the next
+	// test's capture (a data race under -race) and keeps sweeping a merchant the
+	// test has finished with. In the shipped binary the sweep is
+	// process-lifetime and nothing calls the stop.
+	monitorMu   sync.Mutex
+	monitorStop chan struct{}
+	monitorDone chan struct{}
+	monitorOn   bool
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -436,13 +448,64 @@ func (m *Merchant) StartDataUsageMonitoring() {
 
 	m.ReconcileNdsAuthorisationsOnStartup()
 
+	m.startUsageSweep()
+}
+
+// startUsageSweep starts the 2-second sweep, once per merchant, and keeps the
+// handles stopDataUsageMonitoring needs to end it.
+func (m *Merchant) startUsageSweep() {
+	m.monitorMu.Lock()
+	defer m.monitorMu.Unlock()
+
+	if m.monitorOn {
+		// One sweep per merchant: a second goroutine would be unstoppable.
+		return
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	m.monitorStop, m.monitorDone, m.monitorOn = stop, done, true
+
 	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
 	go func() {
 		defer ticker.Stop()
-		for range ticker.C {
-			m.checkDataUsage()
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				m.checkDataUsage()
+			}
 		}
 	}()
+}
+
+// stopDataUsageMonitoring stops the sweep startUsageSweep started and waits for
+// the sweep that was in flight to return, so that after it returns nothing of
+// this merchant writes through the standard logger any more.
+//
+// It exists for the tests that drive the REAL startup path (StartDataUsageMonitoring
+// is where the startup reconciliation runs): they verify behaviour by reading the
+// standard logger, so a sweep belonging to an earlier test must not still be
+// reporting into the capture — and a sweep must not keep reading the valve's
+// process-global gate state for a merchant the test has finished with. Left
+// running, those monitors made `go test -race ./...` in this package fail with
+// "race detected during execution of test" (the full suite, 2026-09-27).
+//
+// Safe to call before the sweep was ever started, and safe to call twice. A
+// merchant started again afterwards gets a fresh, stoppable sweep.
+func (m *Merchant) stopDataUsageMonitoring() {
+	m.monitorMu.Lock()
+	stop, done := m.monitorStop, m.monitorDone
+	m.monitorStop, m.monitorDone, m.monitorOn = nil, nil, false
+	m.monitorMu.Unlock()
+
+	if stop == nil {
+		return
+	}
+	close(stop)
+	<-done
 }
 
 // checkDataUsage checks all active data-based sessions and closes gates when allotment is reached
@@ -732,8 +795,7 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 
 	m.sessionMu.Lock()
 	m.expireSessionLocked(macAddress)
-	m.sessionMu.Unlock()
-	log.Printf("Removed unmeterable session for %s", macAddress)
+	m.sessionMu.Unlock()	log.Printf("Removed unmeterable session for %s", macAddress)
 }
 
 // ---------------------------------------------------------------------------
