@@ -17,6 +17,7 @@ func TestSchemaConfigFields(t *testing.T) {
 		"config_version", "log_level", "metric", "step_size",
 		"accepted_mints", "profit_share", "show_setup", "reseller_mode",
 		"upstream_detector", "upstream_session_manager",
+		"private_encryption", "admin_access",
 	}
 	for _, key := range requiredKeys {
 		if _, ok := schemaMap[key]; !ok {
@@ -57,6 +58,87 @@ func TestSchemaConfigFields(t *testing.T) {
 			t.Errorf("profit_share child schema missing: %s", f)
 		}
 	}
+}
+
+// TestSchemaOperatorNetworkFields pins the two operator-settable network
+// settings the admin surface depends on: they must be flat, editable, carry the
+// documented enum, and the private passphrase must be marked secret (the flag
+// every read path uses to redact it). A missing `secret` here is not a cosmetic
+// bug: it is the private network's WPA key in the board's response payload.
+func TestSchemaOperatorNetworkFields(t *testing.T) {
+	schema := GetConfigSchema()
+
+	schemaMap := make(map[string]*FieldSchema)
+	for i := range schema {
+		schemaMap[schema[i].JSONKey] = &schema[i]
+	}
+
+	for _, key := range []string{"private_ssid", "private_key", "private_encryption", "admin_access"} {
+		field, ok := schemaMap[key]
+		if !ok {
+			t.Fatalf("Config schema missing operator network field: %s", key)
+		}
+		if !field.Editable {
+			t.Errorf("%s must be editable: it is the point of the setting", key)
+		}
+		if field.Type != "string" {
+			t.Errorf("%s: got type %q, want string (a nested object gets no dotpath round-trip test)", key, field.Type)
+		}
+	}
+
+	if !schemaMap["private_key"].Secret {
+		t.Error("private_key must be marked secret, or `config get` hands the private network's passphrase to every reader")
+	}
+	for _, key := range []string{"private_ssid", "private_encryption", "admin_access"} {
+		if schemaMap[key].Secret {
+			t.Errorf("%s is not a secret; marking it one would hide a value the operator needs to read", key)
+		}
+	}
+
+	wantEncryption := []string{"psk2+ccmp", "psk2+tkip+ccmp", "psk-mixed+ccmp"}
+	if got := schemaMap["private_encryption"].Enum; !equalStringSlices(got, wantEncryption) {
+		t.Errorf("private_encryption enum: got %v, want %v", got, wantEncryption)
+	}
+
+	wantAdmin := []string{"br-private", "br-mgmt", "both", "loopback-only"}
+	if got := schemaMap["admin_access"].Enum; !equalStringSlices(got, wantAdmin) {
+		t.Errorf("admin_access enum: got %v, want %v", got, wantAdmin)
+	}
+}
+
+// TestValidateValueRejectsUnknownEnums covers the wholesale-save hole this
+// wrapper exists for: `config save` replaces the whole file and never ran the
+// per-key schema checks, so an unknown enum written that way used to be stored
+// as-is — and an unknown encryption mode is a private network that will not
+// come up.
+func TestValidateValueRejectsUnknownEnums(t *testing.T) {
+	if err := ValidateValue("admin_access", "both"); err != nil {
+		t.Errorf("admin_access=both should validate, got: %v", err)
+	}
+	if err := ValidateValue("admin_access", "br-lan"); err == nil {
+		t.Error("admin_access=br-lan must be refused: the captive bridge is never an administration path")
+	}
+	if err := ValidateValue("private_encryption", "psk2+ccmp"); err != nil {
+		t.Errorf("private_encryption=psk2+ccmp should validate, got: %v", err)
+	}
+	if err := ValidateValue("private_encryption", "sae"); err == nil {
+		t.Error("private_encryption=sae must be refused: the shipped wpad has no SAE support")
+	}
+	if err := ValidateValue("private_key", "anything goes here"); err != nil {
+		t.Errorf("private_key has no enum; a non-empty value should validate, got: %v", err)
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestSchemaIdentitiesFields(t *testing.T) {

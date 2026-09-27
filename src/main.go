@@ -1703,6 +1703,26 @@ func main() {
 	if apiListener == nil || apiHTTPServer == nil {
 		mainLogger.Fatal("The payment API was never bound: the boot sequence did not run")
 	}
+
+	// Converge the operator-settable network settings that config.json declares
+	// onto this router: the private network's SSID/passphrase/encryption (into
+	// UCI, which hostapd reads) and which network may reach the administration
+	// surfaces (a generated fw4 include). Both are compare-and-converge, so a
+	// router that already matches the file reports `unchanged` and nothing on
+	// the wire moves — which is what makes this safe to run here, where procd
+	// respawns the process and a needless `fw4 reload` or wireless bounce on
+	// every respawn would be worse than the drift it fixes.
+	for _, result := range cli.ApplyOperatorSettings(mainConfig) {
+		fields := logrus.Fields{"setting": result.Setting, "status": result.Status}
+		if result.Detail != "" {
+			fields["detail"] = result.Detail
+		}
+		if result.Warning != "" {
+			fields["warning"] = result.Warning
+		}
+		mainLogger.WithFields(fields).Info("Operator setting converged")
+	}
+
 	mainLogger.Info("Starting HTTP server on all interfaces...")
 
 	if err := <-apiServeErr; err != nil {

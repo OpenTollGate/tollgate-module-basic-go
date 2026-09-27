@@ -127,17 +127,21 @@ OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.8`**. An abridged example:
+The current schema version is **`v0.0.9`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.8",
+  "config_version": "v0.0.9",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
   "show_setup": true,
   "reseller_mode": false,
+  "private_ssid": "",
+  "private_key": "",
+  "private_encryption": "psk2+ccmp",
+  "admin_access": "both",
   "accepted_mints": [
     {
       "url": "https://mint.coinos.io",
@@ -197,6 +201,35 @@ Key fields:
 `ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
+
+### Network settings (`v0.0.9`)
+
+Four fields configure the router's own networks. They are **declared intent**:
+the service converges them onto the router (UCI `/etc/config/wireless` for the
+credentials, a generated `/etc/nftables.d/33-admin-access-scope.nft` for the
+scope) after every `config set`/`config save`, on `tollgate config apply`, and
+at service start. All four are also on the admin board's Settings page.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup.** |
+| `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
+| `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
+| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`). The guest network the customers pay on is **never** an administration path, whatever this says. |
+
+Notes that matter when you change them:
+
+- The default, `admin_access=both`, adds no firewall rule at all: a router that
+  upgrades onto this release is reachable exactly where it was.
+- `br-mgmt` is refused while that bridge does not exist on the router, because
+  it would leave no network able to reach the board. The value stays in
+  `config.json` and takes effect once the bridge exists.
+- `loopback-only` is strict: every interface except `lo` loses the
+  administration ports, including a VPN or uplink interface you administer
+  over.
+- Changing the passphrase from the router's shell
+  (`tollgate network private set-password`) also updates `config.json`, so the
+  two writers cannot disagree.
 
 ## Testing
 

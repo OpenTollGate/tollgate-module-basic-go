@@ -202,6 +202,41 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The private network's credentials and the administration-path scope are
+  operator settings, in the config file and on the board.** Two things this
+  module compiled in are now declared in `/etc/tollgate/config.json`:
+  `private_ssid`/`private_key`/`private_encryption` (the private SSID's name,
+  passphrase and encryption mode — the encryption was a literal in
+  `99-tollgate-setup` that every full setup pass rewrote) and `admin_access`
+  (`both` | `br-private` | `br-mgmt` | `loopback-only` — which network may
+  reach the board on `:8090/:8443` and LuCI on `:8080/:443`, where the answer
+  used to be "whatever is not the captive bridge"). Neither can be honoured by
+  a file the service merely reads, so one applier
+  (`src/cli/operator_settings.go`) converges them: UCI `/etc/config/wireless`
+  for the credentials, and a generated, module-owned
+  `/etc/nftables.d/33-admin-access-scope.nft` for the scope. It is
+  **compare-and-converge** and runs after every `config set`/`config save`, on
+  the new `tollgate config apply`, and at service start, so a hand-edited
+  `config.json` converges without a second command and a router that already
+  matches reports `unchanged` without a `fw4 reload` or a wireless bounce.
+  Defaults are no-ops on the wire: `admin_access=both` writes no fragment (and
+  removes a stale one), and the SSID/passphrase ship empty, which means "keep
+  what the router has" — the values `99-tollgate-setup` minted. `br-mgmt` is
+  refused while that bridge does not exist, because it would drop the private
+  SSID and leave no network able to reach the board. **The passphrase is
+  write-only**: the schema marks it `secret`, `config get` blanks it and
+  reports `secret_set.private_key` instead, `config set` does not echo it, and
+  a wholesale `config save` of the (blanked) payload the board sends preserves
+  the stored value instead of clearing it. The guest network the customers pay
+  on is never an administration path, whatever `admin_access` says. New CLI:
+  `tollgate config apply` and
+  `tollgate network private set-encryption <mode>`; the three private-network
+  commands now write **both** radios through one helper, refuse a
+  non-existent section, and record the value in `config.json` so the two
+  writers cannot disagree. Decision record:
+  `docs/architecture/lan-port-management-bridge-decision.md` D9-D12.
+  ([#604](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/604))
+
 - **`GET /session-state?mac=…` reports a machine-readable session state per
   client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
   device that has never paid *and* for one whose paid session just ran out, so a
