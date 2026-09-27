@@ -1,0 +1,63 @@
+# TollGate module settings — the module's own uci namespace.
+#
+# This file is read by the packaging: /etc/uci-defaults/99-tollgate-setup reads
+# it on first boot and on every install/upgrade. It is NOT the module's runtime
+# configuration (that is /etc/tollgate/config.json, driven by
+# `tollgate config get|set` and the administration board); it is the namespace
+# for settings the BOOT-TIME writer has to act on before any Go process runs.
+#
+# Edit with uci (or LuCI), then re-run the writer:
+#
+#     uci set tollgate.lan_ports.role='private'
+#     uci commit tollgate
+#     /etc/uci-defaults/99-tollgate-setup
+#
+# The file is preserved by `sysupgrade` (a `sysupgrade -n` resets it to the
+# default below, exactly as it resets every other /etc/config file).
+
+# ---------------------------------------------------------------------------
+# lan_ports — what the wired LAN ports are for.
+#
+# The wired ports are the one network this module MOVES: it takes the port list
+# the base image wrote on the captive bridge (/bin/config_generate, from the
+# board's own definition) and puts it on the bridge this option names. The
+# wireless networks — the open guest SSID and the operator's private SSID — are
+# never moved, and there is still exactly ONE captive gate (see
+# docs/architecture/lan-port-role-decision.md).
+#
+#   role 'mgmt'     (default) br-mgmt. An administration port: the board
+#                   (:8090/:8443) and LuCI (:8080/:443) answer before anything
+#                   is paid, the port leaves the guest's layer-2 domain, and the
+#                   bridge has NO way off the router (its own zone, forward
+#                   REJECT, no forwarding to the WAN) and no payment surface
+#                   (:2050/:2051/:2121 are dropped) — a network this module
+#                   cannot gate must not take money it cannot deliver. See
+#                   docs/architecture/lan-port-management-bridge-decision.md.
+#
+#                   This role is the "half" of the operator's request that
+#                   PR #601 delivers: administration reachable, and NOT a
+#                   customer network. Making br-mgmt a network that SELLS is
+#                   the F1/F2 follow-up (a second, isolated gate), decided
+#                   separately.
+#
+#   role 'private'  br-private, the operator's own trusted network: full
+#                   internet (private_zone is forward ACCEPT and has a
+#                   `private -> wan` forwarding) and the administration
+#                   surfaces answer (both admin guards are scoped to the
+#                   CAPTIVE bridge). A device plugged into this port is treated
+#                   exactly like a device on the private SSID: trusted, free,
+#                   and sharing that layer-2 domain.
+#
+#   role 'guest'    the CAPTIVE bridge (network.lan.device, br-lan). This is
+#                   what the base image does before this module runs: the
+#                   port is a customer port — it must pay, and neither the
+#                   board nor LuCI is reachable from it before it does. It also
+#                   puts the port back in the same layer-2 domain as the
+#                   strangers on the open guest SSID, which is the exposure
+#                   br-mgmt exists to remove; choose it deliberately.
+#
+# An unrecognised value is an ERROR and leaves the ports where they are: this
+# writer never guesses a bridge. An empty/absent value is the default above, so
+# a router that predates this option converges to 'mgmt'.
+config lan_ports 'lan_ports'
+	option role 'mgmt'

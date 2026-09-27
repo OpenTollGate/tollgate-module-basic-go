@@ -171,6 +171,15 @@ define Package/$(PKG_NAME)/install
 	# already substituted for this build's webroot, so it carries no placeholder.
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/92-tollgate-admin-setup $(1)/etc/uci-defaults/
 
+	# The module's own uci namespace: the fields the BOOT-TIME writer reads
+	# (99-tollgate-setup), which today is the wired LAN port's role. A uci
+	# config file rather than the module's /etc/tollgate/config.json because
+	# this one is read by a shell script before any Go process runs, and
+	# because /etc/config is what sysupgrade preserves (and what `uci` — and so
+	# an operator or LuCI — already knows how to edit).
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) $(PKG_MAKEFILE_DIR)files/etc/config/tollgate $(1)/etc/config/tollgate
+
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
@@ -229,6 +238,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/config/tollgate \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \

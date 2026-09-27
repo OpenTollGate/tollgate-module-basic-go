@@ -430,6 +430,48 @@ upstreams cannot be removed — disable or switch away first. This is
 housekeeping: removing an entry does not affect connectivity, it just
 stops the daemon from ever considering that SSID again.
 
+## The wired LAN ports (the one setting that lives in uci)
+
+Everything else in this guide is the `tollgate` CLI, backed by
+`/etc/tollgate/config.json`. The wired LAN ports are the exception: they are
+moved between bridges by the boot-time setup script
+(`/etc/uci-defaults/99-tollgate-setup`), which runs before any `tollgate`
+process exists, so the setting it reads is a uci option in the module's own
+namespace — `/etc/config/tollgate`.
+
+```sh
+uci get tollgate.lan_ports.role            # mgmt (default) | private | guest
+uci get network.mgmt.ipaddr                # br-mgmt's own address (role mgmt)
+uci show network | grep -A2 'ports'        # which bridge holds the wired port
+```
+
+| `lan_ports.role` | what a cable into a LAN port is |
+|---|---|
+| `mgmt` *(default)* | an **administration** port. The board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`) answer before anything is paid, on a bridge of its own (`br-mgmt`) that no guest shares — and with **no internet and no payment surface**: you administer the router from the cable, and internet is bought on the wireless network as before |
+| `private` | a port on **your own trusted network** (`br-private`, the same one the private SSID uses): full internet and the administration surfaces, no payment step |
+| `guest` | a **customer** port, back on the captive bridge (`br-lan`) with the guest SSIDs: it must pay, and neither the board nor LuCI answers before it does |
+
+```sh
+# choose one, then apply it (idempotent; re-places the ports immediately)
+uci set tollgate.lan_ports.role='private'
+uci commit tollgate
+/etc/uci-defaults/99-tollgate-setup
+```
+
+The ports are **moved**, never copied: whichever role you pick, each wired port
+ends up on exactly one bridge, and switching between roles carries it across.
+An unrecognised value is refused — the writer logs an `ERROR` to
+`/tmp/tollgate-setup.log` and changes nothing rather than guess a bridge. The
+choice is also re-applied on a reinstall/upgrade, and survives `sysupgrade`.
+
+Two things the field does **not** do, so it is not misread: it never gives a
+bridge its own captive gate (one nodogsplash gates one bridge, so `mgmt` and
+`private` cannot sell internet), and it never moves a wireless network. See
+`docs/architecture/lan-port-role-decision.md` for the decision and the
+measurements, and `docs/architecture/lan-port-management-bridge-decision.md`
+for why a cable that both reaches the admin UI *and* pays is a separate,
+larger change.
+
 ## Configuration management
 
 TollGate stores its configuration in `/etc/tollgate/config.json` and

@@ -248,6 +248,40 @@ and [Semantic Versioning](https://semver.org/).
   before the audit.
   ([#519](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/519))
 
+- **What a cable into a LAN port is *for* is now a setting:
+  `tollgate.lan_ports.role` — `mgmt` (default) | `private` | `guest`.** #601
+  hard-coded the placement of the wired ports on `br-mgmt`; this makes the same
+  writer take the operator's choice, and it is a **move in every direction**:
+  the writer reads the union of the ports listed on the candidate bridges (the
+  captive bridge, `br-mgmt`, `br-private`), places each port on the target
+  exactly once and **clears** the ones that are not the target, so a role change
+  carries the ports across and a converged router is a no-op. `mgmt` is the
+  administration bridge (admin reachable pre-auth, no internet, no payment
+  surface); `private` puts the cable on the operator's own trusted network
+  (`firewall.private_zone`, so internet **and** admin reachable); `guest` puts
+  it back on the **captive** bridge — a customer port that must pay, which is the
+  placement the base image ships. The field is a new `/etc/config/tollgate`
+  (a uci config file, installed by both recipes, preserved by `sysupgrade`) read
+  by `99-tollgate-setup` on both setup paths; an unset or empty value means
+  `mgmt`
+  (a router that predates the field does not move), and an **unrecognised**
+  value is an ERROR that changes **nothing** — the writer never guesses a
+  bridge, because guessing moves the operator's only cable access to a network he
+  did not ask for. When the ports leave it, the module's own management
+  scaffolding (`network.mgmt`, `network.mgmt_bridge`, `dhcp.mgmt`,
+  `firewall.mgmt_zone`) is removed, so no portless `br-mgmt` is left reporting a
+  bridge with no way in. **Nothing else moves with the ports, for any role**:
+  exactly one `config nodogsplash` section pinned to `br-lan` (one nodogsplash
+  gates one bridge — so `mgmt` and `private` are networks this stack cannot gate
+  and must not sell, and `guest` is the one network that has the gate), both
+  administration guards and `20-nds-enforce.nft`/`30-backend-firewall.nft` still
+  `br-lan`-literal, no fragment made role-conditional, and `:2121` still
+  `br-lan`/loopback only. The record — including why the card's "admin reachable
+  **and** still pays" is not a value of this option (that is the separate F1/F2
+  decision) — is `docs/architecture/lan-port-role-decision.md`, and
+  `tests/uci-defaults-lan-port-role_test.sh` pins all of it with four negative
+  controls (`123` assertions, `127` checks once the controls have run).
+
 ### Added
 
 - **`GET /session-state?mac=…` reports a machine-readable session state per

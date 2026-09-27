@@ -1743,10 +1743,279 @@ setup_private_network() {
     uci set firewall.private_forwarding.dest='wan'
 }
 
-# -- the wired LAN ports: their own bridge ------------------------------------
+# -- the wired LAN ports: which bridge they belong on -------------------------
 #
-# The wired LAN ports are MOVED off the captive bridge onto one of their own
-# (br-mgmt). Two things come out of that, and a third deliberately does not:
+# The wired LAN ports are the one network this writer MOVES. Which bridge they
+# end up on is the operator's choice, `tollgate.lan_ports.role`, and there are
+# exactly three roles — an administration port, the trusted network, or the
+# captive one:
+#
+#   role=mgmt     br-mgmt. The administration surfaces (board :8090/:8443, LuCI
+#                 :8080/:443) answer before anything is paid, the port leaves the
+#                 guest's layer-2 domain, and the bridge has no way off the
+#                 router (its own zone, forward REJECT, no forwarding to the
+#                 wan) and no payment surface (:2050/:2051/:2121 dropped). This
+#                 is what PR #601 built and it is the DEFAULT;
+#   role=private  br-private. The operator's own trusted network: full internet
+#                 (firewall.private_zone is forward ACCEPT and carries a
+#                 private -> wan forwarding) and the admin surfaces answer (both
+#                 admin guards are scoped to the CAPTIVE bridge by name). The
+#                 cable is then exactly as trusted as the private SSID;
+#   role=guest    the CAPTIVE bridge (network.lan.device, br-lan). What the base
+#                 image does before this module runs: a customer port that must
+#                 pay, with the admin surfaces dropped — and one that shares the
+#                 open guest SSID's layer-2 domain again.
+#
+# WHY THIS IS A PORT PLACEMENT AND NOT A FOURTH NETWORK. One nodogsplash gates
+# one bridge (a single `gw_interface`, fixed `nds*` chain names, one control
+# socket, and its teardown deletes those chains by name), so the stack has
+# exactly ONE captive network — the bridge the guest APs are bound to
+# (setup_nodogsplash). A role therefore cannot give the cable a captive gate of
+# its own: `mgmt` and `private` are networks without one, and `guest` is the one
+# network that has it. That is why the two administration guards
+# (31-admin-board-not-guest-reachable.nft, 32-luci-not-guest-reachable.nft,
+# both `iifname "br-lan"`), the enforcement fragment (20-nds-enforce.nft), the
+# payment-API lock (30-backend-firewall.nft) and
+# nodogsplash.@nodogsplash[0].gatewayinterface are NOT touched by this field,
+# for any role, and are pinned to that by the tests. The "admin reachable AND
+# still pays" network the operator asked for is the F1/F2 follow-up (a second,
+# isolated gate); it is not a value of this option. Decision, evidence and
+# rejected alternatives: docs/architecture/lan-port-role-decision.md.
+#
+# The default is `mgmt`, and an unset/empty value means the default, so a router
+# installed before this option existed converges to the br-mgmt placement rather
+# than to a wrong bridge. An unrecognised value is a loud ERROR and NOTHING is
+# written — this writer never guesses a bridge.
+#
+# IDEMPOTENT AND CONVERGENT BY CONSTRUCTION. The port list is IMAGE-OWNED
+# (/bin/config_generate writes `list ports` from board.json), so a factory reset
+# or a `sysupgrade -n` puts the wired port back on the captive bridge and
+# nothing else in this repository would notice. Each role therefore reads what
+# is on the candidate bridges RIGHT NOW (the union, so a changed role carries
+# the ports from wherever the previous role left them), clears the bridges that
+# are not the target, and adds each port to the target exactly once — a
+# converged router is a no-op, a reset router is repaired, and a port is never
+# named (eth1/lan1/... differ per board).
+#
+# FAIL LOUDLY, CHANGE NOTHING. Every precondition is checked before the first
+# `uci set`, and each failure logs an ERROR and leaves the ports where they are:
+# an unknown role; a role whose target bridge does not exist (no private network
+# for `private`, no device section for the captive bridge on `guest`); and no
+# port listed on any candidate bridge at all (there is nothing to move, and a
+# target with no ports would report a network the operator has no way in).
+#
+# The address: the management bridge keeps whatever `network.mgmt.ipaddr` already
+# says (a reinstall must not move an address the operator may have chosen), and
+# takes the first free /24 next to the LAN's otherwise, skipping the private
+# network's — br-private defaults to the LAN+1 case, and two bridges on one /24
+# is a broken router. Reuses the collision helpers above, so an upstream-side
+# collision moves it the same way the private subnet moves.
+
+# ---------------------------------------------------------------------------
+# The role field, and the helpers every role shares.
+# ---------------------------------------------------------------------------
+
+# The default role: what the br-mgmt placement is, and what a router with no
+# tollgate config gets.
+LAN_PORTS_ROLE_DEFAULT='mgmt'
+
+# The operator's choice. Unset or empty means the default (an option that was
+# added after a router was installed must not change that router's network); the
+# VALUE is never normalised here — setup_mgmt_bridge validates it and refuses an
+# unknown one rather than guessing a bridge.
+lan_ports_role() {
+    local role
+    role=$(uci -q get tollgate.lan_ports.role 2>/dev/null)
+    [ -n "$role" ] || role="$LAN_PORTS_ROLE_DEFAULT"
+    printf '%s\n' "$role"
+}
+
+# The device SECTION that carries <bridge-name>. Device sections are anonymous in
+# a shipped config (/bin/config_generate writes `add network device` +
+# `option name 'br-lan'`), so the section is located by NAME, never by an index
+# we guess. The two bridges this module creates are named sections
+# (network.mgmt_bridge, network.private_bridge) and are addressed directly; only
+# the image's captive bridge needs this lookup.
+bridge_device_section() { # <bridge-name> -> the section path, or nothing
+    local want="$1" idx=0
+    while [ "$idx" -lt 24 ]; do
+        if [ "$(uci -q get "network.@device[$idx].name" 2>/dev/null)" = "$want" ]; then
+            printf 'network.@device[%s]\n' "$idx"
+            return 0
+        fi
+        idx=$((idx + 1))
+    done
+    return 1
+}
+
+# Every port listed on any of <section>..., in order, each one once: this is what
+# a role change carries across, so a router whose ports are on a bridge other
+# than the one the writer last chose still converges.
+ports_of_sections() { # <section> [<section> ...]
+    local s p seen=""
+    for s in "$@"; do
+        [ -n "$s" ] || continue
+        for p in $(uci -q get "$s.ports" 2>/dev/null); do
+            case "$seen" in
+                *" $p "*) continue ;;
+            esac
+            seen="$seen $p"
+            printf '%s\n' "$p"
+        done
+    done
+}
+
+# The wheel all three roles roll on: the MOVE primitive. It carries the union of
+# the ports listed on ANY candidate bridge (the captive one, br-mgmt,
+# br-private) onto <target-section>, whose device is <target-bridge>, clears the
+# candidates that are not the target, and adds each port exactly once.
+#
+# Used by the `private` and `guest` roles. The `mgmt` role has its own body
+# below because it also derives the bridge's address, and because its log and
+# refusal contract is pinned by tests/uci-defaults-mgmt-bridge_test.sh.
+lan_ports_move_to() { # <target-bridge> <target-section> <role>
+    local target_dev="$1" target_sec="$2" role="$3"
+    local lan_dev mgmt_dev private_dev captive_sec ports p b s
+    local from="" target_ports
+
+    lan_dev=$(uci -q get network.lan.device 2>/dev/null)
+    [ -n "$lan_dev" ] || lan_dev="br-lan"
+    mgmt_dev=$(uci -q get network.mgmt_bridge.name 2>/dev/null)
+    [ -n "$mgmt_dev" ] || mgmt_dev="br-mgmt"
+    private_dev=$(uci -q get network.private_bridge.name 2>/dev/null)
+    [ -n "$private_dev" ] || private_dev="br-private"
+    captive_sec=$(bridge_device_section "$lan_dev" 2>/dev/null)
+    [ -n "$captive_sec" ] || captive_sec=""
+
+    ports=$(ports_of_sections "$captive_sec" network.mgmt_bridge network.private_bridge)
+    if [ -z "$ports" ]; then
+        log "ERROR: skipping the wired-LAN bridge move — role='${role}' asks for ${target_dev}, but no wired LAN port is listed on ${lan_dev}, ${mgmt_dev} or ${private_dev}, so there is nothing to move. The wired LAN ports stay where they are; nothing was changed."
+        return 1
+    fi
+
+    # Add first (the target is never one of the bridges cleared below), then
+    # clear: a port that is already on the target is not added a second time.
+    target_ports=$(uci -q get "$target_sec.ports" 2>/dev/null)
+    for p in $ports; do
+        case " $(echo $target_ports) " in
+            *" $p "*) : ;;
+            *)
+                uci add_list "$target_sec.ports=$p"
+                target_ports="$target_ports $p"
+                ;;
+        esac
+    done
+
+    for s in "$captive_sec" network.mgmt_bridge network.private_bridge; do
+        [ -n "$s" ] || continue
+        [ "$s" = "$target_sec" ] && continue
+        [ -z "$(uci -q get "$s.ports" 2>/dev/null)" ] && continue
+        case "$s" in
+            network.mgmt_bridge)    b="$mgmt_dev" ;;
+            network.private_bridge) b="$private_dev" ;;
+            *)                      b="$lan_dev" ;;
+        esac
+        from="${from:+$from,}$b"
+        uci -q delete "$s.ports" 2>/dev/null
+    done
+
+    if [ -z "$from" ]; then
+        log "Wired LAN ports already on ${target_dev} ($(echo $ports | tr '\n' ' ')); nothing to move"
+    else
+        log "Wired LAN ports moved from ${from} to ${target_dev} ($(echo $ports | tr '\n' ' '))"
+    fi
+    return 0
+}
+
+# The management bridge is this module's own scaffolding (network.mgmt,
+# network.mgmt_bridge, dhcp.mgmt, firewall.mgmt_zone) and exists only while the
+# wired ports are on it. A role that puts them elsewhere REMOVES it: a portless
+# br-mgmt left behind would report a management bridge the operator has no way
+# into — the state the mgmt writer refuses to create — and a `mgmt` zone with no
+# traffic is a firewall zone that can only be misread. Idempotent, and silent
+# when there was nothing to remove.
+remove_mgmt_bridge() {
+    local removed=0
+    if uci -q get network.mgmt_bridge >/dev/null 2>&1; then
+        uci -q delete network.mgmt_bridge
+        removed=1
+    fi
+    if uci -q get network.mgmt >/dev/null 2>&1; then
+        uci -q delete network.mgmt
+        removed=1
+    fi
+    if uci -q get dhcp.mgmt >/dev/null 2>&1; then
+        uci -q delete dhcp.mgmt
+        removed=1
+    fi
+    if uci -q get firewall.mgmt_zone >/dev/null 2>&1; then
+        uci -q delete firewall.mgmt_zone
+        removed=1
+    fi
+    if [ "$removed" = 1 ]; then
+        log "Management bridge removed (br-mgmt and its dhcp/zone scaffolding) — the wired LAN ports are not on it"
+    fi
+    return 0
+}
+
+# role=private: the wired ports join the operator's own trusted network.
+setup_lan_private() {
+    local private_dev
+    private_dev=$(uci -q get network.private_bridge.name 2>/dev/null)
+    [ -n "$private_dev" ] || private_dev="br-private"
+
+    if ! uci -q get network.private_bridge >/dev/null 2>&1; then
+        log "ERROR: skipping the wired-LAN bridge move — role='private' asks for ${private_dev}, but this router has no private network (no network.private_bridge section; setup_private_network writes it). The wired LAN ports stay where they are; nothing was changed."
+        return 1
+    fi
+
+    lan_ports_move_to "$private_dev" network.private_bridge private || return 1
+    remove_mgmt_bridge
+    return 0
+}
+
+# role=guest: the wired ports go back to the base image's placement — the
+# CAPTIVE bridge — so a cable is a customer port again: it must pay, and neither
+# the board nor LuCI answers before it does.
+setup_lan_guest() {
+    local lan_dev captive_sec
+    lan_dev=$(uci -q get network.lan.device 2>/dev/null)
+    [ -n "$lan_dev" ] || lan_dev="br-lan"
+    captive_sec=$(bridge_device_section "$lan_dev" 2>/dev/null)
+    [ -n "$captive_sec" ] || captive_sec=""
+
+    if [ -z "$captive_sec" ]; then
+        log "ERROR: skipping the wired-LAN bridge move — role='guest' asks for ${lan_dev}, but the config has no device section for it (the base image writes one from the board definition). The wired LAN ports stay where they are; nothing was changed."
+        return 1
+    fi
+
+    lan_ports_move_to "$lan_dev" "$captive_sec" guest || return 1
+    remove_mgmt_bridge
+    return 0
+}
+
+# The entry point both setup paths call. The name is historical — it is
+# `setup_mgmt_bridge` in the full path, in the verify/repair path and in
+# tests/uci-defaults-mgmt-bridge_test.sh — and it is now the place where the ROLE
+# is validated and dispatched, because the wired ports' bridge is one decision
+# and must be computed in exactly one place.
+setup_mgmt_bridge() {
+    local role
+    role=$(lan_ports_role)
+
+    case "$role" in
+        mgmt)    setup_lan_mgmt ;;
+        private) setup_lan_private ;;
+        guest)   setup_lan_guest ;;
+        *)
+            log "ERROR: skipping the wired-LAN bridge move — tollgate.lan_ports.role='${role}' is not one of mgmt, private or guest. The wired LAN ports stay where they are; nothing was changed."
+            return 1
+            ;;
+    esac
+}
+
+# role=mgmt, in full: the bridge is this module's own making, and it is a
+# MANAGEMENT network —
 #
 #   * the lockout ends. The two administration guards
 #     (31-admin-board-not-guest-reachable.nft, 32-luci-not-guest-reachable.nft)
@@ -1771,20 +2040,20 @@ setup_private_network() {
 #     writer. Decision, evidence and rejected alternatives:
 #     docs/architecture/lan-port-management-bridge-decision.md (PR #599).
 #
-# IDEMPOTENT AND CONVERGENT BY CONSTRUCTION. The port list is IMAGE-OWNED
-# (/bin/config_generate writes `list ports` from board.json), so a factory reset
-# or a `sysupgrade -n` puts the wired port back on the captive bridge and
-# nothing else in this repository would notice. The writer therefore reads what
-# is on the captive bridge's device section RIGHT NOW, appends whatever is not
-# already on br-mgmt, and clears the captive bridge's list — a converged router
-# is a no-op, a reset router is repaired, and the port is never named
-# (eth1/lan1/... differ per board).
+# IDEMPOTENT AND CONVERGENT BY CONSTRUCTION. A factory reset or a
+# `sysupgrade -n` puts the wired port back on the captive bridge and nothing else
+# in this repository would notice. This writer therefore reads what is on the
+# captive bridge's device section RIGHT NOW, appends whatever is not already on
+# br-mgmt, and clears the captive bridge's list (and br-private's, if the ports
+# arrived from the private role) — a converged router is a no-op, a reset router
+# is repaired, and the port is never named (eth1/lan1/... differ per board).
 #
 # FAIL LOUDLY, CHANGE NOTHING. The one case that cannot be repaired here is a
-# captive bridge with no port list while br-mgmt holds none either: there is
-# nothing to move, and writing a portless br-mgmt would report a management
-# bridge the operator has no way into. That case logs an ERROR and writes
-# nothing at all — every precondition is checked before the first `uci set`.
+# captive bridge with no port list while neither br-mgmt nor br-private holds one
+# either: there is nothing to move, and writing a portless br-mgmt would report a
+# management bridge the operator has no way into. That case logs an ERROR and
+# writes nothing at all — every precondition is checked before the first
+# `uci set`.
 #
 # The address: the bridge keeps whatever `network.mgmt.ipaddr` already says (a
 # reinstall must not move an address the operator may have chosen), and takes
@@ -1792,29 +2061,40 @@ setup_private_network() {
 # network's — br-private defaults to the LAN+1 case, and two bridges on one /24
 # is a broken router. Reuses the collision helpers above, so an upstream-side
 # collision moves it the same way the private subnet moves.
-setup_mgmt_bridge() {
-    local lan_dev sec idx ports mgmt_ports p converged=0
+setup_lan_mgmt() {
+    local lan_dev sec ports mgmt_ports private_ports private_dev from p converged=0
     local lan_ip lan_mask lan_prefix lan_octet3 occupied cand step octet existing_ip mgmt_ip mgmt_prefix
 
     lan_dev=$(uci -q get network.lan.device 2>/dev/null)
     [ -n "$lan_dev" ] || lan_dev="br-lan"
 
-    # Device sections are anonymous in a shipped config (config_generate writes
-    # `add network device` + `option name 'br-lan'`), so the section that holds
-    # the wired ports is found by its name, not addressed by an index we guess.
-    sec=""
-    idx=0
-    while [ "$idx" -lt 24 ]; do
-        if [ "$(uci -q get "network.@device[$idx].name" 2>/dev/null)" = "$lan_dev" ]; then
-            sec="network.@device[$idx]"
-            break
-        fi
-        idx=$((idx + 1))
-    done
+    # The section that holds the wired ports is the image's bridge device
+    # section, found by NAME (it is anonymous in a shipped config).
+    sec=$(bridge_device_section "$lan_dev" 2>/dev/null)
+    [ -n "$sec" ] || sec=""
+
+    private_dev=$(uci -q get network.private_bridge.name 2>/dev/null)
+    [ -n "$private_dev" ] || private_dev="br-private"
 
     ports=""
     [ -n "$sec" ] && ports=$(uci -q get "$sec.ports" 2>/dev/null)
     mgmt_ports=$(uci -q get network.mgmt_bridge.ports 2>/dev/null)
+    # br-private holds the ports on a router being switched back from the private
+    # role, so it belongs to the union: a MOVE carries the ports from wherever
+    # the previous role left them, or the writer would refuse on a router whose
+    # cable simply is not where it last put it.
+    private_ports=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    # A MOVE carries the ports from wherever the previous role left them: a
+    # router switched back from the `private` role has them on br-private, not on
+    # the captive bridge, and a writer that only looked at the captive bridge
+    # would refuse on a router whose cable simply is not where it last put it.
+    [ -n "$private_ports" ] && ports="$(printf '%s\n%s\n' "$ports" "$private_ports" | grep -v '^$')"
+
+    # Which bridges hold the ports right now: named in the move record, so an
+    # operator reading the log sees what moved and from where.
+    from=""
+    [ -n "$sec" ] && [ -n "$(uci -q get "$sec.ports" 2>/dev/null)" ] && from="$lan_dev"
+    [ -n "$private_ports" ] && from="${from:+$from,}$private_dev"
 
     # ---- preconditions: nothing is written until all of them pass ----------
     if [ -z "$ports" ] && [ -z "$mgmt_ports" ]; then
@@ -1889,8 +2169,12 @@ setup_mgmt_bridge() {
                 *) uci add_list network.mgmt_bridge.ports="$p" ; mgmt_ports="$mgmt_ports $p" ;;
             esac
         done
-        uci -q delete "$sec.ports" 2>/dev/null
-        log "Wired LAN ports moved from ${lan_dev} to br-mgmt ($(echo $ports | tr '\n' ' '))"
+        # The source bridges are CLEARED, not copied: a port on two bridges is on
+        # both layer-2 domains. (The first of these two lines is pinned by name by
+        # the RED control in tests/uci-defaults-mgmt-bridge_test.sh.)
+        [ -n "$sec" ] && uci -q delete "$sec.ports" 2>/dev/null
+        uci -q delete network.private_bridge.ports 2>/dev/null
+        log "Wired LAN ports moved from ${from} to br-mgmt ($(echo $ports | tr '\n' ' '))"
     else
         log "Wired LAN ports already on br-mgmt ($(echo $mgmt_ports | tr '\n' ' ')); nothing to move"
     fi
@@ -2041,11 +2325,13 @@ if [ "$BRANCH" != "FULL" ]; then
     # factory reset or a `sysupgrade -n` puts the wired port back on the captive
     # bridge — and a router that was merely reinstalled would leave the operator
     # locked out of the admin surfaces he can reach from that port, which is the
-    # defect setup_mgmt_bridge exists to fix. The writer is idempotent (it moves
-    # only what is on the captive bridge and not already on br-mgmt), so a
-    # converged router changes nothing; each of the three configs it writes is
-    # committed only when its export actually differs, and an unreadable export
-    # commits unconditionally rather than drop a delta.
+    # defect the management bridge exists to fix. WHICH bridge the ports land on
+    # is the operator's field (tollgate.lan_ports.role); the writer is idempotent
+    # and role-transition-safe (it carries the union of what the candidate
+    # bridges hold), so a converged router changes nothing, whatever the role
+    # says. Each of the three configs it writes is committed only when its export
+    # actually differs, and an unreadable export commits unconditionally rather
+    # than drop a delta.
     net_before=$(uci export network)
     dhcp_before=$(uci export dhcp)
     firewall_before=$(uci export firewall)
@@ -2055,15 +2341,15 @@ if [ "$BRANCH" != "FULL" ]; then
     firewall_after=$(uci export firewall)
     if [ -z "$net_before" ] || [ "$net_before" != "$net_after" ]; then
         uci commit network
-        log "network config re-asserted (wired LAN ports on br-mgmt)"
+        log "network config re-asserted (wired LAN ports re-placed by tollgate.lan_ports.role)"
     fi
     if [ -z "$dhcp_before" ] || [ "$dhcp_before" != "$dhcp_after" ]; then
         uci commit dhcp
-        log "dhcp config re-asserted (br-mgmt lease)"
+        log "dhcp config re-asserted (management-bridge lease)"
     fi
     if [ -z "$firewall_before" ] || [ "$firewall_before" != "$firewall_after" ]; then
         uci commit firewall
-        log "firewall config re-asserted (mgmt zone)"
+        log "firewall config re-asserted (management-bridge zone)"
     fi
 
     # The #428 loop guard must also fire here: a device upgrading from a
@@ -2125,7 +2411,7 @@ setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
-setup_mgmt_bridge            # moves the wired LAN ports off the captive bridge
+setup_mgmt_bridge            # places the wired LAN ports on the role's bridge
 commit_all
 
 # The router's TLS identity is provisioned and re-derived LAST on this path, after

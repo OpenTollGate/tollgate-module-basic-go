@@ -441,8 +441,18 @@ the certificate uhttpd serves actually covers the address you used. So:
   `-y`) ends it.
 - The TollGate admin board has its **own** listeners — `http://<router>:8090/`
   and `https://<router>:8443/` — on a separate uhttpd instance from LuCI's
-  `:8080`/`:443`. **Which client can reach them depends on where you plugged in:**
-  - **Wired into a LAN port** you are on the management bridge `br-mgmt`, and the
+  `:8080`/`:443`. **Which client can reach them depends on where you plugged in —
+  and, for a cable, on the role the LAN port has been given.** Read both facts
+  before you conclude anything:
+
+  ```sh
+  uci get tollgate.lan_ports.role      # mgmt (default) | private | guest
+  uci show network | grep -A2 'ports'  # which bridge actually holds the wired port
+  uci get network.mgmt.ipaddr          # the management bridge's own address
+  ```
+
+  - **Wired into a LAN port, role `mgmt` (the default)** you are on the
+    management bridge `br-mgmt`, and the
     administration surfaces answer you **before you pay anything**: `:8090`
     (board), `:8080` and `:443` (LuCI), `:8443` (the board over TLS if it is
     enabled) and `:22`. Find the address with `uci get network.mgmt.ipaddr` — the
@@ -451,7 +461,35 @@ the certificate uhttpd serves actually covers the address you used. So:
     gives you **no internet at all** (`ping 9.9.9.9` fails, and `:2121`/`:2050`/
     `:2051` are dropped, so a purchase cannot even be started): with one
     nodogsplash, internet is bought on the wireless network, exactly as before.
-    A cable into a LAN port is an administration port, not a customer one.
+    In this role a cable into a LAN port is an administration port, not a
+    customer one.
+  - **Wired into a LAN port, role `private`** the cable is on `br-private`, the
+    operator's own trusted network: the board and LuCI answer (both guards are
+    scoped to the captive bridge) **and** the cable has full internet, through
+    the same `firewall.private_zone` + `private -> wan` forwarding a device on
+    the private SSID uses. Reach the admin surfaces at `network.private.ipaddr`.
+    `:2121` is still dropped from here (that lock is `br-lan`/loopback only),
+    which costs you nothing: a trusted port does not have to pay.
+  - **Wired into a LAN port, role `guest`** the port is a **customer** port
+    again — the placement the base image ships before this module runs. You are
+    back on the captive bridge `br-lan`: `:8090`/`:8443`/`:8080`/`:443` are
+    dropped until you pay (that is the guard, not TLS), the portal and a purchase
+    work exactly as on the guest SSID, and the port shares the guests' layer-2
+    domain again.
+  - **The role is a port placement, not a second network.** Whichever role you
+    pick there is still exactly **one** captive gate — the one the guest SSIDs
+    are bound to — and `uci show nodogsplash` shows one section whose
+    `gatewayinterface` is `br-lan`. `mgmt` and `private` are networks this stack
+    cannot gate, which is why neither can sell. A cable that must *pay* is the
+    open F1/F2 question (a second, isolated gate), not a value of this field.
+  - **Changing the role** takes effect at the next install/upgrade, or
+    immediately:
+
+    ```sh
+    uci set tollgate.lan_ports.role='private'
+    uci commit tollgate
+    /etc/uci-defaults/99-tollgate-setup   # idempotent; re-places the ports
+    ```
   - **On the guest SSID** the guard still drops `:8090`/`:8443`/`:8080`/`:443`
     (measured on the bench: tcp 8090/8443 dropped for a LAN/guest client), so
     "connection refused" there is that guard, not TLS. Also true for any client

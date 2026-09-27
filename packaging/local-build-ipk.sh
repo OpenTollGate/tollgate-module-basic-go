@@ -100,6 +100,9 @@ install -D -m 0755 packaging/files/usr/bin/tollgate-apply-ssl                   
 install -D -m 0755 packaging/files/usr/bin/tollgate-remove-ssl                       "$PAYLOAD/usr/bin/tollgate-remove-ssl"
 install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                        "$PAYLOAD/lib/upgrade/keep.d/tollgate"
 install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart           "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
+# The module's uci namespace, read by the boot-time writer (the wired LAN port's
+# role). Mode matches the SDK recipe's INSTALL_CONF.
+install -D -m 0600 packaging/files/etc/config/tollgate                               "$PAYLOAD/etc/config/tollgate"
 install -D -m 0644 packaging/files/etc/nftables.d/20-nds-enforce.nft                 "$PAYLOAD/etc/nftables.d/20-nds-enforce.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/30-backend-firewall.nft            "$PAYLOAD/etc/nftables.d/30-backend-firewall.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft "$PAYLOAD/etc/nftables.d/31-admin-board-not-guest-reachable.nft"

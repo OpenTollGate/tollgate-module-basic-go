@@ -149,6 +149,26 @@ jobs:
           # they pin is removed.
           bash tests/uci-defaults-mgmt-bridge_test.sh
 
+      - name: The wired LAN port's role is the operator's choice
+        run: |
+          # Offline (no router, no daemon, no network): `tollgate.lan_ports.role`
+          # decides which bridge the wired ports are MOVED onto - `mgmt` (the
+          # administration bridge, the default), `private` (the operator's
+          # trusted network: internet and admin surfaces) or `guest` (back on the
+          # CAPTIVE bridge: a customer port that must pay). The suite pins the
+          # move in every direction (the bridges that are not the target are
+          # CLEARED, so a port is never on two layer-2 domains), convergence
+          # after a factory reset, the removal of the module's own management
+          # scaffolding when the ports leave it, and that every input it cannot
+          # honour - an unknown role, a missing target bridge, no port anywhere -
+          # logs an ERROR and writes NOTHING. It also pins what must NOT move
+          # with the ports, for any role: one nodogsplash section still pinned to
+          # br-lan, the two administration guards and the enforcement/payment
+          # fragments still br-lan-literal, and no fragment made
+          # role-conditional. Four negative controls must each go red when the
+          # line they pin is removed.
+          bash tests/uci-defaults-lan-port-role_test.sh
+
       - name: The wired bridge is scoped to the administration surfaces
         run: |
           # Offline (no router, no SDK, no network; the `nft -c` half skips

@@ -331,7 +331,10 @@ alone removes the lockout and the L2 exposure; it does not sell anything.
   port between `br-mgmt` / `br-private` / the public-guest bridge — is out of
   scope here; D1's writer is written as one place that computes "which bridge
   the wired ports are on", so that field becomes a parameter rather than a
-  second implementation.
+  second implementation. **It now exists**: `tollgate.lan_ports.role` and the
+  parameterised writer are `lan-port-role-decision.md`, and this record's D1-D8
+  remain the account of the default (`mgmt`) placement and of why the cable
+  cannot both reach the admin surfaces and pay.
 
 ## Alternatives rejected, and why
 

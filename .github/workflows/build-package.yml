@@ -529,6 +529,9 @@ jobs:
           install -D -m 0755 packaging/files/usr/bin/check_package_path                      "$PAYLOAD/usr/bin/check_package_path"
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                     "$PAYLOAD/lib/upgrade/keep.d/tollgate"
           install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart         "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
+          # The module's uci namespace, read by the boot-time writer (the wired
+          # LAN port's role). Mode matches the SDK recipe's INSTALL_CONF.
+          install -D -m 0600 packaging/files/etc/config/tollgate                             "$PAYLOAD/etc/config/tollgate"
 
           # Install the ruleset directory's *.nft files: a new ruleset file
           # under packaging/files/etc/nftables.d/ must ship without a second

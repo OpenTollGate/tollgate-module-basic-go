@@ -1,4 +1,8 @@
 # This file is used to preserve configuration during sysupgrade
 /etc/config/network
 /etc/config/wireless
+# The module's own uci namespace: the wired LAN port's role
+# (tollgate.lan_ports.role) is an operator choice, so an upgrade must not
+# silently reset the cable to another bridge.
+/etc/config/tollgate
 /etc/tollgate
