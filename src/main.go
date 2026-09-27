@@ -1838,12 +1838,12 @@ func registerIdentityRoutes(mux *http.ServeMux) {
 	// MAC rotation, carrying the byte meter and the paid time with it. Both
 	// resolve the client from the socket, like every other identity-bearing
 	// route; the ticket itself never carries an entitlement.
-	http.HandleFunc("/session/ticket", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/session/ticket", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session/ticket endpoint")
 		CorsMiddleware(HandleSessionTicket)(w, r)
 	})
 
-	http.HandleFunc("/session/rebind", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/session/rebind", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session/rebind endpoint")
 		CorsMiddleware(HandleSessionRebind)(w, r)
 	})
