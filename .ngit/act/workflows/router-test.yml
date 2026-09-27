@@ -1,0 +1,92 @@
+# router-test — run the physical/lab router suite on the OpenWrt test fleet.
+#
+# Runs as an ngit-ci act container (runs-on: ubuntu-latest) on the coordinator,
+# then SSHes to the ELECTED `router-bench-gateway` (a fleet host that can reach
+# the QEMU lab and the physical bench). The gateway dispatcher
+# (hermes-orchestration scripts/fleet/router_bench_test.sh) does the gating,
+# target selection and execution.
+#
+# SECURITY CONTRACT (mirrors physical-router-test-automation's hw-smoke):
+#   * The physical bench is NEVER reachable from a pull_request: PR runs use the
+#     isolated QEMU lab only (environment `router-lab`, no paid traffic).
+#   * Post-merge `main` runs may touch the bench, behind the `bench-hardware`
+#     environment (required reviewers). Paid-traffic specs are OFF by default.
+#   * Bench work lives in THIS file only.
+name: router-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: auto|lab|physical|both
+        type: choice
+        options: [auto, lab, physical, both]
+        default: auto
+      lane:
+        description: readonly|mutating
+        type: choice
+        options: [readonly, mutating]
+        default: readonly
+      paid:
+        description: "Enable paid-traffic specs (mutating only)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Serialise per ref and drop superseded pushes.
+  group: router-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.head.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Head-check (drop superseded commits)
+        id: head
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "push" ]; then
+            head=$(git ls-remote origin "refs/heads/${{ github.ref_name }}" | awk '{print $1}')
+            if [ -n "$head" ] && [ "$head" != "${{ github.sha }}" ]; then
+              echo "superseded by ${head} — skipping ${GITHUB_SHA}"
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  router-test:
+    needs: plan
+    if: needs.plan.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # PR -> isolated lab; push/main -> bench (required reviewers).
+    environment: ${{ github.event_name == 'pull_request' && 'router-lab' || 'bench-hardware' }}
+    steps:
+      - name: Run via the elected router-bench-gateway
+        env:
+          GW_HOST: ${{ vars.ROUTER_BENCH_GATEWAY }}
+          GW_KEY: ${{ secrets.ROUTER_BENCH_SSH_KEY }}
+          EVENT: ${{ github.event_name == 'pull_request' && 'pr' || 'push' }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          TARGET: ${{ inputs.target || 'auto' }}
+          LANE: ${{ inputs.lane || 'readonly' }}
+          PAID: ${{ inputs.paid || 'false' }}
+        run: |
+          set -eu
+          test -n "${GW_HOST:-}" || { echo "ROUTER_BENCH_GATEWAY not set"; exit 1; }
+          install -d -m700 ~/.ssh
+          printf '%s\n' "$GW_KEY" > ~/.ssh/gw && chmod 600 ~/.ssh/gw
+          ssh -i ~/.ssh/gw -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            "$GW_HOST" \
+            "router_bench_test.sh --event $EVENT --ref '$REF' --commit '$SHA' \
+               --target '$TARGET' --lane '$LANE' --paid '$PAID'"
