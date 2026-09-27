@@ -663,13 +663,26 @@ cert_covers_router() {
     "$TOLLGATE_CLI" ssl covers "$cert" >/dev/null 2>&1
 }
 
+# Is this cert/key pair on disk AND non-empty? Readability alone is satisfied by
+# a file uhttpd cannot parse, and empty is what makes uhttpd crash-loop when it
+# sees listen_https with no TLS configuration behind it.
+tls_pair_readable() {
+    [ -n "${1:-}" ] && [ -r "$1" ] && [ -s "$1" ] &&
+    [ -n "${2:-}" ] && [ -r "$2" ] && [ -s "$2" ]
+}
+
 # uhttpd.main's TLS identity, and the redirect derived from it.
 #
-# The identity is the PROVISIONED certificate when it exists — that is the one
-# built to cover this router — and the image's own cert/key pair otherwise, as a
-# fallback so a router that cannot provision still gets its :443 listener instead
-# of losing it. The image's certificate is never treated as an identity though:
-# nothing but coverage turns the redirect on.
+# Candidates, best first: the identity uhttpd.main ALREADY presents, the identity
+# this script provisions, then the image's own cert/key pair as a bare listener
+# fallback. A pair that COVERS this router wins outright, whichever candidate it
+# is — but when it is the configured one, it belongs to the OPERATOR: a CA-signed
+# certificate installed by hand, or the pair their own
+# `tollgate ssl apply <cert> <key>` installed, must survive an install rather than
+# be replaced by the self-signed identity generated here. Only when no candidate
+# covers the router is the first READABLE pair used, which keeps the :443 listener
+# alive on a router that cannot be verified. The image's certificate is never
+# treated as an identity: nothing but coverage turns the redirect on.
 #
 # uhttpd.main.redirect_https is a DERIVED value, not a configured one: LuCI's
 # :8080 is redirected to the TLS listener only when that listener can actually
@@ -680,18 +693,43 @@ cert_covers_router() {
 # same value derived from a weaker premise). See
 # docs/architecture/uhttpd-redirect-https-ownership-decision.md.
 setup_uhttpd_tls_identity() {
-    local cert="" key=""
+    local cert="" key="" covers="0"
+    local configured_cert configured_key pair candidate_cert candidate_key
 
-    # Only enable HTTPS when cert and key are readable and non-empty; otherwise
-    # uhttpd crash-loops because it sees listen_https but has no TLS config.
-    if [ -r "$PROVISIONED_CERT" ] && [ -s "$PROVISIONED_CERT" ] &&
-       [ -r "$PROVISIONED_KEY" ] && [ -s "$PROVISIONED_KEY" ]; then
-        cert="$PROVISIONED_CERT"
-        key="$PROVISIONED_KEY"
-    elif [ -r "$UHTTPD_IMAGE_CERT" ] && [ -s "$UHTTPD_IMAGE_CERT" ] &&
-         [ -r "$UHTTPD_IMAGE_KEY" ] && [ -s "$UHTTPD_IMAGE_KEY" ]; then
-        cert="$UHTTPD_IMAGE_CERT"
-        key="$UHTTPD_IMAGE_KEY"
+    configured_cert="$(uci -q get uhttpd.main.cert 2>/dev/null)"
+    configured_key="$(uci -q get uhttpd.main.key 2>/dev/null)"
+
+    # Pass 1: the first candidate that covers this router.
+    for pair in "$configured_cert|$configured_key" \
+                "$PROVISIONED_CERT|$PROVISIONED_KEY" \
+                "$UHTTPD_IMAGE_CERT|$UHTTPD_IMAGE_KEY"; do
+        candidate_cert="${pair%%|*}"
+        candidate_key="${pair#*|}"
+        tls_pair_readable "$candidate_cert" "$candidate_key" || continue
+        if cert_covers_router "$candidate_cert"; then
+            cert="$candidate_cert"
+            key="$candidate_key"
+            covers="1"
+            break
+        fi
+    done
+
+    # Pass 2: nothing covers this router (no CLI to ask, no identity yet, or only
+    # the image's placeholder). The first readable pair still arms the :443
+    # listener — uhttpd crash-loops on listen_https with no TLS config behind it —
+    # and the derived value below stays 0, so :8080 is never pointed at an
+    # identity nobody checked.
+    if [ -z "$cert" ]; then
+        for pair in "$configured_cert|$configured_key" \
+                    "$PROVISIONED_CERT|$PROVISIONED_KEY" \
+                    "$UHTTPD_IMAGE_CERT|$UHTTPD_IMAGE_KEY"; do
+            candidate_cert="${pair%%|*}"
+            candidate_key="${pair#*|}"
+            tls_pair_readable "$candidate_cert" "$candidate_key" || continue
+            cert="$candidate_cert"
+            key="$candidate_key"
+            break
+        done
     fi
 
     uci -q delete uhttpd.main.listen_https
@@ -704,7 +742,7 @@ setup_uhttpd_tls_identity() {
         uci set uhttpd.main.key="$key"
     fi
 
-    if [ -n "$cert" ] && cert_covers_router "$cert"; then
+    if [ "$covers" = "1" ]; then
         uci set uhttpd.main.redirect_https='1'
         log "uhttpd.main TLS identity ${cert} covers this router — redirect_https=1"
     else
@@ -733,12 +771,27 @@ setup_uhttpd_tls_identity() {
 # installed. Neither is an error — the router keeps whatever identity it has and
 # the derived redirect stays off unless that identity covers it.
 provision_tls_identity() {
+    local configured_cert
+
     # An operator who removed the identity asked for a router that serves no
     # identity. `tollgate ssl remove` records that decision and this honours it:
     # the uhttpd contract is still repaired below, but the router is not
     # re-keyed behind the owner's back. `tollgate ssl apply` ends the opt-out.
     if [ -f "$TLS_IDENTITY_OPTOUT" ]; then
         log "TLS identity was removed by the operator (${TLS_IDENTITY_OPTOUT}) — not provisioning; run 'tollgate ssl apply' to end the opt-out"
+        return 0
+    fi
+
+    # The identity uhttpd.main already presents is the OPERATOR's when it covers
+    # this router: a CA-signed certificate installed by hand, or the pair their own
+    # `tollgate ssl apply <cert> <key>` installed. Re-keying it would replace a
+    # trusted certificate with a self-signed one on every reinstall — so
+    # provisioning is idempotent on the CERTIFICATE uhttpd.main serves, not on the
+    # path this script happens to write. An unverifiable or non-covering identity
+    # (the image's placeholder included) is not the operator's and is replaced.
+    configured_cert="$(uci -q get uhttpd.main.cert 2>/dev/null)"
+    if [ -n "$configured_cert" ] && cert_covers_router "$configured_cert"; then
+        log "uhttpd.main already serves a covering identity (${configured_cert}) — nothing to provision"
         return 0
     fi
 
