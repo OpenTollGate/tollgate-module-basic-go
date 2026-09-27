@@ -140,6 +140,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **`src/cli`'s module file is tidy again, so the documented pre-PR gate stops
+  dying at that module.** `src/cli/go.mod` — added by #517 — never carried
+  `golang.org/x/time v0.6.0 // indirect`, although `src/merchant` requires that
+  module directly (`lightning.go` imports `golang.org/x/time/rate`) and
+  `src/cli/go.sum` already held its hashes. Under Go's default `-mod=readonly`
+  — every contributor's default, and CI's — the module's build list was
+  therefore incomplete: `cd src/cli && go vet ./...` answered
+  `go: updates to go.mod needed`, and `make go-battery` fail-fasted there
+  before checking the other 15 modules. Fixed with the one line `go mod tidy`
+  adds; `go.sum` and every other file unchanged.
+  ([#606](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/606))
+
 - **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
   `docs/architecture/lan-port-management-bridge-decision.md` answers the
