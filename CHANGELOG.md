@@ -137,12 +137,12 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
-- **The wired LAN ports' own bridge is decided — together with the half of that
+- **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
   `docs/architecture/lan-port-management-bridge-decision.md` answers the
   operator's report ("neither luci on 8080 nor the luci alternative config ui on
   port 8090 are reachable" from his Ethernet cable, which is a member of the
-  captive bridge `br-lan`). It decides that the wired ports move to a new
+  captive bridge `br-lan`). It proposes that the wired ports move to a new
   management bridge `br-mgmt` whose clients reach `:8080`/`:443` and
   `:8090`/`:8443` before paying, **and states that the bridge cannot also be a
   paywalled network**: nodogsplash 5.0.2 manages one interface
@@ -160,7 +160,9 @@ and [Semantic Versioning](https://semver.org/).
   evaluates and rejects the MAC-allow shortcut (`99-tollgate-setup:969-972` has
   already measured MACs as harvestable from 802.11 headers), and lists the
   seventeen assertions that must hold before the bridge ships. Docs-only.
-  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599))
+  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599);
+  review findings folded in by
+  [#600](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/600))
 
 - **The packaging and release builds compile the whole `main` package, not one
   file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
@@ -216,6 +218,28 @@ and [Semantic Versioning](https://semver.org/).
   why that note is printed as `RHPPROVISIONAL <id> ...` and not as a second
   `RHPCHECK` line for the same id.
   ([#590](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/590))
+
+- **The uhttpd redirect/identity decision record now states the captive-side
+  product decision and the measured install order.**
+  `docs/architecture/uhttpd-redirect-https-ownership-decision.md` gains a
+  "Product decision: what answers the captive side" section: the captive side is
+  answered by the portal, never by LuCI or the `:8090` board (both management
+  surfaces, reached over the private network), and the `:8080` → `https://` hop
+  exists only for a client that actually reaches `uhttpd.main`, armed solely on a
+  certificate that covers the address that browser used. It also records the
+  order the two writers actually run in — `packaging/Makefile`'s postinst runs
+  `90, 99, 92`, so **`92` is the last writer of `uhttpd.main.redirect_https` on
+  the install/upgrade pass**, while numeric uci-defaults order at boot makes `99`
+  last — which is why "the other script also writes it" is a live hazard rather
+  than a style note: a writer with the superseded existence-only premise derives
+  `1` for an identity no browser can validate, after the coverage rule derived
+  `0`. The portal repo's copy of `92` is being aligned to the same rule and now
+  carries a cross-repo guard over the pair; the pins (this module's
+  `packaging/build-inputs.json .portal.commit`, the feed's `vendor.lock.json`)
+  still have to advance for that to reach a router, which the document states
+  explicitly.
+  ([#594](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/594))
+
 - **The valve's timeout test asserts the timeout contract, not the host's
   scheduling latency.** `TestRunNdsctlTimeout` required a 1s deadline to kill a
   `sleep 30` child inside 3s, which is a property of the host's scheduler, not
@@ -1033,6 +1057,21 @@ and [Semantic Versioning](https://semver.org/).
   `mediatek-filogic`, `ramips-mt7621` and `ath79-generic`. A full run pulls
   three SDK images instead of six
   ([#539](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/539)).
+
+- **The merchant suite's notice, token-flow and log-hygiene tests are now
+  compiled by the lane CI actually runs.** `.github/workflows/test.yml` runs
+  each module with `./... -v -count=1 -race` and **no build tags**, so the six
+  test files in `src/merchant` that carried a `testenv` constraint — the
+  late-`Receive` notice tests, the token-flow characterisation, the log-hygiene
+  guard, the Lightning-state and quote wire-format tests, and the token
+  fixtures the flow tests are built on — were absent from that build: the lane
+  reported green while those tests never ran at all, and PRs had started adding
+  untagged copies to get the coverage back (#559 and #558 each did). The tag is
+  dropped, with `!cdk_wallet` kept exactly where it was load-bearing, and
+  `TestNoMerchantTestFileIsGatedOnTestenv` fails if any test file in the package
+  requires `testenv` again
+  ([#584](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/584)).
+
 
 ## [v0.6.0-alpha4] - 2026-09-22
 
