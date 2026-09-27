@@ -66,13 +66,33 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
-      - name: Portal pin decode contract
+      - name: Portal bundle contract (pin decode + admin-redirect coverage)
         run: |
-          # The shipped captive portal is built from .portal.commit; a pinned
-          # revision that validates tokens with a keyset-requiring decode
-          # (getDecodedToken without a MintKeyset list) rejects every v4
-          # cashuB token carrying a short keyset id - i.e. coinos/minibits -
-          # which the portal reports as #CU102.
+          # The shipped captive portal is built from .portal.commit, so this
+          # step gates the PIN, not the tree:
+          #
+          #   check A  a pinned revision that validates tokens with a
+          #            keyset-requiring decode (getDecodedToken without a
+          #            MintKeyset list) rejects every v4 cashuB token carrying a
+          #            short keyset id - i.e. coinos/minibits - which the portal
+          #            reports as #CU102.
+          #   checks C/D/E  the MAC on the Lightning calls, the LN003/LN004
+          #            strings, the swap-fee gate's keyset objects, the in-page
+          #            renewal and the note's mint.
+          #   check F  packaging/files/etc/uci-defaults/92-tollgate-admin-setup
+          #            is NOT in this repository (the module ships 90 and 99; 92
+          #            is staged from the pin into the package), so it is resolved
+          #            FROM THE PIN and must derive uhttpd.admin.redirect_https
+          #            from the module CLI's own coverage predicate
+          #            (`tollgate ssl covers`), write an explicit value in BOTH
+          #            directions, and not decide the hop from a fixed-path test
+          #            on the image's placeholder pair (/etc/uhttpd.crt,
+          #            CN=OpenWrt) - which satisfies every existence check while
+          #            covering neither the router's hostname nor its LAN IP, and
+          #            redirected :8090 into a hard certificate error.
+          #
+          # Check F fails rather than skips when the pin is unreadable, in every
+          # environment; checks A-E are strict in CI and skip offline.
           bash tests/packaging/assert-portal-bundle-contract.sh
 
       - name: Packaging recipe dependency contract
