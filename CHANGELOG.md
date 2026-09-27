@@ -97,7 +97,9 @@ and [Semantic Versioning](https://semver.org/).
   evaluates and rejects the MAC-allow shortcut (`99-tollgate-setup:969-972` has
   already measured MACs as harvestable from 802.11 headers), and lists the
   seventeen assertions that must hold before the bridge ships. Docs-only.
-  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599))
+  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599);
+  review findings folded in by
+  [#600](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/600))
 
 - **The packaging and release builds compile the whole `main` package, not one
   file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
