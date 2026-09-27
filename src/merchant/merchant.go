@@ -2008,6 +2008,14 @@ func (m *Merchant) restoreSession(macAddress string, previousSession *CustomerSe
 
 // clientProbeSeam returns the read-only NDS identity probe and the retry delay
 // this merchant's payment pre-flight uses.
+//
+// A nil probe means valve.CheckClientState and a delay <= 0 means
+// preflightRetryDelayDefault, so a zero-value &Merchant{} behaves exactly as it
+// did before this seam existed. The coercion is deliberate and applies to
+// negatives too: "no delay" is not expressible, because the retry only runs when
+// the probe answered "not registered" with no error, and a test that wants that
+// path to be effectively instant asks for a nanosecond rather than zero.
+// Production never sets either field (nothing outside tests calls setClientProbe).
 func (m *Merchant) clientProbeSeam() (func(string) (valve.ClientState, error), time.Duration) {
 	m.clientProbeMu.RLock()
 	defer m.clientProbeMu.RUnlock()

@@ -160,6 +160,14 @@ var errPreflightProbeStub = fmt.Errorf("stub: ndsctl probe failure")
 // stubbing one merchant leaves every other merchant on that default — so the
 // pre-flight tests never write state a usage-monitor goroutine of another
 // merchant can read.
+//
+// The default is asserted by function identity
+// (reflect.ValueOf(probe).Pointer() == the pointer of valve.CheckClientState),
+// not by behaviour: calling the default would exec ndsctl. That is the point —
+// it fails if the default ever stops BEING the router's probe — but a change
+// that only wraps it (an adapter with no behavioural difference) would have to
+// update this assertion deliberately, which is the intended prompt to think
+// about whether the wrapper is needed at all.
 func TestClientProbeSeamIsPerMerchantAndDefaultsToTheNdsProbe(t *testing.T) {
 	stubbed, _ := newPreflightMerchant(t)
 	untouched, _ := newPreflightMerchant(t)
