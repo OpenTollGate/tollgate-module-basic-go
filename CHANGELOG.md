@@ -140,9 +140,14 @@ and [Semantic Versioning](https://semver.org/).
   `docs/architecture/lan-port-management-bridge-decision.md` names. Both offline
   suites that pin it — `tests/uci-defaults-mgmt-bridge_test.sh` and
   `tests/packaging/mgmt-bridge-scope_test.sh` — run in the `contract-lint` job
-  of both lanes, and `docs/rc-tester-guide.md` §7 now tells a tester what a
-  cabled client can and cannot reach
-  ([#600](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/600)).
+  of both lanes, and they supply the two harnesses the decision record's review
+  findings require of the implementing PR: the offline `uci` shim answers `get`
+  on `network.@device[N]` (and records `delete`/`del_list`, so a removal
+  assertion cannot pass vacuously), and the fragment is validated with
+  `nft -c -f` inside a `table inet fw4 {}` wrapper plus a negative control.
+  `docs/rc-tester-guide.md` §7 now tells a tester what a cabled client can and
+  cannot reach
+  ([#601](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/601)).
 
 - **The packaging and release builds compile the whole `main` package, not one
   file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
