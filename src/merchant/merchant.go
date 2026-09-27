@@ -245,6 +245,18 @@ type Merchant struct {
 	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
 	// a value so `&Merchant{}` literals keep working; its zero value is usable.
 	mintQuoteBudget mintQuoteBudget
+	// monitorMu guards the usage sweep's stop/done channels. They are created by
+	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
+	// test that drives the real startup path can end the sweep it started: the
+	// goroutine writes through the standard logger and touches the valve's
+	// process-global gate state, so a monitor left running logs into the next
+	// test's capture (a data race under -race) and keeps sweeping a merchant the
+	// test has finished with. In the shipped binary the sweep is
+	// process-lifetime and nothing calls the stop.
+	monitorMu   sync.Mutex
+	monitorStop chan struct{}
+	monitorDone chan struct{}
+	monitorOn   bool
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -422,26 +434,78 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 // active sessions and to reconcile the bindings of clients that have left the
 // network (see the stale-binding reconciliation section).
 //
-// There is deliberately no separate startup pass here. The module's gate, session
-// and baseline bookkeeping is process-local — nothing loads it at startup — so
-// the set a startup pass would reconcile is EMPTY by construction, and a pass over
-// it would be code that cannot do anything. What is NOT empty at startup is
-// NoDogSplash's own client list, which survives a module restart; the module
-// cannot enumerate it with the per-MAC probe it has (that would need the client
-// list from `ndsctl`), and closing or adopting those records without knowing the
-// allotment behind them would be a guess. The reasoning, and the follow-up that
-// owns the inverse drift, are recorded in
-// docs/architecture/zombie-session-close-reconciliation-decision.md.
+// Before the first sweep it runs the STARTUP reconciliation (see
+// startup_reconciliation.go), which is the other direction of the same drift: a
+// module restart starts from an empty session set while NoDogSplash keeps every
+// client it had authorised, so a client this module holds no session for would
+// keep an open, unmetered gate. It runs here — synchronously, during merchant
+// construction and therefore before the merchant is installed behind the API —
+// so it can never race a purchase that is being served, and it asks
+// NoDogSplash's own client list (`ndsctl json`, no argument), which is the only
+// surface that survives the module.
 func (m *Merchant) StartDataUsageMonitoring() {
 	log.Printf("Starting data usage monitoring routine")
+
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	m.startUsageSweep()
+}
+
+// startUsageSweep starts the 2-second sweep, once per merchant, and keeps the
+// handles stopDataUsageMonitoring needs to end it.
+func (m *Merchant) startUsageSweep() {
+	m.monitorMu.Lock()
+	defer m.monitorMu.Unlock()
+
+	if m.monitorOn {
+		// One sweep per merchant: a second goroutine would be unstoppable.
+		return
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	m.monitorStop, m.monitorDone, m.monitorOn = stop, done, true
 
 	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
 	go func() {
 		defer ticker.Stop()
-		for range ticker.C {
-			m.checkDataUsage()
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				m.checkDataUsage()
+			}
 		}
 	}()
+}
+
+// stopDataUsageMonitoring stops the sweep startUsageSweep started and waits for
+// the sweep that was in flight to return, so that after it returns nothing of
+// this merchant writes through the standard logger any more.
+//
+// It exists for the tests that drive the REAL startup path (StartDataUsageMonitoring
+// is where the startup reconciliation runs): they verify behaviour by reading the
+// standard logger, so a sweep belonging to an earlier test must not still be
+// reporting into the capture — and a sweep must not keep reading the valve's
+// process-global gate state for a merchant the test has finished with. Left
+// running, those monitors made `go test -race ./...` in this package fail with
+// "race detected during execution of test" (the full suite, 2026-09-27).
+//
+// Safe to call before the sweep was ever started, and safe to call twice. A
+// merchant started again afterwards gets a fresh, stoppable sweep.
+func (m *Merchant) stopDataUsageMonitoring() {
+	m.monitorMu.Lock()
+	stop, done := m.monitorStop, m.monitorDone
+	m.monitorStop, m.monitorDone, m.monitorOn = nil, nil, false
+	m.monitorMu.Unlock()
+
+	if stop == nil {
+		return
+	}
+	close(stop)
+	<-done
 }
 
 // checkDataUsage checks all active data-based sessions and closes gates when allotment is reached
@@ -485,10 +549,27 @@ var usageMonitorBaselineRetryDelay = 2 * time.Second
 // currently enforce. It exists so the monitor can tell "just became unmeterable"
 // from "has been unmeterable for a minute", which is what decides between
 // waiting and closing the gate.
+//
+// The three close-report fields exist so the FORCE-CLOSE is an escalation rather
+// than a line per sweep: forceCloseEscalated is the first sweep past the grace
+// window (the escalation, once), lastCloseAbandoned is the valve's state on the
+// previous attempt (a CHANGE of state is not a repeat and is reported at once),
+// and lastForceCloseReport throttles everything else.
 type unmeteredSession struct {
 	sweeps              int
 	lastBaselineAttempt time.Time
+
+	forceCloseEscalated  bool
+	lastForceCloseReport time.Time
+	lastCloseAbandoned   bool
 }
+
+// unmeterableSessionReportInterval is how often the module repeats the state of a
+// session it can neither meter nor close. The sweep runs every 2 s, so without
+// this the module wrote an ERROR — and the close failure under it — on every
+// sweep for as long as NoDogSplash refused (the bench log's "has been unreadable
+// for 39 sweeps"). A var so tests can shrink it.
+var unmeterableSessionReportInterval = time.Minute
 
 // unmeteredStateLocked returns the bookkeeping of mac, creating it on first use.
 // Caller must hold unmeteredMu.
@@ -527,6 +608,36 @@ func (m *Merchant) noteUnmeterableSweep(macAddress string) int {
 	state := m.unmeteredStateLocked(macAddress)
 	state.sweeps++
 	return state.sweeps
+}
+
+// noteUnmeterableCloseFailure records one failed force-close of macAddress and
+// reports how this sweep should be reported: escalate is the FIRST sweep past the
+// grace window (the escalation, which is written once), changed is a change in
+// what the valve says about that close (a transition is not a repeat, so it is
+// reported at once), and repeat is a state that has been reported before and is
+// due again.
+//
+// Caller supplies closeErr and now so the decision is made under the lock that
+// owns the state.
+func (m *Merchant) noteUnmeterableCloseFailure(macAddress string, closeErr error, now time.Time) (escalate, changed, repeat bool) {
+	abandoned := errors.Is(closeErr, valve.ErrGateCloseAbandoned)
+
+	m.unmeteredMu.Lock()
+	defer m.unmeteredMu.Unlock()
+
+	state := m.unmeteredStateLocked(macAddress)
+	escalate = !state.forceCloseEscalated
+	changed = !escalate && abandoned != state.lastCloseAbandoned
+	repeat = escalate || now.Sub(state.lastForceCloseReport) >= unmeterableSessionReportInterval
+
+	if escalate {
+		state.forceCloseEscalated = true
+	}
+	state.lastCloseAbandoned = abandoned
+	if escalate || changed || repeat {
+		state.lastForceCloseReport = now
+	}
+	return escalate, changed, repeat
 }
 
 // clearUnmetered forgets the bookkeeping of a session that is enforceable again.
@@ -646,6 +757,14 @@ func (m *Merchant) establishBaseline(macAddress string) {
 // logs the verified state of the client, which is what distinguishes "ndsctl
 // refused" from "NoDogSplash does not know this client": the second is a
 // completed close and retires the session at once).
+//
+// The REPORTING of that state is bounded, because the sweep runs every 2 s: the
+// force-close is escalated once, a change of state (the close being abandoned, or
+// coming back) is reported at once, and the same state repeating is reported at
+// most once per unmeterableSessionReportInterval. Before this, one session NoDogSplash
+// would not deauthorize wrote two ERROR lines every second for ever, which is how
+// the bench log's real escalation ("has been unreadable for 39 sweeps") became
+// unreadable itself.
 func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	sweeps := m.noteUnmeterableSweep(macAddress)
 
@@ -655,18 +774,35 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 		return
 	}
 
-	log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered",
-		macAddress, sweeps, usageErr)
-
 	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
-			macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
+		escalate, changed, repeat := m.noteUnmeterableCloseFailure(macAddress, err, time.Now())
+
+		switch {
+		case escalate:
+			log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered (escalated once: the session stays TRACKED until the close is confirmed, and this state is repeated at most every %s — a change of state is reported at once)",
+				macAddress, sweeps, usageErr, unmeterableSessionReportInterval)
+			log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
+				macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
+		case changed:
+			log.Printf("WARNING: the state of the unmeterable session of %s changed: %v — %s (sweeps with unreadable counters: %d)",
+				macAddress, err, closeRetryStateClause(err), sweeps)
+		case repeat:
+			log.Printf("WARNING: the bytes session of %s is still unmeterable and its gate is still not confirmed closed after %d sweeps: %v — the session stays tracked and the module keeps attempting the close (%s)",
+				macAddress, sweeps, usageErr, closeRetryStateClause(err))
+		}
 		return
 	}
 
 	m.sessionMu.Lock()
 	m.expireSessionLocked(macAddress)
 	m.sessionMu.Unlock()
+	// The episode is over: the bookkeeping belongs to THIS unmeterable session,
+	// so it is forgotten with it. Leaving it behind would leave
+	// forceCloseEscalated set for the MAC, and a later session that cannot be
+	// metered would start in the throttled "repeat" branch — the operator would
+	// never get its ERROR escalation, and the sweeps counter would continue from
+	// the previous session's grace window instead of granting this one its own.
+	m.clearUnmetered(macAddress)
 	log.Printf("Removed unmeterable session for %s", macAddress)
 }
 

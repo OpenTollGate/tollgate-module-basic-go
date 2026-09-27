@@ -33,6 +33,72 @@ and [Semantic Versioning](https://semver.org/).
   existing field or header changes shape, and the contract (with what it means
   for a test rig) is in `docs/operator-guide.md`.
   ([#598](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/598))
+- **A restart no longer leaves the clients NoDogSplash was still authorising with
+  an open, unmetered gate — the module reconciles them at startup.** The module's
+  gate, session and metering state is process-local, so a restarted module starts
+  from an empty session set while NoDogSplash (a separate service) keeps every
+  client it had authorised. Measured on the bench MT3000 (pre17): buy, gate open,
+  restart ONLY `tollgate-wrt`, and the client is still `state=Authenticated` in
+  `ndsctl json` with `probe=204`/`egress 200` while the freshly restarted module
+  holds no session at all — free, unmetered internet until NoDogSplash's own
+  timeout. The module now reads NoDogSplash's client list once, at startup
+  (`ndsctl json`, no argument — a new read, since every other one is per-MAC) and
+  closes the gate of every client NoDogSplash holds as authenticated that appears
+  in neither its session map nor its tracked gates; that check is sound because
+  the purchase path records the session BEFORE it opens the gate, so such a client
+  is never a purchase in flight. It runs synchronously during merchant
+  construction, before the merchant is installed behind the API, so it cannot race
+  a purchase being served. A client merely Preauthenticated (no access to leak),
+  or in a state this module does not recognise, is left alone; an unreadable
+  client list changes NOTHING (a failed read is not evidence about a client) and
+  reports the residue plus the check to run; a close that ndsctl does not confirm
+  is an ERROR that says the client may still hold open, unmetered access and names
+  the operator action, never "closed". The customer's remaining allotment does NOT
+  travel across a restart (it lived in the process that died) and the module says
+  so instead of pretending the session survived. Decision:
+  `docs/architecture/startup-nds-reconciliation-decision.md`, which closes the hole
+  recorded in `zombie-session-close-reconciliation-decision.md` §5.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
+
+- **An `ndsctl` invocation the module ends is reported as such, not as an
+  `ndsctl` failure — and a service restart drains it instead of killing it.** Go
+  prints `signal: killed` for any child that died on a signal, so the module's
+  own deadline killing an invocation that never answered was indistinguishable
+  in the log from a restart, an OOM kill or a real refusal: the bench (pre17)
+  produced 97 lines of `Error deauthorizing MAC address error="signal: killed"`
+  on a box whose NoDogSplash control socket had stopped answering, and every
+  state machine reading them drew its own conclusion. Every production
+  invocation is now classified (`ErrNdsctlTimeout` / `ErrNdsctlStopped`): a
+  timed-out call escalates once per `ndsctlTimeoutReportInterval` with
+  `ndsctl_outcome=timeout` and the fact that the MODULE killed the child (a
+  wedged socket answers nothing and the sweep drives ndsctl every 2 s, so the
+  unthrottled line *was* the storm), repeats stay at DEBUG with the running
+  count, and recovery is reported when the socket answers again; a call
+  interrupted by a shutdown is INFO and is never re-escalated by the call sites.
+  `authorizeMAC` no longer retries an invocation that never answered. `Stop()` is
+  idempotent (it panicked on a second call) and DRAINS the invocations in flight
+  — bounded twice by `ndsctlStopDrain`, killing what is left deliberately and
+  attributing that kill to the shutdown — and refuses to start a new child once
+  the module is stopping. `main()` now installs the SIGTERM/SIGINT handler that
+  calls it, which nothing did before, so a `tollgate-wrt restart` no longer
+  kills the process and every in-flight child with it and leaves the log
+  claiming NoDogSplash failed.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
+- **A session whose usage cannot be read is force-closed once, loudly, instead
+  of on every sweep for ever.** Past the metering grace window the module closed
+  the gate and repeated the escalation — plus the close failure under it — on
+  every 2-second sweep for as long as NoDogSplash refused the close (the bench
+  log's `has been unreadable for 39 sweeps`): two ERROR lines a second, which is
+  how a real escalation stops being readable. The escalation is now written
+  once, a CHANGE of state (the close being abandoned, or coming back) is
+  reported at once because a transition is not a repeat, and the same state
+  repeating is reported at most once per `unmeterableSessionReportInterval`, at
+  WARNING. Enforcement is unchanged: the session stays TRACKED while the close
+  is unconfirmed, the module keeps attempting it, and it is retired the moment
+  ndsctl confirms. Decision, including what "the session cannot be metered"
+  means and what happens after the close budget is spent, in
+  `docs/architecture/ndsctl-invocation-outcomes-decision.md`.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
 
 - **A session whose client NoDogSplash has forgotten is closed and retired, not
   retried for ever.** On the bench (pre17) `ndsctl deauth` answered
@@ -74,12 +140,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
-- **The wired LAN ports' own bridge is decided — together with the half of that
+- **`src/cli`'s module file is tidy again, so the documented pre-PR gate stops
+  dying at that module.** `src/cli/go.mod` — added by #517 — never carried
+  `golang.org/x/time v0.6.0 // indirect`, although `src/merchant` requires that
+  module directly (`lightning.go` imports `golang.org/x/time/rate`) and
+  `src/cli/go.sum` already held its hashes. Under Go's default `-mod=readonly`
+  — every contributor's default, and CI's — the module's build list was
+  therefore incomplete: `cd src/cli && go vet ./...` answered
+  `go: updates to go.mod needed`, and `make go-battery` fail-fasted there
+  before checking the other 15 modules. Fixed with the one line `go mod tidy`
+  adds; `go.sum` and every other file unchanged.
+  ([#606](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/606))
+
+- **The wired LAN ports' own bridge is proposed — together with the half of that
   request the shipped stack cannot deliver.**
   `docs/architecture/lan-port-management-bridge-decision.md` answers the
   operator's report ("neither luci on 8080 nor the luci alternative config ui on
   port 8090 are reachable" from his Ethernet cable, which is a member of the
-  captive bridge `br-lan`). It decides that the wired ports move to a new
+  captive bridge `br-lan`). It proposes that the wired ports move to a new
   management bridge `br-mgmt` whose clients reach `:8080`/`:443` and
   `:8090`/`:8443` before paying, **and states that the bridge cannot also be a
   paywalled network**: nodogsplash 5.0.2 manages one interface
@@ -97,7 +175,9 @@ and [Semantic Versioning](https://semver.org/).
   evaluates and rejects the MAC-allow shortcut (`99-tollgate-setup:969-972` has
   already measured MACs as harvestable from 802.11 headers), and lists the
   seventeen assertions that must hold before the bridge ships. Docs-only.
-  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599))
+  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599);
+  review findings folded in by
+  [#600](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/600))
 
 - **The packaging and release builds compile the whole `main` package, not one
   file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
@@ -200,6 +280,32 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **One device code, minted once and stored, now names the router on every
+  network.** The hostname, the captive SSID and the private SSID are built from
+  a single four-character code kept in `/etc/config/tollgate`
+  (`config device 'device'` → `option code`), so the three names can no longer
+  disagree — and the code is REUSED, never re-minted, across a reinstall, an
+  upgrade and a sysupgrade that keeps settings. Measured on the bench MT3000
+  (2026-09-26): `hostname=tollgate-OQ3Q` while the open SSID had been re-minted
+  to `tollgate-0GLK` by a later deploy and the private SSID carried a suffix
+  from a third mint path, because nothing was ever stored — this script
+  re-randomised `RANDOM_SUFFIX` on every full setup, the installer minted its
+  own code on every deploy, and the installer skips `private_radio*` on purpose
+  so the admin LAN kept a code no other name used. The store is authoritative
+  and the adoption order (`store` → machine-shaped hostname → machine-shaped
+  captive SSID → mint) lets an already-deployed router converge on the code it
+  is ALREADY known by instead of collecting a third one; the verify/repair path
+  re-asserts the captive SSID from the stored code instead of reading the live
+  SSID back, which is how a re-minted one survived a reinstall. The hostname
+  becomes `tollgate-<code>` (one glance tells you which box it is; a custom
+  hostname is still never touched, #444) and the private SSID follows the
+  operator's nym (`c08r4d0r-<code>`) with `tollgate network private rename`
+  honoured as the escape hatch — only a machine-shaped SSID is re-derived, and
+  the PSK never is. Decision record:
+  [`docs/architecture/one-device-code.md`](docs/architecture/one-device-code.md);
+  the installer half (OpenTollGate/tollgate-installer, whose branding is the
+  writer that runs LAST on a deployed router) shares this store, this adoption
+  order and this test case table.
 - **`GET /session-state?mac=…` reports a machine-readable session state per
   client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
   device that has never paid *and* for one whose paid session just ran out, so a
@@ -992,6 +1098,21 @@ and [Semantic Versioning](https://semver.org/).
   `mediatek-filogic`, `ramips-mt7621` and `ath79-generic`. A full run pulls
   three SDK images instead of six
   ([#539](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/539)).
+
+- **The merchant suite's notice, token-flow and log-hygiene tests are now
+  compiled by the lane CI actually runs.** `.github/workflows/test.yml` runs
+  each module with `./... -v -count=1 -race` and **no build tags**, so the six
+  test files in `src/merchant` that carried a `testenv` constraint — the
+  late-`Receive` notice tests, the token-flow characterisation, the log-hygiene
+  guard, the Lightning-state and quote wire-format tests, and the token
+  fixtures the flow tests are built on — were absent from that build: the lane
+  reported green while those tests never ran at all, and PRs had started adding
+  untagged copies to get the coverage back (#559 and #558 each did). The tag is
+  dropped, with `!cdk_wallet` kept exactly where it was load-bearing, and
+  `TestNoMerchantTestFileIsGatedOnTestenv` fails if any test file in the package
+  requires `testenv` again
+  ([#584](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/584)).
+
 
 ## [v0.6.0-alpha4] - 2026-09-22
 
