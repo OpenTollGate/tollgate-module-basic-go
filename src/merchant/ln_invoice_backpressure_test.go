@@ -150,8 +150,11 @@ func TestReceiveRateLimitDoesNotRemoveMintFromReachableSet(t *testing.T) {
 			receiveErr: errors.New("mint https://preflight-mint.example.com returned status 429: too many requests"),
 		},
 	}
-	// The pre-flight must see the client as registered, or the payment is refused
-	// before Receive and the 429 path this test is about is never reached.
+	// The pre-flight must answer deterministically here: with a stub the client is
+	// always registered, whereas the real probe's verdict would depend on whether
+	// this host happens to have a working ndsctl — a host where it reports the
+	// client as unregistered would refuse the payment before Receive, and the 429
+	// path this test is about would never run.
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
@@ -190,8 +193,9 @@ func TestReceiveTransportErrorStillRemovesMintFromReachableSet(t *testing.T) {
 			receiveErr: errors.New("dial tcp 203.0.113.7:443: connect: connection refused"),
 		},
 	}
-	// Same pre-flight seam as the 429 guard above: without a registered client the
-	// payment never reaches the Receive whose transport error is under test.
+	// Same deterministic pre-flight as the 429 guard above: the probe's verdict
+	// must not depend on the host's ndsctl, or the payment never reaches the
+	// Receive whose transport error is under test.
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
