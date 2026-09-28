@@ -1,0 +1,108 @@
+# router-test — run the physical/lab router suite on the OpenWrt test fleet.
+#
+# Runs as an ngit-ci act container (runs-on: ubuntu-latest) on the coordinator,
+# then SSHes to the ELECTED `router-bench-gateway` (a fleet host that can reach
+# the QEMU lab and the physical bench). The gateway dispatcher
+# (hermes-orchestration scripts/fleet/router_bench_test.sh) does the gating,
+# target selection and execution.
+#
+# SECURITY CONTRACT (mirrors physical-router-test-automation's hw-smoke):
+#   * The physical bench is NEVER reachable from a pull_request: PR runs use the
+#     isolated QEMU lab only (environment `router-lab`, no paid traffic).
+#   * Post-merge `main` runs may touch the bench, behind the `bench-hardware`
+#     environment (required reviewers). Paid-traffic specs are OFF by default.
+#   * Bench work lives in THIS file only.
+name: router-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: auto|lab|physical|both
+        type: choice
+        options: [auto, lab, physical, both]
+        default: auto
+      lane:
+        description: readonly|mutating
+        type: choice
+        options: [readonly, mutating]
+        default: readonly
+      paid:
+        description: "Enable paid-traffic specs (mutating only)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Serialise per ref and drop superseded pushes.
+  group: router-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.head.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Head-check (drop superseded commits)
+        id: head
+        # Values reach the shell through the environment, never through `${{ ... }}`
+        # interpolation: a branch name is contributor-controlled on a fork PR, and
+        # interpolating it would splice it into the script text.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          THIS_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = "push" ]; then
+            head=$(git ls-remote origin "refs/heads/$REF_NAME" | awk '{print $1}')
+            if [ -n "$head" ] && [ "$head" != "$THIS_SHA" ]; then
+              echo "superseded by ${head} — skipping ${THIS_SHA}"
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  router-test:
+    needs: plan
+    if: needs.plan.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # PR -> isolated lab; push/main -> bench (required reviewers).
+    # PR -> isolated lab; a manual dispatch that asks for the lab stays on the lab;
+    # only a push to main (or a dispatch that asks for the physical bench) needs the
+    # `bench-hardware` environment (required reviewers).  Spelled out because GitHub's
+    # `a && b || c` idiom would send a LAB dispatch to the bench approvers.
+    environment: ${{ (github.event_name == 'pull_request' || inputs.target == 'lab') && 'router-lab' || 'bench-hardware' }}
+    steps:
+      - name: Run via the elected router-bench-gateway
+        env:
+          # Per-repo secrets are injected only for maintainer-authored runs;
+          # a third-party PR runs with empty secrets and is skipped here.
+          GW_HOST: ${{ secrets.ROUTER_BENCH_GATEWAY }}
+          GW_KEY_B64: ${{ secrets.ROUTER_BENCH_SSH_KEY_B64 }}
+          EVENT: ${{ github.event_name == 'pull_request' && 'pr' || 'push' }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          TARGET: ${{ inputs.target || 'auto' }}
+          LANE: ${{ inputs.lane || 'readonly' }}
+          PAID: ${{ inputs.paid || 'false' }}
+        run: |
+          set -eu
+          if [ -z "${GW_HOST:-}" ] || [ -z "${GW_KEY_B64:-}" ]; then
+            echo "No router-bench credentials for this run (non-maintainer?) — skipping."
+            exit 0
+          fi
+          install -d -m700 ~/.ssh
+          printf '%s' "$GW_KEY_B64" | base64 -d > ~/.ssh/gw && chmod 600 ~/.ssh/gw
+          ssh -i ~/.ssh/gw -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            "$GW_HOST" \
+            "router_bench_test.sh --event $EVENT --ref '$REF' --commit '$SHA' \
+               --target '$TARGET' --lane '$LANE' --paid '$PAID'"
