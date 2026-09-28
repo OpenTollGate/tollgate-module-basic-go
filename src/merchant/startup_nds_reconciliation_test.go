@@ -502,3 +502,94 @@ func TestStartDataUsageMonitoringStopsTheSweepItStarts(t *testing.T) {
 	}
 	m.stopDataUsageMonitoring()
 }
+
+// TestStartupReconciliationLeavesAPayingClientWhoseMACItSpellsDifferently is the
+// case-fold half of `knowsClient`, and it pins the direction that costs a paying
+// customer their access (FU-596 finding 1).
+//
+// NoDogSplash prints the MAC it was configured with, and `ClientRecord.Authorised()`
+// already folds case on the STATE — so a payload carrying the module's OWN client
+// with an upper-case MAC still classifies as an authorised client. Under a plain
+// `==` membership test that client then fails to match the module's own
+// lower-case records (the session map is written by NormalizeMACAddress, and a
+// tracked gate keeps the spelling it was opened with), so the pass reads a paying
+// customer as an inherited authorisation and closes their gate. The membership
+// test must fold case on every side; the MAC handed BACK to ndsctl must not
+// (ndsctl's own lookup is a case-sensitive strcmp, so normalising it could miss
+// the record).
+func TestStartupReconciliationLeavesAPayingClientWhoseMACItSpellsDifferently(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+
+	// Two spellings of ONE client's address per case: the upper-case one
+	// NoDogSplash reports, and the lower-case one the module's own bookkeeping
+	// uses. Both addresses are opened fresh by this test (the valve's gate state
+	// is package-global and shared by the whole test binary), so a deauth of
+	// either spelling can only have come from the pass under test.
+	const sessionNdsctlSpelling = "AA:BB:CC:DD:EE:71"
+	sessionModuleSpelling := strings.ToLower(sessionNdsctlSpelling)
+
+	// No session record at all, only a tracked gate that the module opened with
+	// the lower-case spelling — the degraded -> full upgrade client, from the
+	// direction where the module holds nothing but the gate.
+	const trackedNdsctlSpelling = "AA:BB:CC:DD:EE:72"
+	trackedModuleSpelling := strings.ToLower(trackedNdsctlSpelling)
+
+	ndsctl.setList(t, map[string]string{
+		sessionNdsctlSpelling: "Authenticated",
+		trackedNdsctlSpelling: "Authenticated",
+	})
+
+	m := inheritedMerchant(t)
+	installInheritedClientSession(t, m, sessionModuleSpelling)
+
+	closeGateCleanup(t, trackedModuleSpelling)
+	if err := valve.OpenGate(trackedModuleSpelling); err != nil {
+		t.Fatalf("open gate for %s: %v", trackedModuleSpelling, err)
+	}
+
+	logs := captureSyncLogs(t)
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	for _, ndsctlMAC := range []string{sessionNdsctlSpelling, trackedNdsctlSpelling} {
+		for _, spelling := range []string{ndsctlMAC, strings.ToLower(ndsctlMAC)} {
+			if got := ndsctl.opsFor(t, "DEAUTH "+spelling); got != 0 {
+				t.Fatalf("NoDogSplash reports %s in upper case while this module holds the SAME client (a session, or a tracked gate) under %s — it is the module's own and must be left alone, but the reconciliation closed it %d time(s) as %s\nlog:\n%s",
+					ndsctlMAC, strings.ToLower(ndsctlMAC), got, spelling, logs.String())
+			}
+		}
+	}
+}
+
+// TestStartupReconciliationStillClosesAnInheritedClientSpelledInUpperCase is the
+// other half, and it is what stops the case fold from becoming a blanket
+// exemption: folding case must not make the pass blind to a genuine inherited
+// authorisation just because NoDogSplash printed it in upper case. The close must
+// also hand ndsctl the EXACT spelling it reported, because ndsctl's own lookup is
+// a case-sensitive strcmp (`client_list_find_by_any`) and the normalised spelling
+// need not match the record being closed.
+func TestStartupReconciliationStillClosesAnInheritedClientSpelledInUpperCase(t *testing.T) {
+	ndsctl := installInheritedNdsctl(t)
+
+	// Opened by no other test, so the only deauth of either spelling is the one
+	// this pass makes (no reset close is performed here on purpose: a reset would
+	// itself show up in the fake's log).
+	const inheritedUpperCaseMAC = "AA:BB:CC:DD:EE:73"
+	lowerCase := strings.ToLower(inheritedUpperCaseMAC)
+	ndsctl.setList(t, map[string]string{inheritedUpperCaseMAC: "Authenticated"})
+
+	m := inheritedMerchant(t)
+
+	logs := captureSyncLogs(t)
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	if got := ndsctl.opsFor(t, "DEAUTH "+inheritedUpperCaseMAC); got != 1 {
+		t.Fatalf("an inherited authorisation NoDogSplash reported in upper case is still an authorisation this module has no record of, so its gate must be closed — and with the spelling ndsctl itself reported: deauths for %s = %d, want 1\nlog:\n%s",
+			inheritedUpperCaseMAC, got, logs.String())
+	}
+	if got := ndsctl.opsFor(t, "DEAUTH "+lowerCase); got != 0 {
+		t.Fatalf("the MAC must go back to ndsctl exactly as NoDogSplash spelled it, so a deauth of the normalised spelling %s (%d) means the record being closed may not be the one NoDogSplash holds", lowerCase, got)
+	}
+	if !strings.Contains(logs.String(), inheritedUpperCaseMAC) {
+		t.Fatalf("the operator has to be able to read which client was closed\nlog:\n%s", logs.String())
+	}
+}

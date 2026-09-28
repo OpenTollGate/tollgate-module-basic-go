@@ -245,9 +245,15 @@ type Merchant struct {
 	unmeteredMu       sync.Mutex
 	unmeteredSessions map[string]*unmeteredSession
 	staleBindings     staleBindingJanitor
-	lightningQuotes   map[string]*lightningQuoteRecord
-	lightningQuoteMu  sync.RWMutex
-	quoteStore        *quoteStore
+	// ndsClients is the periodic client-list reconciliation's bookkeeping: the
+	// pass that asks `ndsctl json` the OTHER question — which clients does
+	// NoDogSplash authorise that this module has no record of at all? Like the
+	// janitor, its cadence, its read seam and its reporting state are per
+	// merchant because it runs on the usage monitor's own goroutine.
+	ndsClients       ndsClientReconciler
+	lightningQuotes  map[string]*lightningQuoteRecord
+	lightningQuoteMu sync.RWMutex
+	quoteStore       *quoteStore
 	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
 	// a value so `&Merchant{}` literals keep working; its zero value is usable.
 	mintQuoteBudget mintQuoteBudget
@@ -552,6 +558,15 @@ func (m *Merchant) checkDataUsage() {
 	// on its own (slower) cadence, after the metering, so a session that has
 	// genuinely spent its allotment is still closed by the meter first.
 	m.reconcileSweep()
+
+	// And the question in the OTHER direction: which clients does NoDogSplash
+	// authorise that this module holds no record of AT ALL? The startup pass
+	// (startup_reconciliation.go) asks it once, and only ever sees the drift
+	// that exists at the instant it runs; this asks it again on the same slow
+	// cadence, so an authorisation that never went through the module's purchase
+	// path is closed within a pass rather than lasting NoDogSplash's whole
+	// session timeout. A failed read changes nothing.
+	m.ndsClientReconcileSweep()
 }
 
 // usageMonitorGraceSweeps bounds how many consecutive sweeps a bytes session may

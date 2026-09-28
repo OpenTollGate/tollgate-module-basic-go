@@ -119,6 +119,18 @@ moving.
    > restart, `state=Authenticated` in NDS, no session in the module) ends at the
    > next startup. The paragraph above stands as the record of what this decision
    > did NOT do.
+   >
+   > **Amended again 2026-09-28 (implemented): the task this paragraph filed is now
+   > closed in BOTH directions.** The startup pass answers the question once, and a
+   > startup pass can only ever see the drift that exists at the instant it runs —
+   > so the same question is now asked PERIODICALLY by the usage sweep
+   > (`merchant.reconcileNdsClientList`, ~30 s cadence, the decision record's
+   > [2026-09-28 amendment](startup-nds-reconciliation-decision.md#amendment-2026-09-28-the-same-question-asked-periodically)),
+   > which closes an authorisation this module never made — one created by
+   > `ndsctl auth` run outside the module, restored from NoDogSplash's own state
+   > file when the SERVICE restarts, or left standing on a box whose merchant came
+   > up degraded and so never ran the startup pass. The sentence in decision 4 of
+   > the startup record that said *never periodically* is withdrawn there.
 
 6. **The wording matches the verified state.** No line claims a client "may still
    hold open, unmetered access" without evidence that the client could hold
