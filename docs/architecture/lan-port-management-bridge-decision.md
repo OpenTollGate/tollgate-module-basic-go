@@ -8,6 +8,17 @@
 > design that would silently not hold. Acceptance is a maintainer action — the
 > drafting account may not accept its own proposal, and nothing here is in
 > force until the rollout below has landed on a router and been measured there.
+>
+> **Amendment (2026-09-28): the verdict below is narrowed, not withdrawn.** It
+> holds for a **second *gated* bridge**, and it does **not** apply to the
+> operator's requirement — a wired-port client that still has to pay for WAN
+> *and* can reach the administration surfaces is satisfiable by a configuration
+> change on the shipped stack: a bridge-port-keyed re-key of the two
+> admin-port guards, with no `br-mgmt` and no second gate. Read "the request
+> it was written for is not fully satisfiable" as "the *second gated bridge*
+> half of that request is not". See "Amendment - the requirement is satisfiable
+> by a configuration change" at the end of this record. Status stays Proposed:
+> the bridge proposal is neither accepted nor withdrawn here.
 
 ## Context
 
@@ -44,15 +55,15 @@ tells an operator in this situation to "use the module CLI or LuCI on `:8080`"
 
 The wired port and the open guest SSID are one bridge, deliberately gated as
 one. The cost of that sharing was already measured in this repo:
-`packaging/files/etc/uci-defaults/99-tollgate-setup:974-993` records that bridge
-port isolation **cannot** separate a wired host from a guest BSS — netifd's
-`isolate` is bilateral (`br_private.h br_skb_isolated`) and was measured on the
-bench to block nothing — and names the alternative mechanism in as many words:
-"a dedicated br-guest with its own reject-by-default zone, or a bridge-family
-nft rule keyed on the VAP ports". A bridge of its own for the wired ports is
-therefore not only the operator's preference, it is the fix for an exposure this
-repo could not otherwise close: an operator's administration laptop currently
-shares a broadcast domain with strangers, ARP, mDNS and all.
+`packaging/files/etc/uci-defaults/99-tollgate-setup:1228-1247` records that
+bridge port isolation **cannot** separate a wired host from a guest BSS —
+netifd's `isolate` is bilateral (`br_private.h br_skb_isolated`) and was
+measured on the bench to block nothing — and names the alternative mechanism in
+as many words: "a dedicated br-guest with its own reject-by-default zone, or a
+bridge-family nft rule keyed on the VAP ports". A bridge of its own for the
+wired ports is therefore not only the operator's preference, it is the fix for
+an exposure this repo could not otherwise close: an operator's administration
+laptop currently shares a broadcast domain with strangers, ARP, mDNS and all.
 
 ### The three layers that assume exactly one captive gateway
 
@@ -256,6 +267,13 @@ that is not this change.
 
 ### The half that cannot work as specified
 
+**Scope, amended 2026-09-28.** This section is about a **second *gated***
+bridge — a network that must be paywalled and carry its own pre-auth policy at
+the same time. It is not about the operator's requirement, which needs no
+second gate and *is* satisfiable by a configuration change; see the amendment
+at the end of this record. Everything below stands as written for the
+two-gated-bridge case.
+
 **The stack cannot gate two bridges at once, so "admin surfaces pre-auth *and*
 still captured by the gate and paywall on the same bridge" cannot be delivered
 by configuration.** One nodogsplash process manages one interface
@@ -322,6 +340,15 @@ alone removes the lockout and the L2 exposure; it does not sell anything.
 5. **Nothing about the guest path changes.** The guest APs stay on the captive
    bridge, the portal, `:80` stub and pre-auth list are untouched.
 
+**Amended 2026-09-28 - how to read invariants 1-5 after the amendment at the
+end of this record.** Invariants 1-5 hold unchanged in substance. Where an
+invariant names the guards' *present expression* (invariant 2 cites
+`31-*.nft:52-53` and `32-*.nft:54-55` as "unchanged"), the amendment replaces
+that expression — the drop is re-keyed from the bridge name to the guest VAP
+interfaces, in a `bridge`-family rule — while keeping the property the
+invariant states: no admin surface is guest-reachable, and neither port set is
+added to `users_to_router`.
+
 ## Consequences
 
 ### Positive
@@ -329,7 +356,7 @@ alone removes the lockout and the L2 exposure; it does not sell anything.
 - The operator's reported lockout ends, without weakening a single guard: the
   admin surfaces answer on a bridge that holds only his own devices.
 - The wired port leaves the guest's L2 domain — the exposure
-  `99-tollgate-setup:974-993` recorded as unfixable by bridge-port isolation,
+  `99-tollgate-setup:1228-1247` recorded as unfixable by bridge-port isolation,
   using the mechanism that comment itself named.
 - The customer path is untouched: the portal, the pre-auth list, the paywall of
   the wireless network and the two guards keep their present behaviour, so none
@@ -561,9 +588,11 @@ which now reaches the board and LuCI and has no internet.
   fixed-chain, single-socket facts above are all v5.0.2 facts.
 - **Why this is an ADR and not a config change.** The repo's rule is decision
   first (`docs/architecture/`), and this one has a fact in it the requester did
-  not have: the request as worded cannot be satisfied by the stack as built. The
-  right time to learn that is before the change, not from a router whose gate has
-  been torn down on one bridge and left absent on the other.
+  not have: a **second *gated* bridge** cannot be delivered by the stack as
+  built, and the amendment at the end of this record narrows the record to
+  exactly that. The right time to learn that is before the change, not from a
+  router whose gate has been torn down on one bridge and left absent on the
+  other.
 - **What is unchanged, deliberately**: `users_to_router` (`99-tollgate-setup:1108-1124`),
   the `:8080`/`:443` removal logic, the `:80` trusted stub
   (`setup_uhttpd_trusted_entry`), `20-nds-enforce.nft`'s mark values
@@ -578,3 +607,139 @@ which now reaches the board and LuCI and has no internet.
   of their own, that bridge can reach the administration surfaces before
   paying, and it cannot also be a network that sells internet — not with one
   nodogsplash, and not with two instances on one router.
+
+## Amendment - the requirement is satisfiable by a configuration change (2026-09-28)
+
+**Update 2026-09-28 (operator-approved design; a docs-only amendment to this
+record).** The verdict above is **narrowed, not withdrawn**. "…the request it
+was written for is not fully satisfiable by a configuration change on the
+shipped stack" remains **correct as applied to a second *gated* bridge**, and
+everything this record says about that case stands unchanged in substance: the
+one-interface nodogsplash (`src/conf.h:146`), the fixed `nds*` chain names in
+one network namespace, the name-scoped `iptables_fw_destroy()` on the start
+path, the procd respawn loop, alternatives A1/A2/A3 and the F1/F2 follow-ups.
+What was wrong was **extending that verdict to the operator's requirement**.
+
+The requirement recorded in Context — **a wired-port client must still be
+required to PAY for WAN access, and must be able to reach LuCI
+(`:8080`/`:443`) and the admin/config UI (`:8090`/`:8443`)** — *is* satisfiable
+by a configuration change on the shipped stack: no `br-mgmt`, no second
+bridge, no second nodogsplash instance, no Go change. What follows is the
+mechanism, the measured constraint that shapes it, and what it does and does
+not fix.
+
+**AM-1 - key the two admin-port drops on the guest VAP interfaces, not on the
+bridge.** Both guards drop on `iifname "br-lan"` today —
+`31-*.nft:52-53` for `{8090, 8443}`, `32-*.nft:54-55` for `{8080, 443}`, both
+families, counters kept. The wired port is a member of `br-lan` (see "Where the
+wired LAN ports are bound, and therefore who may move them"), so the
+operator's own cable matches those rules: that is the reported lockout.
+Re-keying the drop to the **guest VAP interfaces** changes the *match
+expression* and nothing else:
+
+- the wired port (`eth1` on this hardware, or whatever port the base image puts
+  on `br-lan`) stops matching, so `:8090`/`:8443` and `:8080`/`:443` become
+  reachable from it, pre-auth;
+- the wireless guests keep matching — the guest BSSes stay bound to the captive
+  bridge (`99-tollgate-setup:1268` sets `wireless.<iface>.network='lan'`), so
+  both guards keep dropping them, and the #566/#588 behaviour together with its
+  pre18 bench measurement is unchanged;
+- **the wired port stays a member of the gated `br-lan`**
+  (`99-tollgate-setup:1476` writes
+  `nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'`), so
+  `20-nds-enforce.nft:33` and nodogsplash's marks still apply to it: it is
+  still redirected by the portal, still has to pay, and gets WAN only after
+  payment. The commerce path, the portal and the pre-auth list are untouched.
+
+This is the mechanism this repo already names in its own words — "a dedicated
+br-guest with its own reject-by-default zone, or a **bridge-family nft rule
+keyed on the VAP ports**" (`99-tollgate-setup:1246-1247`). It is also why
+`br-mgmt` is not needed *for the requirement*: the guard was over-broad, not
+the bridge.
+
+**AM-2 - the re-key is a port-keyed rule, not a string swap (measured).**
+`iifname` does not name the same device in both nftables families, and the
+shipped guards live in fw4's `inet` table. Measured in a network namespace on a
+Linux host (kernel `7.0.0-34-generic`, `nftables v1.1.6`, `br_netfilter`
+loaded with `bridge-nf-call-{iptables,ip6tables,arptables}=1`, a bridge `br0`
+with one port and traffic delivered to the bridge's own IP address):
+
+- in an **`inet`**-family `input` hook, `iifname` is the **bridge**: a rule
+  keyed on the bridge name matched every packet (2/2), and the same rule keyed
+  on the bridge *port* matched **0**;
+- in a **`bridge`**-family `input` hook, `iifname` is the **bridge port**: the
+  bridge name matched 0, the port name matched all of them, and a
+  port-keyed `drop` there blocked the traffic (drop counter incremented, ping
+  failed).
+
+Consequences, stated plainly because they invert the naive reading:
+
+- inside the existing `inet` fragments, `iifname "br-lan"` is what matches
+  *every* bridged client, wired and wireless alike — not a defect, just the
+  expression doing what its name says;
+- substituting the VAP names into `31-*.nft`/`32-*.nft` as they stand would
+  match **nothing**: both guards would become silent no-ops and the *guests*
+  would reach the board and LuCI. That is a worse state than the lockout, and
+  it fails open with no error anywhere;
+- the re-key therefore moves the drops to a **`bridge`-family, port-keyed**
+  rule, which is where the port name is visible. Same policy, same ports, both
+  families, counters kept — a different key, in the family that can express it.
+
+This measurement settles the match semantics of the mechanism, not the shipped
+rule: the bench pass is still owed (wired client reaches `:8090`/`:8443` and
+`:8080`/`:443` pre-auth **and** is still redirected and pays; a wireless guest
+is still dropped; it survives `fw4 reload`, reboot and sysupgrade), exactly as
+the assertion list above requires.
+
+**AM-3 - the interface set is derived, and the rule must fail closed.** The VAP
+names are not stable: `phyN-apM` follows radio/PHY enumeration and can change
+across firmware or hardware, so a guard keyed on four hardcoded names can stop
+matching after an upgrade and become a no-op with no error anywhere. The set is
+therefore derived at `fw4 reload` from the module's own source of truth — the
+wireless interfaces bound to `network='lan'` (`99-tollgate-setup:1268`) — and
+an empty or failed enumeration **falls back to the blanket `br-lan` drop with a
+log line**, i.e. to today's behaviour (safe, still gated) rather than to no
+drop at all. The derivation, the fallback, its negative control and the
+boot-time assertion are tracked and pinned by t_8590499a below; this record
+requires that they exist, because they are what keeps AM-1 from decaying into a
+silent hole.
+
+**AM-4 - `br-mgmt` REMAINS PROPOSED, on its own separate merit.** Nothing here
+withdraws D1-D8 or the bridge proposal, and re-keying the guards does **not**
+close the exposure this record exists for: the wired port keeps sharing one
+broadcast domain with strangers — ARP, mDNS, SSDP, broadcast — and it keeps
+doing so on the *same* bridge as the open guest SSID. AM-1 narrows *who may
+reach the administration surfaces*; it does not separate *who may see whom*.
+That separation is what D1 buys, and it is why the two changes are independent:
+AM-1 is about the guard's scope, D1 is about the wired port's L2 domain. The
+paywall half of a **second** network (D8, F1/F2) is exactly as unreachable as
+before — a wired *customer* network still needs a second gate, while under AM-1
+a wired client pays on the same gate the guests use.
+
+**AM-5 - the title's "half".** Read "the half of that request the shipped stack
+cannot deliver" in this record's title as *the second gated bridge*, not as the
+operator's requirement. Where the body says the request cannot be satisfied by
+the stack as built, it means the two-gated-bridge case; AM-1 is the
+configuration change that satisfies the requirement as stated.
+
+**AM-6 - line references re-checked at the commit this amendment branches from
+(`54e8c3683e3b583298410946dc8eb804e846d93d`).** The two guard citations are
+still exact (`31-*.nft:52-53`, `32-*.nft:54-55`). The citations to the
+isolation comment that names the VAP-keyed alternative had **drifted**:
+`99-tollgate-setup:974-993` was that comment when this record merged (#600) and
+is now the admin credential gate, so both citations are corrected here to
+`99-tollgate-setup:1228-1247` (the comment block that carries the measurement,
+with the named mechanism at `:1246-1247`). The external binding claim is
+unchanged: `openwrt/openwrt` `openwrt-25.12`
+`target/linux/mediatek/filogic/base-files/etc/board.d/02_network:158-166` still
+groups `glinet,gl-mt3000` into `ucidef_set_interfaces_lan_wan eth1 eth0`, and
+`/bin/config_generate:109-119` still turns that into a `br-lan` device whose
+`ports` list carries the wired port.
+
+**Tracking.** The implementing work is card **t_8590499a** on the
+`tollgate-module-basic-go` board ("Re-key the admin-port guards from br-lan to
+the VAP interfaces (wired client: pays + admin, guests: still dropped)"), which
+carries AM-1 to AM-3 as its design and the bench verification as its definition
+of done. It had no open PR at the time of writing; the link belongs here when
+it opens, not in a second record. Status stays **Proposed**: acceptance is a
+maintainer action and the drafting account may not accept its own proposal.
