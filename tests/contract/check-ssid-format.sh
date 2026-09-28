@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016  # SSID patterns below are literal text, not expansions
 # Contract: the open AP this package ships is named `<brand>-<4 hex chars>` and
-# nothing else — `^TollGate-[0-9A-F]{4}$` for the default brand.
+# nothing else — `^TollGate-[A-Z0-9]{4}$` for the default brand.
 #
 # Why the exact shape is pinned: the SSID is the gateway's public name. The Go
 # side keys on the `TollGate-` prefix (src/wireless_gateway_manager/
@@ -32,7 +32,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 ROOT="$(pwd)"
 SCRIPT="$ROOT/packaging/files/etc/uci-defaults/99-tollgate-setup"
-CONTRACT_DEFAULT_RE='^TollGate-[0-9A-F]{4}$'
+CONTRACT_DEFAULT_RE='^TollGate-[A-Z0-9]{4}$'
 # The 4-character device suffix, as produced by the script's generator.
 SUFFIX_RE='^[0-9A-F]{4}$'
 
