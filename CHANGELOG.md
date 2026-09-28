@@ -172,6 +172,17 @@ and [Semantic Versioning](https://semver.org/).
   `:1228-1247`. Docs only: no code, no packaging, no firewall change.
   ([#623](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/623))
 
+- **The merchant test log capture is concurrency-safe.** `captureMerchantLog`
+  handed tests a bare `bytes.Buffer` behind the swapped standard logger, so a
+  `MintHealthTracker` probe goroutine still winding down from an earlier test
+  raced a later test's read of the capture — the intermittent "race detected
+  during execution of test" that turned the battery red on
+  `TestStartDataUsageMonitoringStopsTheSweepItStarts` during the #619 review.
+  The capture now returns the package's existing synchronised `syncLogs` type
+  (plus a locked `Len()`), pinned by a test that reproduced the race under
+  `-race` before the fix
+  ([#622](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/622)).
+
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`
   workflow routes through the elected router-bench gateway: pull requests reach
   the isolated QEMU lab only, and only post-merge `main` runs can touch the
