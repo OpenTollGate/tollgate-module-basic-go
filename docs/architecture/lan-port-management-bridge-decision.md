@@ -740,6 +740,7 @@ groups `glinet,gl-mt3000` into `ucidef_set_interfaces_lan_wan eth1 eth0`, and
 `tollgate-module-basic-go` board ("Re-key the admin-port guards from br-lan to
 the VAP interfaces (wired client: pays + admin, guests: still dropped)"), which
 carries AM-1 to AM-3 as its design and the bench verification as its definition
-of done. It had no open PR at the time of writing; the link belongs here when
-it opens, not in a second record. Status stays **Proposed**: acceptance is a
-maintainer action and the drafting account may not accept its own proposal.
+of done. Its PR is open separately and is the place a landed mechanism will be
+cited from; this record stays the decision. Status stays **Proposed**:
+acceptance is a maintainer action and the drafting account may not accept its
+own proposal.
