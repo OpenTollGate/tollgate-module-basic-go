@@ -288,6 +288,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The vendor-IE encoder has an explicit overflow policy instead of a silent
+  failure.** When the encoded body would exceed the 255-byte element cap the
+  mint TLV (the bulkiest optional field) is dropped and the truncation is
+  reported by `EncodeTollGateVendorIE` and logged by `EmitTollGateVendorIE`
+  — the element is an unsigned hint, and the signed advertisement on `:2121`
+  remains authoritative and complete. Only a pubkey that cannot fit even
+  without the mint TLV is an error. Round-trip tests now use realistic
+  32-byte keys (was 3 bytes). Found by the #618 design review.
 - **The discovery-signaling decision is recorded: v0.6 ships SSID-prefix
   recognition; the richer tiers are documented and deferred.**
   `docs/architecture/discovery-signaling-decision.md` separates the candidate
