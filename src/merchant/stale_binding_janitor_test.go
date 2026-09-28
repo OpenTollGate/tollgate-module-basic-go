@@ -23,10 +23,11 @@ import (
 //
 // The tests drive the real usage-monitor entry point (`checkDataUsage`) against
 // the fake ndsctl on PATH, and stub the read-only NDS identity probe
-// (`ndsClientCheck`) whenever they need to model "NoDogSplash no longer lists
-// this client" independently of what the byte counters answer. That separation
-// is the point: the reconciliation must be decided by the device's presence, not
-// by whether its counters happen to be readable.
+// (`valve.CheckClientState`, per merchant) whenever they need to model
+// "NoDogSplash no longer lists this client" independently of what the byte
+// counters answer. That separation is the point: the reconciliation must be
+// decided by the device's presence, not by whether its counters happen to be
+// readable.
 //
 // The addresses below belong to these tests only. The valve's gate state is
 // package-global (shared by the whole test binary), so a test that borrowed
@@ -49,10 +50,10 @@ const (
 )
 
 // stubClientProbe replaces the reconciliation's NDS identity probe for ONE
-// merchant. The override is per merchant rather than the package-level
-// `ndsClientCheck` seam on purpose: the usage monitor runs on its own goroutine,
-// and several tests in this package leave a real monitor running, so writing a
-// package-global here would race with a sweep this test does not control.
+// merchant. The override is per merchant rather than a package-level seam on
+// purpose: the usage monitor runs on its own goroutine, and several tests in
+// this package leave a real monitor running, so writing a package-global here
+// would race with a sweep this test does not control.
 func stubClientProbe(t *testing.T, m *Merchant, probe func(string) (valve.ClientState, error)) {
 	t.Helper()
 

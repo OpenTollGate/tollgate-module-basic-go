@@ -27,6 +27,12 @@ His words: "neither luci on 8080 nor the luci alternative config ui on port 8090
 are reachable". His requirement: a `br-mgmt` "where the connected devices can
 access luci and the luci alternative dashboard, but they still need to pay".
 
+The report is a bench report from that pre18 run, not a tracked issue; the two
+guards that produce the lockout were introduced by #566
+(`31-admin-board-not-guest-reachable.nft`) and #588
+(`32-luci-not-guest-reachable.nft`), and this record is the first place the two
+are considered from the wired port's side.
+
 The guards are behaving exactly as designed. Both are written for the captive
 bridge by name, and both say in their own headers that the management path is
 `br-private` (the private SSID) and loopback — not the wired port
@@ -53,19 +59,27 @@ shares a broadcast domain with strangers, ARP, mDNS and all.
 The request needs **two bridges with different pre-auth reachability, both
 still gated**. Every layer of the shipped stack assumes one gated interface.
 
-**1. The daemon (nodogsplash 5.0.2, the version this stack runs — the module's
-own `Makefile` declares `DEPENDS:=+nodogsplash` and every bench note in this
-repo names 5.0.2).** A nodogsplash process manages **one** interface:
+**1. The daemon (nodogsplash 5.0.2, the version this stack runs —
+`packaging/Makefile:59` declares `DEPENDS:=+nodogsplash +jq`, and every bench
+note in this repo names 5.0.2).** A nodogsplash process manages **one** interface:
 `config.gw_interface` is a single `char *` (`src/conf.h:146`), parsed from a
 single value (`src/conf.c:760`) and required non-null (`src/conf.c:1388`). Its
 firewall chains have **fixed names** in one network namespace
 (`src/fw_iptables.h:35-44`: `ndsNET`, `ndsRTR`, `ndsAUT`, `ndsTRU`, `ndsOUT`,
-`ndsBLK`, …), the jumps into them are interface-scoped
-(`src/fw_iptables.c:449-452`, `-i <gw_interface> -s <gw_iprange>`) but the chain
+`ndsBLK`, …), they are created with `-N` in **both** tables (`mangle` at
+`src/fw_iptables.c:442-446`, `filter` at `:534-538`), the jumps into them are
+interface-scoped (`:449-452`, `-i <gw_interface> -s <gw_iprange>`) but the chain
 objects are not, and teardown **flushes and deletes them by name** —
 `iptables_fw_destroy()` at `src/fw_iptables.c:689-747` is a `-F`/`-X` sweep of
 every `nds*` chain in `mangle`, `nat` and `filter` that no second process's
-lifetime is consulted about.
+lifetime is consulted about. Its own doc comment says as much (`:685-686`:
+"used when we do a clean shutdown of nodogsplash, **and when it starts**"), and
+`src/main.c:297-305` is that start path — destroy runs *before* `init`, and a
+failed init destroys again and `exit(1)`s. A second instance therefore wipes the
+first's enforcement **on its own boot path**, not only when someone restarts
+one; and under `procd_set_param respawn` (`net/nodogsplash`
+`files/etc/init.d/nodogsplash:191`) a failing instance re-enters that path — a
+loop, not a one-off wipe.
 
 **2. The OpenWrt packaging genuinely does support N instances** — and that is
 the trap, because it looks like the answer and is not. In
@@ -82,14 +96,20 @@ can start two gates; the *daemon* cannot isolate their enforcement. Concretely,
 with two instances:
 
 - both create the same chains; the second's `iptables -t … -N nds…`
-  (`src/fw_iptables.c:442-446`) collides with the first's;
-- **either instance restarting wipes both bridges' enforcement**, because
-  `iptables_fw_destroy()` is name-scoped, not interface-scoped. Restarts are not
+  (`src/fw_iptables.c:442-446,534-538`) collides with the first's;
+- **either instance starting or restarting wipes both bridges' enforcement**,
+  because `iptables_fw_destroy()` is name-scoped, not interface-scoped — and it
+  runs on the start path too (`src/main.c:297-305`). Restarts are not
   hypothetical: procd respawns, the fw4 hotplug restarts the daemon, and this
   module drives `/etc/init.d/nodogsplash start|stop|restart`
-  (`src/cmd/tollgate-cli/main.go:705-776`). The silent consequence is a bridge
-  whose clients have **unmetered internet** while the other instance still
-  reports healthy;
+  (`src/cmd/tollgate-cli/main.go:705-776`). The silent consequence is *not*
+  free internet on the captive bridge — there it is the opposite: with the
+  marking jumps gone, `br-lan` traffic is unmarked and `20-nds-enforce.nft:33`
+  (`iifname "br-lan" oifname != "br-lan" … reject`, inside `inet fw4`, so it
+  outlives the restart — the resilience `31-*.nft:5-7` relies on) **rejects**
+  it, so no `br-lan` client gets out, paying or not. The bridge that leaks is
+  the *second* one: nothing in the shipped rules matches it once a design (A1)
+  gives it a path to `wan`;
 - the second instance's gated clients are only marked because the first
   instance's `ndsOUT`/`ndsBLK`/`ndsTRU` chains are what its jump lands in, so
   "who is paying" is no longer per bridge in any checkable way.
@@ -105,8 +125,10 @@ with two instances:
   function is the only `ndsctl` exec in the non-test tree, and every
   enforcement action goes through it: `authorizeMAC` (`valve.go:201-244`),
   `deauthorizeMAC` (`:281-308`), `GetClientStats` (`:912-961`),
-  `CheckClientState` (`:1002-1041`, aliased as `ndsClientCheck`,
-  `src/merchant/merchant.go:131`).
+  `CheckClientState` (`:1002-1041`) — the read-only probe the merchant's
+  payment pre-flight and its stale-binding reconciliation both use, each
+  through a per-merchant test seam (`src/merchant/merchant.go`, `clientProbe`
+  and `staleBindings.probe`).
 - **Session tracking is keyed by MAC only, never by bridge.** `openGates`,
   `gateEpochs`, `pendingCloseRetries` (`valve.go:125-147`) and
   `m.customerSessions[mac]` (`merchant.go`) carry no interface, so a MAC that
@@ -171,9 +193,14 @@ naming `eth1`.
 (`setup_mgmt_bridge` in `99-tollgate-setup`) creates `network.mgmt`
 (`proto static`, device `br-mgmt`) and `network.mgmt_bridge`
 (`type bridge`, `name br-mgmt`), **moves** every port currently listed on
-`network.@device[br-lan]` to it, and commits `network`. If `br-lan` has no port
-list, the writer **fails loudly and changes nothing** (a bridge with no ports
-would leave the operator with a dead cable and no diagnostic).
+`br-lan` to it, and commits `network`. The `network device` section is
+anonymous — `/bin/config_generate:109-119` emits it without a name — so
+`network.@device[br-lan]` is **not valid UCI addressing**: the writer must find
+the `@device[N]` whose `option name` is `br-lan` (`uci show network` piped to
+`awk`, the idiom already in the script at `99-tollgate-setup:1469`) and move its
+`ports` list. If `br-lan` has no port list, the writer **fails loudly and
+changes nothing** (a bridge with no ports would leave the operator with a dead
+cable and no diagnostic).
 
 **D2 — `br-mgmt` gets its own fw4 zone, and it is a management zone with no way
 out.** `firewall.mgmt_zone` (`name 'mgmt'`, `network 'mgmt'`,
@@ -260,7 +287,8 @@ What follows from that, stated for the operator rather than implied:
   configuration change:
   - **F1 (preferred): per-instance isolation upstream.** Make nodogsplash's
     chain names and destroy path per instance (suffix the `nds*` names by pid or
-    interface — `fw_iptables.h:35-44`, `fw_iptables.c:442-446,689-747`), give
+    interface — `fw_iptables.h:35-44`,
+    `fw_iptables.c:442-446,534-538,689-747`), give
     each instance its own `ndsctlsocket` (already a per-section uci option,
     init script `:141-147`), and teach `valve.go:96-102` to select the socket of
     the bridge the client is on (the bridge is knowable: `/proc/net/arp` carries
@@ -337,15 +365,19 @@ alone removes the lockout and the L2 exposure; it does not sell anything.
 
 ### A1 — A second nodogsplash instance for `br-mgmt`
 
-Rejected: **it does not isolate, and its failure mode is free internet.** The
-packaging supports it (one procd instance per `config nodogsplash` section, its
-own generated config file, per-section `gatewayinterface`/`ndsctlsocket`/
-`fw_mark_*`), which is exactly what makes it attractive — but the daemon has
-fixed, shared chain names (`src/fw_iptables.h:35-44`), creates them with `-N`
-(`src/fw_iptables.c:442-446`) and **deletes them by name** on teardown
-(`:689-747`). Either instance restarting wipes the other's enforcement, and
-nothing in either process notices. Restarts are routine: procd respawn, the fw4
-hotplug, and this module's own
+Rejected: **it does not isolate, and its failure mode differs by bridge —
+fail-closed on `br-lan`, fail-open on the second one.** The packaging supports
+it (one procd instance per `config nodogsplash` section, its own generated
+config file, per-section `gatewayinterface`/`ndsctlsocket`/`fw_mark_*`), which
+is exactly what makes it attractive — but the daemon has fixed, shared chain
+names (`src/fw_iptables.h:35-44`), creates them with `-N` in both tables
+(`src/fw_iptables.c:442-446` mangle, `:534-538` filter) and **deletes them by
+name** on teardown (`:689-747`), on the start path as well as on shutdown
+(`src/main.c:297-305`). Either instance starting or restarting wipes the other's
+enforcement, and nothing in either process notices: on `br-lan` every unmarked
+client is rejected (Context), and the second bridge is as open as its own zone
+leaves it, because nothing in the shipped rules matches it. Restarts are
+routine: procd respawn, the fw4 hotplug, and this module's own
 `/etc/init.d/nodogsplash restart` (`src/cmd/tollgate-cli/main.go:705-776`).
 On top of that the money path is single-socket by construction (`valve.go:96-102`
 with no `-s`), so the second instance can never be authorised by `valve` — a
@@ -417,7 +449,14 @@ hardware. Both tiers are listed.
    `dhcp.mgmt` and `firewall.mgmt_zone`, and **moves** the port list: after a
    run on a fixture whose `br-lan` device lists `eth1`, `br-lan` lists none and
    `br-mgmt` lists `eth1`. A fixture with an empty `br-lan` port list changes
-   nothing and fails loudly.
+   nothing and fails loudly. *Not runnable against the existing offline tier as
+   it stands*: the shim in `tests/uci-defaults-private-subnet_test.sh:74`
+   answers `show` with `:` (a silent no-op), while the repo's own idiom for
+   enumerating `network` sections is `uci show network | awk`
+   (`99-tollgate-setup:1469`) — a writer using it would see no ports and take
+   the fail-loudly branch on every fixture. The implementing PR must teach the
+   shim `show`/`get`, or seed flat `network.@device[N].ports` keys in the
+   fixture, and prove the negative in the same change (assertion 2).
 2. The move is idempotent: a second run adds nothing and duplicates nothing
    (the repo's `uci` shim trap applies — an unhandled verb must not pass
    vacuously).
@@ -427,11 +466,17 @@ hardware. Both tiers are listed.
 4. `31-*.nft` and `32-*.nft` still drop their ports on `br-lan` only (protocol
    coverage and both families), and **no** shipped fragment names `br-mgmt` in a
    `drop`/`reject` for those ports.
-5. The new `br-mgmt` fragment: `nft -c -f` passes against the
-   `table inet fw4 {}` wrapper this repo uses for fragment validation, with a
-   negative control (a fragment missing the drop must fail the check); its
-   allow list contains `443, 8080, 8090, 8443` and its drop covers `2050`,
-   `2051` and `2121`.
+5. The new `br-mgmt` fragment: `nft -c -f` passes against a `table inet
+   fw4 {}` wrapper, with a negative control (a fragment missing the drop must
+   fail the check); its allow list contains `443, 8080, 8090, 8443` and its drop
+   covers `2050`, `2051` and `2121`. *This harness does not exist in the tree
+   today* — `grep -rn "nft -c\|table inet fw4 {"` matches nothing outside this
+   record — so the implementing PR must add it (a wrapper file plus the
+   `nft -c -f` invocation). The existing fragment tier validates statically
+   instead: it greps for the expected rules, checks the fragment opens no
+   `table` of its own, and checks it reuses no chain name
+   (`tests/packaging/luci-not-guest-reachable_test.sh:90-105`). Adding the
+   parser-backed check is this assertion's actual work, not an assumption.
 6. `firewall.mgmt_zone` has no forwarding to `wan`, and the writer does not
    reuse `firewall.private_zone`.
 7. The same-version (reinstall/upgrade) path reaches the same writer, so a
@@ -447,8 +492,14 @@ per the repo's deploy rules)**
    the wired port; `ip -d link show <wired port>` shows `master br-mgmt` and
    **not** `master br-lan`; `ip -d link show br-lan` does not list it.
 10. **Admin surfaces answer from the cable, pre-auth.** From the wired client,
-    before any purchase: `:8090` answers (board), `:8080` answers (LuCI),
-    `:443` completes a TLS handshake and `:8443` answers, `:22` answers.
+    before any purchase: `:8090` answers (board), `:8080` answers (LuCI) and
+    `:443` completes a TLS handshake. `:8443` answers **only when the opt-in
+    listener exists** — it is written by the feed's `92-tollgate-admin-setup` and
+    this script only clears it (`99-tollgate-setup:804-805`), so on a router with
+    no TLS identity there is no listener and a correct build must not be failed
+    for its absence. `:22` answers **only if dropbear listens on the `mgmt`
+    network**: nothing in `99-tollgate-setup` configures SSH, so that dependency
+    has to be named rather than assumed.
 11. **The cable has no internet.** From the wired client: `ping 9.9.9.9` fails,
     a TCP connection to a WAN address fails, and the fragment's drop counter
     increments (`nft list chain inet fw4 <mgmt chain>`).
@@ -511,8 +562,8 @@ which now reaches the board and LuCI and has no internet.
 - **Why this is an ADR and not a config change.** The repo's rule is decision
   first (`docs/architecture/`), and this one has a fact in it the requester did
   not have: the request as worded cannot be satisfied by the stack as built. The
-  right time to learn that is before the change, not from a router that pays out
-  free internet.
+  right time to learn that is before the change, not from a router whose gate has
+  been torn down on one bridge and left absent on the other.
 - **What is unchanged, deliberately**: `users_to_router` (`99-tollgate-setup:1108-1124`),
   the `:8080`/`:443` removal logic, the `:80` trusted stub
   (`setup_uhttpd_trusted_entry`), `20-nds-enforce.nft`'s mark values

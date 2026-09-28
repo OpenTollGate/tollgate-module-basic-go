@@ -407,7 +407,31 @@ installed happily, which is exactly the hole the rule closes. If you have a
 feed problem, fix the key or the URL — do not reach for that flag, and do not
 paste it into a report as advice.
 
-### The admin UI, and what its certificate warning means
+### The two admin UIs, and what a certificate warning means
+
+Two admin UIs answer on this build, on two listener pairs — different webroots
+on different uhttpd instances, and **not** the same URL:
+
+| UI | URL on this build | Answers from |
+| --- | --- | --- |
+| **LuCI** (OpenWrt's own administration UI) | `https://<hostname>.lan/` (or `https://<LAN IP>/`) — `http://<router>:8080/` when no identity exists | `uhttpd.main`, webroot `/www` |
+| **The TollGate board** (the router's dashboard) | `http://<router>:8090/` — `https://<router>:8443/` while a certificate file exists | `uhttpd.admin`, webroot `/www/<brand>` |
+
+So on this build the **entry point `https://<hostname>.lan/` answers LuCI**, not
+the board. Inverting that is the operator decision recorded in
+`docs/architecture/default-ui-and-entry-port-decision.md`; until the release that
+ships it, "the hostname opens LuCI" describes the shipped mapping and is not a
+defect on its own. Both UIs answer from the management/private network and
+on-box only: the router's own firewall guards drop all four ports for ordinary
+`br-lan` clients (measured on the bench — tcp `8080`/`443` and `8090`/`8443`
+dropped for a LAN client), so "connection refused" from a wired-LAN or guest-SSID
+client is that guard, not the UI.
+
+**Admin cross-links must be HTTPS.** The board's login page currently offers an
+`http://<router>:8080/` link to LuCI; a cleartext link to an admin login is a
+defect worth reporting. The intended form is an `https://` URL on the same host
+whose port the router itself supplies, and a link that is not live must not be
+rendered at all.
 
 A fresh install now **provisions the router's own TLS identity** instead of
 inheriting the OpenWrt image's placeholder certificate (`subject CN=OpenWrt`,
@@ -458,6 +482,12 @@ the certificate uhttpd serves actually covers the address you used. So:
     still on the captive bridge `br-lan`.
   - **On the private SSID** (`br-private`, which nodogsplash does not gate) both
     the board and LuCI answer, unchanged.
+- **The board's `:8443` is a separate certificate question from LuCI's `:443`.**
+  It is a different listener with its own certificate (`/etc/uhttpd.crt` on this
+  build, which is the image's placeholder unless something replaced it). A
+  covering identity on the entry point says nothing about the board's TLS
+  listener: a **name mismatch** there is reportable on its own, and it is not the
+  same finding as a mismatch on `https://<hostname>.lan/`.
 
 ---
 

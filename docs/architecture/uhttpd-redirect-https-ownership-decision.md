@@ -101,9 +101,12 @@ login itself was never broken: `POST /ubus session.login` over `:8443` and
 - Neither script may hardcode this option again: both evaluate the rule above.
   **The feed's `92-tollgate-admin-setup` still carries the superseded
   existence-only guard and must be updated to the same rule** — this repository
-  cannot change it. Until it is, correctness depends on install order: `99` runs
-  after `92` and lands the coverage-checked value last, so the shipped
-  combination is safe, but the two writers do not yet evaluate the same premise.
+  cannot change it. ~~Until it is, correctness depends on install order: `99`
+  runs after `92` and lands the coverage-checked value last, so the shipped
+  combination is safe.~~ **Superseded by the measured install order further
+  down this record: `92` is the *last* writer, so install order does not save
+  this — the operator-visible defect stands until the feed's copy evaluates the
+  same premise.**
 - `99-tollgate-setup` **provisions** the router's TLS identity instead of
   inheriting the image's placeholder: on both the full-setup and the
   verify/repair path it drives the module's own generator
