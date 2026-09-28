@@ -85,6 +85,21 @@ the signed probe rather than authenticating them. `TollGate-<code>` /
 `Net4sats-<code>` with the brand-prefix recognition set (`hasTollGateSSID`)
 is this tier, done deliberately.
 
+**Deferred variant — checksum-in-SSID** (tabled 2026-09-28, considered for
+v0.6 and left out): appending a truncated key checksum to the captive SSID
+(`Net4sats-<code>-<checksum>`) so a reseller with a trust allowlist could
+filter scan candidates pre-association without associating to wrongly-keyed
+APs. Recognizer-neutral (`hasTollGateSSID` is prefix-only; the shell
+convergence would preserve such an SSID as an operator-style name), but
+blocked on three things: a consumer (the allowlist pre-filter does not
+exist), the one-device-code contract (the captive SSID would deliberately
+diverge from the shared code — the exact drift class #605 closed, pinned
+cross-repo), and the key-linkability question (a merchant-key-derived
+checksum makes the SSID permanently linkable to the operator's money
+identity — the milder cousin of the rejected beaconed-npub). Target: next
+release, folded into the Tier-2 vendor-IE work where it belongs as one
+pre-association signal among several, designed with its consumer.
+
 ### Rejected outright (recorded with evidence so they stay closed)
 
 - **BSSID signaling** — 48 bits cannot carry a key; truncation destroys
@@ -108,5 +123,7 @@ cannot answer a pre-association question.
 Signals to revisit this record: (a) customers need pre-association *price*
 in the WiFi picker (pulls toward Tier 1/ANQP), (b) reseller discovery needs
 to survive SSID renames (ANQP domain name or the vendor IE), (c) a
-registered OUI/OI is obtained. Until then: SSID prefix selects, the signed
+registered OUI/OI is obtained, (d) reseller allowlist pre-filtering becomes
+worth building (the Tier-2 vendor-IE work, with the tabled checksum-in-SSID
+variant as one of its signals). Until then: SSID prefix selects, the signed
 advertisement on `:2121` verifies.
