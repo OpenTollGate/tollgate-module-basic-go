@@ -12,6 +12,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The vendor-IE encoder has an explicit overflow policy instead of a silent
+  failure.** When the encoded body would exceed the 255-byte element cap the
+  mint TLV (the bulkiest optional field) is dropped and the truncation is
+  reported by `EncodeTollGateVendorIE` and logged by `EmitTollGateVendorIE`
+  — the element is an unsigned hint, and the signed advertisement on `:2121`
+  remains authoritative and complete. Only a pubkey that cannot fit even
+  without the mint TLV is an error. Round-trip tests now use realistic
+  32-byte keys (was 3 bytes). Found by the #618 design review.
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`
   workflow routes through the elected router-bench gateway: pull requests reach
   the isolated QEMU lab only, and only post-merge `main` runs can touch the
