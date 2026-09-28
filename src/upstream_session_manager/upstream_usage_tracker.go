@@ -27,7 +27,11 @@ type UpstreamUsageTracker struct {
 	lastAllotment      uint64
 	pollCount          int       // Track poll count for periodic info logging
 	lastPaymentTrigger time.Time // Track when we last triggered a payment
-	mu                 sync.RWMutex
+	// lastLoggedClampOffset is the effective (clamped) renewal offset last
+	// announced in the log; -1 when the clamp is not binding. It makes the
+	// clamp warning transition-triggered instead of per-poll.
+	lastLoggedClampOffset int64
+	mu                    sync.RWMutex
 
 	// Control
 	ticker *time.Ticker
@@ -41,11 +45,12 @@ func NewUpstreamUsageTracker(
 	renewalCallback func(string, uint64) error,
 ) *UpstreamUsageTracker {
 	return &UpstreamUsageTracker{
-		gatewayIP:       gatewayIP,
-		renewalOffset:   renewalOffset,
-		renewalCallback: renewalCallback,
-		totalAllotment:  0, // Will be set after first poll
-		done:            make(chan struct{}),
+		gatewayIP:             gatewayIP,
+		renewalOffset:         renewalOffset,
+		renewalCallback:       renewalCallback,
+		totalAllotment:        0, // Will be set after first poll
+		lastLoggedClampOffset: -1,
+		done:                  make(chan struct{}),
 	}
 }
 
@@ -262,16 +267,57 @@ func (u *UpstreamUsageTracker) checkRenewal(usage, allotment uint64) {
 	// Check if we need renewal (usage approaching allotment)
 	if allotment > 0 {
 		remaining := int64(allotment) - int64(usage)
-		if remaining <= int64(u.renewalOffset) {
+		// The configured renewal offset may exceed the allotment actually
+		// purchasable: the default bytes offset (131,100,000) is larger than
+		// the 5 x 22,020,096 = 110,100,480 bytes a typical upstream
+		// advertisement quantizes to, which made every bytes-metered session
+		// renew at near-zero usage (#430). Never renew while more than half
+		// of the current allotment remains.
+		effectiveOffset := int64(u.renewalOffset)
+		clamped := false
+		// Compare in uint64 before any cast (review F3 on #442): a
+		// renewal_offset at or above 2^63 is settable through config and
+		// would turn negative as int64, silently suppressing renewal.
+		// Both casts below stay in range: allotment comes from the wire
+		// already gated to MaxInt64 by the usage parser, and an unclamped
+		// renewalOffset ≤ allotment/2 is below MaxInt64 as well.
+		if half := allotment / 2; u.renewalOffset > half {
+			effectiveOffset = int64(half)
+			clamped = true
+		}
+
+		// Announce the clamp when it (re)binds or its effective value
+		// changes — not on every poll, which would spam the log once per
+		// second for the whole session lifetime under default config.
+		u.mu.Lock()
+		shouldLogClamp := clamped && u.lastLoggedClampOffset != effectiveOffset
+		if clamped {
+			u.lastLoggedClampOffset = effectiveOffset
+		} else {
+			u.lastLoggedClampOffset = -1
+		}
+		u.mu.Unlock()
+
+		if shouldLogClamp {
+			logrus.WithFields(logrus.Fields{
+				"gateway":    u.gatewayIP,
+				"configured": u.renewalOffset,
+				"effective":  effectiveOffset,
+				"allotment":  allotment,
+			}).Warn("🔧 Renewal offset exceeds half the allotment — clamped (explicit operator config overridden, #430)")
+		}
+
+		if remaining <= effectiveOffset {
 			u.mu.Lock()
 			u.lastPaymentTrigger = time.Now()
 			u.mu.Unlock()
 
 			logrus.WithFields(logrus.Fields{
-				"gateway":   u.gatewayIP,
-				"usage":     usage,
-				"allotment": allotment,
-				"remaining": remaining,
+				"gateway":          u.gatewayIP,
+				"usage":            usage,
+				"allotment":        allotment,
+				"remaining":        remaining,
+				"effective_offset": effectiveOffset,
 			}).Info("💳 Renewal threshold reached, triggering renewal")
 
 			// Trigger renewal in goroutine (non-blocking)

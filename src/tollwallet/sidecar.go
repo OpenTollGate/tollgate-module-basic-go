@@ -393,3 +393,10 @@ func (s *SidecarWallet) Shutdown() error {
 	s.shutdownConn()
 	return nil
 }
+
+// AcceptMint forwards runtime mint admission to the wallet daemon via its
+// RPC surface; daemons without the method report it and the caller keeps
+// the boot-time accepted set.
+func (s *SidecarWallet) AcceptMint(mintURL string) error {
+	return s.call("accept_mint", map[string]string{"mint_url": mintURL}, nil)
+}

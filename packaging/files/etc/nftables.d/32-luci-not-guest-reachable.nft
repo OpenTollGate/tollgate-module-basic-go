@@ -1,0 +1,56 @@
+#!/usr/sbin/nft -f
+
+# Keep LuCI off the captive bridge.
+#
+# This include is loaded inside fw4's `inet` table (same shape as
+# 20-nds-enforce.nft, 30-backend-firewall.nft and
+# 31-admin-board-not-guest-reachable.nft), so it runs on `fw4 reload` and
+# survives a nodogsplash restart.
+#
+# WHAT IS BEING BLOCKED. uhttpd.main serves LuCI on :8080 (and on :443 whenever
+# a cert/key pair exists) with `home=/www`; /www/index.html meta-refreshes into
+# /cgi-bin/luci, i.e. the router's administration login. It is the same class of
+# surface as the owner-facing admin board on :8090 that
+# 31-admin-board-not-guest-reachable.nft already keeps off this bridge.
+#
+# WHY IT IS A DEFECT AND NOT JUST A TIDY-UP. Measured on the bench MT3000
+# (2026-09-25, pre17, first-hand from a MAC the box had never seen): a paying
+# *guest* who asked the router for plain HTTP on :80 — the URL a tester types,
+# and the URL the old builds left dead for a trusted or authenticated client —
+# fell through to `https://<router>/` and landed on the LuCI login. The operator
+# read exactly that as "the install is broken". A customer-facing network must
+# not answer a browser with the router's admin login; the portal is the surface
+# the guest journey owns.
+#
+# WHY BOTH LAYERS. `assert_nodogsplash_allow_entries` in 99-tollgate-setup drops
+# :8080 and :443 from nodogsplash's pre-auth allow list (the node-scoped half),
+# but that list is written by two scripts and repaired on install, and it says
+# nothing about an *authenticated* guest, whose traffic 20-nds-enforce.nft
+# accepts by mark. This rule is the half that does not depend on the list being
+# in the intended state, and it covers a trusted or authenticated client too.
+#
+# OPERATOR NOTE — what changes for you. LuCI still answers on :8080/:443 over
+# the management path: br-private (the private SSID) and loopback, neither of
+# which this rule matches. It no longer answers a client on the captive bridge
+# br-lan, before or after payment. If you run with the private network disabled
+# and administer the router from a br-lan client, use the module CLI
+# (`tollgate status`, `tollgate wallet balance`, ...) or enable the private
+# network. The guest-facing entry point is the portal — plain HTTP on :80 now
+# serves the redirect stub to it (see `setup_uhttpd_trusted_entry` in
+# 99-tollgate-setup).
+#
+# Deliberately NOT dropped here: :2050/:2051 (the captive portal the guest is
+# paying through, including the plain-HTTP entry on :80 added by
+# `setup_uhttpd_trusted_entry`), :2121 (handled by 30-backend-firewall.nft),
+# :8090/:8443 (handled by 31-admin-board-not-guest-reachable.nft — one port,
+# one fragment, so a reader can tell which rule dropped what).
+#
+# CAVEAT, same as 30-backend-firewall.nft:15-17 and 31-*.nft: an operator who
+# renamed the captive bridge loses this rule and nothing else.
+
+chain luci_not_guest_reachable {
+	type filter hook input priority -1; policy accept
+
+	meta nfproto ipv4 iifname "br-lan" tcp dport { 8080, 443 } counter drop
+	meta nfproto ipv6 iifname "br-lan" tcp dport { 8080, 443 } counter drop
+}

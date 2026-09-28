@@ -80,6 +80,11 @@ is generated from
   (reseller mode).
 - Per-mint pricing, trust allow/blocklists, configurable session
   increments and renewal thresholds.
+- No accounts and no user identifiers: a customer is identified by the MAC
+  address their device uses, always resolved from the request's socket and
+  never from a value the client sends, and an address whose client left is
+  deauthorised instead of staying open ([what that means for a customer who
+  changes their address](docs/operator-guide.md#client-identity-mac-addresses-and-what-changing-one-does)).
 
 ## Modules
 
@@ -119,14 +124,60 @@ For local packaging experiments use
 the target binaries locally, stages the canonical `packaging/` recipe into the
 OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
 
+### Supported devices
+
+Whether a package exists for a router at all is decided by the CI build
+matrix in
+[.github/workflows/build-package.yml](.github/workflows/build-package.yml):
+a router is covered when its OpenWrt *target* and `DISTRIB_ARCH` match one of
+the rows in that matrix (check them with `ubus call system board`, or
+`cat /etc/openwrt_release`). That is the machine-true definition of
+"supported" — there is no per-model board list in the package.
+
+**Cudy WR3000 v1** (MediaTek MT7981B, 256 MB RAM) matches the matrix on
+`mediatek/filogic` / `aarch64_cortex-a53`, board name `cudy,wr3000-v1`, so the
+`arm64` package built for that row installs on it. It was exercised on real
+hardware against mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`): the full
+dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
+kmods) installs and `nodogsplash` runs with the module's keepalive contract
+live (trusted MAC plus `allow tcp port 22`).
+
+**Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
+The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and
+leaves roughly 4.6 MB of free overlay. The default build does not fit: its
+payload is ~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+`usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed, `apk add` fails with
+`failed to extract usr/bin/tollgate-wrt: No space left on device`, and a custom
+ImageBuilder image does not fit either. The **`upx-ultra-brute` variant that
+this repo's CI already builds for `aarch64_cortex-a53`** does fit: it shrinks
+the payload to **5.34 MiB** (`usr/bin/tollgate-wrt` 3,389.5 KiB plus
+`usr/bin/tollgate` 1,823.8 KiB, plus ~256 KiB of config and captive-portal
+files). A real WR3000 v1 was taken through it on 2026-09-27 — installed from the
+compressed `.apk`, rebooted, and came back with `tollgate-wrt` running and no
+volatile helper, so a **persistent** install is possible on a 16 MB device with
+this variant. Two notes for such devices:
+
+- the 1.78 MiB `tollgate` CLI is only needed for provisioning, so on this class
+  of device it can be dropped after the first boot to leave room for the
+  `nodogsplash` dependency closure;
+- install the dependency closure in **one** `apk add` transaction. `apk add
+  --force-non-repository <file>` performs a world sync and removes packages that
+  were previously installed from files, which silently takes `nodogsplash` back
+  out.
+
+A volatile (tmpfs) install remains the fallback for bench work that cannot free
+the space. (Measured with the `upx-ultra-brute` dev-channel build
+`main.200.4469994`, sha256 `29bb68adbb26e67c…`; publishing that variant in the
+feed release is tracked with the packaging feed, not here.)
+
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.7`**. An abridged example:
+The current schema version is **`v0.0.8`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.7",
+  "config_version": "v0.0.8",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
@@ -170,9 +221,9 @@ The current schema version is **`v0.0.7`**. An abridged example:
     },
     "sessions": {
       "preferred_session_increments_milliseconds": 60000,
-      "preferred_session_increments_bytes": 131100000,
+      "preferred_session_increments_bytes": 2500000000,
       "millisecond_renewal_offset": 10000,
-      "bytes_renewal_offset": 131100000
+      "bytes_renewal_offset": 1225000000
     },
     "usage_tracking": {
       "data_monitoring_interval": "500ms"
@@ -231,7 +282,7 @@ See [tests/README.md](tests/README.md) for how to wire up the test fleet.
 
 Design and protocol docs live under [docs/](docs/):
 
-- [docs/operator-guide.md](docs/operator-guide.md) — practical CLI reference for router operators
+- [docs/operator-guide.md](docs/operator-guide.md) — practical CLI reference for router operators, including [client identity, MAC addresses, and what changing one does](docs/operator-guide.md#client-identity-mac-addresses-and-what-changing-one-does)
 - [docs/rc-tester-guide.md](docs/rc-tester-guide.md) — install/upgrade/rollback/report guide for the alpha release candidate
 - [docs/tester-intake.md](docs/tester-intake.md) — the single intake channel, the report template, and the triage/severity rules for alpha testers
 - [docs/merchant.md](docs/merchant.md)

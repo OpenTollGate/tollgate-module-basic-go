@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -63,12 +64,25 @@ func SaveInstallConfig(filePath string, installConfig *InstallConfig) error {
 }
 
 // EnsureDefaultInstall ensures a default install.json exists, loading from file if present.
+// It also stamps InstallTimestamp when it is zero (fresh installs created the
+// file with install_time 0): the binary is the sole owner of this file now
+// that the package preinst is a no-op.
 func EnsureDefaultInstall(filePath string) (*InstallConfig, error) {
 	defaultInstallConfig := NewDefaultInstallConfig()
+
+	stampZero := func(ic *InstallConfig) bool {
+		if ic.InstallTimestamp == 0 {
+			ic.InstallTimestamp = time.Now().Unix()
+			return true
+		}
+		return false
+	}
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			_ = os.MkdirAll(filepath.Dir(filePath), 0755)
+			stampZero(defaultInstallConfig)
 			return defaultInstallConfig, SaveInstallConfig(filePath, defaultInstallConfig)
 		}
 		return nil, err
@@ -80,7 +94,11 @@ func EnsureDefaultInstall(filePath string) (*InstallConfig, error) {
 			log.Printf("CRITICAL: Failed to backup and remove invalid install config: %v", backupErr)
 			return nil, backupErr
 		}
+		stampZero(defaultInstallConfig)
 		return defaultInstallConfig, SaveInstallConfig(filePath, defaultInstallConfig)
+	}
+	if stampZero(&installConfig) {
+		return &installConfig, SaveInstallConfig(filePath, &installConfig)
 	}
 	return &installConfig, nil
 }

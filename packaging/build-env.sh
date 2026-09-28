@@ -19,6 +19,11 @@
 #
 # Helpers (functions, not exports):
 #   sdk_image_ref <target>     openwrt/sdk image pinned by digest
+#   sdk_series <release>       release line of an OpenWrt release (25.12.0
+#                              -> 25.12; the feed-branch name component)
+#   sdk_go_version <release>   official Go of an OpenWrt release line, from
+#                              .openwrt_sdk.go_per_release (audited against
+#                              the live feed by scripts/sdk-go-version.sh)
 #   go_ldflags  <pkg-version>  service binary ldflags (no wall clock)
 #   cli_ldflags <pkg-version>  go_ldflags + main.version for the CLI module
 #   tg_git_branch              branch of the enclosing repo; "main" when the
@@ -120,6 +125,32 @@ sdk_image_ref() {
     [ -n "$_digest" ] && [ "$_digest" != "null" ] \
         || tg_die "no SDK digest pinned for target '$_tgt' in build-inputs.json"
     printf '%s:%s@%s' "$(jq -r '.openwrt_sdk.image' "$TG_BUILD_INPUTS")" "$_tgt-$SDK_RELEASE" "$_digest"
+}
+
+# Release line ("series") of an OpenWrt release: the feed branch name
+# component. 25.12.0 and 25.12 both normalize to 25.12, because the
+# openwrt/packages branch that defines the line's toolchain is named after
+# the series (openwrt-25.12), not the point release.
+sdk_series() {
+    _rel="$1"
+    case "$_rel" in
+        *.*.*) _rel="${_rel%.*}" ;;
+    esac
+    printf '%s' "$_rel"
+}
+
+# Official Go toolchain of an OpenWrt release line, from the manifest's
+# .openwrt_sdk.go_per_release map (maintained against the live feed by
+# scripts/sdk-go-version.sh check|update). Accepts a series (24.10) or a
+# point release (24.10.2). This is the Go that line's SDK builds Go packages
+# with; it is deliberately distinct from GO_VERSION, the toolchain this
+# repository builds with — scripts/sdk-go-version.sh check pins the two
+# together for the release actually in use.
+sdk_go_version() {
+    _series="$(sdk_series "$1")"
+    _v="$(jq -r --arg s "$_series" '.openwrt_sdk.go_per_release[$s] // empty' "$TG_BUILD_INPUTS")"
+    [ -n "$_v" ] || tg_die "no go pinned for OpenWrt release line '$_series' in build-inputs.json (.openwrt_sdk.go_per_release)"
+    printf '%s' "$_v"
 }
 
 # Branch of the enclosing repository, recorded in

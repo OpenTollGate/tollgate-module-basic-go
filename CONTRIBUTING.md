@@ -45,13 +45,15 @@ lives in the canonical spec repo
 
 ```bash
 git clone https://github.com/OpenTollGate/tollgate-module-basic-go.git
-cd tollgate-module-basic-go/src
-go build ./...
-go test -tags testenv ./...
+cd tollgate-module-basic-go
+make go-battery
 ```
 
-Go tooling runs from [src/](src/), not the repo root. The Go version is
-pinned in [src/go.mod](src/go.mod); CI installs exactly that version
+`make go-battery` is the full gate across all 16 modules; the bare
+`cd src && go build ./...` form covers only the root module. Go tooling
+that targets one module still runs from [src/](src/), not the repo root.
+The Go version is pinned in [src/go.mod](src/go.mod); CI installs
+exactly that version
 via `go-version-file`. The `testenv` build tag provisions a hermetic
 temp config dir so the main package's `init()` does not depend on
 `/etc/tollgate/config.json` — letting the suite run off-router. The tag
@@ -124,14 +126,18 @@ purpose.
 
 ### Required before opening any PR
 
-Run these locally, from [src/](src/), and confirm they all pass:
+Run these locally **from the repo root** and confirm they pass:
 
 ```bash
-gofmt -l .          # must print nothing
-go vet ./...
-go build ./...
-go test -race -count=1 -tags testenv ./...
+make go-battery
 ```
+
+That is the same gate CI runs: `gofmt -l .` (must print nothing),
+`go vet ./...`, `go build ./...` and `go test -race -count=1 -tags
+testenv ./...` — executed in **every** Go module. src/ is a multi-module
+tree (16 nested `go.mod` files): running the commands from `src/` alone
+covers only the root module and silently skips the subpackages. The one
+implementation is [scripts/go-battery.sh](scripts/go-battery.sh).
 
 CI runs the test suite per-module with `-race`, so a data race in any
 touched package will fail the build.
@@ -302,6 +308,32 @@ restrictions.
 For implementation questions specific to your PR, ask in the PR
 itself. For design or roadmap questions that don't have a clear PR
 home yet, file a GitHub issue.
+
+## Branding, the operator nym, and net4sats
+
+Read this before filing a PR or an issue that mentions either of these —
+they are a recurring source of confusion.
+
+- **TollGate is the non-profit, reference implementation of the TollGate
+  protocol.** It does not adopt net4sats branding.
+- **`net4sats` is a commercial re-brand of TollGate.** It is shipped as a
+  separate whitelabel build (distinct `brand` value — hostname, DNS, AP SSIDs
+  and the admin webroot all derive from `brand`). Naming and branding decisions
+  for net4sats are made by the net4sats project, not by this repo. Do not treat
+  `net4sats` and `tollgate` as interchangeable; they are `$BRAND` variants.
+- **`c08r4d0r` is a shared pseudonym for "a TollGate operator", not a personal
+  identifier.** Everyone who runs a TollGate may go by the nym `c08r4d0r`. It
+  deliberately names no real person. The codebase uses it as the representative
+  operator identity (e.g. the 0.07 profit-share example identity in
+  `README.md` and `docs/merchant.md`), and it appears as the default private
+  SSID prefix (`c08r4d0r-<suffix>`). Because it is a shared, anonymous nym, an
+  SSID like `c08r4d0r-AB12` leaks no operator identity — it only indicates a
+  private (operator-owned) AP. Do not report it or a guard test on it as an
+  "identity leak".
+
+When you see `c08r4d0r`, `net4sats`, or `tollgate` in a diff and suspect a
+naming bug, confirm the intent against the `brand` value and this section
+before asserting a leak or a rebranding error.
 
 ## Further reading
 

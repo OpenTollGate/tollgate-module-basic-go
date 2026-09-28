@@ -10,6 +10,10 @@ Validates the reseller flow:
 This test requires the 'two-router' Docker profile:
   docker compose --profile two-router up -d
 
+Without the profile the whole module skips (reseller not running) — a
+default `docker compose run --rm client` must stay green instead of
+failing two tests on connection-refused.
+
 Note: In the Docker lab without real WiFi, the upstream discovery uses
 the stub network monitor which fires a fake interface-up event. Full
 router-to-router discovery requires QEMU + real OpenWrt. This test
@@ -29,6 +33,23 @@ from conftest import (
     build_payment_event,
     create_cashu_token,
     wait_for,
+)
+
+
+def _reseller_running() -> bool:
+    # Short grace window so a profile run whose reseller is still booting
+    # is not wrongly skipped; fast-fail when the container is absent.
+    try:
+        wait_for(RESELLER_URL, timeout=5, interval=0.5)
+        return True
+    except TimeoutError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _reseller_running(),
+    reason="reseller TollGate not running — start the two-router profile: "
+           "docker compose --profile two-router up -d",
 )
 
 

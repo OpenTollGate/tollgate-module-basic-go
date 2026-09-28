@@ -110,6 +110,14 @@ env:
   RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
 """
 
+# The package-job epoch env is a ${{ ... }} workflow expression, so it must
+# never live inside the package-job f-string: f-strings collapse {{ to {,
+# which is how the single-brace form reached the committed shards in #441.
+# The runner passes that literal through and packaging/build-env.sh's epoch
+# validation (non-integer => tg_die) fails every package job. Token-emitted
+# like every other brace-bearing line.
+EPOCH_ENV_LINE = "      SOURCE_DATE_EPOCH: ${{ needs.resolve-inputs.outputs.source_date_epoch }}"
+
 RESOLVE_INPUTS = """\
   resolve-inputs:
     runs-on: ubuntu-latest
@@ -121,6 +129,7 @@ RESOLVE_INPUTS = """\
       release_run: ${{ steps.identity.outputs.release_run }}
       hashes: ${{ steps.fetch.outputs.hashes }}
       portal_hash: ${{ steps.fetch.outputs.portal_hash }}
+      source_date_epoch: ${{ steps.fetch.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@v5
 
@@ -218,6 +227,26 @@ RESOLVE_INPUTS = """\
           fi
           echo "binaries: $HASHES"
           echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
+
+          # Reproducibility pin (#383, #441): stage 1 stamps the binaries
+          # with a SOURCE_DATE_EPOCH and rides it on this record; packaging
+          # must use the SAME epoch or the package mtimes disagree with the
+          # binaries' BuildTime. Records from before the field existed fall
+          # back to the same derivation stage 1 uses.
+          EPOCH=$(printf '%s' "$HASHES" | jq -r '.epoch // empty')
+          if [ -z "$EPOCH" ]; then
+            EPOCH=$(bash scripts/ngit-commit-epoch.sh "$GITHUB_SHA" 2>/dev/null || true)
+          fi
+          if [ -z "$EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
+            EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
+          fi
+          if [ -z "$EPOCH" ]; then
+            EPOCH="$(date +%s)"
+            echo "NOTE: stage-1 record carried no epoch; using job clock $EPOCH — package mtimes will NOT rebuild identically" >&2
+          fi
+          case "$EPOCH" in *[!0-9]*|'') echo "ERROR: epoch is not an integer: $EPOCH" >&2; exit 1 ;; esac
+          echo "source_date_epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$EPOCH"
 
           PORTAL_EVENT=$(fetch_record portal) || {
             echo "ERROR: no portal record for build id $BUILD_ID." >&2
@@ -362,8 +391,14 @@ IPK_BUILD = """\
       - name: Install UPX
         if: ${{ matrix.compression != 'none' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y upx-ucl
+          set -euo pipefail
+          # Pinned UPX (version + sha256 in packaging/build-inputs.json);
+          # apt's upx-ucl floats and its output IS part of the artifact —
+          # same pin as the GitHub twin's Install UPX steps. SOURCE_DATE_EPOCH
+          # is in this job's env, which packaging/build-env.sh requires.
+          UPX_DIR=$(bash scripts/fetch-upx.sh)
+          echo "PATH=$UPX_DIR:$PATH" >> "${GITHUB_ENV:-/dev/null}"
+          "$UPX_DIR/upx" --version | head -1
 
       - name: Build .ipk
         id: build
@@ -403,6 +438,25 @@ IPK_BUILD = """\
             ls -lh "$PAYLOAD/usr/bin/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate"
           fi
 
+          # nodogsplash is a RUNTIME dependency, not a package this one supersedes: the
+          # module gates the network *through* the daemon and only ships files into its
+          # config/doc space. The defect was the missing DEPENDS -- and it showed on both
+          # lanes:
+          #
+          #   - apk lane (the SDK build we installed on hardware): the artifact carried
+          #     `depends:libc` and no `replaces:` field at all -- verified from the raw
+          #     `apk mkpkg` invocation in the build log -- so nothing pulled or retained
+          #     the daemon. After installing on a GL-MT3000 (OpenWrt 25.12.5) nodogsplash
+          #     was gone and the captive portal was down until it was reinstalled by
+          #     hand. Same failure class packaging/preinst already documents: an
+          #     undeclared runtime dependency that a maintainer script needs, ending in
+          #     the daemon being orphan-removed.
+          #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
+          #     into the control file, where `Replaces` does supersede the named package.
+          #
+          # So: declare the daemon, never also claim to replace it. Same contract as the
+          # shipping-path feed definition, net/tollgate-wrt/Makefile
+          # (`DEPENDS:=+nodogsplash +jq`).
           mkdir -p artifacts
           env \\
             PKG_NAME="$PACKAGE_NAME" \\
@@ -410,9 +464,9 @@ IPK_BUILD = """\
             ARCH="${{ matrix.architecture }}" \\
             MAINTAINER="TollGate <tollgate@tollgate.me>" \\
             LICENSE="CC0-1.0" \\
-            DEPENDS="libc" \\
+            DEPENDS="libc, nodogsplash, jq" \\
             PROVIDES="nodogsplash-files" \\
-            REPLACES="nodogsplash, base-files" \\
+            REPLACES="base-files" \\
             DESCRIPTION="TollGate Basic Module for OpenWrt" \\
             packaging/build-ipk.sh "$PAYLOAD" "artifacts/$PACKAGE_FILENAME"
           ls -lh "artifacts/$PACKAGE_FILENAME"
@@ -479,6 +533,15 @@ APK_BUILD = """\
             USE_UPX=1
             UPX_FLAGS="${{ matrix.compression }}"
             UPX_FLAGS="${UPX_FLAGS#upx-}"
+          fi
+
+          # Pinned UPX into the SDK container: packaging/Makefile runs `upx`
+          # from PATH when USE_UPX=1, the SDK image ships none, and apt's
+          # upx-ucl floats while its output IS part of the artifact.
+          if [ "$USE_UPX" = "1" ]; then
+            UPX_DIR=$(bash src-checkout/scripts/fetch-upx.sh)
+            docker exec -i "$SVC" sh -c 'cat > /usr/local/bin/upx && chmod 0755 /usr/local/bin/upx' < "$UPX_DIR/upx"
+            docker exec "$SVC" upx --version | head -1
           fi
 
           docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \\
@@ -599,6 +662,12 @@ def render_shard(shard: dict, plan: dict) -> str:
     needs: [resolve-inputs]
     runs-on: ubuntu-latest
     timeout-minutes: {timeout}
+    env:
+      # The packaging scripts (packaging/build-ipk.sh and the apk SDK lane)
+      # stamp mtimes from SOURCE_DATE_EPOCH (#383); it must be the same
+      # epoch the binaries were compiled with (resolve-inputs extracts it
+      # from the stage-1 record).
+@@EPOCH_ENV@@
     strategy:
       fail-fast: false
       matrix:
@@ -619,6 +688,8 @@ def render_shard(shard: dict, plan: dict) -> str:
 {build}
 {upload}
 """
+
+    package_job = package_job.replace("@@EPOCH_ENV@@", EPOCH_ENV_LINE)
 
     return "\n".join([header, "on:\n  workflow_dispatch:\n", env, "jobs:\n",
                       RESOLVE_INPUTS, package_job, complete])

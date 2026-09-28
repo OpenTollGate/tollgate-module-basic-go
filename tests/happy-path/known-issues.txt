@@ -1,0 +1,42 @@
+# Known issues: checks that are understood, reproducible, and NOT fixed by this
+# suite. Each line is "<check-id><TAB><reason>".
+#
+# A known issue is still printed as HPCHECK ... FAIL. It does not make the run
+# exit non-zero, because a suite that is permanently red on a pre-existing defect
+# stops being read. `run.sh --strict` promotes every entry here back to fatal, and
+# removing the line makes it fatal again -- so this file is the complete list of
+# what the suite currently tolerates, and it is meant to shrink.
+#
+# Format: <check-id> <whitespace> <reason>
+#
+# ---------------------------------------------------------------------------
+# RESOLVED 2026-09-23 -- portal:lightning-lane-against-live-module
+#
+# The entry that used to be here recorded that the captive portal's Lightning
+# lane could not buy time from the module as shipped, observed on
+# v0.6.0-alpha4-pre15 x86_64:
+#
+#   portal POSTs /ln-invoice          body {"amount":210,"mint_url":"http://…"}
+#   module 400 {"error":"failed to create lightning invoice"}
+#   module log: error="mint does not exist"
+#
+# The portal echoes the mint URL from the advertisement's price_per_step tag,
+# which is the configured accepted_mints[].url verbatim (the shipped default
+# config writes it without a trailing slash), while the wallet registers and keys
+# a mint in canonical form ("<url>/") and the module passed the caller's
+# mint_url through unchanged -- so the lookup could not match. The 2x2 matrix
+# over {config with/without slash} x {request with/without slash} showed only
+# requests carrying the slash succeeding, regardless of the config form: a
+# default install could not sell via the Lightning lane at all. The Cashu lane
+# was unaffected (it never takes a mint URL from the client), which is why a
+# manual token-paste pass on pre15 hid it.
+#
+# Fixed in pr/mint-url-normalisation: the module canonicalises the
+# client-supplied mint URL at the boundary where it enters
+# (tollwallet.NormalizeMintURL, the same function that produces the registry
+# keys), so both spellings of one mint resolve to the single registered entry.
+# The check now passes on a branch-built artifact with the client identity
+# resolvable; see README "Known issues" for the harness precondition that the
+# live-module lane needs and how it was verified.
+#
+# No entry below: this file currently tolerates nothing.

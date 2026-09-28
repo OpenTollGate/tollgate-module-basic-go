@@ -44,7 +44,6 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
-  GO_VERSION: "1.25.0"
   # blossom1.orangesync.tech is dropped from the GitHub twin's list: it did not
   # answer from a job container on 2026-09-12 (25 s connect timeout) while
   # primal.net, psbt.me, blossom2 and drive.cashu.email did, and with
@@ -67,6 +66,7 @@ jobs:
       package_version: ${{ steps.determine-package-version.outputs.package_version }}
       release_channel: ${{ steps.determine-release-channel.outputs.release_channel }}
       build_id: ${{ steps.build-id.outputs.build_id }}
+      source_date_epoch: ${{ steps.source-epoch.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@v5
 
@@ -110,11 +110,38 @@ jobs:
             echo "release_channel=dev" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Derive SOURCE_DATE_EPOCH from the source commit
+        # The reproducible-build pin from #383: every embedded timestamp —
+        # BuildTime in the binaries, ipk archive mtimes, portal output —
+        # derives from the source commit, never from the wall clock, so a
+        # rebuild of one commit yields the same bytes. The act workspace has
+        # no usable .git, so the derivation is env-first like repro-check.yml:
+        # triggering commit's timestamp, job-start clock as the last resort
+        # (which is then recorded in the stage-1 rendezvous record below, so
+        # stage 2 still packages with exactly the epoch the binaries used).
+        id: source-epoch
+        shell: bash
+        run: |
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          EPOCH="$(git -C "$GITHUB_WORKSPACE" log -1 --format=%ct HEAD 2>/dev/null || true)"
+          SOURCE="git"
+          if [ -z "$EPOCH" ] && [ -n "${{ github.event.head_commit.timestamp }}" ]; then
+            EPOCH="$(date -u -d "${{ github.event.head_commit.timestamp }}" +%s)"
+            SOURCE="head_commit.timestamp"
+          fi
+          if [ -z "$EPOCH" ]; then
+            EPOCH="$(date +%s)"
+            SOURCE="job clock (NOT commit-derived — binaries will not rebuild identically)"
+          fi
+          echo "source_date_epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$EPOCH (source: $SOURCE)"
+
       - name: Report
         run: |
           echo "build_id=${{ steps.build-id.outputs.build_id }}"
           echo "package_version=${{ steps.determine-package-version.outputs.package_version }}"
           echo "release_channel=${{ steps.determine-release-channel.outputs.release_channel }}"
+          echo "source_date_epoch=${{ steps.source-epoch.outputs.source_date_epoch }}"
 
   compile-binaries:
     needs: [determine-versioning]
@@ -126,11 +153,29 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The Go version is resolved from packaging/build-inputs.json — the
+      # reproducibility pin the shipped binaries are built with — so no
+      # lane-local literal can drift from the manifest (#448; this lane's
+      # stale "1.25.0" was exactly that drift). `go-version-file` resolution
+      # is what failed first in this act image (see .ngit/README.md); a
+      # version resolved to a plain string still takes the shorter,
+      # better-tested path through the action.
+      - name: Resolve the pinned Go from the manifest
+        id: go_pin
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            SUDO=""
+            command -v sudo >/dev/null 2>&1 && SUDO=sudo
+            $SUDO apt-get update -qq
+            $SUDO apt-get install -y -qq jq
+          fi
+          : ${GITHUB_OUTPUT:=/tmp/github_output}
+          echo "version=$(jq -r '.go.version' packaging/build-inputs.json)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v6
         with:
-          # Literal version, not go-version-file: resolving the file is what
-          # failed first in this act image (see .ngit/README.md).
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ steps.go_pin.outputs.version }}
           cache: false
 
       - name: Report the Go toolchain
@@ -152,9 +197,13 @@ jobs:
           CGO_ENABLED: "0"
           GOFLAGS: -buildvcs=false
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+          SOURCE_DATE_EPOCH: ${{ needs.determine-versioning.outputs.source_date_epoch }}
         run: |
           set -euo pipefail
-          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          # From the source commit (#383): two builds of one commit must
+          # embed the same BuildTime, or the published bytes can never be
+          # reproduced.
+          BUILD_TIME=$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%d %H:%M:%S UTC')
           GIT_COMMIT="${GITHUB_SHA:0:8}"
           LDFLAGS="-s -w \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
@@ -180,7 +229,7 @@ jobs:
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src -o "$PWD/bin/$key/tollgate-wrt" \
-              -trimpath -ldflags="$LDFLAGS" main.go
+              -trimpath -ldflags="$LDFLAGS" .
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$PWD/bin/$key/tollgate" \
@@ -249,14 +298,19 @@ jobs:
           NSEC_HEX: ${{ secrets.NSEC_HEX }}
           BUILD_ID: ${{ needs.determine-versioning.outputs.build_id }}
           HASHES_JSON: ${{ steps.blossom-upload.outputs.hashes }}
+          SOURCE_DATE_EPOCH: ${{ needs.determine-versioning.outputs.source_date_epoch }}
         run: |
           set -euo pipefail
           : ${GITHUB_OUTPUT:=/tmp/github_output}
+          # The epoch rides the record so stage 2 packages with exactly the
+          # epoch these binaries were stamped with — even when the last-resort
+          # clock source produced it.
+          RECORD_JSON=$(printf '%s' "$HASHES_JSON" | jq -c --argjson epoch "$SOURCE_DATE_EPOCH" '. + {epoch: $epoch}')
           out=$(nak event --sec "$NSEC_HEX" -k 30078 \
             --tag "d=tollgate-build/${BUILD_ID}/binaries" \
             --tag "r=${BUILD_ID}" \
             --tag "t=tollgate-build" \
-            -c "$HASHES_JSON" $COORDINATION_RELAYS < /dev/null 2>&1) || true
+            -c "$RECORD_JSON" $COORDINATION_RELAYS < /dev/null 2>&1) || true
           ev=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
           echo "binaries record: ${ev:-<none>}"
           echo "event_id=${ev:-}" >> "$GITHUB_OUTPUT"
@@ -268,13 +322,30 @@ jobs:
     outputs:
       portal_hash: ${{ steps.portal-upload.outputs.portal_hash }}
       portal_sha: ${{ steps.portal-sha.outputs.portal_sha }}
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.determine-versioning.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Setup Node.js for portal build
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Pinned to the portal's declared toolchain (see its package.json
+          # engines and packaging/build-inputs.json), same as the GitHub
+          # twin. node 22.17.0 bundles npm 10.9.2 — verified in the next
+          # step. portal-build.sh refuses any other node/npm, so a floating
+          # '20' here made the job fail its own toolchain gate.
+          node-version: '22.17.0'
+
+      - name: Verify pinned npm version
+        run: |
+          set -euo pipefail
+          EXPECTED_NPM=$(jq -r '.npm.version' packaging/build-inputs.json)
+          ACTUAL_NPM=$(npm --version)
+          if [ "$ACTUAL_NPM" != "$EXPECTED_NPM" ]; then
+            echo "ERROR: npm $ACTUAL_NPM != pinned $EXPECTED_NPM (packaging/build-inputs.json)" >&2
+            exit 1
+          fi
 
       # packaging/portal-build.sh sources packaging/build-env.sh, which requires
       # SOURCE_DATE_EPOCH and derives it from `git log -1 --format=%ct HEAD`
@@ -296,7 +367,11 @@ jobs:
       - name: Build captive portal assets
         run: |
           set -euo pipefail
-          PORTAL_REF="${PORTAL_REF:-main}" bash packaging/portal-build.sh
+          # PORTAL_REF must stay unset: the script defaults it to the
+          # manifest-pinned portal.commit, and a floating ref has been a
+          # hard error since the pin-hardening — this "main" default is
+          # what turned build-portal red on every main push.
+          bash packaging/portal-build.sh
           echo "Portal assets built:"
           ls -la packaging/files/tollgate-captive-portal-site/assets/ || true
 

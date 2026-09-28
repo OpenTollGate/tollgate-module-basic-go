@@ -250,3 +250,35 @@ func TestValidateProfitShare(t *testing.T) {
 		})
 	}
 }
+
+// TestDefaultSessionRenewalOffsetsCoherent pins the #430 invariant for the
+// shipped defaults: a renewal offset at or above the preferred increment is
+// structurally self-contradictory (the purchasable allotment never exceeds
+// the preferred increment unless MinSteps forces more), so the offset must
+// stay a strict fraction of it. The old bytes default (131,100,000, equal
+// to the preferred increment) made every bytes-metered upstream session
+// renew at near-zero usage.
+func TestDefaultSessionRenewalOffsetsCoherent(t *testing.T) {
+	cfg := NewDefaultConfig()
+	s := cfg.UpstreamSessionManager.Sessions
+
+	if s.PreferredSessionIncrementsBytes == 0 {
+		t.Fatalf("preferred_session_increments_bytes must be non-zero")
+	}
+	if s.BytesRenewalOffset >= s.PreferredSessionIncrementsBytes/2 {
+		t.Fatalf(
+			"bytes_renewal_offset default (%d) must stay below half the preferred increment (%d) — at or above it, every default-config bytes session renews immediately (#430)",
+			s.BytesRenewalOffset, s.PreferredSessionIncrementsBytes,
+		)
+	}
+
+	if s.PreferredSessionIncrementsMilliseconds == 0 {
+		t.Fatalf("preferred_session_increments_milliseconds must be non-zero")
+	}
+	if s.MillisecondRenewalOffset >= s.PreferredSessionIncrementsMilliseconds/2 {
+		t.Fatalf(
+			"millisecond_renewal_offset default (%d) must stay below half the preferred increment (%d)",
+			s.MillisecondRenewalOffset, s.PreferredSessionIncrementsMilliseconds,
+		)
+	}
+}

@@ -209,6 +209,12 @@ func (m *MerchantDegraded) GetSession(macAddress string) (*CustomerSession, erro
 	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
 }
 
+// GetSessionState answers "none" in degraded mode: without a wallet no session
+// can exist, which is the same answer GetUsage gives ("-1/-1").
+func (m *MerchantDegraded) GetSessionState(macAddress string) (SessionState, error) {
+	return SessionStateNone, nil
+}
+
 func (m *MerchantDegraded) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
 	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
 }

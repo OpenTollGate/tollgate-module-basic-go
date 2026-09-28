@@ -37,6 +37,9 @@ func (m *namedMerchant) CreateNoticeEvent(level, code, message, customerPubkey s
 func (m *namedMerchant) GetSession(macAddress string) (*merchant.CustomerSession, error) {
 	return nil, nil
 }
+func (m *namedMerchant) GetSessionState(macAddress string) (merchant.SessionState, error) {
+	return merchant.SessionStateNone, nil
+}
 func (m *namedMerchant) AddAllotment(macAddress, metric string, amount uint64) (*merchant.CustomerSession, error) {
 	return nil, nil
 }

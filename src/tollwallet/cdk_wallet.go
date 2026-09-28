@@ -448,3 +448,19 @@ func mapCdkError(err error) error {
 
 	return err
 }
+
+// AcceptMint grows the cdk adapter's accepted-mint list at runtime so a
+// mint that was unreachable at construction is no longer refused once it
+// recovers.
+func (w *CdkWallet) AcceptMint(mintURL string) error {
+	mint := normalizeMintURL(mintURL)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, m := range w.acceptedMints {
+		if m == mint {
+			return nil
+		}
+	}
+	w.acceptedMints = append(w.acceptedMints, mint)
+	return nil
+}

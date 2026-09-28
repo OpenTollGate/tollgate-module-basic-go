@@ -22,6 +22,7 @@ import requests
 # --- Constants ---
 
 MINT_URL = os.environ.get("MINT_URL", "http://mint:8085")
+MINT_FEES_URL = os.environ.get("MINT_FEES_URL", "http://mint-fees:8085")
 UPSTREAM_URL = os.environ.get("UPSTREAM_URL", "http://upstream:2121")
 RESELLER_URL = os.environ.get("RESELLER_URL", "http://reseller:2121")
 
@@ -164,6 +165,26 @@ def mint_health():
     """Wait for the mint to be healthy."""
     wait_for(f"{MINT_URL}/v1/keys")
     return MINT_URL
+
+
+@pytest.fixture(scope="session")
+def fees_mint_health():
+    """Wait for the fee-charging mint to be healthy.
+
+    mint-fees runs cdk-mintd with CDK_MINTD_INPUT_FEE_PPK=100, mirroring
+    real-world mints (e.g. mint.coinos.io): a single-proof swap costs
+    ceil(100/1000) = 1 sat, so a 1-sat token is entirely consumed by the fee.
+    """
+    wait_for(f"{MINT_FEES_URL}/v1/keys")
+    return MINT_FEES_URL
+
+
+@pytest.fixture(scope="session")
+def fees_ecash_wallet(fees_mint_health):
+    """Funded wallet at the fee-charging mint."""
+    wallet_dir = tempfile.mkdtemp(prefix="tg-wallet-fees-")
+    run_cmd(["cdk-cli", "-w", wallet_dir, "mint", MINT_FEES_URL, "10000"])
+    yield wallet_dir
 
 
 @pytest.fixture(scope="session")

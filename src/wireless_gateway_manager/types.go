@@ -48,6 +48,7 @@ type NetworkInfo struct {
 	StepSize     int
 	RawIEs       []byte
 	Radio        string
+	Band         string // "2g"/"5g", or "unknown" when no band info exists
 	IsTollGate   bool
 }
 

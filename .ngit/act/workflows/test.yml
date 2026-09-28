@@ -60,6 +60,83 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      - name: Setup-marker ordering (roll-back safety)
+        run: |
+          # Offline (no router, no SDK, no network): the setup script's version
+          # marker must be compared BY ORDER, not for equality. Equality made a
+          # downgrade look like an upgrade, so rolling back re-ran full setup
+          # and re-randomised the operator's guest SSID (bench MT3000,
+          # 2026-09-24). The suite pins absent/same/older/newer/malformed/
+          # suffixed markers and the alpha4->alpha5->alpha4 round trip, and its
+          # negative control fails if the comparison ever goes back to equality.
+          bash tests/uci-defaults-setup-marker-order_test.sh
+
+      - name: Admin TLS identity (HTTPS is not inherited from the image)
+        run: |
+          # Offline (no router, no SDK, no network): the install path must
+          # PROVISION a TLS identity that covers this router and must derive
+          # uhttpd.main.redirect_https from a COVERAGE check, not from a
+          # readable-and-non-empty certificate file. The OpenWrt image ships a
+          # placeholder (CN=OpenWrt, SAN DNS:OpenWrt) that satisfies the old
+          # guard while covering neither the hostname nor the LAN IP, so :8080
+          # redirected a browser into a hard certificate error (bench MT3000,
+          # 2026-09-26). The suite drives the shipped uci-defaults script end to
+          # end against a fixture, pins the operator opt-out that `tollgate ssl
+          # remove` records, and carries a negative control that runs the
+          # pre-change rule over the same fixture and must derive
+          # redirect_https=1 from the placeholder.
+          bash tests/uci-defaults-admin-tls-identity_test.sh
+      - name: LuCI is not reachable pre-auth (guest path is the portal)
+        run: |
+          # Offline (no router, no daemon, no network): LuCI's :8080/:443 must
+          # not be in nodogsplash's pre-auth allow list, and a list that carries
+          # them must be repaired on every setup path. Measured on the bench
+          # MT3000 (2026-09-25, pre17): a paying guest who typed
+          # `http://<router>/` fell through to `https://<router>/` and got the
+          # router's administration login, which the operator read as
+          # "the install is broken".
+          bash tests/uci-defaults-luci-ports-not-pre-auth_test.sh
+
+      - name: A trusted client gets a plain-HTTP entry point on :80
+        run: |
+          # Offline (no router, no daemon, no network): nodogsplash DNATs :80 to
+          # its splash port only for a PRE-AUTH client, so for a trusted or
+          # authenticated one `http://<router>/` was dead (nothing listened) and
+          # the client fell through to LuCI. The suite pins the uhttpd.trusted
+          # :80 listener, its redirect stub to the portal SPA on :2051, and that
+          # both setup paths re-assert it.
+          bash tests/uci-defaults-trusted-entry-80_test.sh
+
+      - name: One device code (hostname, captive SSID and private SSID agree)
+        run: |
+          # Offline (no router, no daemon, no network): the router's identity is
+          # ONE code, minted once, stored in /etc/config/tollgate and reused —
+          # never re-minted (bench MT3000, 2026-09-26: hostname=tollgate-OQ3Q
+          # while the captive SSID had been re-minted to tollgate-0GLK and the
+          # private SSID carried a suffix from a third mint path). The suite
+          # pins the adoption order, the store's authority, the
+          # <nym>-<code> private SSID with `tollgate network private rename` as
+          # the honoured escape hatch, and that exactly ONE mint site ships.
+          bash tests/uci-defaults-device-code_test.sh
+
+      - name: The portal banner is one value on both paths, and committed
+        run: |
+          # Offline (no router, no daemon, no network): nodogsplash's
+          # `gatewayname` is the string a captive client reads on the splash
+          # page, and TWO writers in the shipped driver produce it — the full
+          # setup and the verify/repair convergence a same-version reinstall
+          # takes. The repair path used to converge on a second spelling (no
+          # " Portal" suffix) and never committed it on a settled router (its
+          # block runs before the export-diff snapshot the conditional commit
+          # is taken against), so the write stayed a /tmp/.uci session delta and
+          # a later `uci commit nodogsplash` re-applied it with the wrong banner
+          # (PR #605 cold review, F1/F2). This suite drives BOTH paths against a
+          # DELTA-AWARE uci (committed state + pending delta, as uci has under
+          # /tmp/.uci) and pins one committed banner from each path, with no
+          # gatewayname op left pending.
+          bash tests/uci-defaults-gatewayname-banner_test.sh
+
+
       - name: Spec-quote drift check
         run: |
           # Pinned greatspectations ref (scheduled bump: update when releasing).
@@ -95,5 +172,7 @@ jobs:
           go-version-file: src/go.mod
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
+      - name: Mirror and relay sync check
+        run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py

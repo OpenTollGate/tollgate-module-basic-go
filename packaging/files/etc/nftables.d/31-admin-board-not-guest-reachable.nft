@@ -1,0 +1,54 @@
+#!/usr/sbin/nft -f
+
+# Keep the admin board off the captive bridge.
+#
+# This include is loaded inside fw4's `inet` table (see 20-nds-enforce.nft and
+# 30-backend-firewall.nft for the same shape), so it runs on `fw4 reload` and
+# survives a nodogsplash restart.
+#
+# WHAT IS BEING BLOCKED. uhttpd.admin serves the owner-facing admin board on
+# :8090 over plain HTTP with `ubus_prefix=/ubus`, i.e. the board's login form
+# and rpcd's session endpoint share that one cleartext origin. The session is
+# what stands in front of ACL group `tollgate`, which grants
+# `file:["exec"]`, `system:["password_set"]` and `tollgate wallet_drain_cashu`:
+# arbitrary command execution as root, a root password change, or the
+# operator's money. The opt-in TLS listener is :8443 — the same board, so it
+# is dropped too.
+#
+# WHO CAN REACH IT TODAY. Captive clients live on br-lan (the shipped
+# nodogsplash `gatewayinterface`, written by setup_nodogsplash in
+# 99-tollgate-setup), both before payment and after: 20-nds-enforce.nft only
+# hooks `forward`, and fw4's lan-zone input policy accepts what is left, so
+# reaching :8090 was a matter of connecting to the open SSID. The board is
+# owner-facing and is not part of the customer journey, so the captive bridge
+# does not get it.
+#
+# WHY BOTH LAYERS. Dropping the :8090/:8443 entries from nodogsplash's pre-auth
+# allow list (assert_nodogsplash_allow_entries, same commit series) is the
+# node-scoped fix, but that list is written by two scripts and repaired on
+# install — this rule is the one that does not depend on the list being in the
+# intended state, and the only one that also covers an *authenticated* guest,
+# whose traffic 20-nds-enforce.nft accepts by mark.
+#
+# CAVEAT, same as 30-backend-firewall.nft:15-17 — this assumes the captive
+# bridge is named br-lan, which is what the shipped nodogsplash configuration
+# and every other TollGate firewall rule assume. An operator who renamed the
+# bridge loses this rule and nothing else.
+#
+# OPERATOR NOTE — what changes for you: the board answers on the private
+# network (br-private, which nodogsplash does not gate) and on loopback; it no
+# longer answers a client on br-lan. If you run with the private network
+# disabled and administer the router from a br-lan client, use the module CLI
+# (`tollgate status`, `tollgate wallet balance`, ...) or LuCI on :8080 instead.
+#
+# Deliberately NOT dropped here: :2050/:2051 (the captive portal the guest is
+# paying through), :2121 (handled by 30-backend-firewall.nft), and :8080 (LuCI,
+# kept reachable pre-auth on purpose — see
+# docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+
+chain admin_board_input_guard {
+	type filter hook input priority -1; policy accept
+
+	meta nfproto ipv4 iifname "br-lan" tcp dport { 8090, 8443 } counter drop
+	meta nfproto ipv6 iifname "br-lan" tcp dport { 8090, 8443 } counter drop
+}

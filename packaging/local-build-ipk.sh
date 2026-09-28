@@ -56,7 +56,7 @@ mkdir -p "bin/$COMPILE_KEY"
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" \
-  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+  -trimpath -buildvcs=false -ldflags="$LDFLAGS" .
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
@@ -102,6 +102,8 @@ install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                  
 install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart           "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
 install -D -m 0644 packaging/files/etc/nftables.d/20-nds-enforce.nft                 "$PAYLOAD/etc/nftables.d/20-nds-enforce.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/30-backend-firewall.nft            "$PAYLOAD/etc/nftables.d/30-backend-firewall.nft"
+install -D -m 0644 packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft "$PAYLOAD/etc/nftables.d/31-admin-board-not-guest-reachable.nft"
+install -D -m 0644 packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft   "$PAYLOAD/etc/nftables.d/32-luci-not-guest-reachable.nft"
 
 # Man pages
 mkdir -p "$PAYLOAD/usr/share/man/man8"
@@ -135,15 +137,34 @@ echo "=== Building .ipk: $PACKAGE_FILENAME ==="
 # path (e.g. the OpenWrt SDK) byte-stable too.
 normalize_mtime "$PAYLOAD"
 
+# nodogsplash is a RUNTIME dependency, not a package this one supersedes: the
+# module gates the network *through* the daemon and only ships files into its
+# config/doc space. The defect was the missing DEPENDS -- and it showed on both
+# lanes:
+#
+#   - apk lane (the SDK build we installed on hardware): the artifact carried
+#     `depends:libc` and no `replaces:` field at all -- verified from the raw
+#     `apk mkpkg` invocation in the build log -- so nothing pulled or retained
+#     the daemon. After installing on a GL-MT3000 (OpenWrt 25.12.5) nodogsplash
+#     was gone and the captive portal was down until it was reinstalled by
+#     hand. Same failure class packaging/preinst already documents: an
+#     undeclared runtime dependency that a maintainer script needs, ending in
+#     the daemon being orphan-removed.
+#   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
+#     into the control file, where `Replaces` does supersede the named package.
+#
+# So: declare the daemon, never also claim to replace it. Same contract as the
+# shipping-path feed definition, net/tollgate-wrt/Makefile
+# (`DEPENDS:=+nodogsplash +jq`).
 env \
   PKG_NAME="$PKG_NAME" \
   PKG_VERSION="$PKG_VERSION" \
   ARCH="$ARCH" \
   MAINTAINER="TollGate <tollgate@tollgate.me>" \
   LICENSE="GPL-3.0-only" \
-  DEPENDS="libc" \
+  DEPENDS="libc, nodogsplash, jq" \
   PROVIDES="nodogsplash-files" \
-  REPLACES="nodogsplash, base-files" \
+  REPLACES="base-files" \
   DESCRIPTION="TollGate Basic Module for OpenWrt" \
   bash packaging/build-ipk.sh "$PAYLOAD" "packaging/$PACKAGE_FILENAME"
 

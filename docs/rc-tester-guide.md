@@ -407,6 +407,69 @@ installed happily, which is exactly the hole the rule closes. If you have a
 feed problem, fix the key or the URL — do not reach for that flag, and do not
 paste it into a report as advice.
 
+### The two admin UIs, and what a certificate warning means
+
+Two admin UIs answer on this build, on two listener pairs — different webroots
+on different uhttpd instances, and **not** the same URL:
+
+| UI | URL on this build | Answers from |
+| --- | --- | --- |
+| **LuCI** (OpenWrt's own administration UI) | `https://<hostname>.lan/` (or `https://<LAN IP>/`) — `http://<router>:8080/` when no identity exists | `uhttpd.main`, webroot `/www` |
+| **The TollGate board** (the router's dashboard) | `http://<router>:8090/` — `https://<router>:8443/` while a certificate file exists | `uhttpd.admin`, webroot `/www/<brand>` |
+
+So on this build the **entry point `https://<hostname>.lan/` answers LuCI**, not
+the board. Inverting that is the operator decision recorded in
+`docs/architecture/default-ui-and-entry-port-decision.md`; until the release that
+ships it, "the hostname opens LuCI" describes the shipped mapping and is not a
+defect on its own. Both UIs answer from the management/private network and
+on-box only: the router's own firewall guards drop all four ports for ordinary
+`br-lan` clients (measured on the bench — tcp `8080`/`443` and `8090`/`8443`
+dropped for a LAN client), so "connection refused" from a wired-LAN or guest-SSID
+client is that guard, not the UI.
+
+**Admin cross-links must be HTTPS.** The board's login page currently offers an
+`http://<router>:8080/` link to LuCI; a cleartext link to an admin login is a
+defect worth reporting. The intended form is an `https://` URL on the same host
+whose port the router itself supplies, and a link that is not live must not be
+rendered at all.
+
+A fresh install now **provisions the router's own TLS identity** instead of
+inheriting the OpenWrt image's placeholder certificate (`subject CN=OpenWrt`,
+`SAN DNS:OpenWrt`, which covers no router's hostname or LAN address). The
+identity is self-signed and carries the router's hostname, its `<hostname>.lan`
+alias and its LAN address; the `:8080` → `https://` hop is enabled **only** while
+the certificate uhttpd serves actually covers the address you used. So:
+
+- Log in at **`https://<hostname>.lan/`** (or `https://<LAN IP>/`). Expect the
+  usual browser interstitial for a self-signed certificate — *"Your connection
+  is not private"* / *"Not secure"* — and proceed through it. That is the
+  expected warning, and it is not a defect worth reporting on its own.
+- A **name mismatch** — *"certificate is not valid for this address"* — is not
+  that warning, and it is not expected: it means the certificate does not cover
+  the name in the URL. Use the names this router actually answers to:
+
+  ```sh
+  uci get system.@system[0].hostname    # the <hostname>.lan alias
+  uci get network.lan.ipaddr            # the LAN address (a /24 suffix may be present)
+  tollgate ssl status                   # what uhttpd serves, and whether it covers this router
+  tollgate ssl covers                   # exit 0 = it covers; the reason prints either way
+  ```
+
+- If `:8080` answers plain HTTP instead of redirecting, that is the fail-closed
+  direction, not a bug: the install only turns the redirect on for a certificate
+  it could verify. `tollgate ssl status` and `/tmp/tollgate-setup.log` say which
+  case you are in.
+- If the identity was removed on purpose, the install will not put one back.
+  `tollgate ssl remove` records that decision in
+  `/etc/tollgate/ssl/tls-identity-removed`; `tollgate ssl apply` (no prompt with
+  `-y`) ends it.
+- **The board's `:8443` is a separate certificate question from LuCI's `:443`.**
+  It is a different listener with its own certificate (`/etc/uhttpd.crt` on this
+  build, which is the image's placeholder unless something replaced it). A
+  covering identity on the entry point says nothing about the board's TLS
+  listener: a **name mismatch** there is reportable on its own, and it is not the
+  same finding as a mismatch on `https://<hostname>.lan/`.
+
 ---
 
 ## 8. What to expect from an alpha

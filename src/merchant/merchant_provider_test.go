@@ -54,6 +54,10 @@ func (m *mockMerchantForProvider) GetSession(macAddress string) (*CustomerSessio
 	return nil, fmt.Errorf("mock: %s", m.name)
 }
 
+func (m *mockMerchantForProvider) GetSessionState(macAddress string) (SessionState, error) {
+	return SessionStateNone, nil
+}
+
 func (m *mockMerchantForProvider) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
 	return nil, fmt.Errorf("mock: %s", m.name)
 }

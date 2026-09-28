@@ -1,4 +1,10 @@
-.PHONY: portal-build reproducibility-test reproducibility-variance
+.PHONY: portal-build reproducibility-test reproducibility-variance go-battery
+
+# Canonical pre-PR Go gate across ALL 16 modules (src/ is a multi-module
+# tree: `go ... ./...` from src/ alone covers only the root module).
+# Same set the go-test CI lane runs: gofmt, vet, build, race tests.
+go-battery:
+	@bash scripts/go-battery.sh
 
 portal-build:
 	@bash packaging/portal-build.sh

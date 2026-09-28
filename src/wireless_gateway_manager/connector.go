@@ -311,25 +311,47 @@ func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 		}
 	}
 
-	// Create our specific TollGate interfaces if they don't exist
+	// Create our specific TollGate interfaces if they don't exist. OpenWrt
+	// numbers radio sections by detection order, not by band — radio0 is
+	// 2.4 GHz on some hardware and 5 GHz on other — so each band's interface
+	// is bound to the radio that actually reports that band.
+	bandRadios := radioBandMap(output)
+	deviceSections := wifiDeviceSections(output)
+
 	if !tollgateSTA2GFound {
-		logger.Info("Creating tollgate_sta_2g interface")
-		if err := c.createTollgateSTAInterface("tollgate_sta_2g", "radio0"); err != nil {
-			logger.WithError(err).Error("Failed to create tollgate_sta_2g interface")
-			return "", err
+		radio2g := radioForBand(bandRadios, deviceSections, "2g", "radio0")
+		if radio2g == "" {
+			logger.Warn("No 2.4GHz radio found; not creating tollgate_sta_2g")
+		} else {
+			logger.WithFields(logrus.Fields{
+				"interface": "tollgate_sta_2g",
+				"radio":     radio2g,
+			}).Info("Creating tollgate_sta_2g interface")
+			if err := c.createTollgateSTAInterface("tollgate_sta_2g", radio2g); err != nil {
+				logger.WithError(err).Error("Failed to create tollgate_sta_2g interface")
+				return "", err
+			}
+			staInterfaces = append(staInterfaces, "wireless.tollgate_sta_2g")
+			disabledSTAInterfaces["wireless.tollgate_sta_2g"] = true
 		}
-		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_2g")
-		disabledSTAInterfaces["wireless.tollgate_sta_2g"] = true
 	}
 
 	if !tollgateSTA5GFound {
-		logger.Info("Creating tollgate_sta_5g interface")
-		if err := c.createTollgateSTAInterface("tollgate_sta_5g", "radio1"); err != nil {
-			logger.WithError(err).Error("Failed to create tollgate_sta_5g interface")
-			return "", err
+		radio5g := radioForBand(bandRadios, deviceSections, "5g", "radio1")
+		if radio5g == "" {
+			logger.Warn("No 5GHz radio found; not creating tollgate_sta_5g")
+		} else {
+			logger.WithFields(logrus.Fields{
+				"interface": "tollgate_sta_5g",
+				"radio":     radio5g,
+			}).Info("Creating tollgate_sta_5g interface")
+			if err := c.createTollgateSTAInterface("tollgate_sta_5g", radio5g); err != nil {
+				logger.WithError(err).Error("Failed to create tollgate_sta_5g interface")
+				return "", err
+			}
+			staInterfaces = append(staInterfaces, "wireless.tollgate_sta_5g")
+			disabledSTAInterfaces["wireless.tollgate_sta_5g"] = true
 		}
-		staInterfaces = append(staInterfaces, "wireless.tollgate_sta_5g")
-		disabledSTAInterfaces["wireless.tollgate_sta_5g"] = true
 	}
 
 	// If a specific band is requested, try to find an interface for that band

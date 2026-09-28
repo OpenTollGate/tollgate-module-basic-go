@@ -67,13 +67,32 @@ func NewUpstreamSession(
 	// Get config for renewal offsets
 	config := configManager.GetConfig()
 	var renewalOffset uint64
+	var preferredAllotment uint64
 	switch adInfo.Metric {
 	case "milliseconds":
 		renewalOffset = config.UpstreamSessionManager.Sessions.MillisecondRenewalOffset
+		preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsMilliseconds
 	case "bytes":
 		renewalOffset = config.UpstreamSessionManager.Sessions.BytesRenewalOffset
+		preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsBytes
 	default:
 		return nil, fmt.Errorf("unsupported metric: %s", adInfo.Metric)
+	}
+
+	// A renewal offset at or above the preferred increment is structurally
+	// self-contradictory: the allotment purchasable from any advertisement is
+	// at most the preferred increment (up to MinSteps forcing more), so the
+	// renewal check would fire at near-zero usage on every session (#430).
+	// The tracker clamps the effective offset to half the purchased
+	// allotment at runtime; say so loudly here so operators notice the
+	// config that needs fixing.
+	if preferredAllotment > 0 && renewalOffset >= preferredAllotment {
+		logger.WithFields(logrus.Fields{
+			"gateway":             gatewayIP,
+			"metric":              adInfo.Metric,
+			"renewal_offset":      renewalOffset,
+			"preferred_increment": preferredAllotment,
+		}).Warn("⚠️  Renewal offset ≥ preferred session increment — every purchase would trigger an immediate renewal; runtime clamps to half the purchased allotment (#430)")
 	}
 
 	// Check if upstream already has an active session (e.g. after restart/reconnect).
@@ -93,13 +112,6 @@ func NewUpstreamSession(
 		// No existing session: verify we have funds before creating the session object,
 		// so we fail fast with a clear error rather than creating a tracker that will
 		// immediately fail to pay.
-		var preferredAllotment uint64
-		switch adInfo.Metric {
-		case "milliseconds":
-			preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsMilliseconds
-		case "bytes":
-			preferredAllotment = config.UpstreamSessionManager.Sessions.PreferredSessionIncrementsBytes
-		}
 		if _, err := selectCompatiblePricingWithFunds(
 			adInfo.PricingOptions,
 			merchantProvider.GetMerchant(),
