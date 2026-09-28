@@ -12,6 +12,21 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **“A client NoDogSplash does not know” now requires the answer to name the
+  MAC the module asked about.** The zombie-session fix (#595) correctly read
+  `ndsctl deauth`’s `Client <mac> not found.` / rc=1 as a *completed* close —
+  but its matcher also accepted any “not found” answer containing the word
+  `client`, and `ndsctl` is only ever asked about **one** MAC. An answer naming
+  a different MAC, or none at all, is not evidence about the client being
+  closed, so on that answer the gate was retired (the close reported COMPLETE)
+  while the client it actually asked about could still be `Authenticated` with
+  an open gate — the fail-open direction of the very defect the fix closed. The
+  MAC is now the whole of the match. Found by the third review round on #595 and
+  carried over as its own change; the measured terminal answer (which names the
+  MAC) and every failure that carries no client evidence behave exactly as
+  before — `Socket is not ready for communication : Bad file descriptor` and
+  `Could not connect to server` are still unconfirmed failures.
+
 - **The repair path's portal banner is now committed, and both setup paths write
   one identical value.** The verify/repair path a same-version reinstall takes
   converged `nodogsplash.gatewayname` on a second spelling — `"$GATEWAY_NAME"`,
