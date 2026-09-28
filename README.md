@@ -331,9 +331,9 @@ device code (see [#605](https://github.com/OpenTollGate/tollgate-module-basic-go
 and `docs/architecture/one-device-code.md`).
 
 - **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
-  the 4-hex uppercase device code. Both the 2.4 GHz and 5 GHz radios advertise
-  the **same** SSID (band steering), so clients are handed off between
-  radios seamlessly.
+  the four-character device code of `[A-Z0-9]`, minted once on first boot.
+  Both the 2.4 GHz and 5 GHz radios advertise the **same** SSID (band
+  steering), so clients are handed off between radios seamlessly.
 - **Private management AP** — `c08r4d0r-XXXX` (same `XXXX` device code as
   the public AP), WPA2/PSK. Both radios share it. The passphrase is a
   memorable `Word-Word-Word-NN` string set on first boot and preserved on

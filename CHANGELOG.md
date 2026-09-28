@@ -1786,21 +1786,24 @@ and [Semantic Versioning](https://semver.org/).
   ([#584](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/584)).
 
 - **The open-AP SSID format is now a checked contract.** `99-tollgate-setup`
-  names the access point `<brand>-<4 hex characters>` (`TollGate-A1B2` for
-  the default brand) and puts that same name on both radios, so
-  `tests/contract/check-ssid-format.sh` — a CI gate, also wired into
-  `hooks/pre-commit` — now fails when that stops being true. It sources the
-  real `setup_public_wifi()` out of the script, runs it against a stub `uci`
-  and asserts the SSID it actually writes: both radios matching
-  `^TollGate-[0-9A-F]{4}$` for the default brand, one shared name, a
-  per-device 4-hex suffix. A second, structural layer checks the assignment
-  sites a checkout cannot execute — the same-version reinstall path recovers
-  its SSID from live config, and the whitelabel branch reads
-  `/etc/tollgate/brand` — so neither branch can quietly acquire a band
-  suffix. That suffix is the drift the test exists for: the Go side keys on
-  the `TollGate-` prefix (`discovery_log.go`, `vendor_element_manager.go`),
-  and `TollGate-A1B2-2.4GHz` would be a second network identity for the same
-  router
+  names the access point `<brand>-<device code>` (`TollGate-A1B2` for the
+  default brand — the code is the four `[A-Z0-9]` characters minted once and
+  stored per the one-device-code decision) and puts that same name on both
+  radios, so `tests/contract/check-ssid-format.sh` — a CI gate, also wired
+  into `hooks/pre-commit` — now fails when that stops being true. It sources
+  the real `load_brand()` → `setup_device_identity()` → `setup_public_wifi()`
+  chain out of the script, runs it against a stub `uci` that renders
+  `uci show` section types bare like the real one, and asserts the SSIDs it
+  actually writes: both radios' APs matching `^TollGate-[A-Z0-9]{4}$` for
+  the default brand, one shared name, and a code that is minted per fresh
+  device and then reused from the store across runs. A second, structural
+  layer checks the assignment sites a checkout cannot execute — the
+  same-version reinstall path converges the SSID from the stored code, and
+  the whitelabel branch reads `/etc/tollgate/brand` — so neither branch can
+  quietly acquire a band suffix. That suffix is the drift the test exists
+  for: the Go side keys on the `TollGate-` prefix (`discovery_log.go`,
+  `vendor_element_manager.go`), and `TollGate-A1B2-2.4GHz` would be a second
+  network identity for the same router
   ([#524](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/524)).
 
 
