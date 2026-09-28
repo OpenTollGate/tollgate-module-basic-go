@@ -158,10 +158,10 @@ func (v *VendorElementProcessor) ExtractAndScore(ni NetworkInfo) (map[string]int
 func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements map[string]interface{}) int {
 	score := ni.Signal
 
-	// SSID heuristic: small boost for human-readable TollGate naming.
-	// This is a weak signal (easily spoofed) so the boost is intentionally small.
-	// TollGate SSID format: "TollGate-" + random chars (e.g. "TollGate-A1B2").
-	if strings.HasPrefix(ni.SSID, "TollGate-") {
+	// SSID heuristic: small boost for a brand-prefix name (TollGate-… or the
+	// whitelabel Net4sats-…, case-insensitively — see hasTollGateSSID). This
+	// is a weak signal (easily spoofed) so the boost is intentionally small.
+	if hasTollGateSSID(ni.SSID) {
 		score += 10
 	}
 
