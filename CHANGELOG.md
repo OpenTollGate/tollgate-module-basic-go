@@ -10,6 +10,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed / Internal
+
+- **The physical/lab router suite now runs as a CI job.** A new `router-test`
+  workflow routes through the elected router-bench gateway: pull requests reach
+  the isolated QEMU lab only, and only post-merge `main` runs can touch the
+  physical bench, behind the `bench-hardware` environment. Third-party PRs run
+  without the gateway credentials and skip the job
+  ([#614](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/614)).
+
 ### Fixed
 
 - **A Net4sats-branded TollGate is now recognizable as an upstream.** All
