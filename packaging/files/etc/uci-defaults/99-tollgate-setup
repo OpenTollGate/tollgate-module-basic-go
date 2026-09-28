@@ -373,9 +373,11 @@ brand_token() {
 #   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
 #                                    upstream discovery in
 #                                    src/wireless_gateway_manager matches
-#                                    "TollGate-*" case-SENSITIVELY, and the
-#                                    Android client matches it case-insensitively;
-#                                    changing the case would break the first)
+#                                    BOTH brand prefixes case-insensitively
+#                                    (hasTollGateSSID: TollGate-/Net4sats-),
+#                                    as does the Android client; the shipped
+#                                    case is brand presentation, not a
+#                                    discovery constraint)
 #   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
 #
 # Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
@@ -476,10 +478,13 @@ safe_nym() {
     esac
 }
 
-# Mint one: four characters of [A-Z0-9] from /dev/urandom, with the BusyBox-safe
-# hexdump idiom this script already used for the SSID suffix (BusyBox ships no
-# `od`, and `stat` is missing on the bench too). A host whose RNG cannot be read
-# still gets a usable, varying code instead of a bare prefix.
+# Mint one: four HEX characters ([0-9A-F]) from /dev/urandom, with the
+# BusyBox-safe hexdump idiom — byte-identical to the installer's resolver
+# (deploy.go deviceIdentityScript), whose branding_test.go pins the same
+# idiom; the acceptance domain is wider ([A-Z0-9], see normalize_device_code)
+# because codes adopted from earlier writers may be full alphanumeric. A host
+# whose RNG cannot be read still gets a usable, varying code instead of a bare
+# prefix.
 mint_device_code() {
     local hex
     hex=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom 2>/dev/null | cut -c1-4)
