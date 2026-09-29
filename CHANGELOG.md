@@ -12,6 +12,36 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The wired LAN ports move onto `br-private`: a cabled client is an
+  owner-class client with internet, the admin board and LuCI, and no payment
+  step.** The base image puts the physical LAN ports on the *captive* bridge
+  (`br-lan`), so a cable was a customer port — it paid at the portal, and the
+  two administration guards (`31-admin-board-not-guest-reachable.nft`,
+  `32-luci-not-guest-reachable.nft`, both `iifname "br-lan"`-literal) dropped
+  the admin board (`:8090`/`:8443`) and LuCI (`:8080`/`:443`) for it exactly
+  as they do for a stranger on the open guest SSID. A new
+  `setup_lan_ports_private` writer in `99-tollgate-setup` now **moves** the
+  port list the base image writes on the captive bridge onto `br-private` —
+  the operator's own trusted network, whose zone already forwards to the
+  `wan` and whose clients the admin guards do not drop. The trust change is
+  deliberate and not hidden: `br-private` is ungated, so a cable-connected
+  client gets internet and root-capable admin surfaces without paying. The
+  ports are **discovered, never named** (`eth1` on the MT3000, `lan1…lan5`
+  elsewhere — the writer moves what the bridge's device section lists), the
+  move is **idempotent and convergent** (re-asserted on the same-version
+  verify/repair path, so a factory reset or `sysupgrade -n` that puts the
+  ports back on the captive bridge is repaired; `/etc/config/network` is
+  already on the module's keep-list, so a settings-keeping upgrade carries
+  the placement), and a port never sits on two bridges (the captive section's
+  list is cleared after the private bridge's is written). Nothing else moves:
+  the public `TollGate-*` SSIDs stay on the captive bridge behind the portal,
+  `nodogsplash` stays pinned to `br-lan`, and all four guard fragments
+  (`20-nds-enforce.nft`, `30-backend-firewall.nft`, `31-*.nft`, `32-*.nft`)
+  are untouched and still `br-lan`-scoped — pinned byte-identical to `main`
+  by the new `tests/uci-defaults-lan-private-wired_test.sh`, which also pins
+  the move, the discovery, the idempotence and the upgrade repair. This is
+  the minimal release path; the role machinery (`tollgate.lan_ports.role`,
+  `br-mgmt`) stays in #607 for after the release.
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`
   workflow routes through the elected router-bench gateway: pull requests reach
   the isolated QEMU lab only, and only post-merge `main` runs can touch the
