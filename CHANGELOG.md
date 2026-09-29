@@ -10,6 +10,22 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`generate_admin_password()` no longer depends on `od`, which is absent from
+  the stripped busybox shipped on OpenWrt 25.12.5 base images.** On those
+  images the old `od -An -N 20 -tu1 /dev/urandom` pipeline produced no output,
+  so the function returned an empty string, `set_admin_password()` became a
+  no-op, and the postinst correctly refused to serve the :8090/:8443 admin
+  board ("root has no usable password"). The generator now uses `hexdump`,
+  which is present on the same images and already used elsewhere in the setup
+  script (`mint_device_code`, `random_octet`). The alphabet, length, and
+  uniform byte-to-character mapping via modulo-32 are unchanged; the password
+  is still applied through stdin (`printf ... | passwd root`) and never
+  reaches argv. A hermetic test that shadows `od` with a failing shim is now
+  part of `tests/packaging/admin-board-requires-credential_test.sh`.
+  ([#NNN](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/NNN))
+
 ### Changed / Internal
 
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`

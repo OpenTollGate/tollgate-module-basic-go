@@ -1027,12 +1027,18 @@ admin_credential_state() {
 
 # 20 characters from a 32-character alphabet — no l/o/0/1 look-alikes and
 # nothing a shell or a password prompt would eat — read straight from the
-# kernel CSPRNG. 256 is an exact multiple of 32, so the byte->character
-# mapping is uniform.
+# kernel CSPRNG. The mapping is uniform: each byte is reduced modulo 32; the
+# 32-alphabet size means the bias is exactly 0 because 256 = 32 * 8.
+# Historically this called `od`, but OpenWrt 25.12.5 images ship a stripped
+# busybox where `od` is not built in (and `hostname` is absent too), so `od`
+# produced no output, the generator returned an empty string, and no root
+# password could be applied. `hexdump` is present on those images and is
+# already used elsewhere in this script (mint_device_code, random_octet).
 generate_admin_password() {
     local alphabet="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
-    od -An -N 20 -tu1 /dev/urandom | awk -v a="$alphabet" \
-        '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
+    hexdump -n 20 -e '20/1 " %u"' /dev/urandom 2>/dev/null \
+        | awk -v a="$alphabet" \
+            '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
 }
 
 # BusyBox `passwd` reading the new password twice from stdin is the
