@@ -168,7 +168,7 @@ with two instances:
   (`iifname != { "br-lan", "lo" } tcp dport 2121 drop` — a client that cannot
   reach `:2121` cannot pay), `31-*.nft:52-53`, `32-*.nft:54-55`, and the
   zone-scoped `firewall.tollgate_in` rule that allows `:2121` from `lan`
-  (`99-tollgate-setup:1427-1441`).
+  (`99-tollgate-setup:1697-1704`).
 
 ### Where the wired LAN ports are bound, and therefore who may move them
 
@@ -176,9 +176,9 @@ Not this repository, and not the feed recipe — **the base image**.
 
 - This module ships **no** `/etc/config/network` at all (`packaging/files/etc/`
   has no `config/` directory), only **reads** the LAN device
-  (`99-tollgate-setup:1517-1519`, `lan_dev=$(uci -q get network.lan.device)`,
-  defaulting to `br-lan`), and writes only `network.lan.domain` (`:867`) and
-  `network.lan.ip6assign` (`:1463`).
+  (`99-tollgate-setup:1779-1781`, `lan_dev=$(uci -q get network.lan.device)`,
+  defaulting to `br-lan`), and writes only `network.lan.domain` (`:1121`) and
+  `network.lan.ip6assign` (`:1725`).
 - The feed recipe vendors the same writer (its copy of `99-tollgate-setup`
   carries the same `network.lan.domain`/`ip6assign` writes and no port list).
 - The ports come from `/etc/board.d/02_network` at first boot: for this
@@ -194,7 +194,7 @@ Not this repository, and not the feed recipe — **the base image**.
 Consequence: the ports list is **image-owned**, so the module must write the
 move itself (it already writes `network` freely, and it already creates
 `network.private`/`network.private_bridge` and `dhcp.private` the same way,
-`99-tollgate-setup:1693-1707`), and it must do so **device-agnostically** — by
+`99-tollgate-setup:1956-1967`), and it must do so **device-agnostically** — by
 reading the port list that is currently on `br-lan` and moving it, never by
 naming `eth1`.
 
@@ -208,7 +208,7 @@ naming `eth1`.
 anonymous — `/bin/config_generate:109-119` emits it without a name — so
 `network.@device[br-lan]` is **not valid UCI addressing**: the writer must find
 the `@device[N]` whose `option name` is `br-lan` (`uci show network` piped to
-`awk`, the idiom already in the script at `99-tollgate-setup:1469`) and move its
+`awk`, the idiom already in the script at `99-tollgate-setup:1731`) and move its
 `ports` list. If `br-lan` has no port list, the writer **fails loudly and
 changes nothing** (a bridge with no ports would leave the operator with a dead
 cable and no diagnostic).
@@ -217,18 +217,18 @@ cable and no diagnostic).
 out.** `firewall.mgmt_zone` (`name 'mgmt'`, `network 'mgmt'`,
 `input 'ACCEPT'`) and **no forwarding to `wan`**. It must **not** join
 `firewall.private_zone`: that zone is `input/output/forward 'ACCEPT'` and has a
-`private → wan` forwarding (`99-tollgate-setup:1734-1743`), i.e. reusing it
+`private → wan` forwarding (`99-tollgate-setup:2004-2006`), i.e. reusing it
 would hand every wired client free internet — the exact hole this record exists
 to not create. The admin listeners need no change to be reachable: they bind
-`0.0.0.0`/`[::]` (`uhttpd.main` `:8080`/`:443`, `99-tollgate-setup:337-339,443-448`;
-`uhttpd.portal` `:2051`, `:364-365`; `uhttpd.trusted` `:80`, `:646-648`;
-`:8090` written here on `uhttpd.net4sats`/configUI, `:689-709`, and the opt-in
+`0.0.0.0`/`[::]` (`uhttpd.main` `:8080`/`:443`, `99-tollgate-setup:591-593,697-702`;
+  `uhttpd.portal` `:2051`, `:617-619`; `uhttpd.trusted` `:80`, `:899-902`;
+  `:8090` written here on `uhttpd.net4sats`/configUI, `:956-971`, and the opt-in
 `:8443` on `uhttpd.admin` written by the feed's `92-tollgate-admin-setup` —
-this script only clears that listener, `:804-805`).
+this script only clears that listener, `:1055-1059`).
 
 **D3 — `br-mgmt` serves DHCP.** `dhcp.mgmt` (`interface 'mgmt'`), so the
 operator's laptop gets an address and the router has a lease to resolve it by —
-the same shape as `dhcp.private` (`:1703-1707`).
+the same shape as `dhcp.private` (`:1966-1967`).
 
 **D4 — `br-mgmt` is positively scoped: admin surfaces only.** An input fragment
 for `br-mgmt` accepts DHCP/DNS, SSH and the four admin ports
@@ -246,8 +246,8 @@ gate exists (F1/F2 below).
 
 **D6 — Exactly one nodogsplash instance, pinned.** `setup_nodogsplash` keeps
 writing `nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'`
-(`99-tollgate-setup:1214`) and `assert_nodogsplash_allow_entries` keeps writing
-one `users_to_router` list (`:1108-1124`). No second `config nodogsplash`
+(`99-tollgate-setup:1476`) and `assert_nodogsplash_allow_entries` keeps writing
+one `users_to_router` list (`:1370-1457`). No second `config nodogsplash`
 section is ever created, by any shipped writer. This is stated as an invariant
 with a drift guard because it is the one change that would look like it
 implements this request while breaking the gate (see rejected alternative A1).
@@ -257,7 +257,7 @@ pinned to it.** `31-*.nft`, `32-*.nft` and `20-nds-enforce.nft` keep matching
 `iifname "br-lan"` and must **never** be extended to `br-mgmt`: a `br-mgmt`
 client is not a guest, and the reason the admin ports may be reachable there is
 that the bridge holds no stranger. The guest APs stay bound to
-`network=lan` (`99-tollgate-setup:1014`), so the open SSID keeps the guards.
+`network=lan` (`99-tollgate-setup:1268`), so the open SSID keeps the guards.
 
 **D8 — The requirement's paywall half is explicitly not delivered here.** The
 wired bridge is a management bridge: it reaches the administration surfaces
@@ -285,7 +285,7 @@ and unsafe: either one restarting removes the other's enforcement, and the
 money path can only ever talk to one of them.
 
 Since one gate gates one L2 domain, and the pre-auth allow list
-(`users_to_router`, `99-tollgate-setup:1108-1124`) is a property of the gate,
+(`users_to_router`, `99-tollgate-setup:1370-1457`) is a property of the gate,
 **the pre-auth policy of a captive network and its bridge are the same thing**.
 Two different pre-auth policies therefore need two gates, and the shipped stack
 has one. Every design that pretends otherwise is either (a) a second instance
@@ -428,7 +428,7 @@ Rejected as the mechanism, and it is worth being precise about how it fails:
   is a root-capable login over cleartext HTTP with rpcd's session endpoint on the
   same origin (`31-*.nft:9-17`). This repo has already measured the premise that
   kills a MAC allow: an authorised MAC "is still harvestable from 802.11
-  headers" (`99-tollgate-setup:969-972`). A stranger on the open SSID sets that
+  headers" (`99-tollgate-setup:1224-1225`). A stranger on the open SSID sets that
   MAC and the drop stops applying — the hole the guards exist to close, opened
   by configuration, with a comment claiming otherwise.
 - **No L2 separation.** The operator's administration laptop keeps sharing a
@@ -480,7 +480,7 @@ hardware. Both tiers are listed.
    it stands*: the shim in `tests/uci-defaults-private-subnet_test.sh:74`
    answers `show` with `:` (a silent no-op), while the repo's own idiom for
    enumerating `network` sections is `uci show network | awk`
-   (`99-tollgate-setup:1469`) — a writer using it would see no ports and take
+   (`99-tollgate-setup:1731`) — a writer using it would see no ports and take
    the fail-loudly branch on every fixture. The implementing PR must teach the
    shim `show`/`get`, or seed flat `network.@device[N].ports` keys in the
    fixture, and prove the negative in the same change (assertion 2).
@@ -522,7 +522,7 @@ per the repo's deploy rules)**
     before any purchase: `:8090` answers (board), `:8080` answers (LuCI) and
     `:443` completes a TLS handshake. `:8443` answers **only when the opt-in
     listener exists** — it is written by the feed's `92-tollgate-admin-setup` and
-    this script only clears it (`99-tollgate-setup:804-805`), so on a router with
+    this script only clears it (`99-tollgate-setup:1055-1059`), so on a router with
     no TLS identity there is no listener and a correct build must not be failed
     for its absence. `:22` answers **only if dropbear listens on the `mgmt`
     network**: nothing in `99-tollgate-setup` configures SSH, so that dependency
@@ -593,7 +593,7 @@ which now reaches the board and LuCI and has no internet.
   exactly that. The right time to learn that is before the change, not from a
   router whose gate has been torn down on one bridge and left absent on the
   other.
-- **What is unchanged, deliberately**: `users_to_router` (`99-tollgate-setup:1108-1124`),
+- **What is unchanged, deliberately**: `users_to_router` (`99-tollgate-setup:1370-1457`),
   the `:8080`/`:443` removal logic, the `:80` trusted stub
   (`setup_uhttpd_trusted_entry`), `20-nds-enforce.nft`'s mark values
   (`0x10000`/`0x20000`/`0x30000`) and its `br-lan` scope, the two guards, and
@@ -729,7 +729,23 @@ isolation comment that names the VAP-keyed alternative had **drifted**:
 `99-tollgate-setup:974-993` was that comment when this record merged (#600) and
 is now the admin credential gate, so both citations are corrected here to
 `99-tollgate-setup:1228-1247` (the comment block that carries the measurement,
-with the named mechanism at `:1246-1247`). The external binding claim is
+with the named mechanism at `:1246-1247`). The re-check was then extended to
+every `99-tollgate-setup` citation in this record, and the drift was not
+confined to that comment: nineteen further references had been written against
+an older revision of the script and now pointed at unrelated content — the
+allow-list assert (`:1108-1124` → `:1370-1457`, three sites), the
+`gatewayinterface` write (`:1214` → `:1476`), the `:2121` zone rule
+(`:1427-1441` → `:1697-1704`), the LAN-device read (`:1517-1519` →
+`:1779-1781`), the `network.lan.domain`/`ip6assign` writes (`:867`/`:1463` →
+`:1121`/`:1725`), the private network/bridge/dhcp creation (`:1693-1707` →
+`:1956-1967`), the `uci show network | awk` idiom (`:1469` → `:1731`, two
+sites), the `private → wan` forwarding (`:1734-1743` → `:2004-2006`), the
+uhttpd listener citations (`:337-339,443-448` → `:591-593,697-702`;
+`:364-365` → `:617-619`; `:646-648` → `:899-902`; `:689-709` → `:956-971`),
+the guest-SSID `network=lan` binding (`:1014` → `:1268`), the 802.11-harvest
+quote (`:969-972` → `:1224-1225`) and the `:8443` clear (`:804-805` →
+`:1055-1059`). All are corrected to the ranges that carry the cited facts at
+the branch commit. The external binding claim is
 unchanged: `openwrt/openwrt` `openwrt-25.12`
 `target/linux/mediatek/filogic/base-files/etc/board.d/02_network:158-166` still
 groups `glinet,gl-mt3000` into `ucidef_set_interfaces_lan_wan eth1 eth0`, and
@@ -740,7 +756,7 @@ groups `glinet,gl-mt3000` into `ucidef_set_interfaces_lan_wan eth1 eth0`, and
 `tollgate-module-basic-go` board ("Re-key the admin-port guards from br-lan to
 the VAP interfaces (wired client: pays + admin, guests: still dropped)"), which
 carries AM-1 to AM-3 as its design and the bench verification as its definition
-of done. Its PR is open separately and is the place a landed mechanism will be
-cited from; this record stays the decision. Status stays **Proposed**:
-acceptance is a maintainer action and the drafting account may not accept its
-own proposal.
+of done. The implementing PR is tracked by the card and is the place a landed
+mechanism will be cited from; this record stays the decision. Status stays
+**Proposed**: acceptance is a maintainer action and the drafting account may
+not accept its own proposal.
