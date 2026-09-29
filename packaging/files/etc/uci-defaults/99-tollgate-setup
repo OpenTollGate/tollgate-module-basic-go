@@ -325,6 +325,260 @@ load_brand() {
     esac
 }
 
+# -- the router's device code, minted once and never re-minted ----------------
+#
+# The DEVICE CODE is four characters of [A-Z0-9], minted exactly once, stored in
+# UCI and reused from then on. Every name a human reads off this router is built
+# from it, so the three names can never disagree:
+#
+#   hostname      tollgate-<code>   (brand prefix lowercased: RFC-1123 shape)
+#   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
+#                                    upstream discovery in
+#                                    src/wireless_gateway_manager matches
+#                                    "TollGate-*" case-SENSITIVELY, and the
+#                                    Android client matches it case-insensitively;
+#                                    changing the case would break the first)
+#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
+#
+# Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
+# minted their own code and neither ever read one back. This script re-minted on
+# every full setup, and the installer minted on every deploy while writing only
+# the hostname and the captive SSID (it skips private_radio* on purpose), so the
+# private SSID carried a code from a different mint. The bench ended up with
+# hostname=tollgate-OQ3Q, a captive SSID re-minted to tollgate-0GLK by a later
+# deploy, and a private SSID with a third suffix — three names, one router.
+#
+# The store is /etc/config/tollgate. It survives an in-place reinstall
+# (apk/opkg), an upgrade, and a sysupgrade that keeps settings: this repo's own
+# preservation contract is packaging/files/lib/upgrade/keep.d/tollgate, and
+# /etc/config/tollgate is LISTED there (stock OpenWrt keeps /etc/config/* as
+# well, but the listed set is the one this repo documents and tests). A sysupgrade
+# with a wipe, or a factory reset, has no store by definition and therefore
+# mints a new code — that is the ONLY case in which the code changes.
+#
+#   config device 'device'
+#       option code 'OQ3Q'
+#       option nym  'c08r4d0r'
+#
+# THE CONTRACT IS SHARED with the installer (OpenTollGate/tollgate-installer,
+# deploy.go: resolveDeviceIdentity + brandingCommands): the same store, the same
+# adoption order, the same mint alphabet. Both sides pin the case table —
+# tests/uci-defaults-device-code_test.sh here, branding_test.go there — so a
+# change to the order or the alphabet on one side fails the other's tests.
+#
+# Two things are NOT shared, and are documented rather than claimed to match
+# (docs/architecture/one-device-code.md): the nym CHARSET — safe_nym below is
+# [A-Za-z0-9_-], while the installer's ssid_safe refuses only the empty string
+# and a value carrying a quote, so a prefix like "my nym" is adopted and stored
+# there and refused here — and the nodogsplash BANNER, which the installer
+# writes as the captive SSID with no " Portal" suffix.
+# See docs/architecture/one-device-code.md for the decision record.
+DEVICE_CODE_STORE="${DEVICE_CODE_STORE:-/etc/config/tollgate}"
+DEVICE_CODE_DEFAULT_NYM="c08r4d0r"
+
+# The code, uppercase-normalised; empty when the input is not one (a mint is
+# exactly four [A-Z0-9] characters — never a longer, shorter or punctuated
+# string, so a stray value in the store is re-derived rather than trusted).
+# Whitespace goes first: a value an operator typed (`uci set
+# tollgate.device.code='OQ3Q '`) must not turn a good code into a re-mint.
+# An explicit set, not `[:space:]`: see the load_brand() note on BusyBox tr
+# and character classes (a build without them reads the class as a literal
+# set of s/p/a/c/e).
+normalize_device_code() {
+    local code
+    code=$(printf '%s' "$1" | tr -d ' \011\015\012' | tr 'a-z' 'A-Z')
+    case "$code" in
+        [A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]) printf '%s\n' "$code" ;;
+        *) printf '\n' ;;
+    esac
+}
+
+# The code carried by a machine-written name: "tollgate-OQ3Q", "TollGate-OQ3Q",
+# "Net4sats-OQ3Q". Any other name — an operator's own hostname or SSID — yields
+# nothing, which is what keeps custom names out of the adoption path.
+code_from_name() {
+    local name="$1" prefix suffix
+    prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
+    suffix=${name#*-}
+    case "$prefix" in
+        tollgate|net4sats) : ;;
+        *) return 0 ;;
+    esac
+    normalize_device_code "$suffix"
+}
+
+# Is this SSID suffix the shape a machine minted? Four characters, or digits
+# only (the older numeric form). Decides whether an SSID may be re-derived: a
+# machine's converges on the code, an operator's own name survives.
+is_minted_suffix() {
+    case "$1" in
+        '') return 1 ;;
+        [A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) return 0 ;;
+        *[!0-9]*) return 1 ;;
+    esac
+    return 0
+}
+
+# The nym, if the value is one this stack can carry. The nym is a prefix of the
+# private SSID, and the private SSID is later interpolated into a single-quoted
+# `uci -q set` line BY THE INSTALLER (deploy.go: privateSSIDCommand), on a chain
+# joined with " && " and run as root on the router. A value carrying a quote
+# would end that quote and let the rest be read as shell syntax, so an adopted
+# prefix is charset-checked here exactly like the stored one:
+# resolve_nym's first branch.
+#
+# It is a predicate as well as a filter: a value that is not a nym produces no
+# output AND exits non-zero, so `if safe_nym "$x"` cannot read a refusal as
+# success. The call sites test the output, which is the same verdict.
+safe_nym() {
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*) return 1 ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# Mint one: four characters of [A-Z0-9] from /dev/urandom, with the BusyBox-safe
+# hexdump idiom this script already used for the SSID suffix (BusyBox ships no
+# `od`, and `stat` is missing on the bench too). A host whose RNG cannot be read
+# still gets a usable, varying code instead of a bare prefix.
+mint_device_code() {
+    local hex
+    hex=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom 2>/dev/null | cut -c1-4)
+    case "$hex" in
+        '') hex=$(printf '%04X' "$(( $(date +%s) % 65536 ))") ;;
+    esac
+    normalize_device_code "$hex"
+}
+
+# The operator's nym: the prefix the private SSID has always carried. Stored in
+# the same section so both writers agree, and adopted from an existing
+# machine-shaped private SSID so an operator who already runs the module under
+# their own nym keeps it. Used to build the PRIVATE SSID only — never the
+# captive one, which is the brand's (discovery matches "TollGate-*").
+resolve_nym() {
+    local stored existing prefix suffix
+    stored=$(uci -q get tollgate.device.nym 2>/dev/null)
+    case "$stored" in
+        ''|*[!A-Za-z0-9_-]*) : ;;
+        *) NYM="$stored"; return 0 ;;
+    esac
+    existing=$(uci -q get wireless.private_radio0.ssid 2>/dev/null)
+    prefix=${existing%%-*}
+    suffix=${existing#*-}
+    if [ "$suffix" != "$existing" ] && is_minted_suffix "$suffix"; then
+        # The adopted prefix is charset-checked too: an operator's existing SSID
+        # is arbitrary text, and this value ends up in the private SSID that the
+        # installer interpolates into a single-quoted shell command (safe_nym).
+        NYM=$(safe_nym "$prefix")
+        [ -n "$NYM" ] && return 0
+    fi
+    NYM="$DEVICE_CODE_DEFAULT_NYM"
+}
+
+# The private SSID, derived from the same code as the hostname and the captive
+# SSID. `tollgate network private rename <name>` (docs/operator-guide.md) is the
+# escape hatch and is honoured here: a renamed SSID is not machine-shaped, so it
+# is preserved. A machine-shaped one (the legacy <nym>-<suffix> mint) converges
+# on the code — the operator's admin LAN must read as THIS router, with the same
+# code the captive SSID carries. The PSK is never touched by this.
+private_ssid_for_code() {
+    local current="$1" prefix suffix
+    if [ -z "$current" ]; then
+        printf '%s-%s\n' "$NYM" "$CODE"
+        return 0
+    fi
+    prefix=${current%%-*}
+    suffix=${current#*-}
+    if [ "$prefix" = "$NYM" ] && [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+        printf '%s-%s\n' "$NYM" "$CODE"
+    else
+        printf '%s\n' "$current"
+    fi
+}
+
+# The captive SSID on the verify/repair path. A name this stack wrote — the
+# brand prefix plus four characters, either brand, the legacy lowercase
+# spelling included — converges on the code; a name the OPERATOR chose is
+# preserved, exactly as the hostname (#444) and the private SSID are. This is
+# the behaviour this path had before it derived the SSID from the store (it read
+# the live SSID back), kept deliberately: a reinstall must not rename a network
+# the operator named. The full path still writes the brand's name, which is what
+# it has always done.
+captive_ssid_for_code() {
+    local current="$1" prefix suffix
+    if [ -z "$current" ]; then
+        printf '%s\n' "$DEVICE_SSID"
+        return 0
+    fi
+    prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
+    suffix=${current#*-}
+    case "$prefix" in
+        tollgate|net4sats)
+            if [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+                printf '%s\n' "$DEVICE_SSID"
+                return 0
+            fi
+            ;;
+    esac
+    printf '%s\n' "$current"
+}
+
+# Resolve the device code and the nym, and STORE both. Runs on every setup path
+# before anything derives a name from them.
+#
+# Adoption order — the store first, so an already-deployed router (the store is
+# empty on every one of them) converges on the code it is already known by
+# instead of collecting a third one:
+#
+#   1. the store                      (authoritative: nothing else can re-mint)
+#   2. a machine-shaped hostname      (the installer writes tollgate-<code>)
+#   3. a machine-shaped captive SSID  (a router this script named itself)
+#   4. mint                           (first boot, or a wiped store)
+#
+# Only step 4 mints, and only when nothing above produced a code. Every write is
+# committed HERE rather than in the driver's single pass at the end: a failure
+# later in the setup must not lose the code, because the next run would then mint
+# a different one — the exact drift this store exists to stop.
+setup_device_identity() {
+    local stored hostname ssid
+
+    [ -f "$DEVICE_CODE_STORE" ] || touch "$DEVICE_CODE_STORE"
+
+    stored=$(uci -q get tollgate.device.code 2>/dev/null)
+    CODE=$(normalize_device_code "$stored")
+    if [ -n "$CODE" ]; then
+        log "Device code ${CODE} read from ${DEVICE_CODE_STORE} (never re-minted)"
+    fi
+
+    if [ -z "$CODE" ]; then
+        hostname=$(uci -q get system.@system[0].hostname 2>/dev/null)
+        CODE=$(code_from_name "$hostname")
+        [ -n "$CODE" ] && log "Device code ${CODE} adopted from hostname '${hostname}' (nothing was stored)"
+    fi
+
+    if [ -z "$CODE" ]; then
+        ssid=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null)
+        [ -n "$ssid" ] || ssid=$(uci -q get wireless.default_radio0.ssid 2>/dev/null)
+        CODE=$(code_from_name "$ssid")
+        [ -n "$CODE" ] && log "Device code ${CODE} adopted from captive SSID '${ssid}' (nothing was stored)"
+    fi
+
+    if [ -z "$CODE" ]; then
+        CODE=$(mint_device_code)
+        log "Minted device code ${CODE} (nothing was stored and no machine-shaped name was found)"
+    fi
+
+    resolve_nym
+    DEVICE_HOSTNAME="$(printf '%s' "$BRAND_HOSTNAME" | tr 'A-Z' 'a-z')-${CODE}"
+    DEVICE_SSID="${BRAND_HOSTNAME}-${CODE}"
+
+    uci -q get tollgate.device >/dev/null 2>&1 || uci set tollgate.device='device'
+    uci set tollgate.device.code="$CODE"
+    uci set tollgate.device.nym="$NYM"
+    uci commit tollgate
+    log "Device identity stored: code=${CODE} nym=${NYM} hostname=${DEVICE_HOSTNAME} captive_ssid=${DEVICE_SSID}"
+}
+
 # LuCI's listener. :8080 is the plain-HTTP port and :443 is its TLS counterpart
 # (added only with a cert/key pair); both are MANAGEMENT-path listeners —
 # reached over br-private (the private SSID) and loopback — and both are kept
@@ -1048,31 +1302,39 @@ setup_band_ap() {
     configure_radio_ap "$iface" "$label" "$radio"
 }
 
-# Exports: RANDOM_SUFFIX, GATEWAY_NAME (consumed by later steps).
+# Consumes CODE/DEVICE_SSID (from setup_device_identity); exports GATEWAY_NAME.
 setup_public_wifi() {
-    RANDOM_SUFFIX=$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)
-    GATEWAY_NAME="${BRAND_HOSTNAME}-${RANDOM_SUFFIX}"
-    log "Gateway name: ${GATEWAY_NAME}"
+    GATEWAY_NAME="$DEVICE_SSID"
+    log "Gateway name: ${GATEWAY_NAME} (device code ${CODE})"
 
     setup_band_ap "$R2G" 'tollgate_2g_open'
     setup_band_ap "$R5G" 'tollgate_5g_open'
     enable_all_radios
 }
 
+# The hostname carries the SAME device code as the SSIDs: one glance at the
+# router's name tells you which box it is, and the installer (which writes
+# tollgate-<code> itself) and this script agree on the value instead of each
+# writing its own.
+#
+# #444 still holds: the rewrite is one-way and known-shape-only. A hostname that
+# is neither a brand default nor machine-shaped (tollgate-XXXX / Net4sats-XXXX)
+# is the operator's own and is never touched.
 setup_hostname() {
     local current_hostname
     current_hostname=$(uci -q get system.@system[0].hostname)
-    if [ "$current_hostname" = "$BRAND_HOSTNAME" ]; then
-        log "Hostname '${current_hostname}' already matches the brand"
-    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "TollGate" ] || [ "$current_hostname" = "Net4sats" ]; then
-        # Fresh install (OpenWrt) or a known brand default from the other
-        # brand — migrate to this brand's hostname. Deliberately one-way
-        # and known-values-only: an operator's custom hostname is never
-        # touched (#444).
-        uci set system.@system[0].hostname="$BRAND_HOSTNAME"
-        log "Hostname changed to $BRAND_HOSTNAME (was '${current_hostname}')"
+    if [ "$current_hostname" = "$DEVICE_HOSTNAME" ]; then
+        log "Hostname '${current_hostname}' already carries this router's device code"
+    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "TollGate" ] || [ "$current_hostname" = "Net4sats" ] || \
+         [ -n "$(code_from_name "$current_hostname")" ]; then
+        # Fresh install (OpenWrt), a brand default from either brand, or a name
+        # a writer already built from a code (the installer's tollgate-OQ3Q) —
+        # all machine-managed, so they converge on THIS router's code. An
+        # operator's custom hostname falls to the else branch (#444).
+        uci set system.@system[0].hostname="$DEVICE_HOSTNAME"
+        log "Hostname changed to $DEVICE_HOSTNAME (was '${current_hostname}')"
     else
-        log "Hostname '${current_hostname}' preserved (custom, not a brand default)"
+        log "Hostname '${current_hostname}' preserved (custom, not a brand or code default)"
     fi
     # TLS cert CN should match whatever hostname is active after the check above.
     local final_hostname
@@ -1622,7 +1884,8 @@ choose_private_subnet() {
     echo "$candidate"
 }
 
-# Consumes RANDOM_SUFFIX; derives a private /24 adjacent to the LAN subnet.
+# Consumes CODE/NYM (from setup_device_identity); derives a private /24
+# adjacent to the LAN subnet.
 # Consumes R2G/R5G (from detect_band_radios) for band-correct radio binding.
 setup_private_network() {
     local lan_ip lan_mask candidate_prefix candidate_octet3 private_prefix private_ip
@@ -1663,15 +1926,15 @@ setup_private_network() {
         $(upstream_networks))
     private_ip="${private_prefix}.1"
 
-    # Preserve credentials across reruns: a SETUP_VERSION bump triggers a
-    # full setup on upgraded routers, and regenerating the SSID/PSK there
-    # would silently drop every paired admin device from the management
-    # network. Reuse existing values from wireless.private_radio0 and
-    # generate only when unset.
-    private_ssid=$(uci -q get wireless.private_radio0.ssid)
-    if [ -z "$private_ssid" ]; then
-        private_ssid="c08r4d0r-${RANDOM_SUFFIX}"
-    fi
+    # Credentials are preserved across reruns: a version bump triggers a full
+    # setup on upgraded routers, and regenerating the PSK there would silently
+    # drop every paired admin device from the management network. The SSID is
+    # the exception — it is built from the SAME device code as the hostname and
+    # the captive SSID, so this router reads as one device on both networks —
+    # but only while it is machine-shaped: `tollgate network private rename
+    # <name>` is the escape hatch and a renamed SSID is left alone
+    # (private_ssid_for_code).
+    private_ssid=$(private_ssid_for_code "$(uci -q get wireless.private_radio0.ssid)")
 
     private_key=$(uci -q get wireless.private_radio0.key)
     if [ -z "$private_key" ]; then
@@ -2210,6 +2473,10 @@ commit_all() {
     uci commit firewall
     uci commit uhttpd
     uci commit nodogsplash
+    # The device-code store is committed inside setup_device_identity (see its
+    # comment); committing it here too keeps this the one place every config is
+    # flushed, and is a no-op when nothing changed.
+    uci commit tollgate
 }
 
 # -- driver -----------------------------------------------------------------
@@ -2252,11 +2519,53 @@ if [ "$BRANCH" != "FULL" ]; then
 
     load_brand
 
-    # Recover gateway name from existing config for AP SSID consistency
-    GATEWAY_NAME=$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null) || \
-    GATEWAY_NAME=$(uci -q get wireless.default_radio0.ssid 2>/dev/null) || \
-    GATEWAY_NAME="${BRAND_HOSTNAME}-$(hexdump -n 3 -e '4/1 "%02X"' /dev/urandom | cut -c1-4)"
-    RANDOM_SUFFIX="${GATEWAY_NAME#*-}"
+    # The device code is resolved — and STORED — on this path too. A router
+    # installed before the store existed adopts here the code it is already
+    # known by (from its hostname, else from its captive SSID), and the APs
+    # below are then re-asserted from that stored code instead of from the SSID
+    # read back out of the config: the read-back is exactly how a re-minted SSID
+    # survived a reinstall untouched.
+    #
+    # The hostname is deliberately NOT rewritten on this path. This is the
+    # verify/repair path — the one a reinstall whose version string is unchanged
+    # takes — and its contract is that the operator's state is left alone. A
+    # router that has not been through a full setup under a device code yet gets
+    # its hostname converged by the next version-changing install, where
+    # setup_hostname rewrites it together with the SSIDs.
+    #
+    # The captive SSID follows the same rule (captive_ssid_for_code): a name this
+    # stack wrote converges on the stored code, and a name the OPERATOR chose
+    # survives — a reinstall must not rename a network the operator named. A
+    # router with a custom open SSID therefore keeps it here; the brand's name is
+    # what the FULL path and the installer's branding write.
+    setup_device_identity
+    GATEWAY_NAME=$(captive_ssid_for_code "$(uci -q get wireless.tollgate_2g_open.ssid 2>/dev/null)")
+    log "Gateway name on the repair path: ${GATEWAY_NAME}"
+    # nodogsplash's gatewayname is machine-owned on EVERY path, and both paths
+    # write the SAME string: the brand's captive-SSID name plus the banner
+    # suffix " Portal" — the exact value the full setup (setup_nodogsplash) has
+    # always written. The suffix-less form this block used to write was a second
+    # spelling, so the portal banner flapped between the two writers; the banner
+    # is a user-visible string, so the pre-existing one wins.
+    #
+    # The write is COMMITTED here, in the block that makes it, and NOT left to
+    # the export diff further down: this block runs BEFORE that snapshot
+    # (nds_before) is taken, so a gatewayname-only change could never be the
+    # reason that commit fires and would stay an uncommitted /tmp/.uci session
+    # delta — the config file keeps the old banner, the convergence is lost at
+    # the next reboot, and any LATER `uci commit nodogsplash` (the
+    # gatewaydomainname delete below, or a repair that also drifts the allow
+    # list) re-applies the stale delta on top of the file. That is exactly the
+    # session-delta hazard this file warns about at the top.
+    if uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
+        if [ "$(uci -q get nodogsplash.@nodogsplash[0].gatewayname 2>/dev/null)" != "${GATEWAY_NAME} Portal" ]; then
+            uci -q set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+            uci commit nodogsplash
+            log "nodogsplash gatewayname converged on '${GATEWAY_NAME} Portal' and committed"
+        else
+            log "nodogsplash gatewayname already '${GATEWAY_NAME} Portal' — nothing to commit"
+        fi
+    fi
 
     detect_band_radios
     setup_band_ap "$R2G" 'tollgate_2g_open'
@@ -2395,6 +2704,10 @@ log "Running full setup (version $SETUP_VERSION, previous: ${EXISTING_VERSION:-n
 
 load_brand
 
+# The device code (and the operator's nym) are resolved and stored FIRST, before
+# any name is derived from them. Everything below reads that one value.
+setup_device_identity        # exports CODE/NYM/DEVICE_HOSTNAME/DEVICE_SSID
+
 setup_uhttpd
 setup_uhttpd_portal
 setup_uhttpd_trusted_entry
@@ -2404,13 +2717,13 @@ enforce_admin_credential
 setup_dns_dnsmasq
 setup_hostname
 detect_band_radios
-setup_public_wifi            # exports RANDOM_SUFFIX, GATEWAY_NAME
+setup_public_wifi            # consumes DEVICE_SSID; exports GATEWAY_NAME
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
-setup_private_network        # consumes RANDOM_SUFFIX, R2G/R5G
+setup_private_network        # consumes CODE/NYM, R2G/R5G
 setup_mgmt_bridge            # places the wired LAN ports on the role's bridge
 commit_all
 
