@@ -133,8 +133,11 @@ and [Semantic Versioning](https://semver.org/).
   fail-closed derivation the unstable VAP names need. The nodogsplash
   single-gate analysis is unchanged and now explicitly scoped to a second
   *gated* bridge; `br-mgmt` stays proposed on its own merit, its Status stays
-  `Proposed`, and the drifted `99-tollgate-setup` citation is corrected to
-  `:1228-1247`. Docs only: no code, no packaging, no firewall change.
+  `Proposed`, and the record's drifted `99-tollgate-setup` citations are
+  re-pointed to the ranges that carry the cited facts at the branch commit
+  (the isolation comment to `:1228-1247`, plus nineteen further references,
+  among them the `users_to_router` assert to `:1370-1457`). Docs only: no
+  code, no packaging, no firewall change.
   ([#623](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/623))
 
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`
