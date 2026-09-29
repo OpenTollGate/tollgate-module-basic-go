@@ -12,6 +12,24 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The wired-LAN bridge record no longer overstates the blocker: the
+  operator's requirement *is* satisfiable by re-keying the admin-port guards.**
+  The amendment to `docs/architecture/lan-port-management-bridge-decision.md`
+  records the operator-approved mechanism — key the two admin-port drops on the
+  guest VAP interfaces instead of the bridge name, so the wired port stops
+  matching (the administration surfaces answer from the cable) while the
+  wireless guests keep being dropped and the wired port stays on the gated
+  `br-lan`, still redirected, still paying — together with the measured
+  constraint that makes it a port-keyed `bridge`-family rule rather than a
+  string swap (in an `inet`-family hook `iifname` is the bridge, so the swap
+  would match nothing and turn both guards into silent no-ops), and the
+  fail-closed derivation the unstable VAP names need. The nodogsplash
+  single-gate analysis is unchanged and now explicitly scoped to a second
+  *gated* bridge; `br-mgmt` stays proposed on its own merit, its Status stays
+  `Proposed`, and the drifted `99-tollgate-setup` citation is corrected to
+  `:1228-1247`. Docs only: no code, no packaging, no firewall change.
+  ([#623](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/623))
+
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`
   workflow routes through the elected router-bench gateway: pull requests reach
   the isolated QEMU lab only, and only post-merge `main` runs can touch the
