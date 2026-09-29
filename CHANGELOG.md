@@ -497,7 +497,8 @@ and [Semantic Versioning](https://semver.org/).
   **and** still pays" is not a value of this option (that is the separate F1/F2
   decision) — is `docs/architecture/lan-port-role-decision.md`, and
   `tests/uci-defaults-lan-port-role_test.sh` pins all of it with four negative
-  controls (`123` assertions, `127` checks once the controls have run).
+  controls (`123` assertions, `127` checks once the controls have run)
+  ([#607](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/607)).
 
 ### Added
 
