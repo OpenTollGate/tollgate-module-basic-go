@@ -170,6 +170,35 @@ the space. (Measured with the `upx-ultra-brute` dev-channel build
 `main.200.4469994`, sha256 `29bb68adbb26e67c…`; publishing that variant in the
 feed release is tracked with the packaging feed, not here.)
 
+**COMFAST CF-WR632AX** (MediaTek MT7981-class SoC, compact Wi-Fi 6 travel
+router) matches the matrix on the *same* `mediatek/filogic` /
+`aarch64_cortex-a53` row as the WR3000 v1, so the `arm64` package built for
+that row installs on it unchanged — no matrix row was added for it. OpenWrt
+supports it officially since 25.12.0 (upstream keeps
+`target/linux/mediatek/dts/mt7981b-comfast-cf-wr632ax.dts` and publishes the
+image as `openwrt-<version>-mediatek-filogic-comfast_cf-wr632ax-*`; see the
+[device page](https://openwrt.org/toh/comfast/cf-wr632ax)).
+
+**No flash-capacity caveat.** The CF-WR632AX carries 128 MiB of SPI NAND
+(Winbond W25N01GV), unlike the 16 MB WR3000 v1 above, so the default build has
+room and the `upx-ultra-brute` variant is *not* required for it.
+
+**Requires OpenWrt 25.12.5 or newer with the OpenWrt U-Boot layout.** A
+memory-speed stability issue affected that layout in 25.12.0–25.12.4 and was
+fixed in 25.12.5 (upstream PRs
+[#22929](https://github.com/openwrt/openwrt/pull/22929) /
+[#23416](https://github.com/openwrt/openwrt/pull/23416)); the stock layout is
+unaffected. Use 25.12.5 or newer.
+
+**Not yet exercised on real hardware.** Unlike the WR3000 v1 above, no
+CF-WR632AX has been in hand: this paragraph rests on upstream OpenWrt support
+and the shared target/architecture row, not on a measured result on this
+device. A tester with the unit is being lined up; the text here will be
+replaced with results when there are some. There is no persistent-install
+caveat for this device — the only known gap is the compressed-variant
+publication one, which applies to `aarch64_cortex-a53` generally (only default
+builds are released) and is tracked with the packaging feed, not here.
+
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
