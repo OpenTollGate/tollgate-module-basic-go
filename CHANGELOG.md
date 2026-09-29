@@ -24,7 +24,7 @@ and [Semantic Versioning](https://semver.org/).
   is still applied through stdin (`printf ... | passwd root`) and never
   reaches argv. A hermetic test that shadows `od` with a failing shim is now
   part of `tests/packaging/admin-board-requires-credential_test.sh`.
-  ([#NNN](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/NNN))
+  ([#624](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/624))
 
 ### Changed / Internal
 
