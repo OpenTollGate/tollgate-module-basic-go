@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
@@ -68,6 +70,331 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// --- POST /ln-invoice backpressure -----------------------------------------
+//
+// POST /ln-invoice is unauthenticated, mutates durable state and makes a round
+// trip to a mint, so a caller can make the router work (and make the mint answer
+// 429) by looping it. GET /ln-invoice is the status poll a paying customer sits
+// in front of, so the quota below is applied to the POST only: a limiter around
+// the whole route would throttle a customer mid-payment on their own poll loop.
+
+const (
+	// The quote request struct is ~120 bytes on the wire; 8 KiB leaves room for
+	// additive fields without letting a caller stream an arbitrary body (and so
+	// an arbitrary allocation) into the router.
+	maxLightningInvoiceBodyBytes = 8 << 10
+
+	// Ceiling on a single invoice, in sats — roughly the largest plausible
+	// purchase. It also bounds what reaches calculateAllotment's arithmetic.
+	maxLightningInvoiceSats = 1_000_000
+
+	// Stable refusal codes, additive to the status/error pair the shipped portal
+	// already reads, so an operator can tell "we are being flooded" from "the
+	// network is slow" without reading logs.
+	codeQuoteRateLimited = "quote-rate-limited"
+	codeQuoteTableFull   = "quote-table-full"
+	codeMintBusyLocal    = "mint-busy-local"
+	codeRequestTooLarge  = "request-too-large"
+	codeAmountTooLarge   = "amount-too-large"
+
+	// codeAccessGrantFailed is the refusal code for a purchase that was PAID and
+	// whose access could not be applied to the enforcement layer. It is
+	// deliberately distinct from every lookup/refusal code above: the customer's
+	// money is gone in this state, so the answer must tell them not to pay again
+	// rather than reading like a generic transient error.
+	codeAccessGrantFailed = "access-grant-failed"
+
+	// The MAC every route falls back to when the client cannot be identified.
+	// It is not an identity and must never key a quota: two unresolvable clients
+	// would share one bucket.
+	sentinelMAC = "00:00:00:00:00:00"
+
+	// Hard cap on each quota map. The keys are derived from the socket (see
+	// clientLimiterKey), so an attacker cannot choose them freely, but a spoofed
+	// MAC or a /64 full of addresses still must not grow the map without bound.
+	quoteQuotaMaxKeys = 4096
+)
+
+// quoteQuotaLimits are the three POST layers: per client, per source network and
+// global. The starting values come from the pre-release design and are all
+// env-overridable, like the pre-existing TOLLGATE_RATE_LIMIT_RPM.
+type quoteQuotaLimits struct {
+	perClientRPM   int
+	perClientBurst int
+	perSourceRPM   int
+	perSourceBurst int
+	globalRPS      int
+	globalBurst    int
+}
+
+func defaultQuoteQuotaLimits() quoteQuotaLimits {
+	return quoteQuotaLimits{
+		// One quote per purchase; six a minute allows a few legitimate retries
+		// after an expired invoice.
+		perClientRPM:   envIntOr("TOLLGATE_QUOTE_LIMIT_RPM", 6),
+		perClientBurst: envIntOr("TOLLGATE_QUOTE_LIMIT_BURST", 3),
+		// A NAT'd group of customers behind one address still works; a flood
+		// from one address does not.
+		perSourceRPM:   envIntOr("TOLLGATE_QUOTE_SOURCE_LIMIT_RPM", 20),
+		perSourceBurst: envIntOr("TOLLGATE_QUOTE_SOURCE_BURST", 5),
+		// The business is a toll booth, not a quote exchange: cap what the whole
+		// router will do toward the mint, whatever the number of clients.
+		globalRPS:   envIntOr("TOLLGATE_QUOTE_GLOBAL_RPS", 2),
+		globalBurst: envIntOr("TOLLGATE_QUOTE_GLOBAL_BURST", 5),
+	}
+}
+
+func envIntOr(name string, fallback int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+// quoteQuotaEntry is one token bucket plus the last time its key was used, which
+// is what makes eviction possible.
+type quoteQuotaEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+// quoteQuotaState holds the bounded bucket maps.
+//
+// A mutex-guarded map is the deliberate choice over sync.Map: at these rates (a
+// handful of accepted POSTs per second, bounded by the global bucket) the
+// critical section is a map lookup plus a token-bucket check — tens of
+// nanoseconds — so contention is not measurable, while the single lock gives the
+// atomic get-or-create-plus-eviction bookkeeping that sync.Map cannot. Nothing
+// here is per-request allocation once a key is warm.
+type quoteQuotaState struct {
+	limits    quoteQuotaLimits
+	mu        sync.Mutex
+	perClient map[string]*quoteQuotaEntry
+	perSource map[string]*quoteQuotaEntry
+	global    *rate.Limiter
+}
+
+func newQuoteQuotaState(limits quoteQuotaLimits) *quoteQuotaState {
+	return &quoteQuotaState{
+		limits:    limits,
+		perClient: make(map[string]*quoteQuotaEntry),
+		perSource: make(map[string]*quoteQuotaEntry),
+		global:    rate.NewLimiter(rate.Limit(limits.globalRPS), limits.globalBurst),
+	}
+}
+
+// quoteQuotas is the process-wide quota state. It is a package variable so tests
+// can point it at their own instance, the same seam shape as dhcpLeasePath.
+var quoteQuotas = newQuoteQuotaState(defaultQuoteQuotaLimits())
+
+// allowFrom consumes one token for key from bucket map m, creating the bucket on
+// first use and evicting the least-recently-used key when the map is full.
+func (s *quoteQuotaState) allowFrom(m map[string]*quoteQuotaEntry, key string, limit rate.Limit, burst int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := m[key]
+	if !ok {
+		if len(m) >= quoteQuotaMaxKeys {
+			evictLeastRecentlyUsedQuotaEntry(m)
+		}
+		entry = &quoteQuotaEntry{limiter: rate.NewLimiter(limit, burst)}
+		m[key] = entry
+	}
+	entry.lastSeen = time.Now()
+	return entry.limiter.Allow()
+}
+
+func evictLeastRecentlyUsedQuotaEntry(m map[string]*quoteQuotaEntry) {
+	evictOldestKey(m, func(entry *quoteQuotaEntry) time.Time { return entry.lastSeen })
+}
+
+// evictOldestKey drops the entry whose timestamp is the oldest, which is the LRU
+// ordering both bounded maps in this file use: the quota buckets (last seen when
+// the key last spent a token) and the refusal log (last seen when the key last
+// logged a line). The scan is O(n) and only runs on an insert once the map is at
+// its cap.
+func evictOldestKey[V any](m map[string]V, lastSeen func(V) time.Time) {
+	var oldestKey string
+	var oldest time.Time
+	for key, entry := range m {
+		if seen := lastSeen(entry); oldestKey == "" || seen.Before(oldest) {
+			oldestKey, oldest = key, seen
+		}
+	}
+	delete(m, oldestKey)
+}
+
+// allow decides whether a quote-creation request may proceed, returning the
+// Retry-After a refusal should advertise. clientKey is the caller's client
+// identity, derived once by the middleware and passed in: the derivation reads
+// the DHCP lease file and then the ARP table, and a refused request must not pay
+// for that lookup twice.
+//
+// The layers are consumed innermost first: a request that fails the per-client
+// bucket never touches the per-source or global bucket, so a flood from one
+// client cannot drain the capacity an honest customer draws on, while the global
+// bucket still bounds the total for a flood that arrives from many clients at
+// once. (The trade is that a request refused by a later layer has already spent
+// the earlier layers' tokens — negligible between a 6/min client bucket and a
+// 2/s global bucket, and reserving-then-cancelling tokens buys nothing here.)
+func (s *quoteQuotaState) allow(clientKey string, r *http.Request) (bool, int) {
+	if !s.allowFrom(s.perClient, clientKey,
+		rate.Every(time.Minute/time.Duration(s.limits.perClientRPM)), s.limits.perClientBurst) {
+		return false, ceilSecondsPerToken(s.limits.perClientRPM, time.Minute)
+	}
+
+	if !s.allowFrom(s.perSource, sourceNetworkKey(r),
+		rate.Every(time.Minute/time.Duration(s.limits.perSourceRPM)), s.limits.perSourceBurst) {
+		return false, ceilSecondsPerToken(s.limits.perSourceRPM, time.Minute)
+	}
+
+	s.mu.Lock()
+	globalAllowed := s.global.Allow()
+	s.mu.Unlock()
+	if !globalAllowed {
+		return false, ceilSecondsPerToken(s.limits.globalRPS, time.Second)
+	}
+
+	return true, 0
+}
+
+// ceilSecondsPerToken is the Retry-After for a bucket that admits `count` tokens
+// per `window`, rounded up so the advertised wait is never shorter than the wait.
+func ceilSecondsPerToken(count int, window time.Duration) int {
+	if count <= 0 {
+		return 1
+	}
+	perToken := window / time.Duration(count)
+	seconds := (perToken + time.Second - 1) / time.Second
+	if seconds < 1 {
+		seconds = 1
+	}
+	return int(seconds)
+}
+
+// clientLimiterKey derives the per-client quota key. It is resolved from the
+// socket — the DHCP lease, then the ARP table, for the request's source address —
+// and never from the request body or a query parameter, because the caller can
+// assert any value there. An unresolvable client falls back to the source
+// network, never to the sentinel MAC and never to an empty key (which every
+// unidentified client would share).
+func clientLimiterKey(r *http.Request) string {
+	ip := getIP(r)
+	if mac, err := getMacAddress(ip); err == nil {
+		if normalized := merchant.NormalizeMACAddress(mac); normalized != "" && normalized != sentinelMAC {
+			return "mac:" + normalized
+		}
+	}
+	return sourceNetworkKey(r)
+}
+
+// clientLimiterKeyFn is the derivation the quota path calls. It is a variable
+// only so a test can watch how many times one request derives the client key:
+// the derivation reads the DHCP lease file and then the ARP table, and a refused
+// request must not pay for that lookup twice. Same seam shape as dhcpLeasePath
+// and quoteQuotas — production always leaves it at clientLimiterKey.
+var clientLimiterKeyFn = clientLimiterKey
+
+// sourceNetworkKey is the per-source bucket key: the exact address for IPv4 and
+// the /64 prefix for IPv6, so a dual-stack LAN cannot mint a fresh bucket for
+// every SLAAC address it holds.
+func sourceNetworkKey(r *http.Request) string {
+	ip := net.ParseIP(getIP(r))
+	if ip == nil {
+		return "ip:unknown"
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return "ip:" + v4.String()
+	}
+	return "ip:" + ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// quoteRefusalLog keeps the refusal log line to one per client key per window. A
+// warning per refused request is a flood amplifier on the log path, and on a
+// router `logread` is the operator's only view during exactly the incident the
+// line is supposed to describe. Its map is bounded and LRU-evicted like the
+// quota buckets above, so neither the map nor the suppression breaks under a
+// flood that arrives from more identities than the cap.
+type quoteRefusalLog struct {
+	mu     sync.Mutex
+	last   map[string]time.Time
+	window time.Duration
+	count  uint64
+}
+
+func (l *quoteRefusalLog) allow(key string) (bool, uint64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.count++
+	if l.last == nil {
+		l.last = make(map[string]time.Time)
+	}
+	if l.window == 0 {
+		l.window = 30 * time.Second
+	}
+	if _, ok := l.last[key]; !ok && len(l.last) >= quoteQuotaMaxKeys {
+		// Evict the least recently seen identity, never the whole map: dropping
+		// every key reset each other client's window, so a flood from more than
+		// quoteQuotaMaxKeys identities re-enabled a log line per refused request
+		// for all of them — the log amplification this limiter exists to stop.
+		evictOldestKey(l.last, func(seen time.Time) time.Time { return seen })
+	}
+	if seen, ok := l.last[key]; ok && time.Since(seen) < l.window {
+		return false, l.count
+	}
+	l.last[key] = time.Now()
+	return true, l.count
+}
+
+var quoteRefusals quoteRefusalLog
+
+// quoteCreateQuotaMiddleware applies the POST-only quota for quote creation.
+func quoteCreateQuotaMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Derived once and reused for the refusal log line below. The key comes
+		// from the socket (DHCP lease, then ARP table), and a flood of refused
+		// requests is the last place to pay for that lookup twice.
+		key := clientLimiterKeyFn(r)
+		allowed, retryAfter := quoteQuotas.allow(key, r)
+		if !allowed {
+			if shouldLog, total := quoteRefusals.allow(key); shouldLog {
+				mainLogger.WithFields(logrus.Fields{
+					"client": key,
+					"total":  total,
+				}).Warn("ln-invoice quote creation refused: client over quota")
+			}
+			writeLightningRefusal(w, http.StatusTooManyRequests, codeQuoteRateLimited,
+				"This TollGate is busy right now — please retry in a few seconds.", retryAfter)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// writeLightningRefusal answers a `/ln-invoice` request with a refusal the shipped
+// portal can still parse: the `status`/`error` pair it reads, as JSON, plus the
+// additive `code` and `retry_after`.
+func writeLightningRefusal(w http.ResponseWriter, status int, code, message string, retryAfter int) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(lightningInvoiceResponse{
+		Status:     0,
+		Error:      message,
+		Code:       code,
+		RetryAfter: retryAfter,
+	})
+}
+
 // Global configuration variable
 // Define configFile at a higher scope
 var (
@@ -87,6 +414,22 @@ var (
 )
 
 var cliServer *cli.CLIServer
+
+// The money path. See startup_gate.go for why it is bound before the
+// mint-dependent construction, and bootSequence for the order.
+var (
+	// apiListenAddr is a variable so the off-router test build (-tags testenv,
+	// 000_test_env_testenv.go) can bind an ephemeral port instead of the
+	// shipped one. Production never changes it.
+	apiListenAddr = ":2121"
+
+	apiListener   net.Listener
+	apiHTTPServer *http.Server
+
+	// apiServeErr carries a real serve failure — not the ErrServerClosed of a
+	// deliberate shutdown — back to main(), which is where the process exits.
+	apiServeErr = make(chan error, 1)
+)
 
 type merchantTypesProvider struct {
 	inner *merchant.MutexMerchantProvider
@@ -244,12 +587,113 @@ func init() {
 
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
-	var err2 error
-	merchantInstance, err2 := merchant.New(configManager)
-	if err2 != nil {
-		mainLogger.WithError(err2).Fatal("Failed to create merchant")
+	if err := bootSequence(apiListenAddr, merchant.New); err != nil {
+		mainLogger.WithError(err).Fatal("Failed to start TollGate")
 	}
-	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(merchantInstance)}
+
+	mainLogger.Info("Startup complete: the payment API is serving the money path")
+}
+
+// merchantConstructor is the mint-dependent construction step of the boot
+// sequence. It is a parameter rather than a direct call to merchant.New so the
+// boot ORDER can be tested with a construction that blocks — the cold-boot
+// shape startup_gate.go exists to fix.
+type merchantConstructor func(*config_manager.ConfigManager) (merchant.MerchantInterface, error)
+
+// bootSequence is the whole boot, in its required order:
+//
+//  1. everything that must NOT wait for a mint — the "starting" merchant
+//     placeholder, the payment API bound and served, the upstream Wi-Fi
+//     manager, and the CLI Unix socket;
+//  2. the mint-dependent construction (merchant.New: mint probes then the
+//     wallet load, which is unbounded per mint on a cold boot), after which the
+//     constructed merchant goes behind the provider every consumer already
+//     holds and the reachable-set callbacks the degraded -> full upgrade needs
+//     are wired;
+//  3. the gate opens, so mint-dependent requests stop being refused.
+//
+// Only the order changed. Every stage does what it did before, and an error out
+// of either stage is fatal at the call site, exactly as it was.
+func bootSequence(addr string, construct merchantConstructor) error {
+	apiStartup.setStage(stageBindingAPI)
+
+	// The placeholder is installed BEFORE the CLI server, which is handed this
+	// same provider: the socket has to exist before the mint-dependent work, so
+	// it cannot be handed a merchant that does not exist yet.
+	merchantProvider = &merchantTypesProvider{inner: merchant.NewMutexMerchantProvider(startingMerchant{})}
+
+	if err := bindAndServeAPI(addr); err != nil {
+		return err
+	}
+
+	// No merchant dependency: this is the Wi-Fi side of the box, and it is what
+	// the CLI's upstream commands read. Started here so the box is looking for
+	// its uplink while the wallet is still loading instead of after.
+	initUpstreamManager()
+
+	// The CLI socket is bound and served here too. The operator's
+	// `tollgate wallet balance` failed with ENOENT for the same minutes the API
+	// was missing; the socket now exists before the mint-dependent work, and a
+	// command that arrives during it gets an explicit "starting" answer from
+	// the placeholder merchant instead of a missing socket.
+	initCLIServer()
+
+	apiStartup.setStage(stageConnectingMerchant)
+	merchantInstance, err := construct(configManager)
+	if err != nil {
+		return fmt.Errorf("create merchant: %w", err)
+	}
+	installMerchant(merchantInstance)
+
+	initUpstreamDetector()
+
+	apiStartup.markReady()
+	return nil
+}
+
+// bindAndServeAPI binds the payment API and starts serving it. From the moment
+// net.Listen returns, a client can connect (the kernel completes the handshake
+// into the backlog) and from the moment the goroutine below is scheduled it
+// gets an explicit "starting" refusal rather than a hang. This is the sequence
+// point the boot-race measurement reads.
+func bindAndServeAPI(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("bind the payment API on %s: %w", addr, err)
+	}
+	apiListener = ln
+
+	mux := http.NewServeMux()
+	registerAPIHandlers(mux)
+	apiHTTPServer = &http.Server{
+		Addr:    addr,
+		Handler: mux,
+		// The timeouts the old ListenAndServe carried, unchanged.
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		if err := apiHTTPServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			apiServeErr <- err
+		}
+	}()
+
+	mainLogger.WithFields(logrus.Fields{
+		"addr":     ln.Addr().String(),
+		"api_addr": addr,
+	}).Info("Money path listening: the API is bound and serving; mint-dependent init is still in flight")
+	return nil
+}
+
+// installMerchant puts the constructed merchant behind the provider every
+// consumer already holds — the HTTP handlers read it per request, and the CLI
+// server was handed the same pointer — and wires the callbacks the degraded ->
+// full upgrade path needs. Nothing about that path changed: a degraded merchant
+// still upgrades on the first reachable mint, exactly as before.
+func installMerchant(merchantInstance merchant.MerchantInterface) {
+	swapMerchant(merchantInstance)
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
 		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
@@ -261,12 +705,6 @@ func init() {
 	} else {
 		registerReachableSetChangedCallback(merchantInstance)
 	}
-
-	initUpstreamManager()
-
-	initUpstreamDetector()
-
-	initCLIServer()
 }
 
 func initUpstreamDetector() {
@@ -425,6 +863,74 @@ func clientMACFromSocket(r *http.Request) (string, error) {
 	return mac, nil
 }
 
+// --- the client-identity contract, in one place ---------------------------
+//
+// Every client-scoped endpoint of this API answers for, and acts on, the client
+// at the other end of the socket. A MAC address in a query string or in a
+// request body is a caller's *claim* about itself: it is accepted for wire
+// compatibility with the shipped portal (whose Lightning lane sends back the
+// value it read from /whoami) and it NEVER decides which session, quote, byte
+// meter or gate a request touches.
+//
+// "Ignored" must not mean "silently ignored". A tool that posts a token "for" a
+// MAC it is not itself using used to get a false negative — "the gate never
+// opened", with nothing on the wire to explain it — because the grant went to
+// the socket. So every client-scoped response names the identity the module
+// actually used, and, when the caller asserted a different address, the claim it
+// did not honour:
+//
+//	X-TollGate-Client-MAC:         the socket-resolved, canonical address
+//	X-TollGate-Mac-Claim-Ignored:  the asserted address that was NOT honoured
+//
+// Both are additive (no body field or existing header changes shape), both are
+// exposed through CORS so a portal or harness page on :2050/:2051 can read them
+// (see CorsMiddleware), and both are set by the single entry point every
+// client-scoped route uses, clientIdentity, so the contract cannot be honoured
+// on one route and quietly forgotten on the next.
+//
+// To learn which device a purchase was granted to, read the session event's
+// `device-identifier` tag (kind 1022) or this header, and compare it with your
+// own socket address — do not compare it with a `mac` you sent.
+const (
+	headerClientMAC       = "X-TollGate-Client-MAC"
+	headerMacClaimIgnored = "X-TollGate-Mac-Claim-Ignored"
+)
+
+// claimedMACQuery returns the `mac` query parameter as a canonical address, or
+// "" when the caller asserted nothing.
+func claimedMACQuery(r *http.Request) string {
+	return merchant.NormalizeMACAddress(r.URL.Query().Get("mac"))
+}
+
+// reportClientIdentity records, on the response, which client the request was
+// answered for and whether a claim the caller made was ignored. It must run
+// before anything writes a status line.
+func reportClientIdentity(w http.ResponseWriter, r *http.Request, resolvedMAC, bodyClaim string) {
+	if resolvedMAC != "" {
+		w.Header().Set(headerClientMAC, resolvedMAC)
+	}
+
+	// A claim that names the address the socket already resolved to is not an
+	// ignored claim: the caller is simply echoing /whoami correctly, which is
+	// what the shipped portal does.
+	for _, asserted := range []string{claimedMACQuery(r), merchant.NormalizeMACAddress(bodyClaim)} {
+		if asserted != "" && asserted != resolvedMAC {
+			w.Header().Set(headerMacClaimIgnored, asserted)
+			return
+		}
+	}
+}
+
+// clientIdentity is the one entry point every identity-bearing route uses: it
+// resolves the client from the socket (clientMACFromSocket) and records the
+// answer on the response. bodyClaim is the `mac` field of a JSON request body,
+// when the route has one; it is reported as ignored and never used.
+func clientIdentity(w http.ResponseWriter, r *http.Request, bodyClaim string) (string, error) {
+	mac, err := clientMACFromSocket(r)
+	reportClientIdentity(w, r, mac, bodyClaim)
+	return mac, err
+}
+
 func getMacAddress(ipAddress string) (string, error) {
 	if net.ParseIP(ipAddress) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ipAddress)
@@ -477,6 +983,14 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// from a browser on the TollGate network (OWASP).
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Expose the identity headers reportClientIdentity sets on every
+		// client-scoped response. Cross-origin reads are denied by default, and
+		// the portal (:2050/:2051) and any harness page are cross-origin to this
+		// API — without this, "which client was this answered for?" and "was the
+		// MAC I sent honoured?" would be readable by curl only, which is how a
+		// tool ends up believing a `?mac=` it sent decided the purchase.
+		w.Header().Set("Access-Control-Expose-Headers",
+			headerClientMAC+", "+headerMacClaimIgnored+", Retry-After")
 		origin := r.Header.Get("Origin")
 		if origin != "" && origin != "null" && (isLocalOrigin(origin) || isSameHost(origin, r.Host)) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -498,8 +1012,8 @@ func CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func handler(w http.ResponseWriter, r *http.Request) {
 	// The portal calls this once per page load to learn which device it is
 	// looking at. The answer comes from the socket, never from a `mac` parameter
-	// the caller supplied.
-	mac, err := clientMACFromSocket(r)
+	// the caller supplied (see clientIdentity).
+	mac, err := clientIdentity(w, r, "")
 	if err != nil {
 		// Not fatal here: /whoami is an echo of the caller's own address, not a
 		// request that needs one (the money routes refuse an unidentified
@@ -557,14 +1071,17 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 
 	// Get the client's identity from the socket. A `mac` query parameter is not
 	// consulted: its value is the caller's claim about itself, and on this route
-	// it decides which device the grant is applied to.
+	// it decides which device the grant is applied to. The claim is reported back
+	// as ignored (see reportClientIdentity) so a harness posting a token "for" a
+	// MAC it is not itself using learns why the grant went elsewhere instead of
+	// reading it as "the gate never opened".
 	//
 	// This is the money path, where a wrong identity cannot be recovered: the
 	// token is received before the gate is opened, so a request that names
 	// 00:00:00:00:00:00 — or that cannot be resolved at all — would consume the
 	// customer's value and grant nothing (the rollback happens after Receive).
 	// Refuse BEFORE the token is read, with a distinct code the portal can show.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 			Warn("Payment refused: the client has no resolvable identity")
@@ -662,8 +1179,12 @@ func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, sta
 
 // handleRoot routes requests based on method
 func HandleUsage(w http.ResponseWriter, r *http.Request) {
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
+	// Same identity contract as every other client-scoped route: the client is
+	// the one at the other end of the socket. A `mac` parameter is a claim, and
+	// it is reported back as ignored rather than silently dropped — this route
+	// used to resolve the address raw (no canonical form, no sentinel refusal),
+	// so it was the one place the contract could drift without any test noticing.
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).Error("Error getting MAC address for /usage")
 		w.WriteHeader(http.StatusOK)
@@ -717,9 +1238,11 @@ type lightningInvoiceResponse struct {
 	Metric        string `json:"metric,omitempty"`
 	Error         string `json:"error,omitempty"`
 	// Code is the machine-readable refusal reason, additive to the
-	// `status`/`error` pair the shipped portal already parses. Today the only
-	// value is `device-unresolved` (errDeviceUnresolvedCode).
-	Code string `json:"code,omitempty"`
+	// `status`/`error` pair the shipped portal already parses. RetryAfter mirrors
+	// the Retry-After header in the body so a portal can render a countdown
+	// without reaching for a header it may not be allowed to read.
+	Code       string `json:"code,omitempty"`
+	RetryAfter int    `json:"retry_after,omitempty"`
 }
 
 type balanceResponse struct {
@@ -731,6 +1254,12 @@ type balanceResponse struct {
 	Remaining     uint64 `json:"remaining"`
 	StartTime     int64  `json:"start_time,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// Mac is the client this balance is about, resolved from the socket and
+	// canonicalised, exactly as /session-state reports it. It is additive and
+	// optional: a portal that ignores it parses the body it always did, and a
+	// probe that sent `?mac=<somewhere else>` can see which device answered
+	// instead of reading the (identical-looking) body as that device's balance.
+	Mac string `json:"mac,omitempty"`
 }
 
 // sessionStateResponse is the body of GET /session-state. `state` is the
@@ -760,7 +1289,7 @@ func HandleSessionState(w http.ResponseWriter, r *http.Request) {
 	// The state of the client at the other end of the socket — the `mac` query
 	// parameter this route used to accept is a claim by the caller about some
 	// other device, and answering it let one client read another's state.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		// An unidentifiable client has no session, and the portal polls this
 		// while rendering — so answer "none" rather than erroring. The sentinel
@@ -814,8 +1343,11 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r)
-	macAddress, err := getMacAddress(ip)
+	// Identity comes from the socket through the same resolver as every other
+	// client-scoped route (see clientIdentity): canonical form so a lease in any
+	// casing still finds the session that was created for this device, and the
+	// unresolvable-device sentinel refused rather than used as a lookup key.
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		// Client IP not in DHCP leases — can't identify device.
 		// Return "no active session" instead of erroring, so the balance
@@ -839,7 +1371,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	if usage == "-1/-1" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false, Mac: macAddress})
 		return
 	}
 
@@ -856,7 +1388,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 	if err != nil || session == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false})
+		json.NewEncoder(w).Encode(balanceResponse{Status: 1, SessionActive: false, Mac: macAddress})
 		return
 	}
 
@@ -875,6 +1407,7 @@ func HandleBalance(w http.ResponseWriter, r *http.Request) {
 		Allotment:     allotment,
 		Remaining:     remaining,
 		StartTime:     session.StartTime,
+		Mac:           macAddress,
 	})
 }
 
@@ -889,9 +1422,34 @@ func HandleLightningInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleLNInvoiceRoute is the `/ln-invoice` entry point registered by main. It
+// exists so the two halves of the endpoint are dispatched explicitly: the POST
+// (quote creation) and the GET (status poll) have different cost profiles and
+// must not share a middleware chain.
+func handleLNInvoiceRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// Quote creation only. The GET below is the poll loop a customer sits in
+		// front of while paying: on any cadence the pinned portal SPA uses, it
+		// must never be throttled, or the quota breaks the flow it protects.
+		quoteCreateQuotaMiddleware(HandleLightningInvoice)(w, r)
+		return
+	}
+	HandleLightningInvoice(w, r)
+}
+
 func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
+	// Bound the body before parsing it. The request is ~120 bytes; MaxBytesReader
+	// makes an oversized one a 413 instead of an allocation.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLightningInvoiceBodyBytes))
+	if err != nil {
+		mainLogger.WithError(err).Warn("Rejected oversized /ln-invoice request body")
+		writeLightningRefusal(w, http.StatusRequestEntityTooLarge, codeRequestTooLarge,
+			"Request body too large.", 0)
+		return
+	}
+
 	var req lightningInvoiceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "invalid request body"})
@@ -908,11 +1466,20 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "amount and mint_url are required"})
 		return
 	}
+	if req.Amount > maxLightningInvoiceSats {
+		mainLogger.WithField("amount", req.Amount).Warn("Rejected /ln-invoice amount above the ceiling")
+		writeLightningRefusal(w, http.StatusBadRequest, codeAmountTooLarge,
+			fmt.Sprintf("Amount too large: this TollGate accepts at most %d sats per invoice.", maxLightningInvoiceSats), 0)
+		return
+	}
 
 	// The quote is bound to the client at the other end of the socket. The `mac`
-	// field above is not read: a caller-named address would bind the quote — and
-	// the eventual grant — to a device that may not be the one paying.
-	macAddress, err := clientMACFromSocket(r)
+	// field above is not read as identity: a caller-named address would bind the
+	// quote — and the eventual grant — to a device that may not be the one
+	// paying. When the body names a different address it is reported as ignored
+	// (reportClientIdentity), which is what tells a harness that its quote went
+	// to its own socket rather than to the MAC it sent.
+	macAddress, err := clientIdentity(w, r, req.Mac)
 	if err != nil {
 		// A quote is only meaningful for a device that exists: the status poll
 		// and the eventual grant are both bound to this address, and the quote
@@ -934,9 +1501,24 @@ func handleLightningInvoicePost(w http.ResponseWriter, r *http.Request) {
 	invoice, err := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, req.Amount)
 	if err != nil {
 		mainLogger.WithError(err).Warn("Failed to create lightning invoice")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to create lightning invoice"})
+		switch {
+		case errors.Is(err, merchant.ErrTooManyQuotes):
+			// A local refusal with a distinct code: the mint was never
+			// contacted, so this says "we are being flooded", not "the mint is
+			// down", and the client is asked to come back rather than to retry
+			// immediately against a full table.
+			writeLightningRefusal(w, http.StatusTooManyRequests, codeQuoteTableFull,
+				"This TollGate is holding as many unpaid invoices as it can — please retry in a few minutes.", 60)
+		case errors.Is(err, merchant.ErrMintBusyLocal):
+			// Our own outbound budget toward the mint is spent. Refusing here is
+			// what keeps our traffic from being the reason the mint answers 429.
+			writeLightningRefusal(w, http.StatusTooManyRequests, codeMintBusyLocal,
+				"The mint is receiving as many requests as it accepts right now — please retry in a few seconds.", 2)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(lightningInvoiceResponse{Status: 0, Error: "failed to create lightning invoice"})
+		}
 		return
 	}
 
@@ -969,7 +1551,7 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	// that device's quote state. A poll that cannot be attributed must be refused
 	// rather than attributed to 00:00:00:00:00:00, which every unidentified
 	// client would share.
-	macAddress, err := clientMACFromSocket(r)
+	macAddress, err := clientIdentity(w, r, "")
 	if err != nil {
 		mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 			Warn("Refusing lightning status poll: the client has no resolvable identity")
@@ -987,6 +1569,23 @@ func handleLightningInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	// reveals status for that same device and access is granted to the recorded MAC.
 	status, err := merchantProvider.inner.GetMerchant().GetLightningInvoiceStatus(quoteID, macAddress)
 	if err != nil {
+		// A PAID purchase whose access could not be applied is NOT a status
+		// lookup failure, and answering it like one is how a customer ends up
+		// paying and staring at a portal that never says why (measured on the
+		// bench MT3000, 2026-09-26: state=PAID, merchant wallet +1 sat,
+		// access_granted never true). It is logged at ERROR with the client and
+		// the quote, and answered with its own code and a message that tells the
+		// customer the payment was received and not to pay again.
+		if errors.Is(err, merchant.ErrAccessGrantNotApplied) {
+			mainLogger.WithError(err).WithFields(logrus.Fields{
+				"quote": quoteID,
+				"mac":   macAddress,
+			}).Error("A PAID purchase could not be granted: the invoice settled but the access was NOT applied — the client keeps no allotment until the grant succeeds")
+			writeLightningRefusal(w, http.StatusServiceUnavailable, codeAccessGrantFailed,
+				"Your payment was received, but the router could not open the gate for this device yet. Do NOT pay again — access is retried automatically and opens as soon as the router can apply it.", 15)
+			return
+		}
+
 		statusCode := http.StatusInternalServerError
 		if errors.Is(err, merchant.ErrQuoteNotFound) {
 			statusCode = http.StatusNotFound
@@ -1023,49 +1622,53 @@ func versionRequested(args []string) bool {
 	return args[1] == "--version" || args[1] == "-version"
 }
 
-func main() {
-	var port = ":2121" // Change from "0.0.0.0:2121" to just ":2121"
-	fmt.Println("Starting Tollgate Core")
-	fmt.Println("Listening on all interfaces on port", port)
-
-	mainLogger.Info("Registering handlers...")
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+// registerAPIHandlers binds every route the money path serves, in the shape it
+// always had. It runs from bindAndServeAPI, i.e. BEFORE the merchant exists —
+// which is why every mint-dependent route is wrapped in requireStarted.
+// /whoami is deliberately not: it echoes the caller's own address and needs no
+// merchant, so it keeps answering for real while the wallet is loading.
+func registerAPIHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit / endpoint")
-		RateLimitMiddleware(CorsMiddleware(HandleRoot))(w, r)
+		RateLimitMiddleware(CorsMiddleware(requireStarted(HandleRoot)))(w, r)
 	})
 
-	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /whoami endpoint")
 		CorsMiddleware(handler)(w, r)
 	})
 
-	http.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ln-invoice", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /ln-invoice endpoint")
-		CorsMiddleware(HandleLightningInvoice)(w, r)
+		CorsMiddleware(requireStarted(handleLNInvoiceRoute))(w, r)
 	})
 
-	http.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /balance endpoint")
-		CorsMiddleware(HandleBalance)(w, r)
+		CorsMiddleware(requireStarted(HandleBalance))(w, r)
 	})
 
-	http.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/usage", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /usage endpoint")
-		CorsMiddleware(HandleUsage)(w, r)
+		CorsMiddleware(requireStarted(HandleUsage))(w, r)
 	})
 
-	http.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/session-state", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session-state endpoint")
-		CorsMiddleware(HandleSessionState)(w, r)
+		CorsMiddleware(requireStarted(HandleSessionState))(w, r)
 	})
 
-	// --- Identity derivation (additive, optional) --------------------------
-	// Derive network identity (npub, IPv4, MACs, BIP39 seed) from the existing
-	// merchant private key in identities.json (owned_identities[0].privatekey).
-	// This is a bonus feature: if identities.json is missing, malformed, or has
-	// no usable key, the routes are simply not registered and TollGate boots and
-	// serves all existing endpoints normally. No existing endpoint is touched.
+	registerIdentityRoutes(mux)
+}
+
+// registerIdentityRoutes is the optional identity block, unchanged by the boot
+// reordering and deliberately not gated: the routes derive a network identity
+// (npub, IPv4, MACs, BIP39 seed) from the existing merchant private key in
+// identities.json (owned_identities[0].privatekey) and never touch the
+// merchant. As before, if identities.json is missing, malformed, or has no
+// usable key, the routes are simply not registered and TollGate boots and
+// serves all existing endpoints normally.
+func registerIdentityRoutes(mux *http.ServeMux) {
 	identityPrivKey := ""
 	if ids := configManager.GetIdentities(); ids != nil && len(ids.OwnedIdentities) > 0 {
 		identityPrivKey = ids.OwnedIdentities[0].PrivateKey
@@ -1077,29 +1680,60 @@ func main() {
 		identityPrivKey = ""
 	}
 	if identityPrivKey != "" {
-		http.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/identity", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /identity endpoint")
 			CorsMiddleware(handleIdentityDerive(identityPrivKey))(w, r)
 		})
 		// reveal-seed accepts a 12-word BIP39 mnemonic and raw private key —
 		// POST-only so the request is intentional and never cached/prefetched.
-		http.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/identity/reveal-seed", func(w http.ResponseWriter, r *http.Request) {
 			mainLogger.WithField("remote_addr", r.RemoteAddr).Warn("Hit /identity/reveal-seed endpoint (sensitive)")
 			CorsMiddleware(handleIdentityRevealSeed(identityPrivKey))(w, r)
 		})
 		mainLogger.Info("identity: /identity and /identity/reveal-seed routes registered")
 	}
+}
 
-	mainLogger.Info("Starting HTTP server on all interfaces...")
-	server := &http.Server{
-		Addr: port,
-		// Add explicit timeouts to avoid potential deadlocks in Go 1.24
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  60 * time.Second,
+func main() {
+	fmt.Println("Starting Tollgate Core")
+	installShutdownHandler()
+
+	// The money path was bound and is being served from init() — BEFORE the
+	// mint-dependent construction — so :2121 accepts a connection, and answers
+	// an explicit "starting" refusal, while the mints and the wallet are still
+	// loading. All that is left here is to keep the process alive, and to exit
+	// if the money path itself dies.
+	if apiListener == nil || apiHTTPServer == nil {
+		mainLogger.Fatal("The payment API was never bound: the boot sequence did not run")
 	}
+	mainLogger.Info("Starting HTTP server on all interfaces...")
 
-	mainLogger.Fatal(server.ListenAndServe())
+	if err := <-apiServeErr; err != nil {
+		mainLogger.WithError(err).Fatal("Failed to serve the payment API")
+	}
+	mainLogger.Fatal("The payment API stopped serving")
+}
+
+// installShutdownHandler gives the module the shutdown path it did not have:
+// nothing called valve.Stop, so a service restart (`tollgate-wrt restart`)
+// killed the process — and every ndsctl invocation that was in flight with it —
+// and the kills landed in the log as ndsctl failures that nothing had claimed.
+//
+// procd stops the service with SIGTERM. The handler drains the ndsctl
+// invocations that are in flight and then exits. The drain is bounded (twice
+// valve.Stop's drain budget) so a stop can never hang the service: procd
+// SIGKILLs what does not exit.
+func installShutdownHandler() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		sig := <-signals
+		mainLogger.WithField("signal", sig.String()).Info("Stopping: draining the ndsctl invocations that are in flight, so a restart does not end a child that was about to answer")
+		valve.Stop()
+		mainLogger.WithField("signal", sig.String()).Info("Stopped")
+		os.Exit(0)
+	}()
 }
 
 func isLocalRequest(r *http.Request) bool {

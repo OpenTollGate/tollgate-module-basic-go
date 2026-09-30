@@ -5,7 +5,7 @@
 #
 # The module does not compile the portal: packaging/portal-build.sh builds it
 # from the revision pinned in packaging/build-inputs.json (.portal.commit) and
-# stages the result into packaging/files/. Five failure modes are guarded here.
+# stages the result into packaging/files/. Six failure modes are guarded here.
 #
 # CHECK A - pinned portal decodes Cashu tokens without a keyset list
 #   The token-validation path must be keyset-agnostic (cashu-ts
@@ -122,11 +122,53 @@
 #   block below, where the old key's count shows whether the dead end is still
 #   in the shipped bytes.
 #
+# CHECK F - the pinned portal derives the ADMIN board's redirect from COVERAGE
+#   packaging/files/etc/uci-defaults/92-tollgate-admin-setup is NOT in this
+#   repository: the module ships only 90-tollgate-captive-portal-symlink and
+#   99-tollgate-setup, and 92 is staged from the pinned portal tree by
+#   packaging/portal-build.sh into packaging/files/ (a build product, gitignored;
+#   packaging/Makefile installs it into every package). So this check cannot be
+#   asserted against a tracked file - it resolves 92 FROM THE PIN with the
+#   pin_file helper above, exactly like the other pinned sources, and the
+#   revision it resolves to is the one the package will ship.
+#
+#   The defect the pin advance removes (portal PR #65, and the same rule the
+#   module's 99-tollgate-setup already carries): the board's :8443 listener was
+#   armed from a FIXED path test on the OpenWrt image's own pair -
+#
+#     if [ -f /etc/uhttpd.crt ] && [ -f /etc/uhttpd.key ]; then ... fi
+#
+#   - and uhttpd.admin.redirect_https was then decided by readability of that
+#   pair plus a configured listener. The image's pair is a PLACEHOLDER (subject
+#   CN=OpenWrt, SAN DNS:OpenWrt; 561 bytes on the bench MT3000), so it satisfies
+#   every existence check while covering neither the router's hostname nor its
+#   LAN IP: :8090 redirected a browser into a hard certificate error on an
+#   identity nobody can validate.
+#
+#   F1 the pinned 92 derives the value through the module CLI's own x509
+#      coverage predicate (`tollgate ssl covers`, src/cmd/tollgate-cli/ssl.go,
+#      reached through a cert_covers_router helper), so the shell, the Go side
+#      and a browser cannot disagree about what a usable identity means;
+#   F2 that predicate is what guards the ADMIN instance's own hop - it is the
+#      admin identity that is tested, not only uhttpd.main's;
+#   F3 an EXPLICIT value is written in BOTH directions on uhttpd.admin, so a
+#      stale '1' left by an earlier install is repaired rather than kept;
+#   F4 the image's FIXED placeholder path must not be what decides the hop - no
+#      bracketed test on the literal /etc/uhttpd.crt|key. (The path may still
+#      appear as an env-overridable fallback LISTENER identity, which is not a
+#      redirect decision; a fixed-path existence TEST is.)
+#
+#   A pin that cannot be read here FAILS this check in every environment, CI or
+#   not - it is deliberately not the skip-locally pin_unavailable() helper, for
+#   the reason given at the check.
+#
 # Usage:  bash tests/packaging/assert-portal-bundle-contract.sh [--portal-dir DIR]
 #         PORTAL_DIR=/path/to/tollgate-captive-portal-site (or --portal-dir)
 #         skips the fetch when the local clone already has the pin.
 #
-# Exit codes: 0 pass (or skipped), 1 contract violation.
+# Exit codes: 0 pass (or skipped), 1 contract violation. CHECK F is stricter
+# than the others about its own source: an unreadable pin fails it even locally,
+# because the module ships no 92 to fall back on.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -219,7 +261,27 @@ lightning_js="$(pin_file src/helpers/lightning.js)"
 locales_json="$(pin_file public/locales/en.json)"
 mint_fee_js="$(pin_file src/helpers/mint-fee.js)"
 app_js="$(pin_file src/App.jsx)"
+# CHECK F reads a file the module does not carry (see its header): 92 is staged
+# from the pin into packaging/files/ at build time, so the only place it can be
+# resolved from is the pinned portal tree itself.
+admin_setup_sh="$(pin_file packaging/files/etc/uci-defaults/92-tollgate-admin-setup)"
 PIN_SOURCE_ORIGIN="$(cat "$pin_origin_file" 2>/dev/null)"
+
+# 92 is not in this repository - the module ships 90 and 99, and 92 is staged
+# from the pinned portal tree at build time (packaging/portal-build.sh into the
+# gitignored packaging/files/, which packaging/Makefile then installs). A pin we
+# cannot read it from therefore leaves the redirect rule the package ships
+# entirely unverified, so this is a FAILURE in every environment - deliberately
+# NOT the pin_unavailable() helper the other checks use, which degrades to a
+# skip outside CI. It is evaluated HERE, before the early exit below can reduce
+# an unreachable pin to "not verified".
+if [ -z "$admin_setup_sh" ]; then
+  fail "check F: packaging/files/etc/uci-defaults/92-tollgate-admin-setup is not readable at $pin"
+  echo "        This file is not tracked here (the module ships 90 and 99 only); it is"
+  echo "        staged from the pinned portal commit. With the pin unreadable the rule"
+  echo "        that decides the admin board's redirect is unverified, which is a"
+  echo "        failure rather than a skip at any time - CI or local."
+fi
 
 if [ -z "$cashu_js" ] && [ -z "$lightning_js" ] && [ -z "$locales_json" ] && [ -z "$mint_fee_js" ] && [ -z "$app_js" ]; then
   pin_unavailable "any pinned portal source"
@@ -434,6 +496,85 @@ else
   echo "        one of a hand-picked mint, not the note's."
   echo "        Fix the portal, bump .portal.commit to that revision and re-run"
   echo "        'bash packaging/portal-build.sh'."
+fi
+
+# ---------------------------------------------------------------- CHECK F ---
+echo
+echo "--- check F: pinned portal derives the admin redirect from COVERAGE ---"
+echo "            (92-tollgate-admin-setup, resolved from the pin - not tracked here)"
+
+if [ -z "$admin_setup_sh" ]; then
+  # Already FAILED above, before the early exit; assert nothing on an unreadable
+  # file rather than let every count below read 0 and look like a pass.
+  echo "check F: assertions NOT evaluated - 92 could not be read at the pin (FAILED above)"
+else
+  echo "source: $PIN_SOURCE_ORIGIN"
+  admin_redirect_ok=1
+
+  # F1 - the value is DERIVED from the module's own x509 coverage predicate.
+  # `tollgate ssl covers` is src/cmd/tollgate-cli/ssl.go; reaching it through a
+  # cert_covers_router helper is what the module's 99-tollgate-setup does too.
+  for marker in 'TOLLGATE_CLI' 'ssl covers' 'cert_covers_router'; do
+    n="$(printf '%s' "$admin_setup_sh" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-46s' "coverage predicate - $marker") $n"
+    [ "$n" -gt 0 ] || admin_redirect_ok=0
+  done
+
+  # F2 - it is the ADMIN instance's own identity that the predicate is applied
+  # to. Without this the file could carry the helper and still decide the
+  # board's hop on a premise of its own.
+  n="$(printf '%s' "$admin_setup_sh" | grep -o -F -- 'cert_covers_router "$admin_cert"' | wc -l | tr -d ' ')"
+  echo "  $(printf '%-46s' 'admin identity tested - cert_covers_router "$admin_cert"') $n"
+  [ "$n" -gt 0 ] || admin_redirect_ok=0
+
+  # F3 - an EXPLICIT value in BOTH directions on uhttpd.admin, so a stale '1'
+  # from an earlier install is repaired rather than kept. (uhttpd.main's own
+  # pair is asserted separately below, as context for the same rule.)
+  for marker in "uhttpd.admin.redirect_https='1'" "uhttpd.admin.redirect_https='0'"; do
+    n="$(printf '%s' "$admin_setup_sh" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-46s' "explicit value - $marker") $n"
+    [ "$n" -gt 0 ] || admin_redirect_ok=0
+  done
+
+  # F4 - the OpenWrt image's FIXED placeholder certificate path must not be what
+  # decides the hop. The old shape armed :8443 and the redirect from a bracketed
+  # test on the literal path, which the image's CN=OpenWrt/SAN DNS:OpenWrt
+  # placeholder satisfies while covering neither the router's hostname nor its
+  # LAN IP. The path may still appear as an env-overridable fallback LISTENER
+  # identity (UHTTPD_IMAGE_CERT:-/etc/uhttpd.crt); a fixed-path TEST is the
+  # defect, and it is counted as a regex so -f/-r/-s/-e are all caught.
+  fixed_path_tests="$(printf '%s' "$admin_setup_sh" \
+    | grep -o -E '\[[[:space:]]+-[a-zA-Z][[:space:]]+/etc/uhttpd\.(crt|key)[[:space:]]*\]' | wc -l | tr -d ' ')"
+  echo "  $(printf '%-46s' 'old shape - [ -f/-r/-s /etc/uhttpd.crt|key ]') $fixed_path_tests"
+  [ "$fixed_path_tests" -eq 0 ] || admin_redirect_ok=0
+
+  # Context, not asserted: the rule the two writers must agree on also covers
+  # LuCI's uhttpd.main, and the pre-#65 shape still shipped a placeholder-based
+  # test for it in some revisions - reported so a re-pin that drops the main
+  # half is visible without failing this check.
+  for marker in "uhttpd.main.redirect_https='1'" "uhttpd.main.redirect_https='0'" 'cert_covers_router "$main_cert"'; do
+    n="$(printf '%s' "$admin_setup_sh" | grep -o -F -- "$marker" | wc -l | tr -d ' ')"
+    echo "  $(printf '%-46s' "context - $marker") $n"
+  done
+  echo "  (the image path as an env-overridable fallback identity:"
+  echo "   $(printf '%s' "$admin_setup_sh" | grep -o -F -- 'UHTTPD_IMAGE_CERT:-/etc/uhttpd.crt' | wc -l | tr -d ' ') occurrence(s) - not a redirect decision)"
+
+  if [ "$admin_redirect_ok" -eq 1 ]; then
+    echo "check F: PASS - the board's redirect is derived from the CLI's coverage predicate"
+  else
+    fail "check F: pinned $pin decides the admin board's redirect without a coverage check"
+    echo "        92-tollgate-admin-setup must derive uhttpd.admin.redirect_https from the"
+    echo "        module CLI's own x509 predicate -"
+    echo "          \"\$TOLLGATE_CLI\" ssl covers \"\$admin_cert\"   (src/cmd/tollgate-cli/ssl.go)"
+    echo "        - write an explicit value in BOTH directions on uhttpd.admin, and must"
+    echo "        NOT decide the hop from a fixed-path test on the image's placeholder"
+    echo "        pair (/etc/uhttpd.crt, subject CN=OpenWrt, SAN DNS:OpenWrt). That pair"
+    echo "        satisfies every existence check while covering neither the router's"
+    echo "        hostname nor its LAN IP, so :8090 redirected a browser into a hard"
+    echo "        certificate error (bench MT3000, 2026-09-26). Fix the portal, bump"
+    echo "        .portal.commit to that revision and re-run"
+    echo "        'bash packaging/portal-build.sh'."
+  fi
 fi
 
 # ---------------------------------------------------------------- CHECK B ---

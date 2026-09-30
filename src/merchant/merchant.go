@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -125,23 +126,68 @@ func (m *Merchant) sessionKnownToHaveExpiredLocked(macAddress string) bool {
 	return time.Since(time.Unix(when, 0)) <= sessionHistoryTTL
 }
 
-// ndsClientCheck is a seam over valve.CheckClientState so tests can stub the
-// read-only NDS probe without a router.
-var ndsClientCheck = valve.CheckClientState
+// The pre-flight's test seam is per merchant (clientProbe and
+// clientProbeDelay below), not a package-level variable. It used to be one, and
+// a test writing it raced with the usage monitor goroutine of an earlier test's
+// merchant, which reads the default probe through the reconciliation's
+// fallback; the full-suite `-race` gate caught it. See setClientProbe.
 
 // preflightProbeAttempts mirrors the valve auth-retry budget: the reseller
 // flow's upstream NDS registers client sessions asynchronously, so absence at
 // first probe is not final.
 const preflightProbeAttempts = 5
 
-// preflightRetryDelay is a var so tests can shrink it.
-var preflightRetryDelay = 400 * time.Millisecond
+// preflightRetryDelayDefault is how long the pre-flight waits between two
+// probes. It is the zero-value default of Merchant.clientProbeDelay.
+const preflightRetryDelayDefault = 400 * time.Millisecond
 
 // receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
 // a money-moving `Receive` before it answers the customer with "outcome
-// unknown". It is a var, like preflightRetryDelay, so a test can shrink the
-// window instead of waiting it out; nothing in production reassigns it.
+// unknown". It is a var so a test can shrink the window instead of waiting it
+// out; nothing in production reassigns it, and — unlike the pre-flight's delay
+// (Merchant.clientProbeDelay, which is per merchant because the usage monitor
+// reads it from its own goroutine) — every reader of this one is on the
+// goroutine that called PurchaseSession.
 var receiveTimeout = 30 * time.Second
+
+// receiveResult is the answer of one money-moving `Receive` call.
+type receiveResult struct {
+	amount uint64
+	err    error
+}
+
+// recordLateReceiveOutcome waits for the answer of a `Receive` that outlived the
+// response deadline and writes it to the log beside the reference the notice gave
+// the customer. It is deliberately log-only: it grants no session and moves no
+// money, so it must not read as if the customer had been served — the journal
+// that credits or refunds a late outcome is separate work. Its whole job is to
+// make the reference the customer quotes answerable today, because the operator
+// cannot tell a late success (the mint took the note) from a late failure (it
+// did not) without it.
+func recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string) {
+	res := <-ch
+	if res.err != nil {
+		// An error is not a refusal. A `Receive` that answers after the deadline
+		// most often answers with a transport error, because the wallet's own
+		// HTTP client spends the same 30-second budget as receiveTimeout: a swap
+		// POST that starts a beat later times out a beat after this module's
+		// deadline, and a mint 5xx answered after it processed the swap is
+		// ambiguous the same way. Only a refusal the mint itself returned proves
+		// the note was not taken, and the record must not decide the ambiguous
+		// case on the operator's behalf: its whole job is to say which of the
+		// two happened, and the confident label is the one that loses the money.
+		if isAmbiguousMintOutcomeError(res.err) {
+			log.Printf("PurchaseSession: late Receive FAILED (outcome still ambiguous) for mint=%s mac=%s reference=%s: %v — the mint may have taken the note; check the wallet balance for the mint before resubmitting anything, no session was granted",
+				mintURL, macAddress, reference, res.err)
+			return
+		}
+		log.Printf("PurchaseSession: late Receive FAILED for mint=%s mac=%s reference=%s: %v — the mint did not take the note, no session was granted",
+			mintURL, macAddress, reference, res.err)
+		return
+	}
+	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — the mint took the note and no session was granted; credit or refund it",
+		mintURL, macAddress, reference, res.amount)
+}
 
 // receiveReference is the operator-facing handle for one money-moving attempt:
 // the salted fingerprint of the customer's note, which the customer can quote
@@ -198,9 +244,41 @@ type Merchant struct {
 	sessionMu         sync.RWMutex
 	unmeteredMu       sync.Mutex
 	unmeteredSessions map[string]*unmeteredSession
+	staleBindings     staleBindingJanitor
 	lightningQuotes   map[string]*lightningQuoteRecord
 	lightningQuoteMu  sync.RWMutex
 	quoteStore        *quoteStore
+	// mintQuoteBudget is the self-imposed outbound budget toward each mint. It is
+	// a value so `&Merchant{}` literals keep working; its zero value is usable.
+	mintQuoteBudget mintQuoteBudget
+
+	// clientProbe overrides the read-only NDS identity probe the payment
+	// pre-flight uses for this merchant; nil means valve.CheckClientState, which
+	// is what production uses. clientProbeDelay overrides
+	// preflightRetryDelayDefault the same way.
+	//
+	// Both are per merchant rather than package-level seams because the usage
+	// monitor runs on its own goroutine, and a leaked monitor goroutine of an
+	// earlier test's merchant reads the default probe: a test writing a
+	// package-level seam is then a write racing against that read, which is what
+	// the full-suite `-race` gate caught. The reconciliation's policy and probe
+	// are per merchant for the same reason. Guarded so a test may also drive the
+	// pre-flight from its own goroutine.
+	clientProbeMu    sync.RWMutex
+	clientProbe      func(string) (valve.ClientState, error)
+	clientProbeDelay time.Duration
+	// monitorMu guards the usage sweep's stop/done channels. They are created by
+	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
+	// test that drives the real startup path can end the sweep it started: the
+	// goroutine writes through the standard logger and touches the valve's
+	// process-global gate state, so a monitor left running logs into the next
+	// test's capture (a data race under -race) and keeps sweeping a merchant the
+	// test has finished with. In the shipped binary the sweep is
+	// process-lifetime and nothing calls the stop.
+	monitorMu   sync.Mutex
+	monitorStop chan struct{}
+	monitorDone chan struct{}
+	monitorOn   bool
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -374,17 +452,82 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 	return usageStr, nil
 }
 
-// StartDataUsageMonitoring starts a background routine to monitor data usage for active sessions
+// StartDataUsageMonitoring starts a background routine to monitor data usage for
+// active sessions and to reconcile the bindings of clients that have left the
+// network (see the stale-binding reconciliation section).
+//
+// Before the first sweep it runs the STARTUP reconciliation (see
+// startup_reconciliation.go), which is the other direction of the same drift: a
+// module restart starts from an empty session set while NoDogSplash keeps every
+// client it had authorised, so a client this module holds no session for would
+// keep an open, unmetered gate. It runs here — synchronously, during merchant
+// construction and therefore before the merchant is installed behind the API —
+// so it can never race a purchase that is being served, and it asks
+// NoDogSplash's own client list (`ndsctl json`, no argument), which is the only
+// surface that survives the module.
 func (m *Merchant) StartDataUsageMonitoring() {
 	log.Printf("Starting data usage monitoring routine")
+
+	m.ReconcileNdsAuthorisationsOnStartup()
+
+	m.startUsageSweep()
+}
+
+// startUsageSweep starts the 2-second sweep, once per merchant, and keeps the
+// handles stopDataUsageMonitoring needs to end it.
+func (m *Merchant) startUsageSweep() {
+	m.monitorMu.Lock()
+	defer m.monitorMu.Unlock()
+
+	if m.monitorOn {
+		// One sweep per merchant: a second goroutine would be unstoppable.
+		return
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	m.monitorStop, m.monitorDone, m.monitorOn = stop, done, true
 
 	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
 	go func() {
 		defer ticker.Stop()
-		for range ticker.C {
-			m.checkDataUsage()
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				m.checkDataUsage()
+			}
 		}
 	}()
+}
+
+// stopDataUsageMonitoring stops the sweep startUsageSweep started and waits for
+// the sweep that was in flight to return, so that after it returns nothing of
+// this merchant writes through the standard logger any more.
+//
+// It exists for the tests that drive the REAL startup path (StartDataUsageMonitoring
+// is where the startup reconciliation runs): they verify behaviour by reading the
+// standard logger, so a sweep belonging to an earlier test must not still be
+// reporting into the capture — and a sweep must not keep reading the valve's
+// process-global gate state for a merchant the test has finished with. Left
+// running, those monitors made `go test -race ./...` in this package fail with
+// "race detected during execution of test" (the full suite, 2026-09-27).
+//
+// Safe to call before the sweep was ever started, and safe to call twice. A
+// merchant started again afterwards gets a fresh, stoppable sweep.
+func (m *Merchant) stopDataUsageMonitoring() {
+	m.monitorMu.Lock()
+	stop, done := m.monitorStop, m.monitorDone
+	m.monitorStop, m.monitorDone, m.monitorOn = nil, nil, false
+	m.monitorMu.Unlock()
+
+	if stop == nil {
+		return
+	}
+	close(stop)
+	<-done
 }
 
 // checkDataUsage checks all active data-based sessions and closes gates when allotment is reached
@@ -401,6 +544,14 @@ func (m *Merchant) checkDataUsage() {
 	for mac, session := range sessions {
 		m.enforceBytesSession(mac, session)
 	}
+
+	// Metering answers "has this client used what it paid for?". It cannot
+	// answer "is this client still here?" — and an address whose client left is
+	// exactly the binding that stays authorised for ever, because a frozen
+	// counter never reaches its allotment. One pass of the reconciliation runs
+	// on its own (slower) cadence, after the metering, so a session that has
+	// genuinely spent its allotment is still closed by the meter first.
+	m.reconcileSweep()
 }
 
 // usageMonitorGraceSweeps bounds how many consecutive sweeps a bytes session may
@@ -420,10 +571,27 @@ var usageMonitorBaselineRetryDelay = 2 * time.Second
 // currently enforce. It exists so the monitor can tell "just became unmeterable"
 // from "has been unmeterable for a minute", which is what decides between
 // waiting and closing the gate.
+//
+// The three close-report fields exist so the FORCE-CLOSE is an escalation rather
+// than a line per sweep: forceCloseEscalated is the first sweep past the grace
+// window (the escalation, once), lastCloseAbandoned is the valve's state on the
+// previous attempt (a CHANGE of state is not a repeat and is reported at once),
+// and lastForceCloseReport throttles everything else.
 type unmeteredSession struct {
 	sweeps              int
 	lastBaselineAttempt time.Time
+
+	forceCloseEscalated  bool
+	lastForceCloseReport time.Time
+	lastCloseAbandoned   bool
 }
+
+// unmeterableSessionReportInterval is how often the module repeats the state of a
+// session it can neither meter nor close. The sweep runs every 2 s, so without
+// this the module wrote an ERROR — and the close failure under it — on every
+// sweep for as long as NoDogSplash refused (the bench log's "has been unreadable
+// for 39 sweeps"). A var so tests can shrink it.
+var unmeterableSessionReportInterval = time.Minute
 
 // unmeteredStateLocked returns the bookkeeping of mac, creating it on first use.
 // Caller must hold unmeteredMu.
@@ -464,6 +632,36 @@ func (m *Merchant) noteUnmeterableSweep(macAddress string) int {
 	return state.sweeps
 }
 
+// noteUnmeterableCloseFailure records one failed force-close of macAddress and
+// reports how this sweep should be reported: escalate is the FIRST sweep past the
+// grace window (the escalation, which is written once), changed is a change in
+// what the valve says about that close (a transition is not a repeat, so it is
+// reported at once), and repeat is a state that has been reported before and is
+// due again.
+//
+// Caller supplies closeErr and now so the decision is made under the lock that
+// owns the state.
+func (m *Merchant) noteUnmeterableCloseFailure(macAddress string, closeErr error, now time.Time) (escalate, changed, repeat bool) {
+	abandoned := errors.Is(closeErr, valve.ErrGateCloseAbandoned)
+
+	m.unmeteredMu.Lock()
+	defer m.unmeteredMu.Unlock()
+
+	state := m.unmeteredStateLocked(macAddress)
+	escalate = !state.forceCloseEscalated
+	changed = !escalate && abandoned != state.lastCloseAbandoned
+	repeat = escalate || now.Sub(state.lastForceCloseReport) >= unmeterableSessionReportInterval
+
+	if escalate {
+		state.forceCloseEscalated = true
+	}
+	state.lastCloseAbandoned = abandoned
+	if escalate || changed || repeat {
+		state.lastForceCloseReport = now
+	}
+	return escalate, changed, repeat
+}
+
 // clearUnmetered forgets the bookkeeping of a session that is enforceable again.
 func (m *Merchant) clearUnmetered(macAddress string) {
 	m.unmeteredMu.Lock()
@@ -472,13 +670,29 @@ func (m *Merchant) clearUnmetered(macAddress string) {
 	delete(m.unmeteredSessions, macAddress)
 }
 
+// closeRetryStateClause is what the module will do NEXT about a close that
+// ndsctl has not confirmed, and it is derived from the error rather than
+// assumed. A close whose retry budget is spent (ErrGateCloseAbandoned) is NOT
+// re-attempted by the sweep machinery — only the reconciliation re-attempts it,
+// under fresh evidence about the client — so a log line that says "the close is
+// retried" for that state is the same class of false claim as the
+// unmetered-access wording this release removes. Every caller that reports an
+// unconfirmed close must use this rather than assert a retry in prose.
+func closeRetryStateClause(err error) string {
+	if errors.Is(err, valve.ErrGateCloseAbandoned) {
+		return "the module has stopped re-attempting this close (the close budget for this gate is spent and the valve's UNRESOLVED line carries the operator action); only the reconciliation re-attempts it, under fresh evidence about the client"
+	}
+	return "the close is retried within the gate's close budget"
+}
+
 // enforceBytesSession is the usage monitor's per-session step. Every sweep takes
 // the session one step closer to enforcement — meter it against its allotment,
 // re-establish the baseline it is missing, or close a gate that cannot be
 // metered at all. The one thing it must never do is skip the session: a bytes
 // session the monitor stops looking at keeps an open gate for as long as the
 // process lives, which is exactly the free, unmetered internet this module
-// exists to prevent (C1-2b, C1-2c).
+// exists to prevent (C1-2b, C1-2c). Its failure log line derives its retry claim
+// from closeRetryStateClause, never from prose.
 func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSession) {
 	// A session whose baseline was never established cannot be metered. The old
 	// code answered this with `continue` on every sweep, for ever.
@@ -522,8 +736,8 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	// the client must be closed — retiring it is how the customer kept free,
 	// unmetered internet with nothing left to retry (C1-2b).
 	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and the close is retried; the client may still hold open, unmetered access (unconfirmed gate closes=%d)",
-			macAddress, err, valve.GateCloseFailures())
+		log.Printf("ERROR: could not close the gate for %s after its allotment was spent: %v — the session is retained and %s; whether the client still has access is UNVERIFIED until ndsctl confirms the deauthorization, and the valve logs the verified state of every attempt (unconfirmed gate closes=%d)",
+			macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		return
 	}
 	log.Printf("Successfully closed gate for %s", macAddress)
@@ -561,7 +775,18 @@ func (m *Merchant) establishBaseline(macAddress string) {
 // it is given usageMonitorGraceSweeps of grace and then its gate is closed, since
 // an unmeasurable session left open is unmetered internet. The close is subject
 // to the same contract as every other close — the session is retired only when
-// the close is confirmed, and the gate stays tracked and is retried otherwise.
+// the close is confirmed, and the gate stays tracked otherwise (and the valve
+// logs the verified state of the client, which is what distinguishes "ndsctl
+// refused" from "NoDogSplash does not know this client": the second is a
+// completed close and retires the session at once).
+//
+// The REPORTING of that state is bounded, because the sweep runs every 2 s: the
+// force-close is escalated once, a change of state (the close being abandoned, or
+// coming back) is reported at once, and the same state repeating is reported at
+// most once per unmeterableSessionReportInterval. Before this, one session NoDogSplash
+// would not deauthorize wrote two ERROR lines every second for ever, which is how
+// the bench log's real escalation ("has been unreadable for 39 sweeps") became
+// unreadable itself.
 func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	sweeps := m.noteUnmeterableSweep(macAddress)
 
@@ -571,19 +796,294 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 		return
 	}
 
-	log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered",
-		macAddress, sweeps, usageErr)
-
 	if err := valve.CloseGate(macAddress); err != nil {
-		log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and the close is retried (unconfirmed gate closes=%d)",
-			macAddress, err, valve.GateCloseFailures())
+		escalate, changed, repeat := m.noteUnmeterableCloseFailure(macAddress, err, time.Now())
+
+		switch {
+		case escalate:
+			log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered (escalated once: the session stays TRACKED until the close is confirmed, and this state is repeated at most every %s — a change of state is reported at once)",
+				macAddress, sweeps, usageErr, unmeterableSessionReportInterval)
+			log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
+				macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
+		case changed:
+			log.Printf("WARNING: the state of the unmeterable session of %s changed: %v — %s (sweeps with unreadable counters: %d)",
+				macAddress, err, closeRetryStateClause(err), sweeps)
+		case repeat:
+			log.Printf("WARNING: the bytes session of %s is still unmeterable and its gate is still not confirmed closed after %d sweeps: %v — the session stays tracked and the module keeps attempting the close (%s)",
+				macAddress, sweeps, usageErr, closeRetryStateClause(err))
+		}
 		return
 	}
 
 	m.sessionMu.Lock()
 	m.expireSessionLocked(macAddress)
 	m.sessionMu.Unlock()
+	// The episode is over: the bookkeeping belongs to THIS unmeterable session,
+	// so it is forgotten with it. Leaving it behind would leave
+	// forceCloseEscalated set for the MAC, and a later session that cannot be
+	// metered would start in the throttled "repeat" branch — the operator would
+	// never get its ERROR escalation, and the sweeps counter would continue from
+	// the previous session's grace window instead of granting this one its own.
+	m.clearUnmetered(macAddress)
 	log.Printf("Removed unmeterable session for %s", macAddress)
+}
+
+// ---------------------------------------------------------------------------
+// Stale-binding reconciliation: the address a client leaves behind
+//
+// Entitlement is keyed to the client's MAC address, and the address belongs to
+// the device that chose it. A client that changes its Wi-Fi address mid-session
+// (iOS picks a rotating private address by default on a weak or open SSID, which
+// is what a captive portal usually is; Linux and Android can be asked to
+// randomise theirs) therefore leaves this module holding a gate for an address
+// no device holds any more. On the default `bytes` metric the per-MAC meter has
+// nothing left to measure — the counters of an address nobody uses simply stop
+// moving — so nothing that reads traffic can ever end that session: the gate
+// stays authorised until the process dies, and any later holder of that address
+// (a MAC fallback to the hardware address, a spoof, a collision) inherits
+// metered internet for free.
+//
+// The reconciliation asks the one question a meter cannot ask — is the client
+// that bought this address still on the network? — and, after a grace window of
+// consecutive "gone" answers, tears the binding down under the same rule as
+// every other close (a failed close is not a close: the record is retained and
+// retried). It never touches a client that is still listed, which is what keeps
+// an idle customer's session alive.
+// ---------------------------------------------------------------------------
+
+// defaultStaleBindingReconcileEvery is how many usage-monitor sweeps (2 s each)
+// pass between two reconciliation passes by default, i.e. how long the module
+// waits before it spends an ndsctl probe on a session (~30 s).
+const defaultStaleBindingReconcileEvery = 15
+
+// defaultStaleBindingGracePasses is how many consecutive reconciliation passes
+// may find a client gone before its binding is torn down by default: a device
+// that roams out and back, or one whose NDS record blinks, must not lose its
+// session (~60 s of absence).
+const defaultStaleBindingGracePasses = 2
+
+// staleBindingJanitor is the reconciliation's bookkeeping: how many sweeps have
+// passed (to run on a slower cadence than the meter) and how many consecutive
+// passes found each address's client gone.
+//
+// The cadence and grace are fields rather than package variables on purpose: the
+// reconciliation runs on the usage monitor's own goroutine, so a policy a test
+// writes while that goroutine reads it would be a data race — and was, until a
+// full-suite `-race` run caught it. Per merchant, read under this mutex, the
+// policy has exactly one writer and one reader.
+type staleBindingJanitor struct {
+	mu          sync.Mutex
+	sweeps      int
+	absent      map[string]int
+	everySweeps int
+	gracePasses int
+
+	// probe overrides the read-only NDS identity probe for this merchant. It
+	// exists so a test can drive the reconciliation without writing a
+	// package-level seam that a monitor goroutine in the same test binary is
+	// reading; nil means valve.CheckClientState, which is what production uses.
+	probe func(string) (valve.ClientState, error)
+}
+
+// staleBindingProbeLocked returns the identity probe this merchant's
+// reconciliation uses. Caller must hold j.mu.
+func (j *staleBindingJanitor) staleBindingProbeLocked() func(string) (valve.ClientState, error) {
+	if j.probe != nil {
+		return j.probe
+	}
+	return valve.CheckClientState
+}
+
+// setStaleBindingProbe replaces the identity probe for this merchant only. It
+// exists for tests; production leaves it nil and uses valve.CheckClientState.
+func (m *Merchant) setStaleBindingProbe(probe func(string) (valve.ClientState, error)) {
+	m.staleBindings.mu.Lock()
+	defer m.staleBindings.mu.Unlock()
+
+	m.staleBindings.probe = probe
+}
+
+// reconcileEveryLocked returns how many sweeps pass between two reconciliation
+// passes. Caller must hold j.mu.
+func (j *staleBindingJanitor) reconcileEveryLocked() int {
+	if j.everySweeps < 1 {
+		return defaultStaleBindingReconcileEvery
+	}
+	return j.everySweeps
+}
+
+// graceLocked returns how many consecutive "the client is gone" passes a binding
+// may survive. Caller must hold j.mu.
+func (j *staleBindingJanitor) graceLocked() int {
+	if j.gracePasses < 1 {
+		return defaultStaleBindingGracePasses
+	}
+	return j.gracePasses
+}
+
+// tuneStaleBindingReconciliation replaces the reconciliation's cadence and grace
+// window for this merchant. It exists for tests: the policy is per merchant
+// (read under the janitor's lock) rather than a package-level variable, because
+// the reconciliation runs on the usage monitor's own goroutine.
+func (m *Merchant) tuneStaleBindingReconciliation(everySweeps, gracePasses int) {
+	m.staleBindings.mu.Lock()
+	defer m.staleBindings.mu.Unlock()
+
+	m.staleBindings.everySweeps, m.staleBindings.gracePasses = everySweeps, gracePasses
+}
+
+// reconcileSweep runs the reconciliation when its cadence is due.
+func (m *Merchant) reconcileSweep() {
+	m.staleBindings.mu.Lock()
+	m.staleBindings.sweeps++
+	due := m.staleBindings.sweeps%m.staleBindings.reconcileEveryLocked() == 0
+	m.staleBindings.mu.Unlock()
+
+	if due {
+		m.reconcileStaleBindings()
+	}
+}
+
+// noteStaleBindingPass records one pass that found macAddress's client gone and
+// returns how many consecutive passes have now found it gone.
+func (m *Merchant) noteStaleBindingPass(macAddress string) int {
+	m.staleBindings.mu.Lock()
+	defer m.staleBindings.mu.Unlock()
+
+	if m.staleBindings.absent == nil {
+		m.staleBindings.absent = make(map[string]int)
+	}
+	m.staleBindings.absent[macAddress]++
+	return m.staleBindings.absent[macAddress]
+}
+
+// forgetStaleBinding drops the absence bookkeeping of an address whose client is
+// present again (or whose binding has been dealt with), so the grace window
+// always counts CONSECUTIVE absences.
+func (m *Merchant) forgetStaleBinding(macAddress string) {
+	m.staleBindings.mu.Lock()
+	delete(m.staleBindings.absent, macAddress)
+	m.staleBindings.mu.Unlock()
+}
+
+// staleBindingCandidates lists the addresses whose binding this pass checks:
+// every bytes session — the metric whose meter cannot finish once the client
+// leaves — plus every gate the module still holds, including the gates it has no
+// session record for, which nothing else looks at.
+//
+// Milliseconds sessions are deliberately NOT candidates: their gate is bounded
+// by its own expiry timer, so the leak is not indefinite, and closing one early
+// would take away paid time from a customer who may simply have closed a laptop
+// lid. Their gate ends when its timer says so, not when we stop seeing them.
+func (m *Merchant) staleBindingCandidates() []string {
+	excluded := make(map[string]bool)
+	candidates := make(map[string]bool)
+
+	m.sessionMu.RLock()
+	for macAddress, session := range m.customerSessions {
+		if session.Metric == "milliseconds" {
+			excluded[macAddress] = true
+			continue
+		}
+		candidates[macAddress] = true
+	}
+	m.sessionMu.RUnlock()
+
+	for _, macAddress := range valve.TrackedGates() {
+		if excluded[macAddress] {
+			continue
+		}
+		candidates[macAddress] = true
+	}
+
+	macs := make([]string, 0, len(candidates))
+	for macAddress := range candidates {
+		macs = append(macs, macAddress)
+	}
+	sort.Strings(macs)
+	return macs
+}
+
+// reconcileStaleBindings is one reconciliation pass over every candidate
+// binding. A client the module cannot ask about is left alone (a failed probe is
+// not evidence that a customer left), and a client that is still listed resets
+// the grace window.
+func (m *Merchant) reconcileStaleBindings() {
+	m.staleBindings.mu.Lock()
+	probe := m.staleBindings.staleBindingProbeLocked()
+	m.staleBindings.mu.Unlock()
+
+	for _, macAddress := range m.staleBindingCandidates() {
+		state, err := probe(macAddress)
+		if err != nil {
+			// Fail open: an unreadable probe must never cost a paying customer
+			// their session, and it must not accumulate towards the grace
+			// window either.
+			m.forgetStaleBinding(macAddress)
+			log.Printf("Stale-binding check: could not ask NoDogSplash whether %s is still on the network (%v) — leaving its binding alone", macAddress, err)
+			continue
+		}
+
+		if state.Registered {
+			m.forgetStaleBinding(macAddress)
+			continue
+		}
+
+		m.staleBindings.mu.Lock()
+		grace := m.staleBindings.graceLocked()
+		m.staleBindings.mu.Unlock()
+
+		if passes := m.noteStaleBindingPass(macAddress); passes < grace {
+			log.Printf("WARNING: NoDogSplash no longer lists %s (%d/%d passes) — its binding stays authorised for now", macAddress, passes, grace)
+			continue
+		}
+
+		m.reconcileStaleBinding(macAddress)
+	}
+}
+
+// reconcileStaleBinding tears down the binding of an address whose client is
+// gone: the gate is closed (and, only when that close is CONFIRMED, the session
+// record is retired, so the address cannot be inherited by a later holder). The
+// usage of the last covered sweep is reported, because the remainder the
+// customer paid for cannot travel to the address they moved to until entitlement
+// is carried by a session ticket rather than by the address — that is the
+// next-release work this pass does not pretend to do.
+//
+// The close goes through ReconcileGateClose rather than CloseGate because this is
+// the one caller that brings EVIDENCE about the client (the probe above has just
+// established that NoDogSplash no longer lists the address): that is what lets it
+// re-attempt the close of a gate whose own budget is spent, which is the only way
+// such a gate can still converge.
+func (m *Merchant) reconcileStaleBinding(macAddress string) {
+	usage, usageErr := valve.GetDataUsageSinceBaseline(macAddress)
+
+	if err := valve.ReconcileGateClose(macAddress); err != nil {
+		log.Printf("ERROR: could not close the gate of the stale binding of %s: %v — the record is retained and the next reconciliation pass re-attempts the close (unconfirmed gate closes=%d)",
+			macAddress, err, valve.GateCloseFailures())
+		return
+	}
+
+	m.forgetStaleBinding(macAddress)
+
+	retired := false
+	m.sessionMu.Lock()
+	if _, exists := m.customerSessions[macAddress]; exists {
+		m.expireSessionLocked(macAddress)
+		retired = true
+	}
+	m.sessionMu.Unlock()
+
+	lastUsage := "nothing was metered for it"
+	if usageErr == nil {
+		lastUsage = fmt.Sprintf("%s of covered usage", utils.BytesToHumanReadable(usage))
+	}
+
+	if retired {
+		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; the purchased remainder is not transferable until entitlement travels with a session ticket)", macAddress, lastUsage)
+		return
+	}
+	log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, and there was no session record to retire (%s)", macAddress, lastUsage)
 }
 
 func (m *Merchant) StartPayoutRoutine() {
@@ -595,10 +1095,7 @@ func (m *Merchant) StartPayoutRoutine() {
 			defer ticker.Stop()
 
 			for range ticker.C {
-				if !m.mintHealthTracker.IsReachable(mintConfig.URL) {
-					continue
-				}
-				m.processPayout(mintConfig)
+				m.runPayoutForMint(mintConfig)
 			}
 		}(mint)
 	}
@@ -606,6 +1103,25 @@ func (m *Merchant) StartPayoutRoutine() {
 	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
+}
+
+// runPayoutForMint runs one payout pass for one mint, or does nothing when the
+// mint is not usable right now. Two reasons to skip, and they are different:
+//
+//   - not reachable: we do not know the mint is up at all;
+//   - persistently throttled: the mint is up but has answered 429 to every probe
+//     for the persistent window, so a melt would be rate-limited too. The
+//     balance stays in the wallet and the next cycle after the mint answers
+//     again picks it up — this is a delay, not a loss of value.
+func (m *Merchant) runPayoutForMint(mintConfig config_manager.MintConfig) {
+	if !m.mintHealthTracker.IsReachable(mintConfig.URL) {
+		return
+	}
+	if m.mintHealthTracker.IsPersistentlyThrottled(mintConfig.URL) {
+		log.Printf("Skipping payout %s: the mint has answered 429 to every probe for the persistent window; the balance stays in the wallet", mintConfig.URL)
+		return
+	}
+	m.processPayout(mintConfig)
 }
 
 // payoutInvoiceRetries is the invoice-fetch retry count for the reachability probe.
@@ -808,10 +1324,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
-	type receiveResult struct {
-		amount uint64
-		err    error
-	}
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -850,6 +1362,14 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
 			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
 
+		// The deadline does not cancel the money-moving call: it is still on the
+		// wire, and its answer is the one fact that makes the reference above
+		// worth quoting. Nothing else reads the channel once this branch
+		// returns, so without the recorder the outcome of a `Receive` that
+		// completed at t+1s was discarded in silence and the notice handed the
+		// customer a reference that led the operator nowhere.
+		go recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
+
 		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
 		if reference != "" {
 			message += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
@@ -863,7 +1383,17 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
 
-		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) && !isExpiredKeysetError(err) {
+		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
+			!isExpiredKeysetError(err) &&
+			!isRateLimitError(err) {
+			// A rate-limit answer means the mint is UP and telling us to slow
+			// down, so it must not condemn the mint. On a single-mint
+			// deployment a single 429 used to empty the reachable set, fire the
+			// set-changed callback and downgrade the merchant to degraded mode —
+			// i.e. one rate-limited request stopped every sale on the router
+			// (a revenue DoS). The edge quota on POST /ln-invoice in main.go is
+			// the other half of this fix: it keeps our own flood from being
+			// what provokes the 429.
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
@@ -995,6 +1525,57 @@ func isMintUnreachableError(err error) bool {
 	return false
 }
 
+// isAmbiguousMintOutcomeError reports whether a `Receive` error leaves the fate
+// of the note undecided, so the operator may not be told the value is safe to
+// resubmit. It is deliberately the inverse of the explicit-refusal list rather
+// than a list of ambiguous shapes: only the mint can establish that it did not
+// take the note, and an error return cannot. The wallet's HTTP client is built
+// with the same 30-second timeout as this module's `receiveTimeout`, so the
+// answer that arrives late on a slow mint is normally a client-side `context
+// deadline exceeded` — which says nothing about what the mint did with the
+// proofs — and a 5xx answered after the mint processed the swap is ambiguous the
+// same way. It composes `isMintUnreachableError` (transport- and keyset-
+// resolution failures are the same kind of non-answer), and it treats anything
+// unrecognised as ambiguous too: the hedged record costs the operator one
+// balance check, while the confident one costs the customer their note, which
+// the mint then refuses as already spent (#498).
+func isAmbiguousMintOutcomeError(err error) bool {
+	return err != nil && !isDefinitiveMintRefusal(err)
+}
+
+// isDefinitiveMintRefusal reports whether err is a refusal the mint itself
+// returned — the only class of late error that establishes the note was not
+// taken: the token is already spent, its keyset is retired, it cannot cover the
+// swap fee, the mint is rate-limiting the request (429, refused before it was
+// processed), or the mint answered with an explicit 4xx. Unreachable-class
+// errors, timeouts and unrecognised errors are deliberately NOT refusals.
+func isDefinitiveMintRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, tollwallet.ErrTokenAlreadySpent) ||
+		isExpiredKeysetError(err) ||
+		isBelowSwapFeeError(err) ||
+		isRateLimitError(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	// The mint's own wording for a proof it has already seen (NUT-03/NUT-07),
+	// relayed by gonuts as plain text.
+	if strings.Contains(msg, "already spent") || strings.Contains(msg, "already signed") {
+		return true
+	}
+	// An explicit HTTP rejection: the mint answered, and the answer is "no".
+	for _, code := range []string{
+		"status 400", "status 401", "status 403", "status 404", "status 409", "status 422",
+	} {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Merchant) GetAdvertisement() string {
 	ad, err := CreateAdvertisement(m.configManager, m.mintHealthTracker)
 	if err != nil {
@@ -1009,7 +1590,14 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		return "", fmt.Errorf("main config is nil")
 	}
 
-	reachableMints := tracker.GetReachableMintConfigs()
+	// The advertisement is the one thing the customer's client selects a mint
+	// from, so it is the advertised set that is used here and not the reachable
+	// set: a mint whose front answers 429 to everything is still up (reachable)
+	// but cannot serve a purchase, and leaving it in means the client keeps
+	// picking it while nothing self-heals. See
+	// MintHealthTracker.GetAdvertisedMintConfigs for the single-mint guard that
+	// keeps this from ever advertising nothing.
+	advertisedMints := tracker.GetAdvertisedMintConfigs()
 
 	advertisementEvent := nostr.Event{
 		Kind: 10021,
@@ -1021,7 +1609,7 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 		Content: "",
 	}
 
-	for _, mintConfig := range reachableMints {
+	for _, mintConfig := range advertisedMints {
 		advertisementEvent.Tags = append(advertisementEvent.Tags, nostr.Tag{
 			"price_per_step",
 			"cashu",
@@ -1554,14 +2142,52 @@ func (m *Merchant) restoreSession(macAddress string, previousSession *CustomerSe
 	delete(m.customerSessions, macAddress)
 }
 
+// clientProbeSeam returns the read-only NDS identity probe and the retry delay
+// this merchant's payment pre-flight uses.
+//
+// A nil probe means valve.CheckClientState and a delay <= 0 means
+// preflightRetryDelayDefault, so a zero-value &Merchant{} behaves exactly as it
+// did before this seam existed. The coercion is deliberate and applies to
+// negatives too: "no delay" is not expressible, because the retry only runs when
+// the probe answered "not registered" with no error, and a test that wants that
+// path to be effectively instant asks for a nanosecond rather than zero.
+// Production never sets either field (nothing outside tests calls setClientProbe).
+func (m *Merchant) clientProbeSeam() (func(string) (valve.ClientState, error), time.Duration) {
+	m.clientProbeMu.RLock()
+	defer m.clientProbeMu.RUnlock()
+
+	probe := m.clientProbe
+	if probe == nil {
+		probe = valve.CheckClientState
+	}
+	delay := m.clientProbeDelay
+	if delay <= 0 {
+		delay = preflightRetryDelayDefault
+	}
+	return probe, delay
+}
+
+// setClientProbe replaces the payment pre-flight's identity probe and retry
+// delay for this merchant only. It exists for tests; production leaves both
+// unset and uses valve.CheckClientState and preflightRetryDelayDefault. It is a
+// per-merchant seam, like setStaleBindingProbe, because the usage monitor runs
+// on its own goroutine in the same test binary.
+func (m *Merchant) setClientProbe(probe func(string) (valve.ClientState, error), delay time.Duration) {
+	m.clientProbeMu.Lock()
+	defer m.clientProbeMu.Unlock()
+
+	m.clientProbe, m.clientProbeDelay = probe, delay
+}
+
 // clientRegisteredForGate is the pre-Receive pre-flight of issue #403: a
 // payment whose MAC NDS does not know cannot have its gate opened, so
 // accepting it would consume the customer's token with no session and no
 // refund path. Probe errors fail open — a broken probe must not become a
 // payment denial of service.
 func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
+	probe, retryDelay := m.clientProbeSeam()
 	for attempt := 1; attempt <= preflightProbeAttempts; attempt++ {
-		state, err := ndsClientCheck(macAddress)
+		state, err := probe(macAddress)
 		if err != nil {
 			log.Printf("PurchaseSession pre-flight: NDS probe error, failing open (attempt %d): %v", attempt, err)
 			return true
@@ -1570,7 +2196,7 @@ func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
 			return true
 		}
 		if attempt < preflightProbeAttempts {
-			time.Sleep(preflightRetryDelay)
+			time.Sleep(retryDelay)
 		}
 	}
 

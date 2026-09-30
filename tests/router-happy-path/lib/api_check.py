@@ -1,0 +1,987 @@
+#!/usr/bin/env python3
+"""API-shape, captive-quote and (opt-in) paid-purchase checks against a live router.
+
+Everything in the DEFAULT run is a read, except exactly one POST that carries an
+empty body -- which cannot touch anyone's ecash, because there is no proof in it.
+The only code path that can move value is the paid lane, and it is gated on
+RHP_CASHU_TOKEN + RHP_SPEND_MAX_SATS (see paid_lane below). If you are reading
+this because the harness spent something you did not expect, that gate failed and
+that is a bug worth reporting.
+
+Emits: RHPCHECK <id> <PASS|FAIL|SKIP> <detail>  /  RHPNOTE <text>
+stdlib only.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cashtoken  # noqa: E402
+
+UA = "router-happy-path-harness/1"
+MAC_RE = re.compile(r"^mac=((?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})$")
+USAGE_RE = re.compile(r"^-?\d+/-?\d+$")
+SENTINEL = "00:00:00:00:00:00"
+
+# The client-identity contract of the API on :2121 (see docs/operator-guide.md,
+# "every client-scoped endpoint is socket-scoped"). Every client-scoped route
+# answers for the client at the other end of the SOCKET; a `?mac=` a caller sends
+# is a claim the module accepts for wire compatibility with the shipped portal
+# and never honours. It must not be ignored SILENTLY, though: measured on the
+# bench (MT3000, 2026-09-26) a rig that posted a token "for" a MAC it was not
+# using bought a session for its own socket, and nothing on the wire said so --
+# the rig read "no session on the MAC I named" as "the gate never opened".
+IDENTITY_HEADER = "X-TollGate-Client-MAC"       # the client the module answered for
+CLAIM_HEADER = "X-TollGate-Mac-Claim-Ignored"   # a claim it did NOT honour
+# A claim no run of this harness can be making: the checks below assert that this
+# address is never named as an identity, and that the module says it ignored it.
+CLAIM_MAC = "02:11:22:33:44:55"
+
+
+def chk(cid, status, detail=""):
+    print("RHPCHECK %s %s %s" % (cid, status, detail), flush=True)
+
+
+def note(text):
+    print("RHPNOTE %s" % text, flush=True)
+
+
+# --------------------------------------------------------------------------
+# HTTP transport -- and the module's rate limiter.
+#
+# The module wraps its ROOT handler (GET/POST "/", and /session-state, which
+# falls through to it) in a per-client-IP limiter: 10 requests/minute by default,
+# TOLLGATE_RATE_LIMIT_RPM overrides it on the box. One hardware run makes a
+# handful of root requests and consecutive runs make more, so a 429 on this box
+# is a THROTTLE, not a regression -- and reporting one as the other is exactly
+# the failure mode this harness exists to prevent. So: honour the server's own
+# Retry-After, retry, then pace every later request, so a burst that tripped the
+# limiter cannot cascade into a page of red lines.
+# --------------------------------------------------------------------------
+RETRY_ATTEMPTS = max(1, int(os.environ.get("RHP_429_ATTEMPTS", "5")))
+RETRY_MAX_WAIT = float(os.environ.get("RHP_429_MAX_WAIT", "30"))
+PACE_AFTER_429 = float(os.environ.get("RHP_429_PACE", "6.2"))
+THROTTLE = {"recovered": 0, "gaveup": [], "interval": 0.0, "next": 0.0}
+
+
+def _pace():
+    """Keep at least THROTTLE['interval'] between requests, once we know the box
+    is limiting us. No-op until the first 429 (a clean run is never slowed)."""
+    if THROTTLE["interval"] <= 0:
+        return
+    delta = THROTTLE["next"] - time.time()
+    if delta > 0:
+        time.sleep(delta)
+    THROTTLE["next"] = time.time() + THROTTLE["interval"]
+
+
+def _retry_after(hdrs, default=6.0):
+    for k, v in (hdrs or {}).items():
+        if str(k).lower() == "retry-after":
+            try:
+                return max(0.0, float(str(v).strip()))
+            except (TypeError, ValueError):
+                return default
+    return default
+
+
+def _once(url, method="GET", body=None, content_type="", timeout=12):
+    data = body
+    headers = {"User-Agent": UA}
+    if data is not None:
+        headers["Content-Type"] = content_type or "text/plain"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read(), dict(resp.headers)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(), dict(exc.headers or {})
+    except Exception as exc:
+        return None, ("%r" % (exc,)).encode(), {}
+
+
+def request(url, method="GET", body=None, content_type="", timeout=12):
+    """-> (status, body_bytes, headers_dict). status None on transport failure.
+
+    A 429 is retried with the server's own Retry-After; after the first throttle
+    the rest of the run is paced. Only a 429 that survives every attempt is
+    handed back to the caller, and the note says out loud that it is a throttle.
+    """
+    waited = 0.0
+    st, raw, hdrs = None, b"", {}
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        _pace()
+        st, raw, hdrs = _once(url, method=method, body=body,
+                              content_type=content_type, timeout=timeout)
+        if st != 429:
+            return st, raw, hdrs
+        nap = min(_retry_after(hdrs), RETRY_MAX_WAIT)
+        if attempt >= RETRY_ATTEMPTS or waited + nap > RETRY_MAX_WAIT * 2:
+            THROTTLE["gaveup"].append(url)
+            note("http: HTTP 429 on %s survived %d attempt(s) -- the module rate-limits its root "
+                 "handler per client IP, so this is a throttle and not a regression; wait a minute "
+                 "and re-run before reading anything below as a defect" % (url, attempt))
+            return st, raw, hdrs
+        note("http: HTTP 429 from the module rate limiter on %s (Retry-After %.0fs) -- retrying; "
+             "a throttle is not a regression" % (url, nap))
+        time.sleep(nap)
+        waited += nap
+        THROTTLE["recovered"] += 1
+        THROTTLE["interval"] = max(THROTTLE["interval"], PACE_AFTER_429)
+    return st, raw, hdrs
+
+
+def jload(raw):
+    try:
+        return json.loads(raw.decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
+def header(hdrs, name):
+    """Case-insensitive response-header lookup, or "" -- HTTP names are not case-sensitive."""
+    for k, v in (hdrs or {}).items():
+        if str(k).lower() == name.lower():
+            return str(v).strip()
+    return ""
+
+
+def granted_identity(obj, hdrs):
+    """Which client the module says it granted a purchase to, or "" if it says nothing.
+
+    Read from the module's OWN answer -- the signed ``device-identifier`` tag of the
+    session event (kind 1022), else the identity header on the same response -- and
+    never from the ``?mac=`` this harness sent, which does not decide it. See
+    resolve_mac().
+    """
+    tags = obj.get("tags") if isinstance(obj, dict) else None
+    for tag in tags or []:
+        if isinstance(tag, list) and len(tag) >= 3 and tag[0] == "device-identifier":
+            return str(tag[2]).strip().lower()
+    return header(hdrs, IDENTITY_HEADER).lower()
+
+
+def claim_failures(hdrs, label, socket_mac):
+    """Check one response against the socket-identity contract -> [reason, ...].
+
+    ``socket_mac`` is this harness's own address as /whoami reported it, or "" when
+    the router could not place us. The contract: the claim we sent is reported as
+    ignored BY NAME, the identity named is the socket's, and the claim is never
+    named as the identity.
+    """
+    bad = []
+    ignored = header(hdrs, CLAIM_HEADER).lower()
+    named = header(hdrs, IDENTITY_HEADER).lower()
+    if ignored != CLAIM_MAC:
+        bad.append("%s did not report the ?mac=%s it carried as ignored (%s=%r): a claim that is "
+                   "dropped silently is how a rig reads 'the gate never opened'"
+                   % (label, CLAIM_MAC, CLAIM_HEADER, ignored))
+    if named == CLAIM_MAC:
+        bad.append("%s named the caller's claim %s as the identity it acted for" % (label, CLAIM_MAC))
+    elif socket_mac and named != socket_mac:
+        bad.append("%s named %r as the client, want the socket-resolved %s" % (label, named, socket_mac))
+    return bad
+
+
+def api_base(args):
+    return "http://%s:%d" % (args.router_ip, args.api_port)
+
+
+def resolve_mac(args):
+    """This client's MAC as the router sees it (socket-derived), or "" if unknown.
+
+    Read from ``GET /whoami``, which answers from the request's source IP: the
+    module takes an identity from the socket and from nothing the caller sends.
+    The value is what THIS harness compares against — its preconditions, and the
+    identity the module reports back on a purchase — and it is also passed along
+    as ``?mac=``, which the module accepts for wire compatibility with the
+    shipped portal and IGNORES.
+
+    Do not read that ``?mac=`` as a binding. The grant goes to the socket the
+    request came from, never to the address in the query string, so a run that
+    posts a token "for" a MAC this harness is not itself using buys a session for
+    the harness's own address (measured on the bench, MT3000, 2026-09-26 — the
+    rig then read "no session on the MAC I named" as "the gate never opened").
+    The paid lane below therefore checks the identity in the module's own answer
+    against THIS value instead of trusting the claim.
+
+    The all-zero sentinel is never accepted as an identity: redeeming a token
+    against it would grant access to nothing (or, worse, to somebody else).
+    """
+    if args.mac:
+        return args.mac
+    st, raw, _ = request(api_base(args) + "/whoami")
+    if st == 200:
+        m = MAC_RE.match(raw.decode("utf-8", "replace").strip())
+        if m and m.group(1).lower() != SENTINEL:
+            return m.group(1)
+    return ""
+
+
+# --------------------------------------------------------------------------
+# Precondition -- runs FIRST, before anything else touches the router.
+# --------------------------------------------------------------------------
+def check_preconditions(args, quiet=False):
+    """The bench must be idle before any result is attributable.
+
+    Fail closed: an unreadable /balance counts as NOT idle. Never assume.
+
+    quiet=True is used when this is an internal gate (the paid lane) rather than
+    its own reporting pass, so a check id is never emitted twice per run.
+    """
+    base = api_base(args)
+    st, raw, _ = request(base + "/balance")
+    bal = jload(raw)
+    if st != 200 or not isinstance(bal, dict) or "session_active" not in bal:
+        if not quiet:
+            chk("pre:balance-readable", "FAIL",
+                "GET /balance -> HTTP %s body=%r (an unreadable balance is treated as NOT idle)"
+                % (st, raw[:120]))
+            chk("pre:idle", "FAIL", "cannot prove the box is idle (fail closed)")
+        return False
+    if not quiet:
+        chk("pre:balance-readable", "PASS",
+            "status=%s usage=%s/%s remaining=%s" % (bal.get("status"), bal.get("usage"),
+                                                    bal.get("allotment"), bal.get("remaining")))
+    if bal["session_active"] is True:
+        if not quiet:
+            chk("pre:idle", "FAIL",
+                "session_active=true: a session is already open, so nothing below is attributable "
+                "to this run (and the paid lane must not spend)")
+        return False
+    if not quiet:
+        chk("pre:idle", "PASS", "session_active=false")
+    return True
+
+
+# --------------------------------------------------------------------------
+# API shapes
+# --------------------------------------------------------------------------
+def check_api(args):
+    base = api_base(args)
+    root_status, root_raw, _ = request(base + "/")
+    root = jload(root_raw)
+    if root_status != 200:
+        chk("api:root-kind10021", "FAIL", "GET / -> HTTP %s (%s)" % (root_status, root_raw[:120]))
+        root = None
+    elif not isinstance(root, dict) or root.get("kind") != 10021:
+        chk("api:root-kind10021", "FAIL",
+            "GET / -> HTTP 200 but kind=%r (want 10021)" % (root.get("kind") if isinstance(root, dict) else root_raw[:60]))
+        root = None
+    else:
+        chk("api:root-kind10021", "PASS",
+            "kind=10021 id=%s pubkey=%s" % (str(root.get("id", ""))[:12], str(root.get("pubkey", ""))[:12]))
+
+    if root is None:
+        for cid in ("api:root-tags", "api:root-full-mode"):
+            chk(cid, "FAIL", "no parseable advertisement from GET /")
+    else:
+        tags = root.get("tags") or []
+        names = [t[0] for t in tags if isinstance(t, list) and t]
+        required = ["metric", "step_size", "tips"]
+        missing = [r for r in required if r not in names]
+        chk("api:root-tags", "PASS" if not missing else "FAIL",
+            "tags=%s%s" % (sorted(set(names)),
+                           "" if not missing else " MISSING %s" % missing))
+        mints = [t for t in tags if isinstance(t, list) and t and t[0] == "price_per_step"]
+        if not mints:
+            chk("api:root-full-mode", "FAIL",
+                "no price_per_step tag: the router is in DEGRADED mode (no reachable mints) "
+                "-- fix upstream before trusting anything below")
+        else:
+            mints_ok = all(len(t) >= 5 and str(t[1]) == "cashu" for t in mints)
+            chk("api:root-full-mode", "PASS" if mints_ok else "FAIL",
+                "%d cashu price_per_step mints: %s" % (len(mints), ", ".join(str(t[4]) for t in mints[:4])))
+
+    # The claim rides on the requests this lane already makes: the parameter is
+    # documented as ignored, so asking WITH it must not change the answer -- and
+    # asking with it is what proves the module says so out loud (id_fail below).
+    st, raw, whoami_hdrs = request(base + "/whoami?mac=" + CLAIM_MAC)
+    mac = ""
+    if st != 200:
+        chk("api:whoami-shape", "FAIL", "GET /whoami -> HTTP %s" % st)
+    else:
+        m = MAC_RE.match(raw.decode("utf-8", "replace").strip())
+        if not m:
+            chk("api:whoami-shape", "FAIL", "/whoami -> %r (want mac=<aa:bb:cc:dd:ee:ff>)" % raw[:80])
+        else:
+            mac = m.group(1)
+            chk("api:whoami-shape", "PASS", "/whoami -> mac=%s" % mac)
+    if mac:
+        chk("api:whoami-not-sentinel", "PASS" if mac.lower() != SENTINEL else "FAIL",
+            "mac=%s%s" % (mac, "" if mac.lower() != SENTINEL else
+                          " -- the ALL-ZERO sentinel means the client could not be resolved "
+                          "from the socket (identity hardening regression)"))
+    else:
+        chk("api:whoami-not-sentinel", "FAIL", "no MAC resolved, cannot rule out the sentinel")
+
+    st, raw, balance_hdrs = request(base + "/balance?mac=" + CLAIM_MAC)
+    balance = jload(raw)
+    need = ["status", "session_active", "usage", "allotment", "remaining"]
+    if st != 200:
+        chk("api:balance-shape", "FAIL", "GET /balance -> HTTP %s" % st)
+        balance = None
+    elif not isinstance(balance, dict):
+        chk("api:balance-shape", "FAIL", "/balance -> not JSON: %r" % raw[:120])
+        balance = None
+    else:
+        missing = [k for k in need if k not in balance]
+        bad = [k for k in need if k in balance and k not in ("metric", "error", "start_time")
+               and not isinstance(balance[k], (int, bool))]
+        if missing:
+            chk("api:balance-shape", "FAIL", "/balance missing keys %s (got %s)" % (missing, sorted(balance)))
+        elif not isinstance(balance.get("session_active"), bool):
+            chk("api:balance-shape", "FAIL", "session_active is %r, want a JSON bool" % balance.get("session_active"))
+        else:
+            chk("api:balance-shape", "PASS",
+                "status=%s session_active=%s usage=%s/%s remaining=%s"
+                % (balance["status"], balance["session_active"], balance["usage"],
+                   balance["allotment"], balance["remaining"]))
+    if balance is not None:
+        note("api:box-idle session_active=%s (the paid lane requires false)" % balance.get("session_active"))
+
+    st, raw, usage_hdrs = request(base + "/usage?mac=" + CLAIM_MAC)
+    text = raw.decode("utf-8", "replace").strip()
+    if st != 200:
+        chk("api:usage-shape", "FAIL", "GET /usage -> HTTP %s" % st)
+    elif not USAGE_RE.match(text):
+        chk("api:usage-shape", "FAIL", "/usage -> %r (want used/allotment, e.g. -1/-1)" % text[:60])
+    else:
+        chk("api:usage-shape", "PASS", "/usage -> %s" % text)
+
+    # /session-state: shipped by newer artifacts. Absent => the Go default mux
+    # falls through to "/" and answers with the advertisement document. Report
+    # that as an honest SKIP, never as a PASS, and never as a FAIL unless the
+    # caller says this build must ship it (--strict).
+    st, raw, state_hdrs = request(base + "/session-state?mac=" + CLAIM_MAC)
+    if st is None:
+        chk("api:session-state", "FAIL", "GET /session-state -> transport failure %s" % raw[:120])
+    elif st != 200:
+        chk("api:session-state", "FAIL", "GET /session-state -> HTTP %s" % st)
+    elif root_raw and raw == root_raw:
+        reason = ("not shipped in this build: byte-identical to GET / (the mux falls "
+                  "through to the root handler)")
+        chk("api:session-state", "FAIL" if args.strict else "SKIP",
+            reason + ("; --strict makes this fatal" if not args.strict else ""))
+    else:
+        obj = jload(raw)
+        shaped = isinstance(obj, dict) and ("session_active" in obj or "remaining" in obj or "allotment" in obj)
+        chk("api:session-state", "PASS" if shaped else "FAIL",
+            ("keys=%s" % sorted(obj)) if shaped else
+            "HTTP 200 but neither a session-state shape nor the root doc: %r" % raw[:120])
+
+    st, raw, _ = request(base + "/identity")
+    if st == 404:
+        chk("api:identity-shape", "FAIL" if args.strict else "SKIP",
+            "GET /identity -> 404 (identity routes not registered in this build; "
+            "they need a merchant key in identities.json)")
+    elif st != 200:
+        chk("api:identity-shape", "FAIL", "GET /identity -> HTTP %s" % st)
+    else:
+        obj = jload(raw)
+        if isinstance(obj, dict):
+            macs = obj.get("macs")
+            if (str(obj.get("npub", "")).startswith("npub1")
+                    and isinstance(macs, dict) and obj.get("ipv4")):
+                chk("api:identity-shape", "PASS",
+                    "npub=%s ipv4=%s macs=%s" % (str(obj.get("npub"))[:16], obj.get("ipv4"),
+                                                 sorted(macs)))
+            else:
+                chk("api:identity-shape", "FAIL", "/identity -> unexpected shape: %r" % raw[:120])
+        else:
+            chk("api:identity-shape", "FAIL", "/identity -> not JSON: %r" % raw[:120])
+
+    # The socket-identity contract, collected from the responses above (the money
+    # route is covered by the paid lane, which reads the identity out of the
+    # module's own kind:1022 answer). A build that predates the contract cannot
+    # report a claim as ignored, so a silent ignore is a FAIL and never a SKIP:
+    # this harness runs against OUR artifacts, and a rig that cannot tell which
+    # client was served is exactly the instrument failure this check prevents.
+    id_fail = []
+    for label, hdrs in (("/whoami", whoami_hdrs), ("/balance", balance_hdrs),
+                        ("/usage", usage_hdrs), ("/session-state", state_hdrs)):
+        id_fail += claim_failures(hdrs, label, mac)
+    if id_fail:
+        chk("api:identity-contract", "FAIL",
+            "?mac=%s was not reported as an ignored claim on every client-scoped route: %s"
+            % (CLAIM_MAC, "; ".join(id_fail)))
+    else:
+        chk("api:identity-contract", "PASS",
+            "?mac=%s is reported as ignored (%s) and the identity named is the socket-resolved "
+            "%s (%s), on /whoami, /balance, /usage and /session-state"
+            % (CLAIM_MAC, CLAIM_HEADER, mac or "unresolved", IDENTITY_HEADER))
+
+    st, raw, hdrs = request(base + "/ln-invoice", method="OPTIONS")
+    allow = hdrs.get("Access-Control-Allow-Methods", "")
+    if st != 200 or "OPTIONS" not in allow.upper():
+        chk("api:cors-preflight", "FAIL",
+            "OPTIONS /ln-invoice -> HTTP %s allow=%r (the portal on :2051 is cross-origin to "
+            "the API on :2121, so a rejected preflight breaks the Lightning lane)" % (st, allow))
+    else:
+        chk("api:cors-preflight", "PASS", "OPTIONS -> 200, allow=%s" % allow)
+
+    return mac, balance
+
+
+# --------------------------------------------------------------------------
+# Lightning quote contract
+# --------------------------------------------------------------------------
+def check_ln_quote(args):
+    base = api_base(args)
+    st, raw, _ = request(base + "/ln-invoice")
+    obj = jload(raw)
+    if st is None:
+        chk("ln:no-quote-status-poll", "FAIL", "GET /ln-invoice -> transport failure %s" % raw[:120])
+        return
+    if st != 400:
+        chk("ln:no-quote-status-poll", "FAIL",
+            "GET /ln-invoice with no quote -> HTTP %s (want 400; a 200 here means the "
+            "no-quote contract changed)" % st)
+        return
+    if not isinstance(obj, dict):
+        chk("ln:no-quote-status-poll", "FAIL", "GET /ln-invoice -> 400 but body is not JSON: %r" % raw[:120])
+        return
+    err = obj.get("error", "")
+    if err == "quote is required":
+        chk("ln:no-quote-status-poll", "PASS",
+            '400 {"error":"quote is required"} -- this is a status poll, not a fault')
+    else:
+        chk("ln:no-quote-status-poll", "FAIL",
+            '400 but error=%r (want "quote is required")' % err)
+    if obj.get("access_granted") is False:
+        chk("ln:no-quote-not-granted", "PASS", "access_granted=false")
+    else:
+        chk("ln:no-quote-not-granted", "FAIL",
+            "a quote-less request answered access_granted=%r" % obj.get("access_granted"))
+
+
+# --------------------------------------------------------------------------
+# The money path -- default run: one empty POST, no value, no ecash
+# --------------------------------------------------------------------------
+def check_empty_token(args):
+    if args.skip_money_path:
+        chk("money:empty-token-rejected", "SKIP", "--skip-money-path")
+        return
+    base = api_base(args)
+    st, raw, _ = request(base + "/?mac=%s" % (resolve_mac(args) or SENTINEL),
+                         method="POST", body=b"")
+    obj = jload(raw)
+    if st is None:
+        chk("money:empty-token-rejected", "FAIL", "POST / with an empty body -> transport failure %s" % raw[:120])
+        return
+    kind = obj.get("kind") if isinstance(obj, dict) else None
+    if st == 400 and kind == 21023:
+        chk("money:empty-token-rejected", "PASS",
+            "400 kind:21023 notice (an empty body carries no proof: nothing was redeemed)")
+    elif st == 200:
+        chk("money:empty-token-rejected", "FAIL",
+            "an EMPTY token was accepted with HTTP 200 (kind=%r) -- that is a payment-bypass "
+            "defect, not a harness problem" % kind)
+    else:
+        chk("money:empty-token-rejected", "FAIL",
+            "POST / with an empty body -> HTTP %s kind=%r body=%r" % (st, kind, raw[:120]))
+
+
+# --------------------------------------------------------------------------
+# The paid lane -- OPT-IN. Absent either env var, nothing is sent.
+# --------------------------------------------------------------------------
+def ceiling_clause(info, declared_sats):
+    """What the declared spend ceiling actually DID to this token.
+
+    `inspect()` sums a v3/JSON token's own proof amounts, so for a `cashuA` token
+    the declared cap is enforced here, before anything is posted. Integer amounts
+    are NOT reliably recoverable from a `cashuB` (CBOR) payload, so for a v4 token
+    the declared number is an operator-supplied cap this harness cannot verify:
+    the token is posted whatever it carries. The PR's own hardware evidence used a
+    v4 token (a 64-sat testnut token), so "same guards as the first lane" would
+    overstate the guard for exactly the token an operator is most likely to hold --
+    the detail has to say which of the two this is.
+    """
+    if info["total_sats"] is None:
+        return ("; declared ceiling NOT enforced: a v%s token's value is not recoverable by "
+                "this inspector, so nothing here bounds the %d sat the operator declared"
+                % (info["version"], declared_sats))
+    return ("; total %d sat is inside the declared %d sat ceiling, which this token's own "
+            "proofs are checked against" % (info["total_sats"], declared_sats))
+
+
+def paid_lane(args):
+    token = os.environ.get("RHP_CASHU_TOKEN", "").strip()
+    declared = os.environ.get("RHP_SPEND_MAX_SATS", "").strip()
+    # ONE-RUN-EXCLUSIVE with the second-purchase lane (`paid2:*`). Both lanes buy
+    # for the SAME client, and the second lane's whole value is that it starts
+    # from a state the OPERATOR reached -- first allotment spent. In one run the
+    # paid lane would buy first, and the paid2 lane would then be reporting a
+    # state this harness had just created as if it were the operator's box: the
+    # precondition check would go red and blame the operator for the harness's own
+    # purchase. So when the second purchase is requested, the paid lane stands
+    # down BY NAME and sends nothing.
+    if os.environ.get("RHP_SECOND_PURCHASE", "").strip() == "1":
+        reason = ("one-run-exclusive: this run is a second-purchase run "
+                  "(RHP_SECOND_PURCHASE=1), so the paid lane did NOT run and RHP_CASHU_TOKEN "
+                  "(set=%s) was NOT sent -- it would buy for this client first, which is the very "
+                  "client the paid2 lane then re-purchases for, and every paid2:* verdict would "
+                  "be about a state this harness created. Run the lanes in two runs: buy (and "
+                  "spend) first, then --second-purchase"
+                  % ("yes" if token else "no"))
+        chk("paid:token-supplied", "SKIP", reason)
+        for cid in ("paid:spend-declaration", "paid:token-inspected",
+                    "paid:purchase-accepted", "paid:session-flip"):
+            chk(cid, "SKIP", reason)
+        return
+    if not token:
+        chk("paid:token-supplied", "SKIP",
+            "RHP_CASHU_TOKEN not set -- the default run spends nothing (this is the safe default)")
+        for cid in ("paid:spend-declaration", "paid:token-inspected",
+                    "paid:purchase-accepted", "paid:session-flip"):
+            chk(cid, "SKIP", "no token supplied")
+        return
+    # Never spend onto a box that is already serving somebody's session.
+    if not check_preconditions(args, quiet=True):
+        chk("paid:token-supplied", "SKIP", "refusing to spend: the box is not provably idle")
+        for cid in ("paid:spend-declaration", "paid:token-inspected",
+                    "paid:purchase-accepted", "paid:session-flip"):
+            chk(cid, "SKIP", "box not idle")
+        return
+    if not declared:
+        chk("paid:spend-declaration", "FAIL",
+            "RHP_CASHU_TOKEN is set but RHP_SPEND_MAX_SATS is not: refusing to spend "
+            "without an explicit declaration of how much value you are willing to lose")
+        return
+    try:
+        declared_sats = int(declared)
+    except ValueError:
+        chk("paid:spend-declaration", "FAIL", "RHP_SPEND_MAX_SATS=%r is not an integer" % declared)
+        return
+    chk("paid:spend-declaration", "PASS",
+        "operator declares <= %d sat is spendable; harness will abort above that" % declared_sats)
+
+    info = cashtoken.inspect(token)
+    if not info["parseable"]:
+        chk("paid:token-inspected", "FAIL", "cannot inspect the token: %s" % info["note"])
+        return
+    if info["total_sats"] is not None and info["total_sats"] > declared_sats:
+        chk("paid:token-inspected", "FAIL",
+            "token carries %d sat > declared RHP_SPEND_MAX_SATS=%d: refusing to redeem it"
+            % (info["total_sats"], declared_sats))
+        return
+    chk("paid:token-inspected", "PASS",
+        "v%s mint(s)=%s total=%s%s%s"
+        % (info["version"], info["mint_urls"], info["total_sats"],
+           "" if not info["note"] else " (%s)" % info["note"],
+           ceiling_clause(info, declared_sats)))
+
+    base = api_base(args)
+    mac = resolve_mac(args)
+    if not mac:
+        chk("paid:purchase-accepted", "FAIL",
+            "cannot resolve this client's MAC from the socket; refusing to redeem a token "
+            "against the all-zero sentinel")
+        chk("paid:session-flip", "SKIP", "no purchase attempted")
+        return
+    st, raw, hdrs = request(base + "/?mac=%s" % mac, method="POST", body=token.encode("utf-8"))
+    obj = jload(raw)
+    kind = obj.get("kind") if isinstance(obj, dict) else None
+    if st == 200 and kind == 1022:
+        chk("paid:purchase-accepted", "PASS",
+            "POST / -> 200 kind:1022 session event (the token has now been redeemed)")
+    else:
+        chk("paid:purchase-accepted", "FAIL",
+            "POST / -> HTTP %s kind=%r body=%r" % (st, kind, raw[:200]))
+        return
+
+    # Which client did the module actually grant this to? The `?mac=` above did
+    # not decide it — the socket did — so assert against the module's OWN answer:
+    # the session event's signed `device-identifier` tag, or the identity header
+    # on the same response. A mismatch means this run is paying for a device that
+    # is not the one being measured (the harness resolves its MAC from /whoami),
+    # and every conclusion drawn from the session it opened would be about the
+    # wrong client.
+    granted = granted_identity(obj, hdrs)
+    if granted == mac:
+        chk("paid:grant-identity", "PASS",
+            "POST / granted the session to %s — the socket this harness requested from, as the module reports it" % granted)
+    elif not granted:
+        chk("paid:grant-identity", "FAIL",
+            "POST / -> 200 kind:1022 with no identity to check: neither a device-identifier tag nor "
+            "an %s header on the response (body=%r)" % (IDENTITY_HEADER, raw[:200]))
+    else:
+        chk("paid:grant-identity", "FAIL",
+            "POST / was granted to %s, not to this harness's socket identity %s: the purchase is real, "
+            "but it belongs to another device — do not read this run's session checks as this client's"
+            % (granted, mac))
+
+    st2, raw2, _ = request(base + "/balance")
+    bal = jload(raw2)
+    if isinstance(bal, dict) and bal.get("session_active") is True:
+        chk("paid:session-flip", "PASS",
+            "session_active false->true, allotment=%s remaining=%s" % (bal.get("allotment"), bal.get("remaining")))
+    else:
+        chk("paid:session-flip", "FAIL",
+            "after an accepted payment /balance still reports %r" % (bal if bal is not None else raw2[:120]))
+
+
+# --------------------------------------------------------------------------
+# The SECOND purchase -- OPT-IN (RHP_SECOND_PURCHASE=1 + RHP_CASHU_TOKEN_2).
+#
+# WHY THIS LANE EXISTS: the step allotment is 21 MiB, so a customer spends the
+# first one in minutes and buys again. That second purchase IS the club's happy
+# path, and it is the one that failed on real hardware (2026-09-25, pre17 on an
+# MT3000): the portal showed a NEW allotment, /balance agreed, and the client
+# still had no internet -- and no OS captive-portal prompt either, so it was
+# neither redirected nor served. The paid lane above only ever buys ONCE, so
+# nothing in this suite could see it.
+#
+# The assertion that matters is the GATE, never the balance. /balance is the
+# module's own memory of the session; on the failing box it said the allotment
+# was restored while the customer's traffic was still dropped. So this lane ends
+# with a request through the customer's OWN data path (RHP_EGRESS_PROBE_URL,
+# default the Android probe URL) and requires an online answer -- 200/204, no
+# redirect. The two failure shapes a shut gate produces are named in the FAIL
+# detail instead of being collapsed into "no internet":
+#   * a 3xx to :2050/splash.html?redir=...  -> still intercepted in NoDogSplash
+#   * no answer at all                      -> not redirected and not served
+# --------------------------------------------------------------------------
+DEFAULT_PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
+# WHERE this lane has to run FROM. The module's shipped enforcement rule
+# (`nds_enforce_forward`, packaging/files/etc/nftables.d/20-nds-enforce.nft)
+# matches `iifname "br-lan"`: the gate exists for clients ON the captive bridge
+# and nowhere else. A probe issued from the management vantage does not traverse
+# that chain at all, so it answers 204 whether the gate is open or wide shut -- a
+# PASS printed from there would be a claim about this rig's seat, not about the
+# customer's data path. So the resolved vantage is asserted as the lane's own
+# first check id, and the rest of the lane is conditional on it.
+GATE_VANTAGE = "guest"
+GATE_VANTAGE_WHY = ('the shipped enforcement rule matches `iifname "br-lan"` only, so only a '
+                    "request from the guest seat traverses the gate this lane asserts")
+SECOND_CHECK_IDS = ("paid2:vantage", "paid2:first-allotment-spent", "paid2:token-supplied",
+                    "paid2:spend-declaration", "paid2:token-inspected",
+                    "paid2:gate-shut-before", "paid2:purchase-accepted",
+                    "paid2:grant-identity", "paid2:balance-restored", "paid2:gate-open")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The probe is read RAW. urllib follows redirects by default, and a 307 to
+    the splash page is exactly the failure this lane is looking for."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_PROBE_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def probe_client_path(url, timeout=15):
+    """-> (status|None, location_header, body[:256]). One request from THIS
+    machine -- the customer's seat -- through whatever the box does to it."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with _PROBE_OPENER.open(req, timeout=timeout) as resp:
+            return resp.status, str(resp.headers.get("Location") or ""), resp.read(256)
+    except urllib.error.HTTPError as exc:
+        return exc.code, str((exc.headers or {}).get("Location") or ""), (exc.read() or b"")[:256]
+    except Exception:
+        return None, "", b""
+
+
+def session_active_state(args):
+    """-> (active|None, detail). `/session-state` is the endpoint that exists to
+    tell a first-time visitor from an exhausted customer; `/balance` is the
+    fallback for a build that predates it (#541) and answers session_active too."""
+    st, raw, _ = request(api_base(args) + "/session-state")
+    obj = jload(raw)
+    if st == 200 and isinstance(obj, dict) and "session_active" in obj:
+        return bool(obj["session_active"]), "/session-state -> %s" % raw[:160].decode("utf-8", "replace")
+    st2, raw2, _ = request(api_base(args) + "/balance")
+    bal = jload(raw2)
+    if isinstance(bal, dict) and "session_active" in bal:
+        return bool(bal["session_active"]), "/balance -> %s" % raw2[:160].decode("utf-8", "replace")
+    return None, "/session-state -> HTTP %s %r; /balance -> HTTP %s %r" % (
+        st, raw[:80], st2, raw2[:80])
+
+
+def second_purchase_lane(args):
+    # Each check id is emitted EXACTLY once, whatever path the lane takes out:
+    # a check that never appears is invisible in the tally, and a duplicate
+    # would be counted twice. The statuses are kept too, because a later check
+    # may have to be CONDITIONAL on an earlier one -- `paid2:gate-open` is only
+    # a transition if `paid2:gate-shut-before` observed a shut gate.
+    emitted = {}
+
+    def emit(cid, status, detail=""):
+        if cid in emitted:
+            return
+        emitted[cid] = status
+        chk(cid, status, detail)
+
+    def skip_rest(reason):
+        for cid in SECOND_CHECK_IDS:
+            emit(cid, "SKIP", reason)
+
+    if os.environ.get("RHP_SECOND_PURCHASE", "").strip() != "1":
+        skip_rest("RHP_SECOND_PURCHASE is not 1: the second purchase is opt-in "
+                  "(it needs a second token and an already spent first allotment)")
+        return
+
+    # 0. WHERE this run is. The egress probe only means something from a seat the
+    #    enforcement rule applies to (iifname "br-lan"); from anywhere else it is a
+    #    measurement of the wrong thing, and it would answer 204 on a box whose
+    #    gate is wide shut. Asserted first and named, never assumed.
+    vantage = (getattr(args, "vantage", "") or "").strip()
+    if vantage != GATE_VANTAGE:
+        emit("paid2:vantage", "FAIL",
+             "this run resolved to vantage %r, not the guest/client seat (%r): %s. From there the "
+             "egress probe answers 200/204 whether the gate is open or shut, so this lane cannot "
+             "assert anything about the customer's data path and did not run: no second token was "
+             "sent and no value moved. Re-run from a client on the guest network -- --vantage "
+             "guest, which is what a tester and the review club actually have"
+             % (vantage or "unset", GATE_VANTAGE, GATE_VANTAGE_WHY))
+        skip_rest("the paid2 lane needs the guest/client seat (%s)" % GATE_VANTAGE)
+        return
+    emit("paid2:vantage", "PASS",
+         "this run resolved to the guest/client seat (%s): %s" % (vantage, GATE_VANTAGE_WHY))
+
+    token2 = os.environ.get("RHP_CASHU_TOKEN_2", "").strip()
+    declared = os.environ.get("RHP_SPEND_MAX_SATS", "").strip()
+    probe_url = (os.environ.get("RHP_EGRESS_PROBE_URL") or DEFAULT_PROBE_URL).strip()
+
+    # 1. The precondition that makes everything below attributable. A "second
+    #    purchase" on a live session is a renewal of an OPEN gate, not the club's
+    #    loop, and it cannot show whether the gate re-opens -- it never closed.
+    #    So the box must be seen in the exhausted state first.
+    active, state_detail = session_active_state(args)
+    if active is None:
+        emit("paid2:first-allotment-spent", "FAIL",
+             "cannot read the session state, so the exhausted precondition cannot be "
+             "established: %s" % state_detail)
+        skip_rest("the session state is unreadable")
+        return
+    if active:
+        emit("paid2:first-allotment-spent", "FAIL",
+             "the box still reports an ACTIVE session (%s): spend the first allotment first "
+             "(download your step size through the guest SSID) and re-run -- on a live session "
+             "the re-purchase cannot be told from a renewal" % state_detail)
+        skip_rest("the first allotment has not been spent")
+        return
+    emit("paid2:first-allotment-spent", "PASS",
+         "the box reports NO active session, so the first allotment is spent (%s)" % state_detail)
+
+    if not token2:
+        emit("paid2:token-supplied", "SKIP", "RHP_CASHU_TOKEN_2 not set: no second token is sent")
+        skip_rest("no second token supplied")
+        return
+    emit("paid2:token-supplied", "PASS", "a second token was supplied (value moves only below)")
+
+    if not declared:
+        emit("paid2:spend-declaration", "FAIL",
+             "RHP_CASHU_TOKEN_2 is set but RHP_SPEND_MAX_SATS is not: refusing to spend without "
+             "an explicit declaration of how much value you are willing to lose")
+        skip_rest("no spend ceiling declared")
+        return
+    try:
+        declared_sats = int(declared)
+    except ValueError:
+        emit("paid2:spend-declaration", "FAIL", "RHP_SPEND_MAX_SATS=%r is not an integer" % declared)
+        skip_rest("the declared spend ceiling is not a number")
+        return
+    emit("paid2:spend-declaration", "PASS",
+         "operator declares <= %d sat spendable for the re-purchase; the lane aborts above that"
+         % declared_sats)
+
+    info = cashtoken.inspect(token2)
+    if not info["parseable"]:
+        emit("paid2:token-inspected", "FAIL", "cannot inspect the second token: %s" % info["note"])
+        skip_rest("the second token could not be inspected")
+        return
+    if info["total_sats"] is not None and info["total_sats"] > declared_sats:
+        emit("paid2:token-inspected", "FAIL",
+             "the second token carries %d sat > declared RHP_SPEND_MAX_SATS=%d: refusing to redeem it"
+             % (info["total_sats"], declared_sats))
+        skip_rest("the second token is above the declared ceiling")
+        return
+    emit("paid2:token-inspected", "PASS",
+         "v%s mint(s)=%s total=%s%s%s" % (info["version"], info["mint_urls"], info["total_sats"],
+                                          "" if not info["note"] else " (%s)" % info["note"],
+                                          ceiling_clause(info, declared_sats)))
+
+    base = api_base(args)
+    mac = resolve_mac(args)
+    if not mac:
+        emit("paid2:purchase-accepted", "FAIL",
+             "cannot resolve this client's MAC from the socket; refusing to redeem a token "
+             "against the all-zero sentinel")
+        skip_rest("no client MAC resolvable")
+        return
+
+    # THE PAIR, not the state: "the gate is open" after a re-purchase only means
+    # something if the gate was SHUT before it. On its own, `paid2:gate-open` is
+    # satisfiable by a box whose gate was never closed -- a renewal of a live
+    # session, a client that was authorised by something else, a box whose
+    # enforcement is not running at all -- and every one of those reads as a pass.
+    # So the same probe is taken BEFORE the second token is posted, as its own
+    # check id, and the lane refuses to spend when it is not shut: the pre-state
+    # is what makes the post-state attributable to this purchase.
+    shut_said = "no answer at all"
+    shut_st, shut_loc, _shut_body = probe_client_path(probe_url)
+    if shut_st is None:
+        shut_said = "no answer at all (transport failure/timeout)"
+    else:
+        shut_said = "HTTP %s%s" % (shut_st, " -> %s" % shut_loc if shut_loc else "")
+    if shut_st in (200, 204) and not shut_loc:
+        emit("paid2:gate-shut-before", "FAIL",
+             "the customer's data path was ALREADY OPEN before the re-purchase: %s -> HTTP %s "
+             "with no redirect, so the second token was NOT sent (no value moved). The two "
+             "checks are a TRANSITION -- shut before, open after -- and a gate that was never "
+             "shut cannot satisfy it: an 'open after' result here would prove nothing about "
+             "the re-purchase. Establish the precondition first (spend the first allotment and "
+             "let the box deauthorise the client), then re-run" % (probe_url, shut_st))
+        skip_rest("the gate was not shut before the re-purchase, so there is no transition to "
+                  "observe (and no value was sent)")
+        return
+    emit("paid2:gate-shut-before", "PASS",
+         "the customer's data path was SHUT before the re-purchase: %s -> %s (anything other "
+         "than a 200/204 with no redirect). This is the pre-state the check pair needs"
+         % (probe_url, shut_said))
+
+    st, raw, hdrs = request(base + "/?mac=%s" % mac, method="POST", body=token2.encode("utf-8"))
+    obj = jload(raw)
+    kind = obj.get("kind") if isinstance(obj, dict) else None
+    if st == 200 and kind == 1022:
+        emit("paid2:purchase-accepted", "PASS",
+             "POST / for the SAME client %s -> 200 kind:1022 (the second token is redeemed)" % mac)
+    else:
+        emit("paid2:purchase-accepted", "FAIL",
+             "the second POST / -> HTTP %s kind=%r body=%r" % (st, kind, raw[:200]))
+        skip_rest("the second purchase was not accepted")
+        return
+
+    # WHICH client did the module actually grant this to? The `?mac=` above did
+    # not decide it -- the grant goes to the socket the request came from -- so
+    # assert against the module's OWN answer: the session event's signed
+    # `device-identifier` tag, else the identity header on the same response. The
+    # first lane asserts this too (#598); without it a PASS here could name an
+    # address the module never granted, and every conclusion drawn from the
+    # session it opened would be about a different device.
+    granted = granted_identity(obj, hdrs)
+    if granted == mac:
+        emit("paid2:grant-identity", "PASS",
+             "the second purchase was granted to %s -- the module's OWN answer (device-identifier "
+             "tag / %s), which is the socket this harness requested from, not the ?mac= it sent"
+             % (granted, IDENTITY_HEADER))
+    elif not granted:
+        emit("paid2:grant-identity", "FAIL",
+             "POST / -> 200 kind:1022 with no identity to check: neither a device-identifier tag "
+             "nor an %s header on the response (body=%r)" % (IDENTITY_HEADER, raw[:200]))
+    else:
+        emit("paid2:grant-identity", "FAIL",
+             "POST / was granted to %s, not to this run's /whoami identity %s: the re-purchase is "
+             "real, but it belongs to another device, so the gate checks below are not this "
+             "client's answer" % (granted, mac))
+
+    st2, raw2, _ = request(base + "/balance")
+    bal = jload(raw2)
+    allot = bal.get("allotment") if isinstance(bal, dict) else None
+    # `session_active: true` ALONE is not the claim this row makes. The reported
+    # defect was a balance that came back WITH a new allotment while the gate
+    # stayed shut; a box that reports an active session and a zero allotment is a
+    # different state, and reading it as "the balance was restored" would be the
+    # same class of overstatement the gate check exists to catch.
+    has_allotment = (isinstance(allot, (int, float)) and not isinstance(allot, bool)
+                     and allot > 0)
+    if isinstance(bal, dict) and bal.get("session_active") is True and has_allotment:
+        emit("paid2:balance-restored", "PASS",
+             "the balance shows the new allotment: session_active=%s allotment=%s remaining=%s"
+             % (bal.get("session_active"), allot, bal.get("remaining")))
+    else:
+        emit("paid2:balance-restored", "FAIL",
+             "after the accepted re-purchase /balance does NOT show the new allotment: this "
+             "check needs session_active=true WITH a positive allotment (that is the claim the "
+             "README row makes), got session_active=%r allotment=%r%s"
+             % (bal.get("session_active") if isinstance(bal, dict) else None, allot,
+                "" if isinstance(bal, dict) else " (body=%r)" % (raw2[:120])))
+
+    # The one that matters. Everything above can be green on a box whose gate is
+    # still shut -- that is exactly what the operator saw.
+    #
+    # ... and it is only a TRANSITION when the pre-state was observed PASS. The
+    # probe above returns early when the gate was already open, so today this is
+    # always satisfied -- but the condition is expressed against the RECORDED
+    # status rather than assumed from the control flow, so an edit that reorders
+    # the lane cannot silently decouple the pair and report "the gate did not
+    # re-open" about a gate that never closed.
+    if emitted.get("paid2:gate-shut-before") != "PASS":
+        emit("paid2:gate-open", "FAIL",
+             "cannot be read as a transition: paid2:gate-shut-before reported %r, so a gate "
+             "that is open now proves nothing about the re-purchase"
+             % emitted.get("paid2:gate-shut-before"))
+        return
+    pst, loc, body = probe_client_path(probe_url)
+    if pst in (200, 204) and not loc:
+        emit("paid2:gate-open", "PASS",
+             "the customer's data path is OPEN: %s -> HTTP %s, no redirect (the gate really "
+             "re-opened for %s, and paid2:gate-shut-before saw it SHUT before this token was "
+             "posted -- that pair is the transition, not the state)" % (probe_url, pst, mac))
+    elif pst is None:
+        emit("paid2:gate-open", "FAIL",
+             "the gate did NOT re-open: %s produced no answer at all (transport failure/timeout) "
+             "-- the client is neither redirected nor served. Capture the guard chain with "
+             "counters (nft list chain inet fw4 nds_enforce_forward) and `ndsctl clients` for "
+             "%s: an UNMARKED client is rejected there, and that state matches the report "
+             "(no OS sign-in prompt either)" % (probe_url, mac))
+    elif 300 <= pst < 400 and "splash" in loc:
+        emit("paid2:gate-open", "FAIL",
+             "the gate did NOT re-open: %s -> HTTP %s to %s -- the client is still INTERCEPTED "
+             "by NoDogSplash after a paid re-purchase, so the balance came back and the "
+             "authorisation did not" % (probe_url, pst, loc))
+    else:
+        emit("paid2:gate-open", "FAIL",
+             "the gate did NOT re-open: %s -> HTTP %s location=%r body=%r -- anything other than "
+             "200/204 with no redirect means the customer is not online, however healthy /balance "
+             "looks" % (probe_url, pst, loc, body[:120]))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--router-ip", required=True)
+    ap.add_argument("--api-port", type=int, default=2121)
+    ap.add_argument("--strict", action="store_true")
+    ap.add_argument("--skip-money-path", action="store_true")
+    ap.add_argument("--only", default="")
+    ap.add_argument("--mac", default="")
+    # guest | mgmt, as resolved by run.sh. Only the second-purchase lane needs it
+    # (its egress probe asserts enforcement, which only exists for br-lan clients).
+    ap.add_argument("--vantage", default="")
+    args = ap.parse_args()
+
+    if not args.only or args.only == "pre":
+        check_preconditions(args)
+    if not args.only or args.only == "api":
+        mac, balance = check_api(args)
+        args.mac = mac or args.mac
+        if balance is not None and balance.get("session_active") is not False:
+            note("api:box-idle WARNING: session_active=%r -- the paid lane will refuse to run "
+                 "because a session is already open and nothing below is attributable"
+                 % balance.get("session_active"))
+    if not args.only or args.only == "ln":
+        check_ln_quote(args)
+    if not args.only or args.only == "money":
+        check_empty_token(args)
+    if not args.only or args.only == "paid":
+        paid_lane(args)
+    if not args.only or args.only == "paid2":
+        second_purchase_lane(args)
+    if THROTTLE["recovered"]:
+        note("http: recovered from %d throttle response(s) (HTTP 429, the module's root-handler "
+             "rate limit) by honouring Retry-After -- no check above is red because of the limiter"
+             % THROTTLE["recovered"])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

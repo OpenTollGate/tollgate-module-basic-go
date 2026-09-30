@@ -9,6 +9,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/nbd-wtf/go-nostr v0.51.12
+	golang.org/x/time v0.6.0
 )
 
 require (
