@@ -492,6 +492,22 @@ and [Semantic Versioning](https://semver.org/).
   module's timeout behaviour is unchanged.
   ([#592](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/592))
 
+- **Fedimint (fedi) findings added to the wallet-backend candidate mapping.**
+  Fedimint is Rust with no Go client, so it can only ever be a sidecar, and it
+  cannot build for mipsel at all (`ring 0.17` has no mips backend), which pins it
+  to the large tier. Measured on this fleet: 14.9 MiB stripped / 5.4 MiB with
+  `upx --lzma` (aarch64, worst-case tree) and 62.5 MiB peak RSS on that fat build
+  — the thin-client RSS is the deciding, still-unmeasured number. Licence MIT;
+  the reusable Go wrapper and `fedimint-clientd` are dead (0 of 6 live
+  federations accept the 2024 client), so the daemon would be ours. Running it
+  alongside CDK is supported by the existing sidecar/manifest/policy design and
+  blocked on two deliberate contract extensions: a federation-shaped target key
+  and a backend-scoped token decoder. See
+  [`docs/architecture/wallet-backend-fedimint.md`](docs/architecture/wallet-backend-fedimint.md)
+  and the extended table in
+  [`docs/architecture/walletport-contract.md`](docs/architecture/walletport-contract.md#5-candidate-mapping-first-pass).
+  (PR pending — the link is filled in when the upstream PR opens.)
+
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
   audit, `repro-check` failed on every push: the audit sources
   `packaging/build-env.sh`, which needs a `SOURCE_DATE_EPOCH` that an act
