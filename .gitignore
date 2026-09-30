@@ -85,3 +85,4 @@ scripts/token-recovery/token-recovery
 
 # pytest bytecode from local (possibly root-owned) cloud-lab runs
 tests/cloud-lab/__pycache__/
+scripts/__pycache__/
