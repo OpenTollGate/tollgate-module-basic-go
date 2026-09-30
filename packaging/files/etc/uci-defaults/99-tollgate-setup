@@ -373,9 +373,11 @@ brand_token() {
 #   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
 #                                    upstream discovery in
 #                                    src/wireless_gateway_manager matches
-#                                    "TollGate-*" case-SENSITIVELY, and the
-#                                    Android client matches it case-insensitively;
-#                                    changing the case would break the first)
+#                                    BOTH brand prefixes case-insensitively
+#                                    (hasTollGateSSID: TollGate-/Net4sats-),
+#                                    as does the Android client; the shipped
+#                                    case is brand presentation, not a
+#                                    discovery constraint)
 #   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
 #
 # Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
