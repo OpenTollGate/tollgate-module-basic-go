@@ -248,6 +248,12 @@ func (w *CdkWallet) Drain(mintUrl string) (Token, uint64, error) {
 	return token, balance, nil
 }
 
+// CheckTokenSpendable is not yet wired for the cdk adapter; the gonuts
+// implementation is authoritative.
+func (w *CdkWallet) CheckTokenSpendable(tokenStr string) (bool, error) {
+	return false, fmt.Errorf("CdkWallet.CheckTokenSpendable: not yet wired")
+}
+
 func (w *CdkWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error {
 	return fmt.Errorf("CdkWallet.MeltToLightning: not yet wired — requires LNURL resolution + MeltQuote + Melt flow integration")
 }

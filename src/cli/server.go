@@ -216,12 +216,115 @@ func (s *CLIServer) handleWalletCommand(args []string, flags map[string]string) 
 		return s.handleWalletInfo()
 	case "fund":
 		return s.handleWalletFund(args[1:], flags)
+	case "recover":
+		return s.handleWalletRecover()
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown wallet action: %s (supported: drain, balance, info, fund)", action),
+			Error:     fmt.Sprintf("Unknown wallet action: %s (supported: drain, balance, info, fund, recover)", action),
 			Timestamp: time.Now(),
 		}
+	}
+}
+
+// handleWalletRecover checks every token in the drain journal against its
+// mint (NUT-07) and reports which drained tokens are still spendable, so
+// tokens produced by a drain whose response was lost or discarded can be
+// secured. Read-only: neither wallet nor journal state is modified — a
+// "live" token is printed for the operator to redeem; re-issuing it is
+// safe because redemption is the token holder's action, not ours.
+func (s *CLIServer) handleWalletRecover() CLIResponse {
+	if s.merchantProvider == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Merchant not available",
+			Timestamp: time.Now(),
+		}
+	}
+	m := s.merchantProvider.GetMerchant()
+	if m == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Merchant not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	entries, invalidLines, err := readDrainJournal()
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     err.Error(),
+			Timestamp: time.Now(),
+		}
+	}
+
+	result := WalletRecoverResult{
+		JournalPath: drainJournalPath(),
+		Tokens:      []CashuToken{},
+		Entries:     []RecoveredDrainToken{},
+	}
+
+	for _, entry := range entries {
+		recovered := RecoveredDrainToken{
+			MintURL:    entry.MintURL,
+			AmountSats: entry.AmountSats,
+		}
+		spendable, checkErr := m.CheckTokenSpendable(entry.Token)
+		switch {
+		case checkErr != nil:
+			recovered.State = "unknown"
+			recovered.Error = checkErr.Error()
+			result.Unknown++
+		case spendable:
+			recovered.State = "live"
+			recovered.Token = entry.Token
+			result.Live++
+			result.LiveSats += entry.AmountSats
+			result.Tokens = append(result.Tokens, CashuToken{
+				MintURL: entry.MintURL,
+				Balance: entry.AmountSats,
+				Token:   entry.Token,
+			})
+		default:
+			recovered.State = "spent"
+			result.Spent++
+		}
+		result.Entries = append(result.Entries, recovered)
+	}
+
+	for _, line := range invalidLines {
+		truncated := line
+		if len(truncated) > 80 {
+			truncated = truncated[:80] + "..."
+		}
+		result.Entries = append(result.Entries, RecoveredDrainToken{
+			State: "invalid",
+			Error: fmt.Sprintf("unparseable journal line: %s", truncated),
+		})
+		result.Invalid++
+	}
+
+	result.Checked = len(entries) + len(invalidLines)
+
+	success := result.Unknown == 0 && result.Invalid == 0
+	var message string
+	switch {
+	case result.Checked == 0:
+		message = "No drain journal entries found - nothing to recover"
+	case !success:
+		message = fmt.Sprintf("Could not determine the state of %d journal token(s); %d live (%d sats), %d spent", result.Unknown+result.Invalid, result.Live, result.LiveSats, result.Spent)
+	case result.Live > 0:
+		message = fmt.Sprintf("%d journal token(s) still spendable (%d sats total)", result.Live, result.LiveSats)
+	default:
+		message = fmt.Sprintf("All %d journal token(s) are already spent", result.Checked)
+	}
+
+	return CLIResponse{
+		Success:   success,
+		Message:   message,
+		Data:      result,
+		Timestamp: time.Now(),
 	}
 }
 
