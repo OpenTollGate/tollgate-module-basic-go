@@ -12,6 +12,80 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`generate_admin_password()` no longer depends on `od`, which is absent from
+  the stripped busybox shipped on OpenWrt 25.12.5 base images.** On those
+  images the old `od -An -N 20 -tu1 /dev/urandom` pipeline produced no output,
+  so the function returned an empty string, `set_admin_password()` became a
+  no-op, and the postinst correctly refused to serve the :8090/:8443 admin
+  board ("root has no usable password"). The generator now uses `hexdump`,
+  which is present on the same images and already used elsewhere in the setup
+  script (`mint_device_code`, `random_octet`). The alphabet, length, and
+  uniform byte-to-character mapping via modulo-32 are unchanged; the password
+  is still applied through stdin (`printf ... | passwd root`) and never
+  reaches argv. A hermetic test that shadows `od` with a failing shim is now
+  part of `tests/packaging/admin-board-requires-credential_test.sh`.
+  ([#624](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/624))
+
+### Changed / Internal
+
+- **The wired LAN ports move onto `br-private`: a cabled client is an
+  owner-class client with internet, the admin board and LuCI, and no payment
+  step.** The base image puts the physical LAN ports on the *captive* bridge
+  (`br-lan`), so a cable was a customer port — it paid at the portal, and the
+  two administration guards (`31-admin-board-not-guest-reachable.nft`,
+  `32-luci-not-guest-reachable.nft`, both `iifname "br-lan"`-literal) dropped
+  the admin board (`:8090`/`:8443`) and LuCI (`:8080`/`:443`) for it exactly
+  as they do for a stranger on the open guest SSID. A new
+  `setup_lan_ports_private` writer in `99-tollgate-setup` now **moves** the
+  port list the base image writes on the captive bridge onto `br-private` —
+  the operator's own trusted network, whose zone already forwards to the
+  `wan` and whose clients the admin guards do not drop. The trust change is
+  deliberate and not hidden: `br-private` is ungated, so a cable-connected
+  client gets internet and root-capable admin surfaces without paying. The
+  ports are **discovered, never named** (`eth1` on the MT3000, `lan1…lan5`
+  elsewhere — the writer moves what the bridge's device section lists), the
+  move is **idempotent and convergent** (re-asserted on the same-version
+  verify/repair path, so a factory reset or `sysupgrade -n` that puts the
+  ports back on the captive bridge is repaired; `/etc/config/network` is
+  already on the module's keep-list, so a settings-keeping upgrade carries
+  the placement), and a port never sits on two bridges (the captive section's
+  list is cleared after the private bridge's is written). Nothing else moves:
+  the public `TollGate-*` SSIDs stay on the captive bridge behind the portal,
+  `nodogsplash` stays pinned to `br-lan`, and all four guard fragments
+  (`20-nds-enforce.nft`, `30-backend-firewall.nft`, `31-*.nft`, `32-*.nft`)
+  are untouched and still `br-lan`-scoped — pinned byte-identical to `main`
+  by the new `tests/uci-defaults-lan-private-wired_test.sh`, which also pins
+  the move, the discovery, the idempotence and the upgrade repair. This is
+  the minimal release path; the role machinery (`tollgate.lan_ports.role`,
+  `br-mgmt`) stays in #607 for after the release.
+
+- **The wired-LAN bridge record no longer overstates the blocker: the
+  operator's requirement *is* satisfiable by re-keying the admin-port guards.**
+  The amendment to `docs/architecture/lan-port-management-bridge-decision.md`
+  records the operator-approved mechanism — key the two admin-port drops on the
+  guest VAP interfaces instead of the bridge name, so the wired port stops
+  matching (the administration surfaces answer from the cable) while the
+  wireless guests keep being dropped and the wired port stays on the gated
+  `br-lan`, still redirected, still paying — together with the measured
+  constraint that makes it a port-keyed `bridge`-family rule rather than a
+  string swap (in an `inet`-family hook `iifname` is the bridge, so the swap
+  would match nothing and turn both guards into silent no-ops), and the
+  fail-closed derivation the unstable VAP names need. The nodogsplash
+  single-gate analysis is unchanged and now explicitly scoped to a second
+  *gated* bridge; `br-mgmt` stays proposed on its own merit, its Status stays
+  `Proposed`, and the drifted `99-tollgate-setup` citation is corrected to
+  `:1228-1247`. Docs only: no code, no packaging, no firewall change.
+  ([#623](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/623))
+
+- **The physical/lab router suite now runs as a CI job.** A new `router-test`
+  workflow routes through the elected router-bench gateway: pull requests reach
+  the isolated QEMU lab only, and only post-merge `main` runs can touch the
+  physical bench, behind the `bench-hardware` environment. Third-party PRs run
+  without the gateway credentials and skip the job
+  ([#614](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/614)).
+
+### Fixed
+
 - **The repair path's portal banner is now committed, and both setup paths write
   one identical value.** The verify/repair path a same-version reinstall takes
   converged `nodogsplash.gatewayname` on a second spelling — `"$GATEWAY_NAME"`,
@@ -170,6 +244,51 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Cudy WR3000 v1 documented as a covered target, with its 16 MB-flash limit
+  stated up front.** The package matrix already builds for
+  `mediatek/filogic` / `aarch64_cortex-a53`, which is what the WR3000 v1
+  (board name `cudy,wr3000-v1`) reports, so this is a documentation change
+  only — no matrix row was added or removed.
+  [README.md](README.md) gains a "Supported devices" subsection under
+  Installation that says how coverage is decided (the target/architecture rows
+  of the CI
+  [build matrix](.github/workflows/build-package.yml)) and records the
+  on-hardware result: on mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`) the
+  whole 37-package dependency closure installs and `nodogsplash` runs with the
+  keepalive contract live. It also states the 16 MB-flash limit and — measured
+  on the same device — the variant that works around it: the `upx-ultra-brute`
+  build this repo's CI already produces for `aarch64_cortex-a53` shrinks the
+  payload from ~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+  `usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed to **5.34 MiB**, and a
+  real WR3000 v1 installed that `.apk`, rebooted, and came back with
+  `tollgate-wrt` running and no volatile helper, so a persistent install is
+  possible on a 16 MB device. The two practical notes from that run are
+  recorded too: the 1.78 MiB `tollgate` CLI can be dropped after provisioning
+  to leave room for the `nodogsplash` closure, and the closure must be installed
+  in one `apk add` transaction because `apk add --force-non-repository <file>`
+  world-syncs packages previously installed from files back out. A volatile
+  (tmpfs) install is documented as the fallback.
+  ([#613](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/613))
+- **COMFAST CF-WR632AX documented as a covered target, with the OpenWrt
+  ≥25.12.5 requirement and the absence of a hardware result stated up front.**
+  The CF-WR632AX (MediaTek MT7981-class SoC) reports the same
+  `mediatek/filogic` / `aarch64_cortex-a53` target and `DISTRIB_ARCH` as the
+  Cudy WR3000 v1 above, so the CI
+  [build matrix](.github/workflows/build-package.yml) already covers it and no
+  row was added or removed. OpenWrt has supported it since 25.12.0 (device page
+  [openwrt.org/toh/comfast/cf-wr632ax](https://openwrt.org/toh/comfast/cf-wr632ax)),
+  and its 128 MiB of SPI NAND means it has **no** flash-capacity caveat — the
+  default build fits, so the `upx-ultra-brute` variant the 16 MB WR3000 needs
+  is not required here. The "Supported devices" subsection in
+  [README.md](README.md) gains a paragraph recording that, the ≥25.12.5
+  requirement for the OpenWrt U-Boot layout (a memory-speed stability issue in
+  25.12.0–25.12.4, fixed by upstream PRs
+  [#22929](https://github.com/openwrt/openwrt/pull/22929) /
+  [#23416](https://github.com/openwrt/openwrt/pull/23416)), and that the device
+  has **not yet been exercised on real hardware** — no unit is in hand, so this
+  entry rests on upstream OpenWrt support and the shared target/architecture
+  row, not on a measured result.
+  ([#616](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/616))
 - **The board is the default face — decided, with the switch, the cross-link
   rules, and the reason it is not a one-repo change.**
   `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
@@ -450,8 +569,39 @@ and [Semantic Versioning](https://semver.org/).
   seen failing is decoration), names in its header the ids it cannot break
   offline, and runs in CI.
 
+- **The happy-path harness now covers the SECOND purchase — the club's main
+  loop.** `tests/router-happy-path` could only ever buy once, so nothing in it
+  could see the failure the operator hit on real hardware (pre17 on an MT3000):
+  after the first allotment was spent, a second purchase restored the balance and
+  the gate stayed shut, with no OS captive-portal prompt either. `--second-purchase`
+  (or `RHP_SECOND_PURCHASE=1` + `RHP_CASHU_TOKEN_2`) buys a second time for the
+  SAME client and then asserts the GATE rather than the balance: `paid2:*` ends
+  with an HTTP request through the customer's own data path
+  (`RHP_EGRESS_PROBE_URL`, default the Android 204 probe) that must answer 200/204
+  with no redirect, naming the two failure shapes instead of collapsing them into
+  "no internet" — a `307` to the splash (still intercepted) and no answer at all
+  (neither redirected nor served). On the failing box `paid2:balance-restored` was
+  green while `paid2:gate-open` was red, which is the distinction a balance-only
+  suite cannot make. The lane refuses to run on a live session (a renewal is not a
+  re-purchase), keeps the same spend-ceiling and sentinel-MAC guards as the first
+  purchase, and the self-test drives both outcomes offline on a fixture token
+  (42 cases / 83 check ids, 53 driven red).
+
 ### Fixed
 
+- **The paid lane's token inspection was off by one, so the lane could never
+  spend anything.** `tests/router-happy-path/lib/cashtoken.py` read the NUT-00
+  version character at `token[6]` — the first character of the *payload* — and
+  sliced the payload at `token[7:]`, so a real `cashuB` token was reported as
+  `unknown Cashu token version character 'o'` and `paid:token-inspected` failed
+  before any purchase could be attempted. The lane had been dead since it merged,
+  and the default run's SKIP is why nothing caught it; it was found on the lane's
+  first hardware run (a 64-sat testnut token, pre17 on the bench MT3000). The
+  decode is now `token[5]` / `token[6:]`, and `selftest/cashtoken_selftest.py`
+  pins the v3 path, the v4 path, the malformed-version path (by the character at
+  index 5, so the offset itself is pinned) and the missing-prefix path; the
+  self-test also drives both purchase lanes offline on a non-redeemable fixture
+  token, which is the control whose absence let this through.
 - **The startup mint probe no longer walks every accepted mint to its own
   timeout before the process can do anything else.** `merchant.New()` ran the
   startup probe to completion before `main()` ever reached

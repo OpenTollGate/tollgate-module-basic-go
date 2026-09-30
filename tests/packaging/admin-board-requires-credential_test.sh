@@ -134,6 +134,7 @@ mv "$SHADOW_FILE.tmp" "$SHADOW_FILE"
 exit 0
 SHIM
 chmod +x "$TMP/bin/passwd"
+export ORIGINAL_PATH="$PATH"
 export PATH="$TMP/bin:$PATH"
 
 # --------------------------------------------------- the script under test
@@ -351,6 +352,43 @@ if [ "$(generate_admin_password)" != "$(generate_admin_password)" ]; then
 else
     bad "generate_admin_password returned the same value twice"
 fi
+
+echo "== the password generator works even when od is unavailable"
+seed_shadow ''
+# The target OpenWrt 25.12.5 image ships a stripped busybox where `od` is not
+# built in; it is genuinely absent. Shadow only `od` (not its whole directory),
+# so the replacement command remains on PATH exactly as on the target image.
+mkdir -p "$TMP/bin-no-od"
+cat > "$TMP/bin-no-od/od" <<'SHIM'
+#!/bin/sh
+# deliberately fail, mimicking an absent od
+exit 127
+SHIM
+chmod +x "$TMP/bin-no-od/od"
+PATH="$TMP/bin-no-od:$PATH"
+if [ -n "$(command -v od 2>/dev/null || true)" ] && [ "$(command -v od)" != "$TMP/bin-no-od/od" ]; then
+    bad "od still resolves to something other than the failing shim (found $(command -v od))"
+elif [ -z "$(command -v od 2>/dev/null || true)" ] || [ "$(command -v od)" = "$TMP/bin-no-od/od" ]; then
+    ok "od is shadowed by a failing shim before the od-free assertion"
+fi
+pw_probe_no_od="$(generate_admin_password 2>/dev/null || true)"
+if [ "${#pw_probe_no_od}" = "20" ]; then
+    ok "generate_admin_password is 20 characters when od is unavailable"
+else
+    bad "generate_admin_password is ${#pw_probe_no_od} characters when od is unavailable (want 20)"
+fi
+if [ -n "$pw_probe_no_od" ] && [ -z "${pw_probe_no_od//[$ALPHABET]/}" ]; then
+    ok "generate_admin_password uses the alphabet when od is unavailable"
+else
+    bad "generate_admin_password '$pw_probe_no_od' uses characters outside [$ALPHABET] when od is unavailable"
+fi
+if [ -n "$pw_probe_no_od" ]; then
+    ok "generate_admin_password produces output when od is unavailable"
+else
+    bad "generate_admin_password produces EMPTY output when od is unavailable"
+fi
+# Restore PATH: prepend our fake binaries to the original PATH again.
+PATH="$TMP/bin:$ORIGINAL_PATH"
 
 # ------------------------------------------- empty hash: establish it, keep the board
 echo "== empty hash + a working passwd: a credential is established and shown once"
