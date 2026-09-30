@@ -95,9 +95,21 @@ wait_for_iface() {
     return 1
 }
 
+# The uci-defaults run in NUMERIC order — the order the boot path uses
+# (/etc/init.d/boot applies them 90, 92, 99). The postinst used to run 90, 99, 92
+# instead, so the LAST writer of uhttpd.main differed between the install pass and
+# the boot pass: an install converged to whatever that order produced until the
+# next reboot re-ran them numerically, which is a divergence nobody sees until the
+# reboot. Both scripts derive uhttpd.main.redirect_https — 99-tollgate-setup from
+# certificate COVERAGE, and 92-tollgate-admin-setup (staged from the pinned portal
+# tree) from the same coverage rule since the pin advanced to 4158030, guarded by
+# tests/packaging/assert-portal-bundle-contract.sh CHECK F. Running them in the
+# order the boot path uses is what makes an install converge to the state the next
+# boot would produce, whatever either script decides.
+# Pinned by tests/packaging/uci-defaults-run-order_test.sh.
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
-              /etc/uci-defaults/99-tollgate-setup \
-              /etc/uci-defaults/92-tollgate-admin-setup; do
+              /etc/uci-defaults/92-tollgate-admin-setup \
+              /etc/uci-defaults/99-tollgate-setup; do
     if [ -x "$$script" ]; then
         echo "Running $$script ..."
         "$$script" || echo "Warning: $$script exited with code $$?"
