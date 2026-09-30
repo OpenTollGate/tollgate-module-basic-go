@@ -22,9 +22,14 @@ from pathlib import Path
 
 # A lead-in is the span set in bold at the start of an entry bullet:
 # "- **The captive portal's Lightning lane …**". Bold spans may wrap
-# across lines (re.DOTALL); comparing the full span keeps deliberately
-# similar leads distinct from true verbatim duplicates.
-LEAD_IN = re.compile(r"(?m)^- \*\*(.+?)\*\*", re.DOTALL)
+# across lines (re.DOTALL), but the span must stop at the next bullet
+# line: with a bare lazy `.+?` an unclosed `**` (exactly the mangling a
+# bad conflict resolution produces) consumes the NEXT bullet's `- **`
+# opener as its terminator, leaving that bullet unattributed so a
+# verbatim duplicate of it passes — the resurrect pattern this check
+# exists to catch. The tempered pattern keeps multi-line spans working
+# while refusing to cross a bullet boundary.
+LEAD_IN = re.compile(r"(?m)^- \*\*((?:(?!\n- ).)+?)\*\*", re.DOTALL)
 SECTION = re.compile(r"(?m)^## \[([^\]]+)\]")
 
 

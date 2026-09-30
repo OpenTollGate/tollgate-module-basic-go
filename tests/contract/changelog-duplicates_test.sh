@@ -55,7 +55,8 @@ echo "$OUT" | grep -q "Unreleased" \
     || { echo "FAIL: failure output must name the sections: $OUT"; exit 1; }
 
 # Frozen history: the same lead-in twice inside released sections is
-# tolerated — release notes are not rewritten.
+# tolerated — release notes are not rewritten — while a live [Unreleased]
+# section is present (renaming it away would pin a different property).
 python3 - "$TMP/CHANGELOG.md" <<'EOF'
 import sys
 p = sys.argv[1]
@@ -63,7 +64,35 @@ s = open(p).read()
 s = s.replace("## [Unreleased]", "## [v0.3.0]", 1)
 open(p, "w").write(s)
 EOF
-python3 "$TMP/tests/contract/check-changelog-duplicates.py" >/dev/null 2>&1 \
-    || { echo "FAIL: duplicates wholly inside frozen released sections must pass"; exit 1; }
+cat >> "$TMP/CHANGELOG.md" <<'EOF'
 
-echo "passed=3 failed=0 (unique passes; Unreleased duplicate fails, named; frozen history passes)"
+## [Unreleased]
+
+### Fixed
+
+- **A unique live entry.** Body four.
+EOF
+python3 "$TMP/tests/contract/check-changelog-duplicates.py" >/dev/null 2>&1 \
+    || { echo "FAIL: duplicates wholly inside frozen released sections must pass while [Unreleased] is present"; exit 1; }
+
+# An unclosed bold span must not swallow the next bullet's attribution:
+# a bad conflict resolution that mangles a lead-in is exactly when the
+# resurrect pattern must still be caught. The mangled bullet below has
+# no closing `**`; with a bare lazy dot-all span its match would consume
+# the next bullet's opener, leaving the verbatim duplicate undetected.
+cat >> "$TMP/CHANGELOG.md" <<'EOF'
+- **A gate close that fails
+- **A second entry.** Body five.
+
+## [v0.4.0]
+
+### Fixed
+
+- **A second entry.** The stale, resurrected copy.
+EOF
+OUT="$(python3 "$TMP/tests/contract/check-changelog-duplicates.py" 2>&1)" \
+    && { echo "FAIL: an unclosed bold span must not hide the resurrected duplicate"; exit 1; }
+echo "$OUT" | grep -q "A second entry." \
+    || { echo "FAIL: failure output must name the duplicate hidden by the unclosed span: $OUT"; exit 1; }
+
+echo "passed=4 failed=0 (unique passes; Unreleased duplicate fails, named; frozen history passes with Unreleased present; unclosed bold span cannot hide a duplicate)"
