@@ -10,7 +10,54 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`generate_admin_password()` no longer depends on `od`, which is absent from
+  the stripped busybox shipped on OpenWrt 25.12.5 base images.** On those
+  images the old `od -An -N 20 -tu1 /dev/urandom` pipeline produced no output,
+  so the function returned an empty string, `set_admin_password()` became a
+  no-op, and the postinst correctly refused to serve the :8090/:8443 admin
+  board ("root has no usable password"). The generator now uses `hexdump`,
+  which is present on the same images and already used elsewhere in the setup
+  script (`mint_device_code`, `random_octet`). The alphabet, length, and
+  uniform byte-to-character mapping via modulo-32 are unchanged; the password
+  is still applied through stdin (`printf ... | passwd root`) and never
+  reaches argv. A hermetic test that shadows `od` with a failing shim is now
+  part of `tests/packaging/admin-board-requires-credential_test.sh`.
+  ([#624](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/624))
+
 ### Changed / Internal
+
+- **The wired LAN ports move onto `br-private`: a cabled client is an
+  owner-class client with internet, the admin board and LuCI, and no payment
+  step.** The base image puts the physical LAN ports on the *captive* bridge
+  (`br-lan`), so a cable was a customer port — it paid at the portal, and the
+  two administration guards (`31-admin-board-not-guest-reachable.nft`,
+  `32-luci-not-guest-reachable.nft`, both `iifname "br-lan"`-literal) dropped
+  the admin board (`:8090`/`:8443`) and LuCI (`:8080`/`:443`) for it exactly
+  as they do for a stranger on the open guest SSID. A new
+  `setup_lan_ports_private` writer in `99-tollgate-setup` now **moves** the
+  port list the base image writes on the captive bridge onto `br-private` —
+  the operator's own trusted network, whose zone already forwards to the
+  `wan` and whose clients the admin guards do not drop. The trust change is
+  deliberate and not hidden: `br-private` is ungated, so a cable-connected
+  client gets internet and root-capable admin surfaces without paying. The
+  ports are **discovered, never named** (`eth1` on the MT3000, `lan1…lan5`
+  elsewhere — the writer moves what the bridge's device section lists), the
+  move is **idempotent and convergent** (re-asserted on the same-version
+  verify/repair path, so a factory reset or `sysupgrade -n` that puts the
+  ports back on the captive bridge is repaired; `/etc/config/network` is
+  already on the module's keep-list, so a settings-keeping upgrade carries
+  the placement), and a port never sits on two bridges (the captive section's
+  list is cleared after the private bridge's is written). Nothing else moves:
+  the public `TollGate-*` SSIDs stay on the captive bridge behind the portal,
+  `nodogsplash` stays pinned to `br-lan`, and all four guard fragments
+  (`20-nds-enforce.nft`, `30-backend-firewall.nft`, `31-*.nft`, `32-*.nft`)
+  are untouched and still `br-lan`-scoped — pinned byte-identical to `main`
+  by the new `tests/uci-defaults-lan-private-wired_test.sh`, which also pins
+  the move, the discovery, the idempotence and the upgrade repair. This is
+  the minimal release path; the role machinery (`tollgate.lan_ports.role`,
+  `br-mgmt`) stays in #607 for after the release.
 
 - **The wired-LAN bridge record no longer overstates the blocker: the
   operator's requirement *is* satisfiable by re-keying the admin-port guards.**
