@@ -24,6 +24,23 @@ and [Semantic Versioning](https://semver.org/).
   discovery, a registered OI), and BSSID signaling and beaconed npubs stay
   rejected with the bench-measured evidence, so none of it gets re-derived.
   ([#621](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/621))
+- **The wired-LAN bridge record no longer overstates the blocker: the
+  operator's requirement *is* satisfiable by re-keying the admin-port guards.**
+  The amendment to `docs/architecture/lan-port-management-bridge-decision.md`
+  records the operator-approved mechanism — key the two admin-port drops on the
+  guest VAP interfaces instead of the bridge name, so the wired port stops
+  matching (the administration surfaces answer from the cable) while the
+  wireless guests keep being dropped and the wired port stays on the gated
+  `br-lan`, still redirected, still paying — together with the measured
+  constraint that makes it a port-keyed `bridge`-family rule rather than a
+  string swap (in an `inet`-family hook `iifname` is the bridge, so the swap
+  would match nothing and turn both guards into silent no-ops), and the
+  fail-closed derivation the unstable VAP names need. The nodogsplash
+  single-gate analysis is unchanged and now explicitly scoped to a second
+  *gated* bridge; `br-mgmt` stays proposed on its own merit, its Status stays
+  `Proposed`, and the drifted `99-tollgate-setup` citation is corrected to
+  `:1228-1247`. Docs only: no code, no packaging, no firewall change.
+  ([#623](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/623))
 
 - **The physical/lab router suite now runs as a CI job.** A new `router-test`
   workflow routes through the elected router-bench gateway: pull requests reach
@@ -217,6 +234,26 @@ and [Semantic Versioning](https://semver.org/).
   world-syncs packages previously installed from files back out. A volatile
   (tmpfs) install is documented as the fallback.
   ([#613](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/613))
+- **COMFAST CF-WR632AX documented as a covered target, with the OpenWrt
+  ≥25.12.5 requirement and the absence of a hardware result stated up front.**
+  The CF-WR632AX (MediaTek MT7981-class SoC) reports the same
+  `mediatek/filogic` / `aarch64_cortex-a53` target and `DISTRIB_ARCH` as the
+  Cudy WR3000 v1 above, so the CI
+  [build matrix](.github/workflows/build-package.yml) already covers it and no
+  row was added or removed. OpenWrt has supported it since 25.12.0 (device page
+  [openwrt.org/toh/comfast/cf-wr632ax](https://openwrt.org/toh/comfast/cf-wr632ax)),
+  and its 128 MiB of SPI NAND means it has **no** flash-capacity caveat — the
+  default build fits, so the `upx-ultra-brute` variant the 16 MB WR3000 needs
+  is not required here. The "Supported devices" subsection in
+  [README.md](README.md) gains a paragraph recording that, the ≥25.12.5
+  requirement for the OpenWrt U-Boot layout (a memory-speed stability issue in
+  25.12.0–25.12.4, fixed by upstream PRs
+  [#22929](https://github.com/openwrt/openwrt/pull/22929) /
+  [#23416](https://github.com/openwrt/openwrt/pull/23416)), and that the device
+  has **not yet been exercised on real hardware** — no unit is in hand, so this
+  entry rests on upstream OpenWrt support and the shared target/architecture
+  row, not on a measured result.
+  ([#616](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/616))
 - **The board is the default face — decided, with the switch, the cross-link
   rules, and the reason it is not a one-repo change.**
   `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
@@ -497,8 +534,39 @@ and [Semantic Versioning](https://semver.org/).
   seen failing is decoration), names in its header the ids it cannot break
   offline, and runs in CI.
 
+- **The happy-path harness now covers the SECOND purchase — the club's main
+  loop.** `tests/router-happy-path` could only ever buy once, so nothing in it
+  could see the failure the operator hit on real hardware (pre17 on an MT3000):
+  after the first allotment was spent, a second purchase restored the balance and
+  the gate stayed shut, with no OS captive-portal prompt either. `--second-purchase`
+  (or `RHP_SECOND_PURCHASE=1` + `RHP_CASHU_TOKEN_2`) buys a second time for the
+  SAME client and then asserts the GATE rather than the balance: `paid2:*` ends
+  with an HTTP request through the customer's own data path
+  (`RHP_EGRESS_PROBE_URL`, default the Android 204 probe) that must answer 200/204
+  with no redirect, naming the two failure shapes instead of collapsing them into
+  "no internet" — a `307` to the splash (still intercepted) and no answer at all
+  (neither redirected nor served). On the failing box `paid2:balance-restored` was
+  green while `paid2:gate-open` was red, which is the distinction a balance-only
+  suite cannot make. The lane refuses to run on a live session (a renewal is not a
+  re-purchase), keeps the same spend-ceiling and sentinel-MAC guards as the first
+  purchase, and the self-test drives both outcomes offline on a fixture token
+  (42 cases / 83 check ids, 53 driven red).
+
 ### Fixed
 
+- **The paid lane's token inspection was off by one, so the lane could never
+  spend anything.** `tests/router-happy-path/lib/cashtoken.py` read the NUT-00
+  version character at `token[6]` — the first character of the *payload* — and
+  sliced the payload at `token[7:]`, so a real `cashuB` token was reported as
+  `unknown Cashu token version character 'o'` and `paid:token-inspected` failed
+  before any purchase could be attempted. The lane had been dead since it merged,
+  and the default run's SKIP is why nothing caught it; it was found on the lane's
+  first hardware run (a 64-sat testnut token, pre17 on the bench MT3000). The
+  decode is now `token[5]` / `token[6:]`, and `selftest/cashtoken_selftest.py`
+  pins the v3 path, the v4 path, the malformed-version path (by the character at
+  index 5, so the offset itself is pinned) and the missing-prefix path; the
+  self-test also drives both purchase lanes offline on a non-redeemable fixture
+  token, which is the control whose absence let this through.
 - **The startup mint probe no longer walks every accepted mint to its own
   timeout before the process can do anything else.** `merchant.New()` ran the
   startup probe to completion before `main()` ever reached
