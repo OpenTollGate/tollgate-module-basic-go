@@ -2064,7 +2064,7 @@ setup_private_network() {
 # by NAME, never by an index we guess.
 bridge_device_section() { # <bridge-name> -> the section path, or nothing
     local want="$1" idx=0
-    while [ "$idx" -lt 24 ]; do
+    while [ "$idx" -lt 64 ]; do
         if [ "$(uci -q get "network.@device[$idx].name" 2>/dev/null)" = "$want" ]; then
             printf 'network.@device[%s]\n' "$idx"
             return 0
@@ -2087,7 +2087,7 @@ ports_of_section() { # <section>
 }
 
 setup_lan_ports_private() {
-    local lan_dev private_dev captive_sec ports p target_ports from=""
+    local lan_dev private_dev captive_sec ports p target_ports landed missing from=""
 
     lan_dev=$(uci -q get network.lan.device 2>/dev/null)
     [ -n "$lan_dev" ] || lan_dev="br-lan"
@@ -2109,26 +2109,53 @@ setup_lan_ports_private() {
         return 1
     fi
     ports=$(ports_of_section "$captive_sec")
+    target_ports=$(uci -q get network.private_bridge.ports 2>/dev/null)
     if [ -z "$ports" ]; then
-        log "Wired LAN ports already on ${private_dev} — nothing to move"
-        return 0
+        # MEASURE, do not infer: an empty source list is a no-op only when the
+        # target really lists the ports. If neither bridge lists them the
+        # operator's cable is on no network at all, and reporting success
+        # there would hide it.
+        if [ -n "$target_ports" ]; then
+            log "Wired LAN ports already on ${private_dev} — nothing to move"
+            return 0
+        fi
+        log "ERROR: the wired LAN ports are on neither bridge — ${lan_dev} and ${private_dev} both list no ports, so there is nothing to move and nothing to repair. Nothing was changed."
+        return 1
     fi
 
     # Write the target first (the target is never the section cleared
-    # below), adding each port exactly once.
-    target_ports=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    # below), adding each port exactly once. A write failure is not acted on
+    # here: the read-back below is the authority, because a silent failure
+    # and a success are indistinguishable at this point.
     for p in $ports; do
         case " $(echo $target_ports) " in
             *" $p "*) : ;;
             *)
-                uci add_list "network.private_bridge.ports=$p"
+                uci add_list "network.private_bridge.ports=$p" 2>/dev/null
                 target_ports="$target_ports $p"
                 ;;
         esac
     done
 
+    # VERIFY BEFORE CLEARING. Clearing the source on an unverified write is
+    # how a port ends up on NO bridge and the operator's only cable access
+    # dies. Re-read the target and require every port to be present, matched
+    # on whole words (a target list of lan10 must not satisfy a port lan1).
+    landed=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    missing=""
+    for p in $ports; do
+        case " $(echo $landed) " in
+            *" $p "*) : ;;
+            *) missing="$missing $p" ;;
+        esac
+    done
+    if [ -n "$missing" ]; then
+        log "ERROR: the wired LAN ports did not land on ${private_dev} (missing:$(printf ' %s' $missing)) — ${lan_dev} keeps its ports and nothing was cleared. The move is retried on the next setup run."
+        return 1
+    fi
+
     # Then CLEAR the source: a port on two bridges is a port on two
-    # layer-2 domains.
+    # layer-2 domains. Safe only because the target is verified above.
     uci -q delete "$captive_sec.ports" 2>/dev/null
     from="$lan_dev"
 

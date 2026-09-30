@@ -254,6 +254,36 @@ run_same_version() {
     return $?
 }
 
+# Save the stock fake uci so per-test shims can restore it.
+cp "$TMP/bin/uci" "$TMP/bin/uci.real"
+uci_restore() { cp -f "$TMP/bin/uci.real" "$TMP/bin/uci"; }
+
+log_contains() { grep -qF -- "$1" "$LOGFILE"; }
+
+# Run the writer with a custom fake uci shim installed at $TMP/bin/uci.
+# The shim runs from a clean $TMP/bin and must exit 0 after forking the
+# stock implementation for unrelated commands.
+run_writer_with_uci() {
+    local shim="$1"
+    : > "$LOGFILE"
+    # Build the PRECONDITION with the stock fake uci first: the private bridge
+    # must exist before the writer under test runs, otherwise the writer
+    # correctly bails at its "no private bridge" precondition and the shim
+    # would be testing that path instead of the port-move guard. The shim is
+    # installed only for the writer itself, so the only thing it breaks is the
+    # write this negative control is about.
+    uci_restore
+    # shellcheck disable=SC1090
+    TOLLGATE_SETUP_LIB_ONLY=1 . "$SCRIPT_UNDER_TEST" >/dev/null 2>&1
+    R2G=radio0 R5G=radio1 setup_private_network >/dev/null 2>&1
+    cp -f "$shim" "$TMP/bin/uci"
+    chmod +x "$TMP/bin/uci"
+    setup_lan_ports_private >/dev/null 2>&1
+    local rc=$?
+    uci_restore
+    return $rc
+}
+
 # ------------------------------------------------------------- assertions
 ports_on_private() { # <port> [<port> ...]
     local port want=0 n
@@ -409,6 +439,168 @@ if grep -qF -- 'iifname != { "br-lan", "lo" }' "$NFT_DIR/30-backend-firewall.nft
 else
     bad "30-backend-firewall.nft lost its br-lan exemption set"
 fi
+
+# ===========================================================================
+# 1b. negative controls for the verify-before-clear guard
+# ===========================================================================
+echo "== add_list failure: the captive bridge's port list is NOT cleared"
+FAIL_ADD_LIST="$TMP/uci-fail-add-list"
+cat > "$FAIL_ADD_LIST" <<'SHIM'
+#!/bin/sh
+state="${UCI_STATE:?}"
+q=0
+[ "${1:-}" = "-q" ] && { q=1; shift; }
+cmd="${1:-}"
+shift || true
+values() { grep -F -- "$1=" "$state" 2>/dev/null | cut -d= -f2-; }
+drop_key() {
+    awk -v k="$1" 'index($0, k "=") != 1 && index($0, k ".") != 1' "$state" > "$state.tmp" 2>/dev/null
+    mv "$state.tmp" "$state"
+}
+case "$cmd" in
+    get)
+        vals="$(values "$1")"
+        if [ -z "$vals" ]; then
+            [ "$q" = 1 ] || echo "uci: Entry not found" >&2
+            exit 1
+        fi
+        printf '%s\n' "$vals"
+        ;;
+    set|add|del_list|delete)
+        # delegate to the real fake uci by re-exec
+        exec "$TMP/bin/uci.real" ${q:+-q} "$cmd" "$@"
+        ;;
+    add_list)
+        key="${1%%=*}"
+        if [ "$key" = "network.private_bridge.ports" ]; then
+            echo "fake uci add_list failure" >&2
+            exit 1
+        fi
+        printf '%s\n' "$1" >> "$state"
+        ;;
+    show|export|commit|revert) : ;;
+    *) : ;;
+esac
+exit 0
+SHIM
+chmod +x "$FAIL_ADD_LIST"
+seed_router eth1
+no_upstream
+draw 5a 5a
+run_writer_with_uci "$FAIL_ADD_LIST"
+rc=$?
+if [ "$rc" != 0 ]; then ok "add_list failure: writer returns non-zero ($rc)"; else bad "add_list failure: writer returned 0"; fi
+if grep -qE '^network\.@device\[0\]\.ports=' "$UCI_STATE"; then
+    ok "add_list failure: the captive bridge's port list is preserved"
+else
+    bad "add_list failure: the captive bridge's port list was cleared despite add_list failure"
+fi
+if ! grep -qE '^network\.private_bridge\.ports=' "$UCI_STATE"; then
+    ok "add_list failure: private_bridge received no ports"
+else
+    bad "add_list failure: private_bridge received ports despite add_list failure"
+fi
+if log_contains "ERROR" && log_contains "eth1"; then
+    ok "add_list failure: the log names the missing port"
+else
+    bad "add_list failure: the error log does not name the missing port"
+fi
+
+
+echo "== add_list silent no-op (rc 0, target unchanged): verification catches it"
+NOOP_ADD_LIST="$TMP/uci-noop-add-list"
+cat > "$NOOP_ADD_LIST" <<'SHIM'
+#!/bin/sh
+state="${UCI_STATE:?}"
+q=0
+[ "${1:-}" = "-q" ] && { q=1; shift; }
+cmd="${1:-}"
+shift || true
+values() { grep -F -- "$1=" "$state" 2>/dev/null | cut -d= -f2-; }
+drop_key() {
+    awk -v k="$1" 'index($0, k "=") != 1 && index($0, k ".") != 1' "$state" > "$state.tmp" 2>/dev/null
+    mv "$state.tmp" "$state"
+}
+case "$cmd" in
+    get)
+        vals="$(values "$1")"
+        if [ -z "$vals" ]; then
+            [ "$q" = 1 ] || echo "uci: Entry not found" >&2
+            exit 1
+        fi
+        printf '%s\n' "$vals"
+        ;;
+    set|add|del_list|delete)
+        exec "$TMP/bin/uci.real" ${q:+-q} "$cmd" "$@"
+        ;;
+    add_list)
+        # silently accept but do nothing
+        exit 0
+        ;;
+    show|export|commit|revert) : ;;
+    *) : ;;
+esac
+exit 0
+SHIM
+chmod +x "$NOOP_ADD_LIST"
+seed_router eth1
+no_upstream
+draw 5a 5a
+run_writer_with_uci "$NOOP_ADD_LIST"
+rc=$?
+if [ "$rc" != 0 ]; then ok "silent no-op: writer returns non-zero ($rc)"; else bad "silent no-op: writer returned 0"; fi
+if grep -qE '^network\.@device\[0\]\.ports=' "$UCI_STATE"; then
+    ok "silent no-op: the captive bridge's port list is preserved"
+else
+    bad "silent no-op: the captive bridge's port list was cleared despite verification failure"
+fi
+if log_contains "ERROR" && log_contains "eth1"; then
+    ok "silent no-op: the log names the missing port"
+else
+    bad "silent no-op: the error log does not name the missing port"
+fi
+
+
+echo "== empty source and empty target: reported as an error, nothing written"
+seed_router
+no_upstream
+draw 5a 5a
+# setup_private_network above creates private_bridge; captive has no ports
+run_writer
+rc=$?
+if [ "$rc" != 0 ]; then ok "empty source+target: writer returns non-zero ($rc)"; else bad "empty source+target: writer returned 0"; fi
+if ! grep -qE '^network\.private_bridge\.ports=' "$UCI_STATE"; then
+    ok "empty source+target: private_bridge still has no ports"
+else
+    bad "empty source+target: private_bridge gained ports from nowhere"
+fi
+if log_contains "ERROR" && log_contains "neither bridge"; then
+    ok "empty source+target: log reports the broken state"
+else
+    bad "empty source+target: log does not report the broken state"
+fi
+
+
+echo "== bridge device section beyond index 23 is still found and moved"
+seed_router eth1
+no_upstream
+# push br-lan far down the anonymous device list
+awk 'BEGIN { for (i=0; i<30; i++) print "network.@device[" i "]=device"; print "network.@device[30].name=br-lan"; print "network.@device[30].type=bridge"; print "network.@device[30].ports=eth1" }' /dev/null >> "$UCI_STATE"
+# remove the original @device[0] block that seed_router wrote
+awk 'index($0, "network.@device[0]") != 1' "$UCI_STATE" > "$UCI_STATE.tmp" && mv "$UCI_STATE.tmp" "$UCI_STATE"
+# ensure network.lan still points at br-lan
+grep -qF -- 'network.lan.device=br-lan' "$UCI_STATE" || printf 'network.lan.device=br-lan\n' >> "$UCI_STATE"
+draw 5a 5a
+run_writer
+rc=$?
+if [ "$rc" = 0 ]; then ok "late bridge: writer returns 0"; else bad "late bridge: writer returned $rc"; fi
+ports_on_private eth1
+if ! grep -qE '^network\.@device\[30\]\.ports=' "$UCI_STATE"; then
+    ok "late bridge: the source section was cleared"
+else
+    bad "late bridge: the source section still lists ports"
+fi
+
 
 # ===========================================================================
 # 5. negative control — the assertions must fail without the writer
