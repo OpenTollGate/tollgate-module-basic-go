@@ -1027,12 +1027,18 @@ admin_credential_state() {
 
 # 20 characters from a 32-character alphabet — no l/o/0/1 look-alikes and
 # nothing a shell or a password prompt would eat — read straight from the
-# kernel CSPRNG. 256 is an exact multiple of 32, so the byte->character
-# mapping is uniform.
+# kernel CSPRNG. The mapping is uniform: each byte is reduced modulo 32; the
+# 32-alphabet size means the bias is exactly 0 because 256 = 32 * 8.
+# Historically this called `od`, but OpenWrt 25.12.5 images ship a stripped
+# busybox where `od` is not built in (and `hostname` is absent too), so `od`
+# produced no output, the generator returned an empty string, and no root
+# password could be applied. `hexdump` is present on those images and is
+# already used elsewhere in this script (mint_device_code, random_octet).
 generate_admin_password() {
     local alphabet="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
-    od -An -N 20 -tu1 /dev/urandom | awk -v a="$alphabet" \
-        '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
+    hexdump -n 20 -e '20/1 " %u"' /dev/urandom 2>/dev/null \
+        | awk -v a="$alphabet" \
+            '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
 }
 
 # BusyBox `passwd` reading the new password twice from stdin is the
@@ -2006,6 +2012,163 @@ setup_private_network() {
     uci set firewall.private_forwarding.dest='wan'
 }
 
+# -- the wired LAN ports: moved onto the operator's private bridge ----------
+#
+# The wired LAN ports are the one network this writer MOVES. The base image
+# puts them on the CAPTIVE bridge (network.lan.device, br-lan) — the same
+# layer-2 domain as the open guest SSID and the captive portal — so a cabled
+# client was a guest: it paid at the portal, and the two administration
+# guards (31-admin-board-not-guest-reachable.nft, 32-luci-not-guest-reachable
+# .nft, both `iifname "br-lan"`-literal) dropped the admin board
+# (:8090/:8443) and LuCI (:8080/:443) for it. The operator's criterion for
+# this release is the opposite: the physical LAN port is the operator's own
+# trusted access — free internet, the admin board, and LuCI, with no payment
+# step. br-private is exactly that network (firewall.private_zone is input/
+# forward ACCEPT and carries a private -> wan forwarding, and both admin
+# guards answer there because they only drop on the captive bridge), so the
+# ports MOVE onto it:
+#
+#   * internet: firewall.private_forwarding (private -> wan) is written by
+#     setup_private_network above;
+#   * the admin board and LuCI answer: the guards' `iifname "br-lan"` scope
+#     keeps them OFF only for the captive bridge — on br-private a client is
+#     owner-class, deliberately (see the PR body for the trust discussion);
+#   * the public TollGate-* SSIDs stay on the captive bridge behind the
+#     portal, unchanged, and guests still cannot reach the board or LuCI.
+#
+# DISCOVERED, NEVER NAMED. The port list is IMAGE-OWNED (/bin/config_generate
+# writes `list ports` from board.json — `eth1` on the MT3000, `lan1…lan5`
+# elsewhere), so no port name appears here: the writer reads the ports the
+# captive bridge's device section lists RIGHT NOW and moves that set. The
+# section itself is anonymous in a shipped config, so it is located by NAME
+# (bridge_device_section), never by a guessed index.
+#
+# IDEMPOTENT AND CONVERGENT BY CONSTRUCTION. A factory reset or a
+# `sysupgrade -n` puts the ports back on the captive bridge; this writer is
+# re-run on every setup path (full setup and the same-version verify/repair
+# path), so a converged router is a no-op, a reset router is repaired, and a
+# port is never added twice (the target's existing list is checked first).
+# A port also never sits on two bridges at once: the captive section's port
+# list is CLEARED after the private bridge's is written, so the move cannot
+# leave a port in two layer-2 domains.
+#
+# FAIL LOUDLY, CHANGE NOTHING. The preconditions are checked before the
+# first `uci set`: no private bridge (setup_private_network skipped — no
+# usable radio), or no captive device section to read the ports from, or no
+# port listed anywhere (nothing to move). Each logs an ERROR and leaves the
+# ports where they are — a writer that guessed would move the operator's
+# only cable access onto a network he cannot reach.
+#
+# UPGRADE SURVIVAL. The placement lives in /etc/config/network, which
+# packaging/files/lib/upgrade/keep.d/tollgate already lists, so a settings-
+# keeping sysupgrade carries it; the writer's convergence then repairs the
+# reset (non-keeping) cases.
+
+# The device SECTION that carries <bridge-name>. Device sections are
+# anonymous in a shipped config (/bin/config_generate writes
+# `add network device` + `option name 'br-lan'`), so the section is located
+# by NAME, never by an index we guess.
+bridge_device_section() { # <bridge-name> -> the section path, or nothing
+    local want="$1" idx=0
+    while [ "$idx" -lt 64 ]; do
+        if [ "$(uci -q get "network.@device[$idx].name" 2>/dev/null)" = "$want" ]; then
+            printf 'network.@device[%s]\n' "$idx"
+            return 0
+        fi
+        idx=$((idx + 1))
+    done
+    return 1
+}
+
+# Every port listed on <section>, in order, each one once.
+ports_of_section() { # <section>
+    local p seen=""
+    for p in $(uci -q get "$1.ports" 2>/dev/null); do
+        case "$seen" in
+            *" $p "*) continue ;;
+        esac
+        seen="$seen $p"
+        printf '%s\n' "$p"
+    done
+}
+
+setup_lan_ports_private() {
+    local lan_dev private_dev captive_sec ports p target_ports landed missing from=""
+
+    lan_dev=$(uci -q get network.lan.device 2>/dev/null)
+    [ -n "$lan_dev" ] || lan_dev="br-lan"
+    private_dev=$(uci -q get network.private_bridge.name 2>/dev/null)
+    [ -n "$private_dev" ] || private_dev="br-private"
+
+    # Precondition: the private network must exist (setup_private_network
+    # writes the bridge; it is skipped on a router with no usable radio).
+    if ! uci -q get network.private_bridge >/dev/null 2>&1; then
+        log "ERROR: skipping the wired-LAN port move — no private bridge (network.private_bridge is absent; setup_private_network skipped?), so the wired LAN ports stay on ${lan_dev}. Nothing was changed."
+        return 1
+    fi
+
+    # The ports to move are DISCOVERED from the captive bridge's device
+    # section (image-owned, board-specific names).
+    captive_sec=$(bridge_device_section "$lan_dev" 2>/dev/null)
+    if [ -z "$captive_sec" ]; then
+        log "ERROR: skipping the wired-LAN port move — no device section for the captive bridge ${lan_dev} (the base image writes one from the board definition), so there is no port list to read. Nothing was changed."
+        return 1
+    fi
+    ports=$(ports_of_section "$captive_sec")
+    target_ports=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    if [ -z "$ports" ]; then
+        # MEASURE, do not infer: an empty source list is a no-op only when the
+        # target really lists the ports. If neither bridge lists them the
+        # operator's cable is on no network at all, and reporting success
+        # there would hide it.
+        if [ -n "$target_ports" ]; then
+            log "Wired LAN ports already on ${private_dev} — nothing to move"
+            return 0
+        fi
+        log "ERROR: the wired LAN ports are on neither bridge — ${lan_dev} and ${private_dev} both list no ports, so there is nothing to move and nothing to repair. Nothing was changed."
+        return 1
+    fi
+
+    # Write the target first (the target is never the section cleared
+    # below), adding each port exactly once. A write failure is not acted on
+    # here: the read-back below is the authority, because a silent failure
+    # and a success are indistinguishable at this point.
+    for p in $ports; do
+        case " $(echo $target_ports) " in
+            *" $p "*) : ;;
+            *)
+                uci add_list "network.private_bridge.ports=$p" 2>/dev/null
+                target_ports="$target_ports $p"
+                ;;
+        esac
+    done
+
+    # VERIFY BEFORE CLEARING. Clearing the source on an unverified write is
+    # how a port ends up on NO bridge and the operator's only cable access
+    # dies. Re-read the target and require every port to be present, matched
+    # on whole words (a target list of lan10 must not satisfy a port lan1).
+    landed=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    missing=""
+    for p in $ports; do
+        case " $(echo $landed) " in
+            *" $p "*) : ;;
+            *) missing="$missing $p" ;;
+        esac
+    done
+    if [ -n "$missing" ]; then
+        log "ERROR: the wired LAN ports did not land on ${private_dev} (missing:$(printf ' %s' $missing)) — ${lan_dev} keeps its ports and nothing was cleared. The move is retried on the next setup run."
+        return 1
+    fi
+
+    # Then CLEAR the source: a port on two bridges is a port on two
+    # layer-2 domains. Safe only because the target is verified above.
+    uci -q delete "$captive_sec.ports" 2>/dev/null
+    from="$lan_dev"
+
+    log "Wired LAN ports moved from ${from} to ${private_dev} ($(echo $ports | tr '\n' ' '))"
+    return 0
+}
+
 commit_all() {
     uci commit system
     uci commit network
@@ -2170,6 +2333,21 @@ if [ "$BRANCH" != "FULL" ]; then
         log "nodogsplash allow list already complete — nothing to commit"
     fi
 
+    # The wired LAN ports' placement is re-asserted here for the same reason
+    # the uhttpd contract and the allow list are: the port list is IMAGE-
+    # OWNED, so a factory reset or a `sysupgrade -n` puts the wired ports
+    # back on the captive bridge — and a router that was merely reinstalled
+    # would leave the operator's cable back on the guest network. The writer
+    # is idempotent (a converged router changes nothing), and its config is
+    # committed only when the export actually differs.
+    net_before=$(uci export network)
+    setup_lan_ports_private
+    net_after=$(uci export network)
+    if [ -z "$net_before" ] || [ "$net_before" != "$net_after" ]; then
+        uci commit network
+        log "network config re-asserted (wired LAN ports re-placed on br-private)"
+    fi
+
     # The #428 loop guard must also fire here: a device upgrading from a
     # pre-#432 install can carry a stale gatewaydomainname while its
     # SETUP_VERSION already matches (postinst and the boot hook re-run
@@ -2233,6 +2411,7 @@ setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes CODE/NYM, R2G/R5G
+setup_lan_ports_private      # moves the wired LAN ports onto br-private
 commit_all
 
 # The router's TLS identity is provisioned and re-derived LAST on this path, after
