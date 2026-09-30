@@ -86,6 +86,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A Net4sats-branded TollGate is now recognizable as an upstream.** All
+  SSID-based recognition — reseller-mode upstream candidate selection, scan
+  classification, and the vendor-element score heuristic — now matches every
+  captive-SSID prefix the first-boot writer can emit (`TollGate-` and the
+  whitelabel `Net4sats-`) through one shared helper, case-insensitively
+  (lowercase `tollgate-<code>` SSIDs written by the pre-device-code installer
+  are still in the fleet). Previously a Net4sats router was invisible to a
+  reseller's wireless upstream discovery; the vendor IE remains the staged,
+  brand-independent channel behind `vendor_ie_discovery`.
 - **The repair path's portal banner is now committed, and both setup paths write
   one identical value.** The verify/repair path a same-version reinstall takes
   converged `nodogsplash.gatewayname` on a second spelling — `"$GATEWAY_NAME"`,

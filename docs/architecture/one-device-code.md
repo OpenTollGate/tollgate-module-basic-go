@@ -2,7 +2,12 @@
 
 ## Status: Decided (2026-09-27)
 
-A router carries **one** device code: four characters of `[A-Z0-9]`, minted
+A router carries **one** device code: four characters of `[A-Z0-9]` — minted
+as four hex characters (`[0-9A-F]`, the BusyBox-safe hexdump idiom shared
+byte-for-byte with the installer's resolver and pinned by its
+`branding_test.go`; new mints are hex, while the *acceptance* domain stays
+`[A-Z0-9]` because codes adopted from earlier writers — including the
+pre-device-code installer's full-alphanumeric mints — must survive) — minted
 exactly once, stored in UCI, and reused forever. Every name a human reads off
 the router is built from it, so the three names can never disagree:
 
@@ -52,6 +57,18 @@ contract is duplicated deliberately (two repos, two languages of record), and
 both sides pin the same case table so a change to one fails the other's tests —
 with **one known exception, the nym charset**, which is stated here rather than
 claimed to match (see "The nym charset differs between the two writers below"):
+
+**SSID recognition set (who counts as a TollGate upstream).** The captive SSID
+carries the brand's prefix, so SSID-based recognition — reseller-mode upstream
+selection, scan classification, the vendor-element score heuristic — must match
+every prefix the writer can emit: `TollGate-` and the whitelabel `Net4sats-`,
+case-insensitively (the pre-device-code installer wrote lowercase
+`tollgate-<code>` SSIDs; those routers remain in the fleet). A Net4sats-branded
+TollGate is a valid upstream. The single Go home for this set is
+`hasTollGateSSID` (wireless_gateway_manager); the shell side's equivalent is
+`load_brand`'s table. The definitive, brand-independent identification remains
+the vendor IE, staged behind `VendorIEDiscovery` (default off) — when that
+wiring lands, SSID matching stays as the weak heuristic, not the gate.
 
 * module: `tests/uci-defaults-device-code_test.sh`
 * installer: `branding_test.go`
