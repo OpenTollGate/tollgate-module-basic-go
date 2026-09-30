@@ -21,6 +21,8 @@ and exits non-zero if any case is BAD.
 
 `--emit-v3 <sats>` prints a parseable, NON-REDEEMABLE v3 token for a case that
 needs something token-shaped to POST at a stub (never used against a real mint).
+`--emit-v4` prints the v4/CBOR equivalent, so a case can also pin the half of the
+spend gate that CANNOT be enforced: `inspect()` cannot recover a v4 token's value.
 
 stdlib only.
 """
@@ -77,6 +79,9 @@ def _ok(name, detail):
 def main(argv):
     if len(argv) >= 2 and argv[0] == "--emit-v3":
         print(v3_token(int(argv[1])))
+        return 0
+    if len(argv) >= 1 and argv[0] == "--emit-v4":
+        print(v4_token())
         return 0
 
     bad = 0
