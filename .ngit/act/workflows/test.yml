@@ -107,6 +107,23 @@ jobs:
           # both setup paths re-assert it.
           bash tests/uci-defaults-trusted-entry-80_test.sh
 
+      - name: The wired LAN ports move onto the operator's private bridge
+        run: |
+          # Offline (no router, no daemon, no network): the wired LAN ports
+          # must be MOVED off the captive bridge onto br-private - the
+          # operator's trusted network with internet, the admin board and
+          # LuCI, no payment step - discovered from the bridge's device
+          # section (never named per board), idempotently, with the captive
+          # bridge's port list cleared so a port is never on two layer-2
+          # domains. The same-version verify/repair path re-asserts the
+          # placement (a factory reset is repaired), the module keep-list
+          # still carries /etc/config/network, and all four guard fragments
+          # are pinned byte-identical to main and still br-lan-scoped - that
+          # literal is what keeps a guest off :8090/:8443 and LuCI while a
+          # br-private client gets in. A neutralised-writer negative control
+          # must go red.
+          bash tests/uci-defaults-lan-private-wired_test.sh
+
       - name: One device code (hostname, captive SSID and private SSID agree)
         run: |
           # Offline (no router, no daemon, no network): the router's identity is
