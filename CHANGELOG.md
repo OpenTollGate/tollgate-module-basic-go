@@ -28,6 +28,13 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **Linux host mode's admin surface is formally deferred to phase 2.** A new
+  decision record pins the outcome so it is not re-litigated: phase 1 ships
+  no admin SPA, no admin listener, and no admin port — the `tollgate` CLI is
+  the only operator interface — and any future admin API must satisfy a
+  minimal contract (four verbs mapped to existing seams, AF_UNIX
+  file-permission auth, loopback-only) before it is built. See
+  [docs/host-mode/admin-surface-decision.md](docs/host-mode/admin-surface-decision.md).
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
