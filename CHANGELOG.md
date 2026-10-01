@@ -28,6 +28,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The vendor-IE encoder has an explicit overflow policy instead of a silent
+  failure.** When the encoded body would exceed the 255-byte element cap the
+  mint TLV (the bulkiest optional field) is dropped and the truncation is
+  reported by `EncodeTollGateVendorIE` and logged by `EmitTollGateVendorIE`
+  — the element is an unsigned hint, and the signed advertisement on `:2121`
+  remains authoritative and complete. Only a pubkey that cannot fit even
+  without the mint TLV is an error. Round-trip tests now use realistic
+  32-byte keys (was 3 bytes). Found by the #618 design review.
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
