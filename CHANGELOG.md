@@ -28,6 +28,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The discovery-signaling decision is recorded: v0.6 ships SSID-prefix
+  recognition; the richer tiers are documented and deferred.**
+  `docs/architecture/discovery-signaling-decision.md` separates the candidate
+  *signal* from *verification*: the SSID prefix (`TollGate-`/`Net4sats-`,
+  case-insensitive — #618) only selects who to ask, and the signed kind-10021
+  advertisement on `:2121` decides — a cloned beacon spoofs nothing but a
+  wasted probe. 802.11u/ANQP (Passpoint) and vendor-IE beacon stuffing are
+  researched with their prior art and deferred past v0.6 with explicit reopen
+  conditions (pre-association price in the WiFi picker, rename-surviving
+  discovery, a registered OI), and BSSID signaling and beaconed npubs stay
+  rejected with the bench-measured evidence, so none of it gets re-derived.
+  ([#621](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/621))
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
