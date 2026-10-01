@@ -492,6 +492,42 @@ and [Semantic Versioning](https://semver.org/).
   module's timeout behaviour is unchanged.
   ([#592](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/592))
 
+- **The wallet seam generalised to any bearer instrument, with NUT-07 and
+  NUT-09 derived rather than assumed.** A bearer instrument is anything an
+  authority can both recognise and remember, so the port requires exactly three
+  things of a backend: what it signed (which makes recovery possible), what it
+  consumed (where spentness lives), and how it can answer — `query` (a read-only
+  state API), `probe` (none exists, so the state is learned by attempting the
+  consumption, which is a mutation and therefore cannot be a pre-flight), or
+  `none` (the port answers UNKNOWN and says why). Two rules are load-bearing and
+  each is now a test: `SPENT`/`UNSPENT` are only ever things the authority
+  *said*, so anything else fails closed; and a NUT-07 answer is about
+  **consumption, never existence** — a plain mint answers `UNSPENT` for a
+  nullifier it has never seen, which is how a forged note passes a naive
+  "spendable?" check. Receiving is necessarily a swap (a bearer instrument is
+  destroyed by being spent), and recovery is the same deterministic derivation
+  replayed against the authority's signing log. Working code, 15 tests and a
+  narrated demo are in [`research/bearer-port-demo/`](research/bearer-port-demo/)
+  (transcript in `DEMO-OUTPUT.txt`); the derivation is written up in
+  [`docs/architecture/bearer-instrument-port.md`](docs/architecture/bearer-instrument-port.md).
+  (PR pending — the link is filled in when the upstream PR opens.)
+
+- **Fedimint (fedi) findings added to the wallet-backend candidate mapping.**
+  Fedimint is Rust with no Go client, so it can only ever be a sidecar, and it
+  cannot build for mipsel at all (`ring 0.17` has no mips backend), which pins it
+  to the large tier. Measured on this fleet: 14.9 MiB stripped / 5.4 MiB with
+  `upx --lzma` (aarch64, worst-case tree) and 62.5 MiB peak RSS on that fat build
+  — the thin-client RSS is the deciding, still-unmeasured number. Licence MIT;
+  the reusable Go wrapper and `fedimint-clientd` are dead (0 of 6 live
+  federations accept the 2024 client), so the daemon would be ours. Running it
+  alongside CDK is supported by the existing sidecar/manifest/policy design and
+  blocked on two deliberate contract extensions: a federation-shaped target key
+  and a backend-scoped token decoder. See
+  [`docs/architecture/wallet-backend-fedimint.md`](docs/architecture/wallet-backend-fedimint.md)
+  and the extended table in
+  [`docs/architecture/walletport-contract.md`](docs/architecture/walletport-contract.md#5-candidate-mapping-first-pass).
+  (PR pending — the link is filled in when the upstream PR opens.)
+
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
   audit, `repro-check` failed on every push: the audit sources
   `packaging/build-env.sh`, which needs a `SOURCE_DATE_EPOCH` that an act
