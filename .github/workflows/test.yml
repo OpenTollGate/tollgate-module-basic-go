@@ -248,6 +248,10 @@ jobs:
         run: python3 tests/contract/check-deps-sync.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
+      - name: Changelog duplicate entries check
+        run: python3 tests/contract/check-changelog-duplicates.py
+      - name: Changelog duplicates check verdicts
+        run: bash tests/contract/changelog-duplicates_test.sh
 
   # The customer-facing happy path is gated HERE, on every push and every pull
   # request, because this is the workflow that runs on a branch BEFORE anyone
