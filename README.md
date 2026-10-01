@@ -273,6 +273,32 @@ Key fields:
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
 
+## SSID conventions
+
+On first boot the router derives its Wi-Fi names from a single generated
+device code (see [#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605)
+and `docs/architecture/one-device-code.md`).
+
+- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
+  the four-character device code of `[A-Z0-9]`, minted once on first boot.
+  Both the 2.4 GHz and 5 GHz radios advertise the **same** SSID (band
+  steering), so clients are handed off between radios seamlessly.
+- **Private management AP** — `c08r4d0r-XXXX` (same `XXXX` device code as
+  the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+  memorable `Word-Word-Word-NN` string set on first boot and preserved on
+  upgrade. The `c08r4d0r` prefix is the project's generic default nym —
+  every installation shares it, so it names the product rather than any
+  operator; an operator who personalizes the nym does so as a visible
+  choice. [#531](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/531)
+  proposed renaming this default and was closed as superseded by that
+  decision.
+- **nodogsplash name** — the captive-portal gate shows
+  `TollGate-XXXX Portal` as its `gatewayname`.
+
+Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
+which swaps the `TollGate` prefix for that brand's name everywhere. The
+public AP format is pinned by `tests/contract/check-ssid-format.sh`.
+
 ## Testing
 
 Unit tests, from the [src/](src/) directory:
