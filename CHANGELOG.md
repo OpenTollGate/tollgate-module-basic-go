@@ -272,69 +272,13 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
-- **Conformance fast-subset lane for the shared fault-injection matrix.** A new cloud-lab lane (`tests/cloud-lab/conformance/`, driven by `run-conformance.sh`) runs the five `fast` scenarios of the Go/Rust conformance matrix (duplicate sequential/concurrent POSTs, swap timeout with a dropped response, kill at the post-receive/pre-session boundary, mint URL alias spellings) against the co-owned spec and fault proxy from PRTA (`tests/conformance/`, never forked), emitting a per-invariant verdict table. The proxy observes every blinded message the daemon exposes to the mint, so deterministic-output reuse — the #257/#266/#480 brick class — is measured, not asserted. Verdicts the payment-record store cannot yet back are recorded as `pending` against #502/#403 rather than skipped. The lane skips cleanly without docker or a PRTA checkout; the tollgate lab image gains `socat` for the host-side wallet-info call. ([#535](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/535))
-- **The operator guide covers the whole CLI surface again.** Two command
-  groups were missing from `docs/operator-guide.md`: the `tollgate ssl`
-  family (`apply`, `remove`, `status`, `covers` — in the tree since the
-  May Go rewrite and omitted when the guide was written) and
-  `tollgate upstream known` (#312's discovery-history summary, which
-  landed after the guide). The guide now documents both — what
-  `ssl status` reports and the coverage rule that derives
-  `redirect_https`, the apply/backup/opt-out contract, and the
-  persistent `/etc/tollgate/discovery_log.jsonl` behind
-  `upstream known` — and the README's module row names SSL/TLS
-  certificates. The committed man pages are regenerated with
-  `scripts/gen-man-pages.sh`: `tollgate-upstream-known.8` was missing
-  (the previous full regen predated #312),
-  `tollgate-wallet-drain-cashu.8` gains its `--yes` flag, and
-  `tollgate-upstream.8`'s cross-references catch up.
-  ([#633](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/633))
-
-- **An out-of-bounds `private_key` is refused at `config set`, not
-  persisted as a dead credential.** The per-key schema validation had no
-  length bounds for the private-network WPA passphrase, so
-  `config set private_key short` was accepted and then refused by the
-  applier at every convergence, forever — while `config get` reported
-  `secret_set.private_key: true` for a value that could never take effect
-  (#636). The schema field now declares the WPA2-PSK bounds (8-63
-  characters) and the dotpath validator enforces them at write time with
-  the same error the applier gives; an EMPTY value stays valid — it is the
-  documented keep-current sentinel, and the wholesale `config save` path
-  validates stock configs where it is empty.
-  ([#636](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/636))
-
-- **`config get` no longer returns the identities' Nostr private keys
-  (#635).** The payload the board renders handed out every owned
-  identity's private key in cleartext — the keys that sign payout
-  destinations and advertisements, strictly more damaging than the WPA
-  passphrase the same payload already blanks. Owned identities are now
-  returned with blanked keys plus `secret_set.identities.<name>` markers
-  (the same machinery the passphrase uses), and `config save-identities`
-  preserves the stored key for a name whose incoming key is empty — the
-  blanked payload round-trips without wiping the identities. An explicit
-  key still rotates; `tollgate config set identities…` write paths are
-  unchanged.
-  ([#635](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/635))
-
-- **The hardware-fleet tests no longer ship credentials.** Router and
-  Wi-Fi passwords and the install IPK URL were default values (and
-  template values) in a public repository; they are now required from the
-  environment or the gitignored `tests/.env`, with fail-fast guidance
-  (`conftest.py` refuses collection naming every missing variable).
-  Previously committed values must be rotated as part of the fix, not
-  optionally.
-  ([#528](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/528))
-
-- **A dependency-resolution smoke guards every release apk.** `tests/packaging/apk-install-resolution_test.sh`
-  resolves the freshly built package's full dependency closure against the
-  stock 25.12.x feed set inside an `openwrt/rootfs` container running
-  apk-tools 3 — the only tooling that reads the 25.12 index format; apk 2.x
-  silently resolves nothing against these feeds, which is how the September
-  #552 breakage went unnoticed between "artifact builds" and "a bench VM
-  cannot install it". The lane runs in the release gate ahead of the
-  happy-path suite (seconds, not minutes), skips cleanly without docker, and
-  exercises the feed-shape control (nodogsplash, the #552 dependency) when
-  run standalone.
+- **Linux host mode's admin surface is formally deferred to phase 2.** A new
+  decision record pins the outcome so it is not re-litigated: phase 1 ships
+  no admin SPA, no admin listener, and no admin port — the `tollgate` CLI is
+  the only operator interface — and any future admin API must satisfy a
+  minimal contract (four verbs mapped to existing seams, AF_UNIX
+  file-permission auth, loopback-only) before it is built. See
+  [docs/host-mode/admin-surface-decision.md](docs/host-mode/admin-surface-decision.md).
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
