@@ -192,6 +192,49 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The operator guide covers the whole CLI surface again.** Two command
+  groups were missing from `docs/operator-guide.md`: the `tollgate ssl`
+  family (`apply`, `remove`, `status`, `covers` — in the tree since the
+  May Go rewrite and omitted when the guide was written) and
+  `tollgate upstream known` (#312's discovery-history summary, which
+  landed after the guide). The guide now documents both — what
+  `ssl status` reports and the coverage rule that derives
+  `redirect_https`, the apply/backup/opt-out contract, and the
+  persistent `/etc/tollgate/discovery_log.jsonl` behind
+  `upstream known` — and the README's module row names SSL/TLS
+  certificates. The committed man pages are regenerated with
+  `scripts/gen-man-pages.sh`: `tollgate-upstream-known.8` was missing
+  (the previous full regen predated #312),
+  `tollgate-wallet-drain-cashu.8` gains its `--yes` flag, and
+  `tollgate-upstream.8`'s cross-references catch up.
+  ([#633](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/633))
+
+- **An out-of-bounds `private_key` is refused at `config set`, not
+  persisted as a dead credential.** The per-key schema validation had no
+  length bounds for the private-network WPA passphrase, so
+  `config set private_key short` was accepted and then refused by the
+  applier at every convergence, forever — while `config get` reported
+  `secret_set.private_key: true` for a value that could never take effect
+  (#636). The schema field now declares the WPA2-PSK bounds (8-63
+  characters) and the dotpath validator enforces them at write time with
+  the same error the applier gives; an EMPTY value stays valid — it is the
+  documented keep-current sentinel, and the wholesale `config save` path
+  validates stock configs where it is empty.
+  ([#636](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/636))
+
+- **`config get` no longer returns the identities' Nostr private keys
+  (#635).** The payload the board renders handed out every owned
+  identity's private key in cleartext — the keys that sign payout
+  destinations and advertisements, strictly more damaging than the WPA
+  passphrase the same payload already blanks. Owned identities are now
+  returned with blanked keys plus `secret_set.identities.<name>` markers
+  (the same machinery the passphrase uses), and `config save-identities`
+  preserves the stored key for a name whose incoming key is empty — the
+  blanked payload round-trips without wiping the identities. An explicit
+  key still rotates; `tollgate config set identities…` write paths are
+  unchanged.
+  ([#635](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/635))
+
 - **The hardware-fleet tests no longer ship credentials.** Router and
   Wi-Fi passwords and the install IPK URL were default values (and
   template values) in a public repository; they are now required from the
