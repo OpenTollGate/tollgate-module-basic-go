@@ -5,6 +5,15 @@ that multiple sessions (humans, agents, CI shards) use at the same time,
 and the lessons that produced them. Every rule below exists because its
 violation cost real time on this repository.
 
+## Prerequisites (host-side, beyond docker itself)
+
+- docker with compose v2.24+ — the per-run override relies on
+  `ports: !reset []`;
+- `socat` — every `lab.sh tap` is a socat under pidfile management;
+- `ss` (iproute2) — taps verify their listener actually bound;
+- a `date` implementing `-d` (GNU or uutils coreutils) — the
+  `reap --all` janitor parses container `CreatedAt` stamps.
+
 ## The tool: `lab.sh`
 
 `lab.sh` wraps the entire lab lifecycle in one run-scoped lease (in the
@@ -27,15 +36,32 @@ What one `up` creates — and nothing else on the host shares:
 - **container names** `$PROJECT-<service>` (the base file's `tg-*`
   names are global and collide across labs);
 - a **subnet** allocated from `172.31.64–250/24` by inspecting live
-  networks (the base file pins `172.28.0.0/16`, which allows exactly one
-  lab per host);
+  networks — overlap-checked against live networks *wider* than /24 too,
+  so a neighbouring `172.31.64.0/23` blocks both of its octets (the
+  base file pins `172.28.0.0/16`, which allows exactly one lab per
+  host);
 - **no host port bindings at all** — tests reach services over the
   compose network by service name; host access goes through a managed
   `tap` or `docker exec`.
 
+Profile-gated lanes run through the same lease:
+`COMPOSE_PROFILES=external-mints tests/cloud-lab/lab.sh up` (compose
+reads the variable directly; `--profile` is not a `lab.sh` argument).
+The override covers every service in the base file, gated or not, so a
+lane's containers are renamed and remapped exactly like the default
+topology's.
+
 Prefer `lab.sh` over hand-rolled `docker compose -p … -f …` invocations.
 The run state (override, lease record, tap pidfiles) lives in
 `/tmp/cloud-lab-runs/<run-id>` and is fully removed by `down`/`reap`.
+
+One deliberate divergence to know about: `lab.sh` passes an explicit
+`-f docker-compose.yml -f <run override>` pair, so a dropped-in
+`docker-compose.override.yml` is **not** part of a `lab.sh` run — while
+the lane scripts (`run-keyset-rotation.sh`, `renewal_e2e.sh`, …) do
+re-append it when present. If you rely on an override file, `lab.sh`
+and the lane scripts will differ for you; pick one path per
+investigation instead of mixing them.
 
 ## Patterns and why (the research-backed version)
 
