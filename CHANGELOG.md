@@ -244,6 +244,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The cloud-lab gained a run-scoped runner and a shared-host
+  runbook.** `tests/cloud-lab/lab.sh` gives every lab invocation its own
+  compose project, container names, allocated subnet and images (no host
+  ports), with managed TCP taps, deterministic teardown and a
+  crash-safe, label-based `reap` — concurrent sessions on one host can
+  no longer collide or leak. [RUNBOOK.md](tests/cloud-lab/RUNBOOK.md)
+  documents the patterns and the lessons that motivated them.
+  ([#557](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/557))
+
 - **Cudy WR3000 v1 documented as a covered target, with its 16 MB-flash limit
   stated up front.** The package matrix already builds for
   `mediatek/filogic` / `aarch64_cortex-a53`, which is what the WR3000 v1
@@ -1198,15 +1207,6 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
-- **The cloud-lab gained a run-scoped runner and a shared-host
-  runbook.** `tests/cloud-lab/lab.sh` gives every lab invocation its own
-  compose project, container names, allocated subnet and images (no host
-  ports), with managed TCP taps, deterministic teardown and a
-  crash-safe, label-based `reap` — concurrent sessions on one host can
-  no longer collide or leak. [RUNBOOK.md](tests/cloud-lab/RUNBOOK.md)
-  documents the patterns and the lessons that motivated them.
-  ([#551](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/551))
-
 
 - **The module can report the gates it believes it holds, so the ones nothing
   else examines are reachable.** `valve.TrackedGates()` returns a sorted,
