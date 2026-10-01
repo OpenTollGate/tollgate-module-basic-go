@@ -28,6 +28,23 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The operator guide covers the whole CLI surface again.** Two command
+  groups were missing from `docs/operator-guide.md`: the `tollgate ssl`
+  family (`apply`, `remove`, `status`, `covers` — in the tree since the
+  May Go rewrite and omitted when the guide was written) and
+  `tollgate upstream known` (#312's discovery-history summary, which
+  landed after the guide). The guide now documents both — what
+  `ssl status` reports and the coverage rule that derives
+  `redirect_https`, the apply/backup/opt-out contract, and the
+  persistent `/etc/tollgate/discovery_log.jsonl` behind
+  `upstream known` — and the README's module row names SSL/TLS
+  certificates. The committed man pages are regenerated with
+  `scripts/gen-man-pages.sh`: `tollgate-upstream-known.8` was missing
+  (the previous full regen predated #312),
+  `tollgate-wallet-drain-cashu.8` gains its `--yes` flag, and
+  `tollgate-upstream.8`'s cross-references catch up.
+  ([#633](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/633))
+
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
