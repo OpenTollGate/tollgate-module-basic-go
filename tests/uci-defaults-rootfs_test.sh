@@ -370,8 +370,22 @@ ap_section() {
 
 assert_bindings() {
     S2G=$(ap_section tollgate_2g_open); S5G=$(ap_section tollgate_5g_open)
-    [ -n "$R2G" ] && [ -n "$S2G" ] && check "2g AP ($S2G) on $R2G" "$(uci -q get wireless.$S2G.device)" "$R2G"
-    [ -n "$R5G" ] && [ -n "$S5G" ] && check "5g AP ($S5G) on $R5G" "$(uci -q get wireless.$S5G.device)" "$R5G"
+    # A band whose radio exists MUST get its tollgate_*_open AP section — a
+    # missing section is the #103/#173 reinstall class and fails, not skips.
+    if [ -n "$R2G" ]; then
+        if [ -n "$S2G" ]; then
+            check "2g AP ($S2G) on $R2G" "$(uci -q get wireless.$S2G.device)" "$R2G"
+        else
+            echo "FAIL: 2g radio $R2G exists but tollgate_2g_open AP section missing"
+        fi
+    fi
+    if [ -n "$R5G" ]; then
+        if [ -n "$S5G" ]; then
+            check "5g AP ($S5G) on $R5G" "$(uci -q get wireless.$S5G.device)" "$R5G"
+        else
+            echo "FAIL: 5g radio $R5G exists but tollgate_5g_open AP section missing"
+        fi
+    fi
     [ -n "$R2G" ] && check "private_radio0 on $R2G" "$(uci -q get wireless.private_radio0.device)" "$R2G"
     [ -n "$R5G" ] && check "private_radio1 on $R5G" "$(uci -q get wireless.private_radio1.device)" "$R5G"
     if [ -z "$R5G" ]; then
@@ -384,17 +398,22 @@ assert_bindings() {
     return 0
 }
 assert_bindings
-# The pre-auth allow list is a stability contract (#472/#513/#516/#518):
-# every setup path must leave the six anchored entries present, and no
-# rerun may duplicate one. The whole-field match mirrors the writer's
-# uci_list_has_port (:8443 must not satisfy a :443-class check).
+# The pre-auth allow list is a stability contract (#472/#513/#516/#518) that
+# main has since narrowed to the customer journey: every setup path must hold
+# the three journey entries exactly once — and no rerun may duplicate one —
+# while the four admin surfaces (LuCI :8080/:443, admin board :8090/:8443)
+# must stay OUT of the pre-auth list: a guest on the open SSID must not reach
+# an admin login before paying. Mirrors the offline sibling's JOURNEY_PORTS/
+# ADMIN_PORTS split (uci-defaults-same-version-allowlist_test.sh). The
+# whole-field match mirrors the writer's uci_list_has_port (:8443 must not
+# satisfy a :443-class check).
 assert_allowlist() {
     nds_users=$(uci -q get nodogsplash.@nodogsplash[0].users_to_router 2>/dev/null || echo "")
     if [ -z "$nds_users" ]; then
         echo "FAIL: users_to_router list absent after setup"
         return 0
     fi
-    for port in 2121 8080 2050 2051 8090 8443; do
+    for port in 2121 2050 2051; do
         if printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $port([[:space:]]'|'|\$)"; then
             echo "PASS: allow-list has :$port"
         else
@@ -405,6 +424,13 @@ assert_allowlist() {
             echo "PASS: :$port appears exactly once"
         else
             echo "FAIL: :$port appears $n times (duplicate class #516)"
+        fi
+    done
+    for port in 8080 443 8090 8443; do
+        if printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $port([[:space:]]'|'|\$)"; then
+            echo "FAIL: :$port in pre-auth list — admin surface reachable before payment"
+        else
+            echo "PASS: allow-list has no :$port (admin surface)"
         fi
     done
 }
@@ -428,11 +454,19 @@ case "$TOPO" in
         ;;
 esac
 
-# Same-version rerun must take the verify-only path and keep the bindings.
+# Same-version rerun must take the verify/repair path and keep the bindings.
+# The raw script this container runs is never packaged, so its recorded
+# marker is unorderable and the script's decision taxonomy hands the
+# same-version rerun to VERIFY_REPAIR, not plain VERIFY — and per the
+# script's own rule, everything that is not FULL is the verify/repair path.
+# Accept both verify-family tokens with a boundary after the token; a FULL
+# verdict (or a missing verdict line) fails.
 sh /work/setup.sh >/dev/null 2>&1
-grep -q "Flag matches" /tmp/tollgate-setup.log \
-    && echo "PASS: rerun took verify-only path" \
-    || echo "FAIL: rerun re-ran full setup"
+if grep -qE "Setup branch (VERIFY|VERIFY_REPAIR)([[:space:]]|\$)" /tmp/tollgate-setup.log; then
+    echo "PASS: rerun took the verify/repair path"
+else
+    echo "FAIL: rerun re-ran full setup"
+fi
 assert_bindings
 # The rerun is the duplicate-class witness: it must add nothing.
 assert_allowlist

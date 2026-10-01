@@ -1733,10 +1733,15 @@ and [Semantic Versioning](https://semver.org/).
   ash and the real `uci` binary) against seven fixture wireless topologies —
   normal, swapped-band, single-band, tri-band, legacy `hwmode`, misbound
   upgrade, STA-preserved — on both the 24.10 (opkg) and 25.12-snapshot (apk)
-  images, including the same-version verify path. 134 assertions in ~2
-  minutes on a docker host; skips cleanly (exit 0) where no container runtime
-  exists. Complements the offline fake-uci tests, which stay the fast loop
-  but cannot catch real-uci or GNU-vs-BusyBox divergence (#521).
+  images, including the same-version verify path. It asserts the wireless
+  AP bindings (a band whose radio exists but whose `tollgate_*_open`
+  section is missing fails the tier, not silently skips it) and the
+  customer-journey allow-list contract (journey ports present exactly once,
+  admin surfaces absent). 414 assertions on a docker host; skips cleanly
+  (exit 0) where no container runtime exists. Complements the offline
+  fake-uci tests, which stay the fast loop but cannot catch real-uci or
+  GNU-vs-BusyBox divergence (#521)
+  ([#530](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/530)).
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
