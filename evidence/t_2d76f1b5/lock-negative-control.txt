@@ -1,0 +1,6 @@
+$ go test -count=1 -tags nft_noflock -run TestLockMutualExclusion ./...
+--- FAIL: TestLockMutualExclusion (0.17s)
+    lock_test.go:113: peak concurrent holders = 3, want 1: the flock is not serialising (this is the expected failure under -tags nft_noflock)
+FAIL
+FAIL	tollgate-ndsctl	0.177s
+FAIL
