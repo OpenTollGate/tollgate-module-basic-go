@@ -194,7 +194,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.minibits.cash/Bitcoin",
@@ -204,7 +204,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.lnserver.com",
@@ -214,7 +214,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.macadamia.cash",
@@ -224,7 +224,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.westernbtc.com",
@@ -234,7 +234,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://kashu.me",
@@ -244,7 +244,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.cubabitcoin.org",
@@ -254,7 +254,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 	}
 }
@@ -268,7 +268,7 @@ func defaultTestMint() MintConfig {
 		MinPayoutAmount:         999999,
 		PricePerStep:            1,
 		PriceUnit:               "sat",
-		MinPurchaseSteps:        0,
+		MinPurchaseSteps:        1,
 	}
 }
 
