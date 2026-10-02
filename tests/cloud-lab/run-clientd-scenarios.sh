@@ -11,8 +11,9 @@
 #       restarts, clientd recovers. (ms sessions in this lab expire lazily,
 #       so expiry is a NOTE, not an assertion — recovery with a fresh
 #       session is the pass criterion.)
-#   S5  keyset rotation + swap fees — requires the mint-rotate/mint-fees
-#       services (keyset-rotation branch); SKIPPED with a message when the
+#   S5  keyset rotation + swap fees — requires the upstream-rotate
+#       service S5 drives plus the mint-rotate/mint-fees services
+#       (keyset-rotation branch); SKIPPED with a message when the
 #       current compose does not define them.
 #
 # Usage (from tests/cloud-lab/):
@@ -184,8 +185,8 @@ S4() {
 
 # ------------------------------------------------- S5 rotation + fees (opt-in)
 S5() {
-  if ! DC config --services 2>/dev/null | grep -q '^mint-rotate$'; then
-    log "S5: SKIPPED — mint-rotate/mint-fees services not defined in this compose (see the cloud-lab keyset-rotation branch)"
+  if ! DC config --services 2>/dev/null | grep -q '^upstream-rotate$'; then
+    log "S5: SKIPPED — upstream-rotate service not defined in this compose (mint-rotate/mint-fees are on main; S5 drives upstream-rotate, still keyset-rotation-branch only)"
     return 0
   fi
   scenario_dir S5
