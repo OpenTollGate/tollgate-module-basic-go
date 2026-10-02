@@ -71,7 +71,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "MinPayoutAmount", JSONKey: "min_payout_amount", Type: "uint64", Description: "Minimum payout amount in sats", Default: uint64(128), Required: true, Editable: true},
 				{Name: "PricePerStep", JSONKey: "price_per_step", Type: "uint64", Description: "Price per step in sats", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 				{Name: "PriceUnit", JSONKey: "price_unit", Type: "string", Description: "Price unit", Default: "sat", Required: true, Editable: true},
-				{Name: "MinPurchaseSteps", JSONKey: "purchase_min_steps", Type: "uint64", Description: "Minimum number of steps per purchase", Default: uint64(0), Required: true, Editable: true},
+				{Name: "MinPurchaseSteps", JSONKey: "purchase_min_steps", Type: "uint64", Description: "Minimum number of steps per purchase", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 			},
 		},
 		{
