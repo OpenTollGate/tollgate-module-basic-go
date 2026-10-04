@@ -62,7 +62,14 @@ const (
 	// adminScopeFragmentName is generated, never shipped: the package owns no
 	// file here, so `apk upgrade` cannot restore a stale scope and the file's
 	// absence means exactly "the default scope, which adds no rule".
-	adminScopeFragmentName = "33-admin-access-scope.nft"
+	//
+	// The number is 34, not 33, on purpose: open #601 ships a STATIC
+	// /etc/nftables.d/33-mgmt-bridge-scope.nft, and two different "33"
+	// fragments in one directory is a support ticket waiting (same review
+	// note that asked for the coordination). This file is generated and
+	// module-owned, so taking the later number costs nothing here and
+	// leaves 33- free for the shipped one.
+	adminScopeFragmentName = "34-admin-access-scope.nft"
 
 	// The administration surfaces, as one port set. The guards own the split
 	// (31-*.nft = board :8090/:8443, 32-*.nft = LuCI :8080/:443) and the

@@ -281,30 +281,37 @@ interfaces *the router itself serves on* to prevent self-probing.
 
 Four fields configure the router's own networks. They are **declared intent**:
 the service converges them onto the router (UCI `/etc/config/wireless` for the
-credentials, a generated `/etc/nftables.d/33-admin-access-scope.nft` for the
+credentials, a generated `/etc/nftables.d/34-admin-access-scope.nft` for the
 scope) after every `config set`/`config save`, on `tollgate config apply`, and
 at service start. All four are also on the admin board's Settings page.
 
 | Field | Values | Meaning |
 |---|---|---|
-| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup.** |
+| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
 | `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
 | `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
-| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`). The guest network the customers pay on is **never** an administration path, whatever this says. |
+| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
 
 Notes that matter when you change them:
 
 - The default, `admin_access=both`, adds no firewall rule at all: a router that
-  upgrades onto this release is reachable exactly where it was.
+  upgrades onto this release is reachable exactly where it was — the private
+  bridge (the private SSID and the physical LAN ports, since the wired ports
+  moved onto `br-private`) plus loopback.
 - `br-mgmt` is refused while that bridge does not exist on the router, because
-  it would leave no network able to reach the board. The value stays in
-  `config.json` and takes effect once the bridge exists.
+  naming it would drop `br-private` — which carries the private SSID and the
+  cable, i.e. every administration path — and leave no network able to reach
+  the board. The value stays in `config.json` and takes effect once the bridge
+  exists.
 - `loopback-only` is strict: every interface except `lo` loses the
   administration ports, including a VPN or uplink interface you administer
-  over.
+  over — and the physical LAN ports.
 - Changing the passphrase from the router's shell
   (`tollgate network private set-password`) also updates `config.json`, so the
-  two writers cannot disagree.
+  two writers cannot disagree. Setting `private_ssid` to a custom name stops
+  the setup script's `<nym>-<code>` re-derivation for that SSID (a
+  machine-shaped one is re-derived from the stored code, a custom one is left
+  alone), so the applier and the setup writer agree on what you chose.
 
 ## Testing
 

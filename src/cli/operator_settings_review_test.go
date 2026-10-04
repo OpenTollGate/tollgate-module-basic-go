@@ -1,7 +1,7 @@
 package cli
 
-// Tests added in response to the cold cross-family review of PR #604 (round 1,
-// 2026-09-27, deepseek/deepseek-v4-flash). Each one pins a property the review
+// Tests added in response to an external cold review of PR #604 (round 1,
+// 2026-09-27). Each one pins a property the review
 // showed was either unasserted or untrue:
 //
 //   - MAJOR: `private-net set-password` echoed the passphrase back even when the

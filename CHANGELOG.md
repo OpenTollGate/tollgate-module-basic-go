@@ -541,7 +541,7 @@ and [Semantic Versioning](https://semver.org/).
   a file the service merely reads, so one applier
   (`src/cli/operator_settings.go`) converges them: UCI `/etc/config/wireless`
   for the credentials, and a generated, module-owned
-  `/etc/nftables.d/33-admin-access-scope.nft` for the scope. It is
+  `/etc/nftables.d/34-admin-access-scope.nft` for the scope. It is
   **compare-and-converge** and runs after every `config set`/`config save`, on
   the new `tollgate config apply`, and at service start, so a hand-edited
   `config.json` converges without a second command and a router that already

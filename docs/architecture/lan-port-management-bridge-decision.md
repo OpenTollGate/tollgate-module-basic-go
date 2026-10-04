@@ -267,6 +267,15 @@ that is not this change.
 
 ### D9-D12 — The two settings this makes operator-configurable (2026-09-26)
 
+> **Re-derived 2026-10-04 (rebase onto main after #605/#624/#625).** D9-D12
+> were written against a tree where the private SSID was minted from the nym
+> alone, the wired LAN ports sat on the captive bridge, and the admin password
+> was generated with `od`. All three premises moved; the inline notes below
+> state the re-derived reading at each affected point, and the defaults are
+> unchanged — each is *more* of a no-op in the new world, not less. The
+> citations to `99-tollgate-setup` were re-checked against the post-#605/#625
+> file (line numbers below are the current ones).
+
 The operator asked for two things to be configurable rather than compiled in:
 the private network's credentials, and **which network may reach the
 administration surfaces** (today the answer is "whatever is not the captive
@@ -297,21 +306,30 @@ Two asymmetries are deliberate and load-bearing:
 - **An empty value is not an instruction: it means "keep what the router
   has".** `private_ssid` and `private_key` ship empty, because the first values
   are *minted*, device-by-device, by `setup_private_network`
-  (`99-tollgate-setup:1627-1744`: the SSID from the brand/nym and the passphrase
-  from an urandom-seeded word list). An operator who never opens these settings
-  must not be migrated onto a shared default, and an upgrade must never write
-  an empty string over a live network — a router with an empty SSID has no
-  management path at all. So the applier writes only declared, non-empty
-  values, and the migration fills defaults **only** into the two enum-valued
-  fields.
+  (`99-tollgate-setup:1896-2010`). Re-derived for #605: the SSID is now
+  `<nym>-<code>`, built from the operator's stored nym and the **one stored
+  device code** that also names the hostname and the captive SSID, and the
+  passphrase is still the urandom-seeded word list (3 words + 2 digits, one
+  `awk` from a single `/dev/urandom` read). The empty-means-keep default
+  composes with that derivation rather than fighting it: the applier writes
+  only declared non-empty values, and `setup_private_network` re-derives the
+  SSID only while it is *machine-shaped* — a value this applier wrote (or a
+  `tollgate network private rename`) is not machine-shaped, so the two
+  writers cannot disagree; conversely an operator who never sets the field
+  keeps the `<nym>-<code>` the setup minted, which is exactly the value the
+  adoption order in #605 chose for an already-deployed router. An operator
+  who never opens these settings must not be migrated onto a shared default,
+  and an upgrade must never write an empty string over a live network — a
+  router with an empty SSID has no management path at all. So the migration
+  fills defaults **only** into the two enum-valued fields.
 - **`private_encryption` ships with a value (`psk2+ccmp`) rather than empty**,
   because the module has always owned that one: `99-tollgate-setup` writes the
-  literal on every full setup pass (`:1714`, `:1726`), so there is no operator
-  value to preserve and the declared default is exactly what the router already
-  has (the applier sees no drift and does nothing). The consequence, stated
-  rather than implied: a mode changed by hand in `/etc/config/wireless` is
-  reverted by the applier, which is stricter than today only between two full
-  setup passes.
+  literal on every full setup pass (`:1983`, `:1996` — re-checked 2026-10-04),
+  so there is no operator value to preserve and the declared default is
+  exactly what the router already has (the applier sees no drift and does
+  nothing). The consequence, stated rather than implied: a mode changed by
+  hand in `/etc/config/wireless` is reverted by the applier, which is
+  stricter than today only between two full setup passes.
 
 The enum is `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` — all
 servable by the wpad the image installs. **SAE/WPA3 is deliberately absent**:
@@ -327,25 +345,37 @@ surfaces.** One flat field, four values, spelled as the operator asked:
 | `admin_access` | Administration ports (`:8090/:8443`, `:8080/:443`) |
 |---|---|
 | `both` (default) | reachable from `br-private` and `br-mgmt`; no rule is written |
-| `br-private` | reachable from the private SSID only; `br-mgmt` is dropped |
+| `br-private` | reachable from the private bridge only; `br-mgmt` is dropped |
 | `br-mgmt` | reachable from the wired management bridge only; `br-private` is dropped |
 | `loopback-only` | reachable from `lo` only; every other interface is dropped |
 
+> Re-derived for #625 (2026-10-04): `br-private` is no longer only the private
+> SSID — since the wired LAN ports moved onto it (#625, the minimal release
+> path that superseded #607), it is the private SSID **and the physical cable**,
+> i.e. every administration path the shipped stack has. `both` therefore means
+> "the private SSID plus the wired ports plus loopback, exactly where the
+> guards already allow" — still no rule written, still a no-op on upgrade. The
+> `br-mgmt` column describes #601's future bridge; no shipped image has one,
+> which is why the refusal below exists.
+
 The value is enforced by **one generated fragment**,
-`/etc/nftables.d/33-admin-access-scope.nft`, written by the same applier. It is
-generated and never shipped: the package owns no file at that path, so an
+`/etc/nftables.d/34-admin-access-scope.nft`, written by the same applier. It
+is generated and never shipped: the package owns no file at that path, so an
 `apk upgrade` cannot restore a stale scope, and the file's *absence* means
-exactly "the default scope, which adds no rule".
+exactly "the default scope, which adds no rule". The number is **34**, not
+33, because open #601 ships a static `33-mgmt-bridge-scope.nft`; whoever
+lands second takes the later number, and this PR is the one that could
+choose (the review note that asked for the coordination).
 
 Four properties of this design are what the reviewer should check first:
 
 1. **The default changes nothing on the wire.** `both` renders nothing and
    removes a fragment left by a previous non-default value, so shipping this
    feature is a no-op until an operator asks for something else. It is also
-   why `both` — not `br-mgmt` — is the default: `br-mgmt` would drop the
-   private SSID, and on a router where D1's writer has not run (a
-   `sysupgrade -n` regenerates the port list) that is every management path
-   gone at once.
+   why `both` — not `br-mgmt` — is the default: `br-mgmt` would drop
+   `br-private` — since #625 the private SSID *and* the cable — and (on a
+   `sysupgrade -n` that regenerates the port list, the residual case) that is
+   every management path gone at once.
 2. **It removes reach, never grants it.** The rules are `drop`s on a hook-input
    chain at priority `-1` — the same seam and priority `31-*.nft`/`32-*.nft`
    use. A drop in an early base chain is not undone by a later accept, so the
@@ -361,13 +391,16 @@ Four properties of this design are what the reviewer should check first:
    `admin_access` can make the guest bridge reach the board**, and
    `planAdminScope` has no `br-lan` case at all.
 4. **`br-mgmt` is refused while that bridge does not exist.** Naming it drops
-   `br-private`, and on a router whose wired ports are still on the captive
-   bridge (D1's writer has not run) that leaves *no* network that reaches the
-   board: the cable is on the bridge invariant 2 drops. The applier therefore
-   refuses, leaves the scope in force untouched, and says why; config.json
-   still records what the operator asked for, so the setting takes effect as
-   soon as the bridge exists. This is the repo's own lesson from the
-   `redirect_https` lockout, applied before the fact rather than after.
+   `br-private`, which since #625 is the private SSID **and the physical LAN
+   ports** — i.e. every administration path the shipped stack has; before #625
+   the same argument ran through "the cable is on the bridge invariant 2
+   drops", and a `sysupgrade -n` that regenerates the port list is the one
+   residual case where that older phrasing still applies. The applier
+   therefore refuses, leaves the scope in force untouched, and says why;
+   config.json still records what the operator asked for, so the setting
+   takes effect as soon as the bridge exists. This is the repo's own lesson
+   from the `redirect_https` lockout, applied before the fact rather than
+   after.
 
 `loopback-only` is the one value expressed as an exception
 (`iifname != "lo"`) rather than as a list of names, because it is the one value
@@ -778,10 +811,16 @@ card that measures 9-17, and required before the settings are documented as
 working rather than as designed):
 
 23. **Setting the scope from the board moves the wire, and unsetting it moves
-    it back.** With `admin_access=br-private`, `nft list chain inet fw4
-    admin_access_scope` shows the drop on `br-mgmt` and a wired client cannot
-    reach `:8090`; back to `both`, the chain file and the chain are gone and
-    the wired client reaches it again.
+    it back.** Re-derived 2026-10-04 for #625 — the wired client is on
+    `br-private` now, not `br-mgmt`, so the moving leg must use a value that
+    drops it: with `admin_access=loopback-only`, `nft list chain inet fw4
+    admin_access_scope` shows the `iifname != "lo"` drop and a wired client
+    cannot reach `:8090` (nor can a private-SSID client); back to `both`, the
+    chain file and the chain are gone and the wired client reaches it again.
+    (With `admin_access=br-private` the wired client *keeps* `:8090`: the
+    drop names `br-mgmt`, which no shipped image has. The pre-#625 reading —
+    "a wired client cannot reach `:8090`" under `br-private` — described
+    #601's world and is no longer measurable on main.)
 24. **The board reaches the surface it is configuring.** A change made from
     the board's Settings page survives a reboot and is still in effect
     (i.e. the applier at daemon start agrees with what the board wrote).
@@ -985,6 +1024,18 @@ unchanged: `openwrt/openwrt` `openwrt-25.12`
 groups `glinet,gl-mt3000` into `ucidef_set_interfaces_lan_wan eth1 eth0`, and
 `/bin/config_generate:109-119` still turns that into a `br-lan` device whose
 `ports` list carries the wired port.
+
+**AM-7 - a note folded in at the D9-D12 rebase (2026-10-04).** #625 landed
+on main after this amendment was written, as the **minimal release path** for
+the same requirement: `setup_lan_ports_private` moves the base image's wired
+port list onto `br-private` (guards untouched), superseding #607's full role
+machinery for this release and leaving `br-mgmt` (D1-D8, #601) to land after
+it. That is a *third* mechanism beside AM-1's re-key and D1's bridge, and it
+chose differently on purpose: a cabled client is owner-class (internet, no
+payment), with paying-wired scoped post-release. Consequences for this
+record: the wired administration path in D10's table is `br-private` (see the
+re-derived note there); the re-key of AM-1 remains what it was — a proposal
+on card t_8590499a — and nothing here prefers it over what shipped.
 
 **Tracking.** The implementing work is card **t_8590499a** on the
 `tollgate-module-basic-go` board ("Re-key the admin-port guards from br-lan to
