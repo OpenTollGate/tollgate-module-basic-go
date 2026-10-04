@@ -163,12 +163,28 @@ jobs:
           # bridge's port list cleared so a port is never on two layer-2
           # domains. The same-version verify/repair path re-asserts the
           # placement (a factory reset is repaired), the module keep-list
-          # still carries /etc/config/network, and all four guard fragments
-          # are pinned byte-identical to main and still br-lan-scoped - that
-          # literal is what keeps a guest off :8090/:8443 and LuCI while a
-          # br-private client gets in. A neutralised-writer negative control
-          # must go red.
+          # still carries /etc/config/network, and the guard fragments are
+          # pinned by digest (three byte-identical to main; the :2121
+          # backend-firewall guard updated on purpose so the owner network can
+          # read the admin board's data) and still br-lan-scoped - that literal
+          # is what keeps a guest off :8090/:8443 and LuCI while a br-private
+          # client gets in. A neutralised-writer negative control must go red.
           bash tests/uci-defaults-lan-private-wired_test.sh
+
+      - name: The backend API answers the owner network (admin board data path)
+        run: |
+          # Offline (no router, no daemon, no network): the :2121 API must be
+          # reachable from br-private as well as br-lan. The admin board is
+          # deliberately kept OFF the captive bridge, so br-private is the one
+          # network it is administered from - and the board is a thin shell
+          # whose every panel reads pricing/whoami/balance/ln-invoice from
+          # :2121. With the exemption missing, the board rendered on a freshly
+          # flashed GL-MT3000 (2026-10-04, alpha4-pre21) while each data call
+          # died with "TypeError: NetworkError when attempting to fetch
+          # resource" and retried forever. The suite pins the exemption set on
+          # both protocol families, that the rule is still a drop, that no
+          # foreign interface is exempted, and that the fragment compiles.
+          bash tests/packaging/backend-api-owner-network_test.sh
 
       - name: One device code (hostname, captive SSID and private SSID agree)
         run: |

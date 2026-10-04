@@ -164,9 +164,13 @@ with two instances:
   `access-grant-failed`).
 - **The nft layers are `br-lan`-literal.**
   `20-nds-enforce.nft:22,25,28,33` (`iifname "br-lan"` for the three marks and
-  the unmarked-to-WAN reject), `30-backend-firewall.nft:21-22`
-  (`iifname != { "br-lan", "lo" } tcp dport 2121 drop` — a client that cannot
-  reach `:2121` cannot pay), `31-*.nft:52-53`, `32-*.nft:54-55`, and the
+  the unmarked-to-WAN reject), `30-backend-firewall.nft:35-36`
+  (`iifname != { "br-lan", "br-private", "lo" } tcp dport 2121 drop` — a client
+  that cannot reach `:2121` cannot pay. Both LAN bridges are exempt: `br-lan`
+  because the portal pays through this API, and `br-private` because the
+  owner-facing board served on that network reads every value it shows from it.
+  Exempting only `br-lan` left the board rendering with all of its data dead),
+  `31-*.nft:52-53`, `32-*.nft:54-55`, and the
   zone-scoped `firewall.tollgate_in` rule that allows `:2121` from `lan`
   (`99-tollgate-setup:1427-1441`).
 

@@ -334,9 +334,16 @@ really about. The board's backend is rpcd over the uhttpd instance's
 `ubus_prefix`, and its plugin sees the **request payload only** (`openwrt/rpcd/tollgate`
 pipes it through `cat`), so the router cannot say which network the browser is
 on. The one place that *can* answer per socket is the module's own identity
-resolver, and the admin path cannot reach it: `30-backend-firewall.nft:21-22`
-drops `:2121` for `iifname != { "br-lan", "lo" }`, which is deliberate (the
-money API is a customer surface). So the design keeps liveness a router-wide
+resolver, and at the time of this decision the admin path could not reach it:
+`30-backend-firewall.nft` dropped `:2121` for
+`iifname != { "br-lan", "lo" }`. **Corrected 2026-10-04:** that exemption set
+now names `br-private` too (`iifname != { "br-lan", "br-private", "lo" }`),
+because the board is served on `br-private` and reads every value it shows from
+`:2121` — with the drop in place the board rendered while all of its data died,
+which is a defect, not a deliberate customer-surface boundary. The per-client
+mechanism is therefore no longer blocked by the packet filter; the rejection
+below rests on the cost of the mechanism itself, not on unreachability. So the
+design keeps liveness a router-wide
 fact and makes invariant 2 stand in for the per-client answer: a client that can
 load the board at all is a client inside the admin scope, and both UIs share
 that scope. If the scopes ever need to diverge, that is a change to this record

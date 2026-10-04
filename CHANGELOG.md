@@ -26,6 +26,22 @@ and [Semantic Versioning](https://semver.org/).
   part of `tests/packaging/admin-board-requires-credential_test.sh`.
   ([#624](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/624))
 
+- **The backend API (`:2121`) now answers the operator's private bridge
+  (`br-private`), not only the captive one — on the one network the admin board
+  is reachable from, every panel of that board was dead.** The board is kept off
+  the captive bridge (`31-admin-board-not-guest-reachable.nft`), so `br-private`
+  is where it is administered, and the board is a thin shell whose data layer
+  reads pricing, `whoami`, session balance and `ln-invoice` from
+  `http://<router>:2121/`. `30-backend-firewall.nft` exempted only `br-lan` and
+  `lo`, so the page rendered while every fetch failed
+  (`error fetching tollgate data: TypeError: NetworkError` / `lightning
+  capability probe failed`) and retried forever — measured on a freshly flashed
+  GL-MT3000 carrying `alpha4-pre21`. The exemption set now names both LAN
+  bridges; `br-lan` keeps its access because the portal SPA pays through the
+  same API. New offline test:
+  `tests/packaging/backend-api-owner-network_test.sh`.
+  ([#638](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/638))
+
 ### Changed / Internal
 
 - **The wired LAN ports move onto `br-private`: a cabled client is an
