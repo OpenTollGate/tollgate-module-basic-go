@@ -40,7 +40,7 @@ and [Semantic Versioning](https://semver.org/).
   bridges; `br-lan` keeps its access because the portal SPA pays through the
   same API. New offline test:
   `tests/packaging/backend-api-owner-network_test.sh`.
-  ([#NNN](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/NNN))
+  ([#638](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/638))
 
 ### Changed / Internal
 
