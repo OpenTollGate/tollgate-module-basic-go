@@ -27,6 +27,23 @@ type Config struct {
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
+	// Operator-settable network settings. Declared intent: nothing reads these
+	// fields directly. The applier in src/cli/operator_settings.go converges
+	// them onto the router (UCI wireless + the admin-access nft fragment) on
+	// every config set/save, on `tollgate config apply`, and at daemon start.
+	// See docs/architecture/lan-port-management-bridge-decision.md (D9-D12).
+	//
+	// PrivateSSID/PrivateKey are empty by default, which means "keep whatever
+	// the router already has" (99-tollgate-setup mints the first values): an
+	// empty field is never written over a value the operator or the minter put
+	// on the box, so an upgrade cannot revert a router's private network.
+	// PrivateKey is a SECRET: it is redacted on every read path (see
+	// cli.redactSecretFields) and a wholesale save that omits or blanks it
+	// preserves the stored value rather than clearing it.
+	PrivateSSID       string `json:"private_ssid,omitempty"`
+	PrivateKey        string `json:"private_key,omitempty"`
+	PrivateEncryption string `json:"private_encryption"`
+	AdminAccess       string `json:"admin_access"`
 }
 
 type UpstreamWifiConfig struct {
@@ -273,7 +290,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.8",
+		ConfigVersion: "v0.0.9",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -341,6 +358,13 @@ func NewDefaultConfig() *Config {
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
 		},
+		// Empty means "keep what the router already has" — see the field
+		// comments on Config. These two are the literals the schema declares,
+		// so defaults_parity_test.go pins them together.
+		PrivateSSID:       "",
+		PrivateKey:        "",
+		PrivateEncryption: "psk2+ccmp",
+		AdminAccess:       "both",
 	}
 }
 
@@ -394,6 +418,19 @@ func migrateConfig(config *Config, defaults *Config) {
 	if config.UpstreamWifi.ScanIntervalSeconds == 0 {
 		config.UpstreamWifi = defaults.UpstreamWifi
 		log.Printf("INFO: Populated UpstreamWifi defaults (was missing in v%s)", config.ConfigVersion)
+	}
+	// v0.0.9 added the operator-settable network settings. An upgraded router
+	// has neither key, so both land as empty strings: fill in the two that must
+	// never be empty (the schema's enum values), and leave the two blank-means-
+	// keep fields blank so the applier does not touch an existing private
+	// network. A router that HAS declared them keeps its values.
+	if config.PrivateEncryption == "" {
+		config.PrivateEncryption = defaults.PrivateEncryption
+		log.Printf("INFO: Populated private_encryption default (%s) on upgrade", defaults.PrivateEncryption)
+	}
+	if config.AdminAccess == "" {
+		config.AdminAccess = defaults.AdminAccess
+		log.Printf("INFO: Populated admin_access default (%s) on upgrade", defaults.AdminAccess)
 	}
 	config.ConfigVersion = defaults.ConfigVersion
 	for i := range config.AcceptedMints {
