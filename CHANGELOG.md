@@ -12,6 +12,28 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **An ambiguous Cashu outcome is never retried with the same derivation
+  outputs, and the customer is told so.** The wallet client re-sent an
+  identical money-moving POST body up to four more times on a network error —
+  so a mint that processed a swap and whose response was dropped (timeout,
+  connection reset, EOF) received the same blinded messages again: the
+  deterministic-derivation re-exposure that strict mints answer with error
+  10002 and that has repeatedly bricked wallets (#257/#266/#480), measured on
+  main by the #535 conformance lane as the `swap-timeout-retry` row (#640);
+  the lab mint's duplicate tolerance is why payments kept working while the
+  invariant was violated. Fixed in `gonuts-tollgate` v0.12.2 (network errors
+  return `*AmbiguousResponseError` immediately; the 429 same-body retry is
+  kept, as a rate-limit answer precedes processing), repinned here. This repo
+  gains the release-gate pins: a full-wallet fault test whose fake mint
+  processes the swap, drops the response, and must sight every blinded output
+  exactly once (it fails on v0.12.1), a wallet-usable-after-recovery test,
+  and the customer-facing classification — an unanswered swap surfaces as
+  `payment-outcome-unknown` with the do-not-resend guidance and the
+  operator-quotable reference instead of a retry-flavoured error, and it no
+  longer condemns the mint in the health tracker (the mint may be healthy and
+  processing).
+  ([#640](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/640))
+
 - **The module is no longer a second `:8090` writer, and the tree carries no
   re-brand literal.** Two defects, one root: a brand-gated legacy configUI
   writer in `99-tollgate-setup` created its OWN `uhttpd` section on `:8090`

@@ -1591,6 +1591,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		mintURL := paymentCashuToken.Mint()
 
 		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
+			!errors.Is(err, tollwallet.ErrOutcomeUnknown) &&
 			!isExpiredKeysetError(err) &&
 			!isRateLimitError(err) {
 			// A rate-limit answer means the mint is UP and telling us to slow
@@ -1600,7 +1601,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			// i.e. one rate-limited request stopped every sale on the router
 			// (a revenue DoS). The edge quota on POST /ln-invoice in main.go is
 			// the other half of this fix: it keeps our own flood from being
-			// what provokes the 429.
+			// what provokes the 429. An unanswered request (outcome unknown)
+			// is likewise not evidence the mint is down — it may be happily
+			// processing the swap whose response was dropped (#640).
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
@@ -1610,6 +1613,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if errors.Is(err, tollwallet.ErrOutcomeUnknown) {
+			// The mint never answered a request it may have processed: the
+			// note may already be spent, so the customer must not resubmit
+			// it — the same guidance the deadline branch above gives, reached
+			// here when the client surfaces the ambiguity as an error before
+			// the merchant deadline fires (#640).
+			errorCode = "payment-outcome-unknown"
+			reference := receiveReference(paymentCashuToken)
+			errorMessage = "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
+			if reference != "" {
+				errorMessage += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
+			}
 		} else if isRateLimitError(err) {
 			errorCode = "mint-rate-limited"
 			errorMessage = "Mint is rate-limiting requests. Please try again in a moment."
