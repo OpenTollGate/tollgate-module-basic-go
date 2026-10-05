@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -1809,7 +1810,18 @@ func isMintUnreachableError(err error) bool {
 // balance check, while the confident one costs the customer their note, which
 // the mint then refuses as already spent (#498).
 func isAmbiguousMintOutcomeError(err error) bool {
-	return err != nil && !isDefinitiveMintRefusal(err)
+	if err == nil {
+		return false
+	}
+	// The wallet client's explicit no-answer verdict is ambiguous by
+	// construction (gonuts-tollgate v0.13.0): the request may have been
+	// processed and its signatures lost. Matched positively so a future
+	// tightening of the refusal list below can never flip it silently.
+	var ambiguous *gonutsclient.AmbiguousOutcomeError
+	if errors.As(err, &ambiguous) {
+		return true
+	}
+	return !isDefinitiveMintRefusal(err)
 }
 
 // isDefinitiveMintRefusal reports whether err is a refusal the mint itself

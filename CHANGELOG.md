@@ -66,6 +66,34 @@ and [Semantic Versioning](https://semver.org/).
   processing).
   ([#640](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/640))
 
+- **Lightning top-ups work against deployed cdk mints again — NUT-20 mint
+  quotes are signed with the message format the deployed ecosystem verifies.**
+  The wallet fork signed the domain-separated `Cashu_MintQuoteSig_v1` framing;
+  no deployed cdk mint verifies that form (cashubtc/cdk's
+  `MintRequest::msg_to_sign` is the plain `quote_id || B_ hex` concatenation),
+  so every quote → paid → mint top-up failed with "Signature missing or
+  invalid". gonuts-tollgate now signs the concatenation, and the construction
+  is pinned to cdk's own cross-implementation test vector (their exact quote
+  id, five outputs, and valid signature pair) so a framing change on either
+  side breaks the test that matters. Lands via the fork tag `v0.13.0`
+  ([gonuts-tollgate#34](https://github.com/OpenTollGate/gonuts-tollgate/pull/34)).
+- **A swap whose response is dropped no longer re-sends the same derivation
+  outputs — ambiguous mint outcomes surface for reconciliation instead of
+  being blind-retried.** The wallet client re-POSTed the identical body on any
+  transport error, which re-exposed blinded messages the mint may already have
+  signed — the #257/#266/#480 brick class, measured live by the #535
+  conformance lane (#640). State-changing POSTs are now single-shot when no
+  answer arrives (returning an explicit `AmbiguousOutcomeError`), a 429 answer
+  keeps its backoff retry, and checkstate — the reconciliation primitive —
+  keeps its full retry. This module's `isAmbiguousMintOutcomeError` matches the
+  new error positively, so the outcome-unknown notice and the late-receive
+  recorder label the no-answer case exactly. Verified end-to-end on the tagged
+  fork: the lane's `swap-timeout-retry / no-output-reuse` flips **fail →
+  pass**; the scenario's remaining `service-or-refund` red is the tracked
+  #403/#258 refund-vs-late-grant window, deliberately not masked. Lands via
+  the fork tag `v0.13.0`
+  ([gonuts-tollgate#35](https://github.com/OpenTollGate/gonuts-tollgate/pull/35),
+  fixes [#640](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/640)).
 - **The module is no longer a second `:8090` writer, and the tree carries no
   re-brand literal.** Two defects, one root: a brand-gated legacy configUI
   writer in `99-tollgate-setup` created its OWN `uhttpd` section on `:8090`
