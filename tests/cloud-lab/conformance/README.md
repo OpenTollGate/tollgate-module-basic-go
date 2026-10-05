@@ -18,7 +18,7 @@ The five `fast`-subset scenarios:
 | `duplicate-post-sequential` | same token POSTed twice, sequentially |
 | `duplicate-post-concurrent` | same token POSTed twice in parallel |
 | `swap-timeout-retry` | the proxy processes the daemon's first swap at the mint but drops the response (`drop_response`) — the ambiguous-outcome window |
-| `pay-kill-post-receive-pre-session` | the proxy fires a `notify_on: response` webhook to an unroutable TEST-NET target exactly after the mint processed the swap — the ~5s block holds the swap response open while the runner `docker kill`s the daemon in the #403 window; the runner restarts it and the aftermath phase measures the retry |
+| `pay-kill-post-receive-pre-session` | the proxy fires a `notify_on: response` webhook to an unassigned in-lab address (`172.28.0.99`, inside the lab's own `172.28.0.0/16` — nothing answers, so the connect hangs for the full hold) exactly after the mint processed the swap — the ~5s block holds the swap response open while the runner `docker kill`s the daemon in the #403 window; the runner restarts it and the aftermath phase measures the retry |
 | `mint-alias-spellings` | config mint URL (normal spelling) vs token mint URL (case + trailing slash variant); payment must succeed and the wallet must hold exactly one canonical mint entry |
 
 Per-scenario invariants (`no-fund-loss`, `no-double-count`,
@@ -44,7 +44,8 @@ direct to the mint — ground truth must not pass through the thing under
 fault. Container→host traffic is deliberately avoided (firewalled on
 many hosts): the runner drives the proxy through its published port and
 `docker kill`s the daemon itself, inside the ~5s window the notify
-webhook's unroutable TEST-NET target holds the swap response open.
+webhook's unassigned in-lab target (`172.28.0.99`, nothing answers)
+holds the swap response open.
 
 ## Running
 
@@ -62,7 +63,10 @@ Prerequisites:
   `PRTA_CONFORMANCE_DIR` pointing at its `tests/conformance`) — the lane
   skips cleanly without it;
 - `socat` (installed into the tollgate image by this lane's Dockerfile
-  change) for the host-side `wallet info` call over the CLI socket.
+  change) for the host-side `wallet info` call over the CLI socket;
+- PyYAML on the host (`tests/cloud-lab/requirements.txt` declares it) —
+  the matrix drift guard parses `matrix.yaml` from the host runner, so
+  without it the lane dies in a traceback instead of running or skipping.
 
 Isolation: same knobs as the other lanes — `COMPOSE_PROJECT_NAME` and
 `CLOUD_LAB_EXTRA_COMPOSE`. The lab pins `172.28.0.0/16`, so only one

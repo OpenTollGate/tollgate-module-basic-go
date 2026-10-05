@@ -8,8 +8,11 @@
 #   duplicates      duplicate-post-sequential + duplicate-post-concurrent
 #   swap-timeout    swap-timeout-retry (drop_response on the first swap)
 #   kill            pay-kill-post-receive-pre-session: the proxy's
-#                   notify_on:response webhook targets an unroutable TEST-NET
-#                   address, so it blocks ~5s AFTER the mint processed the
+#                   notify_on:response webhook targets an unassigned
+#                   in-lab address (172.28.0.99, inside the lab's own
+#                   172.28.0.0/16 — nothing answers, so the connect
+#                   hangs for the full hold instead of failing fast),
+#                   so it blocks ~5s AFTER the mint processed the
 #                   swap; this runner polls the proxy state from the host,
 #                   docker-kills the daemon inside that window, restarts it,
 #                   and the aftermath phase measures the retry.
@@ -39,7 +42,12 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 0
 fi
 
-PRTA_CONFORMANCE_DIR="${PRTA_CONFORMANCE_DIR:-$SCRIPT_DIR/../../../physical-router-test-automation/tests/conformance}"
+PRTA_CONFORMANCE_DIR="${PRTA_CONFORMANCE_DIR:-$SCRIPT_DIR/../../../../physical-router-test-automation/tests/conformance}"
+# Four levels up from conformance/ = the repo checkout's PARENT: the
+# documented layout is a PRTA checkout *next to this repo* (sibling of
+# the checkout root). The earlier three-level default resolved INSIDE
+# the repo root and skipped even when the sibling was present — found
+# running the lane for real on a host that had the documented layout.
 if [ ! -f "$PRTA_CONFORMANCE_DIR/matrix.yaml" ] || [ ! -f "$PRTA_CONFORMANCE_DIR/faultproxy.py" ]; then
     echo "conformance: PRTA conformance dir not found at $PRTA_CONFORMANCE_DIR — skipping."
     echo "conformance: clone OpenTollGate/physical-router-test-automation next to this repo"
@@ -129,7 +137,10 @@ run_phase "swap_timeout_retry"
 echo "== phase: kill at post-receive/pre-session"
 run_phase "kill_boundary_setup"
 
-# The notify webhook targets an unroutable TEST-NET address and blocks ~5s
+# The notify webhook targets an unassigned in-lab address (172.28.0.99 in
+# the lab's own 172.28.0.0/16 — nothing answers ARP, so the connect hangs
+# for the full hold; a literal TEST-NET address could draw a fast ICMP
+# unreachable depending on host networking) and blocks ~5s
 # after the mint processed the swap; the rule's hit counter flips the moment
 # the swap response is ready. Poll for it and kill inside the hold window.
 KILLED=0
