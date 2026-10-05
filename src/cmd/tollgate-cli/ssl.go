@@ -322,13 +322,16 @@ func sslApplySelfSigned(lanIP string) error {
 	}
 	fmt.Println("[3] nodogsplash firewall updated.")
 
-	if err := reloadAfterApply(false); err != nil {
+	// The derived value goes in BEFORE the services are told the identity
+	// changed. uhttpd reads uhttpd.main.redirect_https when it (re)starts, so a
+	// reload that runs first delivers the PREVIOUS hop and this command would
+	// report "redirect_https=1" while the running server still answered :8080
+	// over plain HTTP. The removal paths order it this way too
+	// (applyRedirectHTTPS, then reloadServices).
+	if err := applyRedirectHTTPS(); err != nil {
 		return err
 	}
-	// The :8080 -> https:// hop is only safe while the certificate uhttpd
-	// presents validates the address the browser used; derive it here too so an
-	// operator running this by hand gets the same rule the setup path computes.
-	if err := applyRedirectHTTPS(); err != nil {
+	if err := reloadAfterApply(false); err != nil {
 		return err
 	}
 
@@ -435,10 +438,13 @@ func sslApplyRealCert(args []string, lanIP string) error {
 	}
 	fmt.Println("[4] nodogsplash firewall updated.")
 
-	if err := reloadAfterApply(true); err != nil {
+	// Same order as the self-signed path above: the derived hop is committed
+	// before the services are reloaded, so the running uhttpd serves the value
+	// this command reports.
+	if err := applyRedirectHTTPS(); err != nil {
 		return err
 	}
-	if err := applyRedirectHTTPS(); err != nil {
+	if err := reloadAfterApply(true); err != nil {
 		return err
 	}
 

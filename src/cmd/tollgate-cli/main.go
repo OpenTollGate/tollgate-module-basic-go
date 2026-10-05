@@ -75,6 +75,13 @@ var rootCmd = &cobra.Command{
 	Long: `TollGate CLI provides command-line access to your running TollGate service.
 You can check status, manage wallet, and control various aspects of the service.`,
 	Version: version,
+	// main() prints the returned error itself, once. cobra's own printer would
+	// print the same sentence again — two identical "Error: ..." lines on stderr
+	// for every failing command, so a caller grepping the log cannot tell one
+	// failure from two. `ssl covers` showed it most plainly: its refusal is a
+	// verdict printed on stdout with the exit status, and it was written a second
+	// and third time as an error.
+	SilenceErrors: true,
 }
 
 var walletCmd = &cobra.Command{
