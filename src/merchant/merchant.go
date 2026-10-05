@@ -364,6 +364,13 @@ type Merchant struct {
 	// `&Merchant{}` literals keep working.
 	receiveInFlightMu sync.Mutex
 	receiveInFlight   map[string]struct{}
+	// Owed entitlements (#403): purchases whose Receive succeeded but whose
+	// grant failed. Keyed by the note's receive reference; durably persisted
+	// through owedGrantStore so a restart cannot erase an already-received
+	// customer's claim. See owed_grant.go.
+	owedGrantsMu      sync.Mutex
+	owedGrants        map[string]*owedGrantRecord
+	owedGrantStore    *owedGrantStore
 	unmeteredMu       sync.Mutex
 	unmeteredSessions map[string]*unmeteredSession
 	staleBindings     staleBindingJanitor
@@ -509,9 +516,12 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		expiredSessions:   make(map[string]int64),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
 		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
+		owedGrants:        make(map[string]*owedGrantRecord),
+		owedGrantStore:    newOwedGrantStore(filepath.Join(walletDirPath, "owed-grants.json")),
 	}
 
 	m.loadLightningQuotesFromDisk()
+	m.loadOwedGrantsFromDisk()
 	m.StartPayoutRoutine()
 	m.StartDataUsageMonitoring()
 	m.startLightningQuoteJanitor()
@@ -1672,14 +1682,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Add allotment to the session and only persist the update if gate access opens.
 	session, err := m.grantSessionAccess(macAddress, allotment)
 	if err != nil {
-		errorCode := "session-error"
-		errorMessage := fmt.Sprintf("Failed to manage session: %v", err)
-		if strings.Contains(err.Error(), "failed to open gate:") {
-			errorCode = "session-error"
-			errorMessage = err.Error()
+		// The customer's value is already in the operator's wallet: Receive
+		// succeeded, and only the grant failed (#403). What is owed is the
+		// grant, so it is recorded durably and retried until it succeeds or
+		// its window passes — the customer is told their access will start,
+		// never to pay again.
+		m.recordOwedGrant(reference, macAddress, paymentCashuToken.Mint(), amountAfterSwap, allotment)
+
+		message := fmt.Sprintf("Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute. Reference: %s", reference)
+		if reference == "" {
+			message = "Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute."
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode,
-			errorMessage, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
