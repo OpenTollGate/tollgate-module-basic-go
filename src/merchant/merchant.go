@@ -28,6 +28,36 @@ type CustomerSession struct {
 	StartTime  int64  // Unix timestamp
 	Metric     string // "milliseconds" or "bytes"
 	Allotment  uint64 // Total allotment for this session
+
+	// Consumed is the byte total this session carries in from attachments it has
+	// already left behind: a MAC rotation (a rebind) carries it forward, so N
+	// rotations can never restart the meter. The session's effective usage is
+	// Consumed plus what the CURRENT attachment has used since its own baseline
+	// (sessionBytesUsage), which is why the per-MAC baseline stays a measurement
+	// detail rather than the ledger.
+	Consumed uint64
+
+	// attachmentUsage is the highest usage seen for the CURRENT attachment since
+	// its own baseline. It is what a rebind carries when the attachment's counters
+	// are already gone from NoDogSplash, so the last interval before a rotation
+	// cannot vanish. Unexported: it is the merchant's own bookkeeping, not part of
+	// the session's API.
+	attachmentUsage uint64
+
+	// ticketHandle is the session-ticket handle this record was issued for. A
+	// ticket names one session, and only the one it was issued for: a rebind
+	// through an older ticket cannot move a session this record never issued one
+	// for. Unexported, and never on the wire.
+	ticketHandle string
+
+	// ticketExpiresAt is the horizon (Unix seconds) of the ticket issued for this
+	// session; zero means no ticket was ever issued. It lives on the record rather
+	// than being read from the ticket store on purpose: the package's documented
+	// lock order is ts.mu then sessionMu, and the retirement paths below hold
+	// sessionMu alone, so consulting the store there would invert that order. It is
+	// what lets the janitor and the unmeterable-session path tell a session whose
+	// remainder is still claimable from one nobody can come back for.
+	ticketExpiresAt int64
 }
 
 // SessionState is the machine-readable lifecycle state of the session of one
@@ -88,6 +118,45 @@ func sessionHasExpired(session *CustomerSession, now time.Time) bool {
 func (m *Merchant) expireSessionLocked(macAddress string) {
 	delete(m.customerSessions, macAddress)
 	m.rememberExpiredSessionLocked(macAddress)
+}
+
+// retireSessionOrParkForTicketLocked retires the session record of macAddress —
+// unless the session still holds a LIVE session ticket, in which case the record is
+// PARKED: kept, with no access attached to it.
+//
+// Why parking exists. Entitlement is keyed to a MAC address, and the address
+// belongs to the device that chose it, so a device that rotates its address leaves
+// its record behind. The stale-binding janitor retires such a record ~60s after the
+// address drops off the NDS client list, and the unmeterable-session path does the
+// same when the meter cannot be read — which is what a departed client looks like on
+// the bytes metric. Both are right about ACCESS: the gate is closed either way and
+// nothing is left authorised. But retiring the record used to destroy the only
+// record of what the customer paid for, so a device that took longer than the grace
+// window to come back presented a perfectly valid ticket and got ErrTicketUnknown:
+// the remainder was gone. This branch exists to carry that remainder to the new
+// address, so retirement now yields to a live ticket.
+//
+// What parking does NOT do: it grants nothing. The gate is already deauthorised and
+// NoDogSplash no longer lists the address, and a rebind still has to authorise its
+// new attachment before the customer has any access. Parking only keeps the meter,
+// the StartTime and the handle mapping alive long enough to be carried.
+//
+// Bound: a parked record lives only until the ticket's own horizon
+// (defaultSessionTicketTTL, 12h). After that the next pass that asks retires it, so
+// parking cannot accumulate records indefinitely.
+//
+// Caller must hold sessionMu.
+func (m *Merchant) retireSessionOrParkForTicketLocked(macAddress string, now time.Time) (retired, parked bool) {
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return false, false
+	}
+	if session.ticketExpiresAt > now.Unix() {
+		return false, true
+	}
+
+	m.expireSessionLocked(macAddress)
+	return true, false
 }
 
 // rememberExpiredSessionLocked records an observed expiry. Caller must hold
@@ -231,6 +300,8 @@ type MerchantInterface interface {
 	GetUsage(macAddress string) (string, error)
 	Fund(cashuToken string) (uint64, error)
 	SetOnReachableSetChanged(callback func())
+	IssueSessionTicket(macAddress string) (string, int64, error)
+	RebindSession(ticket, macAddress string) (*CustomerSession, error)
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -279,6 +350,11 @@ type Merchant struct {
 	monitorStop chan struct{}
 	monitorDone chan struct{}
 	monitorOn   bool
+
+	// Session tickets (see session_ticket.go): a per-process signing key and the
+	// handle -> attachment store. Both are memory-only on purpose.
+	ticketMu sync.Mutex
+	tickets  *ticketState
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -432,8 +508,11 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 	var usageStr string
 	switch session.Metric {
 	case "bytes":
-		// Get data usage since baseline
-		usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+		// The usage reported is the session's whole ledger: what it carried in
+		// from attachments it has already left behind, plus what the current
+		// attachment has used since its own baseline. A MAC rotation therefore
+		// answers `consumed/allotment` instead of starting over at zero.
+		usage, _, err := m.sessionBytesUsage(macAddress, session)
 		if err != nil {
 			return "", fmt.Errorf("error getting data usage: %w", err)
 		}
@@ -701,7 +780,7 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 		return
 	}
 
-	usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+	usage, attachmentUsage, err := m.sessionBytesUsage(macAddress, session)
 	if err != nil {
 		if errors.Is(err, valve.ErrDataBaselineMissing) {
 			m.establishBaseline(macAddress)
@@ -711,6 +790,9 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 		return
 	}
 	m.clearUnmetered(macAddress)
+	// Remember this attachment's highest reading: it is what a rebind carries
+	// when the attachment's counters are already gone by the time it happens.
+	m.noteAttachmentUsage(macAddress, attachmentUsage)
 
 	// Check if allotment is reached
 	if usage < session.Allotment {
@@ -750,6 +832,46 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	m.expireSessionLocked(macAddress)
 	m.sessionMu.Unlock()
 	log.Printf("Removed expired session for %s", macAddress)
+}
+
+// sessionBytesUsage returns the bytes consumed by the bytes session of
+// macAddress: the total the session carried in from attachments it has already
+// left behind (`session.Consumed`), plus the usage of the CURRENT attachment
+// since its own baseline. The second return value is that attachment-local
+// figure, which the caller records as the highest observed
+// (noteAttachmentUsage).
+//
+// The attachment-local figure is the HIGHER of the live counter reading and the
+// highest reading already recorded. NoDogSplash's counters live in its own
+// process: a restart, or a client record that is dropped and re-created, walks
+// them back to zero, and a meter that followed them down would hand the customer
+// a fresh allotment without a rebind ever happening.
+func (m *Merchant) sessionBytesUsage(macAddress string, session *CustomerSession) (uint64, uint64, error) {
+	since, err := valve.GetDataUsageSinceBaseline(macAddress)
+	if err != nil {
+		return 0, 0, err
+	}
+	if since < session.attachmentUsage {
+		since = session.attachmentUsage
+	}
+	return session.Consumed + since, since, nil
+}
+
+// noteAttachmentUsage records the highest usage observed for the current
+// attachment of macAddress's session, so a rebind can carry it forward when the
+// counters are already gone by the time the rebind happens. A session that is no
+// longer tracked is skipped: there is nothing left to carry.
+func (m *Merchant) noteAttachmentUsage(macAddress string, since uint64) {
+	m.sessionMu.Lock()
+	defer m.sessionMu.Unlock()
+
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return
+	}
+	if since > session.attachmentUsage {
+		session.attachmentUsage = since
+	}
 }
 
 // establishBaseline gives a bytes session the metering baseline it needs, so the
@@ -816,7 +938,7 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	}
 
 	m.sessionMu.Lock()
-	m.expireSessionLocked(macAddress)
+	retired, parked := m.retireSessionOrParkForTicketLocked(macAddress, time.Now())
 	m.sessionMu.Unlock()
 	// The episode is over: the bookkeeping belongs to THIS unmeterable session,
 	// so it is forgotten with it. Leaving it behind would leave
@@ -826,6 +948,13 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	// the previous session's grace window instead of granting this one its own.
 	m.clearUnmetered(macAddress)
 	log.Printf("Removed unmeterable session for %s", macAddress)
+
+	switch {
+	case retired:
+		log.Printf("Removed unmeterable session for %s", macAddress)
+	case parked:
+		log.Printf("Parked the unmeterable session of %s instead of retiring it: its gate is closed and it cannot be metered, but it still holds a live session ticket, so a rebind can still carry the remainder the customer paid for to the address they moved to", macAddress)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1044,11 +1173,13 @@ func (m *Merchant) reconcileStaleBindings() {
 
 // reconcileStaleBinding tears down the binding of an address whose client is
 // gone: the gate is closed (and, only when that close is CONFIRMED, the session
-// record is retired, so the address cannot be inherited by a later holder). The
-// usage of the last covered sweep is reported, because the remainder the
-// customer paid for cannot travel to the address they moved to until entitlement
-// is carried by a session ticket rather than by the address — that is the
-// next-release work this pass does not pretend to do.
+// record is retired, so the address cannot be inherited by a later holder) —
+// unless the session still holds a live session ticket, in which case the record is
+// PARKED instead of retired, so the remainder the customer paid for can still be
+// carried to the address they moved to. Entitlement now travels with a session
+// ticket, which is the work this paragraph used to defer (see
+// retireSessionOrParkForTicketLocked). The usage of the last covered sweep is
+// reported either way.
 //
 // The close goes through ReconcileGateClose rather than CloseGate because this is
 // the one caller that brings EVIDENCE about the client (the probe above has just
@@ -1066,12 +1197,8 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 
 	m.forgetStaleBinding(macAddress)
 
-	retired := false
 	m.sessionMu.Lock()
-	if _, exists := m.customerSessions[macAddress]; exists {
-		m.expireSessionLocked(macAddress)
-		retired = true
-	}
+	retired, parked := m.retireSessionOrParkForTicketLocked(macAddress, time.Now())
 	m.sessionMu.Unlock()
 
 	lastUsage := "nothing was metered for it"
@@ -1079,8 +1206,12 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 		lastUsage = fmt.Sprintf("%s of covered usage", utils.BytesToHumanReadable(usage))
 	}
 
+	if parked {
+		log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, but the session is PARKED rather than retired because it still holds a live session ticket (%s) — a rebind inside that ticket's horizon still carries the purchased remainder to the address the customer moved to, and the first pass after the horizon retires the record", macAddress, lastUsage)
+		return
+	}
 	if retired {
-		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; the purchased remainder is not transferable until entitlement travels with a session ticket)", macAddress, lastUsage)
+		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; a session with no live ticket has nothing left to claim — entitlement travels with a session ticket)", macAddress, lastUsage)
 		return
 	}
 	log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, and there was no session record to retire (%s)", macAddress, lastUsage)
@@ -2043,6 +2174,17 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 
 	m.sessionMu.RLock()
 	session, exists := m.customerSessions[macAddress]
+	if exists {
+		// Clone INSIDE the read lock. `attachmentUsage` is written in place by the
+		// usage monitor on every sweep (noteAttachmentUsage), so a clone taken
+		// after RUnlock reads a field of a record that is still live: a data race
+		// (the shipped suites never polled concurrently with the monitor, which is
+		// how it stayed invisible) and, on the 32-bit mips/mipsel router targets, a
+		// torn uint64 read is a real misread. Cloning here keeps the invariant the
+		// rest of this method already assumes: nothing reads a shared record
+		// outside sessionMu.
+		session = cloneCustomerSession(session)
+	}
 	m.sessionMu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionNotFound, macAddress)
@@ -2060,7 +2202,8 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionExpired, macAddress)
 	}
 
-	return cloneCustomerSession(session), nil
+	// Already a clone: it was taken under the read lock above.
+	return session, nil
 }
 
 // GetSessionState reports the machine-readable session state of a MAC, so a
