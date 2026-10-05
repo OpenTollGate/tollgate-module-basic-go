@@ -12,6 +12,33 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A payment whose gate cannot open is an owed entitlement, not a lost
+  one (#403).** A successful `Receive` puts the customer's value in the
+  operator's wallet irreversibly; when `ndsctl auth` then fails, the old
+  path rolled back the in-memory session and answered a bare
+  `session-error` — the operator kept the value and the customer had
+  neither service nor a recoverable claim. The paid purchase is now
+  recorded as an owed entitlement in a durable, atomically-written,
+  fsync'd store (`owed-grants.json`, alongside the Lightning quote store)
+  **before** the response completes, keyed by the receive reference the
+  customer can already quote; a per-record monitor retries the grant with
+  backoff and jitter until it succeeds or its window passes (milliseconds
+  grants expire when their paid time is gone, data grants after 24 h —
+  both converge to a loud terminal `expired` state with the record kept
+  for audit, never an infinite retry). A restart reloads the store and
+  relaunches the monitors, so an unresolved entitlement survives the
+  process; the grant itself is applied exactly once (in-memory
+  processing flag plus a persisted `granted` transition), and the
+  customer is told their access will start automatically and that they do
+  NOT need to pay again (`payment-received-grant-pending`). The
+  Lightning-side sibling of this contract (`ErrAccessGrantNotApplied`,
+  the quote monitor) is unchanged; both now converge through the same
+  store discipline. Known limit, honestly: refunding (returning the
+  value) remains out of scope — an expired entitlement is an operator
+  action, not an automatic refund.
+  ([#403](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/403),
+  [#502](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/502))
+
 - **An ambiguous Cashu outcome is never retried with the same derivation
   outputs, and the customer is told so.** The wallet client re-sent an
   identical money-moving POST body up to four more times on a network error —
