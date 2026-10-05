@@ -645,6 +645,43 @@ func secretJSONKeys() []string {
 	return keys
 }
 
+// redactIdentitySecrets returns a copy of identities whose owned entries'
+// Nostr private keys are blanked (#635). Whoever reads the `config get`
+// payload must be able to render and round-trip identity settings without
+// being handed the keys that sign payouts and advertisements — the same
+// contract redactSecretFields gives the WPA passphrase, for material that is
+// strictly more damaging than the passphrase. The blanked payload round-trips
+// through save-identities, which preserves the stored key for a name whose
+// incoming key is empty.
+func redactIdentitySecrets(identities *config_manager.IdentitiesConfig) *config_manager.IdentitiesConfig {
+	if identities == nil {
+		return nil
+	}
+	redacted := *identities
+	redacted.OwnedIdentities = make([]config_manager.OwnedIdentity, len(identities.OwnedIdentities))
+	copy(redacted.OwnedIdentities, identities.OwnedIdentities)
+	for i := range redacted.OwnedIdentities {
+		redacted.OwnedIdentities[i].PrivateKey = ""
+	}
+	return &redacted
+}
+
+// identitySecretState names the secret_set markers for owned identities that
+// hold a private key, so a UI can say the key is set — one marker per
+// identity, keyed "identities.<name>".
+func identitySecretState(identities *config_manager.IdentitiesConfig) []string {
+	if identities == nil {
+		return nil
+	}
+	var markers []string
+	for _, owned := range identities.OwnedIdentities {
+		if owned.PrivateKey != "" {
+			markers = append(markers, "identities."+owned.Name)
+		}
+	}
+	return markers
+}
+
 // applySummary renders the applier's results as one line for a CLI message.
 func applySummary(results []SettingResult) string {
 	applied := 0
