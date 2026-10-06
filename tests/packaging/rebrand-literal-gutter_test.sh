@@ -44,14 +44,31 @@ BANNED='net4[s]ats'
 # the purged legacy writer created.
 BANNED_SECTION="uhttpd\\.${BANNED}"
 
-# scan_tree: every occurrence of $1 in the TRACKED tree. git grep when this is a
-# git work tree (CI and every checkout); a recursive grep otherwise, so the
-# gutter is not silently inert outside a repo.
+# scan_tree: every occurrence of $1 in the TRACKED tree, minus the paths where
+# the re-brand is DISCUSSED rather than shipped. The ban's object is the
+# shipped/config gutter (the #649 purge class); decision records, the
+# changelog, the README branding paragraph and the SSID contract checker
+# legitimately spell the whitelabel's name — CONTRIBUTING itself does. git grep
+# when this is a git work tree; a recursive grep otherwise, so the gutter is
+# not silently inert outside a repo.
+DISCUSSION_ALLOWLIST=(
+    'docs'
+    'CHANGELOG.md'
+    'README.md'
+    'CONTRIBUTING.md'
+    'tests/contract/check-ssid-format.sh'
+)
 scan_tree() { # scan_tree <extended-regex>
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        git grep -I -i -E -- "$1" -- . 2>/dev/null
+        local excludes=()
+        local path
+        for path in "${DISCUSSION_ALLOWLIST[@]}"; do
+            excludes+=(":!$path")
+        done
+        git grep -I -i -E -- "$1" -- . "${excludes[@]}" 2>/dev/null
     else
-        grep -rI -i -E -- "$1" . 2>/dev/null | grep -v '^\./\.git/'
+        grep -rI -i -E -- "$1" . 2>/dev/null | grep -v '^\./\.git/' \
+            | grep -vE '^(\./)?(docs/|CHANGELOG\.md:|README\.md:|CONTRIBUTING\.md:|tests/contract/check-ssid-format\.sh:)' || true
     fi
 }
 
