@@ -152,6 +152,16 @@ cloud-lab-tests:
 The mint container build (cargo install cdk-mintd) takes ~5-8 minutes
 on first run. Docker layer caching makes subsequent runs fast.
 
+## Running on a shared host: lab.sh + RUNBOOK
+
+On a host used by more than one session at a time, drive the lab through
+[lab.sh](lab.sh): one command = one isolated run (own compose project,
+container names, subnet, images; no host ports), with managed taps,
+deterministic teardown and a crash-safe `reap`. The design and the
+lessons behind it — including the etiquette of sharing this host — are in
+[RUNBOOK.md](RUNBOOK.md). Read it before bringing up a second lab
+alongside someone else's.
+
 ## Per-checkout project isolation
 
 Every checkout of this repo resolves the same default compose project
