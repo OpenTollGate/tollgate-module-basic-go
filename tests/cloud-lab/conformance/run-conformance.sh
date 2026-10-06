@@ -48,9 +48,6 @@ PRTA_CONFORMANCE_DIR="${PRTA_CONFORMANCE_DIR:-$SCRIPT_DIR/../../../../physical-r
 # the checkout root). The earlier three-level default resolved INSIDE
 # the repo root and skipped even when the sibling was present — found
 # running the lane for real on a host that had the documented layout.
-<<<<<<< HEAD
-if [ ! -f "$PRTA_CONFORMANCE_DIR/matrix.yaml" ] || [ ! -f "$PRTA_CONFORMANCE_DIR/faultproxy.py" ]; then
-=======
 PROXY_SRC=""
 for candidate in fault_proxy.py faultproxy.py; do
     if [ -f "$PRTA_CONFORMANCE_DIR/$candidate" ]; then
@@ -59,7 +56,6 @@ for candidate in fault_proxy.py faultproxy.py; do
     fi
 done
 if [ ! -f "$PRTA_CONFORMANCE_DIR/matrix.yaml" ] || [ -z "$PROXY_SRC" ]; then
->>>>>>> ed083e3d (fix(release gates): repro builds in package mode; the conformance lane accepts PRTA's current proxy filename)
     echo "conformance: PRTA conformance dir not found at $PRTA_CONFORMANCE_DIR — skipping."
     echo "conformance: clone OpenTollGate/physical-router-test-automation next to this repo"
     echo "conformance: or set PRTA_CONFORMANCE_DIR. The matrix is co-owned; this lane"
@@ -93,11 +89,7 @@ EOF
 # The proxy image builds from PRTA's faultproxy.py copied verbatim plus a
 # trivial Dockerfile — generated at run time, never committed.
 mkdir -p "$CONF_DIR/proxy-build"
-<<<<<<< HEAD
-cp "$PRTA_CONFORMANCE_DIR/faultproxy.py" "$CONF_DIR/proxy-build/faultproxy.py"
-=======
 cp "$PROXY_SRC" "$CONF_DIR/proxy-build/faultproxy.py"
->>>>>>> ed083e3d (fix(release gates): repro builds in package mode; the conformance lane accepts PRTA's current proxy filename)
 cat >"$CONF_DIR/proxy-build/Dockerfile" <<'EOF'
 FROM python:3.12-slim-bookworm
 COPY faultproxy.py /app/faultproxy.py

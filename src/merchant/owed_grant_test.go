@@ -138,13 +138,19 @@ func TestPaidPurchaseWhoseGateFailsIsOwedThenGrantedExactlyOnce(t *testing.T) {
 
 	authsBefore := ndsctl.count(t, "AUTH ")
 
-	// NDS recovers; the monitor converges.
+	// NDS recovers; the monitor converges. The session exists from the
+	// allotment BEFORE the gate opens, and the successful AUTH lands after
+	// it — so each observable gets its own poll: asserting the AUTH delta
+	// immediately after the session appears races the auth call.
 	ndsctl.failAuth(t, false)
 	ndsctl.setAuthenticated(t, true)
 	waitForOwed(t, 25*time.Second, func() bool {
 		_, err := m.GetSession(owedGrantMAC)
 		return err == nil
 	}, "the owed grant to create the session")
+	waitForOwed(t, 10*time.Second, func() bool {
+		return ndsctl.count(t, "AUTH ") > authsBefore
+	}, "a post-recovery AUTH for the owed grant")
 
 	session, err := m.GetSession(owedGrantMAC)
 	if err != nil {
@@ -153,11 +159,6 @@ func TestPaidPurchaseWhoseGateFailsIsOwedThenGrantedExactlyOnce(t *testing.T) {
 	paidAllotment := uint64(renewalSats * renewalStepMS)
 	if session.Allotment != paidAllotment {
 		t.Fatalf("granted allotment: want exactly one %d, got %d", paidAllotment, session.Allotment)
-	}
-
-	authsAfter := ndsctl.count(t, "AUTH ")
-	if authsAfter < authsBefore+1 {
-		t.Fatalf("expected at least one successful AUTH after recovery; before=%d after=%d", authsBefore, authsAfter)
 	}
 
 	waitForOwed(t, 5*time.Second, func() bool {

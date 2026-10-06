@@ -142,6 +142,17 @@ dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
 kmods) installs and `nodogsplash` runs with the module's keepalive contract
 live (trusted MAC plus `allow tcp port 22`).
 
+**Caveat — reproduce the install against current feeds with care
+([#552](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/552)).**
+`nodogsplash`'s `iptables-*` dependencies live in the **base target feed**
+(`releases/25.12.x/targets/<arch>/packages/`), not the arch `packages` feed —
+a repositories list that omits the target feed (typical of some
+ImageBuilder-built images) cannot resolve the closure, and apk-tools 2.x
+cannot read the 25.12 index format at all. The bench install above ran with
+a complete feed set; if `apk add` reports the `iptables-*` names missing,
+check `/etc/apk/repositories` lists the target feed before concluding the
+packages are gone.
+
 **Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
 The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and
 leaves roughly 4.6 MB of free overlay. The default build does not fit: its
