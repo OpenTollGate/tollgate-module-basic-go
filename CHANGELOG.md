@@ -26,6 +26,7 @@ and [Semantic Versioning](https://semver.org/).
   never a fresh boot, where procd starts sysntpd after uci-defaults with the
   config already committed. Bench-side verified on the fleet bring-up
   (79b1 answers NTP on the portal face; clients sync from the gateway).
+  ([#648](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/648))
 
 ### Fixed
 
