@@ -71,8 +71,9 @@ For end-to-end runs against real routers, see
 ## Choosing a branch to target
 
 All development happens on **`main`**; every PR targets it. Releases
-are cut as tags from `main` (`v0.5.0-alpha1` … `v0.5.0`), so there are
-no long-lived release branches to choose between. If a fix needs to
+are cut as tags from `main` (`v0.6.0-alpha1` … `v0.6.0-rc1` at the time
+of writing), so there are no long-lived release branches to choose
+between. If a fix needs to
 land in a released version, say so in the PR and the maintainers will
 handle the tagging.
 

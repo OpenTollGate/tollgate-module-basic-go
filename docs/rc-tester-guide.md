@@ -1,4 +1,4 @@
-# TollGate `v0.6.0-alpha2` — tester guide
+# TollGate `v0.6.0-rc1` — tester guide
 
 **Channel:** `alpha` (a release candidate, not a stable release).
 **Audience:** you have an OpenWrt router, you can SSH into it, and you are
@@ -156,7 +156,7 @@ apk add tollgate-wrt
 ```
 (1/2) Installing jq (1.8.1-r2)
   Executing jq-1.8.1-r2.post-install
-(2/2) Installing tollgate-wrt (0.6.0_alpha2-r0)
+(2/2) Installing tollgate-wrt (0.6.0_rc1-r0)
 OK: 39.1 MiB in 138 packages
 ```
 
@@ -187,7 +187,7 @@ tollgate version
 **VERIFIED (rehearsal)** for the package listing and the files:
 
 ```
-tollgate-wrt-0.6.0_alpha2-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
+tollgate-wrt-0.6.0_rc1-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
 -rwxr-xr-x    1 nobody   nogroup       1380 /etc/init.d/tollgate-wrt
 -rwxr-xr-x    1 nobody   nogroup   10253038 /usr/bin/tollgate
 -rwxr-xr-x    1 nobody   nogroup   17732119 /usr/bin/tollgate-wrt
@@ -198,7 +198,7 @@ tollgate-wrt-0.6.0_alpha2-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
 ```
 # tollgate version
 TollGate Version
-version: v0.6.0_alpha2
+version: v0.6.0_rc1
 commit: dcf8c5d
 build_time: 2026-09-13T00:00:00Z
 go_version: go1.26.0
@@ -206,7 +206,7 @@ openwrt_version: OpenWrt 25.12.5 r33051-f5dae5ece4
 
 # tollgate status
 running: true
-version: TollGate v0.6.0_alpha2
+version: TollGate v0.6.0_rc1
 uptime: 17.799201311s
 config_ok: true
 wallet_ok: true
@@ -214,11 +214,11 @@ network_ok: true
 ```
 
 **Note — the version string the published build prints.** The repository-root
-`VERSION` file (`v0.6.0-alpha2`) is injected into both binaries verbatim: CI
+`VERSION` file (`v0.6.0-rc1`) is injected into both binaries verbatim: CI
 passes the tag down as `PACKAGE_VERSION` and every packaging path in this tree
 (`scripts/build-sdk-package.sh`, `packaging/local-build-ipk.sh`) forwards it to
 `-X .../src/cli.Version` unchanged. A build from the current tree therefore
-prints `version: v0.6.0-alpha2` (hyphen) and `version: TollGate v0.6.0-alpha2`.
+prints `version: v0.6.0-rc1` (hyphen) and `version: TollGate v0.6.0-rc1`.
 The rehearsal block above was produced by an earlier packaging path and shows
 the underscore form; the number is the same either way, and a difference of only
 `-` versus `_`, or a trailing `-r<N>`, is not a finding (see
@@ -231,12 +231,12 @@ expect that value on a published artifact.
 
 | where | value |
 |---|---|
-| release tag / announcement | `v0.6.0-alpha2` |
-| package version (`apk list --installed`) | `0.6.0_alpha2-r0` |
-| runtime version (`tollgate version`) | `v0.6.0-alpha2` |
+| release tag / announcement | `v0.6.0-rc1` |
+| package version (`apk list --installed`) | `0.6.0_rc1-r0` |
+| runtime version (`tollgate version`) | `v0.6.0-rc1` |
 
 apk carries no hyphen in a version, so its control value spells the tag as
-`0.6.0_alpha2`; the `-r0` release revision is what
+`0.6.0_rc1`; the `-r0` release revision is what
 [packaging/normalize-apk-version.sh](packaging/normalize-apk-version.sh)
 appends (the recipe sets no `PKG_RELEASE` of its own). The runtime string is
 the tag **verbatim** — hyphen kept, no `-r0`. The exact `-r` number and commit for the published
@@ -304,7 +304,7 @@ apk del tollgate-wrt
 **VERIFIED (rehearsal)**
 
 ```
-(1/2) Purging tollgate-wrt (0.6.0_alpha2-r0)
+(1/2) Purging tollgate-wrt (0.6.0_rc1-r0)
 (2/2) Purging jq (1.8.1-r2)
   Executing jq-1.8.1-r2.pre-deinstall
 OK: 11.4 MiB in 136 packages
@@ -342,12 +342,12 @@ apk add 'tollgate-wrt=<known-good-version>'
 **VERIFIED (rehearsal)**
 
 ```
-(1/1) Downgrading tollgate-wrt (0.6.0_alpha3-r0 -> 0.6.0_alpha2-r0)
+(1/1) Downgrading tollgate-wrt (0.6.0_alpha3-r0 -> 0.6.0_rc1-r0)
 ```
 
 Exit status 0, and `apk list --installed tollgate-wrt` shows the older
 version. Ordering matters and is real: apk knows `0.6.0_alpha3-r0` is newer
-than `0.6.0_alpha2-r0`, which is why the same command upgrades, downgrades, or
+than `0.6.0_rc1-r0`, which is why the same command upgrades, downgrades, or
 does nothing, depending on which version you name.
 
 **`--force-downgrade` does not exist on 25.12.** Older material (and some
@@ -364,7 +364,7 @@ have that flag, but there is no feed for 24.10 — §1).
 # grep tollgate /etc/apk/world     (before the pin)
 tollgate-wrt
 # ... after the rollback ...
-tollgate-wrt=0.6.0_alpha2-r0
+tollgate-wrt=0.6.0_rc1-r0
 ```
 
 ). While that pin is there, `apk upgrade tollgate-wrt` will **not** move you
@@ -373,7 +373,7 @@ ready to follow the channel again:
 
 ```sh
 apk add tollgate-wrt            # drops the pin; /etc/apk/world goes back to "tollgate-wrt"
-apk upgrade tollgate-wrt        # VERIFIED: Upgrading tollgate-wrt (0.6.0_alpha2-r0 -> 0.6.0_alpha3-r0)
+apk upgrade tollgate-wrt        # VERIFIED: Upgrading tollgate-wrt (0.6.0_rc1-r0 -> 0.6.0_alpha3-r0)
 ```
 
 **Do not use `apk upgrade --available` as a rollback.** VERIFIED: it is a
@@ -476,7 +476,7 @@ the certificate uhttpd serves actually covers the address you used. So:
 
 ---
 
-## 8. What to expect from an alpha
+## 8. What to expect from a release candidate
 
 - **Not production software.** Do not put funds, users, or anything you need
   on this router. A router that matters should stay on the stable release.
@@ -526,7 +526,7 @@ version and an architecture is untriaged and we will ask once, then close it.
 
 **Where to send it:** this release defines exactly one intake channel, and
 [tester-intake.md](tester-intake.md) is its authoritative description —
-the pinned issue *“Tester reports — TollGate v0.6.0-alpha2 (alpha channel)”* in
+the pinned issue *“Tester reports — TollGate v0.6.0-rc1 (alpha channel)”* in
 the project's public issue tracker
 (<https://github.com/OpenTollGate/tollgate-module-basic-go/issues>), where your
 report is a **comment**. Do not open a new issue for a report, and do not send
@@ -573,7 +573,7 @@ this guide does not present it as verified:
    cache headers) — the serving side was still being built when this was
    written.
 2. The real, signed index and its key, downloaded over HTTPS from that host.
-3. The real `0.6.0_alpha2-r0` package bytes: filename, `sha256`, and that the
+3. The real `0.6.0_rc1-r0` package bytes: filename, `sha256`, and that the
    provided `sha256` matches the artifact published in the announcement.
 4. `/etc/init.d/tollgate-wrt` `enable`/`status`/`start` under `procd`, the
    service starting on boot, and the daemon staying up ≥ 5 minutes.
