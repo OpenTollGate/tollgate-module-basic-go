@@ -76,6 +76,38 @@ type MintConfig struct {
 	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
 }
 
+// UnmarshalJSON accepts both "purchase_min_steps" (the Go field tag) and
+// "min_purchase_steps" (the key shipped in early FreedomTechFeed package
+// configs) for backward compatibility, and defaults MinPurchaseSteps to 1
+// when absent or zero — a purchase of fewer than one step is meaningless
+// and clients (cashud, wally) reject advertisements with min_steps=0.
+func (m *MintConfig) UnmarshalJSON(data []byte) error {
+	type MintConfigAlias MintConfig
+	var alias MintConfigAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*m = MintConfig(alias)
+	if m.MinPurchaseSteps == 0 {
+		// Probed through a raw map, not a tagged struct: the schema contract
+		// (js-schema-lint) counts every struct json tag in this package as a
+		// config surface, and the legacy key is an input spelling, not one.
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if legacy, ok := raw["min_purchase_steps"]; ok {
+				var legacySteps uint64
+				if err := json.Unmarshal(legacy, &legacySteps); err == nil && legacySteps > 0 {
+					m.MinPurchaseSteps = legacySteps
+				}
+			}
+		}
+	}
+	if m.MinPurchaseSteps == 0 {
+		m.MinPurchaseSteps = 1
+	}
+	return nil
+}
+
 // ProfitShareConfig defines how profits are shared.
 type ProfitShareConfig struct {
 	Factor   float64 `json:"factor"`
@@ -264,7 +296,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.minibits.cash/Bitcoin",
@@ -274,7 +306,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.lnserver.com",
@@ -284,7 +316,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.macadamia.cash",
@@ -294,7 +326,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.westernbtc.com",
@@ -304,7 +336,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://kashu.me",
@@ -314,7 +346,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.cubabitcoin.org",
@@ -324,7 +356,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 	}
 }
@@ -338,7 +370,7 @@ func defaultTestMint() MintConfig {
 		MinPayoutAmount:         999999,
 		PricePerStep:            1,
 		PriceUnit:               "sat",
-		MinPurchaseSteps:        0,
+		MinPurchaseSteps:        1,
 	}
 }
 
