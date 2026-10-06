@@ -427,6 +427,22 @@ and [Semantic Versioning](https://semver.org/).
   entry rests on upstream OpenWrt support and the shared target/architecture
   row, not on a measured result.
   ([#616](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/616))
+
+- **ngit stage 1 stamps a commit-derived `SOURCE_DATE_EPOCH`, never the runner
+  clock.** The `determine-versioning` job's epoch cascade ended in `date +%s`
+  and, because an ngit-ci `act` checkout has no git history and the
+  coordinator's push payload carries `head_commit` with no timestamp, that last
+  resort was taken on **every** run (observed at `ca5d07a2`: `source: job
+  clock`) — so the Go binaries embedded a wall-clock `BuildTime` and two builds
+  of one commit could not produce the same bytes, contradicting the
+  reproducibility pin from #383. The job now calls the same
+  `scripts/ngit-commit-epoch.sh` the `build-portal` job and the shards'
+  `resolve-inputs` already use (the commit's own timestamp, from local history
+  or a depth-1 fetch from the mirror the release is built from) and fails
+  loudly when neither source answers, instead of silently publishing artifacts
+  that cannot be rebuilt identically. See
+  [docs/reproducible-builds.md](docs/reproducible-builds.md)
+  ([#529](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/529)).
 - **The board is the default face — decided, with the switch, the cross-link
   rules, and the reason it is not a one-repo change.**
   `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
