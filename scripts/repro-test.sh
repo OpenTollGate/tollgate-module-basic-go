@@ -117,9 +117,13 @@ run_in_root() {
                 mkdir -p out
                 LDFLAGS="$(go_ldflags "$PKG_VERSION")"
                 CLI_LDFLAGS="$(cli_ldflags "$PKG_VERSION")"
+                # Package mode, never `main.go`: file mode compiles ONLY that
+                # file, so package-main symbols living in siblings
+                # (startup_gate.go since #589) are undefined and the gate is
+                # red for a reason that is not reproducibility.
                 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
                   go build -C src -o "$ROOT/out/tollgate-wrt" \
-                  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+                  -trimpath -buildvcs=false -ldflags="$LDFLAGS" .
                 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
                   go build -C src/cmd/tollgate-cli -o "$ROOT/out/tollgate" \
                   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
