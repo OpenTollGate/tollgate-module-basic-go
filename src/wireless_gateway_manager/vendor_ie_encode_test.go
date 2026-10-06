@@ -54,7 +54,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			hexIE, err := EncodeTollGateVendorIE(tt.adv)
+			hexIE, _, err := EncodeTollGateVendorIE(tt.adv)
 			if err != nil {
 				t.Fatalf("EncodeTollGateVendorIE failed: %v", err)
 			}
@@ -88,17 +88,23 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEncodeRejectsOversizedBody(t *testing.T) {
+func TestEncodeTruncatesUnfittableMintURL(t *testing.T) {
 	longURL := make([]byte, 260)
 	for i := range longURL {
 		longURL[i] = 'a'
 	}
-	_, err := EncodeTollGateVendorIE(TollGateAdvertisement{
+	// Policy (#618 design review): the IE is an unsigned hint, so an
+	// oversized mint URL truncates (drops the TLV, reports it) instead of
+	// erroring; only an unusable pubkey is an error.
+	_, truncated, err := EncodeTollGateVendorIE(TollGateAdvertisement{
 		Version: 1,
 		MintURL: string(longURL),
 	})
-	if err == nil {
-		t.Error("expected error for body > 255 bytes, got nil")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !truncated {
+		t.Error("expected truncated=true for a mint URL that cannot fit, got false")
 	}
 }
 
@@ -130,7 +136,7 @@ func TestParseRejectsWrongElementType(t *testing.T) {
 func TestParseRespectsBodyLen(t *testing.T) {
 	// Create a valid IE with body length that excludes trailing garbage
 	adv := TollGateAdvertisement{Version: 1, HasInternet: true}
-	hexIE, err := EncodeTollGateVendorIE(adv)
+	hexIE, _, err := EncodeTollGateVendorIE(adv)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}
