@@ -710,7 +710,6 @@ def print_offers(daemon: ClientDaemon) -> None:
 # ---------------------------------------------------------------------------
 
 def selftest() -> int:
-    import shutil
     import tempfile
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer

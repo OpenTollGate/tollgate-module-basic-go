@@ -470,7 +470,7 @@ class TestMoneyPathGuards:
 
     def test_terminal_spent_clears_pending(self, mock_gate, tmp_path):
         gw, state = mock_gate
-        d, payments = self._blind_daemon(gw, state, tmp_path)
+        d, _payments = self._blind_daemon(gw, state, tmp_path)
         state["post_status"] = 400
         state["post_body"] = json.dumps({
             "kind": 21023, "content": "Token has already been spent",
@@ -484,7 +484,7 @@ class TestMoneyPathGuards:
         # S5's rotation scenario class: the router retired the keyset the
         # wallet's notes were minted under — retrying can never succeed.
         gw, state = mock_gate
-        d, payments = self._blind_daemon(gw, state, tmp_path)
+        d, _payments = self._blind_daemon(gw, state, tmp_path)
         state["post_status"] = 400
         state["post_body"] = json.dumps({
             "kind": 21023,
@@ -498,7 +498,7 @@ class TestMoneyPathGuards:
     def test_outcome_unknown_preserves_token_but_never_reuses(
             self, mock_gate, tmp_path):
         gw, state = mock_gate
-        d, payments = self._blind_daemon(gw, state, tmp_path)
+        d, _payments = self._blind_daemon(gw, state, tmp_path)
         state["post_status"] = 400
         state["post_body"] = json.dumps({
             "kind": 21023, "content": "Do not send this e-cash note again",
