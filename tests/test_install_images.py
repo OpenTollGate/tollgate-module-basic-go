@@ -3,7 +3,7 @@ import subprocess
 import time
 import os
 
-ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD")
 
 def wait_for_router_reboot(router_ip, router_ssid, timeout=300):
     """Wait for the router to come back online after reboot."""

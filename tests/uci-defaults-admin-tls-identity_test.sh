@@ -53,7 +53,12 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-SCRIPT="packaging/files/etc/uci-defaults/99-tollgate-setup"
+# The script under test. The default is the shipped one; TOLLGATE_SETUP_SCRIPT
+# points the same suite at another copy, which is how the RED side of the review
+# findings is reproducible:
+#   git show <base>:packaging/files/etc/uci-defaults/99-tollgate-setup > /tmp/parent-99
+#   TOLLGATE_SETUP_SCRIPT=/tmp/parent-99 bash tests/uci-defaults-admin-tls-identity_test.sh
+SCRIPT="${TOLLGATE_SETUP_SCRIPT:-packaging/files/etc/uci-defaults/99-tollgate-setup}"
 SHIPPED_VERSION="v0.6.0-alpha4"
 
 PASS=0
@@ -79,6 +84,12 @@ PROVISIONED_CERT="$TMP/etc/tollgate/ssl/server.crt"
 PROVISIONED_KEY="$TMP/etc/tollgate/ssl/server.key"
 UHTTPD_IMAGE_CERT="$TMP/etc/uhttpd.crt"
 UHTTPD_IMAGE_KEY="$TMP/etc/uhttpd.key"
+# An identity the OPERATOR installed and owns: a CA-signed pair (or the pair
+# their own `tollgate ssl apply <cert> <key>` installed) that uhttpd.main already
+# presents. Nothing in this harness parses it; the fake CLI decides coverage by
+# path, exactly the way the real check decides it by parsing.
+OPERATOR_CERT="$TMP/etc/operator-ca.crt"
+OPERATOR_KEY="$TMP/etc/operator-ca.key"
 OPTOUT_FILE="$TMP/etc/tollgate/ssl/tls-identity-removed"
 export UCI_STATE="$TMP/uci.state"
 export CLI_CALLS="$TMP/cli-calls"
@@ -88,7 +99,7 @@ export FAKE_COVERAGE="$TMP/coverage"
 export UHTTPD_RUNNING="$TMP/uhttpd-running"
 export NDS_RUNNING="$TMP/nds-running"
 export COMMITTED="$TMP/committed-nodogsplash"
-export PROVISIONED_CERT PROVISIONED_KEY OPTOUT_FILE
+export PROVISIONED_CERT PROVISIONED_KEY OPTOUT_FILE OPERATOR_CERT OPERATOR_KEY
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
 
@@ -208,7 +219,13 @@ case "$sub" in
                 cert="${1:-}"
                 [ -n "$cert" ] || exit 1
                 [ -r "$cert" ] && [ -s "$cert" ] || exit 1
-                [ "$cert" = "$PROVISIONED_CERT" ] || exit 1
+                # Two identities cover this router in this harness: the one the
+                # generator provisions, and the one the OPERATOR installed and
+                # owns. The image's placeholder covers neither.
+                case "$cert" in
+                    "$PROVISIONED_CERT"|"${OPERATOR_CERT:-NO-OPERATOR-IDENTITY}") ;;
+                    *) exit 1 ;;
+                esac
                 [ "$(cat "${FAKE_COVERAGE:?}" 2>/dev/null)" = "covering" ] || exit 1
                 echo "covers: yes — SANs cover this router"
                 exit 0
@@ -371,6 +388,22 @@ seed_state() { # a stock, freshly-flashed box
     printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
     : > "$PASSWD_FILE"
     seed_placeholder_identity
+}
+
+# A router whose uhttpd.main already presents an identity the OPERATOR owns: a
+# CA-signed certificate (or the pair their own `tollgate ssl apply <cert> <key>`
+# installed). The image's placeholder pair stays on disk — it is what uhttpd.main
+# presented BEFORE the operator replaced it, and the question under test is
+# whether an install keeps the operator's choice or goes back to the image's.
+seed_operator_identity() {
+    printf 'x\n' > "$OPERATOR_CERT"
+    printf 'x\n' > "$OPERATOR_KEY"
+    grep -v -e '^uhttpd.main.cert=' -e '^uhttpd.main.key=' "$UCI_STATE" > "$UCI_STATE.tmp" 2>/dev/null
+    mv "$UCI_STATE.tmp" "$UCI_STATE"
+    printf '%s\n' \
+        "uhttpd.main.cert=$OPERATOR_CERT" \
+        "uhttpd.main.key=$OPERATOR_KEY" >> "$UCI_STATE"
+    printf 'covering\n' > "$FAKE_COVERAGE"
 }
 
 # ------------------------------------------------------------------ readbacks
@@ -605,6 +638,59 @@ seed_state
 [ "$(redirect_now)" = 0 ] && [ "$(cert_now)" = "$UHTTPD_IMAGE_CERT" ] \
     && ok "the shipped rule derives redirect_https=0 from the same fixture (the fix, same input)" \
     || bad "the shipped rule gave redirect_https=$(redirect_now) cert=$(cert_now) on the negative-control fixture"
+
+echo
+echo "== E. an operator's own covering identity survives an install (review finding F2)"
+# The install path keyed its idempotence on THIS SCRIPT'S OWN output path
+# (/etc/tollgate/ssl/server.crt): nothing was generated while that file covered
+# the router, and everything was generated the moment it did not. A router whose
+# uhttpd.main already presented a certificate the OPERATOR owns — a CA-signed one
+# installed by hand, or the pair their own `tollgate ssl apply <cert> <key>`
+# installed — therefore had that certificate replaced by a fresh self-signed
+# identity on the next install or upgrade: a trusted certificate silently
+# downgraded, and a covering identity re-keyed behind the owner's back.
+#
+# Idempotence is a question about the CERTIFICATE uhttpd.main presents, not about
+# the path this script writes. The harness copy is rebuilt here because the
+# "no CLI" case above rewrites TOLLGATE_CLI in it.
+build_script "$ROOT/$SCRIPT"
+
+echo "-- function level: nothing is generated while a covering identity is already served"
+seed_state
+seed_operator_identity
+( TOLLGATE_SETUP_LIB_ONLY=1 sh -c ". '$SCRIPT_UNDER_TEST'; provision_tls_identity" ) 2>/dev/null
+if grep -q '^ssl apply' "$CLI_CALLS"; then
+    bad "operator identity: provision_tls_identity re-keyed a router that already serves a covering certificate ($(cli_calls | tr '\n' ';'))"
+else
+    ok "operator identity: provision_tls_identity left a covering configured identity alone"
+fi
+[ ! -s "$PROVISIONED_CERT" ] \
+    && ok "operator identity: no self-signed identity was generated beside the operator's pair" \
+    || bad "operator identity: a self-signed identity was written over the operator's pair"
+
+( TOLLGATE_SETUP_LIB_ONLY=1 sh -c ". '$SCRIPT_UNDER_TEST'; setup_uhttpd_tls_identity" ) 2>/dev/null
+[ "$(cert_now)" = "$OPERATOR_CERT" ] \
+    && ok "operator identity: uhttpd.main.cert is still the operator's certificate" \
+    || bad "operator identity: uhttpd.main.cert is $(cert_now), want the operator's $OPERATOR_CERT"
+[ "$(redirect_now)" = 1 ] \
+    && ok "operator identity: the covering identity still arms the derived :8080 -> https:// hop" \
+    || bad "operator identity: redirect_https=$(redirect_now), want 1 — the operator's certificate covers this router"
+
+echo "-- end to end: a same-version reinstall on that router changes nothing"
+seed_state
+seed_operator_identity
+run_driver "$SHIPPED_VERSION"
+rc=$?
+[ "$rc" = 0 ] && ok "operator identity: the reinstall exits 0" \
+              || bad "operator identity: the reinstall exited $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
+if grep -q '^ssl apply' "$CLI_CALLS"; then
+    bad "operator identity: the reinstall ran the generator over the operator's certificate ($(cli_calls | tr '\n' ';'))"
+else
+    ok "operator identity: the reinstall never ran the generator"
+fi
+[ "$(cert_now)" = "$OPERATOR_CERT" ] && [ "$(redirect_now)" = 1 ] \
+    && ok "operator identity: the router still serves its own certificate, hop armed" \
+    || bad "operator identity: cert=$(cert_now) redirect_https=$(redirect_now), want $OPERATOR_CERT / 1"
 
 echo
 printf 'tests: %d passed, %d failed\n' "$PASS" "$FAIL"

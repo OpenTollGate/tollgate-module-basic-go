@@ -118,8 +118,10 @@ than inventing new harnesses.
 - **gonuts-tollgate is our fork to maintain.** Upstream `elnosh/gonuts`
   is dead (last release v0.4.2, 2025); we carry ~40 patches. Every
   wallet-level fix lands in `OpenTollGate/gonuts-tollgate` first, is
-  tagged, then bumped here via the `replace` directive (three `go.mod`
-  files). Never fix a wallet bug by patching around the fork locally.
+  tagged, then bumped here via the `replace` directive — the require lands
+  in every nested module that carries it: `src/`, `src/cli`, `src/merchant`
+  and `src/tollwallet`, four `go.mod` files today. Never fix a wallet bug
+  by patching around the fork locally.
 - **bbolt persistence.** Keyset records (which own derivation counters)
   are nested under mint-URL-named buckets; the DB has no transactions
   spanning "fetch keysets + swap + save proofs". This is why counter
@@ -140,6 +142,47 @@ than inventing new harnesses.
   and build for mips/mipsel/arm/arm64/x86. Any wallet dependency that
   breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not
   in-process.
+
+## Hardware and VM testing (labgrid)
+
+All router- and VM-based testing is coordinated through **labgrid**
+(coordinator `ai-legion:20408`). Do not drive lab hardware ad hoc: reserve
+through places (`labgrid-client -p <place> acquire` … `release`), and treat
+a place held by someone else as theirs. Note some hosts carry a stale
+`LG_COORDINATOR` pointing at a dead address — use the hostname form:
+
+```bash
+export LG_COORDINATOR=ai-legion:20408
+labgrid-client places          # inventory + comments say what each seat is
+labgrid-client who             # current holders
+```
+
+The lab's single source of truth is the private
+**`Amperstrand/conwrt-bench`** repo (ADR-0005): `registry/` for devices,
+`labgrid/` for place seeds and examples, `docs/decisions/` for the why,
+sops for secrets. `conwrt-lab` is retired — do not add data there. Rules
+that every hardware-touching change follows:
+
+1. Never hardcode device IPs, MACs or serial paths — resolve from the
+   registry or a labgrid place.
+2. Access hardware through labgrid places (`ssh|console|power`), with
+   acquire/release for exclusivity during a test.
+3. Flashing and adoption go through conwrt tooling
+   (`dut_recover.py --from-lab`, `bench_net.py`), which updates the
+   registry.
+4. A state change ends with a registry commit — flashed, moved or
+   adopted devices must be reflected before you walk away.
+5. When surprised, reconcile first
+   (`lab_registry.py reconcile`) before touching anything.
+
+VM lane: `labgrid/qemu-x86-64.yaml.example` in conwrt-bench is the
+pattern — the client runs ON ai-legion (QEMUDriver executes where the
+client runs), pristine per-acquire boots via `snapshot=on`. The on-target
+package harness is `tests/happy-path/run.sh --artifact <extracted pkg>`;
+the artifact is the published bytes from a kind-`1063` event
+(hash-pinned via its `x` tag) or, for pre-tag candidates, a local
+`scripts/build-sdk-package.sh` build whose sha256 is recorded in the
+evidence.
 
 ## Contributing process
 
@@ -167,9 +210,10 @@ get wrong:
   and silently skips all subpackages. One implementation:
   [scripts/go-battery.sh](scripts/go-battery.sh).
 
-  If the change touches the config schema or captive-portal contract,
-  also run `node tests/contract/js-schema-lint.mjs` and
-  `bash tests/contract/build-purity.sh` from the repo root.
+  If the change touches the config schema, the captive-portal contract
+  or a shipped default, also run `node tests/contract/js-schema-lint.mjs`,
+  `bash tests/contract/build-purity.sh` and
+  `bash tests/contract/check-ssid-format.sh` from the repo root.
 - PRs are squash-merged; the maintainer rewrites the final commit
   message.
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -12,7 +13,7 @@ func (s *CLIServer) handleConfigCommand(args []string, flags map[string]string) 
 	if len(args) == 0 {
 		return CLIResponse{
 			Success:   false,
-			Error:     "Config command requires a subcommand (get, set, schema, save, save-identities)",
+			Error:     "Config command requires a subcommand (get, set, apply, schema, save, save-identities)",
 			Timestamp: time.Now(),
 		}
 	}
@@ -30,6 +31,8 @@ func (s *CLIServer) handleConfigCommand(args []string, flags map[string]string) 
 			}
 		}
 		return s.handleConfigSet(args[1], args[2])
+	case "apply":
+		return s.handleConfigApply()
 	case "schema":
 		return s.handleConfigSchema()
 	case "save":
@@ -53,12 +56,18 @@ func (s *CLIServer) handleConfigCommand(args []string, flags map[string]string) 
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown config subcommand: %s (supported: get, set, schema, save, save-identities)", subcommand),
+			Error:     fmt.Sprintf("Unknown config subcommand: %s (supported: get, set, apply, schema, save, save-identities)", subcommand),
 			Timestamp: time.Now(),
 		}
 	}
 }
 
+// handleConfigGet returns the whole configuration. Schema fields marked
+// `secret` are blanked and their state is reported separately: this payload is
+// rendered by the board's Settings page and merged back into a wholesale
+// `config save`, so it must never carry the private network's passphrase —
+// nor the identities' Nostr private keys, which sign payouts and
+// advertisements and are strictly more damaging than the passphrase (#635).
 func (s *CLIServer) handleConfigGet() CLIResponse {
 	if s.configManager == nil {
 		return CLIResponse{
@@ -71,13 +80,42 @@ func (s *CLIServer) handleConfigGet() CLIResponse {
 	cfg := s.configManager.GetConfig()
 	identities := s.configManager.GetIdentities()
 
+	secretSet := secretFieldState(cfg)
+	for _, marker := range identitySecretState(identities) {
+		secretSet[marker] = true
+	}
+
 	return CLIResponse{
 		Success: true,
 		Message: "Configuration retrieved",
 		Data: map[string]interface{}{
-			"config":     cfg,
-			"identities": identities,
+			"config":     redactSecretFields(cfg),
+			"identities": redactIdentitySecrets(identities),
+			"secret_set": secretSet,
 		},
+		Timestamp: time.Now(),
+	}
+}
+
+// handleConfigApply converges every declared operator setting onto this router
+// on demand. The same work runs automatically after a config write and at
+// daemon start; this is the explicit "make the router match the file" verb,
+// for a hand-edited config.json.
+func (s *CLIServer) handleConfigApply() CLIResponse {
+	if s.configManager == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Config manager not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	results := ApplyOperatorSettings(s.configManager.GetConfig())
+
+	return CLIResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("Operator settings converged (%s)", applySummary(results)),
+		Data:      map[string]interface{}{"applied": results},
 		Timestamp: time.Now(),
 	}
 }
@@ -100,13 +138,32 @@ func (s *CLIServer) handleConfigSet(key, value string) CLIResponse {
 		}
 	}
 
+	// A declared setting is worth nothing until the component that enforces it
+	// has it: converge the runtime now (UCI wireless for the private-network
+	// credentials, the generated admin-scope fragment for admin_access) and
+	// report per setting what happened. Compare-and-converge, so a key that maps
+	// to no applier costs one comparison and changes nothing.
+	results := ApplyOperatorSettings(s.configManager.GetConfig())
+
+	data := map[string]interface{}{
+		"key":     key,
+		"applied": results,
+	}
+
+	message := ""
+	if isSecretJSONKey(key) {
+		// A secret is never echoed back: the response is rendered by the board
+		// and kept by whatever shell ran the command.
+		message = fmt.Sprintf("Set %s (value withheld)", key)
+	} else {
+		message = fmt.Sprintf("Set %s = %s (restart tollgate-wrt to apply)", key, value)
+		data["value"] = value
+	}
+
 	return CLIResponse{
-		Success: true,
-		Message: fmt.Sprintf("Set %s = %s (restart tollgate-wrt to apply)", key, value),
-		Data: map[string]interface{}{
-			"key":   key,
-			"value": value,
-		},
+		Success:   true,
+		Message:   fmt.Sprintf("%s; %s", message, applySummary(results)),
+		Data:      data,
 		Timestamp: time.Now(),
 	}
 }
@@ -172,6 +229,50 @@ func (s *CLIServer) handleConfigSave(jsonStr string) CLIResponse {
 		}
 	}
 
+	// A wholesale save replaces the whole file, so it is the one path that can
+	// silently erase a setting: `config get` blanks secret fields (see
+	// redactSecretFields), and the board merges that payload back here. An empty
+	// incoming value therefore means "unchanged", never "clear", for every
+	// operator setting whose empty value is already "keep what the router has".
+	preserved := []string{}
+	if stored := s.configManager.GetConfig(); stored != nil {
+		if cfg.PrivateKey == "" && stored.PrivateKey != "" {
+			cfg.PrivateKey = stored.PrivateKey
+			preserved = append(preserved, "private_key")
+		}
+		if cfg.PrivateSSID == "" && stored.PrivateSSID != "" {
+			cfg.PrivateSSID = stored.PrivateSSID
+			preserved = append(preserved, "private_ssid")
+		}
+		if cfg.PrivateEncryption == "" && stored.PrivateEncryption != "" {
+			cfg.PrivateEncryption = stored.PrivateEncryption
+			preserved = append(preserved, "private_encryption")
+		}
+		if cfg.AdminAccess == "" && stored.AdminAccess != "" {
+			cfg.AdminAccess = stored.AdminAccess
+			preserved = append(preserved, "admin_access")
+		}
+	}
+
+	// The wholesale path bypasses per-key schema validation, so the enum values
+	// a wrong string can break the router with are checked here: an unknown
+	// private_encryption would take the private network down, and an unknown
+	// admin_access must not silently become the default scope.
+	if err := config_manager.ValidateValue("private_encryption", cfg.PrivateEncryption); err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Invalid private_encryption: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+	if err := config_manager.ValidateValue("admin_access", cfg.AdminAccess); err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Invalid admin_access: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+
 	if err := config_manager.SaveConfig(s.configManager.ConfigFilePath, &cfg); err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -188,9 +289,17 @@ func (s *CLIServer) handleConfigSave(jsonStr string) CLIResponse {
 		}
 	}
 
+	results := ApplyOperatorSettings(s.configManager.GetConfig())
+
+	message := fmt.Sprintf("Configuration saved; %s", applySummary(results))
+	if len(preserved) > 0 {
+		message = fmt.Sprintf("%s (kept unchanged: %s)", message, strings.Join(preserved, ", "))
+	}
+
 	return CLIResponse{
 		Success:   true,
-		Message:   "Configuration saved (restart tollgate-wrt to apply)",
+		Message:   message,
+		Data:      map[string]interface{}{"applied": results},
 		Timestamp: time.Now(),
 	}
 }
@@ -210,6 +319,22 @@ func (s *CLIServer) handleIdentitiesSave(jsonStr string) CLIResponse {
 			Success:   false,
 			Error:     fmt.Sprintf("Invalid JSON: %v", err),
 			Timestamp: time.Now(),
+		}
+	}
+
+	// Preserve-on-save for identity secrets (#635): `config get` hands out
+	// owned identities with blanked private keys, and a board that merges
+	// that payload and sends it back here must not wipe the stored keys. An
+	// incoming empty key for a known name keeps the stored one; an incoming
+	// key (new identity, or an intentional rotation) is taken as given.
+	stored := s.configManager.GetIdentities()
+	storedKeys := make(map[string]string, len(stored.OwnedIdentities))
+	for _, owned := range stored.OwnedIdentities {
+		storedKeys[owned.Name] = owned.PrivateKey
+	}
+	for i := range identities.OwnedIdentities {
+		if identities.OwnedIdentities[i].PrivateKey == "" {
+			identities.OwnedIdentities[i].PrivateKey = storedKeys[identities.OwnedIdentities[i].Name]
 		}
 	}
 
@@ -234,4 +359,15 @@ func (s *CLIServer) handleIdentitiesSave(jsonStr string) CLIResponse {
 		Message:   "Identities saved (restart tollgate-wrt to apply)",
 		Timestamp: time.Now(),
 	}
+}
+
+// isSecretJSONKey reports whether a dotpath names a schema field marked secret,
+// so a response can withhold the value it was handed instead of echoing it.
+func isSecretJSONKey(key string) bool {
+	for _, secret := range secretJSONKeys() {
+		if key == secret || strings.HasPrefix(key, secret+".") {
+			return true
+		}
+	}
+	return false
 }

@@ -37,12 +37,18 @@ tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
 tollgate upstream list                    Show configured upstream STAs
 tollgate upstream remove <SSID>           Remove a disabled upstream STA
+tollgate upstream known                   Show discovered TollGate APs
 
 tollgate config get                       Print current config + identities
 tollgate config set <key> <value>         Set one value by dot-path
 tollgate config schema                    Print the full config schema
 tollgate config save <json>               Replace config.json wholesale
 tollgate config save-identities <json>    Replace identities.json wholesale
+
+tollgate ssl status                       Admin HTTPS identity and coverage
+tollgate ssl apply [<cert> [key]]         Install a real cert, or self-signed
+tollgate ssl remove                       Revert an apply (records an opt-out)
+tollgate ssl covers [<cert-file>]         Does the certificate cover this router?
 ```
 
 Every command accepts the global `--json` (`-j`) flag for
@@ -348,6 +354,31 @@ Private network password changed successfully
   new_password: Alpha-Bravo-Charlie-42
 ```
 
+### Change the encryption mode
+
+```sh
+tollgate network private set-encryption psk2+tkip+ccmp
+```
+
+Supported modes:
+
+| Mode | Meaning |
+|---|---|
+| `psk2+ccmp` | WPA2-PSK with AES/CCMP. The default and what the router is set up with. |
+| `psk2+tkip+ccmp` | Also offers the legacy TKIP cipher, for old clients that cannot do AES. |
+| `psk-mixed+ccmp` | Also accepts WPA1 clients. |
+
+WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
+SAE support, so selecting it would leave the private network unable to start —
+a lockout, not a feature. An open (unencrypted) mode is refused for the same
+class of reason: the private network is how you reach the admin board, whose
+login is a root-capable login over plain HTTP on `:8090`.
+
+The three private-network commands above (rename, set-password, set-encryption)
+also record the new value in `/etc/tollgate/config.json`, which is the file the
+service reconciles the router onto at every start. Both radios are written
+together, so the 2.4 GHz and 5 GHz SSIDs cannot drift apart.
+
 ## Upstream WiFi management
 
 Upstream Wi-Fi is how the router reaches the internet — either from
@@ -439,6 +470,28 @@ upstreams cannot be removed — disable or switch away first. This is
 housekeeping: removing an entry does not affect connectivity, it just
 stops the daemon from ever considering that SSID again.
 
+### Known TollGates
+
+```sh
+tollgate upstream known
+```
+
+A summary of the TollGate access points discovered across the scans
+the background [wireless gateway
+manager](wireless_gateway_manager.md) has logged — the same history a
+reseller-mode router uses to recognise upstream TollGates. Prints a
+headline (`3 TollGates discovered across 27 scans`) and one entry per
+access point: SSID and BSSID, first and last seen, best and worst
+signal, sample count, the advertised pricing (`price_per_step`,
+`step_size`) when the AP publishes it, and gateway RTT and probe
+statistics when probes ran.
+
+The history lives in `/etc/tollgate/discovery_log.jsonl` and is
+reloaded at startup, so the summary also covers scans from before the
+last reboot. The plain-text rendering prints the raw fields in no
+stable order; `tollgate --json upstream known` returns the same data
+with stable field names for scripting.
+
 ## Configuration management
 
 TollGate stores its configuration in `/etc/tollgate/config.json` and
@@ -481,6 +534,50 @@ Most `config set` changes take effect only after
 `tollgate restart` (or `/etc/init.d/tollgate-wrt restart`), because
 the running service reads the file at startup.
 
+Two settings are the exception, and they are the reason `config set` also
+reports what it applied:
+
+```sh
+tollgate config set private_ssid c08r4d0r-7F3A
+tollgate config set admin_access br-private
+```
+
+```
+Set private_ssid = c08r4d0r-7F3A; runtime: 1 applied, 1 not applicable here
+```
+
+The private network's SSID, passphrase and encryption live in UCI
+(`/etc/config/wireless`), which hostapd reads, and `admin_access` is an
+nftables property. Neither can be honoured by a file the service merely reads,
+so `config set`/`config save` write them to the router as well, and say for
+each setting whether the runtime was changed (`applied`), already matched
+(`unchanged`), could not be applied on this host (`skipped`), or was refused
+with the reason (`refused` — e.g. `admin_access=br-mgmt` on a router that has
+no `br-mgmt` bridge yet). See the README's
+[Network settings](../README.md#network-settings-v009) for the values.
+
+Setting `private_key` from the CLI never echoes the passphrase back.
+
+### Make the router match the file
+
+```sh
+tollgate config apply
+```
+
+Re-applies every declared operator setting — the private-network credentials
+and the admin-access scope — and reports per setting what happened. The same
+work runs automatically after `config set`/`config save` and at service start,
+so this verb is for a `config.json` you edited by hand:
+
+```
+Operator settings converged (runtime: unchanged, not applicable here)
+```
+
+It is a converging writer: a router whose runtime already matches the file
+reports `unchanged` and nothing on the wire moves. That is what makes it safe
+on a service restart — it never drops your private-network clients for a change
+that was already in effect.
+
 ### Inspect the schema
 
 ```sh
@@ -508,6 +605,92 @@ a router from a known-good template.
 
 Both commands reload the in-memory config after writing, but a restart
 is still needed for the change to take full effect.
+
+## SSL / HTTPS management
+
+These commands manage the HTTPS identity of the **admin path** — the
+LuCI interface uhttpd serves on the management network. The captive
+portal itself keeps its HTTP interception and is not affected. The
+`ssl` commands run locally (they talk to uci and the filesystem), so
+unlike most of the CLI they do not need the TollGate service to be
+running.
+
+### Check status
+
+```sh
+tollgate ssl status
+```
+
+When an identity is configured, prints where it came from
+(self-signed or real), the domain, the certificate's subject, issuer,
+validity window and SANs, and — the part that decides whether the
+`:8080` → `https://` hop is safe — whether the certificate **covers
+this router**. When it is not configured, the command distinguishes
+the two very different causes: nobody ever provisioned an identity,
+or an operator ran `ssl remove` and the install path is holding that
+decision. It also names the certificate uhttpd is actually serving
+and why it does not cover the router — a stock OpenWrt image ships a
+placeholder (`CN=OpenWrt`) that covers no router's own name or
+address, which is what a browser shows a hard certificate error for.
+
+### Apply a certificate
+
+```sh
+tollgate ssl apply                     # generate a self-signed certificate
+tollgate ssl apply combined.pem        # one file holding cert + key
+tollgate ssl apply cert.pem key.pem    # separate certificate and key
+```
+
+Without arguments, generates a self-signed certificate for the
+router's own hostname (RSA 2048, valid ten years, SANs for the
+hostname, its `<hostname>.lan` alias, and the LAN IP). A browser will
+still show a warning for it — self-signed is for encryption, not for
+trust. With file arguments, installs a real certificate; a combined
+PEM is split automatically, and an expired certificate is warned
+about but installed if you confirm.
+
+`apply` prints the plan first (install to `/etc/tollgate/ssl/`,
+point uhttpd at the new cert/key, allow TCP 443 through the
+pre-authentication firewall for the admin listener) and asks for
+confirmation; `-y` skips the prompt. The previous state is backed up
+to `/etc/tollgate/ssl/backup/` so `ssl remove` can restore it — if a
+backup already exists, `apply` warns and asks before overwriting.
+Afterwards uhttpd and nodogsplash are reloaded (dnsmasq too, for a
+real certificate), and `redirect_https` is derived from the
+[coverage check](#check-whether-a-certificate-covers-this-router) —
+the same rule the unattended setup path applies. `--no-restart`
+leaves the service reload to the caller; the setup path uses it
+because uci-defaults runs before the services start.
+
+### Remove the identity
+
+```sh
+tollgate ssl remove
+```
+
+Restores the state from before the last `apply` (uhttpd's previous
+certificate, the firewall entry). Removal is also **recorded** in
+`/etc/tollgate/ssl/tls-identity-removed`: a reinstall or upgrade will
+not silently re-key a router whose operator asked for no HTTPS
+identity. Running `ssl apply` ends the opt-out — asking for an
+identity is the way back in.
+
+### Check whether a certificate covers this router
+
+```sh
+tollgate ssl covers                    # the certificate uhttpd is configured to serve
+tollgate ssl covers /path/to/cert.pem  # a candidate before installing it
+```
+
+A certificate covers the router when its SANs validate the configured
+hostname, the `<hostname>.lan` alias, or the LAN IP — the CommonName
+alone is not enough, because browsers ignore it once the certificate
+carries no SAN extension, and an expired certificate is not coverage
+either. The exit status is `0` when it covers and `1` when it does
+not, with the reason printed either way, so a shell can branch on it;
+the setup path derives `redirect_https` from exactly this verdict.
+Under `--json` the verdict is one object whose `success` mirrors the
+exit status, so a caller parsing stdout cannot read a "no" as green.
 
 ## JSON output
 
