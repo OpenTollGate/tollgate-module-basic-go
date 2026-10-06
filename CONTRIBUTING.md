@@ -221,8 +221,11 @@ running it yourself saves a review round trip.
   Config changes update the schema in
   [config_manager](src/config_manager/) *with a migration* and the
   example in [README.md](README.md). Behavior visible to operators
-  updates [README.md](README.md) and the module doc it touches, plus a
-  [CHANGELOG.md](CHANGELOG.md) entry.
+  updates [README.md](README.md) and the module doc it touches, plus a changelog
+  entry — added as a fragment under [changelog.d/](changelog.d/), **never** as a
+  direct edit to [CHANGELOG.md](CHANGELOG.md). The maintainer folds fragments
+  into the changelog before a release; the naming rule and the reason are in
+  [changelog.d/README.md](changelog.d/README.md).
 
 ### Additional requirements for bug-fix PRs
 
