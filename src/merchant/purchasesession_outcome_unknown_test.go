@@ -79,7 +79,7 @@ func TestPurchaseSessionAmbiguousOutcomeDoesNotCondemnTheMint(t *testing.T) {
 }
 
 // TestErrOutcomeUnknownWrapsClientAmbiguity pins the tollwallet boundary
-// mapping end to end at the unit level: the fork's AmbiguousResponseError
+// mapping end to end at the unit level: the fork's AmbiguousOutcomeError
 // (surfaced through gonuts) maps to the exported sentinel callers classify
 // on.
 func TestErrOutcomeUnknownWrapsClientAmbiguity(t *testing.T) {

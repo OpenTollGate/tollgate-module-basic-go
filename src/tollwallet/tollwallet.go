@@ -24,8 +24,8 @@ var ErrLockedToken = errors.New("token has spending conditions and cannot be spe
 // answered (response dropped, timeout, connection cut mid-response). The mint
 // may have processed it, so the customer must not be told to resubmit the same
 // note and the caller must reconcile before any regeneration. Wrapped by the
-// Receive boundary from the wallet client's AmbiguousResponseError (gonuts
-// v0.12.2: no same-body POST retry on network errors).
+// Receive boundary from the wallet client's AmbiguousOutcomeError (gonuts
+// v0.13.0: no same-body POST retry on network errors).
 var ErrOutcomeUnknown = errors.New("mint did not answer; the outcome is unknown")
 
 // ErrWalletNotInitialized is returned by wallet operations when the underlying
@@ -262,7 +262,7 @@ func (w *TollWallet) Receive(token cashu.Token) (uint64, error) {
 		// An unanswered money-moving request is not a failure verdict: the
 		// mint may have taken the proofs. Callers must distinguish it from
 		// every retryable/refusable class (tollgate #640).
-		var ambiguous *client.AmbiguousResponseError
+		var ambiguous *client.AmbiguousOutcomeError
 		if errors.As(err, &ambiguous) {
 			return 0, fmt.Errorf("%w: %v", ErrOutcomeUnknown, err)
 		}
