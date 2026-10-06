@@ -10,6 +10,8 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.6.0-rc1] - 2026-10-05
+
 ### Fixed
 
 - **A payment whose gate cannot open is an owed entitlement, not a lost
@@ -143,6 +145,56 @@ and [Semantic Versioning](https://semver.org/).
   `.lan` alias as the alternative.
   ([#612](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/612))
 
+
+- **`MintConfig` unmarshalling accepts the legacy `min_purchase_steps`
+  spelling and floors `MinPurchaseSteps` at 1 (#104, ported from the
+  disposition train).** A purchase of fewer than one step is meaningless
+  and clients (cashud, wally) reject advertisements with `min_steps=0`;
+  early FreedomTechFeed configs carried the legacy key, which parsed as
+  absent and left the field 0. The parser now accepts both spellings
+  (primary wins), defaults absent/0 to 1, and is pinned by a 6-case table.
+  The shipped mint templates also carry literal 1s, and the edit path has
+  kept its schema floor (`Min: 1`). The wire-spec side of the default
+  (TIP-02's tentative `default 0`) is tracked upstream in the spec repo
+  (OpenTollGate/tollgate#20) with a proposal to de-tentative to 1 — this
+  implementation already matches the field evidence that proposal cites.
+  ([#634](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/634),
+  [fork #104](https://github.com/Amperstrand/tollgate-module-basic-go/pull/104))
+
+- **The atomic config write falls back to a durable in-place write when
+  the inode is pinned.** A single-file bind mount (the conformance lab,
+  containerized deploys) cannot have its config renamed over — the
+  #402-hardened `SaveConfig` answered EBUSY there and brought the lab
+  daemon down at config migration. Where rename cannot serve, the save
+  falls back to `O_TRUNC`+write+fsync on the mounted file: the pre-#402
+  guarantee, strictly better than refusing to save.
+
+- **A wedged `fw4` can no longer stall- **A wedged `fw4` can no longer stall the daemon's start path (#637).**
+  The operator-settings convergence (which runs after the API listener
+  binds but before `Serve`) called `fw4 reload` with no deadline, so a
+  wedged firewall reload on exactly the boots where drift exists (first
+  boot after an upgrade with hand-edited settings, a sysupgrade that
+  regenerated UCI) stalled the service — and procd respawned it into the
+  same stall, keeping the payment API down on an unattended router.
+  `fw4 reload` now runs under a 30-second `CommandContext`; a timeout is
+  treated exactly like any other reload failure (the fragment file is the
+  durable half and applies at the next firewall reload or reboot), pinned
+  by a test with a fw4 that never answers.
+  ([#637](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/637))
+
+- **`config.json` writes are atomic, and a missing config is announced
+  instead of silently becoming factory defaults (#402 hardening).** A
+  plain `os.WriteFile` killed mid-write (power loss, a procd respawn in
+  the write window) left a truncated file that the loader routed into
+  backup-and-defaults — the operator's accepted mints silently reverting
+  to the factory set, the config-loss class of the #402 incident.
+  `SaveConfig` now writes temp + rename in the same directory (a reader
+  always sees the whole old or the whole new file), and the
+  file-does-not-exist path — the one default-write path with zero
+  forensics — logs a loud WARNING naming the backup directory. The full
+  #402 incident did not reproduce on current main; this closes the class
+  it came from.
+  ([#402](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/402))
 
 - **A concurrent duplicate of one e-cash note is refused before the mint, not
   raced past its spend-state.** The mint's own "already spent" refusal is the
@@ -3398,7 +3450,8 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-rc1...main
+[v0.6.0-rc1]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...v0.6.0-rc1
 [v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha4
 [v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
