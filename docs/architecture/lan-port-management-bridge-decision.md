@@ -55,7 +55,7 @@ tells an operator in this situation to "use the module CLI or LuCI on `:8080`"
 
 The wired port and the open guest SSID are one bridge, deliberately gated as
 one. The cost of that sharing was already measured in this repo:
-`packaging/files/etc/uci-defaults/99-tollgate-setup:1228-1247` records that
+`packaging/files/etc/uci-defaults/99-tollgate-setup:1280-1305` records that
 bridge port isolation **cannot** separate a wired host from a guest BSS —
 netifd's `isolate` is bilateral (`br_private.h br_skb_isolated`) and was
 measured on the bench to block nothing — and names the alternative mechanism in
@@ -172,7 +172,7 @@ with two instances:
   Exempting only `br-lan` left the board rendering with all of its data dead),
   `31-*.nft:52-53`, `32-*.nft:54-55`, and the
   zone-scoped `firewall.tollgate_in` rule that allows `:2121` from `lan`
-  (`99-tollgate-setup:1697-1704`).
+  (`99-tollgate-setup:1756-1766`).
 
 ### Where the wired LAN ports are bound, and therefore who may move them
 
@@ -180,7 +180,7 @@ Not this repository, and not the feed recipe — **the base image**.
 
 - This module ships **no** `/etc/config/network` at all (`packaging/files/etc/`
   has no `config/` directory), only **reads** the LAN device
-  (`99-tollgate-setup:1779-1781`, `lan_dev=$(uci -q get network.lan.device)`,
+  (`99-tollgate-setup:1837-1840`, `lan_dev=$(uci -q get network.lan.device)`,
   defaulting to `br-lan`), and writes only `network.lan.domain` (`:1121`) and
   `network.lan.ip6assign` (`:1725`).
 - The feed recipe vendors the same writer (its copy of `99-tollgate-setup`
@@ -198,7 +198,7 @@ Not this repository, and not the feed recipe — **the base image**.
 Consequence: the ports list is **image-owned**, so the module must write the
 move itself (it already writes `network` freely, and it already creates
 `network.private`/`network.private_bridge` and `dhcp.private` the same way,
-`99-tollgate-setup:1956-1967`), and it must do so **device-agnostically** — by
+`99-tollgate-setup:2015-2025`), and it must do so **device-agnostically** — by
 reading the port list that is currently on `br-lan` and moving it, never by
 naming `eth1`.
 
@@ -212,7 +212,7 @@ naming `eth1`.
 anonymous — `/bin/config_generate:109-119` emits it without a name — so
 `network.@device[br-lan]` is **not valid UCI addressing**: the writer must find
 the `@device[N]` whose `option name` is `br-lan` (`uci show network` piped to
-`awk`, the idiom already in the script at `99-tollgate-setup:1731`) and move its
+`awk`, the idiom already in the script at `99-tollgate-setup:2002`) and move its
 `ports` list. If `br-lan` has no port list, the writer **fails loudly and
 changes nothing** (a bridge with no ports would leave the operator with a dead
 cable and no diagnostic).
@@ -221,7 +221,7 @@ cable and no diagnostic).
 out.** `firewall.mgmt_zone` (`name 'mgmt'`, `network 'mgmt'`,
 `input 'ACCEPT'`) and **no forwarding to `wan`**. It must **not** join
 `firewall.private_zone`: that zone is `input/output/forward 'ACCEPT'` and has a
-`private → wan` forwarding (`99-tollgate-setup:2004-2006`), i.e. reusing it
+`private → wan` forwarding (`99-tollgate-setup:2063-2065`), i.e. reusing it
 would hand every wired client free internet — the exact hole this record exists
 to not create. The admin listeners need no change to be reachable: they bind
 `0.0.0.0`/`[::]` (`uhttpd.main` `:8080`/`:443`, `99-tollgate-setup:591-593,697-702`;
@@ -261,7 +261,7 @@ pinned to it.** `31-*.nft`, `32-*.nft` and `20-nds-enforce.nft` keep matching
 `iifname "br-lan"` and must **never** be extended to `br-mgmt`: a `br-mgmt`
 client is not a guest, and the reason the admin ports may be reachable there is
 that the bridge holds no stranger. The guest APs stay bound to
-`network=lan` (`99-tollgate-setup:1268`), so the open SSID keeps the guards.
+`network=lan` (`99-tollgate-setup:1327`), so the open SSID keeps the guards.
 
 **D8 — The requirement's paywall half is explicitly not delivered here.** The
 wired bridge is a management bridge: it reaches the administration surfaces
@@ -310,7 +310,7 @@ Two asymmetries are deliberate and load-bearing:
 - **An empty value is not an instruction: it means "keep what the router
   has".** `private_ssid` and `private_key` ship empty, because the first values
   are *minted*, device-by-device, by `setup_private_network`
-  (`99-tollgate-setup:1896-2010`). Re-derived for #605: the SSID is now
+  (`99-tollgate-setup:1896-2055`). Re-derived for #605: the SSID is now
   `<nym>-<code>`, built from the operator's stored nym and the **one stored
   device code** that also names the hostname and the captive SSID, and the
   passphrase is still the urandom-seeded word list (3 words + 2 digits, one
@@ -571,7 +571,7 @@ added to `users_to_router`.
 - The operator's reported lockout ends, without weakening a single guard: the
   admin surfaces answer on a bridge that holds only his own devices.
 - The wired port leaves the guest's L2 domain — the exposure
-  `99-tollgate-setup:1228-1247` recorded as unfixable by bridge-port isolation,
+  `99-tollgate-setup:1280-1305` recorded as unfixable by bridge-port isolation,
   using the mechanism that comment itself named.
 - The customer path is untouched: the portal, the pre-auth list, the paywall of
   the wireless network and the two guards keep their present behaviour, so none
@@ -699,7 +699,7 @@ hardware. Both tiers are listed.
    it stands*: the shim in `tests/uci-defaults-private-subnet_test.sh:74`
    answers `show` with `:` (a silent no-op), while the repo's own idiom for
    enumerating `network` sections is `uci show network | awk`
-   (`99-tollgate-setup:1731`) — a writer using it would see no ports and take
+   (`99-tollgate-setup:2002`) — a writer using it would see no ports and take
    the fail-loudly branch on every fixture. The implementing PR must teach the
    shim `show`/`get`, or seed flat `network.@device[N].ports` keys in the
    fixture, and prove the negative in the same change (assertion 2).
@@ -741,7 +741,7 @@ per the repo's deploy rules)**
     before any purchase: `:8090` answers (board), `:8080` answers (LuCI) and
     `:443` completes a TLS handshake. `:8443` answers **only when the opt-in
     listener exists** — it is written by the feed's `92-tollgate-admin-setup` and
-    this script only clears it (`99-tollgate-setup:1055-1059`), so on a router with
+    this script only clears it (`99-tollgate-setup:1117-1118`), so on a router with
     no TLS identity there is no listener and a correct build must not be failed
     for its absence. `:22` answers **only if dropbear listens on the `mgmt`
     network**: nothing in `99-tollgate-setup` configures SSH, so that dependency
@@ -934,7 +934,7 @@ expression* and nothing else:
   on `br-lan`) stops matching, so `:8090`/`:8443` and `:8080`/`:443` become
   reachable from it, pre-auth;
 - the wireless guests keep matching — the guest BSSes stay bound to the captive
-  bridge (`99-tollgate-setup:1268` sets `wireless.<iface>.network='lan'`), so
+  bridge (`99-tollgate-setup:1327` sets `wireless.<iface>.network='lan'`), so
   both guards keep dropping them, and the #566/#588 behaviour together with its
   pre18 bench measurement is unchanged;
 - **the wired port stays a member of the gated `br-lan`**
@@ -946,7 +946,7 @@ expression* and nothing else:
 
 This is the mechanism this repo already names in its own words — "a dedicated
 br-guest with its own reject-by-default zone, or a **bridge-family nft rule
-keyed on the VAP ports**" (`99-tollgate-setup:1246-1247`). It is also why
+keyed on the VAP ports**" (`99-tollgate-setup:1304-1305`). It is also why
 `br-mgmt` is not needed *for the requirement*: the guard was over-broad, not
 the bridge.
 
@@ -989,7 +989,7 @@ names are not stable: `phyN-apM` follows radio/PHY enumeration and can change
 across firmware or hardware, so a guard keyed on four hardcoded names can stop
 matching after an upgrade and become a no-op with no error anywhere. The set is
 therefore derived at `fw4 reload` from the module's own source of truth — the
-wireless interfaces bound to `network='lan'` (`99-tollgate-setup:1268`) — and
+wireless interfaces bound to `network='lan'` (`99-tollgate-setup:1327`) — and
 an empty or failed enumeration **falls back to the blanket `br-lan` drop with a
 log line**, i.e. to today's behaviour (safe, still gated) rather than to no
 drop at all. The derivation, the fallback, its negative control and the
@@ -1021,7 +1021,7 @@ still exact (`31-*.nft:52-53`, `32-*.nft:54-55`). The citations to the
 isolation comment that names the VAP-keyed alternative had **drifted**:
 `99-tollgate-setup:974-993` was that comment when this record merged (#600) and
 is now the admin credential gate, so both citations are corrected here to
-`99-tollgate-setup:1228-1247` (the comment block that carries the measurement,
+`99-tollgate-setup:1280-1305` (the comment block that carries the measurement,
 with the named mechanism at `:1246-1247`). The re-check was then extended to
 every `99-tollgate-setup` citation in this record, and the drift was not
 confined to that comment: nineteen further references had been written against
