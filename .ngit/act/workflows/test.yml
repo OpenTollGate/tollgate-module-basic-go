@@ -60,6 +60,9 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      - name: Doc-facts contract (docs that state facts must match the code)
+        run: python3 tests/contract/check-docs-facts.py
+
       - name: Setup-marker ordering (roll-back safety)
         run: |
           # Offline (no router, no SDK, no network): the setup script's version
@@ -195,3 +198,48 @@ jobs:
         run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
+
+  packaging-suites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Packaging and uci-defaults shell suites (the full set)
+        run: |
+          # The release-check packaging leg, run per PR: 17 of these suites
+          # were lane-absent, which is how #648's class (rebrand-gutter red)
+          # and #663's class (committed conflict markers) reached main.
+          fail=0
+          for t in tests/packaging/*_test.sh tests/uci-defaults-*_test.sh; do
+            echo "== $t"
+            if ! bash "$t"; then
+              echo "FAILED: $t" >&2
+              fail=1
+            fi
+          done
+          exit $fail
+
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: No unresolved conflict markers in the tracked tree
+        run: |
+          # Would have caught the #663 residue (markers committed through a
+          # rebase) before merge. Anchored to the marker-plus-space shape so
+          # prose and base64 never trip it.
+          if git grep -nE '^(<{7} |>{7} )' -- .; then
+            echo "ERROR: unresolved conflict markers are committed" >&2
+            exit 1
+          fi
+          echo "ok: no conflict markers"
+
+  release-check-fast:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Fast release-check on main (conformance + repro skipped)
+        run: make release-check-fast VERSION="$(cat VERSION)"
