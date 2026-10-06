@@ -101,7 +101,7 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, and health. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
+| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
 ## Installation
@@ -141,6 +141,17 @@ hardware against mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`): the full
 dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
 kmods) installs and `nodogsplash` runs with the module's keepalive contract
 live (trusted MAC plus `allow tcp port 22`).
+
+**Caveat — reproduce the install against current feeds with care
+([#552](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/552)).**
+`nodogsplash`'s `iptables-*` dependencies live in the **base target feed**
+(`releases/25.12.x/targets/<arch>/packages/`), not the arch `packages` feed —
+a repositories list that omits the target feed (typical of some
+ImageBuilder-built images) cannot resolve the closure, and apk-tools 2.x
+cannot read the 25.12 index format at all. The bench install above ran with
+a complete feed set; if `apk add` reports the `iptables-*` names missing,
+check `/etc/apk/repositories` lists the target feed before concluding the
+packages are gone.
 
 **Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
 The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and
@@ -202,17 +213,21 @@ builds are released) and is tracked with the packaging feed, not here.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.8`**. An abridged example:
+The current schema version is **`v0.0.9`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.8",
+  "config_version": "v0.0.9",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
   "show_setup": true,
   "reseller_mode": false,
+  "private_ssid": "",
+  "private_key": "",
+  "private_encryption": "psk2+ccmp",
+  "admin_access": "both",
   "accepted_mints": [
     {
       "url": "https://mint.coinos.io",
@@ -272,6 +287,42 @@ Key fields:
 `ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
+
+### Network settings (`v0.0.9`)
+
+Four fields configure the router's own networks. They are **declared intent**:
+the service converges them onto the router (UCI `/etc/config/wireless` for the
+credentials, a generated `/etc/nftables.d/34-admin-access-scope.nft` for the
+scope) after every `config set`/`config save`, on `tollgate config apply`, and
+at service start. All four are also on the admin board's Settings page.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
+| `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
+| `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
+| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
+
+Notes that matter when you change them:
+
+- The default, `admin_access=both`, adds no firewall rule at all: a router that
+  upgrades onto this release is reachable exactly where it was — the private
+  bridge (the private SSID and the physical LAN ports, since the wired ports
+  moved onto `br-private`) plus loopback.
+- `br-mgmt` is refused while that bridge does not exist on the router, because
+  naming it would drop `br-private` — which carries the private SSID and the
+  cable, i.e. every administration path — and leave no network able to reach
+  the board. The value stays in `config.json` and takes effect once the bridge
+  exists.
+- `loopback-only` is strict: every interface except `lo` loses the
+  administration ports, including a VPN or uplink interface you administer
+  over — and the physical LAN ports.
+- Changing the passphrase from the router's shell
+  (`tollgate network private set-password`) also updates `config.json`, so the
+  two writers cannot disagree. Setting `private_ssid` to a custom name stops
+  the setup script's `<nym>-<code>` re-derivation for that SSID (a
+  machine-shaped one is re-derived from the stored code, a custom one is left
+  alone), so the applier and the setup writer agree on what you chose.
 
 ## Testing
 

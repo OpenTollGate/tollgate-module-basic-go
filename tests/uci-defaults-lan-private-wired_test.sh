@@ -401,18 +401,26 @@ fi
 # 4. the guards — untouched, and still scoped to the captive bridge
 # ===========================================================================
 echo "== the guard fragments are unchanged and still br-lan-scoped"
-# Digests of the four guards on upstream main (54e8c368) — this change must
-# not touch any of them; the guards are iifname "br-lan"-literal, which is
-# what keeps a guest off :8090/:8443 and LuCI while a br-private client in.
+# Digests of the four guards. Three are byte-identical to upstream main
+# (54e8c368) because the wired-port placement must not touch them; the guards
+# are iifname "br-lan"-literal, which is what keeps a guest off :8090/:8443 and
+# LuCI while a br-private client gets in.
+#
+# 30-backend-firewall is the deliberate exception: it now exempts br-private as
+# well as br-lan, because br-private is the one network the admin board is
+# reachable from and the board reads every value out of the :2121 API. The
+# digest pinned below is therefore the NEW content, not main's. The invariant
+# itself is owned by tests/packaging/backend-api-owner-network_test.sh; this
+# block only pins the bytes.
 GUARD_DIGESTS='20-nds-enforce 4cae6ef31d23d10ee4a730e1b2797281
-30-backend-firewall 84fbb042f83ce23ec209f735c5775128
+30-backend-firewall 9d4702bdc1d2b468fb39a402372bb27c
 31-admin-board-not-guest-reachable a712298f3b833b78eaa15483c90846a5
 32-luci-not-guest-reachable c86e5dc022b8a4108f305eba7febefe1'
 while read -r frag digest; do
     [ -n "$frag" ] || continue
     got=$(md5sum "$NFT_DIR/$frag.nft" 2>/dev/null | cut -d' ' -f1)
     if [ "$got" = "$digest" ]; then
-        ok "$frag.nft is byte-identical to upstream main ($digest)"
+        ok "$frag.nft matches its pinned digest ($digest)"
     else
         bad "$frag.nft changed (md5 $got, want $digest)"
     fi
@@ -433,11 +441,16 @@ if grep -qF -- 'iifname "br-lan"' "$NFT_DIR/32-luci-not-guest-reachable.nft"; th
 else
     bad "32-luci-not-guest-reachable.nft lost its iifname \"br-lan\" scope"
 fi
-# 30-backend-firewall scopes by NOT-br-lan (iifname != { "br-lan", "lo" }).
-if grep -qF -- 'iifname != { "br-lan", "lo" }' "$NFT_DIR/30-backend-firewall.nft"; then
-    ok "30-backend-firewall.nft still exempts only br-lan and lo"
+# 30-backend-firewall scopes by NOT-the-LAN-bridges
+# (iifname != { "br-lan", "br-private", "lo" }): br-lan because a guest pays
+# through the :2121 API, br-private because the admin board — which lives on
+# that network, not on the captive bridge — reads all of its data from the same
+# API. Dropping br-private there is what left the board rendering with every
+# panel empty.
+if grep -qF -- 'iifname != { "br-lan", "br-private", "lo" }' "$NFT_DIR/30-backend-firewall.nft"; then
+    ok "30-backend-firewall.nft exempts both LAN bridges and lo"
 else
-    bad "30-backend-firewall.nft lost its br-lan exemption set"
+    bad "30-backend-firewall.nft lost its LAN-bridge exemption set"
 fi
 
 # ===========================================================================

@@ -36,7 +36,7 @@ PORTAL_DIR="${PORTAL_DIR:-/tmp/tollgate-captive-portal-site}"
 OUTPUT_DIR="${OUTPUT_DIR:-packaging/files/tollgate-captive-portal-site}"
 ADMIN_OUTPUT_DIR="${ADMIN_OUTPUT_DIR:-packaging/files/tollgate-admin}"
 # Brand webroot the shipped 92-tollgate-admin-setup points at. TollGate is the
-# default brand; a net4sats build passes ADMIN_HOME=/www/net4sats.
+# default brand; a whitelabel build passes ADMIN_HOME=/www/<brand>.
 ADMIN_HOME="${ADMIN_HOME:-/www/tollgate}"
 PORTAL_REF="${PORTAL_REF:-$PORTAL_COMMIT}"
 
