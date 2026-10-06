@@ -1,0 +1,18 @@
+### command
+go test ./...
+### output
+# bearerport [bearerport.test]
+./port_test.go:14:26: undefined: CashuAuthority
+./port_test.go:14:43: undefined: FedimintAuthority
+./port_test.go:14:63: undefined: PowAuthority
+./port_test.go:15:9: undefined: NewCashuAuthority
+./port_test.go:20:19: undefined: Port
+./port_test.go:20:26: undefined: CashuAuthority
+./port_test.go:20:43: undefined: FedimintAuthority
+./port_test.go:20:63: undefined: PowAuthority
+./derivation_test.go:16:11: undefined: NewCashuAuthority
+./derivation_test.go:17:10: undefined: NewFedimintAuthority
+./port_test.go:15:9: too many errors
+FAIL	bearerport [build failed]
+FAIL
+### rc=1
