@@ -4,7 +4,11 @@
 # NoDogSplash. All payment, session, merchant, and mint-health logic runs
 # unmodified — only the gate (valve) calls are intercepted.
 
-FROM golang:1.25-bookworm AS builder
+# Toolchain + version come from the manifest (packaging/build-inputs.json)
+# via docker-compose build args exported by lab.sh — the defaults below are
+# lockstep fallbacks, drift-gated by tests/contract/check-toolchain-parity.py.
+ARG GO_VERSION=1.26.8
+FROM golang:${GO_VERSION}-bookworm AS builder
 
 WORKDIR /build
 
@@ -12,7 +16,15 @@ WORKDIR /build
 COPY src/ .
 
 # Build the TollGate service binary (package main in src/)
-RUN CGO_ENABLED=0 go build -o /tollgate .
+ARG PACKAGE_VERSION=0.0.0-r0
+ARG LDFLAGS=""
+# Canonical flags — identical to scripts/build-sdk-package.sh so this
+# shortcut path reproduces the SDK path's binary (see repro-check path-parity).
+ARG PACKAGE_VERSION=0.0.0-r0
+ARG LDFLAGS=""
+# Canonical flags — identical to scripts/build-sdk-package.sh so this
+# shortcut path reproduces the SDK path's binary (repro-check path-parity).
+RUN CGO_ENABLED=0 go build -o /tollgate -trimpath -buildvcs=false -ldflags="$LDFLAGS" .
 
 # --- Runtime stage ---
 FROM debian:bookworm-slim

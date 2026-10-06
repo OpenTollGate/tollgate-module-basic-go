@@ -1,5 +1,33 @@
 # Reproducible builds
 
+## Two paths, one truth (the parallel-build doctrine)
+
+This repo deliberately maintains TWO build paths and gates them against
+each other, so neither can drift in versions or pinnings:
+
+| | Path A — SDK (canonical) | Path B — shortcut |
+|---|---|---|
+| What | digest-pinned OpenWrt SDK package build (`.github/workflows/build-package.yml`, `scripts/build-sdk-package.sh`) | cloud-lab Docker images + host prebuild (`tests/cloud-lab/Dockerfile.*`, `packaging/local-build-ipk.sh`) |
+| Toolchain | `packaging/build-inputs.json` → `.go.version`, re-derived from the OpenWrt packages feed and enforced by `scripts/sdk-go-version.sh check` | the SAME manifest — `lab.sh` exports it into compose build args; Dockerfile `ARG GO_VERSION` defaults are lockstep fallbacks |
+| Flags | canonical: `-trimpath -buildvcs=false -ldflags=…` | the SAME canonical flags (Dockerfile.tollgate) |
+
+**The manifest is the single source of truth.** Every other reference is
+either derived from it at runtime (CI's `go_pin` step, `lab.sh` exports)
+or a literal kept in lockstep — and every literal is drift-gated by
+`tests/contract/check-toolchain-parity.py` (CI job + pre-commit hook).
+Bumping the toolchain is an intentional release decision: change the
+manifest, run `scripts/sdk-go-version.sh update` to refresh the feed map,
+and the parity gates will point at anything left behind.
+
+**Proof, not vibes:** `repro-check.yml`'s fast lane rebuilds the binaries
+in independent clean roots (identical SHA-256s required); the
+`path-parity` job (workflow_dispatch / scheduled) builds the same commit
+through BOTH paths and requires **byte-identical** binaries. If the
+shortcut path diverges, it fails loudly instead of shipping a different
+artifact than the one the SDK publishes.
+
+# Reproducible builds
+
 Given the same immutable input tuple, two clean builds of a `tollgate-wrt`
 artifact produce **byte-for-byte identical output** (same SHA-256). This
 document explains what "the same inputs" means here, how each one is pinned,

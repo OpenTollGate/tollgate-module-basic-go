@@ -13,6 +13,11 @@ if git diff --cached --name-only | grep -q '\.go$'; then
     python3 tests/contract/check-import-paths.py
 fi
 
+if git diff --cached --name-only | grep -qE 'build-inputs\.json|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
+    echo "🔍 Checking toolchain parity across build paths..."
+    python3 tests/contract/check-toolchain-parity.py
+fi
+
 # Single source of truth for the release version (VERSION at the repo root).
 # Only runs when a file that carries the version is staged.
 if git diff --cached --name-only \
