@@ -118,8 +118,10 @@ than inventing new harnesses.
 - **gonuts-tollgate is our fork to maintain.** Upstream `elnosh/gonuts`
   is dead (last release v0.4.2, 2025); we carry ~40 patches. Every
   wallet-level fix lands in `OpenTollGate/gonuts-tollgate` first, is
-  tagged, then bumped here via the `replace` directive (three `go.mod`
-  files). Never fix a wallet bug by patching around the fork locally.
+  tagged, then bumped here via the `replace` directive — the require lands
+  in every nested module that carries it: `src/`, `src/cli`, `src/merchant`
+  and `src/tollwallet`, four `go.mod` files today. Never fix a wallet bug
+  by patching around the fork locally.
 - **bbolt persistence.** Keyset records (which own derivation counters)
   are nested under mint-URL-named buckets; the DB has no transactions
   spanning "fetch keysets + swap + save proofs". This is why counter
