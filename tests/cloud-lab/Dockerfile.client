@@ -8,7 +8,9 @@ FROM rust:1.88-bookworm AS rust-builder
 # Build cdk-cli for wallet operations
 RUN cargo install cdk-cli --locked
 
-FROM golang:1.25-bookworm AS go-builder
+# Toolchain from the manifest — see Dockerfile.tollgate's header note.
+ARG GO_VERSION=1.26.8
+FROM golang:${GO_VERSION}-bookworm AS go-builder
 
 # Install nak (Nostr Swiss Army Knife)
 RUN go install github.com/fiatjaf/nak@latest

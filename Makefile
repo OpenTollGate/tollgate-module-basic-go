@@ -1,4 +1,4 @@
-.PHONY: portal-build reproducibility-test reproducibility-variance go-battery release-check
+.PHONY: portal-build reproducibility-test reproducibility-variance go-battery release-check release-check-fast
 
 # Canonical pre-PR Go gate across ALL 16 modules (src/ is a multi-module
 # tree: `go ... ./...` from src/ alone covers only the root module).
@@ -16,6 +16,13 @@ go-battery:
 # leg (default: binaries/x86_64).
 release-check:
 	@bash scripts/release-check.sh "$(VERSION)"
+
+# The per-push shape: every cheap leg of release-check (battery, deps,
+# contract, packaging, the three invariant groups, version consistency)
+# with reproducibility and conformance skipped — what CI runs on main.
+release-check-fast:
+	@TOLLGATE_RELEASE_CHECK_REPRO=none TOLLGATE_RELEASE_CHECK_SKIP_CONFORMANCE=1 \
+	  bash scripts/release-check.sh "$(VERSION)"
 
 portal-build:
 	@bash packaging/portal-build.sh

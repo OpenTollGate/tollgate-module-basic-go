@@ -126,6 +126,10 @@ services:
     build:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
+      args:
+        GO_VERSION: ${TG_GO_VERSION:-1.26.8}
+        PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
+        LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-upstream
     depends_on:
       mint:
@@ -162,6 +166,10 @@ services:
     build:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
+      args:
+        GO_VERSION: ${TG_GO_VERSION:-1.26.8}
+        PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
+        LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-upstream-ext
     profiles: ["external-mints"]
     depends_on:
@@ -190,6 +198,10 @@ services:
     build:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
+      args:
+        GO_VERSION: ${TG_GO_VERSION:-1.26.8}
+        PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
+        LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-reseller
     profiles: ["two-router"]
     depends_on:
