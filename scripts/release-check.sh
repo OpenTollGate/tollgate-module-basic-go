@@ -13,6 +13,10 @@
 #     subset instead of skipping it when docker/PRTA is unavailable (the
 #     release manager sets this on the machine that owns the lane).
 #   TOLLGATE_RELEASE_CHECK_REPRO=none     skip the reproducibility build
+#   TOLLGATE_RELEASE_CHECK_SKIP_CONFORMANCE=1  skip the conformance lane
+#     (the make release-check-fast profile sets both: go-battery, deps,
+#     contract, packaging, the invariant groups and version consistency in
+#     one pass — the per-push shape of the gate).
 #     (default: binaries x86_64 — the cheap leg; run `make
 #     reproducibility-test T=... ARCH=...` for the full matrix).
 set -u
@@ -62,8 +66,9 @@ run_contract() {
     local ok=0
     node tests/contract/js-schema-lint.mjs >"$tmpdir/contract.log" 2>&1 || ok=1
     bash tests/contract/build-purity.sh >>"$tmpdir/contract.log" 2>&1 || ok=1
+    python3 tests/contract/check-docs-facts.py >>"$tmpdir/contract.log" 2>&1 || ok=1
     if [ "$ok" = 0 ]; then
-        record "Contract" PASS "schema lint + build purity"
+        record "Contract" PASS "schema lint + build purity + doc facts"
     else
         record "Contract" FAIL "see $tmpdir/contract.log"
     fi
@@ -99,6 +104,10 @@ run_invariant() { # run_invariant <label> <dir> <go test args...>
 }
 
 run_conformance() {
+    if [ "${TOLLGATE_RELEASE_CHECK_SKIP_CONFORMANCE:-0}" = 1 ]; then
+        record "Conformance (fast subset)" SKIP "disabled by env (fast mode)"
+        return
+    fi
     if ! command -v docker >/dev/null 2>&1; then
         if [ "${TOLLGATE_RELEASE_CHECK_CONFORMANCE:-0}" = 1 ]; then
             record "Conformance (fast subset)" FAIL "docker unavailable but required"

@@ -194,7 +194,15 @@ up)
     # --wait kills the boot race: no service is addressed before its
     # healthcheck passes. Timeout bounded so a wedged boot can't hang a
     # caller that will be preempted anyway.
-    compose up -d --build --wait --wait-timeout 300 "$@"
+    # Manifest-driven toolchain for the shortcut build path: every image that
+# compiles Go MUST take its toolchain + canonical flags from here (the
+# same packaging/build-inputs.json the SDK path pins to). Drift is gated
+# by tests/contract/check-toolchain-parity.py.
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export TG_GO_VERSION="$(jq -r '.go.version' "$REPO_ROOT/packaging/build-inputs.json")"
+export TG_PACKAGE_VERSION="$( [ -f "$REPO_ROOT/VERSION" ] && tr -d '[:space:]' < "$REPO_ROOT/VERSION" || echo 0.0.0-r0 )-r0"
+export TG_LDFLAGS="-s -w -X main.version=$TG_PACKAGE_VERSION"
+compose up -d --build --wait --wait-timeout 300 "$@"
     echo "lab up: run-id $RUN_ID  project $PROJECT  subnet $(grep ^subnet "$META" | cut -d= -f2)"
     echo "state dir: $STATE"
     ;;
