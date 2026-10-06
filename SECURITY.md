@@ -5,6 +5,25 @@
 Report vulnerabilities privately to the maintainers (see README for
 contact). Do **not** open public issues containing secret material.
 
+## 2026-09-22 — Real fleet credentials shipped as test defaults (`tests/conftest.py`)
+
+**Status: removed from the tree (PR #528); rotation of the exposed values
+is still PENDING — see the action item below.**
+
+`tests/conftest.py` and `tests/.env.example` carried the fleet's real
+router admin password, Wi-Fi credentials and a hardcoded artifact URL as
+public defaults (issue #509). Anyone reading the public repository could
+authenticate to the test routers. PR #528 made every credential
+env-only (`tests/.env`, gitignored, auto-loaded) with fail-fast
+collection guidance, and the values were removed from the tree — but the
+values themselves were live for as long as they were public.
+
+**Action item (open):** rotate the router admin password and Wi-Fi
+credentials used by the hardware fleet. Until that happens, treat the
+routers' LAN/Wi-Fi surfaces as exposed to anyone who read the repository
+before the fix.
+
+
 ## 2026-08-26 — Router deployment backup committed to `main` (PURGED)
 
 **Status: purged from history on 2026-08-27. Merchant identity key

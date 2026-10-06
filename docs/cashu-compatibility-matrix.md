@@ -32,6 +32,14 @@ keys, making them self-verifying (NUT-02).
 
 ## The 6 Combinations
 
+
+> **Era note (2026-10-06):** the per-NUT rows below were verified against
+> `gonuts-tollgate` **v0.7.6**. The fork is now at v0.13.0 (notably: the
+> no-same-body-retry ambiguity policy and spec-format NUT-20 quote
+> signatures postdate this matrix). Treat rows as the v0.7.6 snapshot and
+> the methodology as the durable part; a re-verification pass against the
+> current fork is tracked separately.
+
 | # | Token | Keyset | Status in gonuts v0.7.6 | Status in cdk-go | Production relevance |
 |---|-------|--------|------------------------|-------------------|---------------------|
 | 1 | V1 | V1 | ⚠️ Decode only (no V1 encoder) | ✅ | Rare — legacy wallets |
