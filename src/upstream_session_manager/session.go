@@ -50,6 +50,15 @@ type UpstreamSession struct {
 	// Dependencies
 	configManager    *config_manager.ConfigManager
 	merchantProvider merchant_types.MerchantProvider
+
+	// Cold-start bootstrap (#239): armed when reseller mode is active, no
+	// upstream session is up and the wallet has no balance at the upstream's
+	// mints. See bootstrap.go.
+	bootstrap bootstrapState
+	// bootstrapForwarder overrides where the whole-proof forward is sent. nil
+	// means postTokenToUpstream (production); tests inject a fake so the state
+	// machine is exercised without a live upstream.
+	bootstrapForwarder proofForwarder
 }
 
 // NewUpstreamSession creates a new upstream session and starts tracking.
@@ -108,18 +117,6 @@ func NewUpstreamSession(
 			"usage":     existingUsage,
 			"allotment": existingAllotment,
 		}).Info("♻️  Existing upstream session detected - resuming tracking without new payment")
-	} else {
-		// No existing session: verify we have funds before creating the session object,
-		// so we fail fast with a clear error rather than creating a tracker that will
-		// immediately fail to pay.
-		if _, err := selectCompatiblePricingWithFunds(
-			adInfo.PricingOptions,
-			merchantProvider.GetMerchant(),
-			preferredAllotment,
-			adInfo.StepSize,
-		); err != nil {
-			return nil, fmt.Errorf("no compatible pricing with funds: %w", err)
-		}
 	}
 
 	session := &UpstreamSession{
@@ -137,6 +134,28 @@ func NewUpstreamSession(
 		UsageTracker:      nil,
 		configManager:     configManager,
 		merchantProvider:  merchantProvider,
+	}
+
+	if !hasExistingSession {
+		// No existing session: normally verify we have funds before starting the
+		// tracker, so we fail fast with a clear error rather than creating a
+		// tracker that will immediately fail to pay.
+		//
+		// The exception is the cold-start reseller (#239): it has no upstream
+		// session AND no balance, so requiring funds here would refuse to create
+		// the very session the bootstrap path needs in order to forward the first
+		// customer proof. Arm bootstrap mode instead of failing. Inert unless
+		// reseller mode is active.
+		if !session.EnsureBootstrapForColdStart() {
+			if _, err := selectCompatiblePricingWithFunds(
+				adInfo.PricingOptions,
+				merchantProvider.GetMerchant(),
+				preferredAllotment,
+				adInfo.StepSize,
+			); err != nil {
+				return nil, fmt.Errorf("no compatible pricing with funds: %w", err)
+			}
+		}
 	}
 
 	// Start tracker - it will handle initial payment if needed (usage == 0/0),
@@ -258,6 +277,20 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 		"allotment":     s.TotalAllotment,
 	}).Info("💳 Processing payment request (initial or renewal)")
 
+	// Cold start (reseller bootstrap, #239): a freshly configured reseller has
+	// no upstream session and no ecash balance, so the wallet-funded payment
+	// below can never succeed — it would log "no compatible pricing with funds"
+	// on every poll, forever, and the first customer would never get a link.
+	// Arm bootstrap mode instead and return: the first customer proof is
+	// forwarded whole by ForwardFirstProof, which establishes the upstream
+	// session; renewals then resume on the normal path.
+	//
+	// This is inert unless reseller mode is active, so direct gateways are
+	// unaffected.
+	if s.EnsureBootstrapForColdStart() {
+		return nil
+	}
+
 	// Calculate steps based on preferred increments
 	config := s.configManager.GetConfig()
 	var preferredAllotment uint64
@@ -334,7 +367,37 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 	}
 
 	// POST plain text token to upstream (new simplified protocol!)
-	url := fmt.Sprintf("http://%s:2121/", s.GatewayIP)
+	logger.WithFields(logrus.Fields{
+		"gateway": s.GatewayIP,
+		"amount":  amount,
+		"steps":   steps,
+	}).Info("💸 Sending payment to upstream")
+
+	allotment, err := postTokenToUpstream(s.GatewayIP, token)
+	if err != nil {
+		// Recover the token: this is our own wallet-funded payment, so a
+		// failed POST must not strand the proofs.
+		s.recoverToken(token, err)
+		return 0, err
+	}
+
+	return allotment, nil
+}
+
+// postTokenToUpstream POSTs a Cashu token verbatim to the upstream gateway's
+// payment endpoint (:2121/) and returns the allotment from the session event
+// (kind 1022) the upstream answers with.
+//
+// The token is sent exactly as given — this function never swaps, splits or
+// re-issues it. That is what lets the bootstrap path of #239 forward the
+// customer's first proof whole, and what makes the warm path's own
+// wallet-funded payment a straight passthrough of the token the merchant
+// created. The caller owns any recovery of a token it still controls (see
+// UpstreamSession.recoverToken); the bootstrap caller deliberately does not
+// recover, because the proof it forwarded belongs to the customer and its fate
+// is subject to reconciliation.
+func postTokenToUpstream(gatewayIP, token string) (uint64, error) {
+	url := fmt.Sprintf("http://%s:2121/", gatewayIP)
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBufferString(token))
@@ -345,27 +408,18 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 	req.Header.Set("Content-Type", "text/plain")
 	req.Close = true
 
-	logger.WithFields(logrus.Fields{
-		"gateway": s.GatewayIP,
-		"amount":  amount,
-		"steps":   steps,
-	}).Info("💸 Sending payment to upstream")
-
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"gateway": s.GatewayIP,
+			"gateway": gatewayIP,
 			"error":   err,
 		}).Error("❌ HTTP POST failed")
-		// Try to recover the token
-		s.recoverToken(token, err)
 		return 0, fmt.Errorf("failed to send payment: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		s.recoverToken(token, err)
 		return 0, fmt.Errorf("failed to read response: %w", err)
 	}
 
@@ -374,12 +428,10 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 		// Try to parse as notice event (kind 21023) to get error message
 		var noticeEvent nostr.Event
 		if json.Unmarshal(body, &noticeEvent) == nil && noticeEvent.Kind == 21023 {
-			s.recoverToken(token, fmt.Errorf("payment rejected: %s", noticeEvent.Content))
 			return 0, fmt.Errorf("payment rejected by upstream: %s", noticeEvent.Content)
 		}
 
 		// Generic error response
-		s.recoverToken(token, fmt.Errorf("upstream rejected payment: %d", resp.StatusCode))
 		return 0, fmt.Errorf("payment rejected: %d - %s", resp.StatusCode, string(body))
 	}
 
@@ -411,39 +463,39 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 	}
 
 	logger.WithFields(logrus.Fields{
-		"gateway":   s.GatewayIP,
+		"gateway":   gatewayIP,
 		"allotment": allotment,
 	}).Info("✅ Payment accepted by upstream")
 
-	go s.triggerNdsSession()
+	go triggerNdsSession(gatewayIP)
 
 	return allotment, nil
 }
 
-func (s *UpstreamSession) triggerNdsSession() {
+func triggerNdsSession(gatewayIP string) {
 	// SSRF guard: reject loopback, link-local, and unspecified addresses so a
 	// malicious or corrupt GatewayIP cannot coax us into hitting the local box
 	// (matches the TriggerCaptivePortalSession pattern in tollgate_prober.go).
-	if isNonRoutableIP(s.GatewayIP) {
-		logger.WithField("gateway", s.GatewayIP).
+	if isNonRoutableIP(gatewayIP) {
+		logger.WithField("gateway", gatewayIP).
 			Debug("NDS session trigger skipped: non-routable gateway IP")
 		return
 	}
 
-	url := fmt.Sprintf("http://%s:80/", s.GatewayIP)
+	url := fmt.Sprintf("http://%s:80/", gatewayIP)
 	client := &http.Client{
 		Timeout:       10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return nil },
 	}
 	resp, err := client.Get(url)
 	if err != nil {
-		logger.WithField("gateway", s.GatewayIP).Debug("NDS session trigger failed (non-critical)")
+		logger.WithField("gateway", gatewayIP).Debug("NDS session trigger failed (non-critical)")
 		return
 	}
 	defer resp.Body.Close()
 	io.ReadAll(resp.Body)
 	logger.WithFields(logrus.Fields{
-		"gateway": s.GatewayIP,
+		"gateway": gatewayIP,
 		"status":  resp.StatusCode,
 	}).Debug("NDS session triggered post-payment")
 }
